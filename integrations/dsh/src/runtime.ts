@@ -90,12 +90,12 @@ export class ReMeRuntime {
 
   private scheduleAutoMemory(state: SessionState, force = false): void {
     const interval = this.config.autoMemoryInterval;
-    if (!force && state.pendingTurns.length < interval) return;
     const firstDay = state.pendingTurns[0]?.day;
     const dayCount = state.pendingTurns.findIndex((turn) => Boolean(firstDay && turn.day && turn.day !== firstDay));
     const available = dayCount === -1 ? state.pendingTurns.length : dayCount;
-    if (!force && available < interval) return;
-    const count = force ? available : interval;
+    const crossesDayBoundary = dayCount !== -1;
+    if (!force && !crossesDayBoundary && available < interval) return;
+    const count = force || crossesDayBoundary ? available : interval;
     if (count === 0) return;
     const turns = state.pendingTurns.splice(0, count);
     const messages = turns.flatMap((turn) => turn.messages);

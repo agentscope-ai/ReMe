@@ -243,8 +243,11 @@ class AutoMemoryStep(BaseStep):
             return fallback
         if timestamp.tzinfo is None:
             return fallback
-        target_timezone = zoneinfo.ZoneInfo(timezone) if timezone else datetime.datetime.now().astimezone().tzinfo
-        return timestamp.astimezone(target_timezone).date().isoformat()
+        if timezone:
+            timestamp = timestamp.astimezone(zoneinfo.ZoneInfo(timezone))
+        else:
+            timestamp = timestamp.astimezone()
+        return timestamp.date().isoformat()
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
         """Convert raw message payloads into ``Msg`` objects.

@@ -2,7 +2,11 @@
 
 # pylint: disable=protected-access
 
+import os
+import time
+
 from agentscope.message import Msg
+import pytest
 
 from reme.steps.evolve._evolve import agent_reply_result_text, format_history
 from reme.steps.evolve.auto_memory import AutoMemoryStep, _sanitize_msg_for_save
@@ -153,3 +157,20 @@ def test_auto_memory_converts_absolute_timestamps_to_workspace_day():
 
     assert AutoMemoryStep._messages_day(messages, "Asia/Shanghai") == "2026-08-20"
     assert AutoMemoryStep._messages_day(messages, "UTC") == "2026-08-19"
+
+
+def test_auto_memory_uses_target_date_dst_when_timezone_is_unset():
+    """The system timezone applies the target date's DST offset, not the current offset."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is unavailable on this platform")
+    original_timezone = os.environ.get("TZ")
+    try:
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        assert AutoMemoryStep._message_day("2026-01-01T04:30:00Z", None) == "2025-12-31"
+    finally:
+        if original_timezone is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = original_timezone
+        time.tzset()

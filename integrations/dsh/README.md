@@ -106,8 +106,9 @@ npm pack --dry-run
 ```
 
 The plugin is authored in TypeScript under `src/`. `npm run build` emits ESM JavaScript, declarations, and source maps
-to the ignored `dist/` directory. The `prepare` lifecycle builds the plugin for local-directory and Git installs, while
-the npm tarball contains only the compiled `dist/` output, this README, and the DSH bundle patch.
+to the ignored `dist/` directory. The `prepare` lifecycle builds the plugin when creating the npm tarball; install that
+tarball rather than the source directory. The tarball contains only the compiled `dist/` output, this README, and the
+DSH bundle patch.
 
 ## Publishing
 

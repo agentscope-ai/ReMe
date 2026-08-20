@@ -106,6 +106,36 @@ test("splits auto-memory batches at workspace date boundaries", async () => {
   assert.equal(calls[1].options.date, "2026-08-20");
 });
 
+test("retries a failed partial prior-day batch after later activity", async () => {
+  const calls = [];
+  const client = {
+    async autoMemory(messages, _sessionId, options) {
+      calls.push({ messages, options });
+      return { ok: calls.length > 1, error: "offline" };
+    },
+  };
+  const runtime = new ReMeRuntime(client, { ...CONFIG, autoMemoryInterval: 5 }, silentLogger());
+  const session = { id: "midnight-retry-session" };
+
+  completeTurn(runtime, session, 1, 10, Date.parse("2026-08-19T15:59:00Z"));
+  completeTurn(runtime, session, 2, 20, Date.parse("2026-08-19T16:01:00Z"));
+  await runtime.stateFor(session).writes;
+  assert.equal(calls.length, 1);
+  assert.equal(runtime.stateFor(session).pendingTurns.length, 2);
+
+  for (let turn = 3; turn <= 7; turn += 1) {
+    completeTurn(runtime, session, turn, turn * 10, Date.parse(`2026-08-20T00:0${turn}:00Z`));
+  }
+  await runtime.stateFor(session).writes;
+
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1].options.date, "2026-08-19");
+  assert.equal(calls[1].messages.length, 2);
+  assert.equal(calls[2].options.date, "2026-08-20");
+  assert.equal(calls[2].messages.length, 10);
+  assert.equal(runtime.stateFor(session).pendingTurns.length, 1);
+});
+
 test("bounds session disposal and aborts an unresponsive write", async () => {
   let observedSignal;
   const client = {
