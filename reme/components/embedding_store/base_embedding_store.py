@@ -43,9 +43,6 @@ class BaseEmbeddingStore(BaseComponent):
         self.quota_retry_delay = quota_retry_delay
         self.health_check_timeout = health_check_timeout
         self.is_healthy: bool = True
-        # Monotonic signal used by file stores to distinguish real provider
-        # recovery from cache-only results.
-        self.provider_success_count: int = 0
 
     def _truncate(self, text: str) -> str:
         """Truncate text using a CJK-aware character budget.

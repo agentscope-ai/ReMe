@@ -109,31 +109,12 @@ class LocalFileStore(BaseFileStore):
         self.embedding_store.is_healthy = False
         self.logger.error(f"{self.name}: embedding unavailable, {reason}; keyword search remains active")
 
-    def _provider_success_count(self) -> int | None:
-        if self.embedding_store is None:
-            return None
-        value = getattr(self.embedding_store, "provider_success_count", None)
-        return value if isinstance(value, int) else None
-
-    def _recover_after_real_request(
-        self,
-        previous_count: int | None,
-        was_healthy: bool,
-        valid_result: bool,
-    ) -> None:
+    def _recover_after_real_request(self, was_healthy: bool) -> None:
         """Schedule repair when a real, non-cache provider request recovers."""
-        if self.embedding_store is None or not valid_result:
+        if self.embedding_store is None or was_healthy or not getattr(self.embedding_store, "is_healthy", True):
             return
-        current_count = self._provider_success_count()
-        provider_succeeded = (
-            current_count > previous_count if current_count is not None and previous_count is not None else True
-        )
-        if not provider_succeeded:
-            return
-        self.embedding_store.is_healthy = True
-        if not was_healthy:
-            self.logger.info(f"{self.name}: embedding provider recovered; scheduling missing-vector backfill")
-            self._start_embedding_backfill(skip_health_check=True)
+        self.logger.info(f"{self.name}: embedding provider recovered; scheduling missing-vector backfill")
+        self._start_embedding_backfill(skip_health_check=True)
 
     async def resume_embedding(self, *, verified: bool = False) -> bool:
         """Resume a configured provider and schedule a deduplicated repair.
@@ -585,7 +566,6 @@ class LocalFileStore(BaseFileStore):
     async def _embed_pending(self, chunks: list[FileChunk]) -> None:
         if not (chunks and self.embedding_store):
             return
-        provider_success_count = self._provider_success_count()
         was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:
             await self.embedding_store.get_node_embeddings(chunks)
@@ -593,11 +573,8 @@ class LocalFileStore(BaseFileStore):
             self._mark_embedding_unhealthy(f"upsert: {type(e).__name__}: {e}")
             return
         self._drop_stale_embeddings(chunks, "upsert")
-        self._recover_after_real_request(
-            provider_success_count,
-            was_healthy,
-            any(chunk.embedding is not None for chunk in chunks),
-        )
+        if any(chunk.embedding is not None for chunk in chunks):
+            self._recover_after_real_request(was_healthy)
 
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
@@ -656,7 +633,6 @@ class LocalFileStore(BaseFileStore):
         if self.embedding_store is None or not query or limit <= 0:
             return []
 
-        provider_success_count = self._provider_success_count()
         was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:
             query_embedding = await self.embedding_store.get_embedding(query)
@@ -670,7 +646,7 @@ class LocalFileStore(BaseFileStore):
                 f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
             )
             return []
-        self._recover_after_real_request(provider_success_count, was_healthy, True)
+        self._recover_after_real_request(was_healthy)
 
         top: list[tuple[float, int, FileChunk]] = []
         candidates: list[FileChunk] = []

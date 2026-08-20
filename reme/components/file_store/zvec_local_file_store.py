@@ -419,7 +419,6 @@ class ZvecLocalFileStore(LocalFileStore):
             return []
 
         query_embedding = None
-        provider_success_count = self._provider_success_count()
         was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:
             query_embedding = await self.embedding_store.get_embedding(query)
@@ -431,7 +430,7 @@ class ZvecLocalFileStore(LocalFileStore):
                     f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
                 )
             return []
-        self._recover_after_real_request(provider_success_count, was_healthy, True)
+        self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() may have
         # swapped or dropped the collection. Re-read before dereferencing.

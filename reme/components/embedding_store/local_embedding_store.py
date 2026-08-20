@@ -153,7 +153,6 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
             details = ", ".join(f"{count} with dim {dim}" for dim, count in sorted(bad_dims.items()))
             self.logger.error(f"Embedding dimension mismatch in batch: expected {self.dimensions}; rejected {details}")
         if out:
-            self.provider_success_count += 1
             self.is_healthy = True
         else:
             self.is_healthy = False

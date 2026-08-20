@@ -91,7 +91,6 @@ class RecoveringEmbeddingStore(CountingFakeEmbeddingStore):
     def __init__(self):
         super().__init__()
         self.is_healthy = False
-        self.provider_success_count = 0
         self.health_calls = 0
 
     async def health_check(self, _timeout: float = 2.0) -> bool:
@@ -99,12 +98,10 @@ class RecoveringEmbeddingStore(CountingFakeEmbeddingStore):
         return False
 
     async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray:
-        self.provider_success_count += 1
         self.is_healthy = True
         return await super().get_embedding(input_text, **kwargs)
 
     async def get_node_embeddings(self, nodes: list[FileChunk], **kwargs) -> list[FileChunk]:
-        self.provider_success_count += 1
         self.is_healthy = True
         return await super().get_node_embeddings(nodes, **kwargs)
 
