@@ -6,6 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from reme.components.as_embedding import DashScopeAsEmbedding, OllamaAsEmbedding, OpenAIAsEmbedding
 from reme.components.embedding_store.base_embedding_store import BaseEmbeddingStore
@@ -37,6 +38,20 @@ class BadHealthAsEmbedding:
 
     async def __call__(self, _texts: list[str], **_kwargs):
         return [[1.0]]
+
+
+class FailingHealthAsEmbedding:
+    """Fake provider that records a failed health-check attempt."""
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+
+    def __init__(self):
+        self.calls = 0
+
+    async def __call__(self, _texts: list[str], **_kwargs):
+        self.calls += 1
+        raise ConnectionError("not ready")
 
 
 class FakeProviderModel:
@@ -183,7 +198,35 @@ def test_health_check_starts_timeout_after_provider_initialization(monkeypatch):
         assert await store.health_check(timeout=5.0) is True
         assert events == ["initialized", "remote request"]
 
+
+def test_health_check_makes_one_attempt():
+    """A failed startup probe does not add hidden retries."""
+
+    async def go():
+        provider = FailingHealthAsEmbedding()
+        store = LocalEmbeddingStore(
+            name="t_local_embedding_health_retry",
+            health_check_timeout=3.0,
+        )
+        store.as_embedding = provider
+
+        assert await store.health_check() is False
+        assert provider.calls == 1
+
     run(go())
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"health_check_timeout": 0}, "health_check_timeout"),
+        ({"health_check_timeout": float("inf")}, "health_check_timeout"),
+    ],
+)
+def test_health_check_config_rejects_invalid_values(kwargs, message):
+    """Invalid probe policies fail during component construction."""
+    with pytest.raises(ValueError, match=message):
+        LocalEmbeddingStore(name="t_local_embedding_invalid_health_config", **kwargs)
 
 
 def test_insufficient_quota_waits_sixty_seconds_before_retry(monkeypatch):

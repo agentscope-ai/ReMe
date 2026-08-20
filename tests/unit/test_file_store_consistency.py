@@ -16,6 +16,7 @@ import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.components.file_store import local_file_store as local_file_store_module
+from reme.components.embedding_store import LocalEmbeddingStore
 from reme.schema import FileChunk, FileNode
 from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
@@ -76,8 +77,36 @@ class CountingFakeEmbeddingStore(FakeEmbeddingStore):
 class UnhealthyCountingEmbeddingStore(CountingFakeEmbeddingStore):
     """Fake embedding store that fails the backfill health gate."""
 
+    def __init__(self):
+        super().__init__()
+        self.is_healthy = False
+
     async def health_check(self, _timeout: float = 2.0) -> bool:
         return False
+
+
+class RecoveringEmbeddingStore(CountingFakeEmbeddingStore):
+    """Fake provider that starts unhealthy and records real recoveries."""
+
+    def __init__(self):
+        super().__init__()
+        self.is_healthy = False
+        self.provider_success_count = 0
+        self.health_calls = 0
+
+    async def health_check(self, _timeout: float = 2.0) -> bool:
+        self.health_calls += 1
+        return False
+
+    async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray:
+        self.provider_success_count += 1
+        self.is_healthy = True
+        return await super().get_embedding(input_text, **kwargs)
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **kwargs) -> list[FileChunk]:
+        self.provider_success_count += 1
+        self.is_healthy = True
+        return await super().get_node_embeddings(nodes, **kwargs)
 
 
 class HealthCountingEmbeddingStore(FakeEmbeddingStore):
@@ -151,6 +180,15 @@ def chunk(chunk_id: str, path: str, text: str, **metadata) -> FileChunk:
 def _new_local_store(name, **kwargs):
     """Construct a LocalFileStore with embedding disabled at bind time."""
     return LocalFileStore(name=name, embedding_store="", **kwargs)
+
+
+def _new_faiss_store(name, **kwargs):
+    """Construct a FAISS store when the optional backend is installed."""
+    try:
+        store = FaissLocalFileStore(name=name, embedding_store="", **kwargs)
+    except ImportError:
+        pytest.skip("faiss is not installed")
+    return store
 
 
 def _new_zvec_store(name, **kwargs):
@@ -593,7 +631,7 @@ def test_background_embedding_backfill_uses_provider_batch_size():
 
 
 def test_load_skips_backfill_when_embedding_health_check_fails():
-    """Background backfill disables embeddings before batching when the provider is unhealthy."""
+    """Background backfill preserves an unhealthy provider for later recovery."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
@@ -610,8 +648,68 @@ def test_load_skips_backfill_when_embedding_health_check_fails():
             await store._embedding_backfill_task
 
             assert not fake.node_embedding_calls
-            assert store.embedding_store is None
+            assert store.embedding_store is fake
+            assert fake.is_healthy is False
             assert store.file_chunks["a"].embedding is None
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_search_recovery_schedules_backfill_without_another_health_check(store_factory):
+    """A successful real search request repairs historical missing vectors."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory(name="t_embedding_search_recovery")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            fake = RecoveringEmbeddingStore()
+            store.embedding_store = fake
+
+            assert await store.vector_search("alpha", 5, {}) == []
+            await store._embedding_backfill_task
+
+            assert fake.is_healthy is True
+            assert fake.health_calls == 0
+            assert fake.node_embedding_calls == [["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert [item.id for item in await store.vector_search("alpha", 5, {})] == ["a"]
+            await store.close()
+
+    run(go())
+
+
+def test_cache_only_search_does_not_mark_provider_recovered():
+    """Cached vectors do not prove that the remote provider is available."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            embedding_store = LocalEmbeddingStore(name="t_embedding_cache_only_recovery")
+            embedding_store.as_embedding = type(
+                "CachedProvider",
+                (),
+                {
+                    "dimensions": 2,
+                    "vector_space_id": "cached-provider",
+                    "__call__": lambda self, texts, **_kwargs: asyncio.sleep(
+                        0,
+                        result=[[1.0, 0.0] for _ in texts],
+                    ),
+                },
+            )()
+            await embedding_store.get_embedding("alpha")
+            embedding_store.is_healthy = False
+
+            store = LocalFileStore(name="t_embedding_cache_only_recovery", embedding_store="")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "historical text")})
+            store.embedding_store = embedding_store
+
+            assert await store.vector_search("alpha", 5, {}) == []
+            assert embedding_store.is_healthy is False
+            assert store._embedding_backfill_task is None
             await store.close()
 
     run(go())
@@ -692,7 +790,8 @@ def test_upsert_drops_wrong_dimension_from_custom_embedding_store():
 
             assert store.file_chunks["a"].embedding is None
             assert await store.vector_search("alpha", 5, {}) == []
-            assert store.embedding_store is None
+            assert store.embedding_store is not None
+            assert store.embedding_store.is_healthy is False
             await store.close()
 
     run(go())

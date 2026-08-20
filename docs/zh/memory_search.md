@@ -106,6 +106,9 @@ file_store:
 所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。此时若将
 `file_store` 的 `backend` 从 `local` 改为 `faiss`，向量检索会从线性扫描升级为 FAISS HNSW 索引，在大规模 chunk 场景下召回效率更高。
 
+Embedding store 可通过 `health_check_timeout` 配置启动探测。临时失败只会跳过本次向量回填，BM25 仍可使用；
+后续真实请求成功后会自动恢复缺失向量的回填。
+
 ## 怎么搜索
 
 `search` Job 也是在 `default.yaml` 中配置：

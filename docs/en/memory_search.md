@@ -117,6 +117,10 @@ Out of the box, search therefore uses primarily BM25 plus link expansion. After 
 `SearchStep` runs vector and keyword recall together. Additionally, switching the `file_store` `backend` from `local` to
 `faiss` upgrades vector retrieval from a linear scan to a FAISS HNSW index, offering faster recall at scale.
 
+The embedding store accepts `health_check_timeout` for its startup probe. A temporary failure skips the current vector
+backfill while keeping BM25 available; a later successful provider request resumes the missing-vector backfill
+automatically.
+
 ## How to Search
 
 The `search` Job is also configured in `default.yaml`:

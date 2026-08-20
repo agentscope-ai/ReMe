@@ -68,8 +68,12 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     async def _close(self) -> None:
         await self.dump()
 
-    async def health_check(self, timeout: float = 5.0) -> bool:
+    async def health_check(self, timeout: float | None = None) -> bool:
+        timeout = self.health_check_timeout if timeout is None else timeout
+        if not isinstance(timeout, (int, float)) or not np.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be finite and greater than 0")
         tag = f"[EMBEDDING HEALTH CHECK] name={self.name} workspace_dir={self.workspace_path}"
+        started_at = asyncio.get_running_loop().time()
         try:
             # Provider construction may synchronously import an SDK and build
             # its HTTP client. Keep that one-time work outside the request
@@ -82,13 +86,18 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
             if len(result[0]) != self.dimensions:
                 raise RuntimeError(f"embedding dimension mismatch: {len(result[0])} != {self.dimensions}")
             self.is_healthy = True
-            self.logger.info(f"{tag} -> OK")
+            elapsed = asyncio.get_running_loop().time() - started_at
+            self.logger.info(f"{tag} -> OK timeout={timeout}s elapsed={elapsed:.3f}s")
         except asyncio.TimeoutError:
             self.is_healthy = False
-            self.logger.error(f"{tag} -> FAIL timeout({timeout}s)")
-        except Exception as e:
+            elapsed = asyncio.get_running_loop().time() - started_at
+            self.logger.error(f"{tag} -> FAIL timeout={timeout}s elapsed={elapsed:.3f}s error=timeout({timeout}s)")
+        except Exception as exc:  # Provider SDKs expose many exception types.
             self.is_healthy = False
-            self.logger.error(f"{tag} -> FAIL {type(e).__name__}: {e}")
+            elapsed = asyncio.get_running_loop().time() - started_at
+            self.logger.error(
+                f"{tag} -> FAIL timeout={timeout}s elapsed={elapsed:.3f}s error={type(exc).__name__}: {exc}",
+            )
         return self.is_healthy
 
     # -- Public API --
@@ -143,6 +152,11 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         if bad_dims:
             details = ", ".join(f"{count} with dim {dim}" for dim, count in sorted(bad_dims.items()))
             self.logger.error(f"Embedding dimension mismatch in batch: expected {self.dimensions}; rejected {details}")
+        if out:
+            self.provider_success_count += 1
+            self.is_healthy = True
+        else:
+            self.is_healthy = False
         return out
 
     async def _call_with_retry(self, texts: list[str], **kwargs) -> list[list[float] | None] | None:
@@ -166,7 +180,9 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                     await asyncio.sleep(self.quota_retry_delay)
                     continue
                 self.logger.exception("Embedding request failed")
+                self.is_healthy = False
                 return None
+        self.is_healthy = False
         return None
 
     @staticmethod

@@ -1,6 +1,7 @@
 """Base embedding store with abstract interface for caching and retrieval."""
 
 from abc import abstractmethod
+import math
 import unicodedata
 
 import numpy as np
@@ -25,14 +26,26 @@ class BaseEmbeddingStore(BaseComponent):
         max_input_length: int = 8192,
         max_retries: int = 3,
         quota_retry_delay: float | None = None,
+        health_check_timeout: float = 5.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
+        if (
+            isinstance(health_check_timeout, bool)
+            or not isinstance(health_check_timeout, (int, float))
+            or not math.isfinite(health_check_timeout)
+            or health_check_timeout <= 0
+        ):
+            raise ValueError("health_check_timeout must be finite and greater than 0")
         self.max_batch_size = max_batch_size
         self.max_input_length = max_input_length
         self.max_retries = max_retries
         self.quota_retry_delay = quota_retry_delay
+        self.health_check_timeout = health_check_timeout
         self.is_healthy: bool = True
+        # Monotonic signal used by file stores to distinguish real provider
+        # recovery from cache-only results.
+        self.provider_success_count: int = 0
 
     def _truncate(self, text: str) -> str:
         """Truncate text using a CJK-aware character budget.
@@ -57,7 +70,7 @@ class BaseEmbeddingStore(BaseComponent):
         return text
 
     @abstractmethod
-    async def health_check(self, timeout: float = 2.0) -> bool:
+    async def health_check(self, timeout: float | None = None) -> bool:
         """Probe the provider; sets and returns is_healthy."""
 
     async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray | None:

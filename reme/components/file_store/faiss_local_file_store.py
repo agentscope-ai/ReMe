@@ -625,26 +625,29 @@ class FaissLocalFileStore(LocalFileStore):
     # -- search -----------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        index_empty = self._faiss_index is None or self._faiss_index.ntotal == 0
         if (
             self.embedding_store is None
             or not query
             or limit <= 0
-            or self._faiss_index is None
-            or self._faiss_index.ntotal == 0
+            or (index_empty and getattr(self.embedding_store, "is_healthy", True))
         ):
             return []
 
         query_embedding = None
+        provider_success_count = self._provider_success_count()
+        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:
             query_embedding = await self.embedding_store.get_embedding(query)
         except Exception as e:
-            self._disable_embedding(f"search: {type(e).__name__}: {e}")
+            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
         if query_embedding is None or not self._embedding_dim_matches(query_embedding):
             if query_embedding is not None:
-                self._disable_embedding(
+                self._mark_embedding_unhealthy(
                     f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
                 )
             return []
+        self._recover_after_real_request(provider_success_count, was_healthy, True)
 
         # get_embedding above yielded control; a concurrent clear() drops the
         # index to None once embedding is disabled, and a reindex may have swapped
