@@ -136,3 +136,20 @@ def test_auto_memory_derives_latest_day_from_message_timestamps():
     ]
 
     assert AutoMemoryStep._messages_day(messages) == "2023-01-20"
+
+
+def test_auto_memory_converts_absolute_timestamps_to_workspace_day():
+    """UTC timestamps are bucketed using the configured workspace timezone."""
+    messages = [
+        AutoMemoryStep._to_msg(
+            {
+                "name": "user",
+                "role": "user",
+                "content": "after midnight in Shanghai",
+                "created_at": "2026-08-19T16:30:00Z",
+            },
+        ),
+    ]
+
+    assert AutoMemoryStep._messages_day(messages, "Asia/Shanghai") == "2026-08-20"
+    assert AutoMemoryStep._messages_day(messages, "UTC") == "2026-08-19"

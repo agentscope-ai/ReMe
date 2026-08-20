@@ -1,4 +1,4 @@
-import { captureMessage, remeSessionId } from "./messages.js";
+import { captureMessage, messagesDay, remeSessionId } from "./messages.js";
 import { nextDailyRun } from "./scheduler.js";
 import type {
   DshSession,
@@ -9,19 +9,27 @@ import type {
   SessionEvent,
 } from "./types.js";
 
+interface PendingTurn {
+  messages: ReMeMessage[];
+  day: string;
+}
+
 interface SessionState {
   session: DshSession;
   sessionId: string;
   activeTurn: unknown;
   activeMessages: ReMeMessage[];
-  pendingTurns: ReMeMessage[][];
+  pendingTurns: PendingTurn[];
+  unconfirmedTurns: number;
   writes: Promise<void>;
+  requestController: AbortController;
 }
 
 export class ReMeRuntime {
   readonly states = new Map<string, SessionState>();
   private dreamTimer: ReturnType<typeof setTimeout> | null = null;
   private dreamTask: Promise<void> | null = null;
+  private dreamController: AbortController | null = null;
   private stopping = false;
 
   constructor(
@@ -32,14 +40,20 @@ export class ReMeRuntime {
 
   stateFor(session: DshSession): SessionState {
     const existing = this.states.get(session.id);
-    if (existing) return existing;
+    if (existing) {
+      existing.session = session;
+      if (existing.requestController.signal.aborted) existing.requestController = new AbortController();
+      return existing;
+    }
     const state: SessionState = {
       session,
       sessionId: remeSessionId(session.id),
       activeTurn: null,
       activeMessages: [],
       pendingTurns: [],
+      unconfirmedTurns: 0,
       writes: Promise.resolve(),
+      requestController: new AbortController(),
     };
     this.states.set(session.id, state);
     return state;
@@ -48,8 +62,9 @@ export class ReMeRuntime {
   capture(session: DshSession, event: SessionEvent): void {
     if (!this.config.autoMemoryEnabled) return;
     const state = this.stateFor(session);
+    const data = isRecord(event.data) ? event.data : undefined;
     if (event.type === "turn/start") {
-      state.activeTurn = event.data?.turn ?? null;
+      state.activeTurn = data?.turn ?? null;
       state.activeMessages = [];
       return;
     }
@@ -57,13 +72,16 @@ export class ReMeRuntime {
     if (message) state.activeMessages.push(message);
     if (event.type !== "turn/end") return;
 
-    const reason = event.data?.reason;
+    const reason = data?.reason;
     const reasonKind = isRecord(reason) ? reason.kind : undefined;
     const completed = reasonKind === "completed" || reasonKind === "max-tokens";
     const hasUser = state.activeMessages.some((item) => item.role === "user");
     const hasAssistant = state.activeMessages.some((item) => item.role === "assistant");
     if (completed && hasUser && hasAssistant) {
-      state.pendingTurns.push(state.activeMessages);
+      const day = messagesDay(state.activeMessages, this.config.timezone);
+      const previousDay = state.pendingTurns.at(-1)?.day;
+      if (previousDay && day && previousDay !== day) this.scheduleAutoMemory(state, true);
+      state.pendingTurns.push({ messages: state.activeMessages, day });
     }
     state.activeTurn = null;
     state.activeMessages = [];
@@ -73,30 +91,43 @@ export class ReMeRuntime {
   private scheduleAutoMemory(state: SessionState, force = false): void {
     const interval = this.config.autoMemoryInterval;
     if (!force && state.pendingTurns.length < interval) return;
-    const count = force ? state.pendingTurns.length : interval;
+    const firstDay = state.pendingTurns[0]?.day;
+    const dayCount = state.pendingTurns.findIndex((turn) => Boolean(firstDay && turn.day && turn.day !== firstDay));
+    const available = dayCount === -1 ? state.pendingTurns.length : dayCount;
+    if (!force && available < interval) return;
+    const count = force ? available : interval;
     if (count === 0) return;
     const turns = state.pendingTurns.splice(0, count);
-    const messages = turns.flat();
+    const messages = turns.flatMap((turn) => turn.messages);
+    const date = turns[0]?.day || "";
+    state.unconfirmedTurns += turns.length;
     state.writes = state.writes.then(async () => {
-      const result = await this.client.autoMemory(messages, state.sessionId);
-      if (!result.ok) {
+      try {
+        const result = await this.client.autoMemory(messages, state.sessionId, {
+          date,
+          signal: state.requestController.signal,
+        });
+        if (result.ok) {
+          this.log("debug", "auto_memory_complete", {
+            sessionId: state.sessionId,
+            turns: turns.length,
+          });
+          return;
+        }
         state.pendingTurns.unshift(...turns);
         this.log("warn", "auto_memory_failed", {
           sessionId: state.sessionId,
           error: result.error,
         });
-        return;
+      } catch (error) {
+        state.pendingTurns.unshift(...turns);
+        this.log("warn", "auto_memory_failed", {
+          sessionId: state.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        state.unconfirmedTurns -= turns.length;
       }
-      this.log("debug", "auto_memory_complete", {
-        sessionId: state.sessionId,
-        turns: turns.length,
-      });
-    }).catch((error: unknown) => {
-      state.pendingTurns.unshift(...turns);
-      this.log("warn", "auto_memory_failed", {
-        sessionId: state.sessionId,
-        error: error instanceof Error ? error.message : String(error),
-      });
     });
   }
 
@@ -127,9 +158,13 @@ export class ReMeRuntime {
 
   async runDream(): Promise<void> {
     if (this.dreamTask) return this.dreamTask;
+    this.dreamController = new AbortController();
     this.dreamTask = (async () => {
       try {
-        const result = await this.client.autoDream({ hint: this.config.dreamHint });
+        const result = await this.client.autoDream({
+          hint: this.config.dreamHint,
+          signal: this.dreamController?.signal,
+        });
         this.log(result.ok ? "debug" : "warn", result.ok ? "auto_dream_complete" : "auto_dream_failed", {
           error: result.ok ? undefined : result.error,
         });
@@ -140,6 +175,7 @@ export class ReMeRuntime {
       }
     })().finally(() => {
       this.dreamTask = null;
+      this.dreamController = null;
     });
     return this.dreamTask;
   }
@@ -147,18 +183,58 @@ export class ReMeRuntime {
   async dispose(session: DshSession): Promise<void> {
     const state = this.states.get(session.id);
     if (!state) return;
-    await state.writes;
-    this.scheduleAutoMemory(state, true);
-    await state.writes;
-    this.states.delete(session.id);
+    if (state.requestController.signal.aborted) state.requestController = new AbortController();
+    const flush = (async () => {
+      await state.writes;
+      const retryCount = state.pendingTurns.length;
+      let scheduled = 0;
+      while (state.pendingTurns.length && scheduled < retryCount) {
+        const before = state.pendingTurns.length;
+        this.scheduleAutoMemory(state, true);
+        scheduled += before - state.pendingTurns.length;
+      }
+      await state.writes;
+    })();
+    const completed = await this.withinShutdownBudget(flush, () => state.requestController.abort());
+    const unsentTurns = state.pendingTurns.length + state.unconfirmedTurns;
+    if (unsentTurns) {
+      this.log("warn", completed ? "auto_memory_retained" : "auto_memory_shutdown_timeout", {
+        sessionId: state.sessionId,
+        unsentTurns,
+      });
+    } else {
+      this.states.delete(session.id);
+    }
   }
 
   async disposeAll(): Promise<void> {
     this.stopping = true;
     if (this.dreamTimer) clearTimeout(this.dreamTimer);
     this.dreamTimer = null;
-    await Promise.all([...this.states.values()].map((state) => this.dispose(state.session)));
-    if (this.dreamTask) await this.dreamTask;
+    this.dreamController?.abort();
+    const shutdown = Promise.all([
+      ...[...this.states.values()].map((state) => this.dispose(state.session)),
+      ...(this.dreamTask ? [this.dreamTask] : []),
+    ]).then(() => undefined);
+    await this.withinShutdownBudget(shutdown, () => {
+      this.dreamController?.abort();
+      for (const state of this.states.values()) state.requestController.abort();
+    });
+  }
+
+  private async withinShutdownBudget(task: Promise<void>, abort: () => void): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => {
+        abort();
+        resolve(false);
+      }, this.config.shutdownTimeoutMs);
+    });
+    try {
+      return await Promise.race([task.then(() => true), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private log(level: "debug" | "warn", event: string, data: Record<string, unknown>): void {

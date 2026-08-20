@@ -1,36 +1,17 @@
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import type { Context } from "@deepseek-ai/cordis";
 
 import { ReMeClient } from "./client.js";
 import { resolveConfig } from "./config.js";
 import { hasGuidance, memoryGuidance, REME_PLUGIN_SOURCE } from "./guidance.js";
 import { ReMeRuntime } from "./runtime.js";
-import { registerReMeTools, type ToolRegistryContext } from "./tools.js";
-import type { DshSession, LoggerLike, ReMeConfigInput, SessionEvent } from "./types.js";
-
-type Cleanup = () => void | Promise<void>;
-
-interface EffectContext {
-  effect(execute: () => void | Cleanup, label?: string): unknown;
-}
-
-interface DshAgent {
-  status: string;
-  session: DshSession;
-  ctx: EffectContext;
-  inject(message: ReturnType<typeof createUserMessage>): unknown;
-}
-
-export interface DshPluginContext extends EffectContext, ToolRegistryContext {
-  logger?: LoggerLike;
-  provide(name: string, value: unknown): unknown;
-  on(name: "agent/session-start", handler: (payload: { agent: DshAgent; source: string }) => void): unknown;
-  on(name: "session/event", handler: (session: DshSession, event: SessionEvent) => void): unknown;
-}
+import { registerReMeTools } from "./tools.js";
+import type { ReMeConfigInput } from "./types.js";
 
 export const name = "reme-memory";
 export const inject = ["agents", "sessions", "tools"];
 
-export function apply(ctx: DshPluginContext, input: ReMeConfigInput = {}): void {
+export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
   const config = resolveConfig(input);
   const client = new ReMeClient(config);
   const runtime = new ReMeRuntime(client, config, ctx.logger);
@@ -62,3 +43,4 @@ export function apply(ctx: DshPluginContext, input: ReMeConfigInput = {}): void 
 }
 
 export type { ReMeConfig, ReMeConfigInput } from "./types.js";
+export { Config } from "./config.js";

@@ -45,9 +45,30 @@ export function messageText(message: MessageLike): string {
     .trim();
 }
 
+export function messagesDay(messages: ReMeMessage[], timezone: string): string {
+  const days = messages
+    .map((message) => timestampDay(message.created_at, timezone))
+    .filter(Boolean);
+  return days.sort().at(-1) || "";
+}
+
+function timestampDay(value: string | undefined, timezone: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return value.slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 function eventMessage(event: SessionEvent): MessageLike | null {
   if (event.type === "user/message") return toMessage(event.data);
-  if (event.type === "assistant/message") return toMessage(event.data?.message);
+  if (event.type === "assistant/message" && isRecord(event.data)) return toMessage(event.data.message);
   return null;
 }
 

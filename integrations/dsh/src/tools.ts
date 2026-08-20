@@ -23,12 +23,13 @@ export function registerReMeTools(
       limit: { type: "integer", description: "Maximum results, from 1 to 50." },
       min_score: { type: "number", description: "Minimum score; normally leave at 0." },
     },
-    async execute(args) {
+    async execute(args, exec) {
       const query = String(args.query || "").trim();
       if (!query) return "Error: query cannot be empty.";
       const result = await client.search(query, {
         limit: clamp(args.limit, 1, 50, config.searchLimit),
         minScore: Math.max(0, Number(args.min_score) || 0),
+        signal: exec.signal,
       });
       if (!result.ok) return `ReMe search failed: ${result.error || "unknown error"}`;
       const answer = typeof result.answer === "string"

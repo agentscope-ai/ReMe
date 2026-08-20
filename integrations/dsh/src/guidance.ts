@@ -27,7 +27,7 @@ export function memoryGuidance(language: "en" | "zh" = "en"): string {
 
 export function hasGuidance(session: DshSession): boolean {
   return (session.events || []).some((event) => {
-    const source = event.data?.source;
+    const source = isRecord(event.data) ? event.data.source : undefined;
     return event.type === "user/message"
       && isRecord(source)
       && source.kind === "plugin"

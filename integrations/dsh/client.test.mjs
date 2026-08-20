@@ -30,3 +30,26 @@ test("calls ReMe jobs with their native request and response envelopes", async (
     globalThis.fetch = originalFetch;
   }
 });
+
+test("combines caller cancellation with the request timeout", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => new Promise((_resolve, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  });
+  try {
+    const client = new ReMeClient({
+      endpoint: "http://127.0.0.1:2333",
+      requestTimeoutMs: 1000,
+      backgroundTimeoutMs: 1000,
+      apiKey: "",
+    });
+    const controller = new AbortController();
+    const request = client.search("deployment", { signal: controller.signal });
+    controller.abort(new Error("turn cancelled"));
+    const result = await request;
+    assert.equal(result.ok, false);
+    assert.match(result.error, /turn cancelled/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

@@ -3,6 +3,7 @@ export interface ReMeConfigInput {
   apiKey?: string;
   requestTimeoutMs?: number;
   backgroundTimeoutMs?: number;
+  shutdownTimeoutMs?: number;
   autoMemoryEnabled?: boolean;
   autoMemoryInterval?: number;
   autoDreamEnabled?: boolean;
@@ -12,6 +13,7 @@ export interface ReMeConfigInput {
   rootAgentsOnly?: boolean;
   language?: "en" | "zh";
   searchLimit?: number;
+  timezone?: string;
 }
 
 export interface ReMeConfig {
@@ -19,6 +21,7 @@ export interface ReMeConfig {
   apiKey: string;
   requestTimeoutMs: number;
   backgroundTimeoutMs: number;
+  shutdownTimeoutMs: number;
   autoMemoryEnabled: boolean;
   autoMemoryInterval: number;
   autoDreamEnabled: boolean;
@@ -28,6 +31,7 @@ export interface ReMeConfig {
   rootAgentsOnly: boolean;
   language: "en" | "zh";
   searchLimit: number;
+  timezone: string;
 }
 
 export interface ReMeResult {
@@ -50,29 +54,37 @@ export interface SessionEvent {
   type: string;
   seq?: number;
   time?: number;
-  data?: Record<string, unknown>;
+  data?: unknown;
 }
 
 export interface DshSession {
   id: string;
   header?: { origin?: string };
-  events?: SessionEvent[];
+  events?: readonly SessionEvent[];
 }
 
 export interface ReMeClientLike {
   search(query: string, options?: SearchOptions): Promise<ReMeResult>;
-  autoMemory(messages: ReMeMessage[], sessionId: string, memoryHint?: string): Promise<ReMeResult>;
+  autoMemory(messages: ReMeMessage[], sessionId: string, options?: AutoMemoryOptions): Promise<ReMeResult>;
   autoDream(options?: DreamOptions): Promise<ReMeResult>;
 }
 
 export interface SearchOptions {
   limit?: number;
   minScore?: number;
+  signal?: AbortSignal;
+}
+
+export interface AutoMemoryOptions {
+  date?: string;
+  memoryHint?: string;
+  signal?: AbortSignal;
 }
 
 export interface DreamOptions {
   date?: string;
   hint?: string;
+  signal?: AbortSignal;
 }
 
 export interface LoggerLike {

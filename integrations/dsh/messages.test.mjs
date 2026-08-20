@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { captureMessage, remeSessionId } from "./dist/messages.js";
+import { captureMessage, messagesDay, remeSessionId } from "./dist/messages.js";
 
 test("captures direct DSH user and assistant messages with stable ids", () => {
   const user = captureMessage({
@@ -47,4 +47,10 @@ test("does not launder plugin context into memory", () => {
 test("maps arbitrary DSH ids to safe fixed-length ReMe ids", () => {
   assert.match(remeSessionId("unsafe/session id"), /^dsh-[a-f0-9]{24}$/);
   assert.equal(remeSessionId("unsafe/session id"), remeSessionId("unsafe/session id"));
+});
+
+test("resolves UTC timestamps to the configured workspace date", () => {
+  const messages = [{ created_at: "2026-08-19T16:30:00.000Z" }];
+  assert.equal(messagesDay(messages, "Asia/Shanghai"), "2026-08-20");
+  assert.equal(messagesDay(messages, "UTC"), "2026-08-19");
 });

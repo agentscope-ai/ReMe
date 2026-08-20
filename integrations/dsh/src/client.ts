@@ -1,4 +1,5 @@
 import type {
+  AutoMemoryOptions,
   DreamOptions,
   ReMeConfig,
   ReMeMessage,
@@ -21,27 +22,34 @@ export class ReMeClient {
       query,
       limit: options.limit,
       min_score: options.minScore,
-    }, this.config.requestTimeoutMs);
+    }, this.config.requestTimeoutMs, options.signal);
   }
 
-  async autoMemory(messages: ReMeMessage[], sessionId: string, memoryHint = ""): Promise<ReMeResult> {
+  async autoMemory(messages: ReMeMessage[], sessionId: string, options: AutoMemoryOptions = {}): Promise<ReMeResult> {
     return this.request("auto_memory", {
       messages,
       session_id: sessionId,
-      memory_hint: memoryHint,
-    }, this.config.backgroundTimeoutMs);
+      memory_hint: options.memoryHint || "",
+      date: options.date || "",
+    }, this.config.backgroundTimeoutMs, options.signal);
   }
 
   async autoDream(options: DreamOptions = {}): Promise<ReMeResult> {
     return this.request("auto_dream", {
       date: options.date || "",
       hint: options.hint || "",
-    }, this.config.backgroundTimeoutMs);
+    }, this.config.backgroundTimeoutMs, options.signal);
   }
 
-  private async request(job: string, payload: Record<string, unknown>, timeoutMs: number): Promise<ReMeResult> {
+  private async request(
+    job: string,
+    payload: Record<string, unknown>,
+    timeoutMs: number,
+    externalSignal?: AbortSignal,
+  ): Promise<ReMeResult> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = externalSignal ? AbortSignal.any([externalSignal, controller.signal]) : controller.signal;
     try {
       const response = await fetch(`${this.config.endpoint}/${job}`, {
         method: "POST",
@@ -50,7 +58,7 @@ export class ReMeClient {
           ...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
         },
         body: JSON.stringify(payload),
-        signal: controller.signal,
+        signal,
       });
       const body = await response.json().catch(() => ({})) as ReMeResponseBody;
       const ok = response.ok && body.success !== false;

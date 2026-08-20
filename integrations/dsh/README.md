@@ -22,10 +22,20 @@ Start ReMe against the workspace that should own the agent's memory:
 reme start workspace_dir=/absolute/path/to/workspace
 ```
 
-Install this bundle into a DSH profile:
+Install the published bundle into a DSH profile:
 
 ```bash
-dsh plugin --profile default add ./integrations/dsh
+dsh plugin --profile default add @agentscope-ai/reme-dsh-memory
+```
+
+For a source checkout, build a package tarball first. A direct local-directory install only creates a link and does not
+run this bundle's build:
+
+```bash
+cd integrations/dsh
+npm ci
+bundle=$(npm pack)
+dsh plugin --profile default add "./$bundle"
 ```
 
 ## Configuration
@@ -46,6 +56,7 @@ variables. Bundle configuration can be added to `cordis.patch.yml`:
           config:
             endpoint: http://127.0.0.1:2333
             language: zh
+            timezone: Asia/Shanghai
             autoMemoryInterval: 5
             autoDreamEnabled: true
             dreamCron: '0 23 * * *'
@@ -62,6 +73,8 @@ variables. Bundle configuration can be added to `cordis.patch.yml`:
 | `rootAgentsOnly` | `true` | Keep prompt injection and capture out of subagents |
 | `requestTimeoutMs` | `10000` | Search request timeout |
 | `backgroundTimeoutMs` | `3600000` | Auto-memory and auto-dream timeout |
+| `shutdownTimeoutMs` | `5000` | Maximum best-effort flush time while a session/plugin closes |
+| `timezone` | `Asia/Shanghai` | IANA timezone used to split daily batches; must match the ReMe workspace |
 
 `dreamCron` intentionally accepts only the daily form `<minute> <hour> * * *`. This keeps the bundle dependency-free
 and makes the maintenance schedule explicit.
@@ -77,8 +90,10 @@ results are excluded so recalled text cannot be stored again as if the user had 
 used to create stable ReMe message IDs, and DSH session IDs are mapped to fixed-length hashed ReMe session IDs.
 
 Auto-memory calls are serialized per session and are never awaited by the model turn. If a request fails, its turns are
-put back into the in-process queue and retried after later activity, with one final attempt during session disposal. The
-current first version does not yet persist that retry queue across a DSH process crash.
+put back into the in-process queue and retried after later activity. Turns are split into separate requests when their
+workspace dates differ. Session disposal makes one final best-effort attempt, bounded by `shutdownTimeoutMs`; it cancels
+outstanding HTTP work and retains any unconfirmed turns for a later plugin-shutdown retry. The current first version does
+not persist that retry queue across a DSH process crash or a failed final plugin shutdown.
 
 ## Testing
 

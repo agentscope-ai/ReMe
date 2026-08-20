@@ -6,9 +6,11 @@ const CONFIG = {
   autoMemoryEnabled: true,
   autoMemoryInterval: 2,
   autoDreamEnabled: false,
+  shutdownTimeoutMs: 50,
   dreamIntervalMs: 0,
   dreamCron: "0 23 * * *",
   dreamHint: "",
+  timezone: "Asia/Shanghai",
 };
 
 test("submits completed turns to auto-memory in background batches", async () => {
@@ -82,6 +84,74 @@ test("retries an in-flight failed batch before disposal completes", async () => 
   assert.equal(runtime.states.has(session.id), false);
 });
 
+test("splits auto-memory batches at workspace date boundaries", async () => {
+  const calls = [];
+  const client = {
+    async autoMemory(messages, _sessionId, options) {
+      calls.push({ messages, options });
+      return { ok: true };
+    },
+  };
+  const runtime = new ReMeRuntime(client, { ...CONFIG, autoMemoryInterval: 5 }, silentLogger());
+  const session = { id: "midnight-session" };
+
+  completeTurn(runtime, session, 1, 10, Date.parse("2026-08-19T15:59:00Z"));
+  completeTurn(runtime, session, 2, 20, Date.parse("2026-08-19T16:01:00Z"));
+  await runtime.stateFor(session).writes;
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.date, "2026-08-19");
+  await runtime.dispose(session);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].options.date, "2026-08-20");
+});
+
+test("bounds session disposal and aborts an unresponsive write", async () => {
+  let observedSignal;
+  const client = {
+    async autoMemory(_messages, _sessionId, options) {
+      observedSignal = options.signal;
+      return new Promise(() => {});
+    },
+  };
+  const runtime = new ReMeRuntime(client, {
+    ...CONFIG,
+    autoMemoryInterval: 1,
+    shutdownTimeoutMs: 20,
+  }, silentLogger());
+  const session = { id: "stuck-session" };
+  completeTurn(runtime, session, 1, 10);
+
+  const started = Date.now();
+  await runtime.dispose(session);
+
+  assert.equal(observedSignal.aborted, true);
+  assert.ok(Date.now() - started < 500);
+  assert.equal(runtime.states.has(session.id), true);
+});
+
+test("retains a failed final batch for a later plugin-shutdown retry", async () => {
+  let attempts = 0;
+  const client = {
+    async autoMemory() {
+      attempts += 1;
+      return { ok: attempts > 2, error: "offline" };
+    },
+  };
+  const runtime = new ReMeRuntime(client, { ...CONFIG, autoMemoryInterval: 1 }, silentLogger());
+  const session = { id: "retained-session" };
+  completeTurn(runtime, session, 1, 10);
+  await runtime.stateFor(session).writes;
+
+  await runtime.dispose(session);
+  assert.equal(attempts, 2);
+  assert.equal(runtime.states.has(session.id), true);
+
+  await runtime.disposeAll();
+  assert.equal(attempts, 3);
+  assert.equal(runtime.states.has(session.id), false);
+});
+
 test("runs only one auto-dream task at a time", async () => {
   let calls = 0;
   let release;
@@ -115,11 +185,12 @@ test("contains unexpected auto-dream client failures", async () => {
   assert.match(warnings[0].data.error, /broken transport/);
 });
 
-function completeTurn(runtime, session, turn, seq) {
+function completeTurn(runtime, session, turn, seq, time) {
   runtime.capture(session, { type: "turn/start", data: { turn } });
   runtime.capture(session, {
     type: "user/message",
     seq,
+    time,
     data: {
       role: "user",
       content: [{ type: "text", text: `question ${turn}` }],
@@ -129,6 +200,7 @@ function completeTurn(runtime, session, turn, seq) {
   runtime.capture(session, {
     type: "assistant/message",
     seq: seq + 1,
+    time: time === undefined ? undefined : time + 1000,
     data: {
       message: {
         role: "assistant",

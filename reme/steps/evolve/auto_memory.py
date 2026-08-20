@@ -1,6 +1,8 @@
 """auto_memory — record conversation facts into a daily note via an agent."""
 
+import datetime
 from pathlib import Path
+import zoneinfo
 
 import aiofiles
 import frontmatter
@@ -224,9 +226,25 @@ class AutoMemoryStep(BaseStep):
         return Msg.model_validate(item)
 
     @staticmethod
-    def _messages_day(messages: list[Msg]) -> str | None:
-        days = [day for msg in messages if (day := extract_daily_date(msg.created_at))]
+    def _messages_day(messages: list[Msg], timezone: str | None = None) -> str | None:
+        days = [day for msg in messages if (day := AutoMemoryStep._message_day(msg.created_at, timezone))]
         return max(days) if days else None
+
+    @staticmethod
+    def _message_day(value, timezone: str | None) -> str | None:
+        """Resolve an absolute timestamp to the workspace's calendar date."""
+        fallback = extract_daily_date(value)
+        text = str(value or "").strip()
+        if not fallback or len(text) <= 10:
+            return fallback
+        try:
+            timestamp = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+        if timestamp.tzinfo is None:
+            return fallback
+        target_timezone = zoneinfo.ZoneInfo(timezone) if timezone else datetime.datetime.now().astimezone().tzinfo
+        return timestamp.astimezone(target_timezone).date().isoformat()
 
     def _build_messages(self, raw_messages: list) -> list[Msg]:
         """Convert raw message payloads into ``Msg`` objects.
@@ -279,7 +297,9 @@ class AutoMemoryStep(BaseStep):
             self.logger.warning(f"[{self.name}] missing session_id")
             return
 
-        day = parse_daily_date(raw_date) if raw_date else self._messages_day(messages) or current.strftime("%Y-%m-%d")
+        day = (
+            parse_daily_date(raw_date) if raw_date else self._messages_day(messages, tz) or current.strftime("%Y-%m-%d")
+        )
         if raw_date and day is None:
             self.context.response.success = False
             self.context.response.answer = "Error: date must be YYYY-MM-DD"
