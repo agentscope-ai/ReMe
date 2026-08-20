@@ -75,7 +75,7 @@ github-pages/
 
 ## Deployment
 
-The repository workflow `.github/workflows/pages.yml` builds this directory and publishes `dist/` to GitHub Pages.
+The repository workflow `.github/workflows/deploy-docs.yml` builds this directory and publishes `dist/` to GitHub Pages.
 It runs after relevant documentation or site files change on `main`, and it can also be started manually from the
 GitHub Actions page.
 

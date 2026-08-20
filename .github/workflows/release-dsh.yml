@@ -4,7 +4,7 @@
 # 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
 # 4. Use the `next` tag for prereleases and `latest` only for stable releases.
 
-name: Publish ReMe DSH integration to npm
+name: Release / DSH integration
 
 run-name: Publish ReMe DSH integration ${{ inputs.version }} (${{ inputs.npm_tag }})
 

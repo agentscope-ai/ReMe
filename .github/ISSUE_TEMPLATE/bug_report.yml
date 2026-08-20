@@ -1,0 +1,97 @@
+name: Bug report
+description: Report reproducible incorrect or unexpected ReMe behavior
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve ReMe. Please remove secrets, API keys, and private memory content before submitting.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened, and what did you expect instead?
+      placeholder: Describe the observed and expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest configuration and command sequence that reproduces the problem.
+      placeholder: |
+        1. Configure ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant configuration
+      description: Include only relevant values and redact credentials, tokens, endpoints, and private paths.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or traceback
+      description: Paste relevant output after removing secrets and private workspace content.
+      render: shell
+
+  - type: input
+    id: reme-version
+    attributes:
+      label: ReMe version
+      placeholder: e.g. 0.4.1.8 or a commit SHA
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: e.g. 3.11.9
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - CLI or configuration
+        - HTTP, MCP, or local service
+        - Memory or workspace files
+        - Search, catalog, graph, or index
+        - Model or agent integration
+        - ReMe Studio
+        - Plugin or external integration
+        - Packaging or installation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data safety
+      options:
+        - label: I removed credentials and private memory content from this report.
+          required: true

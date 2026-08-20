@@ -1,9 +1,13 @@
-name: PR Title Check
+name: Policy / PR title
 
 on:
   pull_request:
     branches: [main, master, dev, develop]
     types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
 
 jobs:
   check-pr-title:

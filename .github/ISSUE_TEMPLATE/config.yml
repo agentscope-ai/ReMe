@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: ReMe documentation
+    url: https://reme.agentscope.io
+    about: Read the installation, configuration, and usage guides.
+  - name: Existing issues
+    url: https://github.com/agentscope-ai/ReMe/issues
+    about: Search for existing reports and discussions before opening a new issue.
