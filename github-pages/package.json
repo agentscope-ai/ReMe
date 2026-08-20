@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "dompurify": "^3.2.6",
-    "marked": "^16.2.1"
+    "marked": "^18.0.9"
   },
   "devDependencies": {
     "vite": "^7.1.1"
