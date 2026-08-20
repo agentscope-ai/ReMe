@@ -6,7 +6,6 @@ import asyncio
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from reme.components.as_embedding import DashScopeAsEmbedding, OllamaAsEmbedding, OpenAIAsEmbedding
 from reme.components.embedding_store.base_embedding_store import BaseEmbeddingStore
@@ -214,19 +213,6 @@ def test_health_check_makes_one_attempt():
         assert provider.calls == 1
 
     run(go())
-
-
-@pytest.mark.parametrize(
-    ("kwargs", "message"),
-    [
-        ({"health_check_timeout": 0}, "health_check_timeout"),
-        ({"health_check_timeout": float("inf")}, "health_check_timeout"),
-    ],
-)
-def test_health_check_config_rejects_invalid_values(kwargs, message):
-    """Invalid probe policies fail during component construction."""
-    with pytest.raises(ValueError, match=message):
-        LocalEmbeddingStore(name="t_local_embedding_invalid_health_config", **kwargs)
 
 
 def test_insufficient_quota_waits_sixty_seconds_before_retry(monkeypatch):

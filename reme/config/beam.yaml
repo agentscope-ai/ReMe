@@ -497,7 +497,6 @@ components:
     default:
       backend: local
       as_embedding: default
-      health_check_timeout: 5.0
 
   as_llm:
     default:

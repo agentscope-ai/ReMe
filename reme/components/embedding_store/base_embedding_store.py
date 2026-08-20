@@ -1,7 +1,6 @@
 """Base embedding store with abstract interface for caching and retrieval."""
 
 from abc import abstractmethod
-import math
 import unicodedata
 
 import numpy as np
@@ -26,17 +25,10 @@ class BaseEmbeddingStore(BaseComponent):
         max_input_length: int = 8192,
         max_retries: int = 3,
         quota_retry_delay: float | None = None,
-        health_check_timeout: float = 5.0,
+        health_check_timeout: float = 15.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        if (
-            isinstance(health_check_timeout, bool)
-            or not isinstance(health_check_timeout, (int, float))
-            or not math.isfinite(health_check_timeout)
-            or health_check_timeout <= 0
-        ):
-            raise ValueError("health_check_timeout must be finite and greater than 0")
         self.max_batch_size = max_batch_size
         self.max_input_length = max_input_length
         self.max_retries = max_retries

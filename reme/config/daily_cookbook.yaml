@@ -453,7 +453,6 @@ components:
 #      as_embedding: default
 #      max_retries: 3
 #      quota_retry_delay: 60.0
-#      health_check_timeout: 5.0
 
   file_graph:
     default:
