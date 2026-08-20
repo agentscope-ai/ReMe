@@ -79,7 +79,7 @@ jobs:
           npm pack --pack-destination "${RUNNER_TEMP}/reme-dsh-package"
 
       - name: Upload npm tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: reme-dsh-memory-${{ inputs.version }}
           path: ${{ runner.temp }}/reme-dsh-package/*.tgz
