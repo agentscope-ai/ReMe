@@ -4,11 +4,10 @@ import asyncio
 import sys
 
 from .application import Application
-from .components import create_application_registry
 from .components.service.cli_service import prepare_start_config, should_precheck_start
 from .config import parse_args, resolve_app_config
 from .enumeration import ComponentEnum
-from .plugin import PluginManager
+from .plugin import resolve_plugin_runtime
 from .utils import cli_find_reme, load_env, precheck_start, running_app_config
 
 _CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "show_metadata"}
@@ -42,8 +41,8 @@ async def call_server(action: str, **kwargs):
     app_config = running_app_config()
     if app_config is None:
         app_config = resolve_app_config(log_config=False, **resolve_kwargs)
-    plugin_manager = PluginManager.discover(app_config.get("plugins") or ())
-    app_config = plugin_manager.merge_config(app_config)
+    runtime = resolve_plugin_runtime(app_config)
+    app_config = runtime.config
     service = app_config.get("service")
     service = service if isinstance(service, dict) else {}
 
@@ -55,9 +54,7 @@ async def call_server(action: str, **kwargs):
     client_kwargs = {k: seed[k] for k in _CLIENT_KWARGS if k in seed}
     client_kwargs.update({key: kwargs.pop(key) for key in list(kwargs) if key in _CLIENT_KWARGS})
 
-    registry = create_application_registry()
-    plugin_manager.register(registry)
-    client_cls = registry.get(ComponentEnum.CLIENT, backend)
+    client_cls = runtime.registry.get(ComponentEnum.CLIENT, backend)
     if client_cls is None:
         raise ValueError(f"Unknown client backend: {backend!r}")
     async with client_cls(**client_kwargs) as client:
@@ -68,6 +65,16 @@ async def call_server(action: str, **kwargs):
 
 def main():
     """Parse CLI arguments and launch the appropriate mode."""
+    if len(sys.argv) > 1 and sys.argv[1] == "plugins":
+        # Package management is local-only and must not load application config,
+        # environment files, or a running service.
+        from .plugin_cli import plugin_cli
+
+        status = plugin_cli(sys.argv[2:])
+        if status:
+            raise SystemExit(status)
+        return
+
     environment = load_env()
     action, kwargs = parse_args(*sys.argv[1:])
     if action == "start":

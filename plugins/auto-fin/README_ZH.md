@@ -4,30 +4,61 @@
 
 Auto Fin 自动拉取一个滚动时间窗口内的财联社电报（默认 24 小时），按配置 topics 筛选相关新闻，搜索 ReMe 中有回顾价值的历史材料，最后写入一份带校验
 wikilink 的中文 Markdown 报告。当前新闻和筛选结果只存在于本次运行内存中，只有最终报告成为持久记忆。本目录是一个独立 Python
-distribution：`reme.plugins` entry point 贡献三个 Step backend 及其 Job 配置，`reme.configs` entry point 暴露可直接运行的
-`auto-fin` 配置。
+distribution：单个 `reme.plugins` entry point 暴露 `plugin.yaml`，其中声明三个 Step backend，并在
+`application_defaults` 下提供 Job 配置；通过 `plugins=["auto-fin"]` 显式启用这个已安装插件。
 
 > Auto Fin 没有可靠行情数据，不计算收益、目标价或买卖点，也不提供投资建议。
 
 ## 快速开始
 
-```bash
-python -m pip install "reme-ai[core]>=0.4.1.8" reme-auto-fin
-export LLM_API_KEY="your-api-key"
-export LLM_MODEL_NAME="qwen3.7-plus"
-export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=auto-fin job=auto_fin
-```
-
-`LLM_MODEL_NAME` 默认是 `qwen3.7-plus`。代码没有内置 `LLM_BASE_URL`，请设置所选服务商提供的 OpenAI 兼容 endpoint。
-
-默认 topics 是 `黄金,机器人,半导体`。可在运行时覆盖：
+### 1. 安装 ReMe 和 Auto Fin
 
 ```bash
-reme start config=auto-fin job=auto_fin topics="黄金,AI,存储芯片"
+python -m pip install "reme-ai[core]>=0.4.1.8"
+reme plugins install reme-auto-fin
 ```
 
-传入空值也会使用默认 topics。
+### 2. 配置模型环境变量
+
+按照 ReMe README 的[环境变量说明](../../README_ZH.md#环境变量)配置 LLM 环境变量，也可以使用其他兼容的模型和服务商。
+
+### 3. 带插件启动 ReMe
+
+```bash
+reme start plugins='["auto-fin"]'
+```
+
+未显式传入 `config` 时，ReMe 会加载 `default.yaml`，并将插件叠加到该服务上。
+
+在另一个终端中，通过 ReMe CLI client 调用正在运行的 HTTP 服务：
+
+```bash
+reme auto_fin topics="黄金,AI,存储芯片"
+```
+
+也可以直接调用 HTTP endpoint：
+
+```bash
+curl -s http://127.0.0.1:2333/auto_fin \
+  -H 'Content-Type: application/json' \
+  -d '{"topics":"黄金,AI,存储芯片"}'
+```
+
+在 MCP service 中启用插件时，同一个 Job 会暴露为 `auto_fin` MCP tool。默认 topics 是 `黄金,机器人,半导体`，
+传入空值也会使用默认值。
+
+如果需要将同一个应用作为 MCP service 启动：
+
+```bash
+reme start plugins='["auto-fin"]' \
+  service.backend=mcp service.transport=streamable-http
+```
+
+如果需要将 Auto Fin 叠加到其他应用，则显式选择相应配置，例如：
+
+```bash
+reme start config=daily_cookbook plugins='["auto-fin"]'
+```
 
 ## 流程
 
@@ -69,7 +100,7 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 | `request_interval` |                   `10` | 每次财联社请求尝试后的最小等待秒数，可设为 0 |
 | `max_retries`      |                    `3` | 每页财联社请求的最大尝试次数，至少为 1       |
 
-插件提供的定时任务每天按 `Asia/Shanghai` 在 09:30、11:30 和 18:00 运行。
+插件的三个 cron Job 随应用启动，并按 `Asia/Shanghai` 时区在每天 09:30、11:30 和 18:00 运行。
 
 ## 产物
 

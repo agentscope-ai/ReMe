@@ -10,13 +10,17 @@ from typing import Any
 
 import yaml
 
-from ..entry_point import find_entry_points, load_entry_point, unique_entry_point
+from ..entry_point import (
+    CONFIG_ENTRY_POINT_GROUP,
+    find_entry_points,
+    load_entry_point,
+    unique_entry_point,
+)
 
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
 # Extensions in priority order: yaml > yml > json when stems collide
 _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
-_CONFIG_ENTRY_POINT_GROUP = "reme.configs"
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 # Strings like "007" / "00501" must stay as strings, not be coerced to numbers
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
@@ -145,7 +149,7 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
         raise ValueError(f"Circular config inheritance: {chain}")
 
     built_in = _CONFIG_REGISTRY.get(name_or_path)
-    external_entries = find_entry_points(_CONFIG_ENTRY_POINT_GROUP, name_or_path)
+    external_entries = find_entry_points(CONFIG_ENTRY_POINT_GROUP, name_or_path)
     if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
@@ -250,6 +254,9 @@ def parse_args(*args) -> tuple[str, dict]:
 def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Therefore ``reme start plugins=[...]`` layers that plugin selection over
+    ``default.yaml`` without requiring an explicit ``config=default``.
 
     Set ``log_config=False`` for user-facing client calls that should print only
     the requested job's output.

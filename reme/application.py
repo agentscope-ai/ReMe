@@ -7,11 +7,11 @@ from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
 from . import __version__
-from .components import ApplicationContext, BaseComponent, create_application_registry
+from .components import ApplicationContext, BaseComponent
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
 from .enumeration import ComponentEnum, ComponentType, component_type_name
-from .plugin import PluginManager
+from .plugin import resolve_plugin_runtime
 from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
 
@@ -23,11 +23,8 @@ class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
     def __init__(self, **kwargs) -> None:
-        plugin_manager = PluginManager.discover(kwargs.get("plugins") or ())
-        resolved = plugin_manager.merge_config(kwargs)
-        registry = create_application_registry()
-        plugin_manager.register(registry)
-        self.context = ApplicationContext(registry=registry, **resolved)
+        runtime = resolve_plugin_runtime(kwargs)
+        self.context = ApplicationContext(registry=runtime.registry, **runtime.config)
         self._started_components: list[BaseComponent] = []
 
         self._setup_workspace_directories()

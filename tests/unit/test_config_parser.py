@@ -71,6 +71,14 @@ def test_resolve_app_config_can_suppress_config_log(monkeypatch):
     assert not messages
 
 
+def test_resolve_app_config_layers_plugins_over_default():
+    """A plugin-only start keeps the ordinary default application config."""
+    config = resolve_app_config(log_config=False, plugins=["auto-fin"])
+
+    assert config["service"]["backend"] == "http"
+    assert config["plugins"] == ["auto-fin"]
+
+
 def test_default_config_registers_daily_write_job():
     """``daily_write`` is exposed as a base job backed by ``daily_write_step``."""
     cfg = _load_config("default.yaml")

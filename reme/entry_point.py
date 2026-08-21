@@ -3,6 +3,9 @@
 from importlib import metadata
 from typing import Any
 
+PLUGIN_ENTRY_POINT_GROUP = "reme.plugins"
+CONFIG_ENTRY_POINT_GROUP = "reme.configs"
+
 
 def find_entry_points(group: str, name: str) -> list[metadata.EntryPoint]:
     """Return all matching entry points without importing their providers."""

@@ -190,6 +190,7 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 | Guide | What you will learn |
 |-------|---------------------|
 | [Quick Start](docs/en/quick_start.md) | Install ReMe, start the service, and run the first file and memory operations. |
+| [Plugin Management](docs/en/plugin_management.md) | Install, inspect, validate, enable, and uninstall local ReMe plugins. |
 | [Memory as File](docs/en/memory_as_file.md) | Understand workspace layers, frontmatter, wikilinks, chunks, and the file-as-source-of-truth model. |
 | [Auto Memory](docs/en/auto_memory.md) | Preserve source conversations and distill reusable daily memory cards. |
 | [Auto Resource](docs/en/auto_resource.md) | Import supported text resources and turn them into source-linked daily cards. |

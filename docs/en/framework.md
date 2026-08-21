@@ -231,14 +231,31 @@ They are configured under `components` and participate in the same dependency or
 Built-in implementations populate the built-in registry through package imports. ReMe freezes that template after
 bootstrap, and each `Application` receives a mutable copy. Runtime code resolves backends through the application's
 registry rather than changing the process-wide template. ReMe then loads only the installed plugins explicitly named by
-`plugins` in the resolved configuration. A plugin
-is exposed through the `reme.plugins` Python entry-point group and returns a declarative `reme.plugin.Plugin` containing
-its named backend classes and default configuration. Plugin registration therefore stays local to one application;
+`plugins` in the resolved configuration. A plugin exposes its package through the `reme.plugins` Python entry-point
+group. The package's `plugin.yaml` has two optional mappings: `backends` maps registration names to
+`module:Class` targets, and `application_defaults` contributes a low-priority `ApplicationConfig` fragment. The
+entry-point name is the plugin's identity.
+Plugins are enabled explicitly through the application config's `plugins` list or a `plugins=[...]` CLI override.
+Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
-Installed plugins may also expose named configuration files through `reme.configs`. Configuration can use `extends` to
-inherit another built-in, plugin, or file-based configuration. The [Auto Fin plugin](../../plugins/auto-fin/README.md)
-is the complete packaging example.
+The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
+files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. The
+[Auto Fin plugin](../../plugins/auto-fin/README.md) is the current packaging example.
+
+Plugin packages are managed locally and remain separate from per-application activation:
+
+```bash
+reme plugins list
+reme plugins install reme-auto-fin
+reme plugins show auto-fin
+reme plugins validate auto-fin
+reme plugins uninstall auto-fin
+
+reme start plugins='["auto-fin"]'
+```
+
+These management commands use the current Python interpreter's pip and never run through an HTTP or MCP service.
 
 ### 4.3 Component.bind
 

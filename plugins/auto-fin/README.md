@@ -5,32 +5,64 @@
 Auto Fin fetches a rolling window of CLS telegraph news (24 hours by default), selects items related to configured
 topics, searches ReMe for useful historical context, and writes one Chinese Markdown report with validated wikilinks.
 Current news and topic selection stay in runtime memory; only the final report becomes durable memory. This directory
-is an independent Python distribution. Its `reme.plugins` entry point contributes the three Step backends and their Job
-configuration; its `reme.configs` entry point exposes the runnable `auto-fin` configuration.
+is an independent Python distribution. Its single `reme.plugins` entry point exposes a `plugin.yaml` containing the
+three Step backends and their Job configuration under `application_defaults`. Enable the installed plugin explicitly
+through `plugins=["auto-fin"]`.
 
 > Auto Fin has no reliable market-price feed. It does not calculate returns, targets, or entry points and is not
 > investment advice.
 
 ## Quick start
 
-```bash
-python -m pip install "reme-ai[core]>=0.4.1.8" reme-auto-fin
-export LLM_API_KEY="your-api-key"
-export LLM_MODEL_NAME="qwen3.7-plus"
-export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=auto-fin job=auto_fin
-```
-
-`LLM_MODEL_NAME` defaults to `qwen3.7-plus`. There is no built-in `LLM_BASE_URL`, so set the OpenAI-compatible endpoint
-required by the selected provider.
-
-The default topics are `黄金,机器人,半导体`. Override them per run:
+### 1. Install ReMe and Auto Fin
 
 ```bash
-reme start config=auto-fin job=auto_fin topics="黄金,AI,存储芯片"
+python -m pip install "reme-ai[core]>=0.4.1.8"
+reme plugins install reme-auto-fin
 ```
 
-An empty value also uses the defaults.
+### 2. Configure the model environment
+
+Configure the LLM environment variables as described in the
+[ReMe README](../../README.md#environment-variables). Other compatible models and providers can also be used.
+
+### 3. Start ReMe with the plugin
+
+```bash
+reme start plugins='["auto-fin"]'
+```
+
+With no explicit `config`, ReMe loads `default.yaml` and adds the plugin to that service.
+
+From another terminal, call the running HTTP service through ReMe's CLI client:
+
+```bash
+reme auto_fin topics="黄金,AI,存储芯片"
+```
+
+Or call its HTTP endpoint directly:
+
+```bash
+curl -s http://127.0.0.1:2333/auto_fin \
+  -H 'Content-Type: application/json' \
+  -d '{"topics":"黄金,AI,存储芯片"}'
+```
+
+When enabled on an MCP service, the same Job is exposed as the `auto_fin` MCP tool. The default topics are
+`黄金,机器人,半导体`; an empty value also uses these defaults.
+
+To host the same application as an MCP service instead:
+
+```bash
+reme start plugins='["auto-fin"]' \
+  service.backend=mcp service.transport=streamable-http
+```
+
+To add Auto Fin to another application instead, select that config explicitly, for example:
+
+```bash
+reme start config=daily_cookbook plugins='["auto-fin"]'
+```
 
 ## Pipeline
 
@@ -76,7 +108,7 @@ refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent 
 | `request_interval` |                   `10` | Minimum delay in seconds after every CLS request attempt; may be zero    |
 | `max_retries`      |                    `3` | Maximum attempts for each CLS page request; must be at least one         |
 
-The plugin-provided schedules run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
+The three plugin cron Jobs start with the application and run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
 
 ## Output
 
