@@ -71,6 +71,11 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     async def health_check(self, timeout: float = 5.0) -> bool:
         tag = f"[EMBEDDING HEALTH CHECK] name={self.name} workspace_dir={self.workspace_path}"
         try:
+            # Provider construction may synchronously import an SDK and build
+            # its HTTP client. Keep that one-time work outside the request
+            # timeout so the full budget applies to the initialized provider
+            # call instead of being consumed before a request can be sent.
+            self.as_embedding.initialize_model()
             result = await asyncio.wait_for(self.as_embedding(["ping"]), timeout=timeout)
             if not result or result[0] is None:
                 raise RuntimeError("empty embedding")

@@ -121,6 +121,15 @@ class BaseAsEmbedding(BaseComponent):
         response = await self.model(inputs, **kwargs)  # pylint: disable=not-callable
         return response.embeddings
 
+    def initialize_model(self) -> None:
+        """Construct the provider without making a remote request.
+
+        Callers that apply their own request timeout can initialize first so
+        one-time SDK imports and client construction do not consume that
+        timeout budget. Normal embedding calls remain lazily initialized.
+        """
+        self._ensure_model()
+
     async def _start(self) -> None:
         """Defer provider construction until the first remote embedding call."""
         return None
