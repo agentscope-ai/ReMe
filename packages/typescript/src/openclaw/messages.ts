@@ -42,9 +42,8 @@ function normalizeMessage(
   sessionId: string,
   index: number,
 ): ReMeMessage | null {
-  const text = messageText(value.content);
-  if (!text || text.includes('<reme-context source="auto-recall">'))
-    return null;
+  const text = stripAutoRecallContext(messageText(value.content));
+  if (!text) return null;
   const nativeId =
     typeof value.id === "string" && value.id ? value.id : `${index}\n${text}`;
   const createdAt = timestamp(value.created_at ?? value.timestamp);
@@ -55,6 +54,15 @@ function normalizeMessage(
     content: [{ type: "text", text }],
     ...(createdAt ? { created_at: createdAt } : {}),
   };
+}
+
+function stripAutoRecallContext(value: string): string {
+  const opening = '<reme-context source="auto-recall">';
+  if (!value.startsWith(opening)) return value;
+  const closing = "</reme-context>";
+  const end = value.indexOf(closing, opening.length);
+  if (end === -1) return value;
+  return value.slice(end + closing.length).trim();
 }
 
 function messageText(content: unknown): string {

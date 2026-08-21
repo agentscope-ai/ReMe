@@ -302,6 +302,41 @@ test("applies changed batching and dream settings without replacing the runtime"
   await runtime.disposeAll();
 });
 
+test("keeps one auto-dream schedule when reconfigured during a run", async () => {
+  let calls = 0;
+  let releaseFirst;
+  const firstRequest = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  let config = {
+    ...CONFIG,
+    autoDreamEnabled: true,
+    dreamIntervalMs: 20,
+    shutdownTimeoutMs: 100,
+  };
+  const runtime = new ReMeRuntime(
+    {
+      async autoDream() {
+        calls += 1;
+        if (calls === 1) await firstRequest;
+        return { ok: true };
+      },
+    },
+    () => config,
+    silentLogger(),
+  );
+
+  runtime.start();
+  await delay(25);
+  config = { ...config };
+  runtime.reconfigure();
+  releaseFirst();
+  await delay(55);
+
+  assert.ok(calls >= 2 && calls <= 3, `expected one schedule, got ${calls}`);
+  await runtime.disposeAll();
+});
+
 function completeTurn(runtime, session, turn, seq, time) {
   runtime.capture(session, { type: "turn/start", data: { turn } });
   runtime.capture(session, {
@@ -334,4 +369,8 @@ function completeTurn(runtime, session, turn, seq, time) {
 
 function silentLogger() {
   return { debug() {}, warn() {}, log() {} };
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

@@ -12,8 +12,8 @@ selected adapter:
 reme start workspace_dir=/absolute/path/to/workspace
 ```
 
-The default endpoint is `http://127.0.0.1:2333`. All entries support `REME_URL`, or `REME_HOST` plus `REME_PORT`, and an
-optional `REME_API_KEY` bearer token.
+The default endpoint is `http://127.0.0.1:2333`. All entries support `REME_URL`, or `REME_HOST` plus `REME_PORT`.
+ReMe's HTTP service does not use API-key authentication.
 
 ## DeepSeek Harness
 
@@ -46,31 +46,27 @@ Configure the bundle by replacing its row in the profile's `cordis.patch.yml`:
 On the DSH Web profile, the same fields are available under **Settings → Plugins → Plugin configuration → ReMe
 Memory**. Changes are stored in DSH's user settings document and apply to subsequent requests and captures. Changing
 the daily dream controls reschedules the next run; changing the guidance language affects newly started sessions.
-Deployment-only `apiKey` and `dreamIntervalMs` values remain outside the user-settings section.
+The test-only `dreamIntervalMs` value remains outside the user-settings section.
 
-| Option                | Default                 | Meaning                                     |
-| --------------------- | ----------------------- | ------------------------------------------- |
-| `endpoint`            | `http://127.0.0.1:2333` | ReMe HTTP service URL                       |
-| `language`            | `en`                    | Memory guidance language: `en` or `zh`      |
-| `autoMemoryEnabled`   | `true`                  | Capture completed main-agent turns          |
-| `autoMemoryInterval`  | `5`                     | Submit after this many completed turns      |
-| `autoDreamEnabled`    | `true`                  | Enable daily dream maintenance              |
-| `dreamCron`           | `0 23 * * *`            | Daily schedule in the DSH process timezone  |
-| `rootAgentsOnly`      | `true`                  | Exclude subagents from guidance and capture |
-| `requestTimeoutMs`    | `10000`                 | Search request timeout                      |
-| `backgroundTimeoutMs` | `3600000`               | Automatic-memory and dream timeout          |
-| `shutdownTimeoutMs`   | `5000`                  | Best-effort shutdown drain budget           |
-| `timezone`            | `Asia/Shanghai`         | IANA timezone used for daily batches        |
+| Option                | Default                 | Meaning                                       |
+| --------------------- | ----------------------- | --------------------------------------------- |
+| `endpoint`            | `http://127.0.0.1:2333` | ReMe HTTP service URL                         |
+| `language`            | `en`                    | Memory guidance language: `en` or `zh`        |
+| `autoMemoryEnabled`   | `true`                  | Capture completed main-agent turns            |
+| `autoMemoryInterval`  | `5`                     | Submit after this many completed turns        |
+| `autoDreamEnabled`    | `true`                  | Enable daily dream maintenance                |
+| `dreamCron`           | `0 23 * * *`            | Daily schedule in the workspace timezone      |
+| `rootAgentsOnly`      | `true`                  | Exclude subagents from guidance and capture   |
+| `requestTimeoutMs`    | `10000`                 | Search request timeout                        |
+| `backgroundTimeoutMs` | `3600000`               | Automatic-memory and dream timeout            |
+| `shutdownTimeoutMs`   | `5000`                  | Best-effort shutdown drain budget             |
+| `timezone`            | `Asia/Shanghai`         | IANA timezone used for batches and scheduling |
 
 The ReMe card reads the service's `health_check` and `status` jobs on demand. It shows the ReMe version, component
 health, chunk/index counts, process RSS, and estimated component memory; it can also display the redacted `app_config`
 response and trigger one `auto_dream` run. Diagnostics are refreshed when the card first opens or when the user asks,
 not polled continuously. The page calls the configured ReMe HTTP endpoint from the local browser, so that service must
 remain browser-reachable and allow the DSH origin.
-
-The current ReMe HTTP service does not authenticate its job routes. `apiKey` only adds an `Authorization: Bearer ...`
-header for a deployment whose reverse proxy requires it; it is intentionally not exposed or returned by the DSH
-settings page.
 
 ## OpenClaw
 

@@ -8,7 +8,7 @@
 reme start workspace_dir=/absolute/path/to/workspace
 ```
 
-默认服务地址为 `http://127.0.0.1:2333`。所有入口均支持 `REME_URL`，也支持组合使用 `REME_HOST` 和 `REME_PORT`；还可以通过 `REME_API_KEY` 配置可选的 Bearer Token。
+默认服务地址为 `http://127.0.0.1:2333`。所有入口均支持 `REME_URL`，也支持组合使用 `REME_HOST` 和 `REME_PORT`。ReMe HTTP 服务不使用 API Key 认证。
 
 ## DeepSeek Harness
 
@@ -18,7 +18,7 @@ reme start workspace_dir=/absolute/path/to/workspace
 dsh plugin --profile web add @agentscope-ai/reme
 ```
 
-安装后可在 **设置 → 插件 → 插件配置 → ReMe Memory** 中配置服务地址、记忆指引语言、自动记忆、每日记忆整理和超时时间，并查看服务健康状态。`apiKey` 属于部署级密钥，不会显示在设置页面中。
+安装后可在 **设置 → 插件 → 插件配置 → ReMe Memory** 中配置服务地址、记忆指引语言、自动记忆、每日记忆整理和超时时间，并查看服务健康状态。每日记忆整理和每日批次统一使用配置的 workspace 时区。
 
 完整配置项和 `cordis.patch.yml` 示例请参阅[英文文档](./README.md#deepseek-harness)。
 

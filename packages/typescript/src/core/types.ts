@@ -1,7 +1,6 @@
 /** Connection settings shared by every TypeScript host adapter. */
 export interface ReMeClientConfig {
   endpoint: string;
-  apiKey: string;
   requestTimeoutMs: number;
   backgroundTimeoutMs: number;
 }

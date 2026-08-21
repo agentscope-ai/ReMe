@@ -193,9 +193,6 @@ export class ReMeClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(config.apiKey
-            ? { Authorization: `Bearer ${config.apiKey}` }
-            : {}),
         },
         body: JSON.stringify(payload),
         signal,

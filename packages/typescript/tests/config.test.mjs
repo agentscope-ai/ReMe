@@ -40,6 +40,10 @@ test("rejects unknown options and invalid IANA timezones", () => {
     () => resolveConfig({ timezone: "Mars/Olympus" }, {}),
     /Invalid ReMe timezone/,
   );
+  assert.throws(
+    () => resolveConfig({ apiKey: "unsupported" }, {}),
+    /Unknown ReMe config option/,
+  );
 });
 
 test("normalizes bounded plugin configuration", () => {
@@ -60,10 +64,9 @@ test("normalizes bounded plugin configuration", () => {
   assert.equal(config.rootAgentsOnly, false);
 });
 
-test("projects the editable DSH settings without deployment-only secrets", async () => {
-  const base = resolveConfig({ apiKey: "secret", dreamIntervalMs: 5000 }, {});
+test("projects editable DSH settings without test-only intervals", async () => {
+  const base = resolveConfig({ dreamIntervalMs: 5000 }, {});
   const settings = settingsFrom(base);
-  assert.equal("apiKey" in settings, false);
   assert.equal("dreamIntervalMs" in settings, false);
   const validated = await SettingsConfig["~standard"].validate({
     ...settings,
@@ -71,7 +74,6 @@ test("projects the editable DSH settings without deployment-only secrets", async
   });
   assert.equal(validated.issues, undefined);
   const merged = mergeSettings(base, validated.value);
-  assert.equal(merged.apiKey, "secret");
   assert.equal(merged.searchLimit, 8);
 });
 

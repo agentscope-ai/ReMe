@@ -20,7 +20,6 @@ test("calls ReMe jobs with their native request and response envelopes", async (
       endpoint: "http://127.0.0.1:2333",
       requestTimeoutMs: 1000,
       backgroundTimeoutMs: 1000,
-      apiKey: "",
     });
     const result = await client.search("deployment", { limit: 5, minScore: 0 });
     assert.equal(result.ok, true);
@@ -49,7 +48,6 @@ test("combines caller cancellation with the request timeout", async () => {
       endpoint: "http://127.0.0.1:2333",
       requestTimeoutMs: 1000,
       backgroundTimeoutMs: 1000,
-      apiKey: "",
     });
     const controller = new AbortController();
     const request = client.search("deployment", { signal: controller.signal });
@@ -102,7 +100,6 @@ test("returns typed health, memory status, and redacted server configuration", a
       endpoint,
       requestTimeoutMs: 1000,
       backgroundTimeoutMs: 1000,
-      apiKey: "",
     }));
     const health = await client.healthCheck();
     endpoint = "http://second.test";
@@ -149,7 +146,6 @@ test("lists and loads read-only ReMe workspace files", async () => {
       endpoint: "http://127.0.0.1:2333",
       requestTimeoutMs: 1000,
       backgroundTimeoutMs: 1000,
-      apiKey: "",
     });
     const listing = await client.listFiles("daily", { limit: 1 });
     const file = await client.loadFile("daily/2026-08-20/session.md");

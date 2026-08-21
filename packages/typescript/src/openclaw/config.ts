@@ -10,7 +10,6 @@ export interface OpenClawReMeConfig extends ReMeClientConfig {
 
 const DEFAULT_CONFIG: Readonly<OpenClawReMeConfig> = Object.freeze({
   endpoint: "http://127.0.0.1:2333",
-  apiKey: "",
   requestTimeoutMs: 5000,
   backgroundTimeoutMs: 3600000,
   shutdownTimeoutMs: 5000,
@@ -26,7 +25,6 @@ export const OPENCLAW_CONFIG_SCHEMA = {
   additionalProperties: false,
   properties: {
     endpoint: { type: "string" },
-    apiKey: { type: "string" },
     requestTimeoutMs: { type: "integer", minimum: 1000, maximum: 120000 },
     backgroundTimeoutMs: { type: "integer", minimum: 1000, maximum: 3600000 },
     shutdownTimeoutMs: { type: "integer", minimum: 100, maximum: 60000 },
@@ -60,7 +58,6 @@ export function resolveOpenClawConfig(
   }
   return {
     endpoint: normalizedEndpoint,
-    apiKey: stringValue(input.apiKey) || env.REME_API_KEY || "",
     requestTimeoutMs: integer(
       input.requestTimeoutMs,
       1000,

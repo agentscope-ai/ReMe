@@ -9,14 +9,13 @@ export const REME_SETTINGS_NAMESPACE = settingsNamespace("reme-memory");
 
 export const Config = z.object({
   endpoint: z.string().description("ReMe HTTP service URL"),
-  apiKey: z.string().role("secret").description("Optional ReMe bearer token"),
   requestTimeoutMs: z.natural().min(1000).max(120000).default(10000),
   backgroundTimeoutMs: z.natural().min(1000).max(3600000).default(3600000),
   shutdownTimeoutMs: z.natural().min(100).max(60000).default(5000),
   autoMemoryEnabled: z.boolean().default(true),
   autoMemoryInterval: z.natural().min(1).max(1000).default(5),
   autoDreamEnabled: z.boolean().default(true),
-  dreamCron: z.string().description("Daily cron in the DSH process timezone"),
+  dreamCron: z.string().description("Daily cron in the workspace timezone"),
   dreamHint: z.string().default(""),
   dreamIntervalMs: z.natural().max(2147483647).default(0),
   rootAgentsOnly: z.boolean().default(true),
@@ -40,7 +39,7 @@ export const SettingsConfig: z<ReMeSettings> = z.object({
   dreamCron: z
     .string()
     .required()
-    .description("Daily cron in the DSH process timezone"),
+    .description("Daily cron in the workspace timezone"),
   dreamHint: z.string().default(""),
   rootAgentsOnly: z.boolean().default(true),
   language: z.union(["en", "zh"]).default("en"),
@@ -53,7 +52,6 @@ export const SettingsConfig: z<ReMeSettings> = z.object({
 
 const DEFAULT_CONFIG: Readonly<ReMeConfig> = Object.freeze({
   endpoint: "http://127.0.0.1:2333",
-  apiKey: "",
   requestTimeoutMs: 10000,
   backgroundTimeoutMs: 3600000,
   shutdownTimeoutMs: 5000,
@@ -86,7 +84,6 @@ export function resolveConfig(
     ...DEFAULT_CONFIG,
     ...input,
     endpoint: input.endpoint || env.REME_URL || `http://${host}:${port}`,
-    apiKey: input.apiKey || env.REME_API_KEY || "",
     dreamCron:
       input.dreamCron || env.REME_DSH_DREAM_CRON || DEFAULT_CONFIG.dreamCron,
   };
@@ -130,17 +127,13 @@ export function resolveConfig(
   config.language = config.language === "zh" ? "zh" : "en";
   if (!validTimezone(config.timezone))
     throw new TypeError(`Invalid ReMe timezone: ${String(config.timezone)}`);
-  nextDailyRun(config.dreamCron);
+  nextDailyRun(config.dreamCron, config.timezone);
   return config;
 }
 
 /** Project the full plugin configuration into its user-editable settings section. */
 export function settingsFrom(config: ReMeConfig): ReMeSettings {
-  const {
-    apiKey: _apiKey,
-    dreamIntervalMs: _dreamIntervalMs,
-    ...settings
-  } = config;
+  const { dreamIntervalMs: _dreamIntervalMs, ...settings } = config;
   return settings;
 }
 
@@ -158,7 +151,7 @@ export function validateSettings(settings: ReMeSettings): void {
   if (!validTimezone(settings.timezone)) {
     throw new TypeError(`Invalid ReMe timezone: ${String(settings.timezone)}`);
   }
-  nextDailyRun(settings.dreamCron);
+  nextDailyRun(settings.dreamCron, settings.timezone);
 }
 
 function assertEndpoint(value: string): void {

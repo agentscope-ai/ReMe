@@ -1171,7 +1171,6 @@ function isRuntimeSnapshot(value: unknown): value is ReMeRuntimeSnapshot {
 function diagnosticClient(settings: ReMeSettings): ReMeClient {
   return new ReMeClient({
     endpoint: settings.endpoint,
-    apiKey: "",
     requestTimeoutMs: settings.requestTimeoutMs,
     backgroundTimeoutMs: settings.backgroundTimeoutMs,
   });

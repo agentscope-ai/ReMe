@@ -8,11 +8,6 @@
       "label": "ReMe endpoint",
       "placeholder": "http://127.0.0.1:2333"
     },
-    "apiKey": {
-      "label": "ReMe API key",
-      "sensitive": true,
-      "advanced": true
-    },
     "autoRecall": {
       "label": "Auto recall"
     },
@@ -29,7 +24,6 @@
     "additionalProperties": false,
     "properties": {
       "endpoint": { "type": "string" },
-      "apiKey": { "type": "string" },
       "requestTimeoutMs": {
         "type": "integer",
         "minimum": 1000,

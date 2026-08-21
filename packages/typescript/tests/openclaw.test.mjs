@@ -22,6 +22,10 @@ test("normalizes OpenClaw configuration and stable session ids", () => {
     () => resolveOpenClawConfig({ endpoint: "file:///tmp/reme" }, {}),
     /http\(s\)/,
   );
+  assert.throws(
+    () => resolveOpenClawConfig({ apiKey: "unsupported" }, {}),
+    /Unknown ReMe config option/,
+  );
 });
 
 test("keeps the runtime schema aligned with the OpenClaw manifest", async () => {
@@ -50,6 +54,27 @@ test("captures only the last OpenClaw user and assistant pair", () => {
     [
       ["user", "new question"],
       ["assistant", "new answer"],
+    ],
+  );
+});
+
+test("removes recalled context while preserving the current OpenClaw prompt", () => {
+  const messages = captureLastTurn(
+    [
+      {
+        role: "user",
+        content:
+          '<reme-context source="auto-recall">\nremembered deployment\n</reme-context>\n\nremember blue',
+      },
+      { role: "assistant", content: "noted" },
+    ],
+    "session",
+  );
+  assert.deepEqual(
+    messages.map((message) => [message.role, message.content[0].text]),
+    [
+      ["user", "remember blue"],
+      ["assistant", "noted"],
     ],
   );
 });

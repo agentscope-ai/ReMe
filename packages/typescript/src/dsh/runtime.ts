@@ -24,6 +24,7 @@ export class ReMeRuntime {
   readonly states = new Map<string, SessionState>();
   private readonly configSource: () => ReMeConfig;
   private dreamTimer: ReturnType<typeof setTimeout> | null = null;
+  private dreamScheduleGeneration = 0;
   private dreamTask: Promise<void> | null = null;
   private dreamController: AbortController | null = null;
   private started = false;
@@ -168,7 +169,7 @@ export class ReMeRuntime {
   start(): void {
     this.started = true;
     if (!this.configSource().autoDreamEnabled || this.stopping) return;
-    this.scheduleDream();
+    this.scheduleDream(this.dreamScheduleGeneration);
   }
 
   /** Apply a changed settings snapshot to pending batching and dream scheduling. */
@@ -179,21 +180,29 @@ export class ReMeRuntime {
       for (const state of this.states.values()) this.scheduleAutoMemory(state);
     }
     if (!this.started) return;
+    this.dreamScheduleGeneration += 1;
     if (this.dreamTimer) clearTimeout(this.dreamTimer);
     this.dreamTimer = null;
     this.nextDreamAt = undefined;
-    if (config.autoDreamEnabled) this.scheduleDream();
+    if (config.autoDreamEnabled)
+      this.scheduleDream(this.dreamScheduleGeneration);
   }
 
-  private scheduleDream(): void {
+  private scheduleDream(generation: number): void {
     const config = this.configSource();
-    if (this.stopping || !config.autoDreamEnabled) return;
+    if (
+      generation !== this.dreamScheduleGeneration ||
+      this.stopping ||
+      !config.autoDreamEnabled
+    )
+      return;
     let delay: number;
     try {
       delay =
         config.dreamIntervalMs > 0
           ? config.dreamIntervalMs
-          : nextDailyRun(config.dreamCron).getTime() - Date.now();
+          : nextDailyRun(config.dreamCron, config.timezone).getTime() -
+            Date.now();
     } catch (error) {
       this.log("warn", "auto_dream_schedule_invalid", {
         error: error instanceof Error ? error.message : String(error),
@@ -204,7 +213,7 @@ export class ReMeRuntime {
     this.dreamTimer = setTimeout(() => {
       this.dreamTimer = null;
       this.nextDreamAt = undefined;
-      void this.runDream().finally(() => this.scheduleDream());
+      void this.runDream().finally(() => this.scheduleDream(generation));
     }, delay);
     this.dreamTimer.unref?.();
   }
@@ -289,6 +298,7 @@ export class ReMeRuntime {
   async disposeAll(): Promise<void> {
     this.stopping = true;
     this.started = false;
+    this.dreamScheduleGeneration += 1;
     if (this.dreamTimer) clearTimeout(this.dreamTimer);
     this.dreamTimer = null;
     this.nextDreamAt = undefined;

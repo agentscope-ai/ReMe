@@ -2,7 +2,6 @@ import type { ReMeClientConfig } from "../core/types.js";
 
 export interface ReMeConfigInput {
   endpoint?: string;
-  apiKey?: string;
   requestTimeoutMs?: number;
   backgroundTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -33,7 +32,7 @@ export interface ReMeConfig extends ReMeClientConfig {
 }
 
 /** ReMe integration fields owned by the DSH user-settings document. */
-export type ReMeSettings = Omit<ReMeConfig, "apiKey" | "dreamIntervalMs">;
+export type ReMeSettings = Omit<ReMeConfig, "dreamIntervalMs">;
 
 export interface SessionEvent {
   type: string;
