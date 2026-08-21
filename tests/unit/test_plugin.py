@@ -1,6 +1,6 @@
 """Tests for installed plugin discovery and application-local registration."""
 
-# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
-from reme.plugin import Backend, Plugin, PluginManager
+from reme.plugin import Backend, Plugin, PluginManager, _load_backend
 from reme.plugin_manifest import parse_plugin_manifest
 
 
@@ -183,6 +183,11 @@ def test_plugin_manifest_rejects_legacy_defaults_field():
 def test_plugin_manifest_requires_application_defaults_mapping():
     with pytest.raises(TypeError, match="manifest 'application_defaults' must be a mapping"):
         parse_plugin_manifest("application_defaults: []\n", plugin_name="example")
+
+
+def test_plugin_manifest_reports_missing_backend_attribute():
+    with pytest.raises(ValueError, match="cannot load backend.*MissingStep"):
+        _load_backend("reme.plugin:MissingStep", plugin_name="missing")
 
 
 def test_plugin_manager_rejects_multiple_entry_point_providers(monkeypatch):

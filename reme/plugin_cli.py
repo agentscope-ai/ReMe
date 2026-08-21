@@ -217,14 +217,12 @@ def _uninstall_plugin(args: argparse.Namespace) -> int:
     return result
 
 
-def _validate_plugins(plugins) -> None:
+def _validate_plugins(manager) -> None:
     """Validate imports, registry ownership, and merged application schema."""
     from .components.component_registry import create_application_registry
     from .config.config_parser import resolve_app_config
-    from .plugin import PluginManager
     from .schema.application_config import ApplicationConfig
 
-    manager = PluginManager(plugins)
     registry = create_application_registry()
     manager.register(registry)
     ApplicationConfig(**manager.merge_config(resolve_app_config(log_config=False)))
@@ -234,13 +232,13 @@ def _validate_installed(name: str) -> list[str]:
     from .plugin import PluginManager
 
     manager = PluginManager.discover([name])
-    _validate_plugins(manager.plugins)
+    _validate_plugins(manager)
     return [name]
 
 
 def _validate_local(path: Path) -> list[str]:
     from .components.component_registry import R
-    from .plugin import Backend, Plugin, _load_backend
+    from .plugin import PluginManager, _plugin_from_manifest
 
     project_file = path if path.name == "pyproject.toml" else path / "pyproject.toml"
     if not project_file.is_file():
@@ -266,12 +264,8 @@ def _validate_local(path: Path) -> list[str]:
                 if not manifest_path.is_file():
                     raise FileNotFoundError(f"Plugin manifest not found: {manifest_path}")
                 manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=name)
-                backends = tuple(
-                    Backend(backend_name, _load_backend(target, plugin_name=name))
-                    for backend_name, target in manifest.backends.items()
-                )
-                plugins.append(Plugin(name=name, backends=backends, config=manifest.application_defaults))
-        _validate_plugins(plugins)
+                plugins.append(_plugin_from_manifest(name, manifest))
+        _validate_plugins(PluginManager(plugins))
     finally:
         sys.path.remove(str(source_root.resolve()))
     return [plugin.name for plugin in plugins]

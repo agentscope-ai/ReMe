@@ -17,7 +17,7 @@ from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry, create_application_registry
 from .config import deep_merge_config, expand_env_vars
 from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, load_entry_point, unique_entry_point
-from .plugin_manifest import load_package_manifest
+from .plugin_manifest import PluginManifest, load_package_manifest
 
 
 @dataclass(frozen=True)
@@ -50,17 +50,19 @@ def _load_backend(target: str, *, plugin_name: str) -> type[ComponentMixin]:
     module_name, separator, attribute = target.partition(":")
     if not separator or not module_name or not attribute or ":" in attribute:
         raise ValueError(f"Plugin '{plugin_name}' has invalid backend target: {target!r}")
-    value: Any = import_module(module_name)
-    for part in attribute.split("."):
-        value = getattr(value, part)
+    try:
+        value: Any = import_module(module_name)
+        for part in attribute.split("."):
+            value = getattr(value, part)
+    except (AttributeError, ImportError) as exc:
+        raise ValueError(f"Plugin '{plugin_name}' cannot load backend '{target}': {exc}") from exc
     if not isinstance(value, type) or not issubclass(value, ComponentMixin):
         raise TypeError(f"Plugin '{plugin_name}' backend '{target}' is not a ComponentMixin class")
     return value
 
 
-def _load_manifest_plugin(name: str, package: str) -> Plugin:
-    """Load ``plugin.yaml`` from an entry point's package."""
-    manifest = load_package_manifest(package, plugin_name=name)
+def _plugin_from_manifest(name: str, manifest: PluginManifest) -> Plugin:
+    """Convert a parsed manifest into one runtime plugin descriptor."""
     backends = tuple(
         Backend(backend_name, _load_backend(target, plugin_name=name))
         for backend_name, target in manifest.backends.items()
@@ -76,7 +78,8 @@ def _load_plugin(name: str, entry: EntryPoint) -> Plugin:
         from .components.component_registry import R
 
         with R.preserve(allow_mutation=True):
-            return _load_manifest_plugin(name, entry.value)
+            manifest = load_package_manifest(entry.value, plugin_name=name)
+            return _plugin_from_manifest(name, manifest)
     plugin = load_entry_point(entry, invoke=True)
     if not isinstance(plugin, Plugin):
         raise TypeError(f"Plugin entry point '{name}' did not return reme.plugin.Plugin")
