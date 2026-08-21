@@ -19,6 +19,7 @@ export function openClawSessionId(value: string): string {
 export function captureLastTurn(
   messages: unknown[],
   sessionId: string,
+  userPrompt?: string,
 ): ReMeMessage[] {
   let assistant: ReMeMessage | null = null;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -29,7 +30,13 @@ export function captureLastTurn(
       continue;
     }
     if (assistant && record.role === "user") {
-      const user = normalizeMessage(record, "user", sessionId, index);
+      const user = normalizeMessage(
+        record,
+        "user",
+        sessionId,
+        index,
+        userPrompt,
+      );
       return user ? [user, assistant] : [];
     }
   }
@@ -41,8 +48,10 @@ function normalizeMessage(
   role: "user" | "assistant",
   sessionId: string,
   index: number,
+  textOverride?: string,
 ): ReMeMessage | null {
-  const text = stripAutoRecallContext(messageText(value.content));
+  const text =
+    textOverride?.trim() || stripAutoRecallContext(messageText(value.content));
   if (!text) return null;
   const nativeId =
     typeof value.id === "string" && value.id ? value.id : `${index}\n${text}`;
@@ -58,11 +67,12 @@ function normalizeMessage(
 
 function stripAutoRecallContext(value: string): string {
   const opening = '<reme-context source="auto-recall">';
-  if (!value.startsWith(opening)) return value;
+  const start = value.indexOf(opening);
+  if (start === -1) return value;
   const closing = "</reme-context>";
-  const end = value.indexOf(closing, opening.length);
+  const end = value.indexOf(closing, start + opening.length);
   if (end === -1) return value;
-  return value.slice(end + closing.length).trim();
+  return `${value.slice(0, start)}${value.slice(end + closing.length)}`.trim();
 }
 
 function messageText(content: unknown): string {

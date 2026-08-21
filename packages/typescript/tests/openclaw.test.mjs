@@ -79,6 +79,30 @@ test("removes recalled context while preserving the current OpenClaw prompt", ()
   );
 });
 
+test("uses the original prompt when other plugins prepend context around recall", () => {
+  const messages = captureLastTurn(
+    [
+      {
+        role: "user",
+        content:
+          "other plugin context\n\n" +
+          '<reme-context source="auto-recall">\nremembered deployment\n</reme-context>\n\n' +
+          "another plugin context\n\nremember blue",
+      },
+      { role: "assistant", content: "noted" },
+    ],
+    "session",
+    "remember blue",
+  );
+  assert.deepEqual(
+    messages.map((message) => [message.role, message.content[0].text]),
+    [
+      ["user", "remember blue"],
+      ["assistant", "noted"],
+    ],
+  );
+});
+
 test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -114,7 +138,7 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
     assert.equal(tools[0].name, "reme_search");
     const recalled = await hooks.get("before_agent_start")(
       { prompt: "deployment" },
-      { trigger: "user" },
+      { trigger: "user", agentId: "main", sessionId: "session-1" },
     );
     assert.match(recalled.prependContext, /remembered deployment/);
 
@@ -122,7 +146,13 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
       {
         success: true,
         messages: [
-          { role: "user", content: "remember blue" },
+          {
+            role: "user",
+            content:
+              "other plugin context\n\n" +
+              recalled.prependContext +
+              "\n\ndeployment",
+          },
           { role: "assistant", content: "noted" },
         ],
       },
@@ -134,6 +164,7 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
       calls.map((call) => call.url),
       ["http://127.0.0.1:2333/search", "http://127.0.0.1:2333/auto_memory"],
     );
+    assert.equal(calls[1].body.messages[0].content[0].text, "deployment");
   } finally {
     globalThis.fetch = originalFetch;
   }

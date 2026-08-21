@@ -20,9 +20,11 @@ const plugin: OpenClawPluginDefinition = {
     const runtime = new OpenClawReMeRuntime(client, config, api.logger);
     registerOpenClawTools(api, client, config);
 
-    if (config.autoRecall) {
+    if (config.autoRecall || config.autoCapture) {
       api.on("before_agent_start", async (event, context) => {
         if (!capturesTrigger(context.trigger)) return;
+        runtime.rememberPrompt(event.prompt, context);
+        if (!config.autoRecall) return;
         const query = event.prompt.trim();
         if (!query) return;
         const result = await client.search(query, {
@@ -41,7 +43,8 @@ const plugin: OpenClawPluginDefinition = {
     }
 
     api.on("agent_end", (event, context) => {
-      if (event.success) runtime.capture(event.messages, context);
+      const prompt = runtime.takePrompt(context);
+      if (event.success) runtime.capture(event.messages, context, prompt);
     });
 
     api.registerService({

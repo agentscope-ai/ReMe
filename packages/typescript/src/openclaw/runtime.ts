@@ -14,6 +14,7 @@ export interface OpenClawAgentContext {
 export class OpenClawReMeRuntime {
   private writes = Promise.resolve();
   private controller = new AbortController();
+  private readonly prompts = new Map<string, string>();
 
   constructor(
     readonly client: ReMeClientLike,
@@ -21,7 +22,26 @@ export class OpenClawReMeRuntime {
     readonly logger: LoggerLike,
   ) {}
 
-  capture(messages: unknown[], context: OpenClawAgentContext): void {
+  rememberPrompt(prompt: string, context: OpenClawAgentContext): void {
+    if (!this.config.autoCapture || !capturesTrigger(context.trigger)) return;
+    const key = promptKey(context);
+    const text = prompt.trim();
+    if (key && text) this.prompts.set(key, text);
+  }
+
+  takePrompt(context: OpenClawAgentContext): string | undefined {
+    const key = promptKey(context);
+    if (!key) return undefined;
+    const prompt = this.prompts.get(key);
+    this.prompts.delete(key);
+    return prompt;
+  }
+
+  capture(
+    messages: unknown[],
+    context: OpenClawAgentContext,
+    prompt?: string,
+  ): void {
     if (!this.config.autoCapture || !capturesTrigger(context.trigger)) return;
     const nativeSessionId = context.sessionId || context.sessionKey;
     if (!nativeSessionId) {
@@ -33,7 +53,7 @@ export class OpenClawReMeRuntime {
     const sessionId = openClawSessionId(
       `${context.agentId || "default"}\n${nativeSessionId}`,
     );
-    const captured = captureLastTurn(messages, sessionId);
+    const captured = captureLastTurn(messages, sessionId, prompt);
     if (captured.length !== 2) return;
     this.writes = this.writes
       .then(async () => {
@@ -70,4 +90,11 @@ export class OpenClawReMeRuntime {
 
 function capturesTrigger(trigger: string | undefined): boolean {
   return trigger === undefined || trigger === "user";
+}
+
+function promptKey(context: OpenClawAgentContext): string {
+  const nativeSessionId = context.sessionId || context.sessionKey;
+  return nativeSessionId
+    ? `${context.agentId || "default"}\n${nativeSessionId}`
+    : "";
 }
