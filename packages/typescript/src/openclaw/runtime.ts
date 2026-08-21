@@ -2,6 +2,8 @@ import type { LoggerLike, ReMeClientLike } from "../core/types.js";
 import type { OpenClawReMeConfig } from "./config.js";
 import { captureLastTurn, openClawSessionId } from "./messages.js";
 
+const MAX_PENDING_PROMPTS = 256;
+
 /** Host context supplied to OpenClaw agent lifecycle hooks. */
 export interface OpenClawAgentContext {
   agentId?: string;
@@ -26,7 +28,14 @@ export class OpenClawReMeRuntime {
     if (!this.config.autoCapture || !capturesTrigger(context.trigger)) return;
     const key = promptKey(context);
     const text = prompt.trim();
-    if (key && text) this.prompts.set(key, text);
+    if (!key || !text) return;
+    this.prompts.delete(key);
+    this.prompts.set(key, text);
+    while (this.prompts.size > MAX_PENDING_PROMPTS) {
+      const oldest = this.prompts.keys().next().value;
+      if (oldest === undefined) break;
+      this.prompts.delete(oldest);
+    }
   }
 
   takePrompt(context: OpenClawAgentContext): string | undefined {
@@ -76,6 +85,7 @@ export class OpenClawReMeRuntime {
   }
 
   async dispose(): Promise<void> {
+    this.prompts.clear();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<void>((resolve) => {
       timer = setTimeout(() => {

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import plugin, {
   OPENCLAW_CONFIG_SCHEMA,
+  OpenClawReMeRuntime,
   captureLastTurn,
   openClawSessionId,
   resolveOpenClawConfig,
@@ -100,6 +101,28 @@ test("uses the original prompt when other plugins prepend context around recall"
       ["user", "remember blue"],
       ["assistant", "noted"],
     ],
+  );
+});
+
+test("bounds prompts retained when an OpenClaw run ends before agent_end", () => {
+  const runtime = new OpenClawReMeRuntime({}, resolveOpenClawConfig({}, {}), {
+    warn() {},
+  });
+  for (let index = 0; index < 300; index += 1) {
+    runtime.rememberPrompt(`prompt ${index}`, {
+      agentId: "main",
+      sessionId: `failed-session-${index}`,
+      trigger: "user",
+    });
+  }
+
+  assert.equal(
+    runtime.takePrompt({ agentId: "main", sessionId: "failed-session-0" }),
+    undefined,
+  );
+  assert.equal(
+    runtime.takePrompt({ agentId: "main", sessionId: "failed-session-299" }),
+    "prompt 299",
   );
 });
 
