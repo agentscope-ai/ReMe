@@ -272,12 +272,6 @@ class LocalFileStore(BaseFileStore):
                 f"elapsed={time.monotonic() - started_at:.3f}s",
             )
             return
-        if not self.file_chunks:
-            self.logger.info(
-                f"{self.name}: embedding backfill skipped: reason=no_chunks, "
-                f"elapsed={time.monotonic() - started_at:.3f}s",
-            )
-            return
         if self._embedding_backfill_task is not None and not self._embedding_backfill_task.done():
             pending_verified = skip_health_check or bool(
                 self._embedding_backfill_pending and self._embedding_backfill_pending[0],
@@ -289,6 +283,12 @@ class LocalFileStore(BaseFileStore):
                 self._embedding_backfill_pending = (pending_verified, pending_rebuild)
             self.logger.info(
                 f"{self.name}: embedding backfill scheduling skipped: reason=already_running, "
+                f"elapsed={time.monotonic() - started_at:.3f}s",
+            )
+            return
+        if not self.file_chunks:
+            self.logger.info(
+                f"{self.name}: embedding backfill skipped: reason=no_chunks, "
                 f"elapsed={time.monotonic() - started_at:.3f}s",
             )
             return

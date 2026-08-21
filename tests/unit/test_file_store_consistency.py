@@ -724,6 +724,34 @@ def test_verified_resume_supersedes_inflight_startup_health_check():
     run(go())
 
 
+def test_verified_resume_without_chunks_supersedes_inflight_health_check():
+    """A newer verified state survives a stale probe even after chunks are cleared."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_embedding_empty_verified_resume_race")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            fake = CancellationResistantHealthStore()
+            store.embedding_store = fake
+            store._start_embedding_backfill()
+            startup_task = store._embedding_backfill_task
+            await fake.health_started.wait()
+
+            await store.clear()
+            assert await store.resume_embedding(verified=True) is True
+            assert store._embedding_backfill_pending == (True, False)
+            fake.release_health.set()
+
+            await startup_task
+            assert fake.is_healthy is True
+            assert not fake.node_embedding_calls
+            assert store._embedding_backfill_task is None
+            await store.close()
+
+    run(go())
+
+
 @pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
 def test_verified_rebuild_discards_same_dimension_vectors_before_backfill(store_factory):
     """A changed vector space never searches compatible-shaped stale vectors."""
