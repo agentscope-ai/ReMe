@@ -226,8 +226,29 @@ def _strip_arg_dashes(arg: str) -> str:
     return arg
 
 
-def parse_args(*args) -> tuple[str, dict]:
-    """Parse CLI args: first arg is action, rest are key=value pairs.
+def parse_action(arg: str) -> str:
+    """Parse and validate one top-level CLI action."""
+    action = _strip_arg_dashes(arg)
+    if "=" in action:
+        raise ValueError(f"First argument must be action, got: {arg}")
+    return action
+
+
+def parse_kwargs(*args: str) -> dict:
+    """Parse application-style ``key=value`` CLI arguments."""
+    kvs: list[str] = []
+    for raw in args:
+        arg = _strip_arg_dashes(raw)
+        if "=" in arg:
+            kvs.append(arg)
+        else:
+            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
+
+    return parse_dot_notation(kvs) if kvs else {}
+
+
+def parse_args(*args: str) -> tuple[str, dict]:
+    """Parse an application CLI action followed by ``key=value`` arguments.
 
     Usage: reme app config=paw.yaml service.name=test
     Returns: (action, parsed_kv_dict)
@@ -235,20 +256,7 @@ def parse_args(*args) -> tuple[str, dict]:
     if not args:
         raise ValueError("No arguments provided")
 
-    first = _strip_arg_dashes(args[0])
-    if "=" in first:
-        raise ValueError(f"First argument must be action, got: {args[0]}")
-
-    kvs: list[str] = []
-    for raw in args[1:]:
-        arg = _strip_arg_dashes(raw)
-        if "=" in arg:
-            kvs.append(arg)
-        else:
-            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
-
-    parsed = parse_dot_notation(kvs) if kvs else {}
-    return first, parsed
+    return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
 def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:

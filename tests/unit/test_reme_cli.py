@@ -98,8 +98,8 @@ def test_main_loads_env_before_calling_server(monkeypatch):
     events = []
 
     main_globals = reme_module.main.__globals__
+    monkeypatch.setattr("sys.argv", ["reme", "shell", "cmd=pwd"])
     monkeypatch.setitem(main_globals, "load_env", lambda: events.append("load_env"))
-    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("shell", {"cmd": "pwd"}))
 
     async def fake_call_server(action, **kwargs):
         events.append(("call_server", action, kwargs))
@@ -127,8 +127,8 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
             observed["ran"] = True
 
     main_globals = reme_module.main.__globals__
+    monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
-    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("start", {}))
     monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
     monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
 

@@ -1,11 +1,13 @@
 """ReMe memory management application entry point."""
 
 import asyncio
+from collections.abc import Sequence
+from dataclasses import dataclass
 import sys
 
 from .application import Application
 from .components.service.cli_service import prepare_start_config, should_precheck_start
-from .config import parse_args, resolve_app_config
+from .config import parse_action, parse_kwargs, resolve_app_config
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
 from .utils import cli_find_reme, load_env, precheck_start, running_app_config
@@ -15,6 +17,21 @@ _CLIENT_KWARGS = {"host", "port", "timeout", "transport", "command", "args", "sh
 
 class ReMe(Application):
     """ReMe memory management application."""
+
+
+@dataclass(frozen=True)
+class CliInvocation:
+    """A top-level CLI action with arguments in that action's own syntax."""
+
+    action: str
+    arguments: tuple[str, ...]
+
+
+def parse_cli_invocation(argv: Sequence[str]) -> CliInvocation:
+    """Parse only the grammar shared by every CLI command family."""
+    if not argv:
+        raise ValueError("No arguments provided")
+    return CliInvocation(action=parse_action(argv[0]), arguments=tuple(argv[1:]))
 
 
 async def call_server(action: str, **kwargs):
@@ -63,26 +80,39 @@ async def call_server(action: str, **kwargs):
         print()
 
 
-def main():
+def _run_plugin_command(argv: Sequence[str]) -> None:
+    """Run local package management without initializing the application."""
+    from .plugin_cli import plugin_cli
+
+    status = plugin_cli(argv)
+    if status:
+        raise SystemExit(status)
+
+
+def _start_application(kwargs: dict, environment: dict) -> None:
+    """Resolve startup configuration and run the application."""
+    kwargs = prepare_start_config(kwargs)
+    kwargs["environment"] = environment
+    if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
+        return
+    ReMe(**kwargs).run_app()
+
+
+def main() -> None:
     """Parse CLI arguments and launch the appropriate mode."""
-    if len(sys.argv) > 1 and sys.argv[1] == "plugins":
+    invocation = parse_cli_invocation(sys.argv[1:])
+    action = invocation.action
+
+    if action == "plugins":
         # Package management is local-only and must not load application config,
         # environment files, or a running service.
-        from .plugin_cli import plugin_cli
-
-        status = plugin_cli(sys.argv[2:])
-        if status:
-            raise SystemExit(status)
+        _run_plugin_command(invocation.arguments)
         return
 
     environment = load_env()
-    action, kwargs = parse_args(*sys.argv[1:])
+    kwargs = parse_kwargs(*invocation.arguments)
     if action == "start":
-        kwargs = prepare_start_config(kwargs)
-        kwargs["environment"] = environment
-        if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
-            return
-        ReMe(**kwargs).run_app()
+        _start_application(kwargs, environment)
     elif action == "find_reme":
         cli_find_reme()
     else:

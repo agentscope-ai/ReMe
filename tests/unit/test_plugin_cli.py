@@ -5,6 +5,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from reme import plugin_cli as plugin_cli_module
 from reme import reme as reme_module
 from reme.components import R
@@ -217,9 +219,10 @@ def test_plugin_command_errors_are_clean(monkeypatch, capsys):
     assert "Plugin 'missing' is not installed" in capsys.readouterr().err
 
 
-def test_main_routes_plugins_before_loading_environment(monkeypatch):
+@pytest.mark.parametrize("action", ["plugins", "--plugins"])
+def test_main_routes_plugins_before_loading_environment(monkeypatch, action):
     events = []
-    monkeypatch.setattr("sys.argv", ["reme", "plugins", "list"])
+    monkeypatch.setattr("sys.argv", ["reme", action, "list"])
     monkeypatch.setattr(reme_module, "load_env", lambda: events.append("load_env"))
     monkeypatch.setattr(plugin_cli_module, "plugin_cli", lambda argv: events.append(list(argv)) or 0)
 

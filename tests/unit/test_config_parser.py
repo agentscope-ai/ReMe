@@ -135,6 +135,14 @@ def test_parse_args_rejects_non_key_value_extra_argument():
         parse_args("search", "hello")
 
 
+def test_parse_args_separates_action_and_application_kwargs():
+    """The shared action grammar is independent from application key/value parsing."""
+    action, kwargs = parse_args("--search", "--query=hello", "limit=3")
+
+    assert action == "search"
+    assert kwargs == {"query": "hello", "limit": 3}
+
+
 @pytest.mark.parametrize("item", ["=1", ".a=1", "a.=1", "a..b=1"])
 def test_parse_dot_notation_rejects_empty_key_segments(item):
     """Dot notation keys cannot contain empty path segments."""
