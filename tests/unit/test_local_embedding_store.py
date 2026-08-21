@@ -48,6 +48,9 @@ class FailingHealthAsEmbedding:
     def __init__(self):
         self.calls = 0
 
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
     async def __call__(self, _texts: list[str], **_kwargs):
         self.calls += 1
         raise ConnectionError("not ready")
@@ -196,6 +199,8 @@ def test_health_check_starts_timeout_after_provider_initialization(monkeypatch):
 
         assert await store.health_check(timeout=5.0) is True
         assert events == ["initialized", "remote request"]
+
+    run(go())
 
 
 def test_health_check_makes_one_attempt():

@@ -279,11 +279,14 @@ class LocalFileStore(BaseFileStore):
             )
             return
         if self._embedding_backfill_task is not None and not self._embedding_backfill_task.done():
-            if skip_health_check:
-                pending_rebuild = rebuild or bool(
-                    self._embedding_backfill_pending and self._embedding_backfill_pending[1],
-                )
-                self._embedding_backfill_pending = (True, pending_rebuild)
+            pending_verified = skip_health_check or bool(
+                self._embedding_backfill_pending and self._embedding_backfill_pending[0],
+            )
+            pending_rebuild = rebuild or bool(
+                self._embedding_backfill_pending and self._embedding_backfill_pending[1],
+            )
+            if pending_verified or pending_rebuild:
+                self._embedding_backfill_pending = (pending_verified, pending_rebuild)
             self.logger.info(
                 f"{self.name}: embedding backfill scheduling skipped: reason=already_running, "
                 f"elapsed={time.monotonic() - started_at:.3f}s",
@@ -355,6 +358,19 @@ class LocalFileStore(BaseFileStore):
     async def _backfill_missing_embeddings(self, *, skip_health_check: bool = False) -> None:
         """Background-repair persisted chunks that do not have usable vectors."""
         started_at = time.monotonic()
+        try:
+            await self._backfill_missing_embeddings_inner(skip_health_check=skip_health_check, started_at=started_at)
+        finally:
+            if self._embedding_rebuild_pending and not self._closing:
+                try:
+                    await self._after_embedding_backfill()
+                    await self.dump()
+                    self._embedding_rebuild_pending = False
+                except Exception:
+                    self.logger.exception(f"{self.name}: failed to finalize embedding rebuild")
+
+    async def _backfill_missing_embeddings_inner(self, *, skip_health_check: bool, started_at: float) -> None:
+        """Perform one backfill pass; the caller owns rebuild finalization."""
         if not self.embedding_store or not self.file_chunks:
             self.logger.info(
                 f"{self.name}: embedding backfill finished without work: "
@@ -370,10 +386,6 @@ class LocalFileStore(BaseFileStore):
             f"missing={len(missing)}, elapsed={time.monotonic() - scan_started_at:.3f}s",
         )
         if not missing:
-            if self._embedding_rebuild_pending:
-                await self._after_embedding_backfill()
-                await self.dump()
-                self._embedding_rebuild_pending = False
             self.logger.info(
                 f"{self.name}: embedding backfill complete: filled=0/0, "
                 f"elapsed={time.monotonic() - started_at:.3f}s",
@@ -434,11 +446,10 @@ class LocalFileStore(BaseFileStore):
         self.logger.info(
             f"{self.name}: embedding backfill complete: filled={filled}/{total}, elapsed={elapsed:.2f}s",
         )
-        if filled or self._embedding_rebuild_pending:
+        if filled and not self._embedding_rebuild_pending:
             try:
                 await self._after_embedding_backfill()
                 await self.dump()
-                self._embedding_rebuild_pending = False
             except Exception:
                 self.logger.exception(f"{self.name}: failed to persist completed embedding backfill")
 

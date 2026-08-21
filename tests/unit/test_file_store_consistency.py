@@ -787,6 +787,59 @@ def test_verified_rebuild_discards_late_result_from_previous_vector_space():
     run(go())
 
 
+def test_unverified_rebuild_is_queued_behind_inflight_backfill():
+    """An unverified rebuild request cannot be lost while another batch is running."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_embedding_unverified_rebuild_race")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            fake = DelayedOldVectorStore()
+            store.embedding_store = fake
+            store._start_embedding_backfill(skip_health_check=True)
+            old_task = store._embedding_backfill_task
+            await fake.first_batch_started.wait()
+
+            assert await store.resume_embedding(rebuild=True) is True
+            assert store._embedding_backfill_pending == (False, True)
+            fake.release_first_batch.set()
+
+            await old_task
+            if store._embedding_backfill_task is not None:
+                await store._embedding_backfill_task
+            assert fake.node_embedding_calls == [["a"], ["a"]]
+            assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
+            assert store._embedding_rebuild_pending is False
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_clear_during_scheduled_rebuild_finishes_rebuild_state(store_factory):
+    """Clearing all chunks before the worker scan must not disable vector search forever."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_embedding_clear_during_rebuild")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha text")})
+            store.embedding_store = CountingFakeEmbeddingStore()
+
+            assert await store.resume_embedding(verified=True, rebuild=True) is True
+            task = store._embedding_backfill_task
+            await store.clear()
+            if task is not None:
+                await task
+
+            assert store.file_chunks == {}
+            assert store._embedding_rebuild_pending is False
+            await store.close()
+
+    run(go())
+
+
 @pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
 def test_search_recovery_schedules_backfill_without_another_health_check(store_factory):
     """A successful real search request repairs historical missing vectors."""
