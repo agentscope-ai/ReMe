@@ -127,7 +127,13 @@ def _installed_manifest(plugin: InstalledPlugin) -> PluginManifest:
         path = Path(distribution.locate_file(relative))
         if path.is_file():
             return parse_plugin_manifest(path.read_text(encoding="utf-8"), plugin_name=plugin.name)
-    return load_package_manifest(plugin.target, plugin_name=plugin.name)
+    # Editable installs may not expose package data through ``locate_file``.
+    # Importlib resources then has to import the package, whose ``__init__``
+    # may still contain legacy registration side effects.
+    from .components.component_registry import R
+
+    with R.preserve(allow_mutation=True):
+        return load_package_manifest(plugin.target, plugin_name=plugin.name)
 
 
 def _plugin_details(plugin: InstalledPlugin) -> dict:
@@ -233,6 +239,7 @@ def _validate_installed(name: str) -> list[str]:
 
 
 def _validate_local(path: Path) -> list[str]:
+    from .components.component_registry import R
     from .plugin import Backend, Plugin, _load_backend
 
     project_file = path if path.name == "pyproject.toml" else path / "pyproject.toml"
@@ -249,18 +256,21 @@ def _validate_local(path: Path) -> list[str]:
     plugins = []
     sys.path.insert(0, str(source_root.resolve()))
     try:
-        for name, package in entry_points.items():
-            if not isinstance(name, str) or not isinstance(package, str) or ":" in package:
-                raise ValueError("Local validation requires package-only manifest entry points")
-            manifest_path = source_root.joinpath(*package.split(".")).joinpath(PLUGIN_MANIFEST)
-            if not manifest_path.is_file():
-                raise FileNotFoundError(f"Plugin manifest not found: {manifest_path}")
-            manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=name)
-            backends = tuple(
-                Backend(backend_name, _load_backend(target, plugin_name=name))
-                for backend_name, target in manifest.backends.items()
-            )
-            plugins.append(Plugin(name=name, backends=backends, config=manifest.application_defaults))
+        # Match installed-plugin loading: imports may execute compatibility
+        # decorators, but they must not mutate the frozen built-in template.
+        with R.preserve(allow_mutation=True):
+            for name, package in entry_points.items():
+                if not isinstance(name, str) or not isinstance(package, str) or ":" in package:
+                    raise ValueError("Local validation requires package-only manifest entry points")
+                manifest_path = source_root.joinpath(*package.split(".")).joinpath(PLUGIN_MANIFEST)
+                if not manifest_path.is_file():
+                    raise FileNotFoundError(f"Plugin manifest not found: {manifest_path}")
+                manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=name)
+                backends = tuple(
+                    Backend(backend_name, _load_backend(target, plugin_name=name))
+                    for backend_name, target in manifest.backends.items()
+                )
+                plugins.append(Plugin(name=name, backends=backends, config=manifest.application_defaults))
         _validate_plugins(plugins)
     finally:
         sys.path.remove(str(source_root.resolve()))

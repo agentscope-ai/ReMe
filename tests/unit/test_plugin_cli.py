@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 from reme import plugin_cli as plugin_cli_module
 from reme import reme as reme_module
+from reme.components import R
+from reme.enumeration import ComponentEnum
 
 
 class _FakeDistribution:
@@ -94,6 +96,34 @@ def test_show_plugin_reads_manifest_without_importing_backends(monkeypatch, tmp_
     assert "auto_fin" in output
 
 
+def test_show_plugin_preserves_registry_when_editable_fallback_imports_package(monkeypatch, tmp_path, capsys):
+    package = tmp_path / "fallback_plugin"
+    package.mkdir()
+    (package / "__init__.py").write_text("from .backend import FallbackStep\n", encoding="utf-8")
+    (package / "backend.py").write_text(
+        "from reme.components import ComponentMixin, R\n"
+        "from reme.enumeration import ComponentEnum\n"
+        "@R.register('fallback_import_side_effect')\n"
+        "class FallbackStep(ComponentMixin):\n"
+        "    component_type = ComponentEnum.STEP\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text(
+        """backends:
+  fallback_step: fallback_plugin.backend:FallbackStep
+""",
+        encoding="utf-8",
+    )
+    entry = _FakeEntryPoint("fallback", "fallback_plugin", _FakeDistribution(tmp_path / "missing"))
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setattr(plugin_cli_module.metadata, "entry_points", lambda: _FakeEntryPoints([entry]))
+
+    assert plugin_cli_module.plugin_cli(["show", "fallback"]) == 0
+
+    assert "fallback_step" in capsys.readouterr().out
+    assert R.get(ComponentEnum.STEP, "fallback_import_side_effect") is None
+
+
 def test_install_uses_current_python_pip(monkeypatch, capsys):
     commands = []
     monkeypatch.setattr(plugin_cli_module, "_run_pip", lambda command: commands.append(command) or 0)
@@ -144,6 +174,39 @@ def test_validate_local_auto_fin_project():
     names = plugin_cli_module._validate_local(repository / "plugins" / "auto-fin")
 
     assert names == ["auto-fin"]
+
+
+def test_validate_local_preserves_registry_during_backend_imports(tmp_path):
+    package = tmp_path / "src" / "decorated_plugin"
+    package.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\n"
+        "name = 'decorated-plugin'\n"
+        "version = '0.1.0'\n"
+        "[project.entry-points.'reme.plugins']\n"
+        "decorated = 'decorated_plugin'\n"
+        "[tool.setuptools.package-dir]\n"
+        "'' = 'src'\n",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "backend.py").write_text(
+        "from reme.components import ComponentMixin, R\n"
+        "from reme.enumeration import ComponentEnum\n"
+        "@R.register('local_import_side_effect')\n"
+        "class DecoratedStep(ComponentMixin):\n"
+        "    component_type = ComponentEnum.STEP\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text(
+        """backends:
+  decorated_step: decorated_plugin.backend:DecoratedStep
+""",
+        encoding="utf-8",
+    )
+
+    assert plugin_cli_module._validate_local(tmp_path) == ["decorated"]
+    assert R.get(ComponentEnum.STEP, "local_import_side_effect") is None
 
 
 def test_plugin_command_errors_are_clean(monkeypatch, capsys):
