@@ -236,6 +236,33 @@ def _validate_installed(name: str) -> list[str]:
     return [name]
 
 
+def _local_source_roots(project_file: Path, project: dict) -> list[Path]:
+    """Return declared and conventional Python source roots for a local project."""
+    project_root = project_file.parent
+    candidates: list[Path] = []
+
+    setuptools = project.get("tool", {}).get("setuptools", {})
+    if isinstance(setuptools, dict):
+        package_dir = setuptools.get("package-dir", {})
+        if isinstance(package_dir, dict) and isinstance(package_dir.get(""), str):
+            candidates.append(project_root / package_dir[""])
+
+        packages = setuptools.get("packages", {})
+        package_find = packages.get("find", {}) if isinstance(packages, dict) else {}
+        if isinstance(package_find, dict):
+            where = package_find.get("where", [])
+            if isinstance(where, str):
+                where = [where]
+            if isinstance(where, list):
+                candidates.extend(project_root / item for item in where if isinstance(item, str))
+
+    # ``src`` is a build-backend-independent Python project convention used by
+    # Hatchling, Poetry, Flit, and setuptools. Root-layout projects remain the
+    # final fallback.
+    candidates.extend((project_root / "src", project_root))
+    return list(dict.fromkeys(candidate.resolve() for candidate in candidates))
+
+
 def _validate_local(path: Path) -> list[str]:
     from .components.component_registry import R
     from .plugin import PluginManager, _plugin_from_manifest
@@ -248,26 +275,38 @@ def _validate_local(path: Path) -> list[str]:
     if not isinstance(entry_points, dict) or not entry_points:
         raise ValueError(f"No {PLUGIN_ENTRY_POINT_GROUP} entry points found in {project_file}")
 
-    setuptools = project.get("tool", {}).get("setuptools", {})
-    package_dir = setuptools.get("package-dir", {}) if isinstance(setuptools, dict) else {}
-    source_root = project_file.parent / (package_dir.get("") or ".")
+    source_roots = _local_source_roots(project_file, project)
     plugins = []
-    sys.path.insert(0, str(source_root.resolve()))
+    selected_roots: list[Path] = []
+    manifests = []
+    for name, package in entry_points.items():
+        if not isinstance(name, str) or not isinstance(package, str) or ":" in package:
+            raise ValueError("Local validation requires package-only manifest entry points")
+        relative_manifest = Path(*package.split(".")).joinpath(PLUGIN_MANIFEST)
+        manifest_path = next(
+            (root / relative_manifest for root in source_roots if (root / relative_manifest).is_file()),
+            None,
+        )
+        if manifest_path is None:
+            searched = ", ".join(str(root / relative_manifest) for root in source_roots)
+            raise FileNotFoundError(f"Plugin manifest not found; searched: {searched}")
+        selected_roots.append(manifest_path.parents[len(package.split("."))])
+        manifests.append((name, manifest_path))
+
+    inserted_roots = list(dict.fromkeys(str(root) for root in selected_roots))
+    for source_root in reversed(inserted_roots):
+        sys.path.insert(0, source_root)
     try:
         # Match installed-plugin loading: imports may execute compatibility
         # decorators, but they must not mutate the frozen built-in template.
         with R.preserve(allow_mutation=True):
-            for name, package in entry_points.items():
-                if not isinstance(name, str) or not isinstance(package, str) or ":" in package:
-                    raise ValueError("Local validation requires package-only manifest entry points")
-                manifest_path = source_root.joinpath(*package.split(".")).joinpath(PLUGIN_MANIFEST)
-                if not manifest_path.is_file():
-                    raise FileNotFoundError(f"Plugin manifest not found: {manifest_path}")
+            for name, manifest_path in manifests:
                 manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=name)
                 plugins.append(_plugin_from_manifest(name, manifest))
         _validate_plugins(PluginManager(plugins))
     finally:
-        sys.path.remove(str(source_root.resolve()))
+        for source_root in inserted_roots:
+            sys.path.remove(source_root)
     return [plugin.name for plugin in plugins]
 
 

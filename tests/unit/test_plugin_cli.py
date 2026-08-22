@@ -178,6 +178,72 @@ def test_validate_local_auto_fin_project():
     assert names == ["auto-fin"]
 
 
+@pytest.mark.parametrize(
+    "build_system",
+    [
+        "requires = ['hatchling']\nbuild-backend = 'hatchling.build'\n",
+        "requires = ['poetry-core']\nbuild-backend = 'poetry.core.masonry.api'\n",
+        "requires = ['flit-core']\nbuild-backend = 'flit_core.buildapi'\n",
+    ],
+)
+def test_validate_local_supports_backend_independent_src_layout(tmp_path, build_system):
+    package = tmp_path / "src" / "src_layout_plugin"
+    package.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\n"
+        "name = 'example-plugin'\n"
+        "version = '0.1.0'\n"
+        "[project.entry-points.'reme.plugins']\n"
+        "example = 'src_layout_plugin'\n"
+        "[build-system]\n"
+        f"{build_system}",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "backend.py").write_text(
+        "from reme.components import ComponentMixin\n"
+        "from reme.enumeration import ComponentEnum\n"
+        "class ExampleStep(ComponentMixin):\n"
+        "    component_type = ComponentEnum.STEP\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text(
+        "backends:\n  example_step: src_layout_plugin.backend:ExampleStep\n",
+        encoding="utf-8",
+    )
+
+    assert plugin_cli_module._validate_local(tmp_path) == ["example"]
+
+
+def test_validate_local_supports_setuptools_find_source_root(tmp_path):
+    package = tmp_path / "python" / "find_layout_plugin"
+    package.mkdir(parents=True)
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\n"
+        "name = 'example-plugin'\n"
+        "version = '0.1.0'\n"
+        "[project.entry-points.'reme.plugins']\n"
+        "example = 'find_layout_plugin'\n"
+        "[tool.setuptools.packages.find]\n"
+        "where = ['python']\n",
+        encoding="utf-8",
+    )
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "backend.py").write_text(
+        "from reme.components import ComponentMixin\n"
+        "from reme.enumeration import ComponentEnum\n"
+        "class ExampleStep(ComponentMixin):\n"
+        "    component_type = ComponentEnum.STEP\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text(
+        "backends:\n  example_step: find_layout_plugin.backend:ExampleStep\n",
+        encoding="utf-8",
+    )
+
+    assert plugin_cli_module._validate_local(tmp_path) == ["example"]
+
+
 def test_validate_local_preserves_registry_during_backend_imports(tmp_path):
     package = tmp_path / "src" / "decorated_plugin"
     package.mkdir(parents=True)
@@ -219,7 +285,7 @@ def test_plugin_command_errors_are_clean(monkeypatch, capsys):
     assert "Plugin 'missing' is not installed" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("action", ["plugins", "--plugins"])
+@pytest.mark.parametrize("action", ["plugins", "-plugins", "--plugins"])
 def test_main_routes_plugins_before_loading_environment(monkeypatch, action):
     events = []
     monkeypatch.setattr("sys.argv", ["reme", action, "list"])
