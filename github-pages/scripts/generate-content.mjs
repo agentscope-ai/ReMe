@@ -8,6 +8,7 @@ const outputDir = path.join(siteDir, ".generated", "content");
 
 const topicOrder = [
   "quick_start",
+  "plugin_management",
   "memory_as_file",
   "memory_search",
   "auto_memory",
@@ -23,6 +24,7 @@ const topicOrder = [
 
 const groups = {
   quick_start: "start",
+  plugin_management: "start",
   memory_as_file: "fundamentals",
   memory_search: "fundamentals",
   auto_memory: "automation",
@@ -38,6 +40,7 @@ const groups = {
 
 const localizedTitles = {
   quick_start: { zh: "快速开始", en: "Quick Start" },
+  plugin_management: { zh: "插件管理", en: "Plugin Management" },
   memory_as_file: { zh: "文件即记忆", en: "Memory as File" },
   memory_search: { zh: "记忆检索", en: "Memory Search" },
   auto_memory: { zh: "自动记忆", en: "Auto Memory" },

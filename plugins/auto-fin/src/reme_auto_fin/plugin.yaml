@@ -1,0 +1,60 @@
+backends:
+  auto_fin_data_step: reme_auto_fin.data:AutoFinDataStep
+  auto_fin_topic_step: reme_auto_fin.topic:AutoFinTopicStep
+  auto_fin_merge_step: reme_auto_fin.merge:AutoFinMergeStep
+
+application_defaults:
+  jobs:
+    auto_fin:
+      backend: base
+      description: "Fetch and research recent topic-related CLS news."
+      parameters:
+        type: object
+        properties:
+          date:
+            type: string
+            description: "Current date in YYYY-MM-DD; empty means today in Asia/Shanghai."
+            default: ""
+          now:
+            type: string
+            description: "Optional simulated current time in ISO 8601 format; empty means the real current time."
+            default: ""
+          topics:
+            type: string
+            description: "Comma-separated topics used to filter current CLS news."
+            default: "黄金,机器人,半导体"
+          window_hours:
+            type: number
+            exclusiveMinimum: 0
+            description: "Rolling number of hours of CLS news to fetch."
+            default: 24
+          request_interval:
+            type: number
+            minimum: 0
+            description: "Minimum delay in seconds after each CLS request attempt."
+            default: 10
+          max_retries:
+            type: integer
+            minimum: 1
+            description: "Maximum attempts for each CLS page request."
+            default: 3
+      steps: &auto_fin_steps
+        - backend: auto_fin_data_step
+        - backend: auto_fin_topic_step
+        - backend: auto_fin_merge_step
+          job_tools: [memory_search, read]
+
+    auto_fin_0930_cron:
+      backend: cron
+      cron: "30 9 * * *"
+      steps: *auto_fin_steps
+
+    auto_fin_1130_cron:
+      backend: cron
+      cron: "30 11 * * *"
+      steps: *auto_fin_steps
+
+    auto_fin_1800_cron:
+      backend: cron
+      cron: "0 18 * * *"
+      steps: *auto_fin_steps

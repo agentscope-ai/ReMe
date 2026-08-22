@@ -12,8 +12,9 @@ from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 from reme.components.base_component import ComponentMixin
+from reme.components.component_registry import create_application_registry
 from reme.enumeration import ComponentEnum
-from reme.plugin import Backend, Plugin, PluginManager
+from reme.plugin import Backend, Plugin, PluginManager, PluginRuntime
 
 
 def _recording_client(seen, output="ok", base=object):
@@ -42,8 +43,11 @@ def _recording_client(seen, output="ok", base=object):
 def _set_client_backend(monkeypatch, client_cls):
     monkeypatch.setattr(
         reme_module,
-        "create_application_registry",
-        lambda: SimpleNamespace(get=lambda component_type, backend: client_cls),
+        "resolve_plugin_runtime",
+        lambda config: PluginRuntime(
+            config=dict(config),
+            registry=SimpleNamespace(get=lambda component_type, backend: client_cls),
+        ),
     )
 
 
@@ -94,8 +98,8 @@ def test_main_loads_env_before_calling_server(monkeypatch):
     events = []
 
     main_globals = reme_module.main.__globals__
+    monkeypatch.setattr("sys.argv", ["reme", "shell", "cmd=pwd"])
     monkeypatch.setitem(main_globals, "load_env", lambda: events.append("load_env"))
-    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("shell", {"cmd": "pwd"}))
 
     async def fake_call_server(action, **kwargs):
         events.append(("call_server", action, kwargs))
@@ -123,8 +127,8 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
             observed["ran"] = True
 
     main_globals = reme_module.main.__globals__
+    monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
-    monkeypatch.setitem(main_globals, "parse_args", lambda *_args: ("start", {}))
     monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
     monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
 
@@ -354,7 +358,13 @@ def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch
         lambda **_kwargs: {"service": {"backend": "http"}},
     )
     monkeypatch.setattr(reme_module, "running_app_config", lambda: {"plugins": ["example"]})
-    monkeypatch.setattr(reme_module.PluginManager, "discover", lambda _specs: manager)
+
+    def resolve_runtime(config):
+        registry = create_application_registry()
+        manager.register(registry)
+        return PluginRuntime(config=manager.merge_config(config), registry=registry)
+
+    monkeypatch.setattr(reme_module, "resolve_plugin_runtime", resolve_runtime)
 
     asyncio.run(reme_module.call_server("search", query="hello"))
 

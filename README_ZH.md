@@ -183,6 +183,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 | 文档 | 主要内容 |
 |------|----------|
 | [快速开始](docs/zh/quick_start.md) | 安装 ReMe、启动服务，并执行首次文件和记忆操作。 |
+| [插件管理](docs/zh/plugin_management.md) | 安装、查看、校验、启用和卸载本地 ReMe 插件。 |
 | [Memory as File](docs/zh/memory_as_file.md) | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
 | [Auto Memory](docs/zh/auto_memory.md) | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。 |
 | [Auto Resource](docs/zh/auto_resource.md) | 导入支持的文本资料，转换为可追溯来源的 daily 卡片。 |

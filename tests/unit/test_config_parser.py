@@ -71,6 +71,14 @@ def test_resolve_app_config_can_suppress_config_log(monkeypatch):
     assert not messages
 
 
+def test_resolve_app_config_layers_plugins_over_default():
+    """A plugin-only start keeps the ordinary default application config."""
+    config = resolve_app_config(log_config=False, plugins=["auto-fin"])
+
+    assert config["service"]["backend"] == "http"
+    assert config["plugins"] == ["auto-fin"]
+
+
 def test_default_config_registers_daily_write_job():
     """``daily_write`` is exposed as a base job backed by ``daily_write_step``."""
     cfg = _load_config("default.yaml")
@@ -125,6 +133,14 @@ def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):
         parse_args("search", "hello")
+
+
+def test_parse_args_separates_action_and_application_kwargs():
+    """The shared action grammar is independent from application key/value parsing."""
+    action, kwargs = parse_args("--search", "--query=hello", "limit=3")
+
+    assert action == "search"
+    assert kwargs == {"query": "hello", "limit": 3}
 
 
 @pytest.mark.parametrize("item", ["=1", ".a=1", "a.=1", "a..b=1"])

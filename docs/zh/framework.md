@@ -221,12 +221,29 @@ class VersionStep(BaseStep):
 
 内置实现通过 package import 填充内置注册表；bootstrap 完成后 ReMe 会冻结这个模板，并为每个 `Application` 创建可写副本。
 运行期代码通过当前 Application 的注册表解析 backend，不能修改进程级模板。随后只加载最终配置中 `plugins` 明确启用的已安装插件。
-插件通过 Python `reme.plugins` entry-point group 暴露，返回声明式 `reme.plugin.Plugin`，其中包含命名
-backend class 和默认配置。插件注册因此只影响当前 Application；两个插件提供相同 `(component_type, backend)` 时会在装配阶段失败，
+插件通过 Python `reme.plugins` entry-point group 暴露其 package。package 内的 `plugin.yaml` 只有两个可选 mapping：
+`backends` 将注册名映射到 `module:Class`，`application_defaults` 提供低优先级的 `ApplicationConfig` 配置片段。
+entry-point 名称就是插件标识；使用
+应用配置的 `plugins` 列表或 CLI 的 `plugins=[...]` override 显式启用插件。插件注册因此只影响当前 Application；两个插件提供相同
+`(component_type, backend)` 时会在装配阶段失败，
 不会互相覆盖。
 
-插件还可以通过 `reme.configs` 暴露命名配置；配置的 `extends` 可以继承内置配置、插件配置或文件配置。完整打包示例见
-[Auto Fin 插件](../../plugins/auto-fin/README_ZH.md)。
+迁移期间仍兼容旧的 Python `Plugin` descriptor 和 `reme.configs` entry point。配置的 `extends` 可以继承内置配置、
+旧插件配置或文件配置。当前完整打包示例见 [Auto Fin 插件](../../plugins/auto-fin/README_ZH.md)。
+
+插件包的本地管理与单个应用是否启用插件相互独立：
+
+```bash
+reme plugins list
+reme plugins install reme-auto-fin
+reme plugins show auto-fin
+reme plugins validate auto-fin
+reme plugins uninstall auto-fin
+
+reme start plugins='["auto-fin"]'
+```
+
+这些管理命令使用当前 Python 解释器对应的 pip，不通过 HTTP 或 MCP service 执行。
 
 ### 4.3 Component.bind
 

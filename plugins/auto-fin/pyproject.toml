@@ -11,10 +11,7 @@ dependencies = [
 ]
 
 [project.entry-points."reme.plugins"]
-auto-fin = "reme_auto_fin:plugin"
-
-[project.entry-points."reme.configs"]
-auto-fin = "reme_auto_fin:CONFIG_PATH"
+auto-fin = "reme_auto_fin"
 
 [tool.setuptools]
 package-dir = { "" = "src" }

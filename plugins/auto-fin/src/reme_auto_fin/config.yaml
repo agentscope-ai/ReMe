@@ -1,2 +1,0 @@
-extends: default
-plugins: [auto-fin]

@@ -10,13 +10,17 @@ from typing import Any
 
 import yaml
 
-from ..entry_point import find_entry_points, load_entry_point, unique_entry_point
+from ..entry_point import (
+    CONFIG_ENTRY_POINT_GROUP,
+    find_entry_points,
+    load_entry_point,
+    unique_entry_point,
+)
 
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
 # Extensions in priority order: yaml > yml > json when stems collide
 _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
-_CONFIG_ENTRY_POINT_GROUP = "reme.configs"
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 # Strings like "007" / "00501" must stay as strings, not be coerced to numbers
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
@@ -145,7 +149,7 @@ def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, 
         raise ValueError(f"Circular config inheritance: {chain}")
 
     built_in = _CONFIG_REGISTRY.get(name_or_path)
-    external_entries = find_entry_points(_CONFIG_ENTRY_POINT_GROUP, name_or_path)
+    external_entries = find_entry_points(CONFIG_ENTRY_POINT_GROUP, name_or_path)
     if built_in is not None and external_entries:
         raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
     if built_in is not None:
@@ -222,8 +226,29 @@ def _strip_arg_dashes(arg: str) -> str:
     return arg
 
 
-def parse_args(*args) -> tuple[str, dict]:
-    """Parse CLI args: first arg is action, rest are key=value pairs.
+def parse_action(arg: str) -> str:
+    """Parse and validate one top-level CLI action."""
+    action = _strip_arg_dashes(arg)
+    if "=" in action:
+        raise ValueError(f"First argument must be action, got: {arg}")
+    return action
+
+
+def parse_kwargs(*args: str) -> dict:
+    """Parse application-style ``key=value`` CLI arguments."""
+    kvs: list[str] = []
+    for raw in args:
+        arg = _strip_arg_dashes(raw)
+        if "=" in arg:
+            kvs.append(arg)
+        else:
+            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
+
+    return parse_dot_notation(kvs) if kvs else {}
+
+
+def parse_args(*args: str) -> tuple[str, dict]:
+    """Parse an application CLI action followed by ``key=value`` arguments.
 
     Usage: reme app config=paw.yaml service.name=test
     Returns: (action, parsed_kv_dict)
@@ -231,25 +256,15 @@ def parse_args(*args) -> tuple[str, dict]:
     if not args:
         raise ValueError("No arguments provided")
 
-    first = _strip_arg_dashes(args[0])
-    if "=" in first:
-        raise ValueError(f"First argument must be action, got: {args[0]}")
-
-    kvs: list[str] = []
-    for raw in args[1:]:
-        arg = _strip_arg_dashes(raw)
-        if "=" in arg:
-            kvs.append(arg)
-        else:
-            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
-
-    parsed = parse_dot_notation(kvs) if kvs else {}
-    return first, parsed
+    return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
 def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Therefore ``reme start plugins=[...]`` layers that plugin selection over
+    ``default.yaml`` without requiring an explicit ``config=default``.
 
     Set ``log_config=False`` for user-facing client calls that should print only
     the requested job's output.

@@ -1,6 +1,6 @@
 """Tests for installed plugin discovery and application-local registration."""
 
-# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
 from pathlib import Path
 
@@ -11,7 +11,8 @@ from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry, R
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
-from reme.plugin import Backend, Plugin, PluginManager
+from reme.plugin import Backend, Plugin, PluginManager, _load_backend
+from reme.plugin_manifest import parse_plugin_manifest
 
 
 class _PluginStep(ComponentMixin):
@@ -42,7 +43,7 @@ def _set_entry_points(monkeypatch, *entries):
     monkeypatch.setattr("reme.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
 
 
-def test_plugin_defaults_are_below_application_config():
+def test_plugin_application_defaults_are_below_application_config():
     manager = PluginManager(
         [
             Plugin(
@@ -57,7 +58,7 @@ def test_plugin_defaults_are_below_application_config():
     assert merged["jobs"]["task"] == {"backend": "base", "value": 2}
 
 
-def test_plugin_defaults_expand_environment(monkeypatch):
+def test_plugin_application_defaults_expand_environment(monkeypatch):
     monkeypatch.setenv("PLUGIN_LIMIT", "12")
     manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
 
@@ -136,6 +137,57 @@ def test_plugin_manager_loads_explicit_entry_point(monkeypatch):
     manager = PluginManager.discover(["example"])
 
     assert manager.plugins == (descriptor,)
+
+
+def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
+    package = tmp_path / "example_plugin"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "backend.py").write_text(
+        "from reme.components.base_component import ComponentMixin\n"
+        "from reme.enumeration import ComponentEnum\n"
+        "class ExampleStep(ComponentMixin):\n"
+        "    component_type = ComponentEnum.STEP\n",
+        encoding="utf-8",
+    )
+    (package / "plugin.yaml").write_text(
+        "backends:\n"
+        "  example_step: example_plugin.backend:ExampleStep\n"
+        "application_defaults:\n"
+        "  jobs:\n"
+        "    example:\n"
+        "      backend: base\n",
+        encoding="utf-8",
+    )
+    monkeypatch.syspath_prepend(str(tmp_path))
+    _set_entry_points(
+        monkeypatch,
+        _FakeEntryPoint("example", "example_plugin", lambda: None, "reme.plugins"),
+    )
+
+    manager = PluginManager.discover(["example"])
+    registry = ComponentRegistry()
+    manager.register(registry)
+
+    backend = registry.get(ComponentEnum.STEP, "example_step")
+    assert backend is not None
+    assert backend.__name__ == "ExampleStep"
+    assert manager.merge_config({})["jobs"]["example"]["backend"] == "base"
+
+
+def test_plugin_manifest_rejects_legacy_defaults_field():
+    with pytest.raises(ValueError, match="unknown keys: defaults"):
+        parse_plugin_manifest("defaults: {}\n", plugin_name="example")
+
+
+def test_plugin_manifest_requires_application_defaults_mapping():
+    with pytest.raises(TypeError, match="manifest 'application_defaults' must be a mapping"):
+        parse_plugin_manifest("application_defaults: []\n", plugin_name="example")
+
+
+def test_plugin_manifest_reports_missing_backend_attribute():
+    with pytest.raises(ValueError, match="cannot load backend.*MissingStep"):
+        _load_backend("reme.plugin:MissingStep", plugin_name="missing")
 
 
 def test_plugin_manager_rejects_multiple_entry_point_providers(monkeypatch):
