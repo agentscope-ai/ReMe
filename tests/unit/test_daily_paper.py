@@ -778,8 +778,8 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
             },
             {
                 "title": "记忆代理研究",
-                "desc": "Detailed note one",
-                "body": "Evidence one [p. 1].",
+                "desc": "Detailed note\ud800 one",
+                "body": "Evidence\udfff one [p. 1].",
             },
             {
                 "title": "上下文压缩研究",
@@ -874,7 +874,9 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "ReMe" not in analysis_prompt
     assert "# PDF 分页文本" in analysis_prompt
     digest_prompt = cc_wrapper.calls[-1]["inputs"]
-    assert "Evidence one [p. 1]." in digest_prompt
+    assert "Evidence\ufffd one [p. 1]." in digest_prompt
+    assert "Detailed note\ufffd one" in digest_prompt
+    assert not any("\ud800" <= character <= "\udfff" for character in digest_prompt)
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt

@@ -128,8 +128,9 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         )
         used_titles.add(title)
         note_rel = note_path.relative_to(self.workspace_path).as_posix()
-        body = strip_frontmatter(output.body)
-        if not output.desc.strip() or not body:
+        desc = replace_surrogates(output.desc.strip())
+        body = replace_surrogates(strip_frontmatter(output.body))
+        if not desc or not body:
             raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
         await write_markdown(
             note_path,
@@ -137,7 +138,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             {
                 "name": title,
                 "title": title,
-                "description": output.desc.strip(),
+                "description": desc,
                 "kind": "daily-paper-analysis",
                 "arxiv_id": paper.arxiv_id,
                 "source_title": paper.title,
@@ -165,7 +166,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             arxiv_id=paper.arxiv_id,
             reasoning=selected.reasoning,
             title=title,
-            desc=output.desc.strip(),
+            desc=desc,
             body=body,
             note_path=note_rel,
             pdf_path=pdf_rel,
