@@ -40,6 +40,19 @@ EOF
 
 You can initially omit the LLM configuration if you only need basic file operations and BM25 retrieval.
 
+`LLM_BACKEND` selects the provider wrapper registered in
+`reme/components/as_llm`. Besides the built-in providers (`openai`, `anthropic`, `deepseek`,
+`dashscope`, `gemini`, `moonshot`, `ollama`, `xai`), you can point at
+[OrcaRouter](https://www.orcarouter.ai), an OpenAI-compatible gateway, by setting:
+
+```bash
+LLM_BACKEND=orcarouter
+LLM_MODEL_NAME=orcarouter/auto
+LLM_API_KEY=sk-orca-...
+```
+
+`LLM_BASE_URL` stays optional — when unset it defaults to `https://api.orcarouter.ai/v1`.
+
 ---
 
 ## Start the Service

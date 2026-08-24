@@ -130,6 +130,11 @@ EOF
 
 Basic file operations, BM25 search, wikilink traversal, and reading proactive topics can run without LLM credentials.
 
+`LLM_BACKEND` selects the provider wrapper registered in `reme/components/as_llm` (default `openai`). You can also use
+[OrcaRouter](https://www.orcarouter.ai), an OpenAI-compatible gateway, with `LLM_BACKEND=orcarouter`,
+`LLM_MODEL_NAME=orcarouter/auto`, and an `LLM_API_KEY` from OrcaRouter; `LLM_BASE_URL` then defaults to
+`https://api.orcarouter.ai/v1`.
+
 > [!NOTE]
 > To enable embedding-based semantic retrieval, uncomment `components.as_embedding` and
 > `components.embedding_store` in [`reme/config/default.yaml`](reme/config/default.yaml), then change

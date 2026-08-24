@@ -123,6 +123,11 @@ EOF
 
 基础文件读写、BM25 检索、wikilink 遍历和 proactive topics 读取可以先不配置 LLM 凭证。
 
+`LLM_BACKEND` 选择 `reme/components/as_llm` 中注册的 provider wrapper（默认 `openai`）。也可以接入
+[OrcaRouter](https://www.orcarouter.ai)（兼容 OpenAI 协议的中转网关）：设 `LLM_BACKEND=orcarouter`、
+`LLM_MODEL_NAME=orcarouter/auto`，并用 OrcaRouter 的 `LLM_API_KEY`；`LLM_BASE_URL` 可缺省，
+默认 `https://api.orcarouter.ai/v1`。
+
 > [!NOTE]
 > 如需启用基于 embedding 的语义检索，请取消 [`reme/config/default.yaml`](reme/config/default.yaml) 中
 > `components.as_embedding` 和 `components.embedding_store` 的注释，并将
