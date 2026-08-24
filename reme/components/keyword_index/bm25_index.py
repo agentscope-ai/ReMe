@@ -52,6 +52,10 @@ class BM25Index(BaseKeywordIndex):
 
         # IDF cache; invalidated whenever live-doc count or postings change.
         self._idf_cache: dict[int, float] = {}
+        # A fresh component still needs one persistence pass so an empty stale
+        # snapshot can be removed. Successful dump/load operations clear this
+        # flag; mutations set it again.
+        self._needs_persist = True
 
     # -- Properties -----------------------------------------------------------
 
@@ -245,6 +249,8 @@ class BM25Index(BaseKeywordIndex):
         if not docs_dict:
             return
 
+        self._needs_persist = True
+
         new_doc_ids: list[str] = []
         new_doc_lens: list[int] = []
         new_doc_token_ids: list[np.ndarray] = []
@@ -272,6 +278,8 @@ class BM25Index(BaseKeywordIndex):
 
     async def delete_docs(self, doc_ids: list[str]) -> None:
         """Lazy-delete a batch of doc_ids; physical reclaim happens in optimize_index."""
+        if doc_ids:
+            self._needs_persist = True
         for doc_id in doc_ids:
             self._remove_doc(doc_id)
         self._idf_cache = {}
@@ -354,8 +362,11 @@ class BM25Index(BaseKeywordIndex):
 
     async def dump(self) -> None:
         """Persist the index via temp file + atomic rename to avoid torn writes."""
+        if not self._needs_persist:
+            return
         if self.n_docs == 0 and not self.vocab:
             self.index_file.unlink(missing_ok=True)
+            self._needs_persist = False
             return
         try:
             self.index_file.parent.mkdir(parents=True, exist_ok=True)
@@ -363,6 +374,7 @@ class BM25Index(BaseKeywordIndex):
             with open(tmp, "wb") as f:
                 pickle.dump(self._snapshot(), f)
             tmp.replace(self.index_file)
+            self._needs_persist = False
             self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.index_file}: {e}")
@@ -376,6 +388,7 @@ class BM25Index(BaseKeywordIndex):
             with open(self.index_file, "rb") as f:
                 data = pickle.load(f)
             self._restore(data)
+            self._needs_persist = False
             self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load index: {e}")
@@ -394,6 +407,7 @@ class BM25Index(BaseKeywordIndex):
         self._posting_tfs = {}
         self._idf_cache = {}
         self.index_file.unlink(missing_ok=True)
+        self._needs_persist = False
 
     # -- Compaction -----------------------------------------------------------
 
@@ -479,3 +493,4 @@ class BM25Index(BaseKeywordIndex):
         self._posting_doc_idxs = new_posting_idxs
         self._posting_tfs = new_posting_tfs
         self._idf_cache = {}
+        self._needs_persist = True

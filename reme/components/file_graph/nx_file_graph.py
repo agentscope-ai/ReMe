@@ -25,6 +25,7 @@ class NxFileGraph(BaseFileGraph):
         self._graph = nx.MultiDiGraph()
         self.component_metadata_path.mkdir(parents=True, exist_ok=True)
         self._graph_file: Path = self.component_metadata_path / f"{self.name}.pkl"
+        self._needs_persist = True
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -34,16 +35,20 @@ class NxFileGraph(BaseFileGraph):
         try:
             with open(self._graph_file, "rb") as f:
                 self._graph = pickle.load(f)
+            self._needs_persist = False
             self.logger.info(f"Loaded {self._real_count()} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
     async def dump(self) -> None:
+        if not self._needs_persist:
+            return
         try:
             tmp = self._graph_file.with_suffix(".tmp")
             with open(tmp, "wb") as f:
                 pickle.dump(self._graph, f, protocol=pickle.HIGHEST_PROTOCOL)
             tmp.replace(self._graph_file)
+            self._needs_persist = False
             self.logger.info(f"Saved {self._real_count()} nodes to {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self._graph_file}: {e}")
@@ -69,6 +74,8 @@ class NxFileGraph(BaseFileGraph):
     # -- Node CRUD ---------------------------------------------------------
 
     async def upsert_nodes(self, nodes: list[FileNode]) -> None:
+        if nodes:
+            self._needs_persist = True
         for node in nodes:
             path = node.path
             if self._graph.has_node(path):
@@ -80,6 +87,7 @@ class NxFileGraph(BaseFileGraph):
         for path in paths:
             if not self._graph.has_node(path):
                 continue
+            self._needs_persist = True
             self._graph.remove_edges_from(list(self._graph.out_edges(path, keys=True)))
             self._graph.nodes[path].pop("node", None)  # demote to virtual
             if self._graph.in_degree(path) == 0:
@@ -101,6 +109,7 @@ class NxFileGraph(BaseFileGraph):
     async def clear(self):
         self._graph.clear()
         self._graph_file.unlink(missing_ok=True)
+        self._needs_persist = False
 
     # -- Link access -------------------------------------------------------
 

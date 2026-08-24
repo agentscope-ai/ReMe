@@ -16,6 +16,8 @@ import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.components.file_store import local_file_store as local_file_store_module
+from reme.components.file_graph import local_file_graph as local_file_graph_module
+from reme.components.keyword_index import bm25_index as bm25_index_module
 from reme.components.embedding_store import LocalEmbeddingStore
 from reme.schema import FileChunk, FileNode
 from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
@@ -279,6 +281,40 @@ def test_keyword_only_upsert_removes_old_chunks_and_docs():
             assert await store.keyword_search("obsoleteword", 5, {}) == []
             assert [c.id for c in await store.keyword_search("freshword", 5, {})] == ["new"]
             await store.close()
+
+    run(go())
+
+
+def test_close_does_not_rewrite_keyword_index_and_graph_after_store_dump(monkeypatch):
+    """A store cascade leaves child components clean for their later close()."""
+    bm25_writes = 0
+    graph_writes = 0
+    real_pickle_dump = bm25_index_module.pickle.dump
+    real_graph_write = local_file_graph_module.write_jsonl_zst
+
+    def count_bm25_write(*args, **kwargs):
+        nonlocal bm25_writes
+        bm25_writes += 1
+        return real_pickle_dump(*args, **kwargs)
+
+    def count_graph_write(*args, **kwargs):
+        nonlocal graph_writes
+        graph_writes += 1
+        return real_graph_write(*args, **kwargs)
+
+    monkeypatch.setattr(bm25_index_module.pickle, "dump", count_bm25_write)
+    monkeypatch.setattr(local_file_graph_module, "write_jsonl_zst", count_graph_write)
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_single_close_dump")
+            await store.start()
+            await store.upsert([(node("note.md"), [chunk("note", "note.md", "persist once")])])
+
+            await store.close()
+
+            assert bm25_writes == 1
+            assert graph_writes == 1
 
     run(go())
 
