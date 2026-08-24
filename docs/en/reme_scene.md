@@ -54,20 +54,22 @@ session/
 daily/
 ├── 2026-05-18.md
 └── 2026-05-18/
-    ├── 2026-05-18-close.md
-    ├── glencore-q3.md
-    ├── cobalt-policy.md
-    ├── cathode-trend.md
+    ├── cobalt-supply-risk.md
+    ├── glencore-output-update.md
+    ├── drc-cobalt-policy.md
+    ├── high-nickel-cathode-trend.md
     └── interests.yaml          # generated after auto_dream
 ```
 
 The corresponding flow is:
 
-- `auto_memory` saves the original conversation to `session/dialog/<session_id>.jsonl`, then asks the agent to write
-  important facts to `daily/<date>/<session_id>.md`.
-- `resource_watch_loop` watches text-file changes under `resource/` and triggers `auto_resource_step` to write a
-  same-named daily note.
-- `daily_create` maintains `daily/<date>.md` as the index page for that day.
+- `auto_memory` saves a filtered source conversation record to `session/dialog/<session_id>.jsonl`, then asks the agent to write
+  important facts to a topic-named `daily/<date>/<generated_name>.md`. The note keeps `session_id` and
+  `source_conversation` in frontmatter for stable lookup and provenance.
+- `resource_watch_loop` watches text-file changes under `resource/` and triggers `auto_resource_step` to write a daily note
+  with `source_resource`. The agent suggests a content-based filename, which the system sanitizes and de-duplicates; it is
+  not guaranteed to match the resource filename.
+- Auto Memory, Auto Resource, and Auto Dream refresh `daily/<date>.md` after writing.
 
 ### Day 1 evening: Auto Dream writes to Digest
 
@@ -81,8 +83,8 @@ reme auto_dream date=2026-05-18
 
 ```text
 dream_extract_step
-  scan daily/2026-05-18.md and changed files under daily/2026-05-18/
-  output units and topics
+  scan the daily window from 2026-05-17 through 2026-05-18 by default
+  output at most 5 units plus topics from changed files
 dream_integrate_step
   recall existing digest nodes with node_search for each unit
   decide CREATE / CORROBORATE / REFINE / CORRECT
@@ -122,7 +124,7 @@ Changes to mining-rights policy in the DRC may affect KFM mine operations and sh
 
 ## Sources
 
-- [[daily/2026-05-18/2026-05-18-close.md]]
+The production decline and policy risk were recorded in [[daily/2026-05-18/cobalt-supply-risk.md]].
 ```
 
 Note that wikilinks use literal path semantics. Prefer complete workspace-relative paths with the `.md` extension. ReMe
@@ -235,7 +237,7 @@ topics:
     reason: The user repeatedly mentioned KFM and cobalt-price risk today
     keywords: [cobalt, DRC, CMOC, KFM]
     paths:
-      - daily/2026-05-18/2026-05-18-close.md
+      - daily/2026-05-18/cobalt-supply-risk.md
 ```
 
 Call:
@@ -321,7 +323,7 @@ The build stalls near the end. CPU usage is low, but memory keeps growing.
 
 ## Sources
 
-- [[daily/2026-03-10/build-oom-2026-03-10.md]]
+The failed attempts and successful memory adjustment were recorded in [[daily/2026-03-10/build-oom-2026-03-10.md]].
 ```
 
 Example `digest/personal/code-style.md`:
@@ -374,7 +376,7 @@ and upgrading the minification plugin did not help last time.
 
 - `digest/procedure/` stores both "how to do it" and "which paths failed," letting the agent reuse diagnostic experience.
 - `digest/personal/` stores user preferences so the agent can follow the same engineering style across sessions.
-- The original conversation remains under `session/dialog/`; daily records stay traceable, and digest is only the
+- The source conversation record remains under `session/dialog/`; daily records stay traceable, and digest is only the
   long-term distilled result.
 
 ## Scenario 3: A Personal Second Brain
@@ -423,7 +425,7 @@ At lunch on 2026-04-20, Alice recommended [[digest/wiki/deep-work.md]], a book a
 
 ## Sources
 
-- [[daily/2026-04-20/lunch-with-alice.md]]
+The recommendation was recorded in [[daily/2026-04-20/lunch-with-alice.md]].
 ```
 
 ### An associative recall

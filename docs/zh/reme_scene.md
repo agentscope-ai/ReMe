@@ -50,18 +50,20 @@ session/
 daily/
 ├── 2026-05-18.md
 └── 2026-05-18/
-    ├── 2026-05-18-close.md
-    ├── glencore-q3.md
-    ├── cobalt-policy.md
-    ├── cathode-trend.md
+    ├── cobalt-supply-risk.md
+    ├── glencore-output-update.md
+    ├── drc-cobalt-policy.md
+    ├── high-nickel-cathode-trend.md
     └── interests.yaml          # auto_dream 后生成
 ```
 
 对应链路：
 
-- `auto_memory` 保存原始对话到 `session/dialog/<session_id>.jsonl`，再让 Agent 把重要事实写入 `daily/<date>/<session_id>.md`。
-- `resource_watch_loop` 监听 `resource/` 文本文件变化，并触发 `auto_resource_step` 写同名 daily note。
-- `daily_create` 会维护 `daily/<date>.md` 当天索引页。
+- `auto_memory` 保存对话来源消息到 `session/dialog/<session_id>.jsonl`，再让 Agent 把重要事实写入按主题命名的
+  `daily/<date>/<generated_name>.md`；卡片 frontmatter 保留 `session_id` 和 `source_conversation` 用于稳定定位和追溯。
+- `resource_watch_loop` 监听 `resource/` 文本文件变化，并触发 `auto_resource_step` 写带 `source_resource` 的 daily note；文件名由
+  Agent 根据内容建议，再由系统清洗并处理冲突，不保证与资源同名。
+- Auto Memory、Auto Resource 和 Auto Dream 都会在写入后刷新 `daily/<date>.md` 当天索引页。
 
 ### Day 1 晚上：Auto Dream 进入 Digest
 
@@ -75,8 +77,8 @@ reme auto_dream date=2026-05-18
 
 ```text
 dream_extract_step
-  扫描 daily/2026-05-18.md 和 daily/2026-05-18/ 下 changed 文件
-  输出 units 和 topics
+  默认扫描 2026-05-17 至 2026-05-18 的 daily 窗口
+  从 changed 文件输出最多 5 个 units 和 topics
 
 dream_integrate_step
   每个 unit 用 node_search 召回已有 digest 节点
@@ -114,12 +116,12 @@ description: 锂电正极材料关键原料，主产区集中于刚果(金)
 ## 供给端
 嘉能可三季度钴产量同比下滑 18%，需要继续跟踪供给收缩对价格的影响。
 
-## Sources
-
-- [[daily/2026-05-18/2026-05-18-close.md]]
-
 ## 政策风险
 刚果(金)矿权政策变化可能影响 KFM 矿运营，需联动跟踪洛阳钼业。
+
+## Sources
+
+产量下滑与政策风险的证据记录在 [[daily/2026-05-18/cobalt-supply-risk.md]] 中。
 ```
 
 注意：wikilink 是字面路径语义，推荐写完整 workspace-relative 路径和 `.md` 扩展名。ReMe 不会自动把 `[[钴]]` 解析成某个文件。
@@ -227,7 +229,7 @@ topics:
     reason: 用户当天多次提到 KFM 矿和钴价风险
     keywords: [钴, 刚果金, 洛阳钼业, KFM]
     paths:
-      - daily/2026-05-18/2026-05-18-close.md
+      - daily/2026-05-18/cobalt-supply-risk.md
 ```
 
 调用：
@@ -311,7 +313,7 @@ description: build 卡住且内存上涨时，优先检查类型检查进程内�
 
 ## Sources
 
-- [[daily/2026-03-10/build-oom-2026-03-10.md]]
+失败尝试和有效的内存调整记录在 [[daily/2026-03-10/build-oom-2026-03-10.md]] 中。
 ```
 
 示例 `digest/personal/code-style.md`：
@@ -363,7 +365,7 @@ Agent 回复可以直接跳过低价值路径：
 
 - `digest/procedure/` 保存“怎么做”和“哪些路径无效”，让 Agent 复用排查经验。
 - `digest/personal/` 保存用户偏好，让 Agent 跨会话遵守同一工程风格。
-- 原始对话仍在 `session/dialog/`，daily 记录可追溯，digest 只是长期提炼结果。
+- 对话来源记录仍在 `session/dialog/`，daily 记录可追溯，digest 只是长期提炼结果。
 
 ## 场景三：个人第二大脑
 
@@ -410,7 +412,7 @@ description: 用户朋友，常推荐阅读材料
 
 ## Sources
 
-- [[daily/2026-04-20/lunch-with-alice.md]]
+这次推荐记录在 [[daily/2026-04-20/lunch-with-alice.md]] 中。
 ```
 
 ### 一次联想式回忆

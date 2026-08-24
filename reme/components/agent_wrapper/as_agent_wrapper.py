@@ -50,7 +50,6 @@ from agentscope.tool import (
     Read,
     ToolBase,
     ToolChunk,
-    ToolChoice,
     Toolkit,
     Write,
 )
@@ -370,7 +369,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             res = await model.generate_structured_output(
                 messages=agent.state.context,
                 structured_model=output_schema,
-                tool_choice=ToolChoice(mode="auto"),
             )
             result["structured_output"] = res.content
             if res.usage is None:

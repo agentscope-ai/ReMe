@@ -30,7 +30,12 @@ htmlcov/
 # Packaging / build outputs
 build/
 dist/
+node_modules/
 *.egg-info/
+
+# Website build integration source (not generated output)
+!website/build/
+!website/build/**
 
 # Logs / temporary files
 *.log
@@ -46,6 +51,7 @@ temp*/
 # ReMe runtime data
 .reme/
 reme_workspace/
+reme_workspace_auto_fin_real_test*/
 vault/
 *.db
 *.sqlite
@@ -56,6 +62,10 @@ docs/_build/
 site/
 
 evaluation/
+# The pi-Bench suite ships its own trace-history render config, which must
+# stay in git even though it lives under an evaluation/ directory.
+!benchmark/pibench/config/bench/evaluation/
+!benchmark/pibench/config/bench/evaluation/**
 datasets/
 
 # Claude Code skills (local only)

@@ -3,10 +3,19 @@
 import json
 import os
 import re
+from collections.abc import Mapping
+from importlib.metadata import EntryPoint
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from ..entry_point import (
+    CONFIG_ENTRY_POINT_GROUP,
+    find_entry_points,
+    load_entry_point,
+    unique_entry_point,
+)
 
 # Config files are looked up relative to this module's directory
 _CONFIG_DIR = Path(__file__).parent
@@ -39,6 +48,11 @@ def _expand_env_vars(value: Any) -> Any:
     if isinstance(value, list):
         return [_expand_env_vars(v) for v in value]
     return value
+
+
+def expand_env_vars(value: Any) -> Any:
+    """Expand environment placeholders in an arbitrary plugin config value."""
+    return _expand_env_vars(value)
 
 
 def _discover_configs() -> dict[str, Path]:
@@ -117,17 +131,35 @@ def _convert_value(value_str: str) -> Any:
     return s
 
 
-def _load_config(name_or_path: str, encoding: str = "utf-8") -> dict:
-    """Load a YAML or JSON config file.
+def _external_config_path(name: str, entry: EntryPoint | None) -> Path | None:
+    """Resolve an installed plugin config exposed through ``reme.configs``."""
+    if entry is None:
+        return None
+    value = load_entry_point(entry, invoke=True)
+    path = Path(value)
+    if path.suffix not in _SUPPORTED_EXTS or not path.is_file():
+        raise ValueError(f"Config entry point '{name}' did not resolve to a YAML or JSON file")
+    return path
 
-    First check if name_or_path matches a pre-discovered config (key in _CONFIG_REGISTRY).
-    If not, treat as a file path and load directly.
-    """
-    # 1. Try pre-discovered configs first
-    if name_or_path in _CONFIG_REGISTRY:
-        return _read_config_file(_CONFIG_REGISTRY[name_or_path], encoding)
 
-    # 2. Treat as file path
+def _load_config(name_or_path: str, encoding: str = "utf-8", _stack: tuple[str, ...] = ()) -> dict:
+    """Load a built-in, installed-plugin, or direct YAML/JSON config."""
+    if name_or_path in _stack:
+        chain = " -> ".join((*_stack, name_or_path))
+        raise ValueError(f"Circular config inheritance: {chain}")
+
+    built_in = _CONFIG_REGISTRY.get(name_or_path)
+    external_entries = find_entry_points(CONFIG_ENTRY_POINT_GROUP, name_or_path)
+    if built_in is not None and external_entries:
+        raise ValueError(f"Config '{name_or_path}' is provided by both ReMe and an installed distribution")
+    if built_in is not None:
+        return _load_config_path(built_in, name_or_path, encoding, _stack)
+
+    external_entry = unique_entry_point(external_entries, name_or_path, provider="Config")
+    external = _external_config_path(name_or_path, external_entry)
+    if external is not None:
+        return _load_config_path(external, name_or_path, encoding, _stack)
+
     p = Path(name_or_path)
     if p.suffix in _SUPPORTED_EXTS:
         candidates = [p]
@@ -135,11 +167,29 @@ def _load_config(name_or_path: str, encoding: str = "utf-8") -> dict:
             candidates.append(_CONFIG_DIR / p)
         for candidate in candidates:
             if candidate.exists():
-                return _read_config_file(candidate, encoding)
+                identity = str(candidate.resolve())
+                return _load_config_path(candidate, identity, encoding, _stack)
         raise FileNotFoundError(f"Config file not found: {p}")
 
     known = ", ".join(sorted(_CONFIG_REGISTRY)) if _CONFIG_REGISTRY else "none"
     raise FileNotFoundError(f"Config file not found: {name_or_path}. Available: {known}")
+
+
+def _load_config_path(path: Path, identity: str, encoding: str, stack: tuple[str, ...]) -> dict:
+    """Load one config and merge its optional parents before its own values."""
+    config = _read_config_file(path, encoding)
+    raw_parents = config.pop("extends", ())
+    parents = [raw_parents] if isinstance(raw_parents, str) else list(raw_parents or ())
+    merged: dict = {}
+    for parent in parents:
+        if not isinstance(parent, str) or not parent:
+            raise ValueError(f"Config 'extends' entries must be non-empty strings: {path}")
+        parent_name = parent
+        relative = path.parent / parent
+        if Path(parent).suffix in _SUPPORTED_EXTS and relative.is_file():
+            parent_name = str(relative.resolve())
+        merged = deep_merge_config(merged, _load_config(parent_name, encoding, (*stack, identity)))
+    return deep_merge_config(merged, config)
 
 
 def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
@@ -156,12 +206,12 @@ def _read_config_file(path: Path, encoding: str = "utf-8") -> dict:
     return _expand_env_vars(result)
 
 
-def _deep_merge(base: dict, update: dict) -> dict:
-    """Recursively merge dicts."""
-    result = base.copy()
+def deep_merge_config(base: Mapping[str, Any], update: Mapping[str, Any]) -> dict[str, Any]:
+    """Recursively merge configuration mappings without mutating either input."""
+    result = dict(base)
     for k, v in update.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
+        if k in result and isinstance(result[k], Mapping) and isinstance(v, Mapping):
+            result[k] = deep_merge_config(result[k], v)
         else:
             result[k] = v
     return result
@@ -176,8 +226,29 @@ def _strip_arg_dashes(arg: str) -> str:
     return arg
 
 
-def parse_args(*args) -> tuple[str, dict]:
-    """Parse CLI args: first arg is action, rest are key=value pairs.
+def parse_action(arg: str) -> str:
+    """Parse and validate one top-level CLI action."""
+    action = _strip_arg_dashes(arg)
+    if "=" in action:
+        raise ValueError(f"First argument must be action, got: {arg}")
+    return action
+
+
+def parse_kwargs(*args: str) -> dict:
+    """Parse application-style ``key=value`` CLI arguments."""
+    kvs: list[str] = []
+    for raw in args:
+        arg = _strip_arg_dashes(raw)
+        if "=" in arg:
+            kvs.append(arg)
+        else:
+            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
+
+    return parse_dot_notation(kvs) if kvs else {}
+
+
+def parse_args(*args: str) -> tuple[str, dict]:
+    """Parse an application CLI action followed by ``key=value`` arguments.
 
     Usage: reme app config=paw.yaml service.name=test
     Returns: (action, parsed_kv_dict)
@@ -185,25 +256,15 @@ def parse_args(*args) -> tuple[str, dict]:
     if not args:
         raise ValueError("No arguments provided")
 
-    first = _strip_arg_dashes(args[0])
-    if "=" in first:
-        raise ValueError(f"First argument must be action, got: {args[0]}")
-
-    kvs: list[str] = []
-    for raw in args[1:]:
-        arg = _strip_arg_dashes(raw)
-        if "=" in arg:
-            kvs.append(arg)
-        else:
-            raise ValueError(f"Invalid argument format (expected key=value): {raw}")
-
-    parsed = parse_dot_notation(kvs) if kvs else {}
-    return first, parsed
+    return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
 def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     """Resolve full app-start config: load `config=path` file, fall back to
     `default`, then deep-merge with the remaining kwargs as overrides.
+
+    Therefore ``reme start plugins=[...]`` layers that plugin selection over
+    ``default.yaml`` without requiring an explicit ``config=default``.
 
     Set ``log_config=False`` for user-facing client calls that should print only
     the requested job's output.
@@ -230,6 +291,6 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
 
     merged: dict = {}
     for cfg in configs:
-        merged = _deep_merge(merged, cfg)
+        merged = deep_merge_config(merged, cfg)
 
     return merged

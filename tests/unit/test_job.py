@@ -47,7 +47,7 @@ def test_resolve_step_missing_backend():
 
 def test_resolve_step_unregistered_backend():
     job = BaseJob(name="j")
-    job.app_context = MagicMock()
+    job.app_context = SimpleNamespace(registry=ComponentRegistry())
     with pytest.raises(ValueError, match="Unregistered backend"):
         job._resolve_step(ComponentConfig(backend="nonexistent_step"))
 

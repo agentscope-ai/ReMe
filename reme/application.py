@@ -7,37 +7,38 @@ from pathlib import Path
 from typing import AsyncGenerator, TypeVar
 
 from . import __version__
-from .components import BaseComponent, ApplicationContext
+from .components import ApplicationContext, BaseComponent
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
-from .enumeration import ComponentEnum
+from .enumeration import ComponentEnum, ComponentType, component_type_name
+from .plugin import resolve_plugin_runtime
 from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
 
 T = TypeVar("T", bound=BaseComponent)
-_NodeKey = tuple[ComponentEnum, str]
+_NodeKey = tuple[str, str]
 
 
 class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
     def __init__(self, **kwargs) -> None:
-        self.context = ApplicationContext(**kwargs)
+        runtime = resolve_plugin_runtime(kwargs)
+        self.context = ApplicationContext(registry=runtime.registry, **runtime.config)
         self._started_components: list[BaseComponent] = []
 
         self._setup_workspace_directories()
-
-        if self.config.enable_logo:
-            print_logo(self.config)
         logger = get_logger(
             log_to_console=self.config.log_to_console,
             log_to_file=self.config.log_to_file,
             force_init=True,
         )
-        logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         super().__init__()
-
         self._init_service()
+
+        if self.config.enable_logo:
+            print_logo(self.config, self.context.service)
+        logger.info(f"Initializing {self.config.app_name} Application v{__version__}")
         self._init_components()
         self._init_jobs()
 
@@ -99,7 +100,7 @@ class Application(BaseComponent):
 
     def _instantiate(
         self,
-        ctype: ComponentEnum,
+        ctype: ComponentType,
         cfg: ComponentConfig,
         *,
         label: str,
@@ -110,16 +111,13 @@ class Application(BaseComponent):
 
         `label` is the human-readable identifier used only in error messages.
         `expected_type` narrows the return type and guards against a backend
-        registered under the wrong ComponentEnum.
+        registered under the wrong component type.
         `name` is forwarded to the constructor for named components/jobs;
         leave it None for the service, which is keyed solely by type.
         """
-        # Lazy import: the registry self-populates as component modules load.
-        from .components import R
-
         if not cfg.backend:
             raise ValueError(f"{label} is missing the required 'backend' field")
-        backend_cls = R.get(ctype, cfg.backend)
+        backend_cls = self.context.registry.get(ctype, cfg.backend)
         if backend_cls is None:
             raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
 
@@ -154,7 +152,7 @@ class Application(BaseComponent):
                     heapq.heappush(ready, downstream)
 
         if len(ordered) != len(nodes):
-            unresolved = [f"{k[0].value}:{k[1]}" for k, d in in_degree.items() if d > 0]
+            unresolved = [f"{k[0]}:{k[1]}" for k, d in in_degree.items() if d > 0]
             raise ValueError(f"Circular dependency detected among: {unresolved}")
         return ordered
 
@@ -173,7 +171,7 @@ class Application(BaseComponent):
                     in_degree[key] += 1
                 elif not dep.optional:
                     raise ValueError(
-                        f"Component {key[0].value}:{key[1]} depends on unregistered {dep.ctype.value}:{dep.name}",
+                        f"Component {key[0]}:{key[1]} depends on unregistered {dep.ctype}:{dep.name}",
                     )
         return in_degree, dependents
 
@@ -206,7 +204,7 @@ class Application(BaseComponent):
             await c.start()
             self._started_components.append(c)
         except Exception as e:
-            self.logger.exception(f"Failed to start {c.component_type.value}:{c.name}: {e}")
+            self.logger.exception(f"Failed to start {component_type_name(c.component_type)}:{c.name}: {e}")
             raise
 
     async def _close(self) -> None:
@@ -215,23 +213,23 @@ class Application(BaseComponent):
             try:
                 await c.close()
             except Exception as e:
-                self.logger.exception(f"Failed to close {c.component_type.value}:{c.name}: {e}")
+                self.logger.exception(f"Failed to close {component_type_name(c.component_type)}:{c.name}: {e}")
         self._started_components.clear()
         if self.context.thread_pool is not None:
             self.context.thread_pool.shutdown(wait=True)
             self.context.thread_pool = None
 
-    async def update_component(self, component_enum: ComponentEnum | str, name: str, /, **kwargs) -> BaseComponent:
+    async def update_component(self, component_enum: ComponentType, name: str, /, **kwargs) -> BaseComponent:
         """Update an existing component by type/name; never creates missing components."""
-        component_enum = ComponentEnum(component_enum)
-        group = self.context.components.get(component_enum)
+        component_type = component_type_name(component_enum)
+        group = self.context.components.get(component_type)
         if not group or name not in group:
-            raise KeyError(f"Component '{name}' not found in {component_enum.value}")
+            raise KeyError(f"Component '{name}' not found in {component_type}")
 
         component = group[name]
         for key, value in kwargs.items():
             if not hasattr(component, key):
-                raise AttributeError(f"Component {component_enum.value}:{name} has no attribute '{key}'")
+                raise AttributeError(f"Component {component_type}:{name} has no attribute '{key}'")
             setattr(component, key, value)
         return component
 

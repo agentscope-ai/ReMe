@@ -19,6 +19,9 @@ class FakeAsEmbedding:
     dimensions = 2
     vector_space_id = "fakespace000"
 
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
     async def __call__(self, texts: list[str], **_kwargs):
         return [[1.0] if text == "bad" else [1.0, 0.0] for text in texts]
 
@@ -29,8 +32,28 @@ class BadHealthAsEmbedding:
     dimensions = 2
     vector_space_id = "fakespace000"
 
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
     async def __call__(self, _texts: list[str], **_kwargs):
         return [[1.0]]
+
+
+class FailingHealthAsEmbedding:
+    """Fake provider that records a failed health-check attempt."""
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+
+    def __init__(self):
+        self.calls = 0
+
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
+    async def __call__(self, _texts: list[str], **_kwargs):
+        self.calls += 1
+        raise ConnectionError("not ready")
 
 
 class FakeProviderModel:
@@ -143,6 +166,56 @@ def test_health_check_rejects_wrong_dimension():
 
         assert await store.health_check() is False
         assert store.is_healthy is False
+
+    run(go())
+
+
+def test_health_check_starts_timeout_after_provider_initialization(monkeypatch):
+    """One-time client construction must not consume the request timeout."""
+
+    async def go():
+        events = []
+
+        class InitializingAsEmbedding(FakeAsEmbedding):
+            """Record initialization and provider-call ordering."""
+
+            def initialize_model(self):
+                events.append("initialized")
+
+            async def __call__(self, texts: list[str], **_kwargs):
+                events.append("remote request")
+                return [[1.0, 0.0] for _ in texts]
+
+        original_wait_for = asyncio.wait_for
+
+        async def checked_wait_for(awaitable, timeout):
+            assert events == ["initialized"]
+            assert timeout == 5.0
+            return await original_wait_for(awaitable, timeout)
+
+        store = LocalEmbeddingStore(name="t_local_embedding_health_timeout_scope")
+        store.as_embedding = InitializingAsEmbedding()
+        monkeypatch.setattr(asyncio, "wait_for", checked_wait_for)
+
+        assert await store.health_check(timeout=5.0) is True
+        assert events == ["initialized", "remote request"]
+
+    run(go())
+
+
+def test_health_check_makes_one_attempt():
+    """A failed startup probe does not add hidden retries."""
+
+    async def go():
+        provider = FailingHealthAsEmbedding()
+        store = LocalEmbeddingStore(
+            name="t_local_embedding_health_retry",
+            health_check_timeout=3.0,
+        )
+        store.as_embedding = provider
+
+        assert await store.health_check() is False
+        assert provider.calls == 1
 
     run(go())
 

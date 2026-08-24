@@ -44,6 +44,9 @@ class BaseService(BaseComponent):
     def start_service(self, app: "Application") -> None:
         """Block on serving requests until shutdown."""
 
+    def finalize_service(self, app: "Application") -> None:
+        """Register routes that must be added after every configured job."""
+
     # ----- Shared helpers ------------------------------------------------
 
     def _lifespan(self, app: "Application", host: str, port: int):
@@ -97,4 +100,5 @@ class BaseService(BaseComponent):
         """Build the service, register jobs, then start serving (blocking)."""
         self.build_service(app)
         self.add_jobs(app)
+        self.finalize_service(app)
         self.start_service(app)

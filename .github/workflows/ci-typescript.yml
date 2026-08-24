@@ -1,0 +1,47 @@
+name: CI / TypeScript integrations
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/ci-typescript.yml'
+      - '.github/workflows/release-typescript.yml'
+      - 'packages/typescript/**'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/ci-typescript.yml'
+      - '.github/workflows/release-typescript.yml'
+      - 'packages/typescript/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Type-check, test, and pack
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/typescript
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.19'
+          cache: npm
+          cache-dependency-path: packages/typescript/package-lock.json
+
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:package

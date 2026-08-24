@@ -1,6 +1,6 @@
 """auto_memory_cc — record a Claude Code session, resolved from its session_id.
 
-The ReMe plugin's Stop hook hands the server only a ``session_id`` (never the
+The ReMe Claude Code integration's Stop hook hands the server only a ``session_id`` (never the
 messages), and it fires on *every* stop. Unlike :class:`AutoMemoryStep` — whose
 callers have no session management, so it re-serializes ``Msg`` history into its
 own dialog store — Claude Code already manages the session as a transcript on

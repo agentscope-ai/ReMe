@@ -1,0 +1,53 @@
+version: 1
+
+format:
+  root_tag: trace
+  turn_tag: turn
+  message_tag: message
+  file_tag: file
+  tool_call_tag_prefix: tool_call
+  tool_result_tag_prefix: tool_result
+
+text_policy:
+  default:
+    truncate_chars: 1200
+    mask_newlines: false
+  field_overrides:
+    files_read:
+      truncate_chars: 40000
+    assistant_content:
+      truncate_chars: 40000
+    tool_result_content:
+      truncate_chars: 40000
+
+fields:
+  turn:
+    include_session_key: false
+
+  files:
+    enabled: true
+
+  messages:
+    enabled: true
+    include_message_role_attr: true
+    include_message_index_attr: false
+    include_system: false
+    include_user: true
+    include_assistant_thinking_content: false
+    include_assistant_thinking_reasoning: false
+    include_assistant_content: true
+    include_assistant_reasoning: false
+    include_assistant_tool_calls: false
+    require_matching_tool_call: true
+
+    tool_calls:
+      include_tool_call_id: false
+      tools:
+        web_fetch:
+          enabled: true
+          include_tool_call_keys: [url]
+          include_tool_result: false
+        web_search:
+          enabled: true
+          include_tool_call_keys: [query]
+          include_tool_result: false

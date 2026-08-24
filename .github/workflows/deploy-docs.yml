@@ -1,0 +1,51 @@
+name: Deploy / Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "github-pages/**"
+      - "docs/**"
+      - "README.md"
+      - "README_ZH.md"
+      - "website/README*.md"
+      - "website/public/og.jpg"
+      - "plugins/*/README*.md"
+      - "benchmark/*/README*.md"
+      - "skills/reme_memory/SKILL.md"
+      - "AGENTS.md"
+      - ".github/workflows/deploy-docs.yml"
+      - ".github/workflows/_build-docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build documentation
+    uses: ./.github/workflows/_build-docs.yml
+    with:
+      run_tests: false
+      upload_pages_artifact: true
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

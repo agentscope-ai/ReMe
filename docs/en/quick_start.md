@@ -15,11 +15,17 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e ".[core]"
+pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
 
-Installing the `core` extra is recommended. The current code imports the AgentScope wrapper, and self-evolving memory also
-depends on it.
+The static build step requires Node.js 22.13 or newer and makes Studio available when running ReMe from the source tree.
+
+Installing the `core` extra is recommended. The current code imports the AgentScope wrapper, and self-evolving memory
+also depends on it.
 
 To use agent workflows such as `auto_memory`, `auto_resource`, and `auto_dream`, configure an LLM:
 
@@ -51,10 +57,16 @@ reme start service.port=8181
 ```bash
 reme version
 reme health_check
-reme list
+reme help
 ```
 
-`reme list` lists server actions. Ordinary commands invoke server Jobs over HTTP.
+`reme help` lists server actions. Ordinary commands invoke server Jobs over HTTP.
+
+The base `reme-ai` package does not include frontend assets. Install `reme-ai[web]` or `reme-ai[core]`, then open
+<http://127.0.0.1:2333/> for ReMe Studio. It uses the same service to
+browse, edit, and search the workspace and inspect the digest wikilink graph. Disable it with
+`service.web_enabled=false`, or provide a custom build with `service.web_static_dir` / `REME_WEB_STATIC_DIR`. The Job
+API still starts if no web build is found.
 
 ---
 
@@ -65,7 +77,8 @@ The default workspace is `.reme/` under the current directory. It is created aut
 ```text
 .reme/
 ├── metadata/   # persistent indexes, graph, catalogs, and related state
-├── session/    # agent sessions and original conversations
+├── session/    # source conversation records
+├── mem_session/ # generated Agent wrapper sessions/config
 ├── resource/   # external resources
 ├── daily/      # daily notes
 └── digest/     # long-term memory
@@ -91,12 +104,13 @@ reme write \
   description="Example memory for the quick start" \
   content="# Quick Start Demo
 
-ReMe indexes Markdown under the daily, digest, and resource directories.
+The default live watcher indexes Markdown under the daily and digest directories.
 
 Related link: [[digest/wiki/search-demo.md]]"
 ```
 
-`path` is relative to the workspace. A missing suffix is automatically completed with `.md`. For Markdown files, `name` and
+`path` is relative to the workspace. A missing suffix is automatically completed with `.md`. For Markdown files, `name`
+and
 `description` are written to frontmatter.
 
 The background watcher builds the index automatically. You can also rebuild it manually:
@@ -117,8 +131,8 @@ Read:
 reme read path=digest/wiki/quick-start-demo start_line=1 end_line=20
 ```
 
-With the default configuration, retrieval is primarily BM25 plus wikilink graph expansion. Vector retrieval is supported by
-the code, but the embedding store is disabled by default. For the full retrieval flow, see
+With the default configuration, retrieval is primarily BM25 plus wikilink graph expansion. Vector retrieval is supported
+by the code, but the embedding store is disabled by default. For the full retrieval flow, see
 [Memory Search](./memory_search.md).
 
 ---
@@ -132,7 +146,13 @@ reme frontmatter_read path=digest/wiki/quick-start-demo
 reme frontmatter_update path=digest/wiki/quick-start-demo metadata='{"tags":["demo"]}'
 ```
 
-The name `list` is used by the CLI to list actions, so the file-listing Job must be called over HTTP:
+The file-listing Job can be called directly from the CLI:
+
+```bash
+reme list path=digest recursive=true limit=50
+```
+
+The equivalent HTTP call is:
 
 ```bash
 curl -s http://127.0.0.1:2333/list \
@@ -161,7 +181,8 @@ reme auto_memory \
   memory_hint="Record the user's preference"
 ```
 
-After placing external material under `resource/YYYY-MM-DD/`, the default background task watches
+After placing external material under `resource/YYYY-MM-DD/` or directly under `resource/`, the default background task
+watches
 `md/txt/json/jsonl/csv/yaml/html`. You can also trigger processing manually:
 
 ```bash
@@ -175,7 +196,8 @@ reme auto_dream date=2026-06-20
 reme proactive date=2026-06-20
 ```
 
-These flows require a working LLM. Without an LLM configuration, start with basic capabilities such as `write`, `read`, and
+These flows require a working LLM. Without an LLM configuration, start with basic capabilities such as `write`, `read`,
+and
 `search`.
 
 For more detail, see [Auto Memory](./auto_memory.md), [Auto Resource](./auto_resource.md),

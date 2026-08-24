@@ -10,7 +10,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+
 if TYPE_CHECKING:
+    from ..components.service import BaseService
     from ..schema import ApplicationConfig
 
 
@@ -28,7 +31,7 @@ def _hsv_rgb(h: float, s: float = 0.85, v: float = 0.98) -> tuple[int, int, int]
     return int(r * 255), int(g * 255), int(b * 255)
 
 
-def print_logo(app_config: "ApplicationConfig"):
+def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | None" = None):
     """Print rainbow ASCII logo and runtime config (backend, URL, versions).
 
     Color: each startup picks a random hue rotation; both horizontal
@@ -73,16 +76,16 @@ def print_logo(app_config: "ApplicationConfig"):
 
     match backend:
         case "http":
-            host = extra.get("host", "localhost")
-            port = extra.get("port", 8000)
+            host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
+            port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
             info_table.add_row("🔗", "URL:", f"http://{host}:{port}")
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
         case "mcp":
-            transport = extra.get("transport", "stdio")
+            transport = getattr(runtime_service, "transport", extra.get("transport", "sse"))
             info_table.add_row("🚌", "Transport:", transport)
             if transport != "stdio":
-                host = extra.get("host", "localhost")
-                port = extra.get("port", 8000)
+                host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
+                port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
                 url = f"http://{host}:{port}"
                 if transport == "sse":
                     url += "/sse"

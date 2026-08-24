@@ -176,6 +176,10 @@ class ZvecLocalFileStore(LocalFileStore):
         ]
         self._upsert_docs(to_add)
 
+    async def _reset_vector_index(self) -> None:
+        """Discard all vectors before rebuilding a changed vector space."""
+        self._collection = self._create_collection()
+
     # -- maintenance ------------------------------------------------------
 
     async def optimize_index(self) -> None:
@@ -412,20 +416,25 @@ class ZvecLocalFileStore(LocalFileStore):
     # -- search -----------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_store is None or not query or limit <= 0 or self._collection is None or not self._indexed_ids:
+        if self.embedding_store is None or self._embedding_rebuild_pending or not query or limit <= 0:
+            return []
+        index_empty = self._collection is None or not self._indexed_ids
+        if index_empty and getattr(self.embedding_store, "is_healthy", True):
             return []
 
         query_embedding = None
+        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:
             query_embedding = await self.embedding_store.get_embedding(query)
         except Exception as e:
-            self._disable_embedding(f"search: {type(e).__name__}: {e}")
+            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
         if query_embedding is None or not self._embedding_dim_matches(query_embedding):
             if query_embedding is not None:
-                self._disable_embedding(
+                self._mark_embedding_unhealthy(
                     f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
                 )
             return []
+        await self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() may have
         # swapped or dropped the collection. Re-read before dereferencing.

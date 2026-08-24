@@ -42,8 +42,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "reme-ai-studio==0.4.1.8",
+]
 core = [
-    "agentscope==2.0.4.post1",
+    "agentscope[model-ollama]==2.0.6",
     "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
@@ -55,9 +58,10 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "tushare>=1.4.29",
+    "reme-ai-studio==0.4.1.8",
 ]
 dev = [
+    "packaging>=24.2",
     "pre-commit>=4.6.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=0.23",
@@ -69,7 +73,7 @@ full = [
 
 [project.urls]
 Homepage = "https://github.com/agentscope-ai/ReMe"
-Documentation = "https://reme.agentscope.io/"
+Documentation = "https://reme.agentscope.io"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [project.scripts]

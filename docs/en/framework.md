@@ -16,13 +16,13 @@ To run and use ReMe first, see [Quick Start](./quick_start.md). For workspace fi
 
 ### Capability Boundary
 
-ReMe v4 focuses on long-term memory: it distills conversations and resources into `daily/`, organizes them into `digest/`,
-and exposes write, retrieval, and proactive-read capabilities through the CLI, HTTP, and MCP.
+ReMe v4 focuses on long-term memory: it distills conversations and resources into `daily/`, organizes them into
+`digest/`, and exposes write, retrieval, and proactive-read capabilities through the CLI, HTTP, and MCP.
 
-Single-session context-window management is outside the scope of ReMe v4. This includes compressing the current conversation,
-injecting summaries, trimming tool output, or providing an independent `/compact` interface. Those capabilities belong in
-the host agent framework. ReMe accepts conversations, resources, and file changes that have already occurred and persists the
-information with long-term value.
+Single-session context-window management is outside the scope of ReMe v4. This includes compressing the current
+conversation, injecting summaries, trimming tool output, or providing an independent `/compact` interface. Those
+capabilities belong in the host agent framework. ReMe accepts conversations, resources, and file changes that have
+already occurred and persists the information with long-term value.
 
 ```mermaid
 flowchart LR
@@ -38,16 +38,16 @@ flowchart LR
 
 Core layers:
 
-| Layer | Main location | Responsibility |
-|---|---|---|
-| CLI | `reme/reme.py` | Parse commands; `start` launches the service; other actions call the service through a client. |
-| Service | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools. |
-| Application | `reme/application.py` | Assemble configured objects, start them in dependency order, close them, and invoke Jobs. |
-| Job | `reme/components/job/` | Orchestrate Steps and select normal, streaming, background, or scheduled execution. |
-| Step | `reme/steps/` | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution. |
-| Component | `reme/components/` | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper. |
-| Schema | `reme/schema/` | Data structures such as `Request`, `Response`, `FileChunk`, `FileNode`, and configuration models. |
-| Config | `reme/config/` | Default YAML configuration and command-line override parsing. |
+| Layer       | Main location              | Responsibility                                                                                    |
+|-------------|----------------------------|---------------------------------------------------------------------------------------------------|
+| CLI         | `reme/reme.py`             | Parse commands; `start` launches the service; other actions call the service through a client.    |
+| Service     | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools.                                                     |
+| Application | `reme/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
+| Job         | `reme/components/job/`     | Orchestrate Steps and select normal, streaming, background, or scheduled execution.               |
+| Step        | `reme/steps/`              | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution.             |
+| Component   | `reme/components/`         | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper.         |
+| Schema      | `reme/schema/`             | Data structures such as `Request`, `Response`, `FileChunk`, `FileNode`, and configuration models. |
+| Config      | `reme/config/`             | Default YAML configuration and command-line override parsing.                                     |
 
 ## 2. Directory Structure
 
@@ -55,11 +55,12 @@ Core layers:
 reme/
   reme.py                    # CLI entry point
   application.py             # Application assembly and lifecycle
+  plugin.py                  # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
-    component_registry.py    # global registry R
+    component_registry.py    # backend registry and application-local copies
     base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
     runtime_context.py       # context for one Job execution
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
@@ -68,18 +69,24 @@ reme/
     file_store/              # file-index coordination layer
     file_graph/              # wikilink graph
     keyword_index/           # BM25 and other keyword indexes
-    file_chunker/            # Markdown / default text chunking
+    file_chunker/            # Markdown / JSON / JSONL / generic text chunking
     file_catalog/            # change checkpoints
     as_llm/, as_embedding/   # model wrappers
-    agent_wrapper/           # AgentScope / Claude Code wrappers
+    agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
-    common/                  # version, help, health_check, demo
+    common/                  # version, help, health_check, status, chat
+    benchmark/               # LongMemEval / BEAM evaluation steps
+    cookbook/                # optional research workflow steps
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory, auto_resource, auto_dream, proactive
-    transfer/                # upload/download/ingest
-    channel/                 # MCP channel tools
+    transfer/                # upload/download
+plugins/
+  auto-fin/                  # independent example plugin distribution
+integrations/
+  claude_code/               # Claude Code adapter and marketplace
+  hermes_agent/              # Hermes Agent memory-provider adapter
 ```
 
 The default workspace directories are defined by `ApplicationConfig`:
@@ -87,7 +94,8 @@ The default workspace directories are defined by `ApplicationConfig`:
 ```text
 <workspace_dir>/
   metadata/     # persistent file_store, file_graph, keyword_index, file_catalog, and related state
-  session/      # agent sessions and original conversations
+  session/      # source conversations used by memory workflows
+  mem_session/  # generated Agent wrapper sessions and configuration
   resource/     # external resources
   daily/        # lightly processed memory
   digest/       # long-term digest memory
@@ -127,13 +135,13 @@ reme search query="memory" backend=mcp
 
 Configuration parsing supports:
 
-| Capability | Source | Description |
-|---|---|---|
-| Default configuration | `resolve_app_config()` | Load `reme/config/default.yaml` when `config` is not specified. |
-| Explicit configuration | `config=<name-or-path>` | Accept a built-in configuration name or a YAML/JSON file path. |
-| Dot notation | `parse_dot_notation()` | For example, `service.port=8181`. |
-| Environment variables | `_expand_env_vars()` | Support `${VAR}` and `${VAR:-default}`. |
-| Value conversion | `_convert_value()` | Convert bool, int, float, JSON list/dict, and null values automatically. |
+| Capability             | Source                  | Description                                                              |
+|------------------------|-------------------------|--------------------------------------------------------------------------|
+| Default configuration  | `resolve_app_config()`  | Load `reme/config/default.yaml` when `config` is not specified.          |
+| Explicit configuration | `config=<name-or-path>` | Accept a built-in configuration name or a YAML/JSON file path.           |
+| Dot notation           | `parse_dot_notation()`  | For example, `service.port=8181`.                                        |
+| Environment variables  | `_expand_env_vars()`    | Support `${VAR}` and `${VAR:-default}`.                                  |
+| Value conversion       | `_convert_value()`      | Convert bool, int, float, JSON list/dict, and null values automatically. |
 
 ### 3.2 Service
 
@@ -157,22 +165,28 @@ flowchart LR
 
 HTTP service behavior:
 
-| Job type | HTTP exposure |
-|---|---|
-| Non-`StreamJob` with `enable_serve: true` | `POST /<job.name>` returning `Response` JSON. |
-| `StreamJob` | `POST /<job.name>` returning `text/event-stream`. |
-| `enable_serve: false` | No endpoint is registered. |
+| Job type                                  | HTTP exposure                                     |
+|-------------------------------------------|---------------------------------------------------|
+| Non-`StreamJob` with `enable_serve: true` | `POST /<job.name>` returning `Response` JSON.     |
+| `StreamJob`                               | `POST /<job.name>` returning `text/event-stream`. |
+| `enable_serve: false`                     | No endpoint is registered.                        |
+
+After registering Job endpoints, the HTTP service can also mount the ReMe Studio single-page application. The default is
+`service.web_enabled=true`. Builds are resolved from `service.web_static_dir`, `REME_WEB_STATIC_DIR`, the optional
+`reme-ai-studio` package installed by the `web` and `core` extras, and source-tree locations such as
+`website/dist-static`. If no `index.html` is found, only the frontend is skipped and the Job API remains available. The
+Studio `GET` fallback does not replace existing `POST /<job.name>` routes.
 
 MCP service behavior:
 
-| Job type | MCP exposure |
-|---|---|
-| Non-`StreamJob` with `enable_serve: true` | Registered as an MCP tool. |
-| `StreamJob` | Currently skipped and not registered. |
-| `BackgroundJob` | Forces `enable_serve=False` at construction and is never exposed. |
+| Job type                                  | MCP exposure                                                      |
+|-------------------------------------------|-------------------------------------------------------------------|
+| Non-`StreamJob` with `enable_serve: true` | Registered as an MCP tool.                                        |
+| `StreamJob`                               | Currently skipped and not registered.                             |
+| `BackgroundJob`                           | Forces `enable_serve=False` at construction and is never exposed. |
 
-MCP services can inject server-owned arguments with `injected_job_kwargs`; callers cannot override those arguments.
-Set `tool_error_on_failure: true` to expose an unsuccessful ReMe `Response` as an MCP tool error.
+MCP services can inject server-owned arguments with `injected_job_kwargs`; callers cannot override those arguments. Set
+`tool_error_on_failure: true` to expose an unsuccessful ReMe `Response` as an MCP tool error.
 
 ## 4. Registry and Dependency Injection
 
@@ -198,24 +212,50 @@ The registry key is:
 
 `component_type` comes from a class attribute:
 
-| Type | Class attribute |
-|---|---|
-| Step | `BaseStep.component_type = ComponentEnum.STEP` |
-| Job | `BaseJob.component_type = ComponentEnum.JOB` |
-| Service | `BaseService.component_type = ComponentEnum.SERVICE` |
+| Type      | Class attribute                                           |
+|-----------|-----------------------------------------------------------|
+| Step      | `BaseStep.component_type = ComponentEnum.STEP`            |
+| Job       | `BaseJob.component_type = ComponentEnum.JOB`              |
+| Service   | `BaseService.component_type = ComponentEnum.SERVICE`      |
 | FileStore | `BaseFileStore.component_type = ComponentEnum.FILE_STORE` |
 
-The same backend name can therefore exist under different component types. For example, `http` can be both a service backend
-and a client backend.
+The same backend name can therefore exist under different component types. For example, `http` can be both a service
+backend and a client backend.
 
-### 4.2 Registration Through Module Imports
+`ComponentEnum` provides the built-in identifiers, but installed plugins may declare a new type with a namespaced
+string such as `example.reranker`. Custom identifiers use lowercase letters and numbers separated by `.`, `_`, or `-`.
+They are configured under `components` and participate in the same dependency ordering and lifecycle as built-ins.
 
-Registration happens when a module is imported. `reme/components/__init__.py` imports component packages, while
-`reme/steps/__init__.py` imports `channel/common/evolve/file_io/index/transfer`. Each package's `__init__.py` then imports
-its concrete modules, causing `@R.register(...)` to execute.
+### 4.2 Built-in and Plugin Registration
 
-After adding a Step file, make sure the package's `__init__.py` imports it. Otherwise, the backend will not appear in the
-registry.
+Built-in implementations populate the built-in registry through package imports. ReMe freezes that template after
+bootstrap, and each `Application` receives a mutable copy. Runtime code resolves backends through the application's
+registry rather than changing the process-wide template. ReMe then loads only the installed plugins explicitly named by
+`plugins` in the resolved configuration. A plugin exposes its package through the `reme.plugins` Python entry-point
+group. The package's `plugin.yaml` has two optional mappings: `backends` maps registration names to
+`module:Class` targets, and `application_defaults` contributes a low-priority `ApplicationConfig` fragment. The
+entry-point name is the plugin's identity.
+Plugins are enabled explicitly through the application config's `plugins` list or a `plugins=[...]` CLI override.
+Plugin registration therefore stays local to one application;
+duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
+
+The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
+files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. The
+[Auto Fin plugin](../../plugins/auto-fin/README.md) is the current packaging example.
+
+Plugin packages are managed locally and remain separate from per-application activation:
+
+```bash
+reme plugins list
+reme plugins install reme-auto-fin
+reme plugins show auto-fin
+reme plugins validate auto-fin
+reme plugins uninstall auto-fin
+
+reme start plugins='["auto-fin"]'
+```
+
+These management commands use the current Python interpreter's pip and never run through an HTTP or MCP service.
 
 ### 4.3 Component.bind
 
@@ -234,18 +274,18 @@ flowchart LR
 
 Rules for `BaseComponent.bind(name, BaseClass, optional=True)`:
 
-| Scenario | Behavior |
-|---|---|
-| `name` is empty | Return `None` and skip the dependency. |
-| `app_context` exists | Look up `app_context.components[ctype][name]`. |
-| Dependency missing and `optional=True` | Resolve to `None`. |
-| Dependency missing and `optional=False` | Fail at startup. |
-| Standalone mode | A private component can be created with `default_factory`. |
+| Scenario                                | Behavior                                                   |
+|-----------------------------------------|------------------------------------------------------------|
+| `name` is empty                         | Return `None` and skip the dependency.                     |
+| `app_context` exists                    | Look up `app_context.components[ctype][name]`.             |
+| Dependency missing and `optional=True`  | Resolve to `None`.                                         |
+| Dependency missing and `optional=False` | Fail at startup.                                           |
+| Standalone mode                         | A private component can be created with `default_factory`. |
 
 ### 4.4 Step.Ref
 
-Steps do not participate in component topological startup. They are created temporarily for each Job invocation. Steps access
-components primarily through `BaseStep.Ref`:
+Steps do not participate in component topological startup. They are created temporarily for each Job invocation. Steps
+access components primarily through `BaseStep.Ref`:
 
 ```python
 file_store: BaseFileStore = Ref(BaseFileStore, ComponentEnum.FILE_STORE)
@@ -301,11 +341,13 @@ flowchart LR
     F --> G["start CronJob"]
 ```
 
-During shutdown, objects in `_started_components` are closed in reverse order so dependents close before their dependencies.
+During shutdown, objects in `_started_components` are closed in reverse order so dependents close before their
+dependencies.
 
 ## 6. Job Model
 
-A Job is the orchestration unit for an externally callable capability or background task. Jobs are configured under `jobs:`
+A Job is the orchestration unit for an externally callable capability or background task. Jobs are configured under
+`jobs:`
 in `reme/config/default.yaml`.
 
 ### 6.1 BaseJob
@@ -326,23 +368,23 @@ flowchart LR
 
 Important source behavior:
 
-| Source | Behavior |
-|---|---|
-| `_start()` | Parse each Step config from YAML into `(step_cls, params)`. |
-| `_build_steps()` | Create new Step instances for every call, avoiding state shared across requests. |
-| `__call__()` | Create a `RuntimeContext` and execute Steps sequentially. |
-| Exception handling | Catch the exception, set `response.success=False`, and set `answer=str(e)`. |
+| Source             | Behavior                                                                         |
+|--------------------|----------------------------------------------------------------------------------|
+| `_start()`         | Parse each Step config from YAML into `(step_cls, params)`.                      |
+| `_build_steps()`   | Create new Step instances for every call, avoiding state shared across requests. |
+| `__call__()`       | Create a `RuntimeContext` and execute Steps sequentially.                        |
+| Exception handling | Catch the exception, set `response.success=False`, and set `answer=str(e)`.      |
 
 ### 6.2 StreamJob
 
 `StreamJob` extends `BaseJob` but returns streaming chunks:
 
-| Behavior | Description |
-|---|---|
-| Context | Includes `stream_queue`. |
+| Behavior    | Description                                                |
+|-------------|------------------------------------------------------------|
+| Context     | Includes `stream_queue`.                                   |
 | Step output | Call `context.add_stream_string(text, ChunkEnum.CONTENT)`. |
-| Exception | Write `ChunkEnum.ERROR`. |
-| Completion | Always send a `DONE` chunk. |
+| Exception   | Write `ChunkEnum.ERROR`.                                   |
+| Completion  | Always send a `DONE` chunk.                                |
 
 ### 6.3 BackgroundJob
 
@@ -362,8 +404,8 @@ flowchart LR
     J --> K["wait close_timeout; cancel on timeout"]
 ```
 
-The default `BackgroundJob.__call__()` also executes configured Steps in sequence, but it does not swallow exceptions, which
-allows the supervisor to restart the task.
+The default `BackgroundJob.__call__()` also executes configured Steps in sequence, but it does not swallow exceptions,
+which allows the supervisor to restart the task.
 
 ### 6.4 CronJob
 
@@ -389,7 +431,9 @@ The current implementation uses `croniter` to calculate the next trigger time. T
 ```mermaid
 flowchart LR
     Jobs["default.yaml jobs"] --> BG["background<br/>index_update_loop<br/>resource_watch_loop<br/>digest_watch_loop"]
-    Jobs --> Base["base<br/>version / help / health_check<br/>search / node_search / traverse / reindex<br/>read / write / edit / delete / move / list / stat<br/>daily_list / daily_reindex / daily_write<br/>auto_memory / auto_resource / auto_dream / proactive"]
+    Jobs --> Cron["cron<br/>dream_cron<br/>optimize_index_cron"]
+    Jobs --> Stream["stream<br/>chat"]
+    Jobs --> Base["base<br/>version / help / health_check / status / app_config<br/>search / node_search / traverse / graph_snapshot / reindex<br/>read / load / read_image / write / save / edit / delete / move / list / stat / frontmatter_*<br/>daily_list / daily_reindex / daily_write<br/>auto_memory / auto_memory_cc / auto_resource / auto_dream / proactive"]
 ```
 
 ## 7. Step Model
@@ -413,12 +457,12 @@ flowchart LR
 
 `RuntimeContext` is shared by all Steps within one Job invocation:
 
-| Field | Description |
-|---|---|
-| `response` | Final `Response(answer, success, metadata)`. |
-| `data` | Free-form dictionary containing input parameters and intermediate results. |
-| `stream_queue` | Output queue for streaming Jobs. |
-| `stop_event` | Stop signal for background Jobs. |
+| Field          | Description                                                                |
+|----------------|----------------------------------------------------------------------------|
+| `response`     | Final `Response(answer, success, metadata)`.                               |
+| `data`         | Free-form dictionary containing input parameters and intermediate results. |
+| `stream_queue` | Output queue for streaming Jobs.                                           |
+| `stop_event`   | Stop signal for background Jobs.                                           |
 
 Common Step code:
 
@@ -482,21 +526,22 @@ flowchart LR
 
 Current default components in `reme/config/default.yaml`:
 
-| ComponentEnum | Name | Backend | Description |
-|---|---|---|---|
-| `service` | singleton | `http` | Default HTTP service. |
-| `tokenizer` | `default` | `regex` | BM25 tokenizer. |
-| `as_embedding` | `default` | `${EMBEDDING_BACKEND:-openai}` | Embedding model wrapper. |
-| `embedding_store` | `default` | `local` | Embedding store depending on `as_embedding: default`. |
-| `as_llm` | `default` | `${LLM_BACKEND:-openai}` | LLM model wrapper. |
-| `agent_wrapper` | `default` | `agentscope` | AgentScope wrapper. |
-| `agent_wrapper` | `claude_code` | `claude_code` | Claude Code wrapper. |
-| `file_graph` | `default` | `local` | Wikilink graph. |
-| `file_catalog` | `default/resource/digest/dream` | `local` | File-change checkpoints. |
-| `file_chunker` | `markdown` | `markdown` | Markdown AST chunking. |
-| `file_chunker` | `default` | `default` | Default text chunking, currently supporting `jsonl`. |
-| `keyword_index` | `default` | `bm25` | BM25 keyword index. |
-| `file_store` | `default` | `local` | Combines file_graph and keyword_index; defaults to `embedding_store: ""`. |
+| ComponentEnum     | Name                            | Backend                                          | Description                                                                    |
+|-------------------|---------------------------------|--------------------------------------------------|--------------------------------------------------------------------------------|
+| `service`         | singleton                       | `http`                                           | Default HTTP service.                                                          |
+| `tokenizer`       | `default`                       | `regex`                                          | BM25 tokenizer.                                                                |
+| `as_embedding`    | `default`                       | Not configured by default; example uses `openai` | Provides the embedding model wrapper after uncommenting the example config.    |
+| `embedding_store` | `default`                       | Not configured by default; example uses `local`  | Depends on `as_embedding: default` after uncommenting the example config.      |
+| `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`                         | LLM model wrapper.                                                             |
+| `agent_wrapper`   | `default`                       | `agentscope`                                     | AgentScope wrapper.                                                            |
+| `agent_wrapper`   | `claude_code`                   | `claude_code`                                    | Claude Code wrapper.                                                           |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                                          | Codex wrappers for API-key and OAuth authentication.                           |
+| `file_graph`      | `default`                       | `local`                                          | Wikilink graph.                                                                |
+| `file_catalog`    | `default/resource/digest/dream` | `local`                                          | File-change checkpoints.                                                       |
+| `file_chunker`    | `markdown`                      | `markdown`                                       | Markdown AST chunking.                                                         |
+| `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`                             | JSON, JSONL, and generic text chunkers; generic text supports `txt` and `log`. |
+| `keyword_index`   | `default`                       | `bm25`                                           | BM25 keyword index.                                                            |
+| `file_store`      | `default`                       | `local`                                          | Combines file_graph and keyword_index; defaults to `embedding_store: ""`.      |
 
 Note that the `search` Step configuration contains `vector_weight`, but `file_store.default.embedding_store` is empty by
 default. Vector retrieval is available only when the runtime configuration enables an embedding store.
@@ -554,12 +599,12 @@ class MySearchStep(BaseStep):
 
 Common attributes available directly:
 
-| Attribute | Component resolved by default |
-|---|---|
-| `self.as_llm` | `.model` from `as_llm: default`. |
+| Attribute            | Component resolved by default       |
+|----------------------|-------------------------------------|
+| `self.as_llm`        | `.model` from `as_llm: default`.    |
 | `self.agent_wrapper` | `agent_wrapper: default`; optional. |
-| `self.file_catalog` | `file_catalog: default`; optional. |
-| `self.file_store` | `file_store: default`. |
+| `self.file_catalog`  | `file_catalog: default`; optional.  |
+| `self.file_store`    | `file_store: default`.              |
 
 To select a non-default component from Job configuration:
 
@@ -571,13 +616,13 @@ steps:
 
 ### 9.4 Step Design Guidance
 
-| Guidance | Reason |
-|---|---|
-| Read input from `context` and write intermediate results to `context`. | A multi-Step Job passes data through the same context. |
-| Write the final result to `context.response`. | Services and clients consume the standard `Response`. |
-| Do not store request-scoped state on a Step instance. | A Step is rebuilt for every Job call, and stateless Steps are easier to test. |
-| A background loop that supports interruption should check `context.stop_event`. | `BackgroundJob.close()` relies on the stop event for graceful shutdown. |
-| Call `add_stream_string()` only from a StreamJob. | A normal Job has no stream queue. |
+| Guidance                                                                        | Reason                                                                        |
+|---------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
+| Read input from `context` and write intermediate results to `context`.          | A multi-Step Job passes data through the same context.                        |
+| Write the final result to `context.response`.                                   | Services and clients consume the standard `Response`.                         |
+| Do not store request-scoped state on a Step instance.                           | A Step is rebuilt for every Job call, and stateless Steps are easier to test. |
+| A background loop that supports interruption should check `context.stop_event`. | `BackgroundJob.close()` relies on the stop event for graceful shutdown.       |
+| Call `add_stream_string()` only from a StreamJob.                               | A normal Job has no stream queue.                                             |
 
 ### 9.5 Unit Test Example
 
@@ -600,8 +645,8 @@ async def test_uppercase_step():
 
 ## 10. Adding a Job
 
-A Job usually requires no new Python class; configure existing Steps instead. Add a new Job backend only when a new execution
-model is required.
+A Job usually requires no new Python class; configure existing Steps instead. Add a new Job backend only when a new
+execution model is required.
 
 ### 10.1 Adding a Normal Request Job
 
@@ -736,11 +781,11 @@ jobs:
 
 Characteristics of a background Job:
 
-| Characteristic | Description |
-|---|---|
-| Not externally exposed | `BackgroundJob.__init__()` forces `enable_serve=False`. |
-| Has a supervisor | Restarts with exponential backoff after an exception by default. |
-| Has a stop event | Notifies the loop to exit during close. |
+| Characteristic                  | Description                                                        |
+|---------------------------------|--------------------------------------------------------------------|
+| Not externally exposed          | `BackgroundJob.__init__()` forces `enable_serve=False`.            |
+| Has a supervisor                | Restarts with exponential backoff after an exception by default.   |
+| Has a stop event                | Notifies the loop to exit during close.                            |
 | Suitable for watching/consuming | File watching, queue consumption, and periodic long-running loops. |
 
 ### 10.5 Adding a Cron Job
@@ -767,14 +812,14 @@ An invalid `cron` expression fails at startup.
 
 Most use cases require only a new Step plus a YAML Job. Consider adding `reme/components/job/*.py` only in these cases:
 
-| Requirement | New Job class? |
-|---|---|
-| Add a business command | No; use `backend: base`. |
-| Chain existing steps | No; use `steps:`. |
-| Need SSE/streaming output | No; use `backend: stream`. |
-| Need a background loop | No; use `backend: background`. |
-| Need cron scheduling | No; use `backend: cron`. |
-| Need entirely new scheduling, concurrency, or transaction semantics | Yes; add a Job backend. |
+| Requirement                                                         | New Job class?                 |
+|---------------------------------------------------------------------|--------------------------------|
+| Add a business command                                              | No; use `backend: base`.       |
+| Chain existing steps                                                | No; use `steps:`.              |
+| Need SSE/streaming output                                           | No; use `backend: stream`.     |
+| Need a background loop                                              | No; use `backend: background`. |
+| Need cron scheduling                                                | No; use `backend: cron`.       |
+| Need entirely new scheduling, concurrency, or transaction semantics | Yes; add a Job backend.        |
 
 Minimal shape of a new Job backend:
 

@@ -48,7 +48,7 @@ class BaseJob(BaseComponent):
         config = raw if isinstance(raw, ComponentConfig) else ComponentConfig(**raw)
         if not config.backend:
             raise ValueError("Step is missing the required 'backend' field")
-        step_cls = R.get(ComponentEnum.STEP, config.backend)
+        step_cls = self.app_context.registry.get(ComponentEnum.STEP, config.backend)
         if not step_cls:
             raise ValueError(f"Unregistered backend '{config.backend}' of type '{ComponentEnum.STEP}'")
         params = config.model_dump()

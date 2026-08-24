@@ -1,0 +1,14 @@
+# 含真实 API key，绝不入库
+env.sh
+
+# 运行时产物（含对话内容，勿入库）
+logs/
+outputs/
+reme_workspace/
+nanobot_workspace/
+
+# 数据符号链接（指向外部 π-Bench 仓库）
+data
+
+__pycache__/
+*.pyc

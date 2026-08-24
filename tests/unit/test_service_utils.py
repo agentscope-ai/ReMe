@@ -156,3 +156,22 @@ def test_scan_reme_procs_skips_access_denied(monkeypatch):
     ]
     _patch_iter(monkeypatch, procs)
     assert su._scan_reme_procs() == [(5, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+
+
+def test_running_app_config_preserves_plugins(monkeypatch):
+    """Process replay exposes the full config while the compatibility helper returns service only."""
+    monkeypatch.setattr(su, "_reme_start_argv", lambda: [["config=example"]])
+    monkeypatch.setattr("reme.config.parse_args", lambda *_args: ("start", {"config": "example"}))
+    monkeypatch.setattr(
+        "reme.config.resolve_app_config",
+        lambda **_kwargs: {
+            "plugins": ["example"],
+            "service": {"backend": "plugin-client", "port": 9911},
+        },
+    )
+
+    assert su.running_app_config() == {
+        "plugins": ["example"],
+        "service": {"backend": "plugin-client", "port": 9911},
+    }
+    assert su.running_service_config() == {"backend": "plugin-client", "port": 9911}

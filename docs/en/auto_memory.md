@@ -1,8 +1,9 @@
 # Auto Memory
 
-Auto Memory is ReMe's entry point for conversational memory. Each conversation is first distilled into a daily memory card
-identified by `session_id`, and the day's `YYYY-MM-DD.md` page then indexes all of those cards. It turns "we talked about it"
-into "it was remembered" while preserving the original conversation as evidence.
+Auto Memory is ReMe's entry point for conversational memory. Within a target date, it uses `session_id` to find or update at
+most one daily memory card, whose filename is a concise topic or event name chosen by the Agent. The day's `YYYY-MM-DD.md`
+page indexes those cards. It turns "we talked about it" into "it was remembered" while retaining a source conversation record
+as evidence.
 
 <p align="center">
   <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory and Auto Resource writing daily memory cards" width="92%">
@@ -13,9 +14,9 @@ For the general file semantics of `daily/`, `session/`, frontmatter, and wikilin
 
 ```text
 Conversation
-  ├─ step 1: daily/YYYY-MM-DD/<session_id>.md   # one card per conversation
-  ├─ step 2: daily/YYYY-MM-DD.md                # daily index linking the cards
-  └─ source: session/dialog/<session_id>.jsonl  # original conversation
+  ├─ step 1: daily/YYYY-MM-DD/<generated_name>.md # one topic-named card per session
+  ├─ step 2: daily/YYYY-MM-DD.md                  # daily index linking the cards
+  └─ source: session/dialog/<session_id>.jsonl    # source conversation record
 ```
 
 ## What It Records
@@ -39,29 +40,33 @@ workspace/
   daily/
     2026-06-20.md
     2026-06-20/
-      session-a.md
-      session-b.md
+      login-refactor-decision.md
+      retrieval-regression.md
 ```
 
-`daily/2026-06-20/session-a.md` and `daily/2026-06-20/session-b.md` are memory cards distilled from different
-conversations. `daily/2026-06-20.md` is the index page for that day. Resource files enter the same daily memory layer; see
+The two files under the date directory are topic-named cards distilled from different conversations.
+`daily/2026-06-20.md` is the index page for that day. Resource files enter the same daily memory layer; see
 [Auto Resource](./auto_resource.md).
 
-When a call includes `session_id`, Auto Memory records that conversation separately under the given ID:
+When a call includes `session_id`, Auto Memory uses it to find the corresponding card through frontmatter, while the Agent
+chooses a readable filename through `name`:
 
-```text
-daily/2026-06-20/session-a.md
+```yaml
+name: login-refactor-decision
+session_id: session-a
+source_conversation: "[[session/dialog/session-a.jsonl]]"
 ```
 
-This keeps different conversations separate. A requirements discussion, a debugging session, and a documentation update can
-each have their own memory card. To see what happened on a particular day, start with `YYYY-MM-DD.md`. To inspect what was
-distilled from one conversation, open the corresponding `<session_id>.md`.
+This keeps different conversations separate without forcing opaque IDs into filenames. An update locates the existing note by
+`session_id` or `source_conversation`; if the Agent supplies a better frontmatter `name`, the system can rename the note and
+retarget inbound wikilinks. To see what happened on a day, start with `YYYY-MM-DD.md`.
 
 ## Preserving the Original Information
 
-The distilled daily note is optimized for readability; the original conversation is retained for trust and verification.
+The distilled daily note is optimized for readability; a filtered source conversation record is retained for trust and
+verification.
 
-While generating memory cards, Auto Memory also saves the raw sessions:
+While generating memory cards, Auto Memory also saves the source messages:
 
 ```text
 session/
@@ -70,12 +75,12 @@ session/
     session-b.jsonl
 ```
 
-Each daily note points to its corresponding original conversation. When a memory needs verification, follow that link back to
-the complete context in which it was created.
+Each daily note points to its corresponding conversation record. Saved messages omit tool-result blocks and base64 data
+blocks, preventing recalled memory and binary payloads from being mistaken for user-provided evidence later.
 
 ## Message Timestamps
 
-Auto Memory preserves each message's `created_at` in both the prompt and the raw session JSONL. When importing historical
+Auto Memory preserves each retained message's `created_at` in both the prompt and the source conversation JSONL. When importing historical
 conversations or benchmark data, provide the actual occurrence time for every message so the model does not confuse event
 time with execution time:
 
@@ -92,8 +97,8 @@ For compatibility with common dataset schemas, `auto_memory` also checks `time_c
 `timeCreated`, and `created_time` when `created_at` is absent. These fields may appear either at the top level of a message
 or inside `metadata`.
 
-When a call does not explicitly provide `date`, Auto Memory uses the date of the earliest valid `created_at` value in the
-messages. If no message contains a valid timestamp, it falls back to the current date. Historical imports may also specify the
+When a call does not explicitly provide `date`, Auto Memory uses the latest valid `created_at` date in the messages. If no
+message contains a valid timestamp, it falls back to the current date. Historical imports may also specify the
 target date directly:
 
 ```bash

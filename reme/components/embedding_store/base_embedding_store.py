@@ -25,6 +25,7 @@ class BaseEmbeddingStore(BaseComponent):
         max_input_length: int = 8192,
         max_retries: int = 3,
         quota_retry_delay: float | None = None,
+        health_check_timeout: float = 15.0,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -32,6 +33,7 @@ class BaseEmbeddingStore(BaseComponent):
         self.max_input_length = max_input_length
         self.max_retries = max_retries
         self.quota_retry_delay = quota_retry_delay
+        self.health_check_timeout = health_check_timeout
         self.is_healthy: bool = True
 
     def _truncate(self, text: str) -> str:
@@ -57,7 +59,7 @@ class BaseEmbeddingStore(BaseComponent):
         return text
 
     @abstractmethod
-    async def health_check(self, timeout: float = 2.0) -> bool:
+    async def health_check(self, timeout: float | None = None) -> bool:
         """Probe the provider; sets and returns is_healthy."""
 
     async def get_embedding(self, input_text: str, **kwargs) -> np.ndarray | None:
@@ -67,7 +69,7 @@ class BaseEmbeddingStore(BaseComponent):
 
     @abstractmethod
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
-        """Get embeddings for texts."""
+        """Get embeddings; cache hits must not change is_healthy."""
 
     def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
         """Return whether an embedding matches the configured model dimension."""

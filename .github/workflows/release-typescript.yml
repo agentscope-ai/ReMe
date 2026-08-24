@@ -1,0 +1,132 @@
+# Release checklist:
+# 1. Update packages/typescript/package.json and package-lock.json to the release version and merge them.
+# 2. Configure npm Trusted Publishing for agentscope-ai/ReMe and this workflow file.
+# 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
+# 4. Use the `next` tag for prereleases and `latest` only for stable releases.
+
+name: Release / TypeScript integrations
+
+run-name: Publish @agentscope-ai/reme ${{ inputs.version }} (${{ inputs.npm_tag }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from packages/typescript/package.json (for example, 0.1.0)
+        required: true
+        type: string
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - next
+          - latest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-agentscope-ai-reme
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.19'
+
+      - name: Validate package name and release version
+        working-directory: packages/typescript
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          const expected = process.env.RELEASE_VERSION.replace(/^v/, '');
+          if (manifest.name !== '@agentscope-ai/reme') {
+            throw new Error(`Unexpected package name: ${manifest.name}`);
+          }
+          if (manifest.version !== expected) {
+            throw new Error(`package.json is ${manifest.version}, workflow input is ${expected}`);
+          }
+          const prerelease = manifest.version.includes('-');
+          const npmTag = process.env.NPM_TAG;
+          if (prerelease !== (npmTag === 'next')) {
+            throw new Error(prerelease
+              ? 'Prerelease versions must use the next npm tag'
+              : 'Stable versions must use the latest npm tag');
+          }
+          console.log(`Preparing ${manifest.name}@${manifest.version}`);
+          JS
+
+      - name: Install dependencies
+        working-directory: packages/typescript
+        run: npm ci
+
+      - name: Type-check and test
+        working-directory: packages/typescript
+        run: |
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run test:package
+
+      - name: Pack npm tarball
+        working-directory: packages/typescript
+        run: |
+          mkdir -p "${RUNNER_TEMP}/reme-typescript-package"
+          npm pack --pack-destination "${RUNNER_TEMP}/reme-typescript-package"
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentscope-ai-reme-${{ inputs.version }}
+          path: ${{ runner.temp }}/reme-typescript-package/*.tgz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Set up Node for npm
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      - name: Download npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: agentscope-ai-reme-${{ inputs.version }}
+          path: dist/typescript
+
+      - name: Reject an existing package version
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          PACKAGE_VERSION="${PACKAGE_VERSION#v}"
+          if npm view "@agentscope-ai/reme@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "@agentscope-ai/reme@${PACKAGE_VERSION} already exists" >&2
+            exit 1
+          fi
+
+      - name: Publish to npm
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: npm publish dist/typescript/*.tgz --access public --tag "${NPM_TAG}" --provenance

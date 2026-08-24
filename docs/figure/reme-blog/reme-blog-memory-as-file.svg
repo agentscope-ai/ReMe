@@ -6,20 +6,7 @@
       <stop offset="0%" stop-color="#3568B8"/>
       <stop offset="100%" stop-color="#2A9D8F"/>
     </linearGradient>
-    <style>
-      .bg { fill: #fffdf8; }
-      .title { font: 800 30px Arial, sans-serif; fill: #1f2430; }
-      .sub { font: 14px Arial, sans-serif; fill: #667085; }
-      .panel { fill: #fff; stroke: #365A73; stroke-width: 2; }
-      .top { fill: url(#headerGradient); }
-      .white { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #fff; }
-      .mono { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #283342; }
-      .folder { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #1767b1; }
-      .head { font: 700 17px Arial, sans-serif; fill: #1f2430; }
-      .text { font: 13px Arial, sans-serif; fill: #5e6a7c; }
-      .link { fill: none; stroke: #ff963d; stroke-width: 2.5; }
-      .dot { fill: #ff963d; }
-    </style>
+    <style>.bg { fill: #fffdf8; } .title { font: 800 30px Arial, sans-serif; fill: #1f2430; } .sub { font: 14px Arial, sans-serif; fill: #667085; } .panel { fill: #fff; stroke: #365A73; stroke-width: 2; } .top { fill: url(#headerGradient); } .white { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #fff; } .mono { font: 14px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #283342; } .folder { font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; fill: #1767b1; } .head { font: 700 17px Arial, sans-serif; fill: #1f2430; } .text { font: 13px Arial, sans-serif; fill: #5e6a7c; } .link { fill: none; stroke: #ff963d; stroke-width: 2.5; } .dot { fill: #ff963d; }</style>
   </defs>
 
   <rect class="bg" width="1200" height="640"/>
@@ -37,9 +24,9 @@
   <text class="head" x="90" y="358">Lead with the problem and outcome.</text>
   <text class="text" x="90" y="386">Use examples; explain technical details without jargon.</text>
   <text class="mono" x="90" y="434">Related:</text>
-  <text class="folder" x="170" y="434">[[technical-writing-workflow]]</text>
+  <text class="folder" x="170" y="434">[[digest/procedure/writing.md]]</text>
   <text class="mono" x="90" y="480">Source:</text>
-  <text class="folder" x="170" y="480">[[daily/2026-08-07]]</text>
+  <text class="folder" x="170" y="480">[[daily/2026-08-07/style.md]]</text>
 
   <path class="link" d="M594 426C635 426 640 350 680 350"/>
   <path class="link" d="M594 472C635 472 640 308 680 308"/>
@@ -50,7 +37,7 @@
   <path class="top" d="M698 116h430a18 18 0 0118 18v48H680v-48a18 18 0 0118-18z"/>
   <text class="white" x="714" y="158">workspace/</text>
   <text class="folder" x="716" y="224">├── session/</text>
-  <text class="text" x="900" y="224">Raw conversations</text>
+  <text class="text" x="900" y="224">Source conversations</text>
   <text class="folder" x="716" y="266">├── resource/</text>
   <text class="text" x="900" y="266">External resources</text>
   <text class="folder" x="716" y="308">├── daily/</text>

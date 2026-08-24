@@ -1,5 +1,6 @@
 service:
   backend: http
+  web_enabled: true
 
 jobs:
   index_update_loop:

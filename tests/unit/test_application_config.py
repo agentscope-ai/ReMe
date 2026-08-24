@@ -26,6 +26,34 @@ def test_workspace_dir_expands_user_home(monkeypatch, tmp_path):
     assert config.workspace_dir == str(tmp_path / ".copaw/workspaces/default")
 
 
+def test_application_config_accepts_plugin_names_only():
+    """Plugin configuration remains a simple list of installed entry-point names."""
+    config = ApplicationConfig(plugins=["example"])
+
+    assert config.plugins == ["example"]
+    with pytest.raises(ValidationError):
+        ApplicationConfig(plugins=[{"name": "example"}])
+
+
+def test_application_config_accepts_plugin_defined_component_type():
+    """Plugin component type names remain typed configuration buckets."""
+    config = ApplicationConfig(
+        components={
+            "example.reranker": {
+                "default": {"backend": "cross_encoder"},
+            },
+        },
+    )
+
+    assert config.components["example.reranker"]["default"].backend == "cross_encoder"
+
+
+def test_application_config_rejects_unsafe_component_type():
+    """Component type names cannot escape their workspace metadata directory."""
+    with pytest.raises(ValidationError, match="Invalid component type"):
+        ApplicationConfig(components={"../outside": {"default": {"backend": "unsafe"}}})
+
+
 def test_dialog_dir_is_not_an_application_config_field():
     """The removed option is absent from schemas and ignored when supplied."""
     custom = ApplicationConfig(session_dir="sessions/", dialog_dir="somewhere/else")

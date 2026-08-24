@@ -1,18 +1,6 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
-from .auto_fin import (
-    AutoFinCurrentEvent,
-    AutoFinEtfAnalysis,
-    AutoFinEtfSelection,
-    AutoFinEtfsOutput,
-    AutoFinEventReference,
-    AutoFinHistoricalEvent,
-    AutoFinHistoricalOutput,
-    AutoFinHistoricalReference,
-    AutoFinReportOutput,
-    AutoFinReturns,
-)
 from .daily_paper import (
     AnalyzedPaper,
     DailyPaperMarkdownOutput,
@@ -50,16 +38,6 @@ from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
     "ApplicationConfig",
-    "AutoFinCurrentEvent",
-    "AutoFinEtfAnalysis",
-    "AutoFinEtfSelection",
-    "AutoFinEtfsOutput",
-    "AutoFinEventReference",
-    "AutoFinHistoricalEvent",
-    "AutoFinHistoricalOutput",
-    "AutoFinHistoricalReference",
-    "AutoFinReportOutput",
-    "AutoFinReturns",
     "ComponentConfig",
     "AnalyzedPaper",
     "DailyPaperMarkdownOutput",

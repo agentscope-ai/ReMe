@@ -1,8 +1,19 @@
 """Config"""
 
-from .config_parser import parse_args, resolve_app_config
+from .config_parser import (
+    deep_merge_config,
+    expand_env_vars,
+    parse_action,
+    parse_args,
+    parse_kwargs,
+    resolve_app_config,
+)
 
 __all__ = [
+    "deep_merge_config",
+    "expand_env_vars",
+    "parse_action",
     "parse_args",
+    "parse_kwargs",
     "resolve_app_config",
 ]

@@ -1,0 +1,58 @@
+name: Release / Python packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version
+        required: true
+        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and verify distributions
+    uses: ./.github/workflows/_build-python-packages.yml
+    with:
+      expected_version: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+      upload_artifacts: true
+
+  publish-studio:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download ReMe Studio distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: reme-studio-distributions
+          path: dist/studio
+
+      - name: Publish ReMe Studio
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/studio
+          skip-existing: true
+
+  publish-reme:
+    needs: publish-studio
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download ReMe distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: reme-distributions
+          path: dist/reme
+
+      - name: Publish ReMe
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/reme
+          skip-existing: true

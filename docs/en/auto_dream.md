@@ -1,16 +1,17 @@
 # Auto Dream
 
-`auto_dream` is ReMe's long-term memory distillation flow from daily to digest. It scans daily inputs for a specified date,
-processes only files that changed since the previous dream, extracts content worth retaining as memory units, integrates those
-units into `digest/`, and generates the day's `interests.yaml` for proactive use.
+`auto_dream` is ReMe's long-term memory distillation flow from daily to digest. By default it scans the target date and
+the previous day, processes only files changed since the previous dream, extracts a small set of high-value memory units
+across that window, integrates them into `digest/`, and writes the target day's `interests.yaml` for proactive use.
 
 <p align="center">
   <img src="../figure/auto-dream-and-proactive.svg" alt="ReMe Auto Dream and Proactive flow from daily to digest to proactive" width="92%">
 </p>
 
 Its daily inputs usually come from [Auto Memory](./auto_memory.md) and [Auto Resource](./auto_resource.md). For the file
-semantics of `digest/`, Sources sections, and wikilinks, see [Memory as File](./memory_as_file.md). For the linking strategy
-used during Integrate, see [Auto Link](./auto_link.md). To read `interests.yaml`, use [Proactive](./proactive.md).
+semantics of `digest/`, Sources sections, and wikilinks, see [Memory as File](./memory_as_file.md). For the linking
+strategy used during Integrate, see [Auto Link](./auto_link.md). To read `interests.yaml`,
+use [Proactive](./proactive.md).
 
 ## Configuration
 
@@ -26,6 +27,12 @@ auto_dream:
     hint:
       type: string
       default: ""
+    scan_days:
+      type: integer
+      default: 2
+    max_units:
+      type: integer
+      default: 5
     topic_count:
       type: integer
       default: 3
@@ -36,6 +43,8 @@ auto_dream:
     - backend: dream_extract_step
       file_catalog: dream
       topic_session_id: interests
+      scan_days: 2
+      max_units: 5
     - backend: dream_integrate_step
     - backend: dream_topics_step
       topic_count: 3
@@ -46,34 +55,39 @@ auto_dream:
 
 Parameters:
 
-| Parameter | Purpose |
-|---|---|
-| `date` | Date to process in `YYYY-MM-DD` format. When empty, use today in the application's timezone. |
-| `hint` | Additional guidance from the caller for the Extract and Integrate stages. |
-| `topic_count` | Maximum number of topics written to `interests.yaml`. Defaults to 3. |
+| Parameter              | Purpose                                                                                                 |
+|------------------------|---------------------------------------------------------------------------------------------------------|
+| `date`                 | Date to process in `YYYY-MM-DD` format. When empty, use today in the application's timezone.            |
+| `hint`                 | Additional guidance from the caller for the Extract and Integrate stages.                               |
+| `scan_days`            | Recent-date window ending at `date`; defaults to 2 and has a minimum of 1.                              |
+| `max_units`            | Maximum reusable units extracted in one run; defaults to 5.                                             |
+| `topic_count`          | Maximum number of topics written to `interests.yaml`. Defaults to 3.                                    |
 | `topic_diversity_days` | Number of past days of `interests.yaml` files considered when avoiding duplicate topics. Defaults to 7. |
 
 ## Inputs and Outputs
 
-Inputs are daily Markdown files for the specified date:
+Inputs are daily Markdown files from the most recent `scan_days` ending at the specified date. For example,
+`date=2026-06-20` with `scan_days=2` scans:
 
 ```text
-daily/<date>.md
-daily/<date>/**/*.md
+daily/2026-06-19.md
+daily/2026-06-19/**/*.md
+daily/2026-06-20.md
+daily/2026-06-20/**/*.md
 ```
 
-`daily/<date>/interests.yaml` is excluded from extraction input so topics from the previous run do not feed back into the
-next extraction.
+Every `daily/<date>/interests.yaml` in the scan window is excluded from extraction so previous proactive output cannot
+feed back into the next run. Final topics are written only for the target date.
 
 The main outputs are:
 
-| Output | Description |
-|---|---|
-| `digest/procedure/*.md` | Methods, workflows, runbooks, and executable experience. |
-| `digest/personal/*.md` | User-, team-, and project-related preferences, facts, and long-term context. |
-| `digest/wiki/*.md` | General knowledge, concepts, observations, and decision precedents. |
-| `daily/<date>/interests.yaml` | Topics worth proactive attention from the host agent that day. |
-| `metadata/file_catalog/dream*` | Dream-specific catalog used to detect changes in daily inputs. |
+| Output                         | Description                                                                  |
+|--------------------------------|------------------------------------------------------------------------------|
+| `digest/procedure/*.md`        | Methods, workflows, runbooks, and executable experience.                     |
+| `digest/personal/*.md`         | User-, team-, and project-related preferences, facts, and long-term context. |
+| `digest/wiki/*.md`             | General knowledge, concepts, observations, and decision precedents.          |
+| `daily/<date>/interests.yaml`  | Topics worth proactive attention from the host agent that day.               |
+| `metadata/file_catalog/dream*` | Dream-specific catalog used to detect changes in daily inputs.               |
 
 ## Four Stages
 
@@ -81,43 +95,50 @@ The main outputs are:
 
 `dream_extract_step` performs three tasks:
 
-1. Refresh the day's index page at `daily/<date>.md`.
-2. Scan `daily/<date>.md` and `daily/<date>/**/*.md` and compare their mtimes with `file_catalog: dream`.
-3. Send only changed files to the LLM and globally extract two structured result types: `units` and `topics`.
+1. Refresh each `daily/<date>.md` in the scan window.
+2. Scan those day indexes and `daily/<date>/**/*.md`, comparing mtimes with `file_catalog: dream`.
+3. Send all changed files together to the LLM and globally extract two structured result types: `units` and `topics`.
 
 `units` are long-term memory units ready to be distilled into digest. Each has `name`, `bucket`, `summary`, and `paths`.
-`bucket` may only be `procedure`, `personal`, or `wiki`; unknown values are routed to `wiki`.
+A run returns at most `max_units`; extraction merges cross-file evidence for the same abstraction and drops passing
+mentions, per-file summaries, and weak candidates without reusable value. `bucket` may only be `procedure`, `personal`,
+or `wiki`; unknown values are routed to `wiki`.
 
 `topics` are proactive-interest candidates for the day. They contain `title`, `reason`, `evidence`, `keywords`, and
 `paths` and are filtered again in the Topics stage.
 
-If there are no changed files, the flow ends early with success and skips later extraction work. If files changed but no LLM
-is configured, Extract fails because extraction requires an LLM.
+If there are no changed files, Extract succeeds with no units; Integrate then has no unit work, Topics preserves any
+existing target-day topics, and Finish still performs its normal catalog summary. If files changed but no LLM is
+configured, Extract fails because extraction requires an LLM.
 
 ### 2. Integrate
 
-`dream_integrate_step` invokes an agent independently for each unit and integrates that unit into one digest node. It exposes
-these tools to the agent:
+`dream_integrate_step` invokes an agent independently for each unit and integrates that unit into one digest node. It
+exposes these tools to the agent:
 
 ```text
 node_search, read, frontmatter_read, write, edit, frontmatter_update
 ```
 
-This stage carries the core responsibility of `auto_link`. It first uses `node_search` to recall similar or related nodes at
-digest-node granularity, decides whether to create or update a node, and finally writes sources and related digest nodes as
-wikilinks. See [Auto Link](./auto_link.md) for the recall, deduplication, and edge-writing rules.
+This stage carries the core responsibility of `auto_link`. It first uses `node_search` to recall similar or related
+nodes at digest-node granularity, decides whether to create or update a node, and finally writes sources and related
+digest nodes as wikilinks. See [Auto Link](./auto_link.md) for the recall, deduplication, and edge-writing rules.
+
+Extract is the gate for deciding whether material is worth remembering, so Integrate has no `SKIP` action: each admitted
+unit must land in exactly one digest node. Creates and updates must retain provenance and weave related digest links
+into contextual sentences; bare wikilinks and standalone relationship fields are not valid output.
 
 There are four integration actions:
 
-| Action | Meaning |
-|---|---|
-| `CREATE` | No equivalent abstraction exists; create a new digest node. |
+| Action        | Meaning                                                                        |
+|---------------|--------------------------------------------------------------------------------|
+| `CREATE`      | No equivalent abstraction exists; create a new digest node.                    |
 | `CORROBORATE` | The same memory appeared again; append a source or strengthen the description. |
-| `REFINE` | New material adds boundaries, steps, prerequisites, applicability, or detail. |
-| `CORRECT` | New material corrects errors, omissions, or conflicts in the existing node. |
+| `REFINE`      | New material adds boundaries, steps, prerequisites, applicability, or detail.  |
+| `CORRECT`     | New material corrects errors, omissions, or conflicts in the existing node.    |
 
-Successfully integrated units are recorded in `integrate_results`. Failed units enter `failed_units`, and their source paths
-enter `failed_paths`. The Finish stage does not checkpoint failed paths, ensuring that they can be retried later.
+Successfully integrated units are recorded in `integrate_results`. Failed units enter `failed_units`, and their source
+paths enter `failed_paths`. The Finish stage does not checkpoint failed paths, ensuring that they can be retried later.
 
 ### 3. Topics
 
@@ -127,7 +148,7 @@ It reads:
 
 ```text
 daily/<date>/interests.yaml
-daily/<previous-date>/interests.yaml
+daily/<each of the previous topic_diversity_days dates>/interests.yaml
 ```
 
 Existing topics from the same day are preserved, while similar topics from the previous `topic_diversity_days` days are
@@ -156,7 +177,8 @@ topics:
 `dream_finish_step` completes the run:
 
 1. Write successfully processed changed paths to `file_catalog: dream`.
-2. Also write `daily/<date>/interests.yaml` and `daily/<date>.md` to the catalog.
+2. Also write the target `daily/<date>/interests.yaml` and every refreshed day-index page in the scan window to the
+   catalog.
 3. Persist the dream catalog if there were upserts or deletions.
 4. Return a summary containing counts for scanned, changed, integrated, topics, checkpoints, and related values.
 
@@ -177,6 +199,12 @@ With caller guidance:
 reme auto_dream date=2026-06-20 hint="Prioritize engineering decisions and long-term preferences"
 ```
 
+Override the default scan window and unit cap:
+
+```bash
+reme auto_dream date=2026-06-20 scan_days=3 max_units=8
+```
+
 The same set of steps can also be placed in a `cron` Job, for example to run every morning:
 
 ```yaml
@@ -195,15 +223,16 @@ jobs:
 
 ## Important Boundaries
 
-`auto_dream` consumes only daily inputs and does not rewrite daily bodies. Daily preserves facts and the original situation;
-digest is the abstracted long-term memory layer.
+`auto_dream` consumes only daily inputs and does not rewrite daily bodies. Daily preserves facts and the original
+situation; digest is the abstracted long-term memory layer.
 
-`digest` is not a copy of the source text. Its body should preserve reusable abstractions, while a Sources section points
-back with entries such as `- [[daily/<date>/...]]`. Links follow the workspace-relative wikilink semantics described in
+`digest` is not a copy of the source text. Its body should preserve reusable abstractions, while a Sources section
+points back with contextual sentences such as `The decision was recorded in [[daily/<date>/decision.md]].` Links follow
+the workspace-relative wikilink semantics described in
 [Memory as File](./memory_as_file.md).
 
-`auto_dream` does not invent an overview from nothing. Only content that actually appears in daily input and is extracted as
-a unit or topic can enter digest or `interests.yaml`.
+`auto_dream` does not invent an overview from nothing. Only content that actually appears in daily input and is
+extracted as a unit or topic can enter digest or `interests.yaml`.
 
-The complete flow depends on an LLM for Extract and Integrate. Topics can perform local deduplication without an LLM, but that
-does not mean the full dream flow can run offline.
+The complete flow depends on an LLM for Extract and Integrate. Topics can perform local deduplication without an LLM,
+but that does not mean the full dream flow can run offline.

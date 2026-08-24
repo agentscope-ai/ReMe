@@ -88,13 +88,12 @@ def _reme_start_argv() -> list[list[str]]:
     return argvs
 
 
-def running_service_config() -> dict | None:
-    """Resolve the ``service`` config of a running reme by replaying its start args.
+def running_app_config() -> dict | None:
+    """Resolve the full config of a running ReMe by replaying its start args.
 
     Reads the live ``reme start ...`` process cmdline and re-runs the same
-    ``resolve_app_config`` the server used, so the result matches the running
-    server's real backend/transport/host/port even when those were passed on the
-    command line and are absent from (or differ from) the on-disk config file.
+    ``resolve_app_config`` the server used. Returning the full config preserves
+    enabled plugins as well as service connection settings for CLI clients.
     Returns ``None`` when no running reme is found or its args can't be parsed.
     """
     from ..config import parse_args, resolve_app_config
@@ -102,12 +101,21 @@ def running_service_config() -> dict | None:
     for argv in _reme_start_argv():
         try:
             _, kwargs = parse_args("start", *argv)
+            config = resolve_app_config(log_config=False, **kwargs)
         except ValueError:
             continue
-        service = resolve_app_config(log_config=False, **kwargs).get("service")
-        if isinstance(service, dict):
-            return service
+        if isinstance(config, dict):
+            return config
     return None
+
+
+def running_service_config() -> dict | None:
+    """Return only the service section of the running ReMe configuration."""
+    config = running_app_config()
+    if config is None:
+        return None
+    service = config.get("service")
+    return service if isinstance(service, dict) else None
 
 
 async def locate_reme() -> tuple[str, int, int | None] | None:

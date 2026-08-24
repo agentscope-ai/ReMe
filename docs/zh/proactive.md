@@ -31,10 +31,10 @@ proactive:
 
 参数含义：
 
-| 参数                | 作用                                     |
-|-------------------|----------------------------------------|
+| 参数              | 作用                                                            |
+|-------------------|-----------------------------------------------------------------|
 | `date`            | 要读取的日期，格式为 `YYYY-MM-DD`。为空时使用应用时区中的今天。 |
-| `include_content` | 是否在 answer 和 metadata 中返回 YAML 原文，默认 `true`。 |
+| `include_content` | 是否在 answer 和 metadata 中返回 YAML 原文，默认 `true`。       |
 
 ## 输入契约
 
@@ -62,15 +62,15 @@ topics:
 成功读取时，`proactive_step` 会在主要 answer 中返回 `summary` 和 `topics`；当 `include_content=true` 时还会返回
 `content`。相同的结果字段也会保留在标准 response metadata 中：
 
-| 字段        | 说明                                     |
-|-----------|----------------------------------------|
-| `date`    | 实际读取的日期。                               |
-| `path`    | `daily/<date>/interests.yaml`。         |
-| `topics`  | 解析后的 topic 列表。                         |
+| 字段      | 说明                                            |
+|-----------|-------------------------------------------------|
+| `date`    | 实际读取的日期。                                |
+| `path`    | `daily/<date>/interests.yaml`。                 |
+| `topics`  | 解析后的 topic 列表。                           |
 | `content` | YAML 原文；仅在 `include_content=true` 时返回。 |
-| `skipped` | 文件不存在时为 `true`。                        |
-| `error`   | 读取或解析异常。                               |
-| `summary` | 简短摘要。                                  |
+| `skipped` | 文件不存在时为 `true`。                         |
+| `error`   | 读取或解析异常。                                |
+| `summary` | 简短摘要。                                      |
 
 文件存在且解析成功时，answer 是结构化数据，例如：
 
@@ -129,20 +129,20 @@ daily notes
 
 职责边界如下。更完整的 Extract、Integrate、Topics、Finish 说明见 [Auto Dream](./auto_dream.md)：
 
-| 模块                   | 职责                                     |
-|----------------------|----------------------------------------|
+| 模块                 | 职责                                         |
+|----------------------|----------------------------------------------|
 | `dream_extract_step` | 从 changed daily 输入抽取 topic candidates。 |
-| `dream_topics_step`  | 去重、筛选并写入 `interests.yaml`。             |
-| `proactive_step`     | 读取 `interests.yaml`，暴露给上层 Agent。       |
+| `dream_topics_step`  | 去重、筛选并写入 `interests.yaml`。          |
+| `proactive_step`     | 读取 `interests.yaml`，暴露给上层 Agent。    |
 
 `proactive` 不修改任何文件，不更新 catalog，也不负责判断是否应该主动打扰用户。它只提供当天主题材料；是否推送、何时推送、用什么语气推送，应由调用方根据产品策略决定。
 
 ## 失败模式
 
-| 场景                   | 行为                                         |
-|----------------------|--------------------------------------------|
-| `interests.yaml` 不存在 | `success=true`，`skipped=true`，`topics=[]`。 |
-| YAML 无法读取或解析异常       | `success=false`，answer 返回错误摘要。             |
-| YAML 存在但没有合法 topics  | `success=true`，`topics=[]`。                |
+| 场景                       | 行为                                          |
+|----------------------------|-----------------------------------------------|
+| `interests.yaml` 不存在    | `success=true`，`skipped=true`，`topics=[]`。 |
+| YAML 无法读取或解析异常    | `success=false`，answer 返回错误摘要。        |
+| YAML 存在但没有合法 topics | `success=true`，`topics=[]`。                 |
 
 因此推荐调用方先检查 `success`，再检查 `skipped`，最后检查 `topics` 是否为空。

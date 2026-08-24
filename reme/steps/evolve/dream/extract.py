@@ -109,27 +109,54 @@ class DreamExtractStep(BaseStep):
             return self._finish(state, False, state.errors[-1])
 
         self.logger.info(f"[{self.name}] agent start changed={len(changed)} dates={len(dates)}")
-        result = await self.agent_wrapper.reply(
-            self.prompt_format(
-                "extract_user_message",
-                date=day,
-                dates_json=json.dumps(dates, ensure_ascii=False, indent=2),
-                hint=hint or "(none)",
-                max_units=max_units,
-                changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
-                material_blob=pack_paths(workspace, changed),
-            ),
-            system_prompt=self.prompt_format(
-                "extract_system_prompt",
-                workspace_dir=str(workspace),
-                buckets=", ".join(bucket.value for bucket in DreamBucketEnum),
-                max_units=max_units,
-            ),
-            job_tools=list(_TOOLS),
-        )
-        self.logger.info(f"[{self.name}] agent done has_result={bool(result.get('result'))}")
-        raw_result = agent_reply_result_text(result)
-        meta = parse_structured_reply(raw_result)
+        raw_result, meta = "", {}
+        for attempt in range(2):
+            try:
+                result = await self.agent_wrapper.reply(
+                    self.prompt_format(
+                        "extract_user_message",
+                        date=day,
+                        dates_json=json.dumps(dates, ensure_ascii=False, indent=2),
+                        hint=hint or "(none)",
+                        max_units=max_units,
+                        changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
+                        material_blob=pack_paths(workspace, changed),
+                    ),
+                    system_prompt=self.prompt_format(
+                        "extract_system_prompt",
+                        workspace_dir=str(workspace),
+                        buckets=", ".join(bucket.value for bucket in DreamBucketEnum),
+                        max_units=max_units,
+                    ),
+                    job_tools=list(_TOOLS),
+                )
+                self.logger.info(f"[{self.name}] agent done has_result={bool(result.get('result'))}")
+                raw_result = agent_reply_result_text(result)
+                meta = parse_structured_reply(raw_result)
+            except Exception as e:  # noqa: BLE001
+                if attempt == 0:
+                    self.logger.warning(
+                        f"[{self.name}] extract attempt 1 returned no usable receipt; retrying once: "
+                        f"{type(e).__name__}: {e}",
+                    )
+                    continue
+                error = f"dream extract agent failed after retry: {type(e).__name__}: {e}"
+                state.errors.append(error)
+                state.failed_paths = list(changed)
+                self.logger.error(f"[{self.name}] {error}")
+                return self._finish(state, False, error)
+
+            units = meta.get("units") if "units" in meta else meta.get("memory_units")
+            if isinstance(units, list) and isinstance(meta.get("topics"), list):
+                break
+            if attempt == 0:
+                self.logger.warning(f"[{self.name}] extract attempt 1 returned an unusable receipt; retrying once")
+                continue
+            # Keep the warning-only result checkpointable after one retry so a bad source cannot loop forever.
+            warning = "dream extract skipped unusable agent receipt after retry; expected units and topics lists"
+            state.warnings.append(warning)
+            self.logger.warning(f"[{self.name}] {warning}")
+
         self.logger.info(f"[{self.name}] parse done keys={','.join(sorted(meta.keys())) if meta else '(none)'}")
         self.clean_output(state, meta, max_units=max_units)
         state.extract_summary = raw_result

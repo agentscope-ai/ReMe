@@ -1,0 +1,48 @@
+name: CI / Documentation
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/ci-docs.yml'
+      - '.github/workflows/_build-docs.yml'
+      - 'AGENTS.md'
+      - 'README.md'
+      - 'README_ZH.md'
+      - 'docs/**'
+      - 'github-pages/**'
+      - 'website/README*.md'
+      - 'website/public/og.jpg'
+      - 'plugins/*/README*.md'
+      - 'benchmark/*/README*.md'
+      - 'skills/reme_memory/SKILL.md'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - '.github/workflows/ci-docs.yml'
+      - '.github/workflows/_build-docs.yml'
+      - 'AGENTS.md'
+      - 'README.md'
+      - 'README_ZH.md'
+      - 'docs/**'
+      - 'github-pages/**'
+      - 'website/README*.md'
+      - 'website/public/og.jpg'
+      - 'plugins/*/README*.md'
+      - 'benchmark/*/README*.md'
+      - 'skills/reme_memory/SKILL.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  documentation:
+    name: Test and build documentation
+    uses: ./.github/workflows/_build-docs.yml
+    with:
+      run_tests: true

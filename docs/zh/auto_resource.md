@@ -1,7 +1,8 @@
 # Auto Resource `Beta`
 
-Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先按日期进入 `resource/`，再被解读成 daily
-资源卡片；卡片文件名由 LLM 生成的 frontmatter `name` 决定，并通过 `source_resource` 追溯原始文件。
+Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文件先进入 `resource/`（推荐按日期放置），再被解读成 daily
+资源卡片；卡片文件名由 LLM 生成的 frontmatter `name` 决定，并通过 `source_resource`
+追溯原始文件。
 
 <p align="center">
   <img src="../figure/auto-memory-resource.svg" alt="ReMe Auto Memory 与 Auto Resource 写入 daily 记忆卡片的流程" width="92%">
@@ -11,7 +12,7 @@ Auto Resource 是 ReMe 的资源解读入口，目前处于 **Beta**。资源文
 [Auto Memory](./auto_memory.md)。
 
 ```text
-resource/YYYY-MM-DD/<resource_file>
+resource/[YYYY-MM-DD/]<resource_file>
   ├─ step 1: daily/YYYY-MM-DD/<generated_name>.md # 资源解读卡片
   ├─ step 2: source_resource 指回原始资源
   └─ step 3: daily/YYYY-MM-DD.md                  # 当天索引再串起来
@@ -31,13 +32,15 @@ resource/YYYY-MM-DD/<resource_file>
 
 ## 原始资料入口
 
-Auto Resource 以 `resource/` 作为原始资料入口。资源需要按日期放置，这个日期会决定它进入哪一天的 daily 记忆层。
+Auto Resource 以 `resource/` 作为原始资料入口。推荐按日期放置，目录日期会决定它进入哪一天的 daily 记忆层；也支持直接放在
+`resource/` 根目录，此时使用应用时区中的今天。
 
 示例目录：
 
 ```text
 workspace/
   resource/
+    quick-note.txt             # 进入今天的 daily
     2026-06-20/
       market-report.md
       meeting-notes.csv
@@ -47,8 +50,8 @@ workspace/
 
 ## 资源卡片
 
-每个资源文件会生成一张 daily 资源卡片。创建时先使用资源文件 stem 作为临时路径，Agent 写入后，系统会根据
-frontmatter `name` 重命名文件：
+每个资源文件会生成一张 daily 资源卡片。创建时先使用资源文件 stem 作为临时路径，Agent 写入后，系统会根据 frontmatter `name`
+重命名文件：
 
 ```text
 resource/2026-06-20/market-report.md
@@ -62,8 +65,8 @@ daily/2026-06-20/市场报告要点.md
 source_resource: "[[resource/2026-06-20/market-report.md]]"
 ```
 
-如果资源文件更新，Auto Resource 会通过 `source_resource` 找到对应卡片并更新；如果资源文件删除，对应的 daily note
-也会被清理。旧版本按 stem 生成的 `daily/YYYY-MM-DD/<resource_stem>.md` 仍作为 fallback 兼容。
+如果资源文件更新，Auto Resource 会通过 `source_resource` 找到对应卡片并更新；如果资源文件删除，对应的 daily note 也会被清理。旧版本按
+stem 生成的 `daily/YYYY-MM-DD/<resource_stem>.md` 仍作为 fallback 兼容。
 
 ## 当天索引
 
@@ -83,9 +86,9 @@ daily/
 
 解读后的 daily note 负责“好读”，原始资源负责“可信”。
 
-Auto Resource 不会把原始文件挪走：它仍然留在 `resource/YYYY-MM-DD/`。这样，文本资料会进入 daily 记忆流，原始文件也始终保留在它来时的位置。
+Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的原路径。这样，文本资料会进入 daily 记忆流，原始文件也始终保留在它来时的位置。
 
 ## 后续流向
 
-Auto Resource 只生成 daily 层的资源解读。要把资源中的长期知识沉淀进 `digest/`，使用 [Auto Dream](./auto_dream.md)；要检索原始资源、
-daily 卡片和 digest 节点，使用 [Memory Search](./memory_search.md)。
+Auto Resource 只生成 daily 层的资源解读。要把资源中的长期知识沉淀进 `digest/`，使用 [Auto Dream](./auto_dream.md)；默认实时检索会
+索引 daily 卡片和 digest 节点。若还要直接检索原始资源文件，可运行 `reme reindex`，详见 [Memory Search](./memory_search.md)。

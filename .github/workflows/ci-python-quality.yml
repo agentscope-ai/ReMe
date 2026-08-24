@@ -1,0 +1,37 @@
+name: CI / Python quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Update setuptools
+        run: |
+          pip install -U setuptools wheel
+
+      - name: Install
+        run: |
+          pip install -q -e packages/reme_ai_studio -e ".[dev,core]"
+
+      - name: Pre-commit starts
+        run: pre-commit run --all-files

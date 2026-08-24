@@ -1,8 +1,8 @@
 """Shared tool_context-scoped chunk dedup with TTL.
 
-Used by ``search``/``vector_search``/``bm25_search`` to avoid returning the
+Used by ``search_v2``/``vector_search``/``bm25_search`` to avoid returning the
 same content twice within one agent tool_context. Per-context state lives at
-``app_context.metadata["tool_contexts"][tool_context_id]["search_seen_chunk_ids"]``
+``app_context.metadata["tool_contexts"][tool_context_id]["search_seen_chunk_ranges"]``
 as ``{path: [(start_line, end_line, timestamp), ...]}``; a chunk is skipped when
 its ``[start_line, end_line]`` is fully covered by the union of seen entries
 (merged overlapping/adjacent intervals) for the same ``path``. Entries older
@@ -30,7 +30,7 @@ class _ToolContextDedupMixin:
     """
 
     TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
-    SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
+    SEARCH_SEEN_RANGES_KEY: Final[str] = "search_seen_chunk_ranges"
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -105,11 +105,10 @@ class _ToolContextDedupMixin:
         now = (clock or self._now_ts)()
         ttl = ttl_override if ttl_override is not None else float(self.seen_ttl_hours) * 60 * 60
         store = self._tool_context_store(tool_context_id)
-        seen = store.get(self.SEARCH_SEEN_KEY, {})
-        # Normalize legacy in-memory formats to {path: [(s, e, t), ...]}.
-        # Older shapes ({chunk_id: timestamp} or a plain list of ids) cannot
-        # be migrated because chunk_id is an opaque hash; seen is a transient
-        # per-Application cache, so dropping it is safe.
+        seen = store.get(self.SEARCH_SEEN_RANGES_KEY, {})
+        # Normalize unexpected in-memory formats to {path: [(s, e, t), ...]}.
+        # Other shapes cannot be migrated because chunk_id is an opaque hash;
+        # seen is a transient per-Application cache, so dropping it is safe.
         if not isinstance(seen, dict) or (seen and all(not isinstance(v, list) for v in seen.values())):
             seen = {}
 
@@ -117,7 +116,7 @@ class _ToolContextDedupMixin:
         # Expire stale tuples across all paths.
         seen = {path: [(s, e, t) for (s, e, t) in entries if now - t < ttl] for path, entries in seen.items()}
         seen = {path: entries for path, entries in seen.items() if entries}
-        store[self.SEARCH_SEEN_KEY] = seen
+        store[self.SEARCH_SEEN_RANGES_KEY] = seen
 
         seen_before = sum(len(v) for v in seen.values())
 

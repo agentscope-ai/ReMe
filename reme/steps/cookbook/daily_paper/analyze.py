@@ -91,7 +91,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         pdf_text, page_count, truncated = await asyncio.to_thread(
             self._extract_pdf_text_sync,
             pdf_path,
-            int(self._value("max_pdf_pages", 20)),
+            int(self._value("max_pdf_pages", 35)),
             int(self._value("max_pdf_chars", 300_000)),
         )
         self.logger.info(

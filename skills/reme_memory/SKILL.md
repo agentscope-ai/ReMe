@@ -5,8 +5,10 @@ description: Set up and use ReMe as a file-native long-term memory system throug
 
 # ReMe Memory
 
-Use ReMe as the persistent memory layer for this Agent. ReMe stores raw sessions, daily notes, resources, and long-term
-digest memories in a user-owned local workspace.
+Use ReMe as the persistent memory layer for this Agent. ReMe stores filtered conversation source records, daily notes,
+resources, and long-term digest memories in a user-owned local workspace. `auto_memory` omits recalled tool results and
+base64 data when it persists a source record so retrieved or binary content does not become conversation source
+material.
 
 ## Bootstrap ReMe
 
@@ -119,7 +121,7 @@ reme version
 reme health_check
 ```
 
-Proceed only when `version` responds and `health_check` reports a healthy service. Use `reme list` to inspect the jobs
+Proceed only when `version` responds and `health_check` reports a healthy service. Use `reme help` to inspect the jobs
 exposed by the running configuration. If verification fails, report the exact error and keep installation failure,
 service discovery failure, port conflict, and missing model credentials as separate diagnoses.
 
@@ -132,12 +134,15 @@ long-term context, search ReMe first:
 reme search query="<question or keywords>" limit=5
 ```
 
-Read the relevant result rather than relying only on the search snippet:
+Read a relevant Markdown result rather than relying only on the search snippet:
 
 ```bash
 reme read path="<workspace-relative-path>"
 reme read path="<workspace-relative-path>" start_line=1 end_line=80
 ```
+
+`read` accepts Markdown only. For a non-Markdown text result, use `reme load path="<workspace-relative-path>"`; because
+`load` returns the complete file, inspect its size with `reme stat` first when the file may be large.
 
 Use `traverse` when wikilink neighbors may matter:
 
@@ -176,8 +181,8 @@ Use ReMe commands instead of editing memory files directly unless the user expli
 
 ## Ingest Resources
 
-Place external documents under `resource/YYYY-MM-DD/` in the selected ReMe workspace. The default background watcher
-processes supported new or changed files while `reme start` is running.
+Place external documents under `resource/YYYY-MM-DD/` in the selected ReMe workspace. While `reme start` is running, the
+default background watcher processes new or changed `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, and `html` files.
 
 To request processing explicitly:
 
@@ -213,6 +218,6 @@ ReMe does not independently notify the user or take external action.
 - Keep one stable workspace for contexts that should share memory. Use separate workspaces when profiles must be isolated.
 - Call `auto_memory` after useful conversation turns only when the host owns lifecycle integration.
 - Use ReMe's in-process `ReMe` Python API instead of the CLI when embedding it into a Python host application.
-- Prefer the dedicated integrations under `plugins/claude_code/reme` and `plugins/hermes_agent` for those hosts.
+- Prefer the dedicated integrations under `integrations/claude_code/reme` and `integrations/hermes_agent` for those hosts.
 - Treat user-owned memory files as source data. Do not delete, rewrite, or migrate a workspace merely to repair an index;
   use rebuildable index operations such as `reme reindex` when appropriate.

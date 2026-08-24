@@ -15,8 +15,14 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e ".[core]"
+pip install -e packages/reme_ai_studio -e ".[core]"
+cd website
+npm ci
+npm run build:static
+cd ..
 ```
+
+静态构建步骤需要 Node.js 22.13 或更高版本，用于在从源码运行 ReMe 时提供 Studio。
 
 `core` extra 建议安装：当前代码会导入 AgentScope wrapper，自进化记忆也依赖它。
 
@@ -50,10 +56,16 @@ reme start service.port=8181
 ```bash
 reme version
 reme health_check
-reme list
+reme help
 ```
 
-`reme list` 会列出服务端 action。普通命令会通过 HTTP 调用服务端 Job。
+`reme help` 会列出服务端 action。普通命令会通过 HTTP 调用服务端 Job。
+
+基础 `reme-ai` 包不包含前端资源。安装 `reme-ai[web]` 或 `reme-ai[core]` 后，浏览器打开
+<http://127.0.0.1:2333/> 即可进入 ReMe Studio，在同一服务中浏览、编辑和搜索
+workspace，并查看 digest Wikilink 图。可用 `service.web_enabled=false` 关闭，或通过 `service.web_static_dir` /
+`REME_WEB_STATIC_DIR`
+指定自定义静态目录；找不到构建产物时，Job API 仍会正常启动。
 
 ---
 
@@ -64,7 +76,8 @@ reme list
 ```text
 .reme/
 ├── metadata/   # 索引、图谱、catalog 等持久状态
-├── session/    # Agent session 与原始对话
+├── session/    # 对话来源记录
+├── mem_session/ # Agent wrapper 生成的 session/配置
 ├── resource/        # 外部资料
 ├── daily/           # daily note
 └── digest/          # 长期记忆
@@ -89,7 +102,7 @@ reme write \
   description="快速开始示例记忆" \
   content="# Quick Start Demo
 
-ReMe 会索引 daily、digest 和 resource 目录中的 Markdown。
+默认实时 watcher 会索引 daily 和 digest 目录中的 Markdown。
 
 相关链接：[[digest/wiki/search-demo.md]]"
 ```
@@ -128,7 +141,13 @@ reme frontmatter_read path=digest/wiki/quick-start-demo
 reme frontmatter_update path=digest/wiki/quick-start-demo metadata='{"tags":["demo"]}'
 ```
 
-`list` 这个名字在 CLI 中用于 action 列表，所以文件列表 Job 需要用 HTTP 调：
+文件列表 Job 可以直接通过 CLI 调用：
+
+```bash
+reme list path=digest recursive=true limit=50
+```
+
+等价的 HTTP 调用是：
 
 ```bash
 curl -s http://127.0.0.1:2333/list \
@@ -157,7 +176,8 @@ reme auto_memory \
   memory_hint="记录用户偏好"
 ```
 
-外部资料放入 `resource/YYYY-MM-DD/` 后，默认后台会监听 `md/txt/json/jsonl/csv/yaml/html`。也可以手动触发：
+外部资料放入 `resource/YYYY-MM-DD/` 或直接放在 `resource/` 下后，默认后台会监听 `md/txt/json/jsonl/csv/yaml/html`。
+也可以手动触发：
 
 ```bash
 reme auto_resource changes='[{"path":"resource/2026-06-20/report.md","change":"added"}]'

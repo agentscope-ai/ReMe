@@ -1,47 +1,44 @@
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1680" height="973" viewBox="0 0 1680 973" role="img" aria-labelledby="title desc">
-  <title id="title">ReMe Hero and Public Benchmark Results</title>
-  <desc id="desc">ReMe self-evolving personal knowledge base hero with LongMemEval 89.4%, BEAM 100K 66.1%, and BEAM 1M 65.0% results.</desc>
-  <defs>
-    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#171b25" stop-opacity="0.96"/>
-      <stop offset="0.58" stop-color="#202530" stop-opacity="0.94"/>
-      <stop offset="1" stop-color="#252b36" stop-opacity="0.92"/>
-    </linearGradient>
-    <filter id="shadow" x="-20%" y="-30%" width="140%" height="180%">
-      <feDropShadow dx="0" dy="-8" stdDeviation="16" flood-color="#000" flood-opacity="0.16"/>
-    </filter>
-    <style>
-      .sans{font-family:Arial,sans-serif}
-      .eyebrow{font-size:17px;font-weight:750;letter-spacing:2px;fill:#ffad61}
-      .metric{font-size:49px;font-weight:900;letter-spacing:-1.5px;fill:#fff}
-      .label{font-size:17px;font-weight:720;fill:#fff}
-      .small{font-size:14px;font-weight:520;fill:#d0d5dd}
-    </style>
-  </defs>
-  <image xlink:href="reme-blog-cover.png" x="0" y="0" width="1680" height="973" preserveAspectRatio="xMidYMid slice"/>
-  <rect x="0" y="711" width="1680" height="262" fill="url(#glass)" filter="url(#shadow)"/>
-  <g class="sans">
-    <text class="eyebrow" x="84" y="765">PUBLIC BENCHMARK RESULTS</text>
-    <text class="small" x="84" y="798">Agentic scores across multi-session and long-context settings</text>
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" width="1680" height="973"
+     viewBox="0 0 1680 973" role="img" aria-labelledby="title desc">
+    <title id="title">ReMe Hero and Public Benchmark Results</title>
+    <desc id="desc">ReMe self-evolving personal knowledge base hero with LongMemEval 89.4%, BEAM 100K 66.1%, and BEAM 1M
+        65.0% results.
+    </desc>
+    <defs>
+        <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#171b25" stop-opacity="0.96"/>
+            <stop offset="0.58" stop-color="#202530" stop-opacity="0.94"/>
+            <stop offset="1" stop-color="#252b36" stop-opacity="0.92"/>
+        </linearGradient>
+        <filter id="shadow" x="-20%" y="-30%" width="140%" height="180%">
+            <feDropShadow dx="0" dy="-8" stdDeviation="16" flood-color="#000" flood-opacity="0.16"/>
+        </filter>
+        <style>.sans{font-family:Arial,sans-serif} .eyebrow{font-size:17px;font-weight:750;letter-spacing:2px;fill:#ffad61} .metric{font-size:49px;font-weight:900;letter-spacing:-1.5px;fill:#fff} .label{font-size:17px;font-weight:720;fill:#fff} .small{font-size:14px;font-weight:520;fill:#d0d5dd}</style>
+    </defs>
+    <image xlink:href="reme-blog-cover.png" x="0" y="0" width="1680" height="973" preserveAspectRatio="xMidYMid slice"/>
+    <rect x="0" y="711" width="1680" height="262" fill="url(#glass)" filter="url(#shadow)"/>
+    <g class="sans">
+        <text class="eyebrow" x="84" y="765">PUBLIC BENCHMARK RESULTS</text>
+        <text class="small" x="84" y="798">Agentic scores across multi-session and long-context settings</text>
 
-    <line x1="84" y1="829" x2="1596" y2="829" stroke="#fff" stroke-opacity="0.17"/>
+        <line x1="84" y1="829" x2="1596" y2="829" stroke="#fff" stroke-opacity="0.17"/>
 
-    <text class="metric" x="84" y="898">89.4%</text>
-    <text class="label" x="277" y="875">LongMemEval cleaned-s</text>
-    <text class="small" x="277" y="903">500 questions · cross-session retrieval</text>
+        <text class="metric" x="84" y="898">89.4%</text>
+        <text class="label" x="277" y="875">LongMemEval cleaned-s</text>
+        <text class="small" x="277" y="903">500 questions · cross-session retrieval</text>
 
-    <line x1="590" y1="852" x2="590" y2="923" stroke="#fff" stroke-opacity="0.18"/>
+        <line x1="590" y1="852" x2="590" y2="923" stroke="#fff" stroke-opacity="0.18"/>
 
-    <text class="metric" x="650" y="898">66.1%</text>
-    <text class="label" x="833" y="875">BEAM 100K</text>
-    <text class="small" x="833" y="903">20 cases · 400 questions</text>
+        <text class="metric" x="650" y="898">66.1%</text>
+        <text class="label" x="833" y="875">BEAM 100K</text>
+        <text class="small" x="833" y="903">20 cases · 400 questions</text>
 
-    <line x1="1080" y1="852" x2="1080" y2="923" stroke="#fff" stroke-opacity="0.18"/>
+        <line x1="1080" y1="852" x2="1080" y2="923" stroke="#fff" stroke-opacity="0.18"/>
 
-    <text class="metric" x="1140" y="898">65.0%</text>
-    <text class="label" x="1323" y="875">BEAM 1M</text>
-    <text class="small" x="1323" y="903">35 cases · 700 questions</text>
+        <text class="metric" x="1140" y="898">65.0%</text>
+        <text class="label" x="1323" y="875">BEAM 1M</text>
+        <text class="small" x="1323" y="903">35 cases · 700 questions</text>
 
-    <text x="1596" y="950" text-anchor="end" style="font-size:12px;font-weight:520;fill:#98a2b3">Scores from different benchmarks are not compared directly</text>
-  </g>
+        <text x="1596" y="950" text-anchor="end" style="font-size:12px;font-weight:520;fill:#98a2b3">Scores from different benchmarks are not compared directly</text>
+    </g>
 </svg>

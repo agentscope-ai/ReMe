@@ -5,7 +5,7 @@
 import pytest
 
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R, create_application_registry
 from reme.enumeration import ComponentEnum
 
 
@@ -52,8 +52,30 @@ def test_register_decorator():
 
 def test_register_rejects_missing_component_type():
     reg = ComponentRegistry()
-    with pytest.raises(TypeError, match="ComponentEnum"):
+    with pytest.raises(TypeError, match="component_type"):
         reg.register(_NoComponentType, "bad")
+
+
+def test_register_plugin_defined_component_type():
+    reg = ComponentRegistry()
+
+    class PluginComponent(BaseComponent):
+        component_type = "example.reranker"
+
+    reg.register(PluginComponent, "cross_encoder")
+
+    assert reg.get("example.reranker", "cross_encoder") is PluginComponent
+    assert reg.get_all("example.reranker") == {"cross_encoder": PluginComponent}
+
+
+def test_register_rejects_unsafe_plugin_component_type():
+    reg = ComponentRegistry()
+
+    class UnsafePluginComponent(BaseComponent):
+        component_type = "../outside"
+
+    with pytest.raises(TypeError, match="component_type"):
+        reg.register(UnsafePluginComponent, "unsafe")
 
 
 def test_register_rejects_empty_name():
@@ -125,6 +147,21 @@ def test_clear():
     reg.clear()
     assert not reg.get_all(ComponentEnum.FILE_CHUNKER)
     assert not reg.get_all(ComponentEnum.KEYWORD_INDEX)
+
+
+def test_builtin_registry_is_frozen_after_package_bootstrap():
+    assert R.frozen is True
+    with pytest.raises(RuntimeError, match="frozen"):
+        R.register(_DummyComponent, "runtime-mutation")
+
+
+def test_application_registry_copy_remains_mutable():
+    reg = create_application_registry()
+
+    assert reg.frozen is False
+    reg.register(_DummyComponent, "runtime-component")
+    assert reg.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is _DummyComponent
+    assert R.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is None
 
 
 if __name__ == "__main__":

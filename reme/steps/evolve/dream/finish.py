@@ -23,10 +23,12 @@ class DreamFinishStep(BaseStep):
         if self.file_catalog is None:
             raise RuntimeError("dream_finish_step requires file_catalog")
 
-        checkpoint = [p for p in state.changed_paths if p not in set(state.failed_paths)]
+        failed_paths = set(state.failed_paths)
+        checkpoint = [p for p in state.changed_paths if p not in failed_paths]
         day_index_paths = [f"{state.daily_dir}/{day}.md" for day in (state.dates or [state.date]) if day]
         interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
-        upsert_paths = checkpoint + [p for p in [*interest_paths, *day_index_paths] if p]
+        supplemental = [p for p in [*interest_paths, *day_index_paths] if p and p not in failed_paths]
+        upsert_paths = list(dict.fromkeys([*checkpoint, *supplemental]))
         self.logger.info(
             f"[{self.name}] start changed={len(state.changed_paths)} failed_paths={len(state.failed_paths)} "
             f"checkpoint={len(checkpoint)} interest_paths={len(interest_paths)} day_indexes={len(day_index_paths)} "
@@ -47,8 +49,9 @@ class DreamFinishStep(BaseStep):
         state.checkpoint_paths = [n.path for n in upserts if n.path in checkpoint]
         state.summary = render_summary(state)
         store_state(self, state)
-        self.context.response.success = not state.failed_units and not state.errors
+        self.context.response.success = not state.errors
         self.context.response.answer = state.summary
+        self.context.response.metadata["modified"] = bool(state.modified_paths)
         self.logger.info(
             f"[{self.name}] finish success={self.context.response.success} "
             f"checkpointed={len(state.checkpoint_paths)} failed_units={len(state.failed_units)} "
@@ -72,7 +75,7 @@ def render_summary(state: DreamState) -> str:
     interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
     dates = ", ".join(state.dates or [state.date])
     lines = [
-        "AutoDream completed",
+        ("AutoDream completed with warnings" if state.warnings else "AutoDream completed"),
         "",
         f"- Date: {state.date}",
         f"- Scan window: {dates}",
@@ -81,7 +84,10 @@ def render_summary(state: DreamState) -> str:
             f"{state.files_unchanged} unchanged, {state.files_deleted} deleted"
         ),
         f"- Extracted: {len(state.units)} unit(s), {len(state.topics)} topic candidate(s)",
-        f"- Integrated: {len(state.integrate_results)} ok, {len(state.failed_units)} failed",
+        (
+            f"- Integrated: {len(state.integrate_results)} ok, {len(state.skipped_units)} skipped, "
+            f"{len(state.failed_units)} failed"
+        ),
         f"- Topics: {state.topics_written} written" + (f" to {', '.join(interest_paths)}" if interest_paths else ""),
         f"- Catalog: checkpointed {len(state.checkpoint_paths)} changed path(s)",
     ]
@@ -99,6 +105,8 @@ def render_summary(state: DreamState) -> str:
             lines.append(f"- [{target}][{action}]{suffix}")
     if state.failed_paths:
         lines.append(f"- Failed paths: {', '.join(state.failed_paths)}")
+    if state.warnings:
+        lines.append(f"- Warnings: {'; '.join(state.warnings)}")
     if state.errors:
         lines.append(f"- Errors: {'; '.join(state.errors)}")
     return "\n".join(lines)

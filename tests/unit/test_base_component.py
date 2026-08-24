@@ -86,6 +86,16 @@ def test_bind_rejects_no_component_type():
         BaseComponent.bind("x", NoType)
 
 
+def test_bind_accepts_plugin_defined_component_type():
+    class PluginTarget(BaseComponent):
+        component_type = "example.reranker"
+
+    result = BaseComponent.bind("default", PluginTarget, optional=False)
+
+    assert isinstance(result, Dependency)
+    assert result.ctype == "example.reranker"
+
+
 def test_bind_with_default_factory():
     def factory():
         return DepTarget(name="default")

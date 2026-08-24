@@ -503,6 +503,11 @@ def test_daily_paper_topics_parameter_defaults_to_empty():
     }
 
 
+def test_daily_paper_cron_prioritizes_long_term_llm_memory():
+    """The scheduled workflow prioritizes papers about long-term LLM memory."""
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["topics"] == "大模型长期记忆"
+
+
 def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
     """The public job schema exposes an explicit Hugging Face mirror switch."""
     use_hf_mirror = _load_config("daily_cookbook")["jobs"]["daily_paper"]["parameters"]["properties"]["use_hf_mirror"]
@@ -514,13 +519,13 @@ def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
     }
 
 
-def test_daily_paper_cron_hf_mirror_uses_explicit_environment_switch(monkeypatch):
-    """The scheduled workflow can opt in to the Hugging Face mirror."""
+def test_daily_paper_cron_hf_mirror_defaults_enabled_with_environment_override(monkeypatch):
+    """The scheduled workflow uses the mirror by default and supports an explicit override."""
     monkeypatch.delenv("DAILY_PAPER_USE_HF_MIRROR", raising=False)
-    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
-
-    monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "true")
     assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is True
+
+    monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "false")
+    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
 
 
 def test_paper_pick_list_uses_an_object_root_for_tool_output():
@@ -538,7 +543,7 @@ def test_daily_paper_selects_three_papers_and_bounds_pdf_context():
 
     assert "top_k" not in job
     assert "top_k" not in job["parameters"]["properties"]
-    assert job["max_pdf_pages"] == 20
+    assert job["max_pdf_pages"] == 35
     assert job["max_pdf_chars"] == 300_000
 
 
@@ -739,9 +744,11 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     await DailyPaperAnalyzeStep(app_context=app_context, agent_wrapper=cc_wrapper)(
         context,
     )
-    await DailyPaperDigestStep(app_context=app_context, agent_wrapper=cc_wrapper)(
-        context,
-    )
+    await DailyPaperDigestStep(
+        app_context=app_context,
+        agent_wrapper=cc_wrapper,
+        job_tools=["memory_search", "read"],
+    )(context)
 
     assert _FakeHfClient.requested_daily == ["2026-07-20"]
     assert context.response.metadata["selected_arxiv_ids"] == [
@@ -758,7 +765,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert note.metadata["source_pdf"] == "[[external-assets/papers/2607.10001.pdf]]"
     assert (tmp_path / "external-assets" / "papers" / "2607.10001.pdf").is_file()
     assert note.metadata["title"] == "记忆代理研究"
-    assert extraction_limits == [(20, 300_000)] * 3
+    assert extraction_limits == [(35, 300_000)] * 3
     assert "[[daily/2026-07-21/记忆代理研究.md]]" in digest_path.read_text(
         encoding="utf-8",
     )
@@ -777,7 +784,11 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "优先选择 fused_score 更高的论文" in cc_wrapper.calls[0]["inputs"]
     assert "memory_keyword_score" not in cc_wrapper.calls[0]["inputs"]
     assert "Agent 长期记忆" not in cc_wrapper.calls[0]["inputs"]
-    assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:])
+    assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:-1])
+    assert cc_wrapper.calls[-1]["kwargs"] == {
+        "output_schema": DailyPaperMarkdownOutput,
+        "job_tools": ["memory_search", "read"],
+    }
     assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
         PaperPickList,
         DailyPaperMarkdownOutput,
@@ -794,6 +805,9 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
+    assert "先调用 `memory_search` 检索以前的文章" in digest_prompt
+    assert "end_date=2026-07-20" in digest_prompt
+    assert "Wikilink" in digest_prompt
 
     rerun = RuntimeContext(date="2026-07-21")
     await DailyPaperCollectStep(app_context=app_context)(rerun)
@@ -840,6 +854,66 @@ async def test_digest_force_migrates_old_fixed_filename_to_chinese_title(tmp_pat
     assert new_path.is_file()
     assert not old_path.exists()
     assert context["daily_paper_digest_path"] == "daily/2026-07-21/全新论文简报.md"
+
+
+@pytest.mark.asyncio
+async def test_digest_validates_model_generated_historical_wikilinks(tmp_path: Path):
+    """Only existing daily Markdown from before the run date survives as a model-generated wikilink."""
+    valid = tmp_path / "daily" / "2026-07-20" / "历史论文.md"
+    valid.parent.mkdir(parents=True)
+    valid.write_text("historical", encoding="utf-8")
+    today = tmp_path / "daily" / "2026-07-21" / "当日文章.md"
+    today.parent.mkdir(parents=True)
+    today.write_text("today", encoding="utf-8")
+    digest_node = tmp_path / "digest" / "wiki" / "相关概念.md"
+    digest_node.parent.mkdir(parents=True)
+    digest_node.write_text("digest", encoding="utf-8")
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{index}",
+            reasoning=f"Reason {index}",
+            title=f"论文解读{index}",
+            desc=f"Description {index}",
+            body=f"Body {index}",
+            note_path=f"daily/2026-07-21/论文解读{index}.md",
+            pdf_path=f"resource/papers/2607.1000{index}.pdf",
+        )
+        for index in range(1, 4)
+    ]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+    )
+    agent = _QueuedAgentWrapper(
+        [
+            {
+                "title": "每日简报",
+                "desc": "Digest",
+                "body": (
+                    "保留 [[daily/2026-07-20/历史论文.md|历史论文]]；"
+                    "移除 [[daily/2026-07-19/缺失.md|缺失文章]]、"
+                    "[[daily/2026-07-21/当日文章.md|当日文章]]、"
+                    "[[daily/2026-07-21/每日简报.md|自引用]]、"
+                    "[[digest/wiki/相关概念.md|非 daily 节点]] 和 "
+                    "[[../outside.md|越界路径]]。"
+                ),
+            },
+        ],
+    )
+
+    await DailyPaperDigestStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        agent_wrapper=agent,
+    )(context)
+
+    rendered = (tmp_path / "daily" / "2026-07-21" / "每日简报.md").read_text(encoding="utf-8")
+    assert "[[daily/2026-07-20/历史论文.md|历史论文]]" in rendered
+    assert "缺失文章" in rendered and "daily/2026-07-19/缺失.md" not in rendered
+    assert "当日文章" in rendered and "[[daily/2026-07-21/当日文章.md" not in rendered
+    assert "自引用" in rendered and "[[daily/2026-07-21/每日简报.md" not in rendered
+    assert "非 daily 节点" in rendered and "[[digest/wiki/相关概念.md" not in rendered
+    assert "越界路径" in rendered and "../outside.md" not in rendered
+    assert "[[daily/2026-07-21/论文解读1.md]]" in rendered
 
 
 @pytest.mark.asyncio

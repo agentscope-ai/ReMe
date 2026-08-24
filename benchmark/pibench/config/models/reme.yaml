@@ -1,0 +1,40 @@
+# ReMe model configuration for Pi-Bench
+# Uses ReMe's AgentScope agent with Dashscope as the LLM backend
+
+model:
+  model: reme
+  base_url: "http://localhost:8088"
+  api_key: "dummy"
+  provider: custom
+  max_tokens: 16384
+  max_tool_iterations: 120
+  memory_window: 100
+
+user_agent:
+  model: qwen3.8-max
+  base_url: "${USER_BASE_URL}"
+  api_key: "${USER_API_KEY}"
+  temperature: 0.0
+  request_timeout: 360.0
+
+judger:
+  model: qwen3.8-max
+  base_url: "${JUDGER_BASE_URL}"
+  api_key: "${JUDGER_API_KEY}"
+  temperature: 0.0
+  request_timeout: 360.0
+
+tools:
+  brave_search_api_key: "${BRAVE_SEARCH_API_KEY}"
+  web_search_max_results: 10
+
+nanobot:
+  trace_logs_dir: "~/.nanobot/trace_logs"
+  workspace_dir: "~/.nanobot/workspace"
+  copy_task_assets_to_workspace: true
+
+run:
+  output_dir: outputs
+  log_level: INFO
+  user_mode: llm
+  turn_timeout: 2400.0

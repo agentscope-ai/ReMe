@@ -1,0 +1,53 @@
+name: Usage question
+description: Ask for help using or configuring ReMe
+title: "[Question]: "
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: Please check the documentation and existing issues before asking a new question.
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: What are you trying to achieve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: attempted
+    attributes:
+      label: What have you tried?
+      description: Include relevant commands or configuration, with secrets and private memory content removed.
+    validations:
+      required: true
+
+  - type: input
+    id: reme-version
+    attributes:
+      label: ReMe version
+      placeholder: e.g. 0.4.1.8 or a commit SHA
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Installation
+        - Configuration
+        - CLI or service usage
+        - Memory and workspace management
+        - Search and retrieval
+        - ReMe Studio
+        - Plugin or integration
+        - Other
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked the [ReMe documentation](https://reme.agentscope.io) and searched existing issues.
+          required: true
+        - label: I removed credentials and private memory content.
+          required: true

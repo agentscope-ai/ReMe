@@ -21,6 +21,38 @@ def test_load_builtin_config_by_filename_with_suffix():
     assert cfg["service"]["backend"] == "http"
 
 
+@pytest.mark.parametrize("provider_count", [1, 2])
+def test_builtin_and_external_config_name_collision_fails(monkeypatch, provider_count):
+    """An installed config cannot be silently shadowed by a built-in name."""
+
+    class FakeEntryPoint:
+        """Installed config entry point with a built-in name."""
+
+        name = "default"
+        value = "example:CONFIG_PATH"
+
+        @staticmethod
+        def load():
+            """The provider need not be imported to detect the collision."""
+            raise AssertionError("colliding provider should not be loaded")
+
+    class FakeEntryPoints(list):
+        """Minimal selectable entry-point collection."""
+
+        def select(self, *, group, name):
+            """Return entries matching the requested group and name."""
+            assert group == "reme.configs"
+            return [entry for entry in self if entry.name == name]
+
+    monkeypatch.setattr(
+        "reme.entry_point.metadata.entry_points",
+        lambda: FakeEntryPoints([FakeEntryPoint() for _ in range(provider_count)]),
+    )
+
+    with pytest.raises(ValueError, match="provided by both ReMe and an installed distribution"):
+        _load_config("default")
+
+
 def test_resolve_app_config_can_suppress_config_log(monkeypatch):
     """Client-side config resolution can avoid polluting command output."""
     messages = []
@@ -37,6 +69,14 @@ def test_resolve_app_config_can_suppress_config_log(monkeypatch):
     resolve_app_config(log_config=False)
 
     assert not messages
+
+
+def test_resolve_app_config_layers_plugins_over_default():
+    """A plugin-only start keeps the ordinary default application config."""
+    config = resolve_app_config(log_config=False, plugins=["auto-fin"])
+
+    assert config["service"]["backend"] == "http"
+    assert config["plugins"] == ["auto-fin"]
 
 
 def test_default_config_registers_daily_write_job():
@@ -93,6 +133,14 @@ def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):
         parse_args("search", "hello")
+
+
+def test_parse_args_separates_action_and_application_kwargs():
+    """The shared action grammar is independent from application key/value parsing."""
+    action, kwargs = parse_args("--search", "--query=hello", "limit=3")
+
+    assert action == "search"
+    assert kwargs == {"query": "hello", "limit": 3}
 
 
 @pytest.mark.parametrize("item", ["=1", ".a=1", "a.=1", "a..b=1"])
