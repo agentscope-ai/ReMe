@@ -12,6 +12,7 @@ from ._common import (
     DailyPaperStep,
     iter_note_metadata,
     normalize_chinese_title,
+    replace_surrogates,
     resolve_unique_note_path,
     strip_frontmatter,
     structured_output,
@@ -43,7 +44,8 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         page_count = min(len(reader.pages), max_pages)
         truncated = len(reader.pages) > max_pages
         for page_number, page in enumerate(reader.pages[:page_count], start=1):
-            block = f"\n\n--- PAGE {page_number} ---\n\n{(page.extract_text() or '').strip()}"
+            page_text = replace_surrogates((page.extract_text() or "").strip())
+            block = f"\n\n--- PAGE {page_number} ---\n\n{page_text}"
             if size + len(block) > max_chars:
                 if (remaining := max_chars - size) > 0:
                     chunks.append(block[:remaining])

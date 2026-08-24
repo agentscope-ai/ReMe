@@ -22,6 +22,7 @@ _FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CHINESE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
+_SURROGATE_PATTERN = re.compile(r"[\ud800-\udfff]")
 _OutputT = TypeVar("_OutputT", bound=BaseModel)
 
 
@@ -36,9 +37,28 @@ def strip_frontmatter(body: str) -> str:
     return _FRONTMATTER_PATTERN.sub("", body.strip(), count=1).strip()
 
 
+def replace_surrogates(value: str) -> str:
+    """Replace invalid Unicode surrogate code points with replacement characters."""
+    return _SURROGATE_PATTERN.sub("\ufffd", value)
+
+
+def _replace_surrogates_recursive(value: Any) -> Any:
+    """Replace surrogates in strings nested in frontmatter metadata."""
+    if isinstance(value, str):
+        return replace_surrogates(value)
+    if isinstance(value, dict):
+        return {_replace_surrogates_recursive(key): _replace_surrogates_recursive(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_surrogates_recursive(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_replace_surrogates_recursive(item) for item in value)
+    return value
+
+
 def normalize_chinese_title(raw: str, fallback: str) -> str:
     """Return one safe Chinese title that can also be used as the filename stem."""
-    title = _MARKDOWN_HEADING_PATTERN.sub("", str(raw or "").strip())
+    title = replace_surrogates(str(raw or "").strip())
+    title = _MARKDOWN_HEADING_PATTERN.sub("", title)
     if title.lower().endswith(".md"):
         title = title[:-3]
     title = _UNSAFE_FILENAME_CHARS.sub("-", title)
@@ -92,7 +112,7 @@ async def write_atomic(path: Path, content: str | bytes) -> None:
     lock = await get_path_lock(path)
     async with lock:
         temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-        payload = content.encode("utf-8") if isinstance(content, str) else content
+        payload = replace_surrogates(content).encode("utf-8") if isinstance(content, str) else content
         try:
             async with aiofiles.open(temp_path, "wb") as stream:
                 await stream.write(payload)
@@ -104,7 +124,9 @@ async def write_atomic(path: Path, content: str | bytes) -> None:
 
 async def write_markdown(path: Path, body: str, metadata: dict[str, Any]) -> None:
     """Serialize a frontmatter Markdown document atomically."""
-    rendered = frontmatter.dumps(frontmatter.Post(body.strip(), **metadata))
+    safe_body = replace_surrogates(body).strip()
+    safe_metadata = _replace_surrogates_recursive(metadata)
+    rendered = frontmatter.dumps(frontmatter.Post(safe_body, **safe_metadata))
     await write_atomic(path, rendered if rendered.endswith("\n") else f"{rendered}\n")
 
 
