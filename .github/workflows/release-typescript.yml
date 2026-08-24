@@ -1,6 +1,6 @@
 # Release checklist:
 # 1. Update packages/typescript/package.json and package-lock.json to the release version and merge them.
-# 2. Configure the NPM_TOKEN repository secret with publish access to the @agentscope-ai scope.
+# 2. Configure npm Trusted Publishing for agentscope-ai/ReMe and this workflow file.
 # 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
 # 4. Use the `next` tag for prereleases and `latest` only for stable releases.
 
@@ -128,6 +128,5 @@ jobs:
 
       - name: Publish to npm
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TAG: ${{ inputs.npm_tag }}
         run: npm publish dist/typescript/*.tgz --access public --tag "${NPM_TAG}" --provenance

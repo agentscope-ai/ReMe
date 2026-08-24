@@ -53,6 +53,8 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 ## 📰 新闻
 
+- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，为 DeepSeek Harness 和
+  OpenClaw 提供原生 ReMe 记忆集成。
 - [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 基于 ReMe 的智能体工具使用
@@ -90,6 +92,17 @@ cd ..
 ```
 
 静态构建要求 Node.js 22.13 或更高版本，并让源码安装可以直接使用 Studio。
+
+### DeepSeek Harness 集成
+
+启动 ReMe 服务后，将 npm 包安装到 DeepSeek Harness 的 Web profile：
+
+```bash
+dsh plugin --profile web add @agentscope-ai/reme
+```
+
+插件会在 Agent step 前检索相关 ReMe 记忆，并将主 Agent 已完成的对话提交给自动记忆任务。配置方法见
+[TypeScript 集成指南](packages/typescript/README_ZH.md#deepseek-harness)。
 
 ### 环境变量
 
