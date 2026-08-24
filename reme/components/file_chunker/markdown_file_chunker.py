@@ -24,7 +24,7 @@ import yaml
 from pydantic import ValidationError
 
 
-from .default_file_chunker import DefaultFileChunker
+from .default_file_chunker import DefaultFileChunker, InvalidEncodingPolicy
 from ..component_registry import R
 from ...schema import (
     FileChunk,
@@ -103,6 +103,7 @@ class MarkdownFileChunker(DefaultFileChunker):
     def __init__(
         self,
         encoding: str = "utf-8",
+        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
         chunk_byte_size: int = 10000,
         embed_toc: bool = True,
         max_ast_sections: int | None = 100,
@@ -110,7 +111,12 @@ class MarkdownFileChunker(DefaultFileChunker):
         include_frontmatter_keys_in_metadata: list[str] | None = None,
         **kwargs,
     ):
-        super().__init__(encoding=encoding, chunk_byte_size=chunk_byte_size, **kwargs)
+        super().__init__(
+            encoding=encoding,
+            invalid_encoding_policy=invalid_encoding_policy,
+            chunk_byte_size=chunk_byte_size,
+            **kwargs,
+        )
         self.embed_toc = embed_toc
         self.max_ast_sections = max(0, max_ast_sections) if max_ast_sections is not None else None
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
@@ -119,7 +125,8 @@ class MarkdownFileChunker(DefaultFileChunker):
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         rel_path = self.to_workspace_relative(path)
-        front_matter, content, line_offset = self._parse_front_matter(file_path.read_text(encoding=self.encoding))
+        text = await self._read_text_for_indexing(file_path)
+        front_matter, content, line_offset = self._parse_front_matter(text)
 
         chunks: list[FileChunk] = []
         if content and content.strip():

@@ -57,6 +57,51 @@ def test_parse_empty_file():
     asyncio.run(run())
 
 
+def test_invalid_utf8_is_replaced_without_modifying_source():
+    """Bad source bytes degrade the derived index but remain untouched on disk."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            source = b"# valid\ncontent before \xcd content after\n"
+            path = os.path.join(tmp, "invalid.md")
+            with open(path, "wb") as f:
+                f.write(source)
+
+            chunker = MarkdownFileChunker()
+            with patch.object(chunker.logger, "warning") as warning:
+                node, chunks = await chunker.chunk("invalid.md")
+
+            assert node.path == "invalid.md"
+            assert "content before \ufffd content after" in "\n".join(chunk.text for chunk in chunks)
+            with open(path, "rb") as f:
+                assert f.read() == source
+            warning.assert_called_once_with(
+                "Invalid utf-8 in invalid.md at byte 23 (bytes: cd); "
+                "indexed with replacement characters; source file unchanged",
+            )
+
+    asyncio.run(run())
+
+
+def test_invalid_utf8_strict_policy_still_raises():
+    """Strict mode remains available when callers require exact decoding."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            with open(os.path.join(tmp, "invalid.md"), "wb") as f:
+                f.write(b"valid\xcdinvalid")
+
+            chunker = MarkdownFileChunker(invalid_encoding_policy="strict")
+            try:
+                await chunker.chunk("invalid.md")
+            except UnicodeDecodeError as exc:
+                assert exc.start == 5
+            else:
+                raise AssertionError("strict policy must reject invalid UTF-8")
+
+    asyncio.run(run())
+
+
 def test_parse_frontmatter_only():
     """A file with only frontmatter (no body) → no chunks, no links."""
 

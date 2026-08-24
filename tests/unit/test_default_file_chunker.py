@@ -97,6 +97,16 @@ def test_parse_with_custom_encoding():
     asyncio.run(run())
 
 
+def test_invalid_encoding_policy_is_validated():
+    """Reject misspelled policies instead of silently changing decoding behavior."""
+    try:
+        DefaultFileChunker(invalid_encoding_policy="ignore")
+    except ValueError as exc:
+        assert "invalid_encoding_policy" in str(exc)
+    else:
+        raise AssertionError("invalid encoding policy must be rejected")
+
+
 def test_parse_links_bare():
     """Bare wikilink: [[target]]."""
     links = WikilinkHandler.extract_links("see [[note]]", "src.md")
