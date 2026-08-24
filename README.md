@@ -61,8 +61,8 @@ keeping the files under the user's control.
 
 ## 📰 News
 
-- [2026.08] - Published [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme), providing native
-  ReMe memory integrations for DeepSeek Harness and OpenClaw.
+- [2026.08] - Published [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme), providing a native
+  ReMe memory integration for DeepSeek Harness.
 - [2026.08] - Published the [ReMe blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/?doc=toolmemory-en) of agent tool-use execution built

@@ -53,8 +53,8 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 
 ## 📰 新闻
 
-- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，为 DeepSeek Harness 和
-  OpenClaw 提供原生 ReMe 记忆集成。
+- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，为 DeepSeek Harness
+  提供原生 ReMe 记忆集成。
 - [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 基于 ReMe 的智能体工具使用
