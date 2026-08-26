@@ -1,3 +1,4 @@
+# Prompt bundled with the Daily Paper plugin distribution.
 select_user: |
   从候选中选择恰好 3 篇最值得深入阅读的 AI 论文。兼顾研究价值、新颖性、影响和可读性。
   {selection_preference}

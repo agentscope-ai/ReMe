@@ -8,9 +8,10 @@ from typing import Any
 
 import httpx
 
-from ..schema import PaperInfo
+from reme.utils import get_logger
+
 from .arxiv import ARXIV_ID_PATTERN
-from .logger_utils import get_logger
+from .schema import PaperInfo
 
 HF_BASE_URL = "https://huggingface.co"
 HF_MIRROR_BASE_URL = "https://hf-mirror.com"
@@ -100,7 +101,7 @@ class HuggingFacePapersClient:
                 base_url=self.base_url,
                 timeout=self._timeout,
                 follow_redirects=True,
-                headers={"User-Agent": "ReMe daily-paper cookbook"},
+                headers={"User-Agent": "ReMe Daily Paper plugin"},
             )
             self.logger.info(f"[HuggingFacePapersClient] source={self._source}")
         else:

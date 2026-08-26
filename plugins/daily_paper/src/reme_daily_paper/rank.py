@@ -1,8 +1,7 @@
 """Rank collected papers for the daily-paper workflow."""
 
-from ....components import R
-from ....schema import PaperInfo
-from ._common import DailyPaperStep
+from .base import DailyPaperStep
+from .schema import PaperInfo
 
 
 def rrf_score(
@@ -28,7 +27,6 @@ def build_candidate_pool(papers: list[PaperInfo], *, limit: int = 20) -> list[Pa
     return ranked[:limit]
 
 
-@R.register("daily_paper_rank_step")
 class DailyPaperRankStep(DailyPaperStep):
     """Apply RRF and produce the bounded selection pool."""
 

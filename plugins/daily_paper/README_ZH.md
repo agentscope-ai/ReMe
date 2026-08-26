@@ -1,21 +1,22 @@
-# 每日论文 Cookbook
+# 每日论文插件
 
 [English](README.md)
 
-每日论文工作流从 Hugging Face Papers 的周榜和月榜中筛选三篇论文，下载 arXiv PDF，生成中文论文解读和一篇约五分钟可读完的中文简报。当前实现位于
-[`reme/steps/cookbook/daily_paper/`](../../reme/steps/cookbook/daily_paper/)，由
-[`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml) 装配。
+每日论文从 Hugging Face Papers 的周榜和月榜中筛选三篇论文，下载 arXiv PDF，生成中文论文解读和一篇约五分钟可读完的中文简报。本目录是一个
+独立 Python distribution：`daily-paper` entry point 通过 package 内的 `plugin.yaml` 暴露五个 Step backend
+和完整 Job 默认配置；安装后使用 `plugins=["daily-paper"]` 显式启用。
 
 ## 快速开始
 
-要求 Python 3.11 或更高版本、`core` 依赖、可用的 AgentScope LLM，以及能访问 Hugging Face Papers 和 arXiv 的网络。
+要求 Python 3.11 或更高版本、可用的 AgentScope LLM，以及能访问 Hugging Face Papers 和 arXiv 的网络。
 
 ```bash
-python -m pip install -e ".[core]"
+python -m pip install "reme-ai[core]>=0.4.1.8"
+reme plugins install reme-daily-paper
 export LLM_API_KEY="your-api-key"
 export LLM_MODEL_NAME="qwen3.7-plus"
 export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=daily_cookbook job=daily_paper
+reme start plugins='["daily-paper"]' job=daily_paper
 ```
 
 内置 LLM 组件默认配置为：
@@ -24,11 +25,28 @@ reme start config=daily_cookbook job=daily_paper
 - endpoint：无内置 `LLM_BASE_URL`；请设置服务商要求的 OpenAI 兼容 endpoint
 - 环境变量：`LLM_API_KEY`、`LLM_MODEL_NAME`、`LLM_BASE_URL`
 
-Auto Fin 和 Daily Paper 共用这一个 `default` LLM 和 `default` AgentScope wrapper。Daily Paper 的 Select 和 Analyze
-调用不带工具；Daily Paper Digest 与 Auto Fin Merge 使用只读的 ReMe Job 工具 `memory_search` 和 `read`。交互式
-`dingtalk_wait` Step 则会在调用时单独覆盖 wrapper，启用 AgentScope `bash` 和明确的 ReMe Job allowlist。
+每日论文使用 Application 的 `default` LLM 和 `default` AgentScope wrapper。Select 和 Analyze 调用不带工具；Digest
+只使用只读的 ReMe Job 工具 `memory_search` 和 `read`。
 
-默认 workspace 是启动目录下的 `reme_workspace/`，可通过 `DAILY_PAPER_WORKSPACE_DIR` 覆盖。
+默认 workspace 是启动目录下的 `.reme/`；可通过 `workspace_dir=...` 或与插件组合使用的 Application 配置覆盖。
+
+## 从内置 Cookbook 迁移
+
+Daily Paper 不再由核心 `reme-ai` distribution 导入或配置。需要安装本 package 并显式启用 `daily-paper`，而不是通过
+`config=daily_cookbook` 获取 Daily Paper Job：
+
+```bash
+# 旧方式
+reme start config=daily_cookbook job=daily_paper
+
+# 新方式
+reme plugins install reme-daily-paper
+reme start plugins='["daily-paper"]' job=daily_paper
+```
+
+工作流 schema 已从 `reme.schema.daily_paper` 移至 `reme_daily_paper.schema`。原先位于 `reme.utils` 的 arXiv 和
+Hugging Face client 现在是 `reme_daily_paper` 下的插件实现细节；直接使用这些模块的应用需要安装本 package 并更新
+import。已有 workspace 笔记、下载的 PDF 和索引不会被迁移或改写；将 Application 指向原 `workspace_dir` 即可继续使用。
 
 ## 工作流
 
@@ -125,7 +143,7 @@ DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 ## 产物
 
 ```text
-reme_workspace/
+.reme/
 ├── daily/
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
@@ -172,7 +190,7 @@ reme_workspace/
 Face 由 `use_hf_mirror` 任务参数控制，arXiv 仅由环境变量驱动。
 
 ```dotenv
-# 内置 daily_paper_cron 定时任务默认启用镜像站；设为 false 可改用官方服务
+# 插件提供的 daily_paper_cron Job 默认启用镜像站；设为 false 可改用官方服务
 DAILY_PAPER_USE_HF_MIRROR=false
 
 # 仅在手动任务或定时任务启用镜像时读取；未配置时使用 https://hf-mirror.com
@@ -192,7 +210,7 @@ URL，就只访问该地址。
 
 > **行为变更：** 以往只要设置 `HF_MIRROR_URL` 就会改变 Hugging Face
 > 的访问地址；现在该变量仅在任务启用镜像时才会读取，否则直接访问官方站点，并输出一条“已忽略该变量”的告警日志。手动调用需传入
-> `use_hf_mirror=true`。内置 `daily_paper_cron` 定时任务默认启用镜像；设置 `DAILY_PAPER_USE_HF_MIRROR=false`
+> `use_hf_mirror=true`。插件提供的 `daily_paper_cron` Job 默认启用镜像；设置 `DAILY_PAPER_USE_HF_MIRROR=false`
 > 可让该定时任务改用官方服务。
 
 ## 运行方式
@@ -201,7 +219,7 @@ URL，就只访问该地址。
 
 ```bash
 reme start \
-  config=daily_cookbook \
+  plugins='["daily-paper"]' \
   job=daily_paper \
   date=2026-08-06 \
   topics="Agent memory" \
@@ -211,21 +229,21 @@ reme start \
 强制重跑；有效的本地 PDF 仍会复用：
 
 ```bash
-reme start config=daily_cookbook job=daily_paper date=2026-08-06 force=true
+reme start plugins='["daily-paper"]' job=daily_paper date=2026-08-06 force=true
 ```
 
 启动 HTTP 服务和定时任务：
 
 ```bash
-reme start config=daily_cookbook
+reme start plugins='["daily-paper"]'
 ```
 
-内置服务监听 `127.0.0.1:8001`，`daily_paper_cron` 按 `Asia/Shanghai` 时区每天 08:00 运行，默认优先关注
-`大模型长期记忆`，并使用 Hugging Face 镜像站。设置 `DAILY_PAPER_USE_HF_MIRROR=false` 可改用官方服务。可通过
-`DAILY_PAPER_HOST`、`DAILY_PAPER_PORT` 或启动参数覆盖监听地址和端口。
+使用 ReMe 默认配置时，HTTP 服务监听 `127.0.0.1:2333`。`daily_paper_cron` 按 Application 时区每天 08:00 运行，
+默认优先关注 `大模型长期记忆`，并使用 Hugging Face 镜像站。设置 `DAILY_PAPER_USE_HF_MIRROR=false` 可改用官方服务；
+可通过常规 ReMe 配置或启动参数覆盖监听地址和端口。
 
 ```bash
-curl -s http://127.0.0.1:8001/daily_paper \
+curl -s http://127.0.0.1:2333/daily_paper \
   -H 'Content-Type: application/json' \
   -d '{"date":"2026-08-06","force":false,"topics":"Agent memory"}'
 ```
@@ -243,6 +261,6 @@ curl -s http://127.0.0.1:8001/daily_paper \
 单元测试会 mock Hugging Face、arXiv、AgentScope 和 DingTalk 边界，不访问真实服务：
 
 ```bash
-python -m pip install -e ".[dev,core]"
-pytest tests/unit/test_daily_paper.py -v
+python -m pip install -e packages/reme_ai_studio -e ".[dev,core]" -e plugins/daily_paper
+python -m pytest plugins/daily_paper -v
 ```

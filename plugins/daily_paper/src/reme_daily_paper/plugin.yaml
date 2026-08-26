@@ -1,0 +1,82 @@
+backends:
+  daily_paper_collect_step: reme_daily_paper.collect:DailyPaperCollectStep
+  daily_paper_rank_step: reme_daily_paper.rank:DailyPaperRankStep
+  daily_paper_select_step: reme_daily_paper.select:DailyPaperSelectStep
+  daily_paper_analyze_step: reme_daily_paper.analyze:DailyPaperAnalyzeStep
+  daily_paper_digest_step: reme_daily_paper.digest:DailyPaperDigestStep
+
+application_defaults:
+  jobs:
+    daily_paper:
+      backend: base
+      description: "Build detailed readings and a five-minute brief from Hugging Face weekly/monthly papers."
+      candidate_limit: &candidate_limit 20
+      rrf_k: &rrf_k 60
+      weekly_weight: &weekly_weight 0.7
+      history_days: &history_days 30
+      hf_timeout: &hf_timeout 600
+      hf_max_retries: &hf_max_retries 3
+      pdf_timeout: &pdf_timeout 600
+      max_pdf_bytes: &max_pdf_bytes 52428800
+      max_pdf_pages: &max_pdf_pages 35
+      max_pdf_chars: &max_pdf_chars 300000
+      parameters:
+        type: object
+        properties:
+          date:
+            type: string
+            description: "Run date in YYYY-MM-DD; empty means today in the application timezone."
+            default: ""
+          force:
+            type: boolean
+            description: "Regenerate even when that day's final brief already exists."
+            default: false
+          use_hf_mirror:
+            type: boolean
+            description: "Use the Hugging Face mirror configured by HF_MIRROR_URL, or hf-mirror.com when unset."
+            default: false
+          topics:
+            type: string
+            description: "Optional topics to prioritize when selecting papers."
+            default: ""
+          weekly_weight:
+            type: number
+            description: "Weekly contribution in reciprocal-rank fusion."
+            default: 0.7
+          history_days:
+            type: integer
+            description: "Prior recommendation window excluded by arXiv ID."
+            default: 30
+      steps: &daily_paper_steps
+        - backend: daily_paper_collect_step
+        - backend: daily_paper_rank_step
+        - backend: daily_paper_select_step
+        - backend: daily_paper_analyze_step
+        - backend: daily_paper_digest_step
+          job_tools: [memory_search, read]
+        - backend: dingtalk_markdown_send_step
+          input_mapping:
+            daily_paper_digest_path: markdown_path
+          app_key: ${DINGTALK_APP_KEY:-}
+          app_secret: ${DINGTALK_APP_SECRET:-}
+          robot_code: ${DINGTALK_ROBOT_CODE:-}
+          conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+          title: ReMe Daily Paper
+          timeout: 15
+
+    daily_paper_cron:
+      backend: cron
+      cron: "0 8 * * *"
+      topics: "大模型长期记忆"
+      use_hf_mirror: ${DAILY_PAPER_USE_HF_MIRROR:-true}
+      candidate_limit: *candidate_limit
+      rrf_k: *rrf_k
+      weekly_weight: *weekly_weight
+      history_days: *history_days
+      hf_timeout: *hf_timeout
+      hf_max_retries: *hf_max_retries
+      pdf_timeout: *pdf_timeout
+      max_pdf_bytes: *max_pdf_bytes
+      max_pdf_pages: *max_pdf_pages
+      max_pdf_chars: *max_pdf_chars
+      steps: *daily_paper_steps

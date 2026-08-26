@@ -9,7 +9,7 @@ from uuid import uuid4
 import aiofiles
 import httpx
 
-from .logger_utils import get_logger
+from reme.utils import get_logger
 
 ARXIV_ID_PATTERN = re.compile(r"^\d{4}\.\d{4,5}$")
 ARXIV_BASE_URL = "https://arxiv.org"

@@ -1,3 +1,4 @@
+# Prompt bundled with the Daily Paper plugin distribution.
 digest_user: |
   你是中文 AI 研究资讯主编。请忠实综合下面三篇详细论文解读，生成一篇普通读者五分钟可以读懂的每日论文速读。
   内容只能依据输入文档，不得补充文档中没有提供的事实。

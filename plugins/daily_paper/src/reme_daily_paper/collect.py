@@ -4,15 +4,12 @@ import asyncio
 import datetime as dt
 from pathlib import Path
 
-from ....components import R
-from ....schema import PaperInfo
-from ....utils.arxiv import ARXIV_ID_PATTERN
-from ....utils.huggingface_papers import HuggingFacePapersClient
-from ...evolve import now
-from ._common import DailyPaperStep, iter_note_metadata
+from .arxiv import ARXIV_ID_PATTERN
+from .base import DailyPaperStep, iter_note_metadata, now
+from .huggingface_papers import HuggingFacePapersClient
+from .schema import PaperInfo
 
 
-@R.register("daily_paper_collect_step")
 class DailyPaperCollectStep(DailyPaperStep):
     """Collect current weekly/monthly rankings and strict-yesterday exclusions."""
 

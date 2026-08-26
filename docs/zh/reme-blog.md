@@ -126,7 +126,7 @@ Auto Resource 提供了一条更通用的外部资料入口。资料进入 `reso
 
 ### Daily Paper：外部资料工作流的一个例子
 
-Daily Paper 是建立在这套文件化记忆之上的可选 Cookbook。它会从 Hugging Face Papers 的周榜和月榜收集论文，去除近期已经推荐过的内容，排序后精选三篇，保存
+Daily Paper 是建立在这套文件化记忆之上的可选插件。它会从 Hugging Face Papers 的周榜和月榜收集论文，去除近期已经推荐过的内容，排序后精选三篇，保存
 PDF，并生成中文论文笔记与一份约五分钟可读完的简报。
 
 想象一下，你持续关注 Agent Memory：每天早上收到的不只是三个论文链接，而是三篇已经保存到本地的详细笔记。简报通过 Wikilink

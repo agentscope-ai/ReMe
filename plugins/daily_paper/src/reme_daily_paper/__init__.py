@@ -1,9 +1,10 @@
-"""Daily-paper cookbook workflow."""
+"""Daily Paper plugin for ReMe."""
 
 from .analyze import DailyPaperAnalyzeStep
 from .collect import DailyPaperCollectStep
 from .digest import DailyPaperDigestStep
 from .rank import DailyPaperRankStep
+from .schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick, PaperPickList
 from .select import DailyPaperSelectStep
 
 __all__ = [
@@ -12,4 +13,9 @@ __all__ = [
     "DailyPaperDigestStep",
     "DailyPaperRankStep",
     "DailyPaperSelectStep",
+    "AnalyzedPaper",
+    "DailyPaperMarkdownOutput",
+    "PaperInfo",
+    "PaperPick",
+    "PaperPickList",
 ]

@@ -67,7 +67,7 @@ keeping the files under the user's control.
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/?doc=toolmemory-en) of agent tool-use execution built
   on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
-- [2026.07] - Introduced optional Cookbooks: [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) for paper discovery and
+- [2026.07] - Introduced optional plugins: [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) for paper discovery and
   analysis, and [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en) for researching the latest 24 hours of topic-related CLS news
   with local-memory search and validated historical wikilinks.
 - [2026.07] - Our
@@ -217,10 +217,10 @@ These Markdown guides cover the main user workflows and the runtime contracts im
 ## 🔌 Plugins
 
 Plugins are optional Python distributions that contribute Component, Step, or Job backends and configuration. They are
-installed separately and enabled explicitly by configuration. Auto Fin is the complete external-plugin example; Daily
-Paper remains an optional research workflow while it is migrated to the same packaging model.
+installed separately and enabled explicitly by configuration. Daily Paper and Auto Fin are independently packaged
+plugins; their source distributions live under [`plugins/`](plugins/README.md).
 
-| Plugin / workflow                             | Capability                                                                                                    |
+| Plugin                                        | Capability                                                                                                    |
 |-----------------------------------------------|---------------------------------------------------------------------------------------------------------------|
 | [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
 | [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |

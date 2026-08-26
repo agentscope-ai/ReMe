@@ -199,6 +199,23 @@ def test_auto_fin_requires_reme_core() -> None:
     assert set(reme_requirements[0].extras) == {"core"}
 
 
+def test_daily_paper_license_matches_repository() -> None:
+    """Keep the independently distributed Daily Paper license complete and current."""
+    assert (REPOSITORY / "plugins" / "daily_paper" / "LICENSE").read_text(encoding="utf-8") == (
+        REPOSITORY / "LICENSE"
+    ).read_text(encoding="utf-8")
+
+
+def test_daily_paper_declares_runtime_dependencies() -> None:
+    """Keep Daily Paper's ReMe feature set and PDF parser explicit in its own distribution."""
+    config = tomllib.loads((REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = [Requirement(value) for value in config["project"]["dependencies"]]
+    by_name = {requirement.name: requirement for requirement in requirements}
+
+    assert set(by_name["reme-ai"].extras) == {"core"}
+    assert "pypdf" in by_name
+
+
 def test_studio_package_preparation_preserves_static_gitignore(monkeypatch, tmp_path: Path) -> None:
     """Keep generated static assets ignored after staging the Studio build."""
     package_dir = tmp_path / "reme_ai_studio"

@@ -1,4 +1,4 @@
-"""Typed contracts for the daily-paper cookbook workflow."""
+"""Typed contracts for the Daily Paper plugin."""
 
 from pydantic import BaseModel, Field
 

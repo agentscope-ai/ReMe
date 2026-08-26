@@ -60,7 +60,7 @@ Code 等 Agent 协作，在持续整理知识的同时，始终把文件控制�
 - [2026.08] - 基于 ReMe 的智能体工具使用
   [经验驱动增强方法](https://reme.agentscope.io/?doc=toolmemory-zh)已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
-- [2026.07] - 新增可选 Cookbook 工作流：[每日论文](https://reme.agentscope.io/?doc=daily-paper-zh)用于论文发现与解析，
+- [2026.07] - 新增可选插件：[每日论文](https://reme.agentscope.io/?doc=daily-paper-zh)用于论文发现与解析，
   [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
   wikilink。
 - [2026.07] -
@@ -209,10 +209,10 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 ## 🔌 插件
 
-插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。Auto Fin
-是完整的外部插件示例；每日论文在迁移到同一打包模型前仍作为可选研究工作流提供。
+插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。每日论文与 Auto Fin
+均已独立打包，源码 distribution 位于 [`plugins/`](plugins/README.md)。
 
-| 插件 / 工作流                                 | 能力                                                                           |
+| 插件                                          | 能力                                                                           |
 |-----------------------------------------------|--------------------------------------------------------------------------------|
 | [每日论文](https://reme.agentscope.io/?doc=daily-paper-zh) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
 | [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |

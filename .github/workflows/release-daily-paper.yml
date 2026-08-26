@@ -1,0 +1,148 @@
+# Release checklist:
+# 1. Update project.version in plugins/daily_paper/pyproject.toml and merge it into the target branch.
+# 2. Publish the required reme-ai version before this plugin; the build verifies that dependency on PyPI.
+# 3. Confirm PYPI_API_TOKEN is configured and the version does not already exist on PyPI.
+# 4. Run "Release / Daily Paper plugin" from GitHub Actions with the exact project version (a v prefix is accepted).
+#
+# Recommended order: reme-ai -> reme-daily-paper -> downstream applications enabling plugins: [daily-paper].
+# This workflow is intentionally manual and never publishes from a push, tag, or GitHub release event.
+
+name: Release / Daily Paper plugin
+
+run-name: Publish reme-daily-paper ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from plugins/daily_paper/pyproject.toml (for example, 0.1.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-reme-daily-paper
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install test and build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build packaging pytest pytest-asyncio twine
+          python -m pip install -e ".[core]"
+          python -m pip install -e plugins/daily_paper
+
+      - name: Validate package name, dependencies, and release version
+        id: package
+        run: |
+          python - "${RELEASE_VERSION}" <<'PY'
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          from packaging.requirements import Requirement
+          from packaging.version import Version
+
+          project = tomllib.loads(Path("plugins/daily_paper/pyproject.toml").read_text(encoding="utf-8"))["project"]
+          expected = Version(sys.argv[1].removeprefix("v"))
+          actual = Version(project["version"])
+          if project["name"] != "reme-daily-paper":
+              raise SystemExit(f"Expected project name 'reme-daily-paper', found {project['name']!r}")
+          if actual != expected:
+              raise SystemExit(f"Package version is {actual}, but workflow input is {expected}")
+          requirements = [Requirement(value) for value in project["dependencies"]]
+          reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
+          if len(reme_requirements) != 1 or set(reme_requirements[0].extras) != {"core"}:
+              raise SystemExit(f"Expected one reme-ai[core] dependency, found {reme_requirements!r}")
+          if sum(requirement.name == "pypdf" for requirement in requirements) != 1:
+              raise SystemExit("Expected exactly one pypdf dependency")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              print(f"reme_requirement={reme_requirements[0]}", file=output)
+          print(f"Publishing {project['name']} {actual}")
+          PY
+
+      - name: Run Daily Paper tests
+        run: python -m pytest plugins/daily_paper -q
+
+      - name: Require the plugin-enabled ReMe release on PyPI
+        run: |
+          python -m pip download --no-deps \
+            --dest "${RUNNER_TEMP}/reme-daily-paper-core" \
+            "${{ steps.package.outputs.reme_requirement }}"
+
+      - name: Build and check distributions
+        run: |
+          mkdir -p dist/daily-paper
+          python -m build plugins/daily_paper --outdir dist/daily-paper
+          python -m twine check dist/daily-paper/*
+
+      - name: Verify distributions and isolated installation
+        run: |
+          DAILY_PAPER_WHEEL="$(pwd)/$(ls dist/daily-paper/reme_daily_paper-*.whl)"
+          DAILY_PAPER_SDIST="$(pwd)/$(ls dist/daily-paper/reme_daily_paper-*.tar.gz)"
+          python -m zipfile -l "${DAILY_PAPER_WHEEL}" | grep 'reme_daily_paper/plugin.yaml'
+          python -m zipfile -l "${DAILY_PAPER_WHEEL}" | grep 'reme_daily_paper/analyze.yaml'
+          python -m zipfile -l "${DAILY_PAPER_WHEEL}" | grep 'dist-info/licenses/LICENSE'
+          python -m tarfile -l "${DAILY_PAPER_SDIST}" | grep '/LICENSE'
+          python -m venv "${RUNNER_TEMP}/reme-daily-paper-smoke"
+          "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" -m pip install "${DAILY_PAPER_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" - <<'PY'
+          from importlib.metadata import distribution
+
+          from reme.plugin_manifest import load_package_manifest
+
+          package = distribution("reme-daily-paper")
+          plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
+          assert plugins["daily-paper"].value == "reme_daily_paper"
+          manifest = load_package_manifest("reme_daily_paper", plugin_name="daily-paper")
+          assert set(manifest.backends) == {
+              "daily_paper_collect_step",
+              "daily_paper_rank_step",
+              "daily_paper_select_step",
+              "daily_paper_analyze_step",
+              "daily_paper_digest_step",
+          }
+          assert set(manifest.application_defaults["jobs"]) == {"daily_paper", "daily_paper_cron"}
+          PY
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: reme-daily-paper-${{ inputs.version }}
+          path: dist/daily-paper/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: reme-daily-paper-${{ inputs.version }}
+          path: dist/daily-paper
+
+      - name: Publish reme-daily-paper
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/daily-paper

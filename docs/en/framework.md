@@ -77,13 +77,14 @@ reme/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
     benchmark/               # LongMemEval / BEAM evaluation steps
-    cookbook/                # optional research workflow steps
+    cookbook/                # built-in cookbook support steps
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory, auto_resource, auto_dream, proactive
     transfer/                # upload/download
 plugins/
   auto-fin/                  # independent example plugin distribution
+  daily_paper/               # independent paper-research plugin distribution
 integrations/
   claude_code/               # Claude Code adapter and marketplace
   hermes_agent/              # Hermes Agent memory-provider adapter
@@ -240,19 +241,20 @@ Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.
 
 The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
-files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. The
-[Auto Fin plugin](../../plugins/auto-fin/README.md) is the current packaging example.
+files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. See the independently
+packaged [Auto Fin](../../plugins/auto-fin/README.md) and [Daily Paper](../../plugins/daily_paper/README.md) plugins.
 
 Plugin packages are managed locally and remain separate from per-application activation:
 
 ```bash
 reme plugins list
 reme plugins install reme-auto-fin
-reme plugins show auto-fin
-reme plugins validate auto-fin
-reme plugins uninstall auto-fin
+reme plugins install reme-daily-paper
+reme plugins show daily-paper
+reme plugins validate daily-paper
+reme plugins uninstall daily-paper
 
-reme start plugins='["auto-fin"]'
+reme start plugins='["auto-fin","daily-paper"]'
 ```
 
 These management commands use the current Python interpreter's pip and never run through an HTTP or MCP service.

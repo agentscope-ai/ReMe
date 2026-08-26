@@ -72,13 +72,14 @@ reme/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
     benchmark/               # LongMemEval / BEAM 评测步骤
-    cookbook/                # 可选研究工作流步骤
+    cookbook/                # 内置 cookbook 支持步骤
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory、auto_resource、auto_dream、proactive
     transfer/                # upload/download
 plugins/
   auto-fin/                  # 独立发布的示例插件
+  daily_paper/               # 独立发布的论文研究插件
 integrations/
   claude_code/               # Claude Code 适配器及 marketplace
   hermes_agent/              # Hermes Agent memory provider 适配器
@@ -229,18 +230,20 @@ entry-point 名称就是插件标识；使用
 不会互相覆盖。
 
 迁移期间仍兼容旧的 Python `Plugin` descriptor 和 `reme.configs` entry point。配置的 `extends` 可以继承内置配置、
-旧插件配置或文件配置。当前完整打包示例见 [Auto Fin 插件](../../plugins/auto-fin/README_ZH.md)。
+旧插件配置或文件配置。独立打包示例见 [Auto Fin](../../plugins/auto-fin/README_ZH.md) 与
+[每日论文](../../plugins/daily_paper/README_ZH.md) 插件。
 
 插件包的本地管理与单个应用是否启用插件相互独立：
 
 ```bash
 reme plugins list
 reme plugins install reme-auto-fin
-reme plugins show auto-fin
-reme plugins validate auto-fin
-reme plugins uninstall auto-fin
+reme plugins install reme-daily-paper
+reme plugins show daily-paper
+reme plugins validate daily-paper
+reme plugins uninstall daily-paper
 
-reme start plugins='["auto-fin"]'
+reme start plugins='["auto-fin","daily-paper"]'
 ```
 
 这些管理命令使用当前 Python 解释器对应的 pip，不通过 HTTP 或 MCP service 执行。

@@ -119,7 +119,7 @@ In other words, Auto Memory builds personal knowledge from conversations, while 
 
 ### Daily Paper: An Example External-Resource Workflow
 
-Daily Paper is an optional cookbook built on this file-based memory system. It collects papers from the weekly and monthly Hugging Face Papers rankings, removes items recommended recently, ranks the remaining papers, selects three, saves their PDFs, and generates Chinese paper notes and a briefing that takes about five minutes to read.
+Daily Paper is an optional plugin built on this file-based memory system. It collects papers from the weekly and monthly Hugging Face Papers rankings, removes items recommended recently, ranks the remaining papers, selects three, saves their PDFs, and generates Chinese paper notes and a briefing that takes about five minutes to read.
 
 Imagine that you regularly follow research on agent memory. Each morning, instead of receiving only three links, you get three detailed notes already saved locally. The briefing points to the original notes through Wikilinks, and each note links back to its PDF. A month later, when you ask, “What recent methods compress long-term memory?”, those materials are already in the same retrieval system. There is no need to search through browser history again.
 

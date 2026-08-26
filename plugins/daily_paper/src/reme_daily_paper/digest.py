@@ -6,10 +6,9 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
-from ....components import R
-from ....schema import AnalyzedPaper, DailyPaperMarkdownOutput
-from ...file_io import refresh_day_index
-from ._common import (
+from reme.steps.file_io import refresh_day_index
+
+from .base import (
     PAPER_COUNT,
     DailyPaperStep,
     normalize_chinese_title,
@@ -19,11 +18,11 @@ from ._common import (
     utc_now_iso,
     write_markdown,
 )
+from .schema import AnalyzedPaper, DailyPaperMarkdownOutput
 
 _WIKILINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
 
 
-@R.register("daily_paper_digest_step")
 class DailyPaperDigestStep(DailyPaperStep):
     """Use an agent to read the detailed notes and create the final brief."""
 

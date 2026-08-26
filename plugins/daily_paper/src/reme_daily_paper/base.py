@@ -3,6 +3,7 @@
 import datetime as dt
 import os
 import re
+import zoneinfo
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, TypeVar
@@ -12,8 +13,8 @@ import aiofiles
 import frontmatter
 from pydantic import BaseModel
 
-from ...base_step import BaseStep
-from ...file_io import get_path_lock, validate_filename_component
+from reme.steps import BaseStep
+from reme.steps.file_io import get_path_lock, validate_filename_component
 
 # Number of papers selected, analyzed, and digested each run. Shared across steps.
 PAPER_COUNT = 3
@@ -74,6 +75,16 @@ def normalize_chinese_title(raw: str, fallback: str) -> str:
 def utc_now_iso() -> str:
     """Return the current UTC time as an ISO-8601 string for note metadata."""
     return dt.datetime.now(dt.timezone.utc).isoformat()
+
+
+def now(timezone: str | None = None) -> dt.datetime:
+    """Return the current time in an IANA timezone, falling back to local time."""
+    if not timezone:
+        return dt.datetime.now()
+    try:
+        return dt.datetime.now(zoneinfo.ZoneInfo(timezone))
+    except (KeyError, zoneinfo.ZoneInfoNotFoundError):
+        return dt.datetime.now()
 
 
 def iter_note_metadata(day_dir: Path) -> Iterator[tuple[Path, dict[str, Any]]]:

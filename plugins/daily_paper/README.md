@@ -1,23 +1,24 @@
-# Daily Paper Cookbook
+# Daily Paper Plugin
 
 [中文](README_ZH.md)
 
 Daily Paper selects three papers from the Hugging Face Papers weekly and monthly rankings, downloads their arXiv PDFs,
-and produces detailed Chinese reading notes plus a roughly five-minute Chinese brief. The implementation lives in
-[`reme/steps/cookbook/daily_paper/`](../../reme/steps/cookbook/daily_paper/) and is assembled by
-[`daily_cookbook.yaml`](../../reme/config/daily_cookbook.yaml).
+and produces detailed Chinese reading notes plus a roughly five-minute Chinese brief. This directory is an independent
+Python distribution. Its `daily-paper` entry point exposes five Step backends and complete Job defaults through the
+package's `plugin.yaml`; enable it explicitly with `plugins=["daily-paper"]` after installation.
 
 ## Quick start
 
-The workflow requires Python 3.11 or later, the `core` dependencies, an available AgentScope LLM, and network access to
-Hugging Face Papers and arXiv.
+The workflow requires Python 3.11 or later, an available AgentScope LLM, and network access to Hugging Face Papers and
+arXiv.
 
 ```bash
-python -m pip install -e ".[core]"
+python -m pip install "reme-ai[core]>=0.4.1.8"
+reme plugins install reme-daily-paper
 export LLM_API_KEY="your-api-key"
 export LLM_MODEL_NAME="qwen3.7-plus"
 export LLM_BASE_URL="https://your-provider.example/v1"
-reme start config=daily_cookbook job=daily_paper
+reme start plugins='["daily-paper"]' job=daily_paper
 ```
 
 The built-in LLM component defaults to:
@@ -26,13 +27,30 @@ The built-in LLM component defaults to:
 - endpoint: no built-in `LLM_BASE_URL`; set the OpenAI-compatible endpoint required by your provider
 - environment variables: `LLM_API_KEY`, `LLM_MODEL_NAME`, and `LLM_BASE_URL`
 
-Auto Fin and Daily Paper share this single `default` LLM and the `default` AgentScope wrapper. Daily Paper Select and
-Analyze call the wrapper without tools, while Daily Paper Digest and Auto Fin Merge receive the read-only
-`memory_search` and `read` ReMe job tools. The interactive `dingtalk_wait` step separately overrides the wrapper per
-call with AgentScope `bash` and an explicit ReMe job allowlist.
+Daily Paper uses the application's `default` LLM and `default` AgentScope wrapper. Select and Analyze call the wrapper
+without tools, while Digest receives only the read-only `memory_search` and `read` ReMe Job tools.
 
-The default workspace is `reme_workspace/` beneath the process working directory. Override it with
-`DAILY_PAPER_WORKSPACE_DIR`.
+The default workspace is `.reme/` beneath the process working directory. Override it with `workspace_dir=...` or the
+application configuration you use alongside the plugin.
+
+## Migrating from the built-in cookbook
+
+Daily Paper is no longer imported or configured by the core `reme-ai` distribution. Install this package and enable
+`daily-paper` explicitly instead of running `config=daily_cookbook` to obtain the Daily Paper Jobs:
+
+```bash
+# Before
+reme start config=daily_cookbook job=daily_paper
+
+# Now
+reme plugins install reme-daily-paper
+reme start plugins='["daily-paper"]' job=daily_paper
+```
+
+The workflow schemas have moved from `reme.schema.daily_paper` to `reme_daily_paper.schema`. The arXiv and Hugging Face
+clients formerly under `reme.utils` are plugin implementation details under `reme_daily_paper`; applications that used
+those modules directly must install this package and update their imports. Existing workspace notes, downloaded PDFs,
+and indexes are not migrated or rewritten. Point the application at the same `workspace_dir` to keep using them.
 
 ## Pipeline
 
@@ -133,7 +151,7 @@ A failed recipient does not prevent later attempts; the step reports a combined 
 ## Outputs
 
 ```text
-reme_workspace/
+.reme/
 ├── daily/
 │   ├── YYYY-MM-DD.md
 │   └── YYYY-MM-DD/
@@ -182,7 +200,7 @@ when present. The two data sources reach a mirror differently: Hugging Face is g
 parameter, while arXiv is driven by its environment variable alone.
 
 ```dotenv
-# The built-in daily_paper_cron job enables the mirror by default; set false to use the official service
+# The plugin's daily_paper_cron Job enables the mirror by default; set false to use the official service
 DAILY_PAPER_USE_HF_MIRROR=false
 
 # Read only when the manual or scheduled job enables the mirror; defaults to https://hf-mirror.com when unset
@@ -202,7 +220,7 @@ trailing slash is optional. There is no fallback chain: whichever base URL a cli
 
 > **Behavior change:** `HF_MIRROR_URL` used to redirect Hugging Face traffic on its own. It is now read only when the
 > job runs with `use_hf_mirror=true`; otherwise the official service is used and the client logs a warning that the
-> variable was ignored. Pass `use_hf_mirror=true` for manual requests. The built-in `daily_paper_cron` job enables the
+> variable was ignored. Pass `use_hf_mirror=true` for manual requests. The plugin's `daily_paper_cron` Job enables the
 > mirror by default; set `DAILY_PAPER_USE_HF_MIRROR=false` to make that scheduled job use the official service.
 
 ## Running the workflow
@@ -211,7 +229,7 @@ Generate a brief for a specific date:
 
 ```bash
 reme start \
-  config=daily_cookbook \
+  plugins='["daily-paper"]' \
   job=daily_paper \
   date=2026-08-06 \
   topics="Agent memory" \
@@ -221,22 +239,22 @@ reme start \
 Force a rerun; valid local PDFs are still reused:
 
 ```bash
-reme start config=daily_cookbook job=daily_paper date=2026-08-06 force=true
+reme start plugins='["daily-paper"]' job=daily_paper date=2026-08-06 force=true
 ```
 
 Start the HTTP service and scheduled jobs:
 
 ```bash
-reme start config=daily_cookbook
+reme start plugins='["daily-paper"]'
 ```
 
-The built-in service listens on `127.0.0.1:8001`. `daily_paper_cron` runs every day at 08:00 in the
-`Asia/Shanghai` timezone, prioritizes the topic `大模型长期记忆`, and uses the Hugging Face mirror by default. Set
-`DAILY_PAPER_USE_HF_MIRROR=false` to use the official service. Override the bind address with `DAILY_PAPER_HOST`,
-`DAILY_PAPER_PORT`, or startup arguments.
+With the default ReMe configuration, the HTTP service listens on `127.0.0.1:2333`. `daily_paper_cron` runs every day at
+08:00 in the application timezone, prioritizes the topic `大模型长期记忆`, and uses the Hugging Face mirror by default.
+Set `DAILY_PAPER_USE_HF_MIRROR=false` to use the official service. Override the service address through normal ReMe
+configuration or startup arguments.
 
 ```bash
-curl -s http://127.0.0.1:8001/daily_paper \
+curl -s http://127.0.0.1:2333/daily_paper \
   -H 'Content-Type: application/json' \
   -d '{"date":"2026-08-06","force":false,"topics":"Agent memory"}'
 ```
@@ -257,6 +275,6 @@ curl -s http://127.0.0.1:8001/daily_paper \
 The focused unit tests mock Hugging Face, arXiv, AgentScope, and DingTalk boundaries and do not call real services:
 
 ```bash
-python -m pip install -e ".[dev,core]"
-pytest tests/unit/test_daily_paper.py -v
+python -m pip install -e packages/reme_ai_studio -e ".[dev,core]" -e plugins/daily_paper
+python -m pytest plugins/daily_paper -v
 ```

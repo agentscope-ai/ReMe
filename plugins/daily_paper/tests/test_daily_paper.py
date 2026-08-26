@@ -1,4 +1,4 @@
-"""Focused tests for the daily-paper cookbook workflow."""
+"""Focused tests for the Daily Paper plugin."""
 
 import datetime as dt
 import importlib
@@ -11,32 +11,59 @@ from unittest.mock import AsyncMock, MagicMock
 import frontmatter
 import httpx
 import pytest
+import yaml
 
+from reme.config import expand_env_vars
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import _load_config
-from reme.schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick, PaperPickList
-from reme.steps.cookbook.daily_paper import (
+from reme_daily_paper import (
+    AnalyzedPaper,
+    DailyPaperMarkdownOutput,
     DailyPaperAnalyzeStep,
     DailyPaperCollectStep,
     DailyPaperDigestStep,
     DailyPaperRankStep,
     DailyPaperSelectStep,
+    PaperInfo,
+    PaperPick,
+    PaperPickList,
 )
-from reme.steps.cookbook.daily_paper import analyze, collect
-from reme.steps.cookbook.daily_paper._common import (
+from reme_daily_paper import analyze, collect
+from reme_daily_paper import arxiv as arxiv_utils
+from reme_daily_paper import huggingface_papers as hf_utils
+from reme_daily_paper.base import (
     normalize_chinese_title,
     replace_surrogates,
     write_atomic,
     write_markdown,
 )
-from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
+from reme_daily_paper.huggingface_papers import paper_ids_from_html, paper_info_from_payload
+from reme_daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
-from reme.utils import arxiv as arxiv_utils
-from reme.utils import huggingface_papers as hf_utils
-from reme.utils.huggingface_papers import paper_ids_from_html, paper_info_from_payload
+
+
+PLUGIN_MANIFEST = yaml.safe_load(
+    (Path(__file__).parents[1] / "src" / "reme_daily_paper" / "plugin.yaml").read_text(encoding="utf-8"),
+)
+
+
+def _plugin_config() -> dict:
+    """Load application defaults with the same environment expansion as ReMe."""
+    return expand_env_vars(PLUGIN_MANIFEST["application_defaults"])
+
+
+def test_plugin_manifest_declares_complete_runtime_surface():
+    """Keep backend registration and both public Jobs inside the distribution."""
+    assert set(PLUGIN_MANIFEST["backends"]) == {
+        "daily_paper_collect_step",
+        "daily_paper_rank_step",
+        "daily_paper_select_step",
+        "daily_paper_analyze_step",
+        "daily_paper_digest_step",
+    }
+    assert set(_plugin_config()["jobs"]) == {"daily_paper", "daily_paper_cron"}
 
 
 class _QueuedAgentWrapper(BaseAgentWrapper):
@@ -542,7 +569,7 @@ def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):
     for name, value in values.items():
         monkeypatch.setenv(name, value)
 
-    step = _load_config("daily_cookbook")["jobs"]["daily_paper"]["steps"][-1]
+    step = _plugin_config()["jobs"]["daily_paper"]["steps"][-1]
 
     assert {key: step[key] for key in ("app_key", "app_secret", "robot_code", "conversation_ids")} == {
         "app_key": "app-key",
@@ -554,20 +581,13 @@ def test_daily_paper_config_passes_dingtalk_environment(monkeypatch):
 
 def test_daily_paper_uses_agentscope_without_tools():
     """Daily Paper uses the shared tool-free agent."""
-    config = _load_config("daily_cookbook")
-    wrapper = config["components"]["agent_wrapper"]["default"]
-
-    assert wrapper == {
-        "backend": "agentscope",
-        "as_llm": "default",
-        "builtin_tools": False,
-    }
+    config = _plugin_config()
     assert "agent_wrapper" not in config["jobs"]["daily_paper"]["steps"][2]
 
 
 def test_daily_paper_topics_parameter_defaults_to_empty():
     """Topics are an optional selection preference in the public job schema."""
-    topics = _load_config("daily_cookbook")["jobs"]["daily_paper"]["parameters"]["properties"]["topics"]
+    topics = _plugin_config()["jobs"]["daily_paper"]["parameters"]["properties"]["topics"]
 
     assert topics == {
         "type": "string",
@@ -578,12 +598,12 @@ def test_daily_paper_topics_parameter_defaults_to_empty():
 
 def test_daily_paper_cron_prioritizes_long_term_llm_memory():
     """The scheduled workflow prioritizes papers about long-term LLM memory."""
-    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["topics"] == "大模型长期记忆"
+    assert _plugin_config()["jobs"]["daily_paper_cron"]["topics"] == "大模型长期记忆"
 
 
 def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
     """The public job schema exposes an explicit Hugging Face mirror switch."""
-    use_hf_mirror = _load_config("daily_cookbook")["jobs"]["daily_paper"]["parameters"]["properties"]["use_hf_mirror"]
+    use_hf_mirror = _plugin_config()["jobs"]["daily_paper"]["parameters"]["properties"]["use_hf_mirror"]
 
     assert use_hf_mirror == {
         "type": "boolean",
@@ -595,10 +615,10 @@ def test_daily_paper_hf_mirror_parameter_defaults_to_disabled():
 def test_daily_paper_cron_hf_mirror_defaults_enabled_with_environment_override(monkeypatch):
     """The scheduled workflow uses the mirror by default and supports an explicit override."""
     monkeypatch.delenv("DAILY_PAPER_USE_HF_MIRROR", raising=False)
-    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is True
+    assert _plugin_config()["jobs"]["daily_paper_cron"]["use_hf_mirror"] is True
 
     monkeypatch.setenv("DAILY_PAPER_USE_HF_MIRROR", "false")
-    assert _load_config("daily_cookbook")["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
+    assert _plugin_config()["jobs"]["daily_paper_cron"]["use_hf_mirror"] is False
 
 
 def test_paper_pick_list_uses_an_object_root_for_tool_output():
@@ -612,7 +632,7 @@ def test_paper_pick_list_uses_an_object_root_for_tool_output():
 
 def test_daily_paper_selects_three_papers_and_bounds_pdf_context():
     """The public job has no paper-count option and bounds extracted PDF text."""
-    job = _load_config("daily_cookbook")["jobs"]["daily_paper"]
+    job = _plugin_config()["jobs"]["daily_paper"]
 
     assert "top_k" not in job
     assert "top_k" not in job["parameters"]["properties"]
@@ -686,7 +706,7 @@ import reme
 
     result = subprocess.run(
         [sys.executable, "-c", script],
-        cwd=Path(__file__).parents[2],
+        cwd=Path(__file__).parents[3],
         capture_output=True,
         text=True,
         check=False,

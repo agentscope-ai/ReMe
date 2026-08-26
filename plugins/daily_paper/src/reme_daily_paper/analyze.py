@@ -4,10 +4,8 @@ import asyncio
 import json
 from pathlib import Path
 
-from ....components import R
-from ....schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick
-from ....utils.arxiv import ArxivPdfClient
-from ._common import (
+from .arxiv import ArxivPdfClient
+from .base import (
     PAPER_COUNT,
     DailyPaperStep,
     iter_note_metadata,
@@ -19,9 +17,9 @@ from ._common import (
     utc_now_iso,
     write_markdown,
 )
+from .schema import AnalyzedPaper, DailyPaperMarkdownOutput, PaperInfo, PaperPick
 
 
-@R.register("daily_paper_analyze_step")
 class DailyPaperAnalyzeStep(DailyPaperStep):
     """Download and analyze the three papers selected for the daily brief."""
 

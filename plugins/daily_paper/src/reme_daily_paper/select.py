@@ -2,14 +2,12 @@
 
 import json
 
-from ....components import R
-from ....schema import PaperInfo, PaperPick, PaperPickList
-from ._common import PAPER_COUNT, DailyPaperStep, structured_output
+from .base import PAPER_COUNT, DailyPaperStep, structured_output
+from .schema import PaperInfo, PaperPick, PaperPickList
 
 _MAX_SELECT_ATTEMPTS = 2
 
 
-@R.register("daily_paper_select_step")
 class DailyPaperSelectStep(DailyPaperStep):
     """Use an agent to select the final papers."""
 
