@@ -3,17 +3,25 @@ export { memoryGuidance } from "../core/guidance.js";
 
 export const REME_PLUGIN_SOURCE = "reme-memory";
 
-export function hasGuidance(session: DshSession): boolean {
-  return (session.events || []).some((event) => {
-    const source = isRecord(event.data) ? event.data.source : undefined;
-    return (
-      event.type === "user/message" &&
-      isRecord(source) &&
-      source.kind === "plugin" &&
-      source.plugin === REME_PLUGIN_SOURCE &&
-      source.form === "instructions"
-    );
-  });
+export function hasGuidance(
+  session: DshSession,
+  pendingMessages: readonly unknown[] = [],
+): boolean {
+  return (
+    (session.events || []).some(
+      (event) => event.type === "user/message" && isGuidance(event.data),
+    ) || pendingMessages.some(isGuidance)
+  );
+}
+
+function isGuidance(value: unknown): boolean {
+  const source = isRecord(value) ? value.source : undefined;
+  return (
+    isRecord(source) &&
+    source.kind === "plugin" &&
+    source.plugin === REME_PLUGIN_SOURCE &&
+    source.form === "instructions"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
