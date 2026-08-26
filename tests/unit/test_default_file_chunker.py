@@ -107,6 +107,59 @@ def test_invalid_encoding_policy_is_validated():
         raise AssertionError("invalid encoding policy must be rejected")
 
 
+def test_constructor_preserves_positional_arguments():
+    """New decoding options must not reinterpret the established positional API."""
+    chunker = DefaultFileChunker("utf-8", 5000, 100)
+
+    assert chunker.encoding == "utf-8"
+    assert chunker.chunk_byte_size == 5000
+    assert chunker.overlap_byte_size == 100
+
+
+def test_newlines_are_normalized_before_chunking():
+    """Binary reads retain the universal-newline behavior of the old text reader."""
+
+    async def run():
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+            f.write(b"alpha\r\nbeta\rgamma\n")
+            temp_path = f.name
+
+        try:
+            chunker = DefaultFileChunker()
+            _, original_chunks = await chunker.chunk(temp_path)
+            with open(temp_path, "wb") as f:
+                f.write(b"alpha\nbeta\ngamma\n")
+            _, normalized_chunks = await chunker.chunk(temp_path)
+
+            assert [chunk.text for chunk in original_chunks] == ["alpha\nbeta\ngamma\n"]
+            assert [chunk.id for chunk in original_chunks] == [chunk.id for chunk in normalized_chunks]
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_ascii_replacement_remains_encodable():
+    """Replacement mode must survive byte-based chunking with a single-byte codec."""
+
+    async def run():
+        source = b"valid\xffinvalid"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+            f.write(source)
+            temp_path = f.name
+
+        try:
+            _, chunks = await DefaultFileChunker(encoding="ascii").chunk(temp_path)
+
+            assert [chunk.text for chunk in chunks] == ["valid?invalid"]
+            with open(temp_path, "rb") as f:
+                assert f.read() == source
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
 def test_parse_links_bare():
     """Bare wikilink: [[target]]."""
     links = WikilinkHandler.extract_links("see [[note]]", "src.md")

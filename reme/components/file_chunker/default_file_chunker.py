@@ -22,9 +22,10 @@ class DefaultFileChunker(BaseFileChunker):
     def __init__(
         self,
         encoding: str = "utf-8",
-        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
         chunk_byte_size: int = 10000,
         overlap_byte_size: int = 100,
+        *,
+        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -57,7 +58,7 @@ class DefaultFileChunker(BaseFileChunker):
         async with aiofiles.open(file_path, "rb") as f:
             data = await f.read()
         try:
-            return data.decode(self.encoding)
+            text = data.decode(self.encoding)
         except UnicodeDecodeError as exc:
             if self.invalid_encoding_policy == "strict":
                 raise
@@ -66,7 +67,14 @@ class DefaultFileChunker(BaseFileChunker):
                 f"Invalid {self.encoding} in {file_path} at byte {exc.start} (bytes: {invalid_bytes}); "
                 "indexed with replacement characters; source file unchanged",
             )
-            return data.decode(self.encoding, errors="replace")
+            text = data.decode(self.encoding, errors="replace")
+            # Some codecs (for example ASCII) cannot encode U+FFFD. Convert the
+            # decoded fallback to that codec's own replacement representation so
+            # later byte-based chunking remains safe.
+            text = text.encode(self.encoding, errors="replace").decode(self.encoding)
+
+        # Match the universal-newline behavior of the previous text-mode reads.
+        return text.replace("\r\n", "\n").replace("\r", "\n")
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)

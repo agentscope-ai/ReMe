@@ -388,3 +388,8 @@ This lets the agent see not only an isolated paragraph but also its structural p
 
 Non-Markdown files use `DefaultFileChunker` by default. It splits by byte size and preserves a small overlap. For
 Markdown, the chunker also avoids cutting `[[wikilinks]]` in the middle.
+
+`DefaultFileChunker` and `MarkdownFileChunker` decode files with their configured `encoding` and normalize platform
+newlines to LF before indexing. Their default `invalid_encoding_policy: replace` keeps decodable content searchable
+when a source contains invalid bytes, without modifying the source file. Set `invalid_encoding_policy: strict` on a
+chunker component to reject such files instead.

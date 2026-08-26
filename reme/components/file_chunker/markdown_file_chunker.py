@@ -103,12 +103,13 @@ class MarkdownFileChunker(DefaultFileChunker):
     def __init__(
         self,
         encoding: str = "utf-8",
-        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
         chunk_byte_size: int = 10000,
         embed_toc: bool = True,
         max_ast_sections: int | None = 100,
         include_frontmatter_in_metadata: bool = False,
         include_frontmatter_keys_in_metadata: list[str] | None = None,
+        *,
+        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
         **kwargs,
     ):
         super().__init__(
