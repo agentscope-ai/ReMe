@@ -319,6 +319,34 @@ def test_close_persists_each_component_once(monkeypatch):
     run(go())
 
 
+def test_close_preserves_subclass_dump_override():
+    """Third-party stores using the historical dump hook still persist sidecars."""
+
+    class SidecarFileStore(LocalFileStore):
+        """Local store extension that persists an additional sidecar."""
+
+        def __init__(self):
+            super().__init__(name="t_sidecar_dump", embedding_store="")
+            self.dump_calls = 0
+            self.sidecar_path = self.component_metadata_path / "sidecar.txt"
+
+        async def dump(self) -> None:
+            self.dump_calls += 1
+            await super().dump()
+            self.sidecar_path.write_text("persisted", encoding="utf-8")
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = SidecarFileStore()
+            await store.start()
+            await store.close()
+
+            assert store.dump_calls == 1
+            assert store.sidecar_path.read_text(encoding="utf-8") == "persisted"
+
+    run(go())
+
+
 def test_start_does_not_health_check_embedding_without_backfill():
     """Hot startup keeps local vector retrieval independent of provider health."""
 

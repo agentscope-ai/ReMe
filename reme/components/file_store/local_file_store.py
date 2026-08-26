@@ -103,8 +103,12 @@ class LocalFileStore(BaseFileStore):
         # Dependencies are closed separately by Application (reverse
         # topological order) or BaseComponent (owned standalone dependencies).
         # Persist only this store's local state here so each component writes
-        # exactly once during shutdown.
-        await self._dump_owned_state()
+        # exactly once during shutdown. Preserve the historical dump() hook for
+        # third-party subclasses that override it to write additional state.
+        if type(self).dump is LocalFileStore.dump:
+            await self._dump_owned_state()
+        else:
+            await self.dump()
         self.file_chunks.clear()
         await super()._close()
 
