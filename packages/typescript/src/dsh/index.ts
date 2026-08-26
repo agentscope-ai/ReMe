@@ -61,7 +61,11 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
       () => () => runtime.dispose(agent.session),
       "remeMemory.disposeSession()",
     );
-    if (agent.status !== "idle" || hasGuidance(agent.session)) return;
+    if (
+      agent.status !== "idle" ||
+      hasGuidance(agent.session, agent.inbox.nextStep)
+    )
+      return;
     agent.inject(
       createUserMessage({
         content: [{ type: "text", text: memoryGuidance(config.language) }],
