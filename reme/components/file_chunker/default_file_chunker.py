@@ -2,6 +2,7 @@
 
 from bisect import bisect_right
 from pathlib import Path
+from typing import Literal
 
 import aiofiles
 import yaml
@@ -11,14 +12,29 @@ from ..component_registry import R
 from ...schema import FileChunk, FileFrontMatter, FileNode
 from ...utils.wikilink_handler import WikilinkHandler
 
+InvalidEncodingPolicy = Literal["replace", "strict"]
+
 
 @R.register("default")
 class DefaultFileChunker(BaseFileChunker):
     """Default chunker that splits files into byte-based overlapping chunks."""
 
-    def __init__(self, encoding: str = "utf-8", chunk_byte_size: int = 10000, overlap_byte_size: int = 100, **kwargs):
+    def __init__(
+        self,
+        encoding: str = "utf-8",
+        chunk_byte_size: int = 10000,
+        overlap_byte_size: int = 100,
+        *,
+        invalid_encoding_policy: InvalidEncodingPolicy = "replace",
+        **kwargs,
+    ):
         super().__init__(**kwargs)
+        if invalid_encoding_policy not in {"replace", "strict"}:
+            raise ValueError(
+                f"invalid_encoding_policy must be 'replace' or 'strict', got {invalid_encoding_policy!r}",
+            )
         self.encoding = encoding
+        self.invalid_encoding_policy = invalid_encoding_policy
         self.chunk_byte_size = max(100, chunk_byte_size)
         self.overlap_byte_size = max(4, overlap_byte_size)
 
@@ -37,13 +53,35 @@ class DefaultFileChunker(BaseFileChunker):
             front_matter = FileFrontMatter()
         return front_matter, text[end_idx + 4 :].lstrip("\n")
 
+    async def _read_text_for_indexing(self, file_path: Path) -> str:
+        """Decode text for a derived index without modifying the source file."""
+        async with aiofiles.open(file_path, "rb") as f:
+            data = await f.read()
+        try:
+            text = data.decode(self.encoding)
+        except UnicodeDecodeError as exc:
+            if self.invalid_encoding_policy == "strict":
+                raise
+            invalid_bytes = data[exc.start : exc.end].hex(" ")
+            self.logger.warning(
+                f"Invalid {self.encoding} in {file_path} at byte {exc.start} (bytes: {invalid_bytes}); "
+                "indexed with replacement characters; source file unchanged",
+            )
+            text = data.decode(self.encoding, errors="replace")
+            # Some codecs (for example ASCII) cannot encode U+FFFD. Convert the
+            # decoded fallback to that codec's own replacement representation so
+            # later byte-based chunking remains safe.
+            text = text.encode(self.encoding, errors="replace").decode(self.encoding)
+
+        # Match the universal-newline behavior of the previous text-mode reads.
+        return text.replace("\r\n", "\n").replace("\r", "\n")
+
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         stat = file_path.stat()
         rel_path = self.to_workspace_relative(path)
 
-        async with aiofiles.open(file_path, encoding=self.encoding) as f:
-            text = await f.read()
+        text = await self._read_text_for_indexing(file_path)
 
         if not text:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []

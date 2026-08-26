@@ -25,6 +25,12 @@ from reme.steps.cookbook.daily_paper import (
     DailyPaperSelectStep,
 )
 from reme.steps.cookbook.daily_paper import analyze, collect
+from reme.steps.cookbook.daily_paper._common import (
+    normalize_chinese_title,
+    replace_surrogates,
+    write_atomic,
+    write_markdown,
+)
 from reme.steps.cookbook.daily_paper.rank import build_candidate_pool, rrf_score
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
@@ -55,6 +61,73 @@ def _paper(arxiv_id: str, *, title: str = "Paper", upvotes: int = 10) -> PaperIn
         authors=["A. Author"],
         upvotes=upvotes,
     )
+
+
+def test_daily_paper_replaces_surrogates_in_text_and_titles():
+    """Invalid surrogate code points become visible replacement characters."""
+    assert replace_surrogates("before\ud800middle\udfffafter") == "before\ufffdmiddle\ufffdafter"
+    assert normalize_chinese_title("论文\ud800标题", "fallback") == "论文\ufffd标题"
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_atomic_write_replaces_surrogates(tmp_path: Path):
+    """Markdown writes always produce valid UTF-8 even when model output is malformed."""
+    target = tmp_path / "note.md"
+
+    await write_atomic(target, "before\ud800after")
+
+    assert target.read_text(encoding="utf-8") == "before\ufffdafter"
+
+
+@pytest.mark.asyncio
+async def test_daily_paper_markdown_write_replaces_surrogates_in_frontmatter(tmp_path: Path):
+    """Frontmatter serialization sanitizes nested metadata before YAML encoding."""
+    target = tmp_path / "note.md"
+
+    await write_markdown(
+        target,
+        "body\ud800text",
+        {"description": "meta\udffftext", "authors": ["safe", "author\ud800name"]},
+    )
+
+    post = frontmatter.load(target)
+    assert post.content == "body\ufffdtext"
+    assert post.metadata == {
+        "description": "meta\ufffdtext",
+        "authors": ["safe", "author\ufffdname"],
+    }
+
+
+def test_daily_paper_pdf_extraction_replaces_surrogates(monkeypatch, tmp_path: Path):
+    """Malformed PDF text is sanitized before it enters an agent prompt."""
+
+    class FakePage:
+        """Return text containing one unpaired surrogate."""
+
+        @staticmethod
+        def extract_text():
+            """Return the malformed page text."""
+            return "before\ud800after"
+
+    class FakeReader:
+        """Expose one fake PDF page."""
+
+        def __init__(self, _path: str):
+            self.pages = [FakePage()]
+
+    import pypdf
+
+    monkeypatch.setattr(pypdf, "PdfReader", FakeReader)
+
+    content, page_count, truncated = DailyPaperAnalyzeStep._extract_pdf_text_sync(  # pylint: disable=protected-access
+        tmp_path / "paper.pdf",
+        20,
+        300_000,
+    )
+
+    assert content == "--- PAGE 1 ---\n\nbefore\ufffdafter"
+    assert page_count == 1
+    assert truncated is False
 
 
 def test_hf_payload_and_html_normalization():
@@ -705,8 +778,8 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
             },
             {
                 "title": "记忆代理研究",
-                "desc": "Detailed note one",
-                "body": "Evidence one [p. 1].",
+                "desc": "Detailed note\ud800 one",
+                "body": "Evidence\udfff one [p. 1].",
             },
             {
                 "title": "上下文压缩研究",
@@ -801,7 +874,9 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "ReMe" not in analysis_prompt
     assert "# PDF 分页文本" in analysis_prompt
     digest_prompt = cc_wrapper.calls[-1]["inputs"]
-    assert "Evidence one [p. 1]." in digest_prompt
+    assert "Evidence\ufffd one [p. 1]." in digest_prompt
+    assert "Detailed note\ufffd one" in digest_prompt
+    assert not any("\ud800" <= character <= "\udfff" for character in digest_prompt)
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt

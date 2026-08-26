@@ -363,3 +363,7 @@ FileChunk[]
 这样检索命中时，Agent 不只看到孤立段落，还能看到它在原文件中的结构位置。
 
 非 Markdown 默认走 `DefaultFileChunker`：按字节大小切分，并保留少量 overlap；对 Markdown 则会避免把 `[[wikilink]]` 从中间切开。
+
+`DefaultFileChunker` 和 `MarkdownFileChunker` 使用各自配置的 `encoding` 解码文件，并在索引前将平台换行符统一为
+LF。默认的 `invalid_encoding_policy: replace` 会在源文件含无效字节时保留其中可解码的内容用于检索，但不会修改源
+文件；如需拒绝此类文件，可在 chunker 组件上设置 `invalid_encoding_policy: strict`。

@@ -57,6 +57,104 @@ def test_parse_empty_file():
     asyncio.run(run())
 
 
+def test_invalid_utf8_is_replaced_without_modifying_source():
+    """Bad source bytes degrade the derived index but remain untouched on disk."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            source = b"# valid\ncontent before \xcd content after\n"
+            path = os.path.join(tmp, "invalid.md")
+            with open(path, "wb") as f:
+                f.write(source)
+
+            chunker = MarkdownFileChunker()
+            with patch.object(chunker.logger, "warning") as warning:
+                node, chunks = await chunker.chunk("invalid.md")
+
+            assert node.path == "invalid.md"
+            assert "content before \ufffd content after" in "\n".join(chunk.text for chunk in chunks)
+            with open(path, "rb") as f:
+                assert f.read() == source
+            warning.assert_called_once_with(
+                "Invalid utf-8 in invalid.md at byte 23 (bytes: cd); "
+                "indexed with replacement characters; source file unchanged",
+            )
+
+    asyncio.run(run())
+
+
+def test_invalid_utf8_strict_policy_still_raises():
+    """Strict mode remains available when callers require exact decoding."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            with open(os.path.join(tmp, "invalid.md"), "wb") as f:
+                f.write(b"valid\xcdinvalid")
+
+            chunker = MarkdownFileChunker(invalid_encoding_policy="strict")
+            try:
+                await chunker.chunk("invalid.md")
+            except UnicodeDecodeError as exc:
+                assert exc.start == 5
+            else:
+                raise AssertionError("strict policy must reject invalid UTF-8")
+
+    asyncio.run(run())
+
+
+def test_constructor_preserves_positional_arguments():
+    """The decoding policy must not shift the established positional parameters."""
+    chunker = MarkdownFileChunker("utf-8", 5000, False, 10, True, ["name"])
+
+    assert chunker.encoding == "utf-8"
+    assert chunker.chunk_byte_size == 5000
+    assert chunker.embed_toc is False
+    assert chunker.max_ast_sections == 10
+    assert chunker.include_frontmatter_in_metadata is True
+    assert chunker.include_frontmatter_keys_in_metadata == ["name"]
+
+
+def test_plain_text_fallback_normalizes_newlines():
+    """Markdown fallback chunks stay stable for equivalent platform newlines."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            path = os.path.join(tmp, "fallback.md")
+            with open(path, "wb") as f:
+                f.write(b"# One\r\nbody\r# Two\r\nbody\r\n")
+
+            chunker = MarkdownFileChunker(max_ast_sections=0)
+            _, original_chunks = await chunker.chunk("fallback.md")
+            with open(path, "wb") as f:
+                f.write(b"# One\nbody\n# Two\nbody\n")
+            _, normalized_chunks = await chunker.chunk("fallback.md")
+
+            assert [chunk.text for chunk in original_chunks] == [chunk.text for chunk in normalized_chunks]
+            assert [chunk.id for chunk in original_chunks] == [chunk.id for chunk in normalized_chunks]
+
+    asyncio.run(run())
+
+
+def test_invalid_ascii_is_replaced_for_markdown():
+    """Markdown byte accounting accepts the configured codec's replacement text."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            source = b"# valid\ncontent before \xff content after\n"
+            path = os.path.join(tmp, "invalid.md")
+            with open(path, "wb") as f:
+                f.write(source)
+
+            chunker = MarkdownFileChunker(encoding="ascii")
+            _, chunks = await chunker.chunk("invalid.md")
+
+            assert "content before ? content after" in "\n".join(chunk.text for chunk in chunks)
+            with open(path, "rb") as f:
+                assert f.read() == source
+
+    asyncio.run(run())
+
+
 def test_parse_frontmatter_only():
     """A file with only frontmatter (no body) → no chunks, no links."""
 
