@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: '22.19'
+          node-version: '22.22.3'
           cache: npm
           cache-dependency-path: packages/typescript/package-lock.json
 
@@ -45,3 +45,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:package
+      - name: Validate OpenClaw package contract
+        run: npx --yes clawhub@0.23.3 package validate . --json

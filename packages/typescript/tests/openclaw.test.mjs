@@ -4,6 +4,7 @@ import test from "node:test";
 
 import plugin, {
   OPENCLAW_CONFIG_SCHEMA,
+  OPENCLAW_CONFIG_UI_HINTS,
   OpenClawReMeRuntime,
   captureLastTurn,
   openClawSessionId,
@@ -12,11 +13,13 @@ import plugin, {
 
 test("normalizes OpenClaw configuration and stable session ids", () => {
   const config = resolveOpenClawConfig(
-    { endpoint: "http://localhost:2333///", recallLimit: 99 },
+    { endpoint: "http://localhost:2333///", searchLimit: 99 },
     {},
   );
   assert.equal(config.endpoint, "http://localhost:2333");
-  assert.equal(config.recallLimit, 50);
+  assert.equal(config.searchLimit, 50);
+  assert.equal(config.autoMemoryInterval, 5);
+  assert.equal(config.autoDreamEnabled, true);
   assert.equal(config.autoRecall, true);
   assert.match(openClawSessionId("agent/session"), /^openclaw-[a-f0-9]{24}$/);
   assert.throws(
@@ -27,6 +30,10 @@ test("normalizes OpenClaw configuration and stable session ids", () => {
     () => resolveOpenClawConfig({ apiKey: "unsupported" }, {}),
     /Unknown ReMe config option/,
   );
+  assert.throws(
+    () => resolveOpenClawConfig({ autoCapture: true }, {}),
+    /Unknown ReMe config option/,
+  );
 });
 
 test("keeps the runtime schema aligned with the OpenClaw manifest", async () => {
@@ -34,6 +41,9 @@ test("keeps the runtime schema aligned with the OpenClaw manifest", async () => 
     await readFile(new URL("../openclaw.plugin.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(manifest.configSchema, OPENCLAW_CONFIG_SCHEMA);
+  assert.deepEqual(manifest.configUiHints, OPENCLAW_CONFIG_UI_HINTS);
+  assert.deepEqual(manifest.contracts.tools, ["reme_search"]);
+  assert.equal(manifest.activation.onStartup, true);
 });
 
 test("captures only the last OpenClaw user and assistant pair", () => {
@@ -126,6 +136,85 @@ test("bounds prompts retained when an OpenClaw run ends before agent_end", () =>
   );
 });
 
+test("batches OpenClaw memory per session and filters subagents", async () => {
+  const calls = [];
+  const client = {
+    async autoMemory(messages, sessionId, options) {
+      calls.push({ messages, sessionId, options });
+      return { ok: true };
+    },
+  };
+  const runtime = new OpenClawReMeRuntime(
+    client,
+    resolveOpenClawConfig(
+      { autoMemoryInterval: 2, autoDreamEnabled: false },
+      {},
+    ),
+    { warn() {} },
+  );
+  const context = {
+    runId: "run-1",
+    agentId: "main",
+    sessionId: "session-1",
+    sessionKey: "agent:main:session-1",
+    trigger: "user",
+  };
+  runtime.capture(
+    [
+      { role: "user", content: "one" },
+      { role: "assistant", content: "answer one" },
+    ],
+    context,
+  );
+  assert.equal(calls.length, 0);
+  runtime.capture(
+    [
+      { role: "user", content: "two" },
+      { role: "assistant", content: "answer two" },
+    ],
+    { ...context, runId: "run-2" },
+  );
+  await runtime.states.get("session-1").writes;
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].messages.length, 4);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+  assert.equal(
+    runtime.accepts({
+      agentId: "worker",
+      sessionKey: "agent:main:subagent:worker",
+      trigger: "user",
+    }),
+    false,
+  );
+});
+
+test("runs one coalesced OpenClaw Auto Dream task", async () => {
+  let resolveDream;
+  let calls = 0;
+  const runtime = new OpenClawReMeRuntime(
+    {
+      async autoDream() {
+        calls += 1;
+        return new Promise((resolve) => {
+          resolveDream = resolve;
+        });
+      },
+    },
+    resolveOpenClawConfig({ autoMemoryEnabled: false }, {}),
+    { warn() {}, debug() {} },
+  );
+  runtime.start();
+  assert.equal(runtime.snapshot().phase, "running");
+  assert.ok(runtime.snapshot().autoDream.nextRunAt);
+  const first = runtime.runDream();
+  const second = runtime.runDream();
+  assert.equal(calls, 1);
+  resolveDream({ ok: true });
+  await Promise.all([first, second]);
+  assert.equal(runtime.snapshot().autoDream.lastResult, "completed");
+  await runtime.disposeAll();
+});
+
 test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -145,7 +234,11 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
     const tools = [];
     let service;
     plugin.register({
-      pluginConfig: { endpoint: "http://127.0.0.1:2333" },
+      pluginConfig: {
+        endpoint: "http://127.0.0.1:2333",
+        autoMemoryInterval: 1,
+        autoDreamEnabled: false,
+      },
       logger: { info() {}, warn() {}, error() {} },
       registerTool(tool) {
         tools.push(tool);
@@ -159,11 +252,18 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
     });
 
     assert.equal(tools[0].name, "reme_search");
-    const recalled = await hooks.get("before_agent_start")(
+    await service.start();
+    const recalled = await hooks.get("before_prompt_build")(
       { prompt: "deployment" },
-      { trigger: "user", agentId: "main", sessionId: "session-1" },
+      {
+        runId: "run-1",
+        trigger: "user",
+        agentId: "main",
+        sessionId: "session-1",
+      },
     );
     assert.match(recalled.prependContext, /remembered deployment/);
+    assert.match(recalled.prependSystemContext, /ReMe/);
 
     await hooks.get("agent_end")(
       {
@@ -179,7 +279,12 @@ test("registers OpenClaw recall, capture, tool, and shutdown lifecycle", async (
           { role: "assistant", content: "noted" },
         ],
       },
-      { trigger: "user", agentId: "main", sessionId: "session-1" },
+      {
+        runId: "run-1",
+        trigger: "user",
+        agentId: "main",
+        sessionId: "session-1",
+      },
     );
     await service.stop();
 

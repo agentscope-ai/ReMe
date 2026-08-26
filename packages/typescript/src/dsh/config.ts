@@ -1,7 +1,7 @@
 import z from "@deepseek-ai/schemastery";
 import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 
-import { nextDailyRun } from "./scheduler.js";
+import { nextDailyRun, validTimezone } from "../core/scheduling.js";
 import type { ReMeConfig, ReMeConfigInput, ReMeSettings } from "./types.js";
 
 /** Durable DSH settings section owned by the ReMe integration. */
@@ -181,14 +181,4 @@ function integer(
   const number = Math.round(Number(value));
   if (!Number.isFinite(number)) return fallback;
   return Math.max(minimum, Math.min(maximum, number));
-}
-
-function validTimezone(value: unknown): value is string {
-  if (typeof value !== "string" || !value.trim()) return false;
-  try {
-    new Intl.DateTimeFormat("en", { timeZone: value }).format(0);
-    return true;
-  } catch {
-    return false;
-  }
 }

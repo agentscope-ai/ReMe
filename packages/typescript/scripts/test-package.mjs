@@ -42,11 +42,10 @@ try {
     [
       'import assert from "node:assert/strict";',
       'import { readFile } from "node:fs/promises";',
-      'import plugin from "@agentscope-ai/reme/openclaw";',
       'import { ReMeClient, formatReMeContext } from "@agentscope-ai/reme";',
       'assert.equal(typeof ReMeClient, "function");',
       'assert.equal(typeof formatReMeContext, "function");',
-      'assert.equal(plugin.id, "reme");',
+      'assert.ok(import.meta.resolve("@agentscope-ai/reme/openclaw").endsWith("/dist/openclaw/index.js"));',
       'assert.match(import.meta.resolve("@agentscope-ai/reme/dsh"), /dist\\/dsh\\/index\\.js$/);',
       'assert.match(import.meta.resolve("@agentscope-ai/reme/client"), /dist\\/dsh\\/client\\.js$/);',
       'const manifestUrl = import.meta.resolve("@agentscope-ai/reme/package.json");',

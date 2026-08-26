@@ -24,13 +24,22 @@ dsh plugin --profile web add @agentscope-ai/reme
 
 ## OpenClaw
 
-OpenClaw `2026.3.12` 或更高版本可以直接安装本包：
+OpenClaw `2026.7.1` 或更高版本可以直接安装本包。当前 SDK 和 Gateway 支持各主版本线上的
+Node.js `22.22.3+`、`24.15.0+` 或 `25.9.0+`：
 
 ```bash
 openclaw plugins install @agentscope-ai/reme
 ```
 
-当其他记忆插件已启用时，请将 `plugins.slots.memory` 设为 `reme`。适配器会注册 `reme_search`，在用户触发的 Agent 运行前检索长期记忆，并将最后一组已完成的用户/助手消息提交给 `auto_memory`。
+当其他记忆插件已启用时，请将 `plugins.slots.memory` 设为 `reme`。适配器使用最新的
+`before_prompt_build` Hook，注册 `reme_search` Action，并为根 Agent 注入记忆使用指引和相关历史。
+已完成的用户/助手消息按会话、日期分批提交给 `auto_memory`；失败批次会保留重试，Gateway 退出时会在有限时间内刷新。
+插件还会按 workspace 时区运行一份每日 `auto_dream` 计划。默认不会处理子 Agent、Cron、Heartbeat、Memory 或 Overflow 触发的运行。
+
+主要配置包括 `language`、`autoRecall`、`searchLimit`、`autoMemoryEnabled`、`autoMemoryInterval`、
+`autoDreamEnabled`、`dreamCron`、`dreamHint`、`rootAgentsOnly` 和 `timezone`。默认每 5 轮写入一次记忆，
+每日 23:00（`Asia/Shanghai`）执行 Auto Dream。OpenClaw 的会话访问和 Prompt 注入权限仍由宿主侧配置，
+本适配器不会修改 Gateway 设置。
 
 完整配置项请参阅[英文文档](./README.md#openclaw)。
 

@@ -1,25 +1,41 @@
+import { nextDailyRun, validTimezone } from "../core/scheduling.js";
 import type { ReMeClientConfig } from "../core/types.js";
 
+/** OpenClaw-owned controls layered over the shared ReMe HTTP client. */
 export interface OpenClawReMeConfig extends ReMeClientConfig {
-  autoCapture: boolean;
-  autoRecall: boolean;
-  recallLimit: number;
-  recallMinScore: number;
   shutdownTimeoutMs: number;
+  autoMemoryEnabled: boolean;
+  autoMemoryInterval: number;
+  autoDreamEnabled: boolean;
+  dreamCron: string;
+  dreamHint: string;
+  rootAgentsOnly: boolean;
+  language: "en" | "zh";
+  autoRecall: boolean;
+  searchLimit: number;
+  recallMinScore: number;
+  timezone: string;
 }
 
 const DEFAULT_CONFIG: Readonly<OpenClawReMeConfig> = Object.freeze({
   endpoint: "http://127.0.0.1:2333",
-  requestTimeoutMs: 5000,
+  requestTimeoutMs: 10000,
   backgroundTimeoutMs: 3600000,
   shutdownTimeoutMs: 5000,
-  autoCapture: true,
+  autoMemoryEnabled: true,
+  autoMemoryInterval: 5,
+  autoDreamEnabled: true,
+  dreamCron: "0 23 * * *",
+  dreamHint: "",
+  rootAgentsOnly: true,
+  language: "en",
   autoRecall: true,
-  recallLimit: 5,
+  searchLimit: 5,
   recallMinScore: 0,
+  timezone: "Asia/Shanghai",
 });
 
-/** JSON Schema mirrored in openclaw.plugin.json for runtime use and tests. */
+/** JSON Schema mirrored in openclaw.plugin.json for metadata-only discovery. */
 export const OPENCLAW_CONFIG_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -28,14 +44,50 @@ export const OPENCLAW_CONFIG_SCHEMA = {
     requestTimeoutMs: { type: "integer", minimum: 1000, maximum: 120000 },
     backgroundTimeoutMs: { type: "integer", minimum: 1000, maximum: 3600000 },
     shutdownTimeoutMs: { type: "integer", minimum: 100, maximum: 60000 },
-    autoCapture: { type: "boolean" },
+    autoMemoryEnabled: { type: "boolean" },
+    autoMemoryInterval: { type: "integer", minimum: 1, maximum: 1000 },
+    autoDreamEnabled: { type: "boolean" },
+    dreamCron: { type: "string" },
+    dreamHint: { type: "string" },
+    rootAgentsOnly: { type: "boolean" },
+    language: { type: "string", enum: ["en", "zh"] },
     autoRecall: { type: "boolean" },
-    recallLimit: { type: "integer", minimum: 1, maximum: 50 },
+    searchLimit: { type: "integer", minimum: 1, maximum: 50 },
     recallMinScore: { type: "number", minimum: 0 },
+    timezone: { type: "string" },
   },
 } as const;
 
-/** Resolve and validate OpenClaw's host-specific ReMe configuration. */
+/** Labels shared by the runtime schema and the static OpenClaw manifest. */
+export const OPENCLAW_CONFIG_UI_HINTS = {
+  endpoint: {
+    label: "ReMe endpoint",
+    placeholder: "http://127.0.0.1:2333",
+  },
+  autoMemoryEnabled: { label: "Automatic memory capture" },
+  autoMemoryInterval: {
+    label: "Capture batch size",
+    advanced: true,
+  },
+  autoDreamEnabled: { label: "Daily memory consolidation" },
+  dreamCron: {
+    label: "Auto Dream schedule",
+    placeholder: "0 23 * * *",
+    advanced: true,
+  },
+  dreamHint: { label: "Auto Dream hint", advanced: true },
+  timezone: {
+    label: "Workspace timezone",
+    placeholder: "Asia/Shanghai",
+  },
+  rootAgentsOnly: { label: "Root agents only", advanced: true },
+  language: { label: "Memory guidance language" },
+  autoRecall: { label: "Automatic recall" },
+  searchLimit: { label: "Search result limit", advanced: true },
+  recallMinScore: { label: "Minimum recall score", advanced: true },
+} as const;
+
+/** Resolve strict host configuration without accepting superseded option names. */
 export function resolveOpenClawConfig(
   input: Record<string, unknown> = {},
   env: Record<string, string | undefined> = process.env,
@@ -52,10 +104,12 @@ export function resolveOpenClawConfig(
     env.REME_URL ||
     `http://${env.REME_HOST || "127.0.0.1"}:${env.REME_PORT || "2333"}`;
   const normalizedEndpoint = stripTrailingSlashes(endpoint);
-  const url = new URL(normalizedEndpoint);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
-  }
+  assertEndpoint(normalizedEndpoint);
+  const timezone = stringValue(input.timezone) || DEFAULT_CONFIG.timezone;
+  if (!validTimezone(timezone))
+    throw new TypeError(`Invalid ReMe timezone: ${String(timezone)}`);
+  const dreamCron = stringValue(input.dreamCron) || DEFAULT_CONFIG.dreamCron;
+  nextDailyRun(dreamCron, timezone);
   return {
     endpoint: normalizedEndpoint,
     requestTimeoutMs: integer(
@@ -76,20 +130,51 @@ export function resolveOpenClawConfig(
       60000,
       DEFAULT_CONFIG.shutdownTimeoutMs,
     ),
-    autoCapture:
-      input.autoCapture === undefined
-        ? DEFAULT_CONFIG.autoCapture
-        : input.autoCapture !== false,
-    autoRecall:
-      input.autoRecall === undefined
-        ? DEFAULT_CONFIG.autoRecall
-        : input.autoRecall !== false,
-    recallLimit: integer(input.recallLimit, 1, 50, DEFAULT_CONFIG.recallLimit),
+    autoMemoryEnabled: bool(
+      input.autoMemoryEnabled,
+      DEFAULT_CONFIG.autoMemoryEnabled,
+    ),
+    autoMemoryInterval: integer(
+      input.autoMemoryInterval,
+      1,
+      1000,
+      DEFAULT_CONFIG.autoMemoryInterval,
+    ),
+    autoDreamEnabled: bool(
+      input.autoDreamEnabled,
+      DEFAULT_CONFIG.autoDreamEnabled,
+    ),
+    dreamCron,
+    dreamHint:
+      typeof input.dreamHint === "string"
+        ? input.dreamHint.trim()
+        : DEFAULT_CONFIG.dreamHint,
+    rootAgentsOnly: bool(input.rootAgentsOnly, DEFAULT_CONFIG.rootAgentsOnly),
+    language: input.language === "zh" ? "zh" : "en",
+    autoRecall: bool(input.autoRecall, DEFAULT_CONFIG.autoRecall),
+    searchLimit: integer(input.searchLimit, 1, 50, DEFAULT_CONFIG.searchLimit),
     recallMinScore: Math.max(
       0,
       finite(input.recallMinScore, DEFAULT_CONFIG.recallMinScore),
     ),
+    timezone,
   };
+}
+
+function assertEndpoint(value: string): void {
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
+  }
+  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+    throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
+  }
+}
+
+function bool(value: unknown, fallback: boolean): boolean {
+  return value === undefined ? fallback : value !== false;
 }
 
 function integer(

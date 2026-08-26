@@ -70,29 +70,44 @@ remain browser-reachable and allow the DSH origin.
 
 ## OpenClaw
 
-OpenClaw `2026.3.12` or later can install the same package:
+OpenClaw `2026.7.1` or later can install the same package. The current SDK and
+OpenClaw Gateway require Node.js `22.22.3+`, `24.15.0+`, or `25.9.0+` on their
+respective major-version lines:
 
 ```bash
 openclaw plugins install @agentscope-ai/reme
 ```
 
-Select `reme` for `plugins.slots.memory` when another memory plugin is active. The adapter registers `reme_search`,
-recalls memory before user-triggered agent runs, and sends the last completed user/assistant pair to `auto_memory` in a
-serialized background queue. Recall is wrapped in `<reme-context>` and explicitly marked as untrusted historical data.
-Cron and other non-user triggers do not recall or capture conversational memory.
+Select `reme` for `plugins.slots.memory` when another memory plugin is active. The adapter uses OpenClaw's current
+`before_prompt_build` hook, registers the `reme_search` action, injects durable memory guidance, and recalls relevant
+memory before conversational root-agent runs. Completed user/assistant pairs are grouped into per-session,
+date-consistent batches for `auto_memory`; failed batches are retained for retry and pending work is flushed within a
+bounded Gateway shutdown budget. One plugin-owned daily schedule runs `auto_dream`. Recall is wrapped in
+`<reme-context>` and marked as untrusted historical data. Cron, heartbeat, memory, overflow, and subagent runs do not
+recall or capture conversational memory by default.
 
 OpenClaw plugin configuration accepts:
 
-| Option                | Default                 | Meaning                                |
-| --------------------- | ----------------------- | -------------------------------------- |
-| `endpoint`            | `http://127.0.0.1:2333` | ReMe HTTP service URL                  |
-| `autoRecall`          | `true`                  | Recall before user-triggered runs      |
-| `autoCapture`         | `true`                  | Capture successful user-triggered runs |
-| `recallLimit`         | `5`                     | Maximum search results                 |
-| `recallMinScore`      | `0`                     | Minimum search score                   |
-| `requestTimeoutMs`    | `5000`                  | Recall and explicit search timeout     |
-| `backgroundTimeoutMs` | `3600000`               | Automatic-memory timeout               |
-| `shutdownTimeoutMs`   | `5000`                  | Background writer drain budget         |
+| Option                | Default                 | Meaning                                       |
+| --------------------- | ----------------------- | --------------------------------------------- |
+| `endpoint`            | `http://127.0.0.1:2333` | ReMe HTTP service URL                         |
+| `language`            | `en`                    | Memory guidance language: `en` or `zh`        |
+| `autoRecall`          | `true`                  | Recall before conversational root-agent runs  |
+| `searchLimit`         | `5`                     | Maximum search results                        |
+| `recallMinScore`      | `0`                     | Minimum search score                          |
+| `autoMemoryEnabled`   | `true`                  | Capture completed conversational turns        |
+| `autoMemoryInterval`  | `5`                     | Submit after this many completed turns        |
+| `autoDreamEnabled`    | `true`                  | Enable daily memory consolidation             |
+| `dreamCron`           | `0 23 * * *`            | Daily schedule in the workspace timezone      |
+| `dreamHint`           | empty                   | Optional guidance sent to `auto_dream`        |
+| `rootAgentsOnly`      | `true`                  | Exclude subagents from guidance and capture   |
+| `timezone`            | `Asia/Shanghai`         | IANA timezone used for batches and scheduling |
+| `requestTimeoutMs`    | `10000`                 | Recall and explicit search timeout            |
+| `backgroundTimeoutMs` | `3600000`               | Automatic-memory and dream timeout            |
+| `shutdownTimeoutMs`   | `5000`                  | Best-effort shutdown drain budget             |
+
+OpenClaw's conversation-access and prompt-injection permissions remain host settings; enable them for ReMe when your
+OpenClaw policy requires explicit grants. The adapter does not modify Gateway configuration.
 
 ## Library entry
 

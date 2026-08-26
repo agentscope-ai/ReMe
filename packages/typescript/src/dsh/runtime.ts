@@ -1,5 +1,5 @@
-import { captureMessage, messagesDay, remeSessionId } from "./messages.js";
-import { nextDailyRun } from "./scheduler.js";
+import { messagesDay, nextDailyRun } from "../core/scheduling.js";
+import { captureMessage, remeSessionId } from "./messages.js";
 import type { LoggerLike, ReMeClientLike, ReMeMessage } from "../core/types.js";
 import type { DshSession, ReMeConfig, SessionEvent } from "./types.js";
 import type { ReMeRuntimeSnapshot, ReMeRuntimeTask } from "./runtime-status.js";

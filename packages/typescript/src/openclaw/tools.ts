@@ -1,14 +1,14 @@
-import { Type } from "@sinclair/typebox";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk/plugin-entry";
+import { Type } from "typebox";
 
 import type { ReMeClientLike } from "../core/types.js";
 import type { OpenClawReMeConfig } from "./config.js";
-import type { OpenClawPluginApi } from "./host.js";
 
-/** Register OpenClaw's explicit ReMe search tool. */
+/** Register the explicit search action advertised by the plugin manifest. */
 export function registerOpenClawTools(
   api: Pick<OpenClawPluginApi, "registerTool">,
   client: Pick<ReMeClientLike, "search">,
-  config: Pick<OpenClawReMeConfig, "recallLimit" | "recallMinScore">,
+  config: Pick<OpenClawReMeConfig, "searchLimit" | "recallMinScore">,
 ): void {
   api.registerTool(
     {
@@ -28,30 +28,29 @@ export function registerOpenClawTools(
           min_score?: number;
         };
         const query = String(input.query || "").trim();
-        if (!query)
-          return toolResult("Error: query cannot be empty.", { ok: false });
+        if (!query) return toolResult("Error: query cannot be empty.", false);
         const result = await client.search(query, {
-          limit: clamp(input.limit, 1, 50, config.recallLimit),
+          limit: clamp(input.limit, 1, 50, config.searchLimit),
           minScore: minimumScore(input.min_score, config.recallMinScore),
         });
         if (!result.ok)
           return toolResult(
             `ReMe search failed: ${result.error || "unknown error"}`,
-            { ok: false },
+            false,
           );
         const answer =
           typeof result.answer === "string"
             ? result.answer.trim()
             : JSON.stringify(result.answer, null, 2);
-        return toolResult(answer || "No relevant memory found.", { ok: true });
+        return toolResult(answer || "No relevant memory found.", true);
       },
     },
     { name: "reme_search" },
   );
 }
 
-function toolResult(text: string, details: Record<string, unknown>) {
-  return { content: [{ type: "text" as const, text }], details };
+function toolResult(text: string, ok: boolean) {
+  return { content: [{ type: "text" as const, text }], details: { ok, text } };
 }
 
 function clamp(
