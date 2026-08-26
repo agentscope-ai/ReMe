@@ -13,10 +13,6 @@ import httpx
 import pytest
 import yaml
 
-from reme.config import expand_env_vars
-from reme.components import ApplicationContext
-from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.components.runtime_context import RuntimeContext
 from reme_daily_paper import (
     AnalyzedPaper,
     DailyPaperMarkdownOutput,
@@ -40,9 +36,12 @@ from reme_daily_paper.base import (
 )
 from reme_daily_paper.huggingface_papers import paper_ids_from_html, paper_info_from_payload
 from reme_daily_paper.rank import build_candidate_pool, rrf_score
+from reme.components import ApplicationContext
+from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
+from reme.components.runtime_context import RuntimeContext
+from reme.config import expand_env_vars
 from reme.steps.cookbook.dingtalk import DingTalkMarkdownSendStep
 from reme.steps.cookbook.dingtalk import send as dingtalk_send
-
 
 PLUGIN_MANIFEST = yaml.safe_load(
     (Path(__file__).parents[1] / "src" / "reme_daily_paper" / "plugin.yaml").read_text(encoding="utf-8"),
