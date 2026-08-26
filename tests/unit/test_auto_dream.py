@@ -17,6 +17,7 @@ from reme.components.runtime_context import RuntimeContext
 from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
+from reme.steps.evolve.dream.integrate import DreamIntegrateStep, _snapshot_digest
 from reme.steps.evolve.proactive.proactive import ProactiveStep
 from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import load_yaml_topics, parse_structured_reply, recent_dates, scan_day_files
