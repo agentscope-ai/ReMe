@@ -56,7 +56,7 @@ import { ReMeClient, formatReMeContext } from "@agentscope-ai/reme";
 ## 开发与发布检查
 
 ```bash
-cd packages/typescript
+cd typescript
 npm ci
 npm run format:check
 npm run lint

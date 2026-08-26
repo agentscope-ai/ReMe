@@ -21,7 +21,7 @@ integrations/
   codex/reme/
   claude_code/reme/       # 已有，增量升级
   hermes_agent/           # 已有，增量升级
-packages/typescript/      # @agentscope-ai/reme：共享客户端 + DSH/OpenClaw 适配器
+typescript/               # @agentscope-ai/reme：共享客户端 + DSH/OpenClaw 适配器
 skills/
   reme_memory/            # 通用、无 hook 时的降级入口
 ```
@@ -301,7 +301,7 @@ integrations/codex/reme/
 当前目录：
 
 ```text
-packages/typescript/
+typescript/
   package.json
   dsh/cordis.patch.yml
   src/core/
@@ -336,7 +336,7 @@ dsh plugin --profile web add @agentscope-ai/reme
 当前 OpenClaw 入口与 DSH 入口从同一包发布：
 
 ```text
-packages/typescript/
+typescript/
   openclaw.plugin.json
   package.json
   src/openclaw/index.ts

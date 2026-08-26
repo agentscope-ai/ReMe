@@ -32,10 +32,7 @@ build/
 dist/
 node_modules/
 *.egg-info/
-
-# Website build integration source (not generated output)
-!website/build/
-!website/build/**
+typescript/reports/
 
 # Logs / temporary files
 *.log

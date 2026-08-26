@@ -1,5 +1,5 @@
 <p align="center">
- <img src="docs/figure/reme_logo.png" alt="ReMe Logo" width="50%">
+ <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/docs/figure/reme_logo.png" alt="ReMe Logo" width="50%">
 </p>
 
 <p align="center">
@@ -78,8 +78,8 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
+pip install -e reme_studio -e ".[core]"
+cd reme_studio
 npm ci
 npm run build:static
 cd ..
@@ -179,8 +179,8 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 
 | Agent                      | 推荐接入方式                                                                                                                              | 接入后能力                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](packages/typescript/README_ZH.md#deepseek-harness)。 | 长期记忆指引、`reme_search` 工具，以及自动捕获已完成的主 Agent 对话。 |
-| **OpenClaw**               | 使用 `openclaw plugins install @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](packages/typescript/README_ZH.md#openclaw)。             | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
+| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](typescript/README_ZH.md#deepseek-harness)。 | 长期记忆指引、`reme_search` 工具，以及自动捕获已完成的主 Agent 对话。 |
+| **OpenClaw**               | 使用 `openclaw plugins install @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](typescript/README_ZH.md#openclaw)。             | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
 | **Claude Code**            | 启动 streamable HTTP MCP service，并安装 [ReMe 插件](integrations/claude_code/reme)。                                                     | MCP 召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。     |
 | **Hermes**                 | 启动 HTTP service，并安装 [ReMe provider](integrations/hermes_agent)。                                                                    | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |

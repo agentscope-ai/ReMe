@@ -57,7 +57,7 @@ const localizedTitles = {
 const productDocuments = [
   {
     slug: "studio",
-    source: "website",
+    source: "reme_studio",
     titles: { zh: "ReMe 工作台", en: "ReMe Studio" },
     descriptions: {
       zh: "浏览、编辑和搜索本地记忆，并探索记忆图谱。",
@@ -230,8 +230,11 @@ for (const product of productDocuments) {
     await cp(path.join(repoDir, product.source, filename), path.join(outputDir, product.source, filename));
   }
 }
-await mkdir(path.join(outputDir, "website", "public"), { recursive: true });
-await cp(path.join(repoDir, "website", "public", "og.jpg"), path.join(outputDir, "website", "public", "og.jpg"));
+await mkdir(path.join(outputDir, "reme_studio", "public"), { recursive: true });
+await cp(
+  path.join(repoDir, "reme_studio", "public", "og.jpg"),
+  path.join(outputDir, "reme_studio", "public", "og.jpg"),
+);
 await mkdir(path.join(outputDir, "skills", "reme_memory"), { recursive: true });
 await cp(
   path.join(repoDir, "skills", "reme_memory", "SKILL.md"),

@@ -21,26 +21,8 @@ jobs:
       expected_version: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
       upload_artifacts: true
 
-  publish-studio:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download ReMe Studio distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: reme-studio-distributions
-          path: dist/studio
-
-      - name: Publish ReMe Studio
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist/studio
-          skip-existing: true
-
   publish-reme:
-    needs: publish-studio
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Download ReMe distributions

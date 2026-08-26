@@ -4,6 +4,7 @@
 dist/
 dist-static/
 out/
+src/reme_studio/static/
 
 # Dependencies
 node_modules/

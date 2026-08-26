@@ -2,7 +2,7 @@
 
 This directory contains the standalone Vite documentation site published at <https://reme.agentscope.io>. The
 GitHub Pages fallback is <https://agentscope-ai.github.io/ReMe/>. It does not depend on the ReMe Studio application in
-`website/`.
+`reme_studio/`.
 
 ## Requirements
 
@@ -50,7 +50,7 @@ The build script reads the canonical repository files directly. Do not edit gene
 - `README.md` and `README_ZH.md`: project introductions
 - `docs/en/` and `docs/zh/`: English and Chinese guides
 - `docs/figure/`: documentation images
-- `website/README.md` and `website/README_ZH.md`: ReMe Studio guide
+- `reme_studio/README.md` and `reme_studio/README_ZH.md`: ReMe Studio guide
 - `plugins/*/README*.md`: plugin and research workflow guides
 - `benchmark/{beam,longmemeval,pibench,toolmemory}/README*.md`: benchmark guides and results
 - `skills/reme_memory/SKILL.md`: ReMe Memory skill guide

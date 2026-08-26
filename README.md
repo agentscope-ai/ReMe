@@ -1,5 +1,5 @@
 <p align="center">
- <img src="docs/figure/reme_logo.png" alt="ReMe Logo" width="50%">
+ <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/docs/figure/reme_logo.png" alt="ReMe Logo" width="50%">
 </p>
 
 <p align="center">
@@ -79,8 +79,8 @@ Install from source:
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
+pip install -e reme_studio -e ".[core]"
+cd reme_studio
 npm ci
 npm run build:static
 cd ..
@@ -181,8 +181,8 @@ lifecycle according to the capabilities of each runtime.
 
 | Agent                          | Recommended path                                                                                                                         | Available after integration                                                                             |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **DeepSeek Harness**           | Install [`@agentscope-ai/reme`](packages/typescript/README.md#deepseek-harness) with `dsh plugin --profile web add @agentscope-ai/reme`. | Long-term memory guidance, the `reme_search` tool, and automatic capture of completed main-agent turns. |
-| **OpenClaw**                   | Install [`@agentscope-ai/reme`](packages/typescript/README.md#openclaw) with `openclaw plugins install @agentscope-ai/reme`.             | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
+| **DeepSeek Harness**           | Install [`@agentscope-ai/reme`](typescript/README.md#deepseek-harness) with `dsh plugin --profile web add @agentscope-ai/reme`. | Long-term memory guidance, the `reme_search` tool, and automatic capture of completed main-agent turns. |
+| **OpenClaw**                   | Install [`@agentscope-ai/reme`](typescript/README.md#openclaw) with `openclaw plugins install @agentscope-ai/reme`.             | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
 | **QwenPaw**                    | Embed ReMe in-process through its Python API.                                                                                            | Reuse the host lifecycle and model config while keeping memory local and file-based.                    |
 | **Claude Code**                | Start the streamable HTTP MCP service and install [the ReMe plugin](integrations/claude_code/reme).                                      | MCP recall tools, the `reme-memory` skill, and a Stop hook that records sessions automatically.         |
 | **Hermes**                     | Start the HTTP service and install [the ReMe provider](integrations/hermes_agent).                                                       | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |

@@ -261,6 +261,6 @@ curl -s http://127.0.0.1:2333/daily_paper \
 单元测试会 mock Hugging Face、arXiv、AgentScope 和 DingTalk 边界，不访问真实服务：
 
 ```bash
-python -m pip install -e packages/reme_ai_studio -e ".[dev,core]" -e plugins/daily_paper
+python -m pip install -e reme_studio -e ".[dev,core]" -e plugins/daily_paper
 python -m pytest plugins/daily_paper -v
 ```

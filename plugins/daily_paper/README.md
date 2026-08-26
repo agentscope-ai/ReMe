@@ -275,6 +275,6 @@ curl -s http://127.0.0.1:2333/daily_paper \
 The focused unit tests mock Hugging Face, arXiv, AgentScope, and DingTalk boundaries and do not call real services:
 
 ```bash
-python -m pip install -e packages/reme_ai_studio -e ".[dev,core]" -e plugins/daily_paper
+python -m pip install -e reme_studio -e ".[dev,core]" -e plugins/daily_paper
 python -m pytest plugins/daily_paper -v
 ```

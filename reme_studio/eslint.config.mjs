@@ -8,7 +8,14 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 const eslintConfig = defineConfig([
-  globalIgnores([".next/**", "dist/**", "out/**", "build/**", "next-env.d.ts"]),
+  globalIgnores([
+    ".next/**",
+    "dist/**",
+    "out/**",
+    "build/**",
+    "src/reme_studio/static/**",
+    "next-env.d.ts",
+  ]),
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   react.configs.flat.recommended,

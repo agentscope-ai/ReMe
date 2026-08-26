@@ -7,14 +7,10 @@ on:
       - '.github/workflows/ci-packages.yml'
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
-      - 'packages/reme_ai_studio/**'
       - 'pyproject.toml'
       - 'reme/__init__.py'
       - 'reme/utils/web_static.py'
       - 'scripts/bump_version.py'
-      - 'scripts/package_studio.py'
-      - 'tests/unit/test_package_versions.py'
-      - 'website/**'
       - 'LICENSE'
   pull_request:
     branches: [main, master, dev, develop]
@@ -22,14 +18,10 @@ on:
       - '.github/workflows/ci-packages.yml'
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
-      - 'packages/reme_ai_studio/**'
       - 'pyproject.toml'
       - 'reme/__init__.py'
       - 'reme/utils/web_static.py'
       - 'scripts/bump_version.py'
-      - 'scripts/package_studio.py'
-      - 'tests/unit/test_package_versions.py'
-      - 'website/**'
       - 'LICENSE'
   workflow_dispatch:
 

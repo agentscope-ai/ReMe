@@ -1,11 +1,11 @@
 # ReMe Studio
 
-[English](./README.md) | 简体中文
+[English](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) | 简体中文
 
 ReMe Studio 是 ReMe 的本地 Web 工作区。你可以在这里浏览和编辑自己拥有的工作区文件、探索记忆之间的联系，并与 ReMe Agent
 对话，而无需将持久记忆迁移到独立的应用数据库中。搜索索引、图谱和其他派生元数据均可根据源文件重建。
 
-![ReMe Studio 工作区](./public/og.jpg)
+![ReMe Studio 工作区](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/public/og.jpg)
 
 ## 安装
 
@@ -17,6 +17,14 @@ pip install "reme-ai[core]"
 
 如果只需要 Studio，不需要其他可选集成，可以使用 `pip install "reme-ai[web]"`。基础 `reme-ai` 包以无界面模式分发，
 不包含前端资源。
+
+Node.js 应用也可以安装同一份预构建静态工作区：
+
+```bash
+npm install @agentscope-ai/reme_studio
+```
+
+静态入口安装在 `@agentscope-ai/reme_studio/dist-static/index.html`。
 
 ## 功能
 
@@ -46,7 +54,7 @@ ReMe 的安装和后端配置请参阅[仓库中文 README](../README_ZH.md)。
 reme start
 
 # 终端 2
-cd website
+cd reme_studio
 npm install
 npm run dev
 ```
@@ -62,7 +70,7 @@ NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
 ReMe 可以通过提供 HTTP API 的同一个 FastAPI 进程托管 Studio。构建静态版本并重启 ReMe：
 
 ```bash
-cd website
+cd reme_studio
 npm ci
 npm run build:static
 cd ..

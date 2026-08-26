@@ -15,8 +15,8 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
+pip install -e reme_studio -e ".[core]"
+cd reme_studio
 npm ci
 npm run build:static
 cd ..

@@ -1,6 +1,6 @@
 [project]
-name = "reme-ai-studio"
-version = "0.4.1.8"
+name = "reme_studio"
+version = "0.1.1"
 description = "Optional ReMe Studio static frontend."
 readme = "README.md"
 license = "Apache-2.0"
@@ -8,17 +8,17 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 
 [project.urls]
-Homepage = "https://github.com/agentscope-ai/ReMe/tree/main/website"
+Homepage = "https://github.com/agentscope-ai/ReMe/tree/main/reme_studio"
 Documentation = "https://reme.agentscope.io"
 Repository = "https://github.com/agentscope-ai/ReMe"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
-packages = ["reme_ai_studio"]
+packages = ["reme_studio"]
 include-package-data = false
 
 [tool.setuptools.package-data]
-"reme_ai_studio" = ["static/**"]
+"reme_studio" = ["static/**"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

@@ -6,13 +6,13 @@ on:
     paths:
       - '.github/workflows/ci-typescript.yml'
       - '.github/workflows/release-typescript.yml'
-      - 'packages/typescript/**'
+      - 'typescript/**'
   pull_request:
     branches: [main, master, dev, develop]
     paths:
       - '.github/workflows/ci-typescript.yml'
       - '.github/workflows/release-typescript.yml'
-      - 'packages/typescript/**'
+      - 'typescript/**'
   workflow_dispatch:
 
 concurrency:
@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: packages/typescript
+        working-directory: typescript
 
     steps:
       - uses: actions/checkout@v6
@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: '22.22.3'
           cache: npm
-          cache-dependency-path: packages/typescript/package-lock.json
+          cache-dependency-path: typescript/package-lock.json
 
       - run: npm ci
       - run: npm run format:check

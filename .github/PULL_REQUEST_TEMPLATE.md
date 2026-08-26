@@ -21,7 +21,7 @@
 - [ ] Focused tests pass
 - [ ] Unit tests pass, or omitted tests are explained below
 - [ ] `pre-commit run --all-files` passes, or omitted checks are explained below
-- [ ] Frontend checks were run when `website/` changed
+- [ ] Frontend checks were run when `reme_studio/` changed
 
 ## Checklist
 

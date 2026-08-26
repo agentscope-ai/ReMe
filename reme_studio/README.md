@@ -1,12 +1,12 @@
 # ReMe Studio
 
-English | [简体中文](./README_ZH.md)
+English | [简体中文](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)
 
 ReMe Studio is the local web workspace for ReMe. It lets you browse and edit user-owned workspace files, explore memory
 links, and chat with the ReMe Agent without moving durable memory into a separate application database. Search indexes,
 graphs, and other derived metadata remain rebuildable from the source files.
 
-![ReMe Studio workspace](./public/og.jpg)
+![ReMe Studio workspace](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/public/og.jpg)
 
 ## Installation
 
@@ -18,6 +18,14 @@ pip install "reme-ai[core]"
 
 For Studio without the other optional integrations, use `pip install "reme-ai[web]"`. The base `reme-ai` package is
 headless and does not include the frontend assets.
+
+The same prebuilt static workspace is available for Node.js applications:
+
+```bash
+npm install @agentscope-ai/reme_studio
+```
+
+Its static entry point is installed at `@agentscope-ai/reme_studio/dist-static/index.html`.
 
 ## Features
 
@@ -50,7 +58,7 @@ Start ReMe from the repository root, then run the frontend in another terminal:
 reme start
 
 # Terminal 2
-cd website
+cd reme_studio
 npm install
 npm run dev
 ```
@@ -67,7 +75,7 @@ NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
 ReMe can serve Studio from the same FastAPI process as its HTTP API. Build the static variant and restart ReMe:
 
 ```bash
-cd website
+cd reme_studio
 npm ci
 npm run build:static
 cd ..

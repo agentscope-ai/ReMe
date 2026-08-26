@@ -1,6 +1,6 @@
 {
   "name": "@agentscope-ai/reme",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ReMe client and memory integrations for TypeScript agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -139,7 +139,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/agentscope-ai/ReMe.git",
-    "directory": "packages/typescript"
+    "directory": "typescript"
   },
   "keywords": [
     "reme",

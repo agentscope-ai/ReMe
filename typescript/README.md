@@ -122,7 +122,7 @@ Host code is available only through `@agentscope-ai/reme/dsh` and `@agentscope-a
 ## Development
 
 ```bash
-cd packages/typescript
+cd typescript
 npm ci
 npm run format:check
 npm run lint
