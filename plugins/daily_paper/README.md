@@ -1,6 +1,6 @@
 # Daily Paper Plugin
 
-[中文](README_ZH.md)
+[中文](https://github.com/agentscope-ai/ReMe/blob/main/plugins/daily_paper/README_ZH.md)
 
 Daily Paper selects three papers from the Hugging Face Papers weekly and monthly rankings, downloads their arXiv PDFs,
 and produces detailed Chinese reading notes plus a roughly five-minute Chinese brief. This directory is an independent

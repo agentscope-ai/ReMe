@@ -30,6 +30,7 @@ from reme_daily_paper import arxiv as arxiv_utils
 from reme_daily_paper import huggingface_papers as hf_utils
 from reme_daily_paper.base import (
     normalize_chinese_title,
+    now,
     replace_surrogates,
     write_atomic,
     write_markdown,
@@ -93,6 +94,12 @@ def test_daily_paper_replaces_surrogates_in_text_and_titles():
     """Invalid surrogate code points become visible replacement characters."""
     assert replace_surrogates("before\ud800middle\udfffafter") == "before\ufffdmiddle\ufffdafter"
     assert normalize_chinese_title("论文\ud800标题", "fallback") == "论文\ufffd标题"
+
+
+@pytest.mark.parametrize("timezone", ["/etc/localtime", "../UTC", "invalid\x00timezone"])
+def test_daily_paper_invalid_timezone_falls_back_to_local_time(timezone: str):
+    """Invalid IANA timezone keys retain the workflow's local-time fallback."""
+    assert now(timezone).tzinfo is None
 
 
 @pytest.mark.asyncio

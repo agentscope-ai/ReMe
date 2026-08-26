@@ -83,7 +83,7 @@ def now(timezone: str | None = None) -> dt.datetime:
         return dt.datetime.now()
     try:
         return dt.datetime.now(zoneinfo.ZoneInfo(timezone))
-    except (KeyError, zoneinfo.ZoneInfoNotFoundError):
+    except (KeyError, ValueError, zoneinfo.ZoneInfoNotFoundError):
         return dt.datetime.now()
 
 
