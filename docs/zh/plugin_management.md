@@ -15,7 +15,7 @@ plugins: [auto-fin]             为一个 Application 启用已安装插件
 典型的插件使用流程分为三个阶段：
 
 1. 安装 ReMe 和插件 distribution。
-2. 按照 [ReMe 环境变量说明](../../README_ZH.md#环境变量)配置插件运行所需的环境变量。
+2. 按照 [ReMe 可选模型配置说明](../../README_ZH.md#可选模型配置)配置插件运行所需的环境变量。
 3. 启动 Application 时显式启用插件，例如 `reme start plugins='["auto-fin"]'`。
 
 ## 查看已安装插件

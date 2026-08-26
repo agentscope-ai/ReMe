@@ -7,4 +7,5 @@ plugin API, hooks, MCP configuration, or client interface, but it does not exten
 The shared TypeScript client and the DeepSeek Harness and OpenClaw adapters live in
 [`../typescript`](../typescript/README.md).
 
-Installable extensions of ReMe itself belong in [`../plugins`](../plugins/README.md).
+Installable extensions of ReMe itself include [Auto Fin](../plugins/auto-fin/README.md) and
+[Daily Paper](../plugins/daily_paper/README.md).

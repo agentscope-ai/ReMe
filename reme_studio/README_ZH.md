@@ -85,10 +85,21 @@ reme start
 
 ## 配置
 
-工作区会隐藏点文件和点目录，并且默认只显示 Markdown 和文本文件。可以在 `.env.local` 中通过逗号分隔的列表配置允许显示的扩展名：
+如需持久保存本地覆盖，可以将 `.env.example` 复制为 `.env.local`。vinext/Sites 构建读取
+`NEXT_PUBLIC_*`，FastAPI/static 构建读取对应的 `VITE_*` 变量：
+
+| 配置项                                  | 构建类型     | 作用                                              |
+| --------------------------------------- | ------------ | ------------------------------------------------- |
+| `NEXT_PUBLIC_REME_API_URL`              | vinext/Sites | ReMe HTTP 服务地址，默认 `http://127.0.0.1:2333`  |
+| `NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS` | vinext/Sites | 工作区允许显示的扩展名，使用逗号分隔              |
+| `VITE_REME_API_URL`                     | static       | ReMe HTTP 服务地址；由 FastAPI 同源托管时使用 `/` |
+| `VITE_REME_WORKSPACE_EXTENSIONS`        | static       | static 构建使用的工作区扩展名列表                 |
+
+工作区会隐藏点文件和点目录，并且默认只显示 Markdown 和文本文件。例如：
 
 ```bash
 NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
+VITE_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
 ```
 
 记忆图谱依赖 ReMe 构建的索引。在 Studio 设置中重建索引时，只会根据工作区文件重新生成派生数据，不会修改记忆源文件。

@@ -20,7 +20,7 @@ reme plugins install reme-auto-fin
 
 ### 2. 配置模型环境变量
 
-按照 ReMe README 的[环境变量说明](../../README_ZH.md#环境变量)配置 LLM 环境变量，也可以使用其他兼容的模型和服务商。
+按照 ReMe README 的[可选模型配置说明](../../README_ZH.md#可选模型配置)配置 LLM 环境变量，也可以使用其他兼容的模型和服务商。
 
 ### 3. 带插件启动 ReMe
 

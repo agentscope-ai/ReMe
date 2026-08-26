@@ -15,6 +15,12 @@ reme start workspace_dir=/absolute/path/to/workspace
 The default endpoint is `http://127.0.0.1:2333`. All entries support `REME_URL`, or `REME_HOST` plus `REME_PORT`.
 ReMe's HTTP service does not use API-key authentication.
 
+## Requirements
+
+- A running ReMe HTTP service with the jobs required by the selected adapter.
+- Node.js `22.22.3+`, `24.15.0+`, or `25.9.0+` on the corresponding supported major-version line.
+- DeepSeek Harness or OpenClaw only when using that host-specific entry; the root client has no host runtime dependency.
+
 ## DeepSeek Harness
 
 Install the package as a DSH profile bundle:
@@ -56,7 +62,9 @@ The test-only `dreamIntervalMs` value remains outside the user-settings section.
 | `autoMemoryInterval`  | `5`                     | Submit after this many completed turns        |
 | `autoDreamEnabled`    | `true`                  | Enable daily dream maintenance                |
 | `dreamCron`           | `0 23 * * *`            | Daily schedule in the workspace timezone      |
+| `dreamHint`           | empty                   | Optional guidance sent to `auto_dream`        |
 | `rootAgentsOnly`      | `true`                  | Exclude subagents from guidance and capture   |
+| `searchLimit`         | `5`                     | Maximum results returned by `reme_search`     |
 | `requestTimeoutMs`    | `10000`                 | Search request timeout                        |
 | `backgroundTimeoutMs` | `3600000`               | Automatic-memory and dream timeout            |
 | `shutdownTimeoutMs`   | `5000`                  | Best-effort shutdown drain budget             |
@@ -133,3 +141,5 @@ npm run test:package
 
 `npm pack` runs the TypeScript build and includes only `dist`, the DSH patch, the OpenClaw manifest, and the English and
 Chinese READMEs.
+
+Stable releases use npm's `latest` distribution tag; prereleases use `next`.

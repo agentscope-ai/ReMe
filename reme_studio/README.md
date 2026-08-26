@@ -91,11 +91,21 @@ The regular `npm run build` command remains the vinext/Sites deployment build;
 
 ## Configuration
 
-The workspace hides dotfiles and dot-directories. It displays only Markdown and text files by default. Configure the
-allowed extensions as a comma-separated list in `.env.local`:
+Copy `.env.example` to `.env.local` when persistent local overrides are useful. The vinext/Sites build reads
+`NEXT_PUBLIC_*`; the FastAPI/static build reads the matching `VITE_*` names:
+
+| Setting                                 | Build        | Purpose                                                        |
+| --------------------------------------- | ------------ | -------------------------------------------------------------- |
+| `NEXT_PUBLIC_REME_API_URL`              | vinext/Sites | ReMe HTTP service URL; defaults to `http://127.0.0.1:2333`     |
+| `NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS` | vinext/Sites | Comma-separated file extensions visible in the workspace       |
+| `VITE_REME_API_URL`                     | static       | ReMe HTTP service URL; use `/` for same-origin FastAPI hosting |
+| `VITE_REME_WORKSPACE_EXTENSIONS`        | static       | Static-build counterpart of the workspace extension list       |
+
+The workspace hides dotfiles and dot-directories. It displays Markdown and text files by default. For example:
 
 ```bash
 NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
+VITE_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
 ```
 
 The memory graph requires an index built by ReMe. Rebuilding the index from the Studio settings regenerates derived data

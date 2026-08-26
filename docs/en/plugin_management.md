@@ -17,7 +17,7 @@ A typical plugin workflow has three stages:
 
 1. Install ReMe and the plugin distribution.
 2. Configure the plugin's runtime environment as described in the
-   [ReMe environment-variable guide](../../README.md#environment-variables).
+   [ReMe model-configuration guide](../../README.md#optional-model-configuration).
 3. Start an Application with the plugin explicitly enabled, for example
    `reme start plugins='["auto-fin"]'`.
 

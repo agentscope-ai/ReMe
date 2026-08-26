@@ -315,10 +315,12 @@ that best fits their runtime environment and share the same local memory workspa
 
 | Agent | Recommended integration | Capabilities after integration |
 |-------|-------------------------|--------------------------------|
+| **DeepSeek Harness** | Install [`@agentscope-ai/reme`](../../typescript/README.md#deepseek-harness) as a DSH profile bundle. | Long-term memory guidance, `reme_search`, automatic capture of completed main-agent turns, and scheduled Auto Dream. |
+| **OpenClaw** | Install [`@agentscope-ai/reme`](../../typescript/README.md#openclaw) as the native memory plugin. | Recall before conversational root-agent runs, explicit search, automatic turn capture, and scheduled Auto Dream. |
 | **QwenPaw** | Embed ReMe in-process through the Python API. | Reuse the host application's lifecycle and model configuration while keeping memories local and file-based. |
 | **Claude Code** | Start the streamable HTTP MCP Service and install [`integrations/claude_code/reme`](../../integrations/claude_code/reme). | MCP memory-recall tools, the `reme-memory` skill, and a Stop hook that automatically records sessions. |
 | **Hermes** | Start the HTTP Service and install [`integrations/hermes_agent`](../../integrations/hermes_agent). | Automatically recall relevant memories before model calls and invoke `auto_memory` asynchronously after each conversation turn. |
-| **OpenClaw, Codex, and other CLI-capable agents** | Copy or install [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md). | Search, read, and write memories through the CLI; automatic recording requires the host agent to integrate explicitly with the conversation lifecycle. |
+| **Codex and other CLI-capable agents** | Copy or install [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md). | Search, read, and write memories through the CLI; automatic recording requires the host agent to integrate explicitly with the conversation lifecycle. |
 
 For installation, configuration, and integration demos, see the [README](../../README.md).
 

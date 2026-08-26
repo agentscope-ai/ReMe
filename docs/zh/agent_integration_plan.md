@@ -1,7 +1,10 @@
 # ReMe 接入 Codex、DSH、OpenClaw、Claude Code 与 Hermes Agent 的方案
 
-> 状态：设计方案；统一 TypeScript 包及 DSH、OpenClaw 适配器已完成首版，统一服务端接入能力尚未实施
-> 调研基线：ReMe、OpenViking、DSH 与 OpenClaw 的本地检出版本，以及 2026-08-19 的 Codex 官方文档
+> 状态：历史设计与调研记录。统一 TypeScript 包及 DSH、OpenClaw 适配器已完成首版，尚未实现的内容仍是提案，
+> 不代表当前公开契约。当前安装、配置和行为以 [TypeScript 集成文档](../../typescript/README_ZH.md)、代码和测试为准。
+>
+> 调研基线：ReMe、OpenViking、DSH 与 OpenClaw 的本地检出版本，以及 2026-08-19 的 Codex 官方文档。
+> 文中引用的历史版本号和宿主接口仅用于解释当时的设计决策。
 
 ## 1. 结论
 

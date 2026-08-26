@@ -24,7 +24,8 @@ reme plugins install reme-auto-fin
 ### 2. Configure the model environment
 
 Configure the LLM environment variables as described in the
-[ReMe README](../../README.md#environment-variables). Other compatible models and providers can also be used.
+[ReMe model-configuration guide](../../README.md#optional-model-configuration). Other compatible models and providers
+can also be used.
 
 ### 3. Start ReMe with the plugin
 

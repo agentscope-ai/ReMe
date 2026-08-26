@@ -29,8 +29,8 @@
 
 ## ✨ 为什么选择 ReMe？
 
-🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、OpenClaw、Hermes 和
-Claude Code 等 Agent 可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
+🧠 ReMe 将对话和资料持续沉淀为可读、可编辑、可检索、相互链接的 Markdown 记忆。QwenPaw、DeepSeek Harness 等 Agent
+可以共享同一个 workspace，共同检索、维护和演化知识，而持久文件始终由用户掌控。
 
 - **Memory as File, File as Memory**：ReMe 使用带 frontmatter 和 wikilink 的普通 Markdown 保存持久记忆。用户和 Agent
   都可以使用熟悉的工具查看、编辑、移动、同步和备份；索引及生成的元数据均可重建。
@@ -47,8 +47,8 @@ Claude Code 等 Agent 可以共享同一个 workspace，共同检索、维护和
 
 ## 📰 最新动态
 
-- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，为 DeepSeek Harness
-  提供原生 ReMe 记忆集成。
+- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，提供统一 TypeScript HTTP
+  client，以及 DeepSeek Harness 和 OpenClaw 的原生 ReMe 记忆集成。
 - [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 基于 ReMe 的智能体工具使用
@@ -311,7 +311,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 ## 🧩 扩展与工作流
 
 插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。每日论文与 Auto Fin
-均已独立打包，源码 distribution 位于 [`plugins/`](plugins/README.md)。
+均已独立打包，源码 distribution 及说明分别见[每日论文](plugins/daily_paper/README_ZH.md)和
+[Auto Fin](plugins/auto-fin/README_ZH.md)。
 
 | 插件                                                       | 能力                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
@@ -333,8 +334,9 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Auto Dream](docs/zh/auto_dream.md) 与 [Auto Link](docs/zh/auto_link.md) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
 | [记忆检索](docs/zh/memory_search.md)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
 | [Proactive](docs/zh/proactive.md)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
-| [Agent 接入场景](docs/zh/reme_scene.md)                                  | 在 CLI/SKILL.md、HTTP、MCP 和嵌入式 Python 集成之间选择。              |
+| [应用场景](docs/zh/reme_scene.md)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](docs/zh/framework.md)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
+| [TypeScript 集成](typescript/README_ZH.md)                               | 配置统一 client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。        |
 | [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)      | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |
 
 ## 🛠️ 常用命令
@@ -354,9 +356,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 - **问题反馈、需求与帮助**：请先查看 [Open Issues](https://github.com/agentscope-ai/ReMe/issues)；如无相关讨论，可新建 Issue
   说明背景、目标行为和影响范围。
-- **代码贡献**：改动前建议阅读 [贡献指南](https://docs.agentscope.io/reme/latest/zh/contribution)。架构与扩展方式以源码、schema
-  和测试为准。
-- **文档贡献**：用户可见文档请提交到[统一文档仓库](https://github.com/agentscope-ai/docs)的 `reme/<version>/{en,zh}/` 目录。
+- **代码贡献**：改动前建议阅读仓库内的[贡献指南](docs/zh/contributing.md)。架构与扩展方式以源码、schema 和测试为准。
+- **文档贡献**：请直接更新本仓库 `docs/en/`、`docs/zh/` 或对应 package 目录中的规范源文件；文档站点会从这些文件生成。
 - **提交规范**：建议使用 Conventional Commits，例如 `feat(search): add link expansion option`、
   `docs(zh): update quick start`。
 - **提交前检查**：提交 PR 前请尽量运行 `pre-commit run --all-files` 和 `pytest`；如有依赖 LLM、embedding 或外部服务的测试无法运行，请在

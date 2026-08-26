@@ -10,6 +10,7 @@ on:
       - "README_ZH.md"
       - "reme_studio/README*.md"
       - "reme_studio/public/og.jpg"
+      - "typescript/README*.md"
       - "plugins/*/README*.md"
       - "benchmark/*/README*.md"
       - "skills/reme_memory/SKILL.md"

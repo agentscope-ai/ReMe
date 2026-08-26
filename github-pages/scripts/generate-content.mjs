@@ -56,6 +56,16 @@ const localizedTitles = {
 
 const productDocuments = [
   {
+    slug: "typescript",
+    source: "typescript",
+    titles: { zh: "TypeScript Agent 集成", en: "TypeScript Agent Integrations" },
+    descriptions: {
+      zh: "配置统一 HTTP client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。",
+      en: "Configure the shared HTTP client and native DeepSeek Harness and OpenClaw adapters.",
+    },
+    group: "integration",
+  },
+  {
     slug: "studio",
     source: "reme_studio",
     titles: { zh: "ReMe 工作台", en: "ReMe Studio" },
@@ -178,6 +188,15 @@ async function buildManifest() {
       description: "Core ideas, quick start, use cases, and community resources.",
       group: "overview",
       language: "en",
+    },
+    {
+      id: "zh-agent-integration-plan",
+      path: "docs/zh/agent_integration_plan.md",
+      sourcePath: "docs/zh/agent_integration_plan.md",
+      title: "Agent 集成设计与调研记录",
+      description: "Codex、DSH、OpenClaw、Claude Code 与 Hermes Agent 的历史设计和调研记录。",
+      group: "integration",
+      language: "zh",
     },
   ];
 
