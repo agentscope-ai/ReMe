@@ -329,6 +329,68 @@ def test_rebuild_links_idempotent(backend_cls):
     asyncio.run(run())
 
 
+def test_nx_rebuild_links_repair_survives_restart():
+    """A repaired NetworkX snapshot must not revert to stale serialized edges."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            graph = NxFileGraph()
+            await graph.start()
+            await graph.upsert_nodes(
+                [
+                    make_node("a.md", [("c.md", None)]),
+                    make_node("b.md"),
+                    make_node("c.md"),
+                ],
+            )
+            await graph.dump()
+
+            # Model an old/torn snapshot: the node payload says a -> b while
+            # the separately serialized NetworkX edge still says a -> c.
+            graph._graph.nodes["a.md"]["node"] = make_node("a.md", [("b.md", None)])
+            await graph.dump()
+            await graph.close()
+
+            repaired = NxFileGraph()
+            await repaired.start()
+            assert {link.target_path for link in await repaired.get_outlinks("a.md")} == {"c.md"}
+            await repaired.rebuild_links()
+            assert {link.target_path for link in await repaired.get_outlinks("a.md")} == {"b.md"}
+            await repaired.close()
+
+            reopened = NxFileGraph()
+            await reopened.start()
+            assert {link.target_path for link in await reopened.get_outlinks("a.md")} == {"b.md"}
+            await reopened.close()
+
+    asyncio.run(run())
+
+
+def test_local_load_merged_state_survives_restart():
+    """Loading a snapshot into a modified local graph must not suppress its later dump."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            seed = LocalFileGraph()
+            await seed.start()
+            await seed.upsert_nodes([make_node("a.md")])
+            await seed.close()
+
+            merged = LocalFileGraph()
+            await merged.start()
+            await merged.upsert_nodes([make_node("b.md")])
+            await merged.load()
+            assert {node.path for node in await merged.get_nodes()} == {"a.md", "b.md"}
+            await merged.close()
+
+            reopened = LocalFileGraph()
+            await reopened.start()
+            assert {node.path for node in await reopened.get_nodes()} == {"a.md", "b.md"}
+            await reopened.close()
+
+    asyncio.run(run())
+
+
 @pytest.mark.parametrize("backend_cls", BACKENDS)
 def test_persistence_roundtrip(backend_cls):
     """close() dumps; a fresh instance loads the same nodes from disk."""

@@ -666,6 +666,28 @@ def test_dump_load_roundtrip_preserves_state():
     run(go())
 
 
+def test_runtime_parameter_update_survives_restart():
+    """Persist k1/b updates made after loading an existing index."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = await create_bm25()
+            await seed.add_docs({"d1": "hello world"})
+            await seed.close()
+
+            changed = await create_bm25()
+            assert (changed.k1, changed.b) == (1.5, 0.75)
+            changed.k1 = 2.0
+            changed.b = 0.4
+            await changed.close()
+
+            reopened = await create_bm25()
+            assert (reopened.k1, reopened.b) == (2.0, 0.4)
+            await reopened.close()
+
+    run(go())
+
+
 def test_load_missing_file_keeps_empty_state():
     """Calling load() with no file on disk is a no-op."""
 

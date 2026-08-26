@@ -285,8 +285,8 @@ def test_keyword_only_upsert_removes_old_chunks_and_docs():
     run(go())
 
 
-def test_close_does_not_rewrite_keyword_index_and_graph_after_store_dump(monkeypatch):
-    """A store cascade leaves child components clean for their later close()."""
+def test_close_persists_each_component_once(monkeypatch):
+    """Store and owned dependency shutdown each persist their own state once."""
     bm25_writes = 0
     graph_writes = 0
     real_pickle_dump = bm25_index_module.pickle.dump
@@ -1433,7 +1433,7 @@ def test_faiss_rejects_stale_sidecar_after_partial_dump():
             # t2: simulate a crash between the two writes in dump(): only the
             # parent's JSONL write lands; the sidecar stays at the alpha
             # generation. (No close() -- the process is presumed dead.)
-            await LocalFileStore.dump(store_a)
+            await LocalFileStore._dump_owned_state(store_a)
 
             # t3: restart. The stale sidecar must be rejected by the digest.
             store_b = _new_faiss_store("t_faiss_stale_sidecar")

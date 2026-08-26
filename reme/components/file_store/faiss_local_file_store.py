@@ -496,10 +496,10 @@ class FaissLocalFileStore(LocalFileStore):
             self.faiss_idmap_path.unlink(missing_ok=True)
             return False
 
-    async def dump(self) -> None:
-        """Persist chunks JSONL via the parent, then write the FAISS sidecar atomically."""
+    async def _dump_owned_state(self) -> None:
+        """Persist chunks and the FAISS sidecar, excluding dependency snapshots."""
         async with self._faiss_dump_lock:
-            await super().dump()
+            await super()._dump_owned_state()
             if self._faiss_index is None or self.embedding_store is None:
                 return
             try:

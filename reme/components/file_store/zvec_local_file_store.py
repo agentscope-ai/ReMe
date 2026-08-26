@@ -319,9 +319,9 @@ class ZvecLocalFileStore(LocalFileStore):
             f"elapsed={time.monotonic() - started_at:.3f}s",
         )
 
-    async def dump(self) -> None:
-        """Persist chunks JSONL via the parent, then flush zvec and write the sidecar."""
-        await super().dump()
+    async def _dump_owned_state(self) -> None:
+        """Persist chunks and zvec state, excluding dependency snapshots."""
+        await super()._dump_owned_state()
         if self._collection is None or self.embedding_store is None:
             return
         try:

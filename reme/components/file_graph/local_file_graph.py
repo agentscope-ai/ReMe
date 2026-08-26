@@ -19,7 +19,6 @@ class LocalFileGraph(BaseFileGraph):
         self._inverse: dict[str, set[str]] = {}  # real target → sources
         self._pending: dict[str, set[str]] = {}  # virtual target → sources
         self._graph_file: Path = self.component_metadata_path / f"{self.name}.jsonl.zst"
-        self._needs_persist = True
 
     # -- Lifecycle ---------------------------------------------------------
 
@@ -36,17 +35,13 @@ class LocalFileGraph(BaseFileGraph):
                 if line.strip():
                     node = FileNode.model_validate_json(line)
                     self._nodes[node.path] = node
-            self._needs_persist = False
             self.logger.debug(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
 
     async def dump(self) -> None:
-        if not self._needs_persist:
-            return
         try:
             write_jsonl_zst(self._graph_file, (n.model_dump_json() for n in self._nodes.values()))
-            self._needs_persist = False
             self.logger.info(f"Saved {len(self._nodes)} nodes to {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self._graph_file}: {e}")
@@ -83,8 +78,6 @@ class LocalFileGraph(BaseFileGraph):
     # -- Node CRUD ---------------------------------------------------------
 
     async def upsert_nodes(self, nodes: list[FileNode]) -> None:
-        if nodes:
-            self._needs_persist = True
         for node in nodes:
             path = node.path
             old = self._nodes.get(path)
@@ -103,7 +96,6 @@ class LocalFileGraph(BaseFileGraph):
             node = self._nodes.pop(path, None)
             if node is None:
                 continue
-            self._needs_persist = True
             for target in self._targets(node):
                 self._remove_edge(path, target)
             demoted = self._inverse.pop(path, None)
@@ -127,7 +119,6 @@ class LocalFileGraph(BaseFileGraph):
         self._inverse.clear()
         self._pending.clear()
         self._graph_file.unlink(missing_ok=True)
-        self._needs_persist = False
 
     # -- Link access -------------------------------------------------------
 
