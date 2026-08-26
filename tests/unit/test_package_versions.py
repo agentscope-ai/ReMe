@@ -35,7 +35,9 @@ def test_studio_packages_have_independent_identity() -> None:
     assert studio_config["project"]["name"] == "reme_studio"
     assert npm_config["name"] == "@agentscope-ai/reme_studio"
     assert studio_config["project"]["version"] == npm_config["version"]
+    assert main_config["project"]["optional-dependencies"]["as"] == ["agentscope[model-ollama]==2.0.6"]
     assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
+    assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]

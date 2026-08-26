@@ -60,7 +60,7 @@ jobs:
           python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme/web/')
           python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme_studio/')
           python -m venv "${RUNNER_TEMP}/reme-package-smoke"
-          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}"
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]"
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c "import reme"
 

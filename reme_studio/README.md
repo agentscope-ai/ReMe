@@ -47,7 +47,7 @@ Its static entry point is installed at `@agentscope-ai/reme_studio/dist-static/i
 - A running ReMe HTTP service. Agent chat additionally requires a working Agent and model configuration.
 - Node.js 22.13 or newer is required only when developing or building Studio from source.
 
-See the [repository README](../README.md) for ReMe installation and backend configuration.
+See the [repository README](https://github.com/agentscope-ai/ReMe#readme) for ReMe installation and backend configuration.
 
 ## Development
 

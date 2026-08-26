@@ -43,7 +43,7 @@ npm install @agentscope-ai/reme_studio
 - 正在运行的 ReMe HTTP 服务。Agent 对话还需要可用的 Agent 和模型配置。
 - 只有从源码开发或构建 Studio 时才需要 Node.js 22.13 或更高版本。
 
-ReMe 的安装和后端配置请参阅[仓库中文 README](../README_ZH.md)。
+ReMe 的安装和后端配置请参阅[仓库中文 README](https://github.com/agentscope-ai/ReMe/blob/main/README_ZH.md)。
 
 ## 本地开发
 
