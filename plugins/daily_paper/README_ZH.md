@@ -11,7 +11,7 @@ Step backend，并在 `application_defaults` 下提供 Job 配置；通过 `plug
 ### 1. 安装 ReMe 和每日论文插件
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-daily-paper
 ```
 
@@ -58,7 +58,7 @@ RRF 排序后由 Agent 精选三篇
           ↓
 下载并解析 arXiv PDF，生成三篇中文解读
           ↓
-使用 memory_search + read 关联历史记忆并生成简报
+使用 search + read 关联历史记忆并生成简报
           ↓
 写入当日索引，并按需发送到钉钉
 ```
@@ -72,7 +72,7 @@ RRF 排序后由 Agent 精选三篇
 `daily_paper_analyze_step` 下载 PDF 到 `resource/papers/`，复用已有的有效文件，并在页数、字符数和文件大小限制内提取
 文本。三篇中文解读按精选顺序写入当天目录；扫描版或没有文本层的 PDF 会明确失败。
 
-`daily_paper_digest_step` 以本次生成的三篇解读为事实来源，只开放只读的 `memory_search` 和 `read` 来关联较早记忆。
+`daily_paper_digest_step` 以本次生成的三篇解读为事实来源，只开放只读的 `search` 和 `read` 来关联较早记忆。
 代码会校验历史 wikilink、追加三篇源笔记链接，并重建当日索引。可选的 `dingtalk_markdown_send_step` 在配置群会话后
 发送最终简报；未配置时无副作用跳过。
 

@@ -41,17 +41,17 @@ def test_studio_packages_have_independent_identity() -> None:
     assert studio_config["project"]["name"] == "reme_studio"
     assert npm_config["name"] == "@agentscope-ai/reme_studio"
     assert studio_config["project"]["version"] == npm_config["version"]
-    assert main_config["project"]["optional-dependencies"]["as"] == ["agentscope[model-ollama]==2.0.6"]
+    assert main_config["project"]["optional-dependencies"]["as"] == ["agentscope[model-ollama]==2.0.7"]
     assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
     assert main_config["project"]["optional-dependencies"]["qwenpaw"] == [
-        "reme-ai[core]",
-        "reme-auto-fin>=0.1.1",
-        "reme-daily-paper>=0.1.1",
+        "reme-ai",
+        "reme-auto-fin>=0.1.2",
+        "reme-daily-paper>=0.1.2",
     ]
-    assert auto_fin_config["project"]["version"] == "0.1.1"
-    assert daily_paper_config["project"]["version"] == "0.1.1"
+    assert auto_fin_config["project"]["version"] == "0.1.2"
+    assert daily_paper_config["project"]["version"] == "0.1.2"
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 
@@ -153,14 +153,15 @@ def test_auto_fin_license_matches_repository() -> None:
     ).read_text(encoding="utf-8")
 
 
-def test_auto_fin_requires_reme_core() -> None:
-    """Install the optional runtime packages needed while loading Auto Fin's entry points."""
+def test_auto_fin_requires_reme_base() -> None:
+    """Keep the plugin dependency limited to ReMe's public base package."""
     config = tomllib.loads((REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = [Requirement(value) for value in config["project"]["dependencies"]]
     reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
 
     assert len(reme_requirements) == 1
-    assert set(reme_requirements[0].extras) == {"core"}
+    assert not reme_requirements[0].extras
+    assert not reme_requirements[0].specifier
 
 
 def test_daily_paper_license_matches_repository() -> None:
@@ -171,12 +172,13 @@ def test_daily_paper_license_matches_repository() -> None:
 
 
 def test_daily_paper_declares_runtime_dependencies() -> None:
-    """Keep Daily Paper's ReMe feature set and PDF parser explicit in its own distribution."""
+    """Keep Daily Paper's minimal ReMe and PDF dependencies explicit."""
     config = tomllib.loads((REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = [Requirement(value) for value in config["project"]["dependencies"]]
     by_name = {requirement.name: requirement for requirement in requirements}
 
-    assert set(by_name["reme-ai"].extras) == {"core"}
+    assert not by_name["reme-ai"].extras
+    assert not by_name["reme-ai"].specifier
     assert "pypdf" in by_name
 
 

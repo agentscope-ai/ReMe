@@ -13,7 +13,7 @@ their Job configuration under `application_defaults`. Enable the installed plugi
 ### 1. Install ReMe and Daily Paper
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-daily-paper
 ```
 
@@ -62,7 +62,7 @@ rank with RRF and let an Agent select three papers
                  ↓
 download and parse arXiv PDFs, then write three Chinese analyses
                  ↓
-use memory_search + read to connect prior memory and generate a brief
+use search + read to connect prior memory and generate a brief
                  ↓
 refresh the daily index and optionally send the brief to DingTalk
 ```
@@ -80,7 +80,7 @@ the configured page, character, and file-size limits. It writes the three Chines
 PDFs and files without a text layer fail explicitly.
 
 `daily_paper_digest_step` treats those three analyses as the factual source and receives only the read-only
-`memory_search` and `read` tools for linking earlier memory. Code validates historical wikilinks, appends links to all
+`search` and `read` tools for linking earlier memory. Code validates historical wikilinks, appends links to all
 three source notes, and rebuilds the daily index. The optional `dingtalk_markdown_send_step` sends the final brief when
 conversation IDs are configured and otherwise skips without side effects.
 

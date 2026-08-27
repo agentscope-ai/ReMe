@@ -17,7 +17,7 @@ through `plugins=["auto-fin"]`.
 ### 1. Install ReMe and Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-auto-fin
 ```
 
@@ -74,7 +74,7 @@ normalize and deduplicate in RuntimeContext
         ↓
 topic Agent selects real news IDs in bounded batches
         ↓
-research Agent uses memory_search + read on historical memory
+research Agent uses search + read on historical memory
         ↓
 validate historical wikilinks in code
         ↓
@@ -89,8 +89,8 @@ records outside the window are discarded.
 IDs and deduplicates repeated IDs, then preserves the source-news order. If nothing is relevant, the job succeeds as a
 skip without writing or sending a report.
 
-`auto_fin_merge_step` receives only selected current news. It exposes `memory_search` and `read`, instructs the Agent to
-search no later than yesterday, and keeps current CLS IDs, times, and titles as plain evidence. The prompt limits
+`auto_fin_merge_step` receives only selected current news. It exposes `search` and `read`, and keeps current CLS IDs,
+times, and titles as plain evidence. The prompt limits
 wikilinks to historical Markdown actually used by the Agent; the code-level boundary independently keeps only existing,
 workspace-relative Markdown targets. Missing, absolute, escaping, backslash, and self-referential targets are degraded
 to their readable aliases.

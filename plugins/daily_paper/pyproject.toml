@@ -1,6 +1,6 @@
 [project]
 name = "reme-daily-paper"
-version = "0.1.1"
+version = "0.1.2"
 description = "Daily Paper research and reading-note plugin for ReMe."
 readme = "README.md"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "pypdf>=5.0.0",
-    "reme-ai[core]>=0.4.1.8",
+    "reme-ai",
 ]
 
 [project.entry-points."reme.plugins"]

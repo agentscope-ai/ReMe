@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 as = [
-    "agentscope[model-ollama]==2.0.6",
+    "agentscope[model-ollama]==2.0.7",
 ]
 web = [
     "reme_studio",
@@ -63,9 +63,9 @@ core = [
     "reme_studio",
 ]
 qwenpaw = [
-    "reme-ai[core]",
-    "reme-auto-fin>=0.1.1",
-    "reme-daily-paper>=0.1.1",
+    "reme-ai",
+    "reme-auto-fin>=0.1.2",
+    "reme-daily-paper>=0.1.2",
 ]
 dev = [
     "packaging>=24.2",

@@ -846,7 +846,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     await DailyPaperDigestStep(
         app_context=app_context,
         agent_wrapper=cc_wrapper,
-        job_tools=["memory_search", "read"],
+        job_tools=["search", "read"],
     )(context)
 
     assert _FakeHfClient.requested_daily == ["2026-07-20"]
@@ -886,7 +886,7 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert all(call["kwargs"] == {"output_schema": DailyPaperMarkdownOutput} for call in cc_wrapper.calls[1:-1])
     assert cc_wrapper.calls[-1]["kwargs"] == {
         "output_schema": DailyPaperMarkdownOutput,
-        "job_tools": ["memory_search", "read"],
+        "job_tools": ["search", "read"],
     }
     assert [call["kwargs"]["output_schema"] for call in cc_wrapper.calls] == [
         PaperPickList,
@@ -906,8 +906,8 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
-    assert "先调用 `memory_search` 检索以前的文章" in digest_prompt
-    assert "end_date=2026-07-20" in digest_prompt
+    assert "先调用 `search` 检索以前的文章" in digest_prompt
+    assert "end_date" not in digest_prompt
     assert "Wikilink" in digest_prompt
 
     rerun = RuntimeContext(date="2026-07-21")

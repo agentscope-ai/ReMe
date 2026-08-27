@@ -73,8 +73,8 @@ jobs:
           if len(requirements) != 1:
               raise SystemExit(f"Expected one reme-ai dependency, found {requirements!r}")
           reme_requirement = Requirement(requirements[0])
-          if reme_requirement.name != "reme-ai" or set(reme_requirement.extras) != {"core"}:
-              raise SystemExit(f"Expected a reme-ai[core] dependency, found {requirements[0]!r}")
+          if reme_requirement.name != "reme-ai" or reme_requirement.extras:
+              raise SystemExit(f"Expected a base reme-ai dependency, found {requirements[0]!r}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               print(f"reme_requirement={reme_requirement}", file=output)
           print(f"Publishing {project['name']} {actual}")
@@ -88,7 +88,7 @@ jobs:
           REME_REQUIREMENT: ${{ steps.package.outputs.reme_requirement }}
         run: |
           python -m pip download --no-deps \
-            --dest "${RUNNER_TEMP}/reme-auto-fin-core" \
+            --dest "${RUNNER_TEMP}/reme-auto-fin-base" \
             "${REME_REQUIREMENT}"
 
       - name: Build and check distributions
@@ -122,9 +122,7 @@ jobs:
           }
           assert set(manifest.application_defaults["jobs"]) == {
               "auto_fin",
-              "auto_fin_0930_cron",
-              "auto_fin_1130_cron",
-              "auto_fin_1800_cron",
+              "auto_fin_cron",
           }
           PY
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -102,6 +102,7 @@ class AutoFinMergeStep(AutoFinStep):
         )
 
     async def execute(self):
+        """Research the selected news and persist the validated report."""
         assert self.context is not None
         if self.context.get("auto_fin_skipped"):
             return self.context.response
@@ -112,7 +113,6 @@ class AutoFinMergeStep(AutoFinStep):
             job_tools=list(self.kwargs.get("job_tools") or []),
             decision_at=str(self._required("auto_fin_decision_at")),
             window_start=str(self._required("auto_fin_window_start")),
-            historical_end=(run_date - timedelta(days=1)).isoformat(),
             topics=json.dumps(self._required("auto_fin_topics"), ensure_ascii=False),
             news=json.dumps(self._required("auto_fin_selected_news"), ensure_ascii=False),
             current_report=self._current_report(run_date),

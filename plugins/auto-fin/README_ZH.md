@@ -14,7 +14,7 @@ distribution：单个 `reme.plugins` entry point 暴露 `plugin.yaml`，其中�
 ### 1. 安装 ReMe 和 Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-auto-fin
 ```
 
@@ -69,7 +69,7 @@ reme start config=daily_cookbook plugins='["auto-fin"]'
         ↓
 Topic Agent 分批选择真实 news_id
         ↓
-Research Agent 使用 memory_search + read 检索历史记忆
+Research Agent 使用 search + read 检索历史记忆
         ↓
 代码校验历史 wikilink
         ↓
@@ -82,8 +82,8 @@ daily/YYYY-MM-DD/auto_fin.md
 `auto_fin_topic_step` 分批接收当前新闻，只返回相关的 `news_id`。代码会忽略未知 ID、去除重复 ID，并保持源新闻顺序。如果没有相关新闻，Job
 会成功跳过，不写报告也不发送通知。
 
-`auto_fin_merge_step` 只接收筛选后的当前新闻，并向 Agent 开放 `memory_search` 和 `read`。历史检索截止到昨天；当前新闻以
-CLS ID、时间和标题作为普通证据。Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对
+`auto_fin_merge_step` 只接收筛选后的当前新闻，并向 Agent 开放 `search` 和 `read`。当前新闻以 CLS ID、时间和标题作为普通证据。
+Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对
 workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠和自引用的目标都会降级为可读 alias。
 
 同日重跑会参考当天已有报告并覆盖为修订结果。最终写入使用原子替换并刷新当天索引；流程不会写入 JSONL、中间 Markdown 或 Agent

@@ -64,6 +64,7 @@ class DailyPaperDigestStep(DailyPaperStep):
         return _WIKILINK_RE.sub(replace, body)
 
     async def execute(self):
+        """Generate and persist the final brief from analyzed papers."""
         assert self.context is not None
         if self._skip():
             self.logger.info(f"[{self.name}] skip existing digest")
@@ -79,13 +80,11 @@ class DailyPaperDigestStep(DailyPaperStep):
 
         documents = [{"title": item.title, "desc": item.desc, "body": item.body} for item in analyses]
         wikilinks = [f"[[{item.note_path}]]" for item in analyses]
-        previous_day = (dt.date.fromisoformat(self._run_day()) - dt.timedelta(days=1)).isoformat()
         self.logger.info(f"[{self.name}] agent start notes={len(analyses)}")
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "digest_user",
                 documents=json.dumps(documents, ensure_ascii=False, indent=2),
-                previous_day=previous_day,
             ),
             output_schema=DailyPaperMarkdownOutput,
             job_tools=list(self.kwargs.get("job_tools") or []),

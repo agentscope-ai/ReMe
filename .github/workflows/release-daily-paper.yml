@@ -70,8 +70,8 @@ jobs:
               raise SystemExit(f"Package version is {actual}, but workflow input is {expected}")
           requirements = [Requirement(value) for value in project["dependencies"]]
           reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
-          if len(reme_requirements) != 1 or set(reme_requirements[0].extras) != {"core"}:
-              raise SystemExit(f"Expected one reme-ai[core] dependency, found {reme_requirements!r}")
+          if len(reme_requirements) != 1 or reme_requirements[0].extras:
+              raise SystemExit(f"Expected one base reme-ai dependency, found {reme_requirements!r}")
           if sum(requirement.name == "pypdf" for requirement in requirements) != 1:
               raise SystemExit("Expected exactly one pypdf dependency")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
@@ -87,7 +87,7 @@ jobs:
           REME_REQUIREMENT: ${{ steps.package.outputs.reme_requirement }}
         run: |
           python -m pip download --no-deps \
-            --dest "${RUNNER_TEMP}/reme-daily-paper-core" \
+            --dest "${RUNNER_TEMP}/reme-daily-paper-base" \
             "${REME_REQUIREMENT}"
 
       - name: Build and check distributions

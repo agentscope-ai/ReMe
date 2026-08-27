@@ -195,14 +195,14 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
     response = await AutoFinMergeStep(
         app_context=app_context,
         agent_wrapper=agent,
-        job_tools=["memory_search", "read"],
+        job_tools=["search", "read"],
     )(context)
 
     prompt, kwargs = agent.calls[0]
-    assert "end_date 设为 2026-08-09" in prompt
-    assert "调用 `memory_search`" in prompt
+    assert "end_date" not in prompt
+    assert "调用 `search`" in prompt
     assert "调用 `read`" in prompt
-    assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["memory_search", "read"]}
+    assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["search", "read"]}
     report = (tmp_path / "daily" / "2026-08-10" / "auto_fin.md").read_text(encoding="utf-8")
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in report
     assert "](daily/2026-08-01/auto_fin.md)" not in report
@@ -254,14 +254,17 @@ def test_plugin_config_has_default_topics_and_no_intermediate_index_step():
         "auto_fin_topic_step",
         "auto_fin_merge_step",
     ]
-    assert job["steps"][2]["job_tools"] == ["memory_search", "read"]
-    for name, schedule in {
-        "auto_fin_0930_cron": "30 9 * * *",
-        "auto_fin_1130_cron": "30 11 * * *",
-        "auto_fin_1800_cron": "0 18 * * *",
-    }.items():
-        assert jobs[name]["cron"] == schedule
-        assert jobs[name]["steps"] == job["steps"]
+    assert job["steps"][2]["job_tools"] == ["search", "read"]
+    assert jobs["auto_fin_cron"]["cron"] == "0 18 * * *"
+    assert jobs["auto_fin_cron"]["steps"] == job["steps"]
+    assert (
+        not {
+            "auto_fin_0930_cron",
+            "auto_fin_1130_cron",
+            "auto_fin_1800_cron",
+        }
+        & jobs.keys()
+    )
 
 
 def test_agent_schemas_are_small_and_required():
