@@ -11,7 +11,7 @@ import frontmatter
 from watchfiles import Change
 
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index, validate_filename_component
+from ..file_io import is_image_file, refresh_day_index, validate_filename_component
 from ...components import R
 from ._evolve import agent_reply_result_text, now
 
@@ -473,6 +473,10 @@ class AutoResourceStep(BaseStep):
         )
         self.logger.info(f"[{self.name}] done {note_path} modified={modified}")
 
+    def _skip_image_change(self, file_path: str) -> bool:
+        """Return True for image changes, which auto_image_step interprets."""
+        return is_image_file(file_path)
+
     async def _handle_change(self, file_path: str, raw_change) -> dict:
         assert self.context is not None
         # Handlers write item-scoped fields into the shared response. Start each
@@ -508,6 +512,29 @@ class AutoResourceStep(BaseStep):
 
         note_stem = _compute_note_stem(filename)
         self.logger.info(f"[{self.name}] {change.name} file_path={file_path} note_stem={note_stem}")
+
+        if self._skip_image_change(file_path):
+            # Image resources are binary; the text interpretation below would
+            # read them as mojibake. They are handled by auto_image_step.
+            answer = f"Skipped image resource file: {file_path}"
+            self.context.response.success = True
+            self.context.response.answer = answer
+            self.context.response.metadata.update(
+                {
+                    "path": file_path,
+                    "action": "skipped",
+                    "reason": "image_file",
+                    "modified": False,
+                },
+            )
+            self.logger.info(f"[{self.name}] skip change file_path={file_path} reason=image_file")
+            return {
+                "success": True,
+                "path": file_path,
+                "change": change.name,
+                "answer": answer,
+                "metadata": dict(self.context.response.metadata),
+            }
 
         if change == Change.deleted:
             await self._handle_delete(file_path, date_str, note_stem)

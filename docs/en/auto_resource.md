@@ -49,8 +49,21 @@ workspace/
       meeting-notes.csv
 ```
 
-The current Beta version is best suited to text-based resources such as `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, and
-`html`.
+Text resources such as `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, and `html` are the primary fit. Image resources
+(`png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp`, `tiff`, `heic`) produce caption cards as described in
+[Image Resources](#image-resources).
+
+## Image Resources
+
+Image files are interpreted the same way: a vision model writes a caption card that links back to the original image.
+The card body starts with an `![[resource/...]]` embed link and the frontmatter carries `kind: image` and `media_type`,
+so text search reaches image content through the caption.
+
+The vision model is the `vision` instance of `as_llm` when configured, and otherwise falls back to the `default`
+instance — a multimodal default model needs no extra configuration. Images larger than the request budget or in
+provider-unfriendly formats are downscaled or re-encoded in memory for the request only; the original file under
+`resource/` is never modified. When an image changes, its card is rewritten in place; when the image is deleted, the
+card is removed with it.
 
 ## Resource Cards
 
