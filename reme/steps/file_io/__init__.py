@@ -2,7 +2,7 @@
 
 from ._daily_index import extract_daily_date, parse_daily_date, refresh_day_index, validate_session_id
 from ._file_io import get_path_lock, write_file_safe
-from ._path import validate_filename_component
+from ._path import is_image_file, validate_filename_component
 from .daily_list import DailyListStep
 from .daily_reindex import DailyReindexStep
 from .daily_write import DailyWriteStep
@@ -26,6 +26,7 @@ __all__ = [
     "parse_daily_date",
     "validate_session_id",
     "validate_filename_component",
+    "is_image_file",
     "get_path_lock",
     "write_file_safe",
     "DailyListStep",
