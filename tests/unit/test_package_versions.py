@@ -32,10 +32,10 @@ def test_studio_packages_have_independent_identity() -> None:
     studio_config = tomllib.loads((REPOSITORY / "reme_studio" / "pyproject.toml").read_text(encoding="utf-8"))
     npm_config = json.loads((REPOSITORY / "reme_studio" / "package.json").read_text(encoding="utf-8"))
     auto_fin_config = tomllib.loads(
-        (REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8")
+        (REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"),
     )
     daily_paper_config = tomllib.loads(
-        (REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8")
+        (REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"),
     )
 
     assert studio_config["project"]["name"] == "reme_studio"
