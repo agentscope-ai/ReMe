@@ -243,11 +243,6 @@ for (const product of productDocuments) {
     await cp(path.join(repoDir, product.source, filename), path.join(outputDir, product.source, filename));
   }
 }
-await mkdir(path.join(outputDir, "reme_studio", "public"), { recursive: true });
-await cp(
-  path.join(repoDir, "reme_studio", "public", "og.jpg"),
-  path.join(outputDir, "reme_studio", "public", "og.jpg"),
-);
 await writeFile(
   path.join(outputDir, "manifest.json"),
   `${JSON.stringify({ documents: await buildManifest() }, null, 2)}\n`,

@@ -9,6 +9,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const remeStudioOgImage =
+  "https://github.com/user-attachments/assets/7d0db0d4-69c5-49ef-b1ca-ef8c6cab1138";
+
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
   const host =
@@ -31,9 +34,9 @@ export async function generateMetadata(): Promise<Metadata> {
       description: "本地优先的 Agent 记忆工作区",
       images: [
         {
-          url: "/og.jpg",
-          width: 1200,
-          height: 626,
+          url: remeStudioOgImage,
+          width: 2400,
+          height: 1252,
           alt: "ReMe Studio memory workspace",
         },
       ],
@@ -42,7 +45,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: "ReMe Studio",
       description: "本地优先的 Agent 记忆工作区",
-      images: ["/og.jpg"],
+      images: [remeStudioOgImage],
     },
   };
 }

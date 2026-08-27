@@ -6,7 +6,7 @@ ReMe Studio is the local web workspace for ReMe. It lets you browse and edit use
 links, and chat with the ReMe Agent without moving durable memory into a separate application database. Search indexes,
 graphs, and other derived metadata remain rebuildable from the source files.
 
-![ReMe Studio workspace](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/public/og.jpg)
+![ReMe Studio workspace](https://github.com/user-attachments/assets/7d0db0d4-69c5-49ef-b1ca-ef8c6cab1138)
 
 ## Installation
 
