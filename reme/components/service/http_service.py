@@ -205,7 +205,7 @@ class HttpService(BaseService):
             )
         if "//" in path or any(segment in {".", ".."} for segment in path.split("/")):
             raise ValueError("mcp_path must use non-empty literal path segments")
-        if any(char in path for char in "{}?#\\") or any(
+        if any(char in path for char in "{}?#%\\") or any(
             char.isspace() or ord(char) < 32 or ord(char) == 127 for char in path
         ):
             raise ValueError("mcp_path must be a literal URL path without route, query, or fragment syntax")
