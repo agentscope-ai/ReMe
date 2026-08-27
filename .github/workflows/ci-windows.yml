@@ -35,7 +35,7 @@ jobs:
       - name: Install package
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e reme_studio -e ".[dev,core]"
+          pip install -e ".[dev,as]"
 
       - name: Run version job
         run: reme start config=tests/fixtures/config/version-smoke.yaml job=version
