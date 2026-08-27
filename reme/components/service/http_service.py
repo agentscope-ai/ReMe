@@ -11,6 +11,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 
 from .base_service import BaseService
 from ..component_registry import R
@@ -92,9 +93,31 @@ class HttpService(BaseService):
             allow_headers=["*"],
         )
         if self.mcp_app is not None:
-            # Mounting at /mcp makes Starlette redirect to /mcp/. Merge the
-            # generated routes so the configured path remains canonical.
-            self.service.router.routes.extend(self.mcp_app.routes)
+            # Forward the exact path to the complete FastMCP ASGI app. Copying
+            # only its routes would bypass its middleware and application state;
+            # mounting it would make the trailing-slash path canonical instead.
+            self.service.router.routes.append(
+                Route(
+                    self.mcp_path,
+                    endpoint=self.mcp_app,
+                    include_in_schema=False,
+                ),
+            )
+
+    def add_jobs(self, app: "Application") -> None:
+        """Validate reserved routes before the shared tolerant registration loop."""
+        if self.mcp_enabled:
+            conflicts = sorted(
+                job.name
+                for name, job in app.context.jobs.items()
+                if job.enable_serve and (self.jobs is None or name in self.jobs) and f"/{job.name}" == self.mcp_path
+            )
+            if conflicts:
+                names = ", ".join(conflicts)
+                raise ValueError(
+                    f"Job name conflicts with the MCP endpoint {self.mcp_path!r}: {names}",
+                )
+        super().add_jobs(app)
 
     def add_job(self, job: BaseJob) -> bool:
         """Register HTTP routes for every job and MCP tools for non-stream jobs."""
@@ -180,6 +203,12 @@ class HttpService(BaseService):
             raise ValueError(
                 "mcp_path must start with '/', must not be '/', and must not end with '/'",
             )
+        if "//" in path or any(segment in {".", ".."} for segment in path.split("/")):
+            raise ValueError("mcp_path must use non-empty literal path segments")
+        if any(char in path for char in "{}?#\\") or any(
+            char.isspace() or ord(char) < 32 or ord(char) == 127 for char in path
+        ):
+            raise ValueError("mcp_path must be a literal URL path without route, query, or fragment syntax")
         if path in {"/assets", "/docs", "/redoc", "/openapi.json"}:
             raise ValueError(f"mcp_path conflicts with reserved HTTP path {path!r}")
         return path

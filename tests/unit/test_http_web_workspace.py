@@ -7,6 +7,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from reme.components.service.http_service import HttpService
 from reme.components.job import BaseJob, StreamJob
@@ -133,6 +134,19 @@ def test_http_service_uses_exact_mcp_path_and_runs_one_application_lifespan() ->
     app = CountingApplication()
     service = HttpService(web_enabled=False)
     service.build_service(app)  # type: ignore[arg-type]
+    mcp_server = service.mcp_server
+
+    class VerifyFastMCPAppMiddleware(BaseHTTPMiddleware):
+        """Prove requests retain FastMCP middleware and application state."""
+
+        async def dispatch(self, request, call_next):
+            """Verify the child app context and mark its response."""
+            assert request.app.state.fastmcp_server is mcp_server
+            response = await call_next(request)
+            response.headers["X-FastMCP-Middleware"] = "preserved"
+            return response
+
+    service.mcp_app.add_middleware(VerifyFastMCPAppMiddleware)
 
     with TestClient(service.service, follow_redirects=False) as client:
         response = client.post(
@@ -154,6 +168,7 @@ def test_http_service_uses_exact_mcp_path_and_runs_one_application_lifespan() ->
         )
         assert response.status_code == 200
         assert '"serverInfo"' in response.text
+        assert response.headers["X-FastMCP-Middleware"] == "preserved"
         assert client.post("/mcp/mcp", json={}).status_code == 404
 
     assert app.start_count == 1
@@ -171,7 +186,18 @@ def test_http_service_can_disable_mcp() -> None:
 
 def test_http_service_rejects_invalid_or_conflicting_mcp_paths() -> None:
     """Reject paths that shadow built-ins and jobs that shadow the MCP endpoint."""
-    for path in ("mcp", "/", "/mcp/", "/docs"):
+    for path in (
+        "mcp",
+        "/",
+        "/mcp/",
+        "/docs",
+        "/{rest:path}",
+        "/mcp?mode=test",
+        "/mcp#fragment",
+        "/mcp path",
+        "/mcp//nested",
+        "/mcp/../nested",
+    ):
         with pytest.raises(ValueError, match="mcp_path"):
             HttpService(mcp_path=path)
 
@@ -179,6 +205,18 @@ def test_http_service_rejects_invalid_or_conflicting_mcp_paths() -> None:
     service.build_service(_FakeApplication())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="conflicts with the MCP endpoint"):
         service.add_job(BaseJob(name="mcp"))
+
+
+def test_http_service_fails_startup_preflight_for_mcp_job_conflict() -> None:
+    """Do not let BaseService's tolerant registration hide reserved-route conflicts."""
+    service = HttpService(web_enabled=False)
+    service.build_service(_FakeApplication())  # type: ignore[arg-type]
+    app = SimpleNamespace(
+        context=SimpleNamespace(jobs={"mcp": BaseJob(name="mcp")}),
+    )
+
+    with pytest.raises(ValueError, match="conflicts with the MCP endpoint"):
+        service.add_jobs(app)
 
 
 def test_http_service_does_not_serve_symlinks_outside_static_dir(
