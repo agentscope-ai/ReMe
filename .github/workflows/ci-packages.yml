@@ -8,9 +8,10 @@ on:
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
       - 'pyproject.toml'
-      - 'reme/__init__.py'
-      - 'reme/utils/web_static.py'
+      - 'README.md'
+      - 'reme/**'
       - 'scripts/bump_version.py'
+      - 'tests/unit/test_package_versions.py'
       - 'LICENSE'
   pull_request:
     branches: [main, master, dev, develop]
@@ -19,9 +20,10 @@ on:
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
       - 'pyproject.toml'
-      - 'reme/__init__.py'
-      - 'reme/utils/web_static.py'
+      - 'README.md'
+      - 'reme/**'
       - 'scripts/bump_version.py'
+      - 'tests/unit/test_package_versions.py'
       - 'LICENSE'
   workflow_dispatch:
 

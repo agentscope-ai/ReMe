@@ -1,7 +1,7 @@
 # Release checklist:
 # 1. Update project.version in plugins/daily_paper/pyproject.toml and merge it into the target branch.
 # 2. Publish the required reme-ai version before this plugin; the build verifies that dependency on PyPI.
-# 3. Confirm PYPI_API_TOKEN is configured and the version does not already exist on PyPI.
+# 3. Configure PyPI Trusted Publishing for this repository/workflow and its pypi environment.
 # 4. Run "Release / Daily Paper plugin" from GitHub Actions with the exact project version (a v prefix is accepted).
 #
 # Recommended order: reme-ai -> reme-daily-paper -> downstream applications enabling plugins: [daily-paper].
@@ -33,10 +33,12 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
 
@@ -81,10 +83,12 @@ jobs:
         run: python -m pytest plugins/daily_paper -q
 
       - name: Require the plugin-enabled ReMe release on PyPI
+        env:
+          REME_REQUIREMENT: ${{ steps.package.outputs.reme_requirement }}
         run: |
           python -m pip download --no-deps \
             --dest "${RUNNER_TEMP}/reme-daily-paper-core" \
-            "${{ steps.package.outputs.reme_requirement }}"
+            "${REME_REQUIREMENT}"
 
       - name: Build and check distributions
         run: |
@@ -123,7 +127,7 @@ jobs:
           PY
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: reme-daily-paper-${{ inputs.version }}
           path: dist/daily-paper/
@@ -132,17 +136,19 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: reme-daily-paper-${{ inputs.version }}
           path: dist/daily-paper
 
       - name: Publish reme-daily-paper
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/daily-paper

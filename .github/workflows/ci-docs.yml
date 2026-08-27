@@ -16,7 +16,6 @@ on:
       - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
-      - 'skills/reme_memory/SKILL.md'
   pull_request:
     branches: [main, master, dev, develop]
     paths:
@@ -32,7 +31,6 @@ on:
       - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
-      - 'skills/reme_memory/SKILL.md'
   workflow_dispatch:
 
 concurrency:

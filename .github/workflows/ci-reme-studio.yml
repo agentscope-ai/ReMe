@@ -38,12 +38,14 @@ jobs:
         working-directory: reme_studio
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: "22"
+          node-version: "22.22.3"
           cache: npm
           cache-dependency-path: reme_studio/package-lock.json
 
@@ -60,10 +62,12 @@ jobs:
         run: npm test
 
       - name: Verify npm package
-        run: npm pack --dry-run
+        run: |
+          npm pack --pack-destination "${RUNNER_TEMP}"
+          tar -tzf "${RUNNER_TEMP}"/agentscope-ai-reme_studio-*.tgz | grep '^package/dist-static/index.html$'
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
@@ -75,3 +79,12 @@ jobs:
           python scripts/package_studio.py
           python -m build reme_studio --outdir dist/studio
           python -m twine check dist/studio/*
+          STUDIO_WHEEL="$(pwd)/$(ls dist/studio/reme_studio-*.whl)"
+          python -m venv "${RUNNER_TEMP}/reme-studio-package-smoke"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" -m pip install "${STUDIO_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" - <<'PY'
+          from reme_studio import static_dir
+
+          assert (static_dir() / "index.html").is_file()
+          PY

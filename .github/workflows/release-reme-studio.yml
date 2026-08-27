@@ -1,6 +1,6 @@
 # Release checklist:
 # 1. Update reme_studio/pyproject.toml, package.json, and package-lock.json to the same Studio version.
-# 2. Configure PyPI and npm publishing credentials for this workflow.
+# 2. Configure npm Trusted Publishing and PyPI Trusted Publishing with the pypi environment.
 # 3. Run this workflow manually with the exact Studio version.
 
 name: Release / ReMe Studio
@@ -38,15 +38,17 @@ jobs:
       NPM_TAG: ${{ inputs.npm_tag }}
 
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          node-version: "22.13"
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.22.3"
           cache: npm
           cache-dependency-path: reme_studio/package-lock.json
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.11"
 
@@ -93,7 +95,20 @@ jobs:
           python -m build reme_studio --outdir dist/studio-python
           python -m twine check dist/studio-python/*
 
-      - uses: actions/upload-artifact@v4
+      - name: Verify Studio distributions and isolated installation
+        run: |
+          STUDIO_WHEEL="$(pwd)/$(ls dist/studio-python/reme_studio-*.whl)"
+          tar -tzf dist/studio-npm/*.tgz | grep '^package/dist-static/index.html$'
+          python -m venv "${RUNNER_TEMP}/reme-studio-package-smoke"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" -m pip install "${STUDIO_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" - <<'PY'
+          from reme_studio import static_dir
+
+          assert (static_dir() / "index.html").is_file()
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: reme-studio-${{ inputs.version }}
           path: |
@@ -104,17 +119,19 @@ jobs:
   publish-python:
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: reme-studio-${{ inputs.version }}
           path: dist
 
       - name: Publish ReMe Studio to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/studio-python
           skip-existing: true
 
@@ -125,12 +142,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: reme-studio-${{ inputs.version }}
           path: dist

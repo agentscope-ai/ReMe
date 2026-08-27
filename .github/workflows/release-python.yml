@@ -2,6 +2,8 @@ name: Release / Python packages
 
 # reme-ai[qwenpaw] is verified before publication. Publish the independently
 # versioned reme-auto-fin and reme-daily-paper requirements first.
+# Configure a PyPI Trusted Publisher for this repository, workflow, and its
+# pypi environment before running the manual release.
 
 on:
   workflow_dispatch:
@@ -10,34 +12,38 @@ on:
         description: Release version
         required: true
         type: string
-  release:
-    types: [published]
 
 permissions:
   contents: read
+
+concurrency:
+  group: publish-reme-ai
+  cancel-in-progress: false
 
 jobs:
   build:
     name: Build and verify distributions
     uses: ./.github/workflows/_build-python-packages.yml
     with:
-      expected_version: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+      expected_version: ${{ inputs.version }}
       upload_artifacts: true
 
   publish-reme:
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Download ReMe distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: reme-distributions
           path: dist/reme
 
       - name: Publish ReMe
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/reme
           skip-existing: true
