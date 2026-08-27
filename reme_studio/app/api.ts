@@ -2,6 +2,7 @@ import type {
   AppConfig,
   FileStat,
   GraphSnapshot,
+  ReMeHealth,
   ReMeResponse,
   StreamChunk,
 } from "./types";
@@ -65,6 +66,14 @@ export async function getReMeVersion(): Promise<string> {
 
 export async function getReMeStatus(): Promise<ReMeResponse<string>> {
   return callReMe<string>("status");
+}
+
+export async function getReMeHealth(): Promise<ReMeHealth | undefined> {
+  const response = await callReMe<string>("health_check");
+  const health = response.metadata.health;
+  return health && typeof health === "object"
+    ? (health as ReMeHealth)
+    : undefined;
 }
 
 export async function rebuildReMeIndex(): Promise<ReMeResponse<unknown>> {

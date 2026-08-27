@@ -52,9 +52,8 @@ The build script reads the canonical repository files directly. Do not edit gene
 - `docs/figure/`: documentation images
 - `reme_studio/README.md` and `reme_studio/README_ZH.md`: ReMe Studio guide
 - `typescript/README.md` and `typescript/README_ZH.md`: TypeScript client, DeepSeek Harness, and OpenClaw integration guide
-- `plugins/*/README*.md`: plugin and research workflow guides
+- `plugins/*/README*.md`: plugin guides
 - `benchmark/{beam,longmemeval,pibench,toolmemory}/README*.md`: benchmark guides and results
-- `skills/reme_memory/SKILL.md`: ReMe Memory skill guide
 - `AGENTS.md`: repository development guide
 
 To add or reorganize a document in the site navigation, update

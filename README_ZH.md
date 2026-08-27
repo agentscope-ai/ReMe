@@ -308,7 +308,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 在仓库的 [π-Bench 评测](https://reme.agentscope.io/?doc=pibench-zh)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。
 
-## 🧩 扩展与工作流
+## 🧩 扩展与插件
 
 插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。每日论文与 Auto Fin
 均已独立打包，源码 distribution 及说明分别见[每日论文](plugins/daily_paper/README_ZH.md)和

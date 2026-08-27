@@ -13,6 +13,29 @@ export interface AppConfig {
   [key: string]: unknown;
 }
 
+export interface ReMeComponentHealth {
+  is_started?: boolean;
+  is_healthy?: boolean | null;
+  model_name?: string | null;
+  dimensions?: number | null;
+  cache_size?: number;
+  n_nodes?: number;
+  n_edges?: number;
+  n_virtual?: number;
+  n_pending?: number;
+  n_chunks?: number;
+  n_chunks_with_embedding?: number;
+  n_docs?: number | null;
+  vocab_size?: number;
+  memory?: string;
+}
+
+export interface ReMeHealth {
+  version: string;
+  healthy: boolean;
+  components: Record<string, Record<string, ReMeComponentHealth>>;
+}
+
 export interface FileStat {
   path: string;
   exists: boolean;

@@ -32,7 +32,7 @@ The table shows the plugin entry-point name, Python distribution, version, and p
 ```text
 PLUGIN    DISTRIBUTION   VERSION  FORMAT
 --------  -------------  -------  --------
-auto-fin  reme-auto-fin  0.1.0    manifest
+auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
 `manifest` plugins use the current package-level `plugin.yaml` contract. `legacy` plugins use the compatible Python
@@ -81,7 +81,7 @@ reme plugins install reme-auto-fin
 Install or upgrade a pinned version:
 
 ```bash
-reme plugins install 'reme-auto-fin==0.1.0'
+reme plugins install 'reme-auto-fin==X.Y.Z'
 reme plugins install reme-auto-fin --upgrade
 ```
 

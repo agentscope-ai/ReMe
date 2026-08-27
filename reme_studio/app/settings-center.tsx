@@ -7,20 +7,30 @@ import {
   Braces,
   Check,
   CircleAlert,
+  Cpu,
   DatabaseZap,
+  FileArchive,
+  GitFork,
+  HardDrive,
   LoaderCircle,
   RefreshCw,
   X,
 } from "lucide-react";
 import {
   getAppConfig,
+  getReMeHealth,
   getReMeStatus,
   getReMeVersion,
   rebuildReMeIndex,
   REME_API_ENDPOINT,
 } from "./api";
-import { useI18n } from "./i18n";
-import type { AppConfig, ReMeResponse } from "./types";
+import { useI18n, type TranslationKey } from "./i18n";
+import type {
+  AppConfig,
+  ReMeComponentHealth,
+  ReMeHealth,
+  ReMeResponse,
+} from "./types";
 
 type SettingsSection = "status" | "index" | "config" | "version";
 
@@ -42,6 +52,96 @@ function memoryFrom(response?: ReMeResponse<string>): MemoryStatus | undefined {
   return memory && typeof memory === "object"
     ? (memory as MemoryStatus)
     : undefined;
+}
+
+const COMPONENT_ICONS: Record<string, React.ReactNode> = {
+  embedding_store: <Cpu size={18} />,
+  file_graph: <GitFork size={18} />,
+  file_store: <HardDrive size={18} />,
+  keyword_index: <FileArchive size={18} />,
+};
+
+function isComponentHealthy(component: ReMeComponentHealth): boolean {
+  return (
+    component.is_healthy === true ||
+    (component.is_started === true && component.is_healthy !== false)
+  );
+}
+
+const COMPONENT_LABELS = {
+  embedding_store: "embeddingStore",
+  file_graph: "fileGraph",
+  file_store: "fileStore",
+  keyword_index: "keywordIndex",
+} as const;
+
+const COMPONENT_FIELDS = {
+  model_name: "modelName",
+  dimensions: "dimensions",
+  cache_size: "cacheSize",
+  n_nodes: "nodes",
+  n_edges: "edges",
+  n_virtual: "virtualNodes",
+  n_pending: "pendingNodes",
+  n_chunks: "chunks",
+  n_chunks_with_embedding: "embeddedChunks",
+  n_docs: "documents",
+  vocab_size: "vocabulary",
+} as const;
+
+function ComponentCard({
+  type,
+  name,
+  component,
+  memory,
+}: {
+  type: string;
+  name: string;
+  component: ReMeComponentHealth;
+  memory?: string;
+}) {
+  const { t } = useI18n();
+  const healthy = isComponentHealthy(component);
+  const facts: Array<{ label: TranslationKey; value: unknown }> =
+    Object.entries(COMPONENT_FIELDS).flatMap(([field, label]) => {
+      const value = component[field as keyof ReMeComponentHealth];
+      return value === undefined || value === null
+        ? []
+        : [{ label: label as TranslationKey, value }];
+    });
+  if (memory || component.memory) {
+    facts.push({
+      label: "memoryUsage",
+      value: memory || component.memory || "—",
+    });
+  }
+  const label = COMPONENT_LABELS[type as keyof typeof COMPONENT_LABELS];
+
+  return (
+    <article className={`component-card ${healthy ? "healthy" : "unhealthy"}`}>
+      <header>
+        <span>{COMPONENT_ICONS[type] || <Cpu size={18} />}</span>
+        <div>
+          <strong>{label ? t(label) : type}</strong>
+          <small>{name === "default" ? t("defaultInstance") : name}</small>
+        </div>
+        <span className={`component-health ${healthy ? "" : "unhealthy"}`}>
+          <i />
+          {t(healthy ? "healthy" : "unhealthy")}
+        </span>
+      </header>
+      {facts.length > 0 && (
+        <dl>
+          {facts.map(({ label: factLabel, value }) => (
+            <div key={factLabel}>
+              <dt>{t(factLabel)}</dt>
+              <dd>{String(value)}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </article>
+  );
 }
 
 function SettingsState({
@@ -79,6 +179,7 @@ export default function SettingsCenter({
   const { t } = useI18n();
   const [section, setSection] = useState<SettingsSection>("status");
   const [status, setStatus] = useState<ReMeResponse<string>>();
+  const [health, setHealth] = useState<ReMeHealth>();
   const [config, setConfig] = useState<AppConfig>();
   const [version, setVersion] = useState("");
   const [loading, setLoading] = useState(false);
@@ -91,12 +192,15 @@ export default function SettingsCenter({
     setLoading(true);
     setError("");
     try {
-      const [nextStatus, nextConfig, nextVersion] = await Promise.all([
-        getReMeStatus(),
-        getAppConfig(),
-        getReMeVersion(),
-      ]);
+      const [nextStatus, nextHealth, nextConfig, nextVersion] =
+        await Promise.all([
+          getReMeStatus(),
+          getReMeHealth().catch(() => undefined),
+          getAppConfig(),
+          getReMeVersion(),
+        ]);
       setStatus(nextStatus);
+      setHealth(nextHealth);
       setConfig(nextConfig);
       setVersion(nextVersion);
     } catch (nextError) {
@@ -152,6 +256,18 @@ export default function SettingsCenter({
     ([type, entries]) =>
       Object.entries(entries).map(([name, usage]) => ({ type, name, usage })),
   );
+  const healthComponents = Object.entries(health?.components || {}).flatMap(
+    ([type, entries]) =>
+      Object.entries(entries).map(([name, component]) => ({
+        type,
+        name,
+        component,
+        memory: memory?.components?.[type]?.[name]?.human,
+      })),
+  );
+  const healthyComponents = healthComponents.filter(({ component }) =>
+    isComponentHealthy(component),
+  ).length;
   const sections: Array<{
     id: SettingsSection;
     label: string;
@@ -223,23 +339,37 @@ export default function SettingsCenter({
               </button>
             )}
             <SettingsState
-              loading={loading && !status && !config && !version}
+              loading={loading && !status && !health && !config && !version}
               error={section === "index" ? undefined : error}
             />
             {section === "status" && status && (
               <div className="settings-page">
-                <div className="settings-page-title">
-                  <span className="settings-page-icon status">
-                    <Activity size={25} />
-                  </span>
-                  <div>
-                    <h3>{t("settingsStatus")}</h3>
-                    <p>
-                      <i className="status-dot" />
-                      {t("serviceOnline")}
-                    </p>
+                <section className="status-hero">
+                  <div className="status-hero-brand">
+                    <span className="settings-page-icon status">
+                      <Activity size={25} />
+                    </span>
+                    <div>
+                      <small>ReMe Memory</small>
+                      <h3>{t("serviceOverview")}</h3>
+                      <code>{REME_API_ENDPOINT}</code>
+                    </div>
                   </div>
-                </div>
+                  <div className="status-hero-health">
+                    <span
+                      className={`health-badge ${
+                        health?.healthy === false ? "unhealthy" : ""
+                      }`}
+                    >
+                      <i />
+                      {health?.healthy === false
+                        ? t("serviceAttention")
+                        : t("serviceOnline")}
+                    </span>
+                    <strong>v{health?.version || version || "—"}</strong>
+                    <small>{t("currentVersion")}</small>
+                  </div>
+                </section>
                 <div className="status-metrics">
                   <article>
                     <small>{t("processMemory")}</small>
@@ -249,18 +379,57 @@ export default function SettingsCenter({
                     <small>{t("componentMemory")}</small>
                     <strong>{memory?.components_total || "—"}</strong>
                   </article>
+                  <article>
+                    <small>{t("healthyComponents")}</small>
+                    <strong>
+                      {healthyComponents}
+                      <span> / {healthComponents.length}</span>
+                    </strong>
+                  </article>
                 </div>
-                <section className="settings-card">
-                  <h4>{t("componentDetails")}</h4>
-                  {components.map(({ type, name, usage }) => (
-                    <div className="component-row" key={`${type}:${name}`}>
-                      <span>
-                        {type}
-                        <small>{name}</small>
-                      </span>
-                      <strong>{usage.human || "—"}</strong>
+                <section className="component-section">
+                  <div className="component-section-title">
+                    <div>
+                      <h4>{t("componentDetails")}</h4>
+                      <p>{t("componentDetailsDescription")}</p>
                     </div>
-                  ))}
+                  </div>
+                  <div className="component-grid">
+                    {healthComponents.map(
+                      ({ type, name, component, memory: componentMemory }) => (
+                        <ComponentCard
+                          key={`${type}:${name}`}
+                          type={type}
+                          name={name}
+                          component={component}
+                          memory={componentMemory}
+                        />
+                      ),
+                    )}
+                    {!healthComponents.length &&
+                      components.map(({ type, name, usage }) => (
+                        <article
+                          className="component-card"
+                          key={`${type}:${name}`}
+                        >
+                          <header>
+                            <span>
+                              {COMPONENT_ICONS[type] || <Cpu size={18} />}
+                            </span>
+                            <div>
+                              <strong>{type}</strong>
+                              <small>{name}</small>
+                            </div>
+                          </header>
+                          <dl>
+                            <div>
+                              <dt>{t("memoryUsage")}</dt>
+                              <dd>{usage.human || "—"}</dd>
+                            </div>
+                          </dl>
+                        </article>
+                      ))}
+                  </div>
                 </section>
               </div>
             )}

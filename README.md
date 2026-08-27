@@ -317,7 +317,7 @@ ReMe also achieved a **0.580 PROC score across five user personas** in the repos
 measures proactive handling of hidden intent, clarification, cross-session preferences and conventions, task
 dependencies, and underspecified requests.
 
-## 🧩 Extensions and Workflows
+## 🧩 Extensions and Plugins
 
 Plugins are optional Python distributions that contribute Component, Step, or Job backends and configuration. They are
 installed separately and enabled explicitly by configuration. Daily Paper and Auto Fin are independently packaged

@@ -1242,7 +1242,7 @@ textarea:focus-visible {
   color: var(--muted);
 }
 .settings-page {
-  max-width: 700px;
+  max-width: 760px;
   margin: 0 auto;
 }
 .settings-page-title {
@@ -1291,15 +1291,119 @@ textarea:focus-visible {
 .settings-page-icon.version {
   background: linear-gradient(145deg, #6ca7dc, #477fb7);
 }
+.status-hero {
+  position: relative;
+  min-height: 132px;
+  margin-bottom: 16px;
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border: 1px solid color-mix(in srgb, #39a767 24%, var(--line));
+  border-radius: 17px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, #42a96d 9%, var(--surface)),
+    var(--surface) 62%
+  );
+  box-shadow: 0 5px 18px rgba(35, 25, 18, 0.05);
+}
+.status-hero::after {
+  position: absolute;
+  right: -55px;
+  bottom: -92px;
+  width: 210px;
+  height: 210px;
+  border: 1px solid color-mix(in srgb, #42a96d 16%, transparent);
+  border-radius: 50%;
+  content: "";
+}
+.status-hero-brand,
+.status-hero-health {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+}
+.status-hero-brand {
+  min-width: 0;
+  gap: 16px;
+}
+.status-hero-brand small,
+.status-hero-health small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.status-hero-brand h3 {
+  margin: 3px 0 7px;
+  font-size: 20px;
+}
+.status-hero-brand code {
+  display: block;
+  max-width: 360px;
+  overflow: hidden;
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.status-hero-health {
+  min-width: 145px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.status-hero-health strong {
+  margin-top: 10px;
+  font-size: 20px;
+}
+.health-badge,
+.component-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, #2f9b5b 25%, transparent);
+  border-radius: 999px;
+  color: #25834a;
+  background: color-mix(in srgb, #42a96d 9%, transparent);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.health-badge {
+  min-height: 24px;
+  padding: 0 9px;
+}
+.health-badge i,
+.component-health i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #32a25e;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #32a25e 14%, transparent);
+}
+.health-badge.unhealthy,
+.component-health.unhealthy {
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+.health-badge.unhealthy i,
+.component-health.unhealthy i {
+  background: var(--danger);
+  box-shadow: none;
+}
 .status-metrics {
   margin-bottom: 16px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 .status-metrics article {
-  min-height: 112px;
-  padding: 20px;
+  min-height: 96px;
+  padding: 17px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -1314,8 +1418,110 @@ textarea:focus-visible {
   font-size: 11px;
 }
 .status-metrics strong {
-  font-size: 25px;
+  font-size: 22px;
   letter-spacing: -0.03em;
+}
+.status-metrics strong span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.component-section {
+  margin-top: 24px;
+}
+.component-section-title {
+  margin-bottom: 12px;
+}
+.component-section-title h4 {
+  margin: 0;
+  font-size: 14px;
+}
+.component-section-title p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.component-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 5px 18px rgba(35, 25, 18, 0.04);
+}
+.component-card::before {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--danger);
+  content: "";
+}
+.component-card.healthy::before {
+  background: #39a767;
+}
+.component-card header {
+  min-height: 70px;
+  padding: 14px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+.component-card header > span:first-child {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: var(--muted);
+  background: var(--hover);
+}
+.component-card header strong,
+.component-card header small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.component-card header strong {
+  font-size: 12px;
+}
+.component-card header small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+.component-health {
+  padding: 3px 7px;
+  font-size: 9px;
+}
+.component-health i {
+  width: 6px;
+  height: 6px;
+}
+.component-card dl {
+  margin: 0;
+  padding: 12px 14px 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.component-card dt {
+  color: var(--muted);
+  font-size: 9px;
+}
+.component-card dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  font-weight: 600;
 }
 .settings-card {
   padding: 8px 18px;
@@ -1504,6 +1710,22 @@ textarea:focus-visible {
     height: 48px;
   }
   .status-metrics {
+    grid-template-columns: 1fr;
+  }
+  .status-hero {
+    padding: 18px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .status-hero-health {
+    width: 100%;
+    align-items: flex-start;
+  }
+  .status-hero-health strong,
+  .status-hero-health small {
+    display: none;
+  }
+  .component-grid {
     grid-template-columns: 1fr;
   }
   .index-confirm {

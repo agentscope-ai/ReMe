@@ -31,6 +31,12 @@ def test_studio_packages_have_independent_identity() -> None:
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     studio_config = tomllib.loads((REPOSITORY / "reme_studio" / "pyproject.toml").read_text(encoding="utf-8"))
     npm_config = json.loads((REPOSITORY / "reme_studio" / "package.json").read_text(encoding="utf-8"))
+    auto_fin_config = tomllib.loads(
+        (REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    daily_paper_config = tomllib.loads(
+        (REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8")
+    )
 
     assert studio_config["project"]["name"] == "reme_studio"
     assert npm_config["name"] == "@agentscope-ai/reme_studio"
@@ -39,6 +45,13 @@ def test_studio_packages_have_independent_identity() -> None:
     assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
+    assert main_config["project"]["optional-dependencies"]["qwenpaw"] == [
+        "reme-ai[core]",
+        "reme-auto-fin>=0.1.1",
+        "reme-daily-paper>=0.1.1",
+    ]
+    assert auto_fin_config["project"]["version"] == "0.1.1"
+    assert daily_paper_config["project"]["version"] == "0.1.1"
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 

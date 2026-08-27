@@ -24,7 +24,7 @@ const copy = {
       concepts: "架构与场景",
       integration: "Agent 集成",
       workspace: "工作区",
-      cookbooks: "研究工作流",
+      plugins: "插件",
       benchmarks: "评测",
       development: "开发者规范",
     },
@@ -46,7 +46,7 @@ const copy = {
       concepts: "Architecture & scenarios",
       integration: "Agent integration",
       workspace: "Workspace",
-      cookbooks: "Research workflows",
+      plugins: "Plugins",
       benchmarks: "Benchmarks",
       development: "Development",
     },
@@ -71,8 +71,8 @@ const homeCopy = {
     exploreDescription: "选择你现在想完成的事情。每个入口都直接连接到对应的完整文档。",
     cards: [
       { id: "studio-zh", icon: "◫", label: "管理记忆", title: "ReMe 工作台", description: "在本地 Web 工作区中浏览、编辑、搜索记忆，并探索 wikilink 图谱。", tone: "mint" },
-      { id: "daily-paper-zh", icon: "◌", label: "发现与分析", title: "每日论文", description: "从论文榜单筛选值得阅读的工作，解析 PDF，并生成笔记与五分钟简报。", tone: "blue" },
-      { id: "auto-fin-zh", icon: "↗", label: "主题研究", title: "财经研究", description: "连接最新财联社新闻和本地历史记忆，生成可追溯的研究报告。", tone: "amber" },
+      { id: "daily-paper-zh", icon: "◌", label: "发现与分析", title: "每日论文插件", description: "从论文榜单筛选值得阅读的工作，解析 PDF，并生成笔记与五分钟简报。", tone: "blue" },
+      { id: "auto-fin-zh", icon: "↗", label: "主题研究", title: "Auto Fin 插件", description: "连接最新财联社新闻和本地历史记忆，生成可追溯的研究报告。", tone: "amber" },
     ],
     benchmark: "验证记忆能力",
     benchmarkDescription: "从检索规模、跨会话问答、个人智能体到工具经验，查看 ReMe 的四套评测与复现实验。",
@@ -88,8 +88,8 @@ const homeCopy = {
     exploreDescription: "Start with what you want to accomplish. Every entry opens the complete guide.",
     cards: [
       { id: "studio-en", icon: "◫", label: "Manage memory", title: "ReMe Studio", description: "Browse, edit, and search memory in a local web workspace, then explore its wikilink graph.", tone: "mint" },
-      { id: "daily-paper-en", icon: "◌", label: "Discover & analyze", title: "Daily Paper", description: "Select useful papers from rankings, analyze PDFs, and create notes plus a five-minute brief.", tone: "blue" },
-      { id: "auto-fin-en", icon: "↗", label: "Research topics", title: "Auto Fin", description: "Connect recent CLS news with historical local memory to produce traceable research reports.", tone: "amber" },
+      { id: "daily-paper-en", icon: "◌", label: "Discover & analyze", title: "Daily Paper Plugin", description: "Select useful papers from rankings, analyze PDFs, and create notes plus a five-minute brief.", tone: "blue" },
+      { id: "auto-fin-en", icon: "↗", label: "Research topics", title: "Auto Fin Plugin", description: "Connect recent CLS news with historical local memory to produce traceable research reports.", tone: "amber" },
     ],
     benchmark: "Validate memory systems",
     benchmarkDescription: "Explore four reproducible evaluations covering retrieval scale, cross-session QA, personal agents, and tool-use experience.",
@@ -284,7 +284,7 @@ function renderHome(pushHistory = true) {
       </div>
     </section>
     <section class="home-explore">
-      <p class="section-kicker">01 / PRODUCT & WORKFLOWS</p>
+      <p class="section-kicker">01 / PRODUCT & PLUGINS</p>
       <h2>${labels.explore}</h2>
       <p class="section-lead">${labels.exploreDescription}</p>
       <div class="feature-grid">

@@ -29,7 +29,7 @@ reme plugins list
 ```text
 PLUGIN    DISTRIBUTION   VERSION  FORMAT
 --------  -------------  -------  --------
-auto-fin  reme-auto-fin  0.1.0    manifest
+auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
 `manifest` 表示插件使用当前的 package-level `plugin.yaml` 契约；`legacy` 表示插件使用仍然兼容的 Python descriptor
@@ -77,7 +77,7 @@ reme plugins install reme-auto-fin
 安装指定版本或升级：
 
 ```bash
-reme plugins install 'reme-auto-fin==0.1.0'
+reme plugins install 'reme-auto-fin==X.Y.Z'
 reme plugins install reme-auto-fin --upgrade
 ```
 

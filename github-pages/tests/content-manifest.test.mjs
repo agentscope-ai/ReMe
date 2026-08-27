@@ -4,20 +4,20 @@ import test from "node:test";
 
 const manifestUrl = new URL("../.generated/content/manifest.json", import.meta.url);
 
-test("includes the historical Agent integration plan in Chinese navigation", async () => {
+test("omits retired Agent documents and places Agent integration after getting started", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
-  const document = manifest.documents.find(
-    (item) => item.id === "zh-agent-integration-plan",
-  );
+  const documents = manifest.documents;
+  const groups = [...new Set(documents.map((document) => document.group))];
 
-  assert.deepEqual(document, {
-    id: "zh-agent-integration-plan",
-    path: "docs/zh/agent_integration_plan.md",
-    sourcePath: "docs/zh/agent_integration_plan.md",
-    title: "Agent 集成设计与调研记录",
-    description:
-      "Codex、DSH、OpenClaw、Claude Code 与 Hermes Agent 的历史设计和调研记录。",
-    group: "integration",
-    language: "zh",
-  });
+  assert.equal(documents.some((document) => document.id === "reme-memory-skill"), false);
+  assert.equal(documents.some((document) => document.sourcePath.endsWith("agent_integration_plan.md")), false);
+  assert.deepEqual(
+    documents
+      .filter((document) => document.group === "plugins")
+      .map((document) => document.title || document.titles?.en),
+    ["每日论文插件", "Auto Fin 插件", "Daily Paper Plugin", "Auto Fin Plugin"],
+  );
+  assert.equal(documents.some((document) => document.group === "cookbooks"), false);
+  assert.ok(groups.indexOf("integration") > groups.indexOf("start"));
+  assert.ok(groups.indexOf("integration") < groups.indexOf("fundamentals"));
 });
