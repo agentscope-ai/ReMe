@@ -109,11 +109,23 @@ jobs:
           "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution
 
+          from reme.plugin_manifest import load_package_manifest
+
           package = distribution("reme-auto-fin")
           plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
-          configs = {entry.name: entry for entry in package.entry_points if entry.group == "reme.configs"}
-          assert plugins["auto-fin"].load().name == "auto-fin"
-          assert configs["auto-fin"].load().is_file()
+          assert plugins["auto-fin"].value == "reme_auto_fin"
+          manifest = load_package_manifest("reme_auto_fin", plugin_name="auto-fin")
+          assert set(manifest.backends) == {
+              "auto_fin_data_step",
+              "auto_fin_topic_step",
+              "auto_fin_merge_step",
+          }
+          assert set(manifest.application_defaults["jobs"]) == {
+              "auto_fin",
+              "auto_fin_0930_cron",
+              "auto_fin_1130_cron",
+              "auto_fin_1800_cron",
+          }
           PY
 
       - name: Upload distributions
