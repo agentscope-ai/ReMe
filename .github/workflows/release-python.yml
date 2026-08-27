@@ -1,7 +1,8 @@
 name: Release / Python packages
 
-# reme-ai[qwenpaw] is verified before publication. Publish the independently
-# versioned reme-auto-fin and reme-daily-paper requirements first.
+# reme-ai[qwenpaw] is normally verified before publication. For a bootstrap
+# release where the plugins require this new reme-ai version, disable that
+# verification, publish reme-ai first, and then publish the plugins.
 # Configure a PyPI Trusted Publisher for this repository, workflow, and its
 # pypi environment before running the manual release.
 
@@ -12,6 +13,11 @@ on:
         description: Release version
         required: true
         type: string
+      verify_qwenpaw_dependencies:
+        description: Verify already-published Auto Fin and Daily Paper packages
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -27,6 +33,7 @@ jobs:
     with:
       expected_version: ${{ inputs.version }}
       upload_artifacts: true
+      verify_qwenpaw_dependencies: ${{ inputs.verify_qwenpaw_dependencies }}
 
   publish-reme:
     needs: build

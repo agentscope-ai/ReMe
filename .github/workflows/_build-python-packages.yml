@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      verify_qwenpaw_dependencies:
+        description: Verify that independently published qwenpaw plugins are installable
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -79,10 +84,10 @@ jobs:
           assert (static_dir() / "index.html").is_file()
           PY
 
-      # qwenpaw composes independently released plugins. Keep this before the
-      # artifact upload so a core release cannot advertise an unavailable extra.
+      # qwenpaw composes independently released plugins. Bootstrap releases may
+      # skip this check to publish the reme-ai version required by those plugins.
       - name: Verify released qwenpaw dependencies
-        if: inputs.expected_version != ''
+        if: inputs.expected_version != '' && inputs.verify_qwenpaw_dependencies
         run: |
           REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
           python -m venv "${RUNNER_TEMP}/reme-qwenpaw-package-smoke"
