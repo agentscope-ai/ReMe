@@ -77,6 +77,22 @@ jobs:
           assert (static_dir() / "index.html").is_file()
           PY
 
+      # qwenpaw composes independently released plugins. Keep this before the
+      # artifact upload so a core release cannot advertise an unavailable extra.
+      - name: Verify released qwenpaw dependencies
+        if: inputs.expected_version != ''
+        run: |
+          REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
+          python -m venv "${RUNNER_TEMP}/reme-qwenpaw-package-smoke"
+          "${RUNNER_TEMP}/reme-qwenpaw-package-smoke/bin/python" -m pip install "${REME_WHEEL}[qwenpaw]"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-qwenpaw-package-smoke/bin/python" - <<'PY'
+          from importlib.metadata import distribution
+
+          assert distribution("reme-auto-fin")
+          assert distribution("reme-daily-paper")
+          PY
+
       - name: Upload ReMe distributions
         if: inputs.upload_artifacts
         uses: actions/upload-artifact@v4

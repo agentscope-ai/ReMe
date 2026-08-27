@@ -24,6 +24,7 @@ import {
   rebuildReMeIndex,
   REME_API_ENDPOINT,
 } from "./api";
+import { healthComponentEntries, isComponentHealthy } from "./health-status";
 import { useI18n, type TranslationKey } from "./i18n";
 import type {
   AppConfig,
@@ -60,13 +61,6 @@ const COMPONENT_ICONS: Record<string, React.ReactNode> = {
   file_store: <HardDrive size={18} />,
   keyword_index: <FileArchive size={18} />,
 };
-
-function isComponentHealthy(component: ReMeComponentHealth): boolean {
-  return (
-    component.is_healthy === true ||
-    (component.is_started === true && component.is_healthy !== false)
-  );
-}
 
 const COMPONENT_LABELS = {
   embedding_store: "embeddingStore",
@@ -256,15 +250,7 @@ export default function SettingsCenter({
     ([type, entries]) =>
       Object.entries(entries).map(([name, usage]) => ({ type, name, usage })),
   );
-  const healthComponents = Object.entries(health?.components || {}).flatMap(
-    ([type, entries]) =>
-      Object.entries(entries).map(([name, component]) => ({
-        type,
-        name,
-        component,
-        memory: memory?.components?.[type]?.[name]?.human,
-      })),
-  );
+  const healthComponents = healthComponentEntries(health, memory?.components);
   const healthyComponents = healthComponents.filter(({ component }) =>
     isComponentHealthy(component),
   ).length;

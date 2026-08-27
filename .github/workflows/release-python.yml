@@ -1,5 +1,8 @@
 name: Release / Python packages
 
+# reme-ai[qwenpaw] is verified before publication. Publish the independently
+# versioned reme-auto-fin and reme-daily-paper requirements first.
+
 on:
   workflow_dispatch:
     inputs:

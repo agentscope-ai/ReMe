@@ -7,6 +7,7 @@ import type {
   StreamChunk,
 } from "./types";
 import { decodeSseEvent } from "./chat-stream";
+import { healthFromResponse } from "./health-status";
 import { translate, useLanguageStore, type TranslationKey } from "./i18n";
 import {
   WORKSPACE_FILE_LIMIT,
@@ -70,10 +71,7 @@ export async function getReMeStatus(): Promise<ReMeResponse<string>> {
 
 export async function getReMeHealth(): Promise<ReMeHealth | undefined> {
   const response = await callReMe<string>("health_check");
-  const health = response.metadata.health;
-  return health && typeof health === "object"
-    ? (health as ReMeHealth)
-    : undefined;
+  return healthFromResponse(response);
 }
 
 export async function rebuildReMeIndex(): Promise<ReMeResponse<unknown>> {
