@@ -19,6 +19,8 @@ def test_load_builtin_config_by_filename_with_suffix():
     cfg = _load_config("default.yaml")
 
     assert cfg["service"]["backend"] == "http"
+    assert cfg["service"]["mcp_enabled"] is True
+    assert cfg["service"]["mcp_path"] == "/mcp"
 
 
 @pytest.mark.parametrize("provider_count", [1, 2])

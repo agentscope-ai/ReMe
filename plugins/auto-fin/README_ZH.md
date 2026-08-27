@@ -44,14 +44,14 @@ curl -s http://127.0.0.1:2333/auto_fin \
   -d '{"topics":"黄金,AI,存储芯片"}'
 ```
 
-在 MCP service 中启用插件时，同一个 Job 会暴露为 `auto_fin` MCP tool。默认 topics 是 `黄金,机器人,半导体`，
+HTTP service 也会在 `/mcp` 中将同一个 Job 暴露为 `auto_fin` MCP tool。默认 topics 是 `黄金,机器人,半导体`，
 传入空值也会使用默认值。
 
-如果需要将同一个应用作为 MCP service 启动：
+如果需要同时通过 JSON 和 MCP 访问同一个应用：
 
 ```bash
 reme start plugins='["auto-fin"]' \
-  service.backend=mcp service.transport=streamable-http
+  service.backend=http
 ```
 
 如果需要将 Auto Fin 叠加到其他应用，则显式选择相应配置，例如：

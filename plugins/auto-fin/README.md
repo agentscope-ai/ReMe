@@ -49,14 +49,14 @@ curl -s http://127.0.0.1:2333/auto_fin \
   -d '{"topics":"黄金,AI,存储芯片"}'
 ```
 
-When enabled on an MCP service, the same Job is exposed as the `auto_fin` MCP tool. The default topics are
+The HTTP service also exposes the same Job as the `auto_fin` MCP tool at `/mcp`. The default topics are
 `黄金,机器人,半导体`; an empty value also uses these defaults.
 
-To host the same application as an MCP service instead:
+To host the application with both JSON and MCP access:
 
 ```bash
 reme start plugins='["auto-fin"]' \
-  service.backend=mcp service.transport=streamable-http
+  service.backend=http
 ```
 
 To add Auto Fin to another application instead, select that config explicitly, for example:

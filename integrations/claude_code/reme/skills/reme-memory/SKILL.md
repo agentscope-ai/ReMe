@@ -14,7 +14,7 @@ The recall tools come from the `reme` MCP server (surfaced as `mcp__reme__…`):
 running:
 
 ```
-reme start service.backend=mcp service.transport=streamable-http
+reme start service.backend=http
 ```
 
 If the tools are missing, that server is not running — tell the user the command above instead of

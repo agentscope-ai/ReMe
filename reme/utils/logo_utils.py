@@ -79,7 +79,13 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
             port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
             info_table.add_row("🔗", "URL:", f"http://{host}:{port}")
+            mcp_enabled = getattr(runtime_service, "mcp_enabled", extra.get("mcp_enabled", True))
+            if mcp_enabled:
+                mcp_path = getattr(runtime_service, "mcp_path", extra.get("mcp_path", "/mcp"))
+                info_table.add_row("🚌", "MCP:", f"http://{host}:{port}{mcp_path}")
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
+            if mcp_enabled:
+                info_table.add_row("📚", "FastMCP:", Text(get_version("fastmcp"), style="dim"))
         case "mcp":
             transport = getattr(runtime_service, "transport", extra.get("transport", "sse"))
             info_table.add_row("🚌", "Transport:", transport)
