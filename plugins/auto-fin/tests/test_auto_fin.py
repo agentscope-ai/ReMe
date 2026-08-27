@@ -202,7 +202,16 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
     assert "end_date" not in prompt
     assert "调用 `search`" in prompt
     assert "调用 `read`" in prompt
-    assert kwargs == {"output_schema": AutoFinReportOutput, "job_tools": ["search", "read"]}
+    assert kwargs == {
+        "output_schema": AutoFinReportOutput,
+        "job_tools": ["search", "read"],
+        "injected_job_kwargs": {
+            "limit": 5,
+            "min_score": 0.0,
+            "start_date": None,
+            "end_date": "2026-08-09",
+        },
+    }
     report = (tmp_path / "daily" / "2026-08-10" / "auto_fin.md").read_text(encoding="utf-8")
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in report
     assert "](daily/2026-08-01/auto_fin.md)" not in report

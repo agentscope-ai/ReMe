@@ -57,7 +57,7 @@ reme start plugins='["auto-fin"]' \
 如果需要将 Auto Fin 叠加到其他应用，则显式选择相应配置，例如：
 
 ```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
+reme start config=demo plugins='["auto-fin"]'
 ```
 
 ## 流程
@@ -100,7 +100,7 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 | `request_interval` |                   `10` | 每次财联社请求尝试后的最小等待秒数，可设为 0 |
 | `max_retries`      |                    `3` | 每页财联社请求的最大尝试次数，至少为 1       |
 
-插件的三个 cron Job 随应用启动，并按 `Asia/Shanghai` 时区在每天 09:30、11:30 和 18:00 运行。
+插件的 cron Job 随应用启动，并按应用配置的时区在每天 18:00 运行。
 
 ## 产物
 

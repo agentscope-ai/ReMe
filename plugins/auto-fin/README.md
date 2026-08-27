@@ -62,7 +62,7 @@ reme start plugins='["auto-fin"]' \
 To add Auto Fin to another application instead, select that config explicitly, for example:
 
 ```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
+reme start config=demo plugins='["auto-fin"]'
 ```
 
 ## Pipeline
@@ -109,7 +109,7 @@ refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent 
 | `request_interval` |                   `10` | Minimum delay in seconds after every CLS request attempt; may be zero    |
 | `max_retries`      |                    `3` | Maximum attempts for each CLS page request; must be at least one         |
 
-The three plugin cron Jobs start with the application and run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
+The plugin cron Job starts with the application and runs daily at 18:00 in the application timezone.
 
 ## Output
 

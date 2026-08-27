@@ -7,7 +7,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
-    "reme-ai",
+    "reme-ai>=0.4.1.9",
 ]
 
 [project.entry-points."reme.plugins"]

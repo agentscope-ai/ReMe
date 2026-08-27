@@ -123,14 +123,6 @@ def test_default_config_keeps_frontmatter_chunk_metadata_opt_in():
     ) in (None, [])
 
 
-def test_daily_cookbook_chunks_jsonl_one_line_at_a_time():
-    """Daily cookbook keeps JSONL records as individually addressable chunks."""
-    cfg = _load_config("daily_cookbook.yaml")
-
-    jsonl = cfg["components"]["file_chunker"]["jsonl"]
-    assert jsonl["max_lines_per_chunk"] == 1
-
-
 def test_parse_args_rejects_non_key_value_extra_argument():
     """Extra CLI arguments must use key=value syntax."""
     with pytest.raises(ValueError, match="expected key=value"):

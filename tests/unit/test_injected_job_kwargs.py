@@ -65,6 +65,31 @@ def test_strip_injected_parameters_hides_keys_from_schema():
     assert "date" in job.parameters["properties"]
 
 
+def test_search_injection_exposes_only_query():
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "limit": {"type": "integer"},
+            "min_score": {"type": "number"},
+            "start_date": {"type": "string"},
+            "end_date": {"type": "string"},
+        },
+        "required": ["query"],
+    }
+    injected = {
+        "limit": 20,
+        "min_score": 0.0,
+        "start_date": None,
+        "end_date": "2026-07-20",
+    }
+
+    stripped = BaseAgentWrapper._strip_injected_parameters(parameters, injected)
+
+    assert stripped["properties"] == {"query": {"type": "string"}}
+    assert stripped["required"] == ["query"]
+
+
 # -- AgentScope wrapper -----------------------------------------------------------
 
 
@@ -139,7 +164,7 @@ class _RecordingWrapper(BaseAgentWrapper):
         super().__init__(**kwargs)
         self.calls: list[dict] = []
 
-    async def reply(self, inputs, **kwargs) -> dict:
+    async def reply(self, _inputs, **kwargs) -> dict:
         self.calls.append(kwargs)
         return {"session_id": "s-1", "last_message": {}, "result": "ok"}
 

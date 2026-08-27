@@ -7,6 +7,7 @@ import tomllib
 from types import ModuleType
 
 from packaging.requirements import Requirement
+from packaging.version import Version
 import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -45,11 +46,7 @@ def test_studio_packages_have_independent_identity() -> None:
     assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
     assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
     assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
-    assert main_config["project"]["optional-dependencies"]["qwenpaw"] == [
-        "reme-ai",
-        "reme-auto-fin>=0.1.2",
-        "reme-daily-paper>=0.1.2",
-    ]
+    assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
     assert auto_fin_config["project"]["version"] == "0.1.2"
     assert daily_paper_config["project"]["version"] == "0.1.2"
     assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
@@ -161,7 +158,8 @@ def test_auto_fin_requires_reme_base() -> None:
 
     assert len(reme_requirements) == 1
     assert not reme_requirements[0].extras
-    assert not reme_requirements[0].specifier
+    assert Version("0.4.1.8") not in reme_requirements[0].specifier
+    assert Version("0.4.1.9") in reme_requirements[0].specifier
 
 
 def test_daily_paper_license_matches_repository() -> None:
@@ -178,7 +176,8 @@ def test_daily_paper_declares_runtime_dependencies() -> None:
     by_name = {requirement.name: requirement for requirement in requirements}
 
     assert not by_name["reme-ai"].extras
-    assert not by_name["reme-ai"].specifier
+    assert Version("0.4.1.8") not in by_name["reme-ai"].specifier
+    assert Version("0.4.1.9") in by_name["reme-ai"].specifier
     assert "pypdf" in by_name
 
 

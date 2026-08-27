@@ -8,7 +8,7 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "pypdf>=5.0.0",
-    "reme-ai",
+    "reme-ai>=0.4.1.9",
 ]
 
 [project.entry-points."reme.plugins"]

@@ -80,14 +80,23 @@ class DailyPaperDigestStep(DailyPaperStep):
 
         documents = [{"title": item.title, "desc": item.desc, "body": item.body} for item in analyses]
         wikilinks = [f"[[{item.note_path}]]" for item in analyses]
+        run_day = dt.date.fromisoformat(self._run_day())
+        daily_dir = str(self.config_value("daily_dir")).strip("/")
         self.logger.info(f"[{self.name}] agent start notes={len(analyses)}")
         result = await self.agent_wrapper.reply(
             self.prompt_format(
                 "digest_user",
                 documents=json.dumps(documents, ensure_ascii=False, indent=2),
+                daily_dir=daily_dir,
             ),
             output_schema=DailyPaperMarkdownOutput,
             job_tools=list(self.kwargs.get("job_tools") or []),
+            injected_job_kwargs={
+                "limit": 20,
+                "min_score": 0.0,
+                "start_date": None,
+                "end_date": (run_day - dt.timedelta(days=1)).isoformat(),
+            },
         )
         self.logger.info(f"[{self.name}] agent done notes={len(analyses)}")
         output = structured_output(result, DailyPaperMarkdownOutput)
@@ -95,8 +104,7 @@ class DailyPaperDigestStep(DailyPaperStep):
         if not output.desc.strip() or not body:
             raise ValueError("Agent returned an empty daily paper brief")
 
-        day = self._run_day()
-        daily_dir = str(self.config_value("daily_dir")).strip("/")
+        day = run_day.isoformat()
         title = normalize_chinese_title(output.title, f"每日论文简报-{day}")
         existing_rel = str(self._state("existing_digest_path") or "").strip()
         existing_path = self.workspace_path / existing_rel if existing_rel else None
@@ -109,7 +117,7 @@ class DailyPaperDigestStep(DailyPaperStep):
             existing=existing_path,
         )
         digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
-        body = self._validate_historical_wikilinks(body, dt.date.fromisoformat(day), digest_path)
+        body = self._validate_historical_wikilinks(body, run_day, digest_path)
         body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
         selected_ids = [item.arxiv_id for item in analyses]
         await write_markdown(

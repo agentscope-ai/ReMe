@@ -72,6 +72,8 @@ jobs:
           reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
           if len(reme_requirements) != 1 or reme_requirements[0].extras:
               raise SystemExit(f"Expected one base reme-ai dependency, found {reme_requirements!r}")
+          if Version("0.4.1.8") in reme_requirements[0].specifier or Version("0.4.1.9") not in reme_requirements[0].specifier:
+              raise SystemExit(f"Expected reme-ai>=0.4.1.9, found {reme_requirements!r}")
           if sum(requirement.name == "pypdf" for requirement in requirements) != 1:
               raise SystemExit("Expected exactly one pypdf dependency")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
@@ -105,7 +107,8 @@ jobs:
           python -m zipfile -l "${DAILY_PAPER_WHEEL}" | grep 'dist-info/licenses/LICENSE'
           python -m tarfile -l "${DAILY_PAPER_SDIST}" | grep '/LICENSE'
           python -m venv "${RUNNER_TEMP}/reme-daily-paper-smoke"
-          "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" -m pip install "${DAILY_PAPER_WHEEL}"
+          "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" -m pip install \
+            "agentscope[model-ollama]==2.0.7" "${DAILY_PAPER_WHEEL}"
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution

@@ -64,7 +64,7 @@ reme plugins list --json
 To compare installed plugins with one application config:
 
 ```bash
-reme plugins list --config daily_cookbook
+reme plugins list --config default
 ```
 
 The optional `ENABLED` column reflects only the `plugins` list resolved from that config. A command-line override used
@@ -176,7 +176,7 @@ When the application uses an MCP service, service-enabled plugin Jobs appear as 
 To add the plugin to another application config, select it explicitly:
 
 ```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
+reme start config=demo plugins='["auto-fin"]'
 ```
 
 ## Uninstall a plugin

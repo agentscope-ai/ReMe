@@ -75,6 +75,8 @@ jobs:
           reme_requirement = Requirement(requirements[0])
           if reme_requirement.name != "reme-ai" or reme_requirement.extras:
               raise SystemExit(f"Expected a base reme-ai dependency, found {requirements[0]!r}")
+          if Version("0.4.1.8") in reme_requirement.specifier or Version("0.4.1.9") not in reme_requirement.specifier:
+              raise SystemExit(f"Expected reme-ai>=0.4.1.9, found {requirements[0]!r}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               print(f"reme_requirement={reme_requirement}", file=output)
           print(f"Publishing {project['name']} {actual}")
@@ -104,7 +106,8 @@ jobs:
           python -m zipfile -l "${AUTO_FIN_WHEEL}" | grep 'dist-info/licenses/LICENSE'
           python -m tarfile -l "${AUTO_FIN_SDIST}" | grep '/LICENSE'
           python -m venv "${RUNNER_TEMP}/reme-auto-fin-smoke"
-          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install "${AUTO_FIN_WHEEL}"
+          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install \
+            "agentscope[model-ollama]==2.0.7" "${AUTO_FIN_WHEEL}"
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution

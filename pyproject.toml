@@ -62,11 +62,6 @@ core = [
     "polars>=1.43.0",
     "reme_studio",
 ]
-qwenpaw = [
-    "reme-ai",
-    "reme-auto-fin>=0.1.2",
-    "reme-daily-paper>=0.1.2",
-]
 dev = [
     "packaging>=24.2",
     "pre-commit>=4.6.1",
