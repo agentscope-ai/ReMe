@@ -643,6 +643,7 @@ def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
     )
 
     assert "`memory/`" in prompt
+    assert "搜索结果不必局限于 `memory/`" in prompt
     assert "[[memory/2026-07-01/旧文章.md" in prompt
     assert "[[daily/2026-07-01/" not in prompt
 
@@ -932,7 +933,8 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
-    assert "先调用 `search` 检索以前的文章" in digest_prompt
+    assert "先调用 `search` 检索已有记忆" in digest_prompt
+    assert "搜索结果不必局限于 `daily/`" in digest_prompt
     assert "end_date" not in digest_prompt
     assert "limit=" not in digest_prompt
     assert "Wikilink" in digest_prompt

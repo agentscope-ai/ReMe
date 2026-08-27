@@ -509,24 +509,58 @@ def test_cache_space_is_rechecked_after_async_load(monkeypatch, tmp_path):
     run(go())
 
 
-def test_completed_request_only_writes_to_its_active_cache_space():
-    """A v3 request must not populate v4 after the provider switches back to v3."""
+def test_completed_request_retries_after_vector_space_changes():
+    """A request completed by the old provider must not escape into the new vector space."""
 
     async def go():
         embedding = OpenAIAsEmbedding(name="t_space_write_race", backend="openai", model="v3", dimensions=2)
         store = LocalEmbeddingStore(name="t_local_write_race")
         store.as_embedding = embedding
         store._cache_space = embedding.vector_space_id
+        calls = 0
 
         async def compute_after_round_trip(_batch, **_kwargs):
-            embedding.model = FakeProviderModel("v4")
-            store._cache_space = embedding.vector_space_id
-            embedding.model = FakeProviderModel("v3")
-            return [(0, "key", np.array([3.0, 0.0], dtype=np.float16))]
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                embedding.model = FakeProviderModel("v4")
+                return [(0, "key", np.array([3.0, 0.0], dtype=np.float16))]
+            return [(0, "key", np.array([4.0, 0.0], dtype=np.float16))]
 
         store._compute_batch = compute_after_round_trip
-        await store._fill_misses([(0, "text", "key")], [None])
+        results = [None]
+        await store._fill_misses([(0, "text", "key")], results)
 
+        assert calls == 2
+        assert store._cache_space == embedding.vector_space_id
+        np.testing.assert_array_equal(results[0], np.array([4.0, 0.0], dtype=np.float16))
+        np.testing.assert_array_equal(store._cache["key"], np.array([4.0, 0.0], dtype=np.float16))
+
+    run(go())
+
+
+def test_completed_request_stops_retrying_when_vector_space_keeps_changing():
+    """Continuous configuration churn must leave the batch empty instead of blocking forever."""
+
+    async def go():
+        embedding = OpenAIAsEmbedding(name="t_space_write_churn", backend="openai", model="v3", dimensions=2)
+        store = LocalEmbeddingStore(name="t_local_write_churn")
+        store.as_embedding = embedding
+        store._cache_space = embedding.vector_space_id
+        calls = 0
+
+        async def change_space_every_time(_batch, **_kwargs):
+            nonlocal calls
+            calls += 1
+            embedding.model = FakeProviderModel(f"v{calls + 3}")
+            return [(0, "key", np.array([float(calls), 0.0], dtype=np.float16))]
+
+        store._compute_batch = change_space_every_time
+        results = [None]
+        await store._fill_misses([(0, "text", "key")], results)
+
+        assert calls == 3
+        assert results == [None]
         assert "key" not in store._cache
 
     run(go())

@@ -12,6 +12,7 @@ from ..component_registry import R
 from ..as_embedding import BaseAsEmbedding
 
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
+_MAX_VECTOR_SPACE_ATTEMPTS = 3
 
 
 @R.register("local")
@@ -125,14 +126,30 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         return results, misses
 
     async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
-        vector_space_id = self._cache_space
         size = self.max_batch_size
         for start in range(0, len(misses), size):
             batch = misses[start : start + size]
-            for idx, key, emb in await self._compute_batch(batch, **kwargs):
-                results[idx] = emb
-                if vector_space_id == self.vector_space_id == self._cache_space:
+            for attempt in range(1, _MAX_VECTOR_SPACE_ATTEMPTS + 1):
+                await self._sync_cache_space()
+                vector_space_id = self._cache_space
+                computed = await self._compute_batch(batch, **kwargs)
+                if vector_space_id != self.vector_space_id or vector_space_id != self._cache_space:
+                    if attempt == _MAX_VECTOR_SPACE_ATTEMPTS:
+                        self.logger.warning(
+                            f"Embedding vector space kept changing while computing a batch; "
+                            f"discarding {len(computed)} stale result(s) after {attempt} attempts",
+                        )
+                    else:
+                        self.logger.info(
+                            f"Embedding vector space changed while computing a batch; "
+                            f"discarding {len(computed)} stale result(s) and retrying "
+                            f"({attempt}/{_MAX_VECTOR_SPACE_ATTEMPTS})",
+                        )
+                    continue
+                for idx, key, emb in computed:
+                    results[idx] = emb
                     self._cache_put(key, emb)
+                break
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
         texts = [text for _, text, _ in batch]
