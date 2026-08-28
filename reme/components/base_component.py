@@ -223,15 +223,41 @@ class BaseComponent(ComponentMixin, ABC):
     # ----- Lifecycle control --------------------------------------------
 
     async def start(self) -> None:
-        """Start the component once: resolve deps → start owned → run _start."""
+        """Start once, rolling back partial resources when any startup stage fails."""
         async with self._lock:
             if self._is_started:
                 return
-            await self._resolve_bindings()
-            for owned in self._owned:
-                await owned.start()
-            await self._start()
-            self._is_started = True
+            started_owned: list[BaseComponent] = []
+            start_hook_entered = False
+            try:
+                await self._resolve_bindings()
+                for owned in self._owned:
+                    await owned.start()
+                    started_owned.append(owned)
+                start_hook_entered = True
+                await self._start()
+                self._is_started = True
+            except BaseException:
+                await self._rollback_start(start_hook_entered, started_owned)
+                raise
+
+    async def _rollback_start(
+        self,
+        start_hook_entered: bool,
+        started_owned: list["BaseComponent"],
+    ) -> None:
+        """Best-effort cleanup that preserves the original startup error."""
+        if start_hook_entered:
+            try:
+                await self._close()
+            except BaseException as exc:
+                self.logger.exception(f"Failed to roll back partially started component {self.name}: {exc}")
+        for owned in reversed(started_owned):
+            try:
+                await owned.close()
+            except BaseException as exc:
+                self.logger.exception(f"Failed to close owned component {owned.name} during startup rollback: {exc}")
+        self._is_started = False
 
     async def close(self) -> None:
         """Close the component once: run _close → close owned in reverse order."""

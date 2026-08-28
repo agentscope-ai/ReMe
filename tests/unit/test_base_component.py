@@ -3,6 +3,7 @@
 # pylint: disable=protected-access,missing-function-docstring,missing-class-docstring,attribute-defined-outside-init
 
 import asyncio
+import contextlib
 import os
 import tempfile
 
@@ -201,6 +202,54 @@ def test_close_closes_owned_when_parent_close_fails():
         assert owned.is_started is False
         assert owned.close_count == 1
         assert parent.is_started is False
+
+    asyncio.run(run())
+
+
+def test_start_failure_rolls_back_partial_resources():
+    class PartialStartComponent(BaseComponent):
+        component_type = ComponentEnum.FILE_CHUNKER
+
+        def __init__(self):
+            super().__init__()
+            self.resource_open = False
+            self.task = None
+            self.rollback_count = 0
+
+        async def _start(self):
+            self.resource_open = True
+            self.task = asyncio.create_task(asyncio.Event().wait())
+            raise RuntimeError("partial startup failed")
+
+        async def _close(self):
+            self.rollback_count += 1
+            self.resource_open = False
+            if self.task is not None:
+                self.task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self.task
+                self.task = None
+
+    async def run():
+        comp = PartialStartComponent()
+        owned = StubComponent(name="owned")
+        comp.dep = BaseComponent.bind(
+            "owned",
+            StubComponent,
+            default_factory=lambda: owned,
+        )
+
+        with pytest.raises(RuntimeError, match="partial startup failed"):
+            await comp.start()
+
+        assert comp.is_started is False
+        assert comp.resource_open is False
+        assert comp.task is None
+        assert comp.rollback_count == 1
+        assert owned.is_started is False
+        assert owned.close_count == 1
+        await comp.close()
+        assert comp.rollback_count == 1
 
     asyncio.run(run())
 

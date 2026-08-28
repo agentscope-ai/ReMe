@@ -345,16 +345,7 @@ class Application(BaseComponent):
             )
             if was_started:
                 await old_component.dump()
-                try:
-                    await replacement.start()
-                except BaseException:
-                    try:
-                        await replacement.close()
-                    except BaseException as cleanup_error:
-                        self.logger.exception(
-                            f"Failed to clean up replacement {component_type}:{name}: {cleanup_error}",
-                        )
-                    raise
+                await replacement.start()
 
             # Commit the new generation synchronously so observers cannot see
             # a context with only some dependency references updated.
