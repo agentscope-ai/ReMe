@@ -76,8 +76,15 @@ jobs:
               raise SystemExit(f"Expected reme-ai>=0.4.1.9, found {reme_requirements!r}")
           if sum(requirement.name == "pypdf" for requirement in requirements) != 1:
               raise SystemExit("Expected exactly one pypdf dependency")
+          root_project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          agentscope_requirements = [
+              Requirement(value) for value in root_project["optional-dependencies"]["as"]
+          ]
+          if len(agentscope_requirements) != 1 or agentscope_requirements[0].name != "agentscope":
+              raise SystemExit(f"Expected one agentscope dependency, found {agentscope_requirements!r}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               print(f"reme_requirement={reme_requirements[0]}", file=output)
+              print(f"agentscope_requirement={agentscope_requirements[0]}", file=output)
           print(f"Publishing {project['name']} {actual}")
           PY
 
@@ -99,6 +106,8 @@ jobs:
           python -m twine check dist/daily-paper/*
 
       - name: Verify distributions and isolated installation
+        env:
+          AGENTSCOPE_REQUIREMENT: ${{ steps.package.outputs.agentscope_requirement }}
         run: |
           DAILY_PAPER_WHEEL="$(pwd)/$(ls dist/daily-paper/reme_daily_paper-*.whl)"
           DAILY_PAPER_SDIST="$(pwd)/$(ls dist/daily-paper/reme_daily_paper-*.tar.gz)"
@@ -108,7 +117,7 @@ jobs:
           python -m tarfile -l "${DAILY_PAPER_SDIST}" | grep '/LICENSE'
           python -m venv "${RUNNER_TEMP}/reme-daily-paper-smoke"
           "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" -m pip install \
-            "agentscope[model-ollama]==2.0.7" "${DAILY_PAPER_WHEEL}"
+            "${AGENTSCOPE_REQUIREMENT}" "${DAILY_PAPER_WHEEL}"
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-daily-paper-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution

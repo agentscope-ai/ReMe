@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    target-branch: "main"
+    schedule:
+      interval: "cron"
+      cronjob: "30 9 * * *"
+      timezone: "Asia/Shanghai"
+    allow:
+      - dependency-name: "agentscope"
+    cooldown:
+      exclude:
+        - "agentscope"
+    open-pull-requests-limit: 1
+    commit-message:
+      prefix: "chore"
+      include: "scope"
