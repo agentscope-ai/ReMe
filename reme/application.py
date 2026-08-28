@@ -248,6 +248,26 @@ class Application(BaseComponent):
                 setattr(component, key, value)
             return component
 
+    def _replacement_shutdown_order(
+        self,
+        old_component: BaseComponent,
+        replacement: BaseComponent,
+        replacement_order: list[BaseComponent],
+    ) -> list[BaseComponent]:
+        """Precompute shutdown tracking using identity, not component hashing."""
+        started_ids = {id(component) for component in self._started_components}
+        started_ids.discard(id(old_component))
+        started_ids.add(id(replacement))
+        component_ids = {
+            id(component) for components in self.context.components.values() for component in components.values()
+        }
+        non_components = [
+            component
+            for component in self._started_components
+            if component is not old_component and id(component) not in component_ids
+        ]
+        return [component for component in replacement_order if id(component) in started_ids] + non_components
+
     async def replace_component(
         self,
         component_enum: ComponentType,
@@ -257,18 +277,19 @@ class Application(BaseComponent):
         config: ComponentConfig | Mapping[str, Any],
         runtime_updates: Mapping[str, Any] | None = None,
     ) -> BaseComponent:
-        """Atomically replace an existing component and its bind() references.
+        """Replace an existing component and synchronously commit its references.
 
         ``config`` is the complete declarative configuration for the new
         component. ``runtime_updates`` injects non-serializable live objects,
         such as an already verified model, before the replacement is started.
 
-        The new component is constructed, validated, and started while the old
-        component remains visible. The context, dependent bindings, persisted
-        application config, and shutdown order are then switched without an
-        await boundary. A start failure leaves the old generation untouched.
-        Hosts must still quiesce calls that may retain component references
-        across this operation.
+        The old component is dumped before the replacement starts so compatible
+        ``start()`` / ``load()`` implementations see its latest state. The
+        context, dependent bindings, in-memory application config, and shutdown
+        order are then switched without an await boundary. A dump or start
+        failure leaves the old generation authoritative. Hosts must quiesce
+        calls that may retain component references across this operation and
+        migrate state explicitly when changing between incompatible backends.
         """
         async with self._component_mutation_lock:
             component_type = component_type_name(component_enum)
@@ -300,8 +321,6 @@ class Application(BaseComponent):
             node_key = (component_type, name)
             replacement_order = Application._topological_order(self, replacement=(node_key, replacement))
             was_started = old_component.is_started
-            if was_started:
-                await replacement.start()
 
             consumers: list[tuple[BaseComponent, str]] = []
             candidates: list[BaseComponent] = [
@@ -321,27 +340,30 @@ class Application(BaseComponent):
                     ):
                         consumers.append((consumer, attr))
 
+            replacement_started_components = (
+                self._replacement_shutdown_order(old_component, replacement, replacement_order) if was_started else None
+            )
+            if was_started:
+                await old_component.dump()
+                try:
+                    await replacement.start()
+                except BaseException:
+                    try:
+                        await replacement.close()
+                    except BaseException as cleanup_error:
+                        self.logger.exception(
+                            f"Failed to clean up replacement {component_type}:{name}: {cleanup_error}",
+                        )
+                    raise
+
             # Commit the new generation synchronously so observers cannot see
             # a context with only some dependency references updated.
             group[name] = replacement
             config_group[name] = replacement_config
             for consumer, attr in consumers:
                 consumer.__dict__[attr] = replacement
-            if was_started:
-                started = set(self._started_components)
-                started.discard(old_component)
-                started.add(replacement)
-                component_set = {
-                    component for components in self.context.components.values() for component in components.values()
-                }
-                non_components = [
-                    component
-                    for component in self._started_components
-                    if component is not old_component and component not in component_set
-                ]
-                self._started_components = [
-                    component for component in replacement_order if component in started
-                ] + non_components
+            if replacement_started_components is not None:
+                self._started_components = replacement_started_components
 
             if was_started:
                 try:

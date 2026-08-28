@@ -10,6 +10,7 @@ from reme import ReMe
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.as_llm import BaseAsLLM, DashScopeAsLLM
 from reme.enumeration import ComponentEnum
+from reme.schema import FileNode
 
 
 def _qwenpaw_style_config(workspace_dir: str) -> dict:
@@ -43,6 +44,18 @@ def _qwenpaw_style_config(workspace_dir: str) -> dict:
                 },
             },
         },
+    }
+
+
+def _file_graph_config(workspace_dir: str) -> dict:
+    """Return a minimal application with one persistent file graph."""
+    return {
+        "workspace_dir": workspace_dir,
+        "enable_logo": False,
+        "log_to_console": False,
+        "log_to_file": False,
+        "service": {"backend": "http"},
+        "components": {"file_graph": {"default": {"backend": "local"}}},
     }
 
 
@@ -163,6 +176,107 @@ def test_replace_component_before_start_preserves_dependency_order(tmp_path):
         await app.start()
         assert wrapper.as_llm is replacement
         assert replacement.is_started is True
+        await app.close()
+
+    asyncio.run(exercise_api())
+
+
+def test_replace_component_flushes_persistent_state_before_start(tmp_path):
+    """A replacement loads runtime state that the old generation had not dumped."""
+    config = _file_graph_config(str(tmp_path))
+    app = ReMe(**config)
+
+    async def exercise_api() -> None:
+        await app.start()
+        old_graph = app.context.components[ComponentEnum.FILE_GRAPH]["default"]
+        await old_graph.upsert_nodes([FileNode(path="memory.md", st_mtime=1.0)])
+
+        replacement = await app.replace_component(
+            "file_graph",
+            "default",
+            config={"backend": "local"},
+        )
+
+        assert [node.path for node in await replacement.get_nodes()] == ["memory.md"]
+        await app.close()
+
+        restored_app = ReMe(**config)
+        await restored_app.start()
+        restored_graph = restored_app.context.components[ComponentEnum.FILE_GRAPH]["default"]
+        assert [node.path for node in await restored_graph.get_nodes()] == ["memory.md"]
+        await restored_app.close()
+
+    asyncio.run(exercise_api())
+
+
+def test_replace_component_accepts_unhashable_plugin_component(tmp_path):
+    """Shutdown-order calculation relies on identity for legal unhashable plugins."""
+
+    class UnhashableAsLLM(BaseAsLLM):
+        """Plugin component whose equality contract intentionally disables hashing."""
+
+        component_type = ComponentEnum.AS_LLM
+        __hash__ = None
+
+        def __eq__(self, other) -> bool:
+            return self is other
+
+    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app.context.registry.add("unhashable", UnhashableAsLLM, owner="test")
+
+    async def exercise_api() -> None:
+        await app.update_component("as_llm", "default", model=object())
+        await app.start()
+
+        replacement = await app.replace_component(
+            "as_llm",
+            "default",
+            config={"backend": "unhashable"},
+            runtime_updates={"model": object()},
+        )
+
+        assert any(component is replacement for component in app._started_components)
+        await app.close()
+        assert replacement.is_started is False
+
+    asyncio.run(exercise_api())
+
+
+def test_replace_component_dump_failure_keeps_old_generation(tmp_path):
+    """A failed state flush prevents replacement startup and public mutation."""
+
+    class ObservedAsLLM(BaseAsLLM):
+        """Replacement backend that records whether startup was attempted."""
+
+        component_type = ComponentEnum.AS_LLM
+        start_calls = 0
+
+        async def _start(self) -> None:
+            type(self).start_calls += 1
+
+    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    app.context.registry.add("observed", ObservedAsLLM, owner="test")
+
+    async def failing_dump() -> None:
+        raise RuntimeError("state flush failed")
+
+    async def exercise_api() -> None:
+        old_component = await app.update_component("as_llm", "default", model=object())
+        await app.start()
+        wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["default"]
+        old_component.dump = failing_dump
+
+        with pytest.raises(RuntimeError, match="state flush failed"):
+            await app.replace_component(
+                "as_llm",
+                "default",
+                config={"backend": "observed"},
+            )
+
+        assert ObservedAsLLM.start_calls == 0
+        assert app.context.components[ComponentEnum.AS_LLM]["default"] is old_component
+        assert wrapper.as_llm is old_component
+        assert old_component.is_started is True
         await app.close()
 
     asyncio.run(exercise_api())
