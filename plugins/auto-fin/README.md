@@ -59,11 +59,7 @@ reme start plugins='["auto-fin"]' \
   service.backend=http
 ```
 
-To add Auto Fin to another application instead, select that config explicitly, for example:
-
-```bash
-reme start config=demo plugins='["auto-fin"]'
-```
+Custom application configs must provide `agent_wrapper.default` and the `search` and `read` Jobs used by Auto Fin.
 
 ## Pipeline
 

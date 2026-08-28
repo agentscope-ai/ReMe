@@ -54,11 +54,7 @@ reme start plugins='["auto-fin"]' \
   service.backend=http
 ```
 
-如果需要将 Auto Fin 叠加到其他应用，则显式选择相应配置，例如：
-
-```bash
-reme start config=demo plugins='["auto-fin"]'
-```
+自定义应用配置需要提供 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
 
 ## 流程
 

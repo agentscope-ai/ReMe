@@ -509,41 +509,79 @@ def test_cache_space_is_rechecked_after_async_load(monkeypatch, tmp_path):
     run(go())
 
 
-def test_completed_request_retries_after_vector_space_changes():
-    """A request completed by the old provider must not escape into the new vector space."""
+def test_whole_request_retries_after_vector_space_changes_between_batches():
+    """Completed batches must be discarded when a later batch changes vector space."""
 
     async def go():
-        embedding = OpenAIAsEmbedding(name="t_space_write_race", backend="openai", model="v3", dimensions=2)
-        store = LocalEmbeddingStore(name="t_local_write_race")
+        embedding = FakeAsEmbedding()
+        embedding.vector_space_id = "v3"
+        store = LocalEmbeddingStore(name="t_local_write_race", max_batch_size=1, enable_cache=False)
         store.as_embedding = embedding
         store._cache_space = embedding.vector_space_id
         calls = 0
 
-        async def compute_after_round_trip(_batch, **_kwargs):
+        async def switch_during_second_batch(batch, **_kwargs):
             nonlocal calls
             calls += 1
-            if calls == 1:
-                embedding.model = FakeProviderModel("v4")
-                return [(0, "key", np.array([3.0, 0.0], dtype=np.float16))]
-            return [(0, "key", np.array([4.0, 0.0], dtype=np.float16))]
+            if calls == 2:
+                embedding.vector_space_id = "v4"
+            idx, _text, key = batch[0]
+            version = 3.0 if calls < 3 else 4.0
+            return [(idx, key, np.array([version, 0.0], dtype=np.float16))]
 
-        store._compute_batch = compute_after_round_trip
-        results = [None]
-        await store._fill_misses([(0, "text", "key")], results)
+        store._compute_batch = switch_during_second_batch
+        results = await store.get_embeddings(["first", "second"])
 
-        assert calls == 2
+        assert calls == 4
         assert store._cache_space == embedding.vector_space_id
-        np.testing.assert_array_equal(results[0], np.array([4.0, 0.0], dtype=np.float16))
-        np.testing.assert_array_equal(store._cache["key"], np.array([4.0, 0.0], dtype=np.float16))
+        for result in results:
+            np.testing.assert_array_equal(result, np.array([4.0, 0.0], dtype=np.float16))
 
     run(go())
 
 
-def test_completed_request_stops_retrying_when_vector_space_keeps_changing():
-    """Continuous configuration churn must leave the batch empty instead of blocking forever."""
+def test_whole_request_rereads_cache_after_vector_space_changes(monkeypatch, tmp_path):
+    """A cache hit from the old space must not survive a later provider switch."""
 
     async def go():
-        embedding = OpenAIAsEmbedding(name="t_space_write_churn", backend="openai", model="v3", dimensions=2)
+        monkeypatch.setattr(
+            LocalEmbeddingStore,
+            "component_metadata_path",
+            property(lambda _self: tmp_path),
+        )
+        embedding = FakeAsEmbedding()
+        embedding.vector_space_id = "v3"
+        store = LocalEmbeddingStore(name="t_local_cache_race", enable_cache=True)
+        store.as_embedding = embedding
+        store._cache_space = embedding.vector_space_id
+        first_key = store._cache_key("first")
+        store._cache[first_key] = np.array([3.0, 0.0], dtype=np.float16)
+        calls = 0
+
+        async def switch_on_miss(batch, **_kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                embedding.vector_space_id = "v4"
+            version = 3.0 if calls == 1 else 4.0
+            return [(idx, key, np.array([version, 0.0], dtype=np.float16)) for idx, _text, key in batch]
+
+        store._compute_batch = switch_on_miss
+        results = await store.get_embeddings(["first", "second"])
+
+        assert calls == 2
+        for result in results:
+            np.testing.assert_array_equal(result, np.array([4.0, 0.0], dtype=np.float16))
+
+    run(go())
+
+
+def test_whole_request_stops_retrying_when_vector_space_keeps_changing():
+    """Continuous configuration churn must discard the whole request instead of blocking forever."""
+
+    async def go():
+        embedding = FakeAsEmbedding()
+        embedding.vector_space_id = "v3"
         store = LocalEmbeddingStore(name="t_local_write_churn")
         store.as_embedding = embedding
         store._cache_space = embedding.vector_space_id
@@ -552,12 +590,11 @@ def test_completed_request_stops_retrying_when_vector_space_keeps_changing():
         async def change_space_every_time(_batch, **_kwargs):
             nonlocal calls
             calls += 1
-            embedding.model = FakeProviderModel(f"v{calls + 3}")
+            embedding.vector_space_id = f"v{calls + 3}"
             return [(0, "key", np.array([float(calls), 0.0], dtype=np.float16))]
 
         store._compute_batch = change_space_every_time
-        results = [None]
-        await store._fill_misses([(0, "text", "key")], results)
+        results = await store.get_embeddings(["text"])
 
         assert calls == 3
         assert results == [None]
