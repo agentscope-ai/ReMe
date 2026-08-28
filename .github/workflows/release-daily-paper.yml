@@ -82,9 +82,19 @@ jobs:
           ]
           if len(agentscope_requirements) != 1 or agentscope_requirements[0].name != "agentscope":
               raise SystemExit(f"Expected one agentscope dependency, found {agentscope_requirements!r}")
+          agentscope_requirement = agentscope_requirements[0]
+          agentscope_specifiers = list(agentscope_requirement.specifier)
+          if (
+              agentscope_requirement.extras != {"model-ollama"}
+              or agentscope_requirement.marker is not None
+              or len(agentscope_specifiers) != 1
+              or agentscope_specifiers[0].operator != "=="
+              or Version(agentscope_specifiers[0].version).is_prerelease
+          ):
+              raise SystemExit(f"Expected a stable exact agentscope[model-ollama] pin, found {agentscope_requirement}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               print(f"reme_requirement={reme_requirements[0]}", file=output)
-              print(f"agentscope_requirement={agentscope_requirements[0]}", file=output)
+              print(f"agentscope_requirement={agentscope_requirement}", file=output)
           print(f"Publishing {project['name']} {actual}")
           PY
 

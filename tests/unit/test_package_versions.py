@@ -47,6 +47,7 @@ def test_studio_packages_have_independent_identity() -> None:
     agentscope_requirement = agentscope_requirements[0]
     assert agentscope_requirement.name == "agentscope"
     assert agentscope_requirement.extras == {"model-ollama"}
+    assert agentscope_requirement.marker is None
     agentscope_specifiers = list(agentscope_requirement.specifier)
     assert len(agentscope_specifiers) == 1
     assert agentscope_specifiers[0].operator == "=="
