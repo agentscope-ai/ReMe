@@ -335,7 +335,7 @@ jobs:
 
   reindex:
     backend: base
-    description: "rebuild all, BM25, or embedding search indexes"
+    description: "rebuild BM25 and/or embedding indexes from current file_chunks"
     parameters:
       type: object
       properties:

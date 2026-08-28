@@ -111,5 +111,5 @@ class BaseFileStore(BaseComponent):
         raise NotImplementedError
 
     async def reindex(self, scope: str) -> dict:
-        """Synchronously rebuild ``all``, ``bm25``, or ``embedding`` state."""
+        """Rebuild derived search indexes from current chunks without rescanning files."""
         raise NotImplementedError

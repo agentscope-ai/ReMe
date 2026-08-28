@@ -184,8 +184,8 @@ Auto Dream 默认查看以目标日期结尾的最近两天，只把相对上次
 </p>
 
 Markdown 适合人读，但如果只是把文件堆进目录，Agent 仍然很难快速找到它们。默认实时索引持续监听 `daily/` 与 `digest/` 中的
-Markdown；`resource/` 由独立资源流程监听，转成 daily 卡片后进入同一索引。需要从现有文件完整重建时，`reme reindex` 还会扫描
-`resource/` 与 JSONL。
+Markdown；`resource/` 由独立资源流程监听，转成 daily 卡片后进入同一索引。手动 `reindex` 只基于这些摄取路径已经接受的
+chunks 重建 BM25 和 Embedding 索引，不会重新扫描文件或重建 Wikilink 图谱。
 
 一份 Markdown 会被解析为：
 

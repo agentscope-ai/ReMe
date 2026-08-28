@@ -352,7 +352,7 @@ class LocalFileStore(BaseFileStore):
 
     @BaseFileStore.serialized
     async def reindex(self, scope: str) -> dict:
-        """Synchronously rebuild derived indexes from authoritative chunks."""
+        """Rebuild derived search indexes from ``file_chunks`` without touching files or the graph."""
         if scope not in {"all", "bm25", "embedding"}:
             raise ValueError("reindex scope must be one of: all, bm25, embedding")
         if scope == "bm25":

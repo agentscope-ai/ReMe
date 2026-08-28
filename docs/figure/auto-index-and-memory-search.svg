@@ -73,7 +73,7 @@
 
     <rect class="panel" x="142" y="484" width="916" height="76"/>
     <text class="note" x="190" y="514">Rebuild scope</text>
-    <text class="chip-text" x="190" y="536">reindex adds resource + JSONL.</text>
+    <text class="chip-text" x="190" y="536">BM25 + vectors from current chunks.</text>
     <line class="line" x1="410" y1="500" x2="410" y2="544"/>
     <text class="chip-title" x="454" y="514">BM25 is enabled by default</text>
     <text class="chip-text" x="454" y="536">Recall cap: 200; embeddings opt-in.</text>

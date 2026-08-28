@@ -178,8 +178,9 @@ Knowledge evolves and links are created in the same workflow. Relationships are 
 
 Markdown is easy for people to read, but if files are merely piled into directories, agents still struggle to find them
 quickly. The default live index watches Markdown under `daily/` and `digest/`. A separate resource workflow watches
-`resource/` and turns those files into daily cards that enter the same index. For a full rebuild from existing files,
-`reme reindex` also scans `resource/` and JSONL.
+`resource/` and turns those files into daily cards that enter the same index. Manual `reindex` rebuilds BM25 and
+embedding indexes from the chunks those ingestion paths have already accepted; it does not rescan files or rebuild the
+Wikilink graph.
 
 A Markdown file is parsed into:
 

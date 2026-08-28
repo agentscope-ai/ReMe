@@ -225,8 +225,8 @@ def test_collect_existing_filters():
 # ---------------------------------------------------------------------------
 
 
-def test_clear_and_scan_defaults_include_jsonl():
-    """Full reindex should include jsonl files when no explicit suffix filter is passed."""
+def test_clear_and_scan_flow_includes_jsonl_when_configured():
+    """The legacy clear-and-scan primitives accept configured JSONL inputs."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -1913,7 +1913,7 @@ if __name__ == "__main__":
     test_match_file_no_suffix_filter()
     test_collect_existing_filters()
     # InitChangesStep
-    test_clear_and_scan_defaults_include_jsonl()
+    test_clear_and_scan_flow_includes_jsonl_when_configured()
     test_scan_changes_initial_all_added()
     test_scan_changes_no_changes()
     test_scan_changes_detect_modify_delete()

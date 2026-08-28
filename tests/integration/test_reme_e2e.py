@@ -160,7 +160,7 @@ async def _run_loop(env, reme) -> None:
     print(f"[3/5] digest nodes: {[str(p.relative_to(env.workspace_dir)) for p in digest_paths]}")
     assert len(carried) >= 3, f"consolidation lost the topic; only {carried!r} survived"
 
-    # ---- 4. recall: rebuild the index, then search it -----------
+    # ---- 4. recall: rebuild derived search indexes, then search -----------
     reindex = await reme.run_job("reindex")
     assert reindex.success is True, f"reindex failed: {reindex.answer!r}"
 

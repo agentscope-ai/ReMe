@@ -237,8 +237,9 @@ FileLink
 
 Older documents containing wrappers such as `related:: [[path]]`,
 `- related:: [[path]]`, or `[related:: [[path]]]` remain readable. ReMe ignores the surrounding text and indexes the
-inner `[[path]]` as an ordinary link. After upgrading from a version that stored typed links, run `reme reindex`
-once to rebuild the derived graph without the removed relationship field.
+inner `[[path]]` as an ordinary link. Graph changes are applied when source files pass through the normal ingestion
+path. `reme reindex` only rebuilds BM25 and embedding indexes from existing chunks; it does not reparse files or rebuild
+the derived graph.
 
 ### Sources and Relationships
 

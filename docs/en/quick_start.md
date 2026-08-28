@@ -113,11 +113,14 @@ Related link: [[digest/wiki/search-demo.md]]"
 and
 `description` are written to frontmatter.
 
-The background watcher builds the index automatically. You can also rebuild it manually:
+The background watcher ingests workspace files automatically. You can manually rebuild the derived BM25 and embedding
+indexes from the chunks it has already ingested:
 
 ```bash
 reme reindex
 ```
+
+This command does not scan workspace files, rechunk content, or rebuild the wikilink graph.
 
 Search:
 

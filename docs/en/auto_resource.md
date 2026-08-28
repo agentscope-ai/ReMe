@@ -99,7 +99,6 @@ therefore enter the daily memory flow while their source files stay in their ori
 ## What Happens Next
 
 Auto Resource only creates resource interpretations in the daily layer. To distill long-term knowledge from resources
-into
-`digest/`, use [Auto Dream](./auto_dream.md). The default live index covers daily cards and digest nodes. Run
-`reme reindex`
-when original resource files must also be directly searchable; see [Memory Search](./memory_search.md).
+into `digest/`, use [Auto Dream](./auto_dream.md). The default live index covers daily cards and digest nodes. Manual
+`reindex` only rebuilds search indexes from chunks already accepted by an ingestion path; it does not add the original
+resource files to search. See [Memory Search](./memory_search.md).

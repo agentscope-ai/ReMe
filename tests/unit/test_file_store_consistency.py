@@ -416,7 +416,7 @@ def test_load_rebuilds_keyword_index_from_persisted_chunks_when_missing():
 
 
 def test_load_clears_graph_when_persisted_chunks_are_missing():
-    """A surviving graph must not hide a missing chunk store from reindex."""
+    """A surviving graph must not hide a missing chunk store from automatic file ingestion."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):

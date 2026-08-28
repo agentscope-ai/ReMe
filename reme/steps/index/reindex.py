@@ -1,4 +1,4 @@
-"""Explicit scoped search-index rebuild."""
+"""Explicit scoped rebuild of search indexes from already-ingested chunks."""
 
 from ..base_step import BaseStep
 from ...components import R
@@ -6,7 +6,7 @@ from ...components import R
 
 @R.register("reindex_step")
 class ReindexStep(BaseStep):
-    """Rebuild ``all``, ``bm25``, or ``embedding`` synchronously."""
+    """Rebuild BM25 and/or embeddings without scanning files or changing the graph."""
 
     async def execute(self):
         assert self.context is not None

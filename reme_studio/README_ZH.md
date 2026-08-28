@@ -102,7 +102,7 @@ NEXT_PUBLIC_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
 VITE_REME_WORKSPACE_EXTENSIONS=md,txt,mdx
 ```
 
-记忆图谱依赖 ReMe 构建的索引。在 Studio 设置中重建索引时，只会根据工作区文件重新生成派生数据，不会修改记忆源文件。
+记忆图谱依赖 ReMe 的摄取流程。在 Studio 设置中重建索引时，只会基于已摄取的 chunks 重建 BM25 和 Embedding 索引；不会扫描工作区文件、重新分块、修改记忆源文件或重建 wikilink 图谱。
 
 ## 检查
 
