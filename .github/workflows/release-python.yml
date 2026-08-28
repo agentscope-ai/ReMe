@@ -1,7 +1,8 @@
 name: Release / Python packages
 
+# GitHub Releases in this repository publish only the reme-ai Python package.
 # Configure a PyPI Trusted Publisher for this repository, workflow, and its
-# pypi environment before running the manual release.
+# pypi environment before running an automatic or manual release.
 
 on:
   workflow_dispatch:
@@ -10,6 +11,8 @@ on:
         description: Release version
         required: true
         type: string
+  release:
+    types: [published]
 
 permissions:
   contents: read
@@ -23,7 +26,7 @@ jobs:
     name: Build and verify distributions
     uses: ./.github/workflows/_build-python-packages.yml
     with:
-      expected_version: ${{ inputs.version }}
+      expected_version: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
       upload_artifacts: true
 
   publish-reme:
