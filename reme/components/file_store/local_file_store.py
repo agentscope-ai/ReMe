@@ -620,6 +620,9 @@ class LocalFileStore(BaseFileStore):
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
+            # Keep snapshotting synchronous so concurrent mutation cannot produce a
+            # mixed-generation checkpoint. Move it off-loop only if profiling shows
+            # this copy, rather than serialization/compression, is a material stall.
             chunks = tuple(chunk.model_copy(deep=True) for chunk in self.file_chunks.values())
             await complete_in_thread(self._dump_chunks_sync, chunks)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")

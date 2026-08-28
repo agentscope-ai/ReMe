@@ -362,6 +362,9 @@ class BM25Index(BaseKeywordIndex):
             self.index_file.unlink(missing_ok=True)
             return
         try:
+            # Keep snapshotting synchronous so the worker receives one coherent
+            # index generation. Move it off-loop only if profiling identifies this
+            # copy, rather than pickle/file I/O, as a material event-loop stall.
             snapshot = self._snapshot()
             await complete_in_thread(self._dump_sync, snapshot)
             self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
