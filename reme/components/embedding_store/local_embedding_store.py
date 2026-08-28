@@ -67,7 +67,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         await self.load()
 
     async def _close(self) -> None:
-        await self.dump()
+        if self.is_started:
+            await self.dump()
 
     async def health_check(self, timeout: float | None = None) -> bool:
         timeout = self.health_check_timeout if timeout is None else timeout

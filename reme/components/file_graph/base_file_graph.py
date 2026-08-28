@@ -26,7 +26,8 @@ class BaseFileGraph(BaseComponent):
         await self.load()
 
     async def _close(self) -> None:
-        await self.dump()
+        if self.is_started:
+            await self.dump()
         await super()._close()
 
     async def load(self) -> None:
