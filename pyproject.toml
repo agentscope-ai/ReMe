@@ -48,7 +48,7 @@ web = [
     "reme_studio",
 ]
 core = [
-    "reme-ai[as]",
+    "reme-ai[as,web]",
     "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
@@ -60,7 +60,6 @@ core = [
     "neo4j>=6.2.0",
     "networkx>=3.4.2",
     "polars>=1.43.0",
-    "reme_studio",
 ]
 dev = [
     "packaging>=24.2",
