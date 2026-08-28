@@ -1,5 +1,6 @@
 """Zvec-backed file store: chunk JSONL stays authoritative; a zvec collection replaces the linear vector scan."""
 
+import asyncio
 import hashlib
 import json
 import shutil
@@ -178,7 +179,11 @@ class ZvecLocalFileStore(LocalFileStore):
 
     async def _reset_vector_index(self) -> None:
         """Discard all vectors before rebuilding a changed vector space."""
-        self._collection = self._create_collection()
+        self._collection = await asyncio.to_thread(self._create_collection)
+
+    async def _finalize_embedding_reindex(self) -> None:
+        """Publish the complete zvec snapshot before explicit job success."""
+        await asyncio.to_thread(self._rebuild_collection)
 
     # -- maintenance ------------------------------------------------------
 

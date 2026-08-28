@@ -195,18 +195,16 @@ jobs:
   # ── Reindex (full rebuild) ──
   reindex:
     backend: base
-    description: "wipe the file store and rebuild it from the existing files"
-    watch_dirs: [daily_dir, digest_dir, resource_dir]
-    watch_suffixes: [md, jsonl]
+    description: "rebuild all, BM25, or embedding search indexes"
     parameters:
       type: object
-      properties: {}
+      properties:
+        scope:
+          type: string
+          enum: [all, bm25, embedding]
+          default: all
     steps:
-      - backend: clear_store_step
-      - backend: init_changes_step
-        monitor_type: file_store
-        monitor_name: default
-        dispatch_steps: [update_index_step]
+      - backend: reindex_step
 
   # ── Search ──
   #   start_date:

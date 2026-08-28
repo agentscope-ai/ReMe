@@ -1,8 +1,8 @@
 # Memory Search
 
 Memory Search 是 ReMe 的记忆检索入口。默认后台持续把 `daily/`、`digest/` 里的 Markdown 构建成可搜索的 chunk 索引和
-wikilink 图谱；查询时先召回最相关的片段，再沿着片段所在文件的双向链接展开上下文。`reme reindex` 的重建范围更宽，会额外扫描
-`resource/` 和 JSONL；这与实时 watcher 的默认范围不同。
+wikilink 图谱；查询时先召回最相关的片段，再沿着片段所在文件的双向链接展开上下文。`reme reindex` 以权威的内存态
+`file_chunks` 为输入重建派生的 BM25 和 Embedding 索引；它不会重新扫描工作区、重新分块或改写 wikilink 图谱。
 
 <p align="center">
   <img src="../figure/auto-index-and-memory-search.svg" alt="ReMe Auto Index and Memory Search 索引、召回、融合与链接展开流程" width="92%">
@@ -26,8 +26,7 @@ workspace files
 - `digest_dir`：长期沉淀后的 digest 节点。
 
 默认实时后缀只有 `md`。`resource_dir` 由独立的 `resource_watch_loop` 监听，并经 Auto Resource 转换成 daily 卡片后进入实时索引。
-如果手动运行 `reme reindex`，其配置会扫描 `daily_dir`、`digest_dir`、`resource_dir` 下的 `md` 和 `jsonl`；Markdown 用
-`markdown` chunker，JSONL 用 `jsonl` chunker。
+手动 `reindex` 只处理这些摄取路径已经接受的 chunk，因此不会扩大搜索文件范围。
 
 ## 索引怎么构建
 
@@ -109,8 +108,10 @@ file_store:
 Embedding store 可通过 `health_check_timeout` 配置启动探测。临时失败只会跳过本次向量回填，BM25 仍可使用；
 后续真实请求成功后会自动恢复缺失向量的回填。
 
-已经完成真实服务验证的嵌入式集成可以调用 `resume_embedding(verified=True)`。切换 Embedding 向量空间时应同时传入
-`rebuild=True`；ReMe 会先使旧向量失效，再串行后台重建，并在新向量安全持久化前暂停向量搜索。
+已经完成真实服务验证的嵌入式集成可以调用 `resume_embedding(verified=True)`，修复同一向量空间内缺失的向量。
+切换 Embedding 向量空间必须显式运行 `reindex` Job，并传入 `scope: embedding`；该 Job 成功完成前向量搜索保持不可用。
+`scope: bm25` 只重建关键词索引；`scope: all` 先重建 BM25，再重建 Embedding。所有 scope 都使用当前的
+`file_chunks` 快照。
 
 ## 怎么搜索
 

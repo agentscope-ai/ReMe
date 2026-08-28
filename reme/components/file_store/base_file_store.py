@@ -72,3 +72,11 @@ class BaseFileStore(BaseComponent):
         Meant to be invoked off the request path (cron / idle schedulers).
         Backends without derived index state keep the default no-op.
         """
+
+    async def require_embedding_rebuild(self) -> None:
+        """Disable vector reads and writes until a full manual rebuild."""
+        raise NotImplementedError
+
+    async def reindex(self, scope: str) -> dict:
+        """Synchronously rebuild ``all``, ``bm25``, or ``embedding`` state."""
+        raise NotImplementedError

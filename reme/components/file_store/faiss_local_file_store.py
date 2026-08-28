@@ -257,6 +257,11 @@ class FaissLocalFileStore(LocalFileStore):
         await self._stop_reindex_worker()
         self._rebuild_index()
 
+    async def _finalize_embedding_reindex(self) -> None:
+        """Build and publish the complete FAISS snapshot before job success."""
+        await self._stop_reindex_worker()
+        await self._reindex_async()
+
     # -- async reindex ----------------------------------------------------
 
     def _submit_reindex(self) -> None:

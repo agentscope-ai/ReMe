@@ -46,6 +46,7 @@ class LocalFileStore(BaseFileStore):
         file_graph: str = "default",
         encoding: str = "utf-8",
         store_version: str = "v1",
+        embedding_rebuild_required: bool = False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -67,8 +68,9 @@ class LocalFileStore(BaseFileStore):
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
         self._embedding_backfill_task: asyncio.Task | None = None
-        self._embedding_backfill_pending: tuple[bool, bool] | None = None
-        self._embedding_rebuild_pending = False
+        self._embedding_backfill_pending = False
+        self._embedding_rebuild_pending = bool(embedding_rebuild_required)
+        self._manual_reindex_lock = asyncio.Lock()
         self._closing = False
 
     # -- lifecycle ------------------------------------------------------------
@@ -122,29 +124,25 @@ class LocalFileStore(BaseFileStore):
 
     async def _recover_after_real_request(self, was_healthy: bool) -> None:
         """Schedule repair when a real, non-cache provider request recovers."""
-        if self.embedding_store is None or was_healthy or not getattr(self.embedding_store, "is_healthy", True):
+        if (
+            self.embedding_store is None
+            or self._embedding_rebuild_pending
+            or was_healthy
+            or not getattr(self.embedding_store, "is_healthy", True)
+        ):
             return
         self.logger.info(f"{self.name}: embedding provider recovered; scheduling missing-vector backfill")
         await self.resume_embedding(verified=True)
 
-    async def resume_embedding(self, *, verified: bool = False, rebuild: bool = False) -> bool:
-        """Resume a configured provider and schedule a deduplicated repair.
-
-        Embedded applications may pass ``verified=True`` after they have already
-        made a successful real provider request, avoiding a redundant ping. Pass
-        ``rebuild=True`` when the active vector space changed; existing vectors
-        are derived data and are discarded before a full background rebuild.
-        """
+    async def resume_embedding(self, *, verified: bool = False) -> bool:
+        """Resume same-vector-space repair after provider recovery."""
         if self.embedding_store is None or self._closing:
             return False
         if verified:
             self.embedding_store.is_healthy = True
-        if rebuild:
-            await self._prepare_embedding_rebuild()
-            if not self.file_chunks:
-                self._embedding_rebuild_pending = False
-                return True
-        self._start_embedding_backfill(skip_health_check=verified, rebuild=rebuild)
+        if self._embedding_rebuild_pending:
+            return True
+        self._start_embedding_backfill(skip_health_check=verified)
         return True
 
     def _embedding_dim_matches(self, embedding: np.ndarray | None) -> bool:
@@ -269,11 +267,12 @@ class LocalFileStore(BaseFileStore):
             return
         self._drop_stale_embeddings(self.file_chunks.values(), "load")
 
-    def _start_embedding_backfill(self, *, skip_health_check: bool = False, rebuild: bool = False) -> None:
+    def _start_embedding_backfill(self, *, skip_health_check: bool = False) -> None:
         """Schedule startup embedding repair without delaying component readiness."""
         started_at = time.monotonic()
-        if self._closing:
-            self.logger.info(f"{self.name}: embedding backfill skipped: reason=closing")
+        if self._closing or self._embedding_rebuild_pending:
+            reason = "closing" if self._closing else "manual_reindex_required"
+            self.logger.info(f"{self.name}: embedding backfill skipped: reason={reason}")
             return
         if not self.embedding_store:
             self.logger.info(
@@ -282,14 +281,7 @@ class LocalFileStore(BaseFileStore):
             )
             return
         if self._embedding_backfill_task is not None and not self._embedding_backfill_task.done():
-            pending_verified = skip_health_check or bool(
-                self._embedding_backfill_pending and self._embedding_backfill_pending[0],
-            )
-            pending_rebuild = rebuild or bool(
-                self._embedding_backfill_pending and self._embedding_backfill_pending[1],
-            )
-            if pending_verified or pending_rebuild:
-                self._embedding_backfill_pending = (pending_verified, pending_rebuild)
+            self._embedding_backfill_pending |= skip_health_check
             self.logger.info(
                 f"{self.name}: embedding backfill scheduling skipped: reason=already_running, "
                 f"elapsed={time.monotonic() - started_at:.3f}s",
@@ -302,7 +294,7 @@ class LocalFileStore(BaseFileStore):
             )
             return
         self._embedding_backfill_task = asyncio.create_task(
-            self._run_embedding_backfill(skip_health_check=skip_health_check, rebuild=rebuild),
+            self._run_embedding_backfill(skip_health_check=skip_health_check),
             name=f"embedding-backfill:{self.name}",
         )
         self.logger.info(
@@ -310,37 +302,84 @@ class LocalFileStore(BaseFileStore):
             f"elapsed={time.monotonic() - started_at:.3f}s",
         )
 
-    async def _run_embedding_backfill(self, *, skip_health_check: bool, rebuild: bool) -> None:
+    async def require_embedding_rebuild(self) -> None:
+        """Make all existing vectors unavailable without rebuilding them."""
+        self._embedding_rebuild_pending = True
+        await self._cancel_embedding_backfill()
+
+    async def reindex(self, scope: str) -> dict:
+        """Synchronously rebuild derived indexes from authoritative chunks."""
+        if scope not in {"all", "bm25", "embedding"}:
+            raise ValueError("reindex scope must be one of: all, bm25, embedding")
+        async with self._manual_reindex_lock:
+            if scope == "bm25":
+                return await self._reindex_bm25()
+            if scope == "embedding":
+                return await self._reindex_embedding()
+            return {
+                "scope": "all",
+                "bm25": await self._reindex_bm25(),
+                "embedding": await self._reindex_embedding(),
+            }
+
+    async def _reindex_bm25(self) -> dict:
+        if self.keyword_index is None:
+            return {"indexed": 0, "scope": "bm25"}
+        docs = {chunk_id: chunk.text for chunk_id, chunk in self.file_chunks.items() if chunk.text}
+        await self._rebuild_keyword_index(docs)
+        return {"indexed": len(docs), "scope": "bm25"}
+
+    async def _reindex_embedding(self) -> dict:
+        await self.require_embedding_rebuild()
+        try:
+            chunks = tuple(self.file_chunks.values())
+            for start in range(0, len(chunks), 512):
+                for chunk in chunks[start : start + 512]:
+                    chunk.embedding = None
+                await asyncio.sleep(0)
+            await self._reset_vector_index()
+            if self.embedding_store is not None:
+                await self._backfill_missing_embeddings_inner(
+                    skip_health_check=False,
+                    started_at=time.monotonic(),
+                )
+                missing = [
+                    chunk.id
+                    for chunk in self.file_chunks.values()
+                    if chunk.text and not self._embedding_dim_matches(chunk.embedding)
+                ]
+                if missing:
+                    raise RuntimeError(f"embedding reindex incomplete: {len(missing)} chunks failed")
+                await self._finalize_embedding_reindex()
+            await self._dump_owned_state()
+            if self.embedding_store is not None:
+                await self.embedding_store.dump()
+            self._embedding_rebuild_pending = False
+            indexed = len(chunks) if self.embedding_store is not None else 0
+            return {"indexed": indexed, "scope": "embedding"}
+        except BaseException:
+            self._embedding_rebuild_pending = True
+            raise
+
+    async def _run_embedding_backfill(self, *, skip_health_check: bool) -> None:
         """Run one repair and honor a verified request queued behind it."""
         current_task = asyncio.current_task()
         try:
-            if rebuild:
-                # A task that was already running when rebuild was requested
-                # may have written a stale provider result after the first
-                # invalidation. Clear once more at the queue boundary.
-                await self._prepare_embedding_rebuild()
             await self._backfill_missing_embeddings(skip_health_check=skip_health_check)
         finally:
             if self._embedding_backfill_task is current_task:
                 self._embedding_backfill_task = None
             pending = self._embedding_backfill_pending
-            self._embedding_backfill_pending = None
-            if pending is not None and not self._closing and self.embedding_store is not None:
-                pending_verified, pending_rebuild = pending
-                if pending_verified:
-                    self.embedding_store.is_healthy = True
-                if pending_rebuild:
-                    self._embedding_rebuild_pending = True
-                self._start_embedding_backfill(
-                    skip_health_check=pending_verified,
-                    rebuild=pending_rebuild,
-                )
+            self._embedding_backfill_pending = False
+            if pending and not self._closing and self.embedding_store is not None:
+                self.embedding_store.is_healthy = True
+                self._start_embedding_backfill(skip_health_check=True)
 
     async def _cancel_embedding_backfill(self) -> None:
         """Cancel and collect the startup repair task during component shutdown."""
         task = self._embedding_backfill_task
         self._embedding_backfill_task = None
-        self._embedding_backfill_pending = None
+        self._embedding_backfill_pending = False
         if task is None:
             return
         if not task.done():
@@ -367,16 +406,10 @@ class LocalFileStore(BaseFileStore):
     async def _backfill_missing_embeddings(self, *, skip_health_check: bool = False) -> None:
         """Background-repair persisted chunks that do not have usable vectors."""
         started_at = time.monotonic()
-        try:
-            await self._backfill_missing_embeddings_inner(skip_health_check=skip_health_check, started_at=started_at)
-        finally:
-            if self._embedding_rebuild_pending and not self._closing:
-                try:
-                    await self._after_embedding_backfill()
-                    await self.dump()
-                    self._embedding_rebuild_pending = False
-                except Exception:
-                    self.logger.exception(f"{self.name}: failed to finalize embedding rebuild")
+        await self._backfill_missing_embeddings_inner(
+            skip_health_check=skip_health_check,
+            started_at=started_at,
+        )
 
     async def _backfill_missing_embeddings_inner(self, *, skip_health_check: bool, started_at: float) -> None:
         """Perform one backfill pass; the caller owns rebuild finalization."""
@@ -462,19 +495,15 @@ class LocalFileStore(BaseFileStore):
             except Exception:
                 self.logger.exception(f"{self.name}: failed to persist completed embedding backfill")
 
-    async def _prepare_embedding_rebuild(self) -> None:
-        """Invalidate and persist vectors from the previous vector space."""
-        self._embedding_rebuild_pending = True
-        for chunk in self.file_chunks.values():
-            chunk.embedding = None
-        await self._reset_vector_index()
-        await self.dump()
-
     async def _reset_vector_index(self) -> None:
         """Drop a derived vector index before rebuilding a changed vector space."""
 
     async def _after_embedding_backfill(self) -> None:
         """Backend hook for refreshing derived vector indexes after backfill."""
+
+    async def _finalize_embedding_reindex(self) -> None:
+        """Synchronously publish derived indexes for an explicit reindex job."""
+        await self._after_embedding_backfill()
 
     async def _sync_keyword_index_from_chunks(self) -> None:
         """Repair keyword index when its persisted state does not match chunks."""
@@ -541,14 +570,19 @@ class LocalFileStore(BaseFileStore):
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
-            write_jsonl_zst(
-                self.chunks_path,
-                (self._serialize_chunk(c) for c in self.file_chunks.values()),
-                self.encoding,
-            )
+            chunks = tuple(self.file_chunks.values())
+            await asyncio.to_thread(self._dump_chunks_sync, chunks)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
+            raise
+
+    def _dump_chunks_sync(self, chunks: tuple[FileChunk, ...]) -> None:
+        write_jsonl_zst(
+            self.chunks_path,
+            (self._serialize_chunk(chunk) for chunk in chunks),
+            self.encoding,
+        )
 
     async def dump(self) -> None:
         """Persist a complete store/index/graph consistency checkpoint."""
@@ -630,7 +664,7 @@ class LocalFileStore(BaseFileStore):
         cached: dict[str, CachedEmbedding],
         needs_embed: list[FileChunk],
     ) -> None:
-        if not self.embedding_store:
+        if not self.embedding_store or self._embedding_rebuild_pending:
             return
         if chunk.embedding is not None:
             if self._embedding_dim_matches(chunk.embedding):
@@ -646,7 +680,7 @@ class LocalFileStore(BaseFileStore):
             needs_embed.append(chunk)
 
     async def _embed_pending(self, chunks: list[FileChunk]) -> None:
-        if not (chunks and self.embedding_store):
+        if not (chunks and self.embedding_store) or self._embedding_rebuild_pending:
             return
         was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
         try:

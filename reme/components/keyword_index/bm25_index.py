@@ -15,6 +15,7 @@ lists keep the stale entries until `optimize_index` rewrites them. Updating an
 existing doc_id retires the old slot first, then allocates a fresh idx.
 """
 
+import asyncio
 import hashlib
 import json
 import math
@@ -358,29 +359,36 @@ class BM25Index(BaseKeywordIndex):
             self.index_file.unlink(missing_ok=True)
             return
         try:
-            self.index_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.index_file.with_suffix(".tmp")
-            with open(tmp, "wb") as f:
-                pickle.dump(self._snapshot(), f)
-            tmp.replace(self.index_file)
+            snapshot = self._snapshot()
+            await asyncio.to_thread(self._dump_sync, snapshot)
             self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.index_file}: {e}")
             raise
+
+    def _dump_sync(self, snapshot: dict) -> None:
+        self.index_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.index_file.with_suffix(".tmp")
+        with open(tmp, "wb") as file:
+            pickle.dump(snapshot, file)
+        tmp.replace(self.index_file)
 
     async def load(self) -> None:
         """Load from disk; missing file is a no-op, corrupt file resets state."""
         if not self.index_file.exists():
             return
         try:
-            with open(self.index_file, "rb") as f:
-                data = pickle.load(f)
+            data = await asyncio.to_thread(self._load_sync)
             self._restore(data)
             self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load index: {e}")
             self.index_file.unlink(missing_ok=True)
             await self.clear()
+
+    def _load_sync(self) -> dict:
+        with open(self.index_file, "rb") as file:
+            return pickle.load(file)
 
     async def clear(self) -> None:
         """Reset in-memory state and remove the persisted file."""
