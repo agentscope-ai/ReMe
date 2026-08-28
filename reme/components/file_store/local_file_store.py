@@ -70,6 +70,7 @@ class LocalFileStore(BaseFileStore):
         self._embedding_backfill_task: asyncio.Task | None = None
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
+        self._embedding_space_generation = 0
         self._manual_reindex_lock = asyncio.Lock()
         self._mutation_generation = 0
         self._closing = False
@@ -169,6 +170,46 @@ class LocalFileStore(BaseFileStore):
     def _drop_stale_embeddings(self, chunks: Iterable[FileChunk], context: str) -> None:
         for chunk in chunks:
             self._drop_stale_embedding(chunk, context)
+
+    def _embedding_request_is_current(
+        self,
+        embedding_store: BaseEmbeddingStore,
+        embedding_generation: int,
+    ) -> bool:
+        """Return whether an in-flight provider request still belongs to the active vector space."""
+        return (
+            not self._embedding_rebuild_pending
+            and embedding_generation == self._embedding_space_generation
+            and embedding_store is self.embedding_store
+        )
+
+    async def _get_query_embedding(self, query: str) -> np.ndarray | None:
+        """Embed a query only while its provider and vector space remain current."""
+        embedding_store = self.embedding_store
+        if embedding_store is None or self._embedding_rebuild_pending or not query:
+            return None
+
+        embedding_generation = self._embedding_space_generation
+        was_healthy = bool(getattr(embedding_store, "is_healthy", True))
+        try:
+            query_embedding = await embedding_store.get_embedding(query)
+        except Exception as e:
+            if self._embedding_request_is_current(embedding_store, embedding_generation):
+                self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
+            return None
+
+        if query_embedding is None or not self._embedding_request_is_current(
+            embedding_store,
+            embedding_generation,
+        ):
+            return None
+        if not self._embedding_dim_matches(query_embedding):
+            self._mark_embedding_unhealthy(
+                f"search: query embedding dimension {len(query_embedding)} != {embedding_store.dimensions}",
+            )
+            return None
+        await self._recover_after_real_request(was_healthy)
+        return query_embedding if self._embedding_request_is_current(embedding_store, embedding_generation) else None
 
     # -- persistence ----------------------------------------------------------
 
@@ -305,6 +346,7 @@ class LocalFileStore(BaseFileStore):
 
     async def require_embedding_rebuild(self) -> None:
         """Make all existing vectors unavailable without rebuilding them."""
+        self._embedding_space_generation += 1
         self._embedding_rebuild_pending = True
         await self._cancel_embedding_backfill()
 
@@ -342,6 +384,7 @@ class LocalFileStore(BaseFileStore):
         try:
             while True:
                 generation = self._mutation_generation
+                embedding_generation = self._embedding_space_generation
                 chunks = tuple(self.file_chunks.values())
                 for start in range(0, len(chunks), 512):
                     for chunk in chunks[start : start + 512]:
@@ -364,7 +407,7 @@ class LocalFileStore(BaseFileStore):
                 await self._dump_owned_state()
                 if self.embedding_store is not None:
                     await self.embedding_store.dump()
-                if generation == self._mutation_generation:
+                if generation == self._mutation_generation and embedding_generation == self._embedding_space_generation:
                     self._embedding_rebuild_pending = False
                     indexed = len(chunks) if self.embedding_store is not None else 0
                     return {"indexed": indexed, "scope": "embedding"}
@@ -697,11 +740,20 @@ class LocalFileStore(BaseFileStore):
     async def _embed_pending(self, chunks: list[FileChunk]) -> None:
         if not (chunks and self.embedding_store) or self._embedding_rebuild_pending:
             return
-        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
+        embedding_store = self.embedding_store
+        embedding_generation = self._embedding_space_generation
+        was_healthy = bool(getattr(embedding_store, "is_healthy", True))
         try:
-            await self.embedding_store.get_node_embeddings(chunks)
+            await embedding_store.get_node_embeddings(chunks)
         except Exception as e:
-            self._mark_embedding_unhealthy(f"upsert: {type(e).__name__}: {e}")
+            if self._embedding_request_is_current(embedding_store, embedding_generation):
+                self._mark_embedding_unhealthy(f"upsert: {type(e).__name__}: {e}")
+            return
+        if not self._embedding_request_is_current(embedding_store, embedding_generation):
+            for chunk in chunks:
+                chunk.embedding = None
+            if not self._embedding_rebuild_pending:
+                self._start_embedding_backfill(skip_health_check=True)
             return
         self._drop_stale_embeddings(chunks, "upsert")
         if any(chunk.embedding is not None for chunk in chunks):
@@ -764,23 +816,12 @@ class LocalFileStore(BaseFileStore):
     # -- search ---------------------------------------------------------------
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if self.embedding_store is None or self._embedding_rebuild_pending or not query or limit <= 0:
+        if limit <= 0:
             return []
 
-        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
-        try:
-            query_embedding = await self.embedding_store.get_embedding(query)
-        except Exception as e:
-            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
-            return []
+        query_embedding = await self._get_query_embedding(query)
         if query_embedding is None:
             return []
-        if not self._embedding_dim_matches(query_embedding):
-            self._mark_embedding_unhealthy(
-                f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
-            )
-            return []
-        await self._recover_after_real_request(was_healthy)
 
         top: list[tuple[float, int, FileChunk]] = []
         candidates: list[FileChunk] = []

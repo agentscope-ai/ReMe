@@ -432,19 +432,9 @@ class ZvecLocalFileStore(LocalFileStore):
         if index_empty and getattr(self.embedding_store, "is_healthy", True):
             return []
 
-        query_embedding = None
-        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
-        try:
-            query_embedding = await self.embedding_store.get_embedding(query)
-        except Exception as e:
-            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
-        if query_embedding is None or not self._embedding_dim_matches(query_embedding):
-            if query_embedding is not None:
-                self._mark_embedding_unhealthy(
-                    f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
-                )
+        query_embedding = await self._get_query_embedding(query)
+        if query_embedding is None:
             return []
-        await self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() may have
         # swapped or dropped the collection. Re-read before dereferencing.
