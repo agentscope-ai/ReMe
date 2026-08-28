@@ -335,6 +335,7 @@ class ZvecLocalFileStore(LocalFileStore):
             self.logger.info(f"Saved zvec collection: {len(self._indexed_ids)} vectors to {self.zvec_path}")
         except Exception as e:
             self.logger.exception(f"Failed to persist zvec collection: {e}")
+            raise
 
     async def _write_sidecar(self) -> None:
         """Atomically write the digest sidecar binding the collection to the chunk generation."""
@@ -364,7 +365,7 @@ class ZvecLocalFileStore(LocalFileStore):
         old_ids_by_path = {n.path: set(n.chunk_ids) for n in old_nodes}
         await super().upsert(files)
 
-        if self._collection is None or self.embedding_store is None:
+        if self._embedding_rebuild_pending or self._collection is None or self.embedding_store is None:
             return
         self._sync_collection_after_upsert(files, old_ids_by_path)
 
@@ -403,6 +404,10 @@ class ZvecLocalFileStore(LocalFileStore):
         nodes = await self.file_graph.get_nodes(paths)
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
+        if nodes:
+            self._mutation_generation += 1
+        if self._embedding_rebuild_pending:
+            return
         self._delete_docs(deleted_ids)
 
     async def clear(self) -> None:

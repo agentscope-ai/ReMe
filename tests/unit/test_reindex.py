@@ -12,6 +12,7 @@ from reme.steps.index import ReindexStep
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scope", ["bm25", "embedding"])
 async def test_reindex_step_delegates_scope(scope):
+    """The step forwards each individual scope without clearing the store."""
     store = LocalFileStore(name=f"test_reindex_{scope}", embedding_store="")
     store.reindex = AsyncMock(return_value={"indexed": 3, "scope": scope})
     store.clear = AsyncMock()
@@ -25,6 +26,7 @@ async def test_reindex_step_delegates_scope(scope):
 
 @pytest.mark.asyncio
 async def test_reindex_step_delegates_all_once():
+    """The step delegates the composite scope exactly once."""
     store = LocalFileStore(name="test_reindex_all", embedding_store="")
     details = {
         "scope": "all",

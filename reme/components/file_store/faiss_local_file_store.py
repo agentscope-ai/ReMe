@@ -260,7 +260,11 @@ class FaissLocalFileStore(LocalFileStore):
     async def _finalize_embedding_reindex(self) -> None:
         """Build and publish the complete FAISS snapshot before job success."""
         await self._stop_reindex_worker()
-        await self._reindex_async()
+        while True:
+            self._reindex_event.clear()
+            await self._reindex_async()
+            if not self._reindex_event.is_set():
+                return
 
     # -- async reindex ----------------------------------------------------
 
@@ -513,6 +517,7 @@ class FaissLocalFileStore(LocalFileStore):
                 self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
             except Exception as e:
                 self.logger.exception(f"Failed to write FAISS index: {e}")
+                raise
 
     async def _write_sidecar(self) -> None:
         token = uuid4().hex
@@ -558,7 +563,7 @@ class FaissLocalFileStore(LocalFileStore):
         }
         await super().upsert(files)
 
-        if self._faiss_index is None or self.embedding_store is None:
+        if self._embedding_rebuild_pending or self._faiss_index is None or self.embedding_store is None:
             return
         self._sync_index_after_upsert(files, old_ids_by_path, old_text_by_id)
 
@@ -598,7 +603,9 @@ class FaissLocalFileStore(LocalFileStore):
         nodes = await self.file_graph.get_nodes(paths)
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
-        if self._faiss_index is None:
+        if nodes:
+            self._mutation_generation += 1
+        if self._embedding_rebuild_pending or self._faiss_index is None:
             return
         for cid in deleted_ids:
             self._tombstone(cid)

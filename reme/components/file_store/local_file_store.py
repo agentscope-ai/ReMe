@@ -71,6 +71,7 @@ class LocalFileStore(BaseFileStore):
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._manual_reindex_lock = asyncio.Lock()
+        self._mutation_generation = 0
         self._closing = False
 
     # -- lifecycle ------------------------------------------------------------
@@ -316,47 +317,57 @@ class LocalFileStore(BaseFileStore):
                 return await self._reindex_bm25()
             if scope == "embedding":
                 return await self._reindex_embedding()
-            return {
-                "scope": "all",
-                "bm25": await self._reindex_bm25(),
-                "embedding": await self._reindex_embedding(),
-            }
+            while True:
+                generation = self._mutation_generation
+                details = {
+                    "scope": "all",
+                    "bm25": await self._reindex_bm25(),
+                    "embedding": await self._reindex_embedding(),
+                }
+                if generation == self._mutation_generation:
+                    return details
 
     async def _reindex_bm25(self) -> dict:
         if self.keyword_index is None:
             return {"indexed": 0, "scope": "bm25"}
-        docs = {chunk_id: chunk.text for chunk_id, chunk in self.file_chunks.items() if chunk.text}
-        await self._rebuild_keyword_index(docs)
-        return {"indexed": len(docs), "scope": "bm25"}
+        while True:
+            generation = self._mutation_generation
+            docs = {chunk_id: chunk.text for chunk_id, chunk in self.file_chunks.items() if chunk.text}
+            await self._rebuild_keyword_index(docs)
+            if generation == self._mutation_generation:
+                return {"indexed": len(docs), "scope": "bm25"}
 
     async def _reindex_embedding(self) -> dict:
         await self.require_embedding_rebuild()
         try:
-            chunks = tuple(self.file_chunks.values())
-            for start in range(0, len(chunks), 512):
-                for chunk in chunks[start : start + 512]:
-                    chunk.embedding = None
-                await asyncio.sleep(0)
-            await self._reset_vector_index()
-            if self.embedding_store is not None:
-                await self._backfill_missing_embeddings_inner(
-                    skip_health_check=False,
-                    started_at=time.monotonic(),
-                )
-                missing = [
-                    chunk.id
-                    for chunk in self.file_chunks.values()
-                    if chunk.text and not self._embedding_dim_matches(chunk.embedding)
-                ]
-                if missing:
-                    raise RuntimeError(f"embedding reindex incomplete: {len(missing)} chunks failed")
-                await self._finalize_embedding_reindex()
-            await self._dump_owned_state()
-            if self.embedding_store is not None:
-                await self.embedding_store.dump()
-            self._embedding_rebuild_pending = False
-            indexed = len(chunks) if self.embedding_store is not None else 0
-            return {"indexed": indexed, "scope": "embedding"}
+            while True:
+                generation = self._mutation_generation
+                chunks = tuple(self.file_chunks.values())
+                for start in range(0, len(chunks), 512):
+                    for chunk in chunks[start : start + 512]:
+                        chunk.embedding = None
+                    await asyncio.sleep(0)
+                await self._reset_vector_index()
+                if self.embedding_store is not None:
+                    await self._backfill_missing_embeddings_inner(
+                        skip_health_check=False,
+                        started_at=time.monotonic(),
+                    )
+                    missing = [
+                        chunk.id
+                        for chunk in self.file_chunks.values()
+                        if chunk.text and not self._embedding_dim_matches(chunk.embedding)
+                    ]
+                    if missing:
+                        raise RuntimeError(f"embedding reindex incomplete: {len(missing)} chunks failed")
+                    await self._finalize_embedding_reindex()
+                await self._dump_owned_state()
+                if self.embedding_store is not None:
+                    await self.embedding_store.dump()
+                if generation == self._mutation_generation:
+                    self._embedding_rebuild_pending = False
+                    indexed = len(chunks) if self.embedding_store is not None else 0
+                    return {"indexed": indexed, "scope": "embedding"}
         except BaseException:
             self._embedding_rebuild_pending = True
             raise
@@ -570,7 +581,7 @@ class LocalFileStore(BaseFileStore):
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
-            chunks = tuple(self.file_chunks.values())
+            chunks = tuple(chunk.model_copy(deep=True) for chunk in self.file_chunks.values())
             await asyncio.to_thread(self._dump_chunks_sync, chunks)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
@@ -621,6 +632,7 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.delete_docs(list(old_chunk_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
+        self._mutation_generation += 1
 
     def _stage_upsert(
         self,
@@ -664,7 +676,10 @@ class LocalFileStore(BaseFileStore):
         cached: dict[str, CachedEmbedding],
         needs_embed: list[FileChunk],
     ) -> None:
-        if not self.embedding_store or self._embedding_rebuild_pending:
+        if self._embedding_rebuild_pending:
+            chunk.embedding = None
+            return
+        if not self.embedding_store:
             return
         if chunk.embedding is not None:
             if self._embedding_dim_matches(chunk.embedding):
@@ -697,6 +712,8 @@ class LocalFileStore(BaseFileStore):
         paths = [path] if isinstance(path, str) else path
         nodes: list[FileNode] = await self.file_graph.get_nodes(paths)
         await self._delete_nodes(nodes)
+        if nodes:
+            self._mutation_generation += 1
 
     async def _delete_nodes(self, nodes: list[FileNode]) -> None:
         """Delete already-resolved nodes and their chunks.
@@ -742,6 +759,7 @@ class LocalFileStore(BaseFileStore):
         if self.keyword_index:
             await self.keyword_index.clear()
         await self.file_graph.clear()
+        self._mutation_generation += 1
 
     # -- search ---------------------------------------------------------------
 

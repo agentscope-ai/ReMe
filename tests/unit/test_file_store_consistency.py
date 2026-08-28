@@ -10,6 +10,7 @@ import os
 import tempfile
 import threading
 import time
+from unittest.mock import AsyncMock
 
 import numpy as np
 import pytest
@@ -956,6 +957,110 @@ def test_embedding_reindex_clears_vectors_when_embedding_is_disabled():
     run(go())
 
 
+@pytest.mark.parametrize("store_factory", [_new_faiss_store, _new_zvec_store])
+def test_embedding_reindex_keeps_gate_when_backend_checkpoint_fails(store_factory):
+    """A derived-index checkpoint failure must make the maintenance job fail."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_embedding_reindex_checkpoint_failure")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha")})
+            store.embedding_store = CountingFakeEmbeddingStore()
+            _ensure_zvec_collection(store)
+            if isinstance(store, FaissLocalFileStore):
+                store._faiss_index = store._new_index()
+            store._write_sidecar = AsyncMock(side_effect=OSError("disk full"))
+
+            with pytest.raises(OSError, match="disk full"):
+                await store.reindex("embedding")
+
+            assert store._embedding_rebuild_pending is True
+            store.embedding_store = None
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_embedding_gate_discards_caller_supplied_vectors(store_factory):
+    """Upserts cannot inject vectors from an unverified space while gated."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_embedding_gate_supplied_vector")
+            await store.start()
+            store.embedding_store = CountingFakeEmbeddingStore()
+            _ensure_zvec_collection(store)
+            if isinstance(store, FaissLocalFileStore):
+                store._faiss_index = store._new_index()
+            await store.require_embedding_rebuild()
+            supplied = chunk("a", "a.md", "alpha")
+            supplied.embedding = np.array([1.0, 0.0], dtype=np.float16)
+
+            await store.upsert([(node("a.md"), [supplied])])
+
+            assert supplied.embedding is None
+            if isinstance(store, FaissLocalFileStore):
+                assert "a" not in store._id_to_row
+            elif isinstance(store, ZvecLocalFileStore):
+                assert "a" not in store._indexed_ids
+            store.embedding_store = None
+            await store.close()
+
+    run(go())
+
+
+def test_embedding_reindex_retries_when_chunks_change_during_rebuild():
+    """A rebuild only succeeds after one stable authoritative chunk generation."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_embedding_reindex_generation_retry")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha")})
+            store.embedding_store = CountingFakeEmbeddingStore()
+            finalize_calls = 0
+
+            async def mutate_once():
+                nonlocal finalize_calls
+                finalize_calls += 1
+                if finalize_calls == 1:
+                    store.file_chunks["b"] = chunk("b", "b.md", "beta")
+                    store._mutation_generation += 1
+
+            store._finalize_embedding_reindex = mutate_once
+
+            result = await store.reindex("embedding")
+
+            assert finalize_calls == 2
+            assert result == {"indexed": 2, "scope": "embedding"}
+            assert all(item.embedding is not None for item in store.file_chunks.values())
+            await store.close()
+
+    run(go())
+
+
+def test_faiss_explicit_finalizer_retries_stale_snapshot():
+    """Explicit FAISS publication consumes the retry signal without a worker."""
+
+    async def go():
+        store = _new_faiss_store("t_faiss_explicit_retry")
+        calls = 0
+
+        async def rebuild():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                store._reindex_event.set()
+
+        store._reindex_async = rebuild
+        await store._finalize_embedding_reindex()
+        assert calls == 2
+
+    run(go())
+
+
 def test_checkpoint_dump_keeps_event_loop_responsive(monkeypatch):
     """Compression and file writes execute outside the request event loop."""
 
@@ -963,10 +1068,12 @@ def test_checkpoint_dump_keeps_event_loop_responsive(monkeypatch):
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
             store = _new_local_store("t_nonblocking_dump")
             await store.start()
+            store.file_chunks["a"] = chunk("a", "a.md", "alpha")
             entered = threading.Event()
             release = threading.Event()
 
             def blocking_dump(_chunks):
+                assert _chunks[0] is not store.file_chunks["a"]
                 entered.set()
                 assert release.wait(timeout=2)
 
@@ -977,6 +1084,7 @@ def test_checkpoint_dump_keeps_event_loop_responsive(monkeypatch):
             for _ in range(5):
                 await asyncio.sleep(0)
                 ticks += 1
+            store.file_chunks["a"].text = "changed while dumping"
             assert ticks == 5
             assert not dump_task.done()
             release.set()

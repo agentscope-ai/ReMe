@@ -323,14 +323,16 @@ class BM25Index(BaseKeywordIndex):
         return {
             "tokenizer_config": self._tokenizer_config(),
             "tokenizer_fingerprint": self._tokenizer_fingerprint(),
-            "vocab": self.vocab,
-            "doc_ids": self._doc_ids,
-            "doc_id_to_idx": self._doc_id_to_idx,
-            "doc_lens": self._doc_lens,
-            "deleted": self._deleted,
-            "doc_token_ids": self._doc_token_ids,
-            "posting_doc_idxs": self._posting_doc_idxs,
-            "posting_tfs": self._posting_tfs,
+            "vocab": dict(self.vocab),
+            "doc_ids": list(self._doc_ids),
+            "doc_id_to_idx": dict(self._doc_id_to_idx),
+            "doc_lens": self._doc_lens.copy(),
+            "deleted": self._deleted.copy(),
+            "doc_token_ids": [token_ids.copy() for token_ids in self._doc_token_ids],
+            "posting_doc_idxs": {token_id: doc_idxs.copy() for token_id, doc_idxs in self._posting_doc_idxs.items()},
+            "posting_tfs": {
+                token_id: term_frequencies.copy() for token_id, term_frequencies in self._posting_tfs.items()
+            },
             "k1": self.k1,
             "b": self.b,
         }
