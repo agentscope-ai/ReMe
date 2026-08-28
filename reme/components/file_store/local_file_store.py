@@ -637,6 +637,7 @@ class LocalFileStore(BaseFileStore):
             self.encoding,
         )
 
+    @BaseFileStore.serialized
     async def dump(self) -> None:
         """Persist a complete store/index/graph consistency checkpoint."""
         assert self.file_graph is not None

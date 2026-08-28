@@ -1049,12 +1049,13 @@ def test_all_reindex_composes_bm25_then_embedding_under_one_lock():
     run(go())
 
 
-def test_embedding_reindex_clears_vectors_when_embedding_is_disabled():
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_embedding_reindex_clears_vectors_when_embedding_is_disabled(store_factory):
     """Disabling embedding can explicitly discard the obsolete vectors."""
 
     async def go():
         with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = _new_local_store("t_disable_embedding_reindex")
+            store = store_factory("t_disable_embedding_reindex")
             await store.start()
             stale = chunk("a", "a.md", "alpha")
             stale.embedding = np.array([1.0, 0.0], dtype=np.float16)
@@ -1068,6 +1069,51 @@ def test_embedding_reindex_clears_vectors_when_embedding_is_disabled():
             }
             assert stale.embedding is None
             assert store._embedding_rebuild_pending is False
+            if isinstance(store, ZvecLocalFileStore):
+                assert store._collection is None
+                assert not store.zvec_path.exists()
+                assert not store.zvec_sidecar_path.exists()
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_zvec_store])
+def test_clear_waits_for_in_flight_chunk_dump(store_factory):
+    """An older chunk snapshot cannot be published after clear() returns."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_chunk_dump_clear_lock")
+            await store.start()
+            if isinstance(store, ZvecLocalFileStore):
+                store.embedding_store = FakeEmbeddingStore()
+                _ensure_zvec_collection(store)
+            await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha")])])
+
+            dump_started = threading.Event()
+            release_dump = threading.Event()
+            original_dump_chunks_sync = store._dump_chunks_sync
+
+            def blocking_dump_chunks_sync(chunks):
+                dump_started.set()
+                release_dump.wait()
+                original_dump_chunks_sync(chunks)
+
+            store._dump_chunks_sync = blocking_dump_chunks_sync
+            dump_task = asyncio.create_task(store.dump())
+            assert await asyncio.to_thread(dump_started.wait, 1)
+
+            clear_task = asyncio.create_task(store.clear())
+            await asyncio.sleep(0.02)
+            assert not clear_task.done()
+
+            release_dump.set()
+            await asyncio.gather(dump_task, clear_task)
+            assert store.file_chunks == {}
+            assert not store.chunks_path.exists()
+
+            store._dump_chunks_sync = original_dump_chunks_sync
             await store.close()
 
     run(go())

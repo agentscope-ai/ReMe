@@ -107,14 +107,19 @@ class ZvecLocalFileStore(LocalFileStore):
 
     def _create_collection(self):
         """Create a fresh (empty) collection, replacing any directory on disk."""
+        self._discard_collection()
+        return self._zvec.create_and_open(path=str(self.zvec_path), schema=self._collection_schema())
+
+    def _discard_collection(self) -> None:
+        """Release and remove the derived collection and its generation sidecar."""
         # Release any open handle first: zvec holds an in-process lock on the
         # collection directory, so the old object must be dropped before the
-        # directory is wiped and re-created.
+        # directory is wiped.
         self._collection = None
         if self.zvec_path.exists():
             shutil.rmtree(self.zvec_path, ignore_errors=True)
         self._indexed_ids = set()
-        return self._zvec.create_and_open(path=str(self.zvec_path), schema=self._collection_schema())
+        self.zvec_sidecar_path.unlink(missing_ok=True)
 
     def _to_doc(self, chunk: FileChunk):
         """Build a zvec Doc carrying only the id and the float32 vector."""
@@ -180,6 +185,9 @@ class ZvecLocalFileStore(LocalFileStore):
 
     async def _reset_vector_index(self) -> None:
         """Discard all vectors before rebuilding a changed vector space."""
+        if self.embedding_store is None or self._dim == 0:
+            await complete_in_thread(self._discard_collection)
+            return
         self._collection = await complete_in_thread(self._create_collection)
 
     async def _finalize_embedding_reindex(self) -> None:
