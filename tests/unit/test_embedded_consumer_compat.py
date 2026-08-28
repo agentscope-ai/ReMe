@@ -168,6 +168,48 @@ def test_replace_component_before_start_preserves_dependency_order(tmp_path):
     asyncio.run(exercise_api())
 
 
+def test_replace_component_waits_for_application_start(tmp_path):
+    """Replacement cannot race the dependency graph while startup is in progress."""
+    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    old_component = app.context.components[ComponentEnum.AS_LLM]["default"]
+    start_entered = asyncio.Event()
+    allow_start = asyncio.Event()
+
+    async def blocking_start() -> None:
+        start_entered.set()
+        await allow_start.wait()
+
+    old_component._start = blocking_start
+
+    async def exercise_api() -> None:
+        start_task = asyncio.create_task(app.start())
+        await start_entered.wait()
+        replace_task = asyncio.create_task(
+            app.replace_component(
+                "as_llm",
+                "default",
+                config={
+                    "backend": "dashscope",
+                    "model": "consumer-injected",
+                    "credential": {"api_key": ""},
+                },
+                runtime_updates={"model": object()},
+            ),
+        )
+        await asyncio.sleep(0)
+
+        assert replace_task.done() is False
+        assert app.context.components[ComponentEnum.AS_LLM]["default"] is old_component
+
+        allow_start.set()
+        await start_task
+        replacement = await replace_task
+        assert replacement.is_started is True
+        await app.close()
+
+    asyncio.run(exercise_api())
+
+
 def test_replace_component_start_failure_keeps_old_generation(tmp_path):
     """Construction/start failures do not expose a partially replaced graph."""
 

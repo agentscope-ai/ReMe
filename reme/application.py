@@ -186,22 +186,23 @@ class Application(BaseComponent):
 
     async def _start(self) -> None:
         """Start components, then jobs as base > stream > background > cron."""
-        pool_size = self.config.thread_pool_max_workers
-        if pool_size > 0:
-            self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
-            self.logger.info(f"Thread pool created with max_workers={pool_size}")
-        try:
-            components = self._topological_order()
-            jobs = list(self.context.jobs.values())
-            base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
-            stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
-            background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
-            cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
-            for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
-                await self._start_one(c)
-        except Exception:
-            await self._close()
-            raise
+        async with self._component_mutation_lock:
+            pool_size = self.config.thread_pool_max_workers
+            if pool_size > 0:
+                self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
+                self.logger.info(f"Thread pool created with max_workers={pool_size}")
+            try:
+                components = self._topological_order()
+                jobs = list(self.context.jobs.values())
+                base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
+                stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
+                background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
+                cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
+                for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
+                    await self._start_one(c)
+            except Exception:
+                await self._close_started_components()
+                raise
 
     async def _start_one(self, c: BaseComponent) -> None:
         """Start one component and record it for ordered shutdown."""
@@ -216,6 +217,11 @@ class Application(BaseComponent):
 
     async def _close(self) -> None:
         """Close in reverse start order so every peer outlives its dependents."""
+        async with self._component_mutation_lock:
+            await self._close_started_components()
+
+    async def _close_started_components(self) -> None:
+        """Close resources while the caller serializes component mutations."""
         for c in reversed(self._started_components):
             try:
                 await c.close()
@@ -292,7 +298,7 @@ class Application(BaseComponent):
                 setattr(replacement, key, value)
 
             node_key = (component_type, name)
-            replacement_order = self._topological_order((node_key, replacement))
+            replacement_order = Application._topological_order(self, replacement=(node_key, replacement))
             was_started = old_component.is_started
             if was_started:
                 await replacement.start()
