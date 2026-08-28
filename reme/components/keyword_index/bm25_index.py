@@ -29,6 +29,7 @@ import numpy as np
 
 from .base_keyword_index import BaseKeywordIndex
 from ..component_registry import R
+from ...utils.async_utils import complete_in_thread
 
 
 @R.register("bm25")
@@ -362,7 +363,7 @@ class BM25Index(BaseKeywordIndex):
             return
         try:
             snapshot = self._snapshot()
-            await asyncio.to_thread(self._dump_sync, snapshot)
+            await complete_in_thread(self._dump_sync, snapshot)
             self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.index_file}: {e}")

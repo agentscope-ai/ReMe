@@ -9,6 +9,7 @@ from uuid import uuid4
 import aiofiles
 import numpy as np
 
+from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
@@ -547,6 +548,7 @@ class FaissLocalFileStore(LocalFileStore):
 
     # -- CRUD overrides ---------------------------------------------------
 
+    @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
@@ -597,6 +599,7 @@ class FaissLocalFileStore(LocalFileStore):
             self._add_to_index([c.id for c in to_add], vectors)
         self._compact_if_needed()
 
+    @BaseFileStore.serialized
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
@@ -621,6 +624,7 @@ class FaissLocalFileStore(LocalFileStore):
         await self._stop_reindex_worker()
         await super()._close()
 
+    @BaseFileStore.serialized
     async def clear(self) -> None:
         # Serialize with dump so a concurrent _write_sidecar cannot re-create the
         # sidecar files we are about to unlink, or persist a half-reset index.

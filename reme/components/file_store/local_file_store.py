@@ -19,6 +19,7 @@ from ..keyword_index import BaseKeywordIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
+from ...utils.async_utils import complete_in_thread
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 CachedEmbedding = tuple[str, np.ndarray]
@@ -71,7 +72,6 @@ class LocalFileStore(BaseFileStore):
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._embedding_space_generation = 0
-        self._manual_reindex_lock = asyncio.Lock()
         self._mutation_generation = 0
         self._closing = False
 
@@ -350,24 +350,20 @@ class LocalFileStore(BaseFileStore):
         self._embedding_rebuild_pending = True
         await self._cancel_embedding_backfill()
 
+    @BaseFileStore.serialized
     async def reindex(self, scope: str) -> dict:
         """Synchronously rebuild derived indexes from authoritative chunks."""
         if scope not in {"all", "bm25", "embedding"}:
             raise ValueError("reindex scope must be one of: all, bm25, embedding")
-        async with self._manual_reindex_lock:
-            if scope == "bm25":
-                return await self._reindex_bm25()
-            if scope == "embedding":
-                return await self._reindex_embedding()
-            while True:
-                generation = self._mutation_generation
-                details = {
-                    "scope": "all",
-                    "bm25": await self._reindex_bm25(),
-                    "embedding": await self._reindex_embedding(),
-                }
-                if generation == self._mutation_generation:
-                    return details
+        if scope == "bm25":
+            return await self._reindex_bm25()
+        if scope == "embedding":
+            return await self._reindex_embedding()
+        return {
+            "scope": "all",
+            "bm25": await self._reindex_bm25(),
+            "embedding": await self._reindex_embedding(),
+        }
 
     async def _reindex_bm25(self) -> dict:
         if self.keyword_index is None:
@@ -625,7 +621,7 @@ class LocalFileStore(BaseFileStore):
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
             chunks = tuple(chunk.model_copy(deep=True) for chunk in self.file_chunks.values())
-            await asyncio.to_thread(self._dump_chunks_sync, chunks)
+            await complete_in_thread(self._dump_chunks_sync, chunks)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
@@ -660,6 +656,7 @@ class LocalFileStore(BaseFileStore):
 
     # -- CRUD -----------------------------------------------------------------
 
+    @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
@@ -759,6 +756,7 @@ class LocalFileStore(BaseFileStore):
         if any(chunk.embedding is not None for chunk in chunks):
             await self._recover_after_real_request(was_healthy)
 
+    @BaseFileStore.serialized
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
@@ -804,6 +802,7 @@ class LocalFileStore(BaseFileStore):
         assert self.file_graph is not None
         return await self.file_graph.get_inlinks(path, scope)
 
+    @BaseFileStore.serialized
     async def clear(self) -> None:
         assert self.file_graph is not None
         self.file_chunks.clear()

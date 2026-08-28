@@ -1,6 +1,5 @@
 """Zvec-backed file store: chunk JSONL stays authoritative; a zvec collection replaces the linear vector scan."""
 
-import asyncio
 import hashlib
 import json
 import shutil
@@ -10,9 +9,11 @@ from uuid import uuid4
 import aiofiles
 import numpy as np
 
+from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
+from ...utils.async_utils import complete_in_thread
 
 # Batch size for bulk inserts during a rebuild.
 _ZVEC_INSERT_BATCH_SIZE = 1024
@@ -179,11 +180,11 @@ class ZvecLocalFileStore(LocalFileStore):
 
     async def _reset_vector_index(self) -> None:
         """Discard all vectors before rebuilding a changed vector space."""
-        self._collection = await asyncio.to_thread(self._create_collection)
+        self._collection = await complete_in_thread(self._create_collection)
 
     async def _finalize_embedding_reindex(self) -> None:
         """Publish the complete zvec snapshot before explicit job success."""
-        await asyncio.to_thread(self._rebuild_collection)
+        await complete_in_thread(self._rebuild_collection)
 
     # -- maintenance ------------------------------------------------------
 
@@ -355,6 +356,7 @@ class ZvecLocalFileStore(LocalFileStore):
 
     # -- CRUD overrides ---------------------------------------------------
 
+    @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
@@ -398,6 +400,7 @@ class ZvecLocalFileStore(LocalFileStore):
         self._delete_docs(to_delete)
         self._upsert_docs(to_upsert)
 
+    @BaseFileStore.serialized
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
@@ -410,6 +413,7 @@ class ZvecLocalFileStore(LocalFileStore):
             return
         self._delete_docs(deleted_ids)
 
+    @BaseFileStore.serialized
     async def clear(self) -> None:
         await super().clear()
         if self._collection is not None:

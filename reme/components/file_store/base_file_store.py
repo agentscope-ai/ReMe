@@ -1,6 +1,9 @@
 """Abstract base for file store backends."""
 
+import asyncio
 from abc import abstractmethod
+from contextlib import asynccontextmanager
+from functools import wraps
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum, LinkScopeEnum
@@ -17,6 +20,36 @@ class BaseFileStore(BaseComponent):
     """
 
     component_type = ComponentEnum.FILE_STORE
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._maintenance_lock = asyncio.Lock()
+        self._maintenance_lock_owner = None
+
+    @asynccontextmanager
+    async def _maintenance_guard(self):
+        """Serialize maintenance and mutations, allowing nested backend overrides."""
+        task = asyncio.current_task()
+        if self._maintenance_lock_owner is task:
+            yield
+            return
+        async with self._maintenance_lock:
+            self._maintenance_lock_owner = task
+            try:
+                yield
+            finally:
+                self._maintenance_lock_owner = None
+
+    @staticmethod
+    def serialized(method):
+        """Mark a mutation or maintenance method as mutually exclusive."""
+
+        @wraps(method)
+        async def wrapped(self, *args, **kwargs):
+            async with self._maintenance_guard():  # pylint: disable=protected-access
+                return await method(self, *args, **kwargs)
+
+        return wrapped
 
     # -- CRUD -----------------------------------------------------------------
 

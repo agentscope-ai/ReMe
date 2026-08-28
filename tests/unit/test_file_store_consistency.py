@@ -875,7 +875,9 @@ def test_embedding_reindex_is_explicit_and_keeps_vectors_disabled_until_success(
 
 
 @pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
-def test_embedding_gate_rejects_query_that_started_in_previous_vector_space(store_factory):
+def test_embedding_gate_rejects_query_that_started_in_previous_vector_space(
+    store_factory,
+):
     """A query crossing the gate boundary cannot return results from the old index."""
 
     async def go():
@@ -963,14 +965,13 @@ def test_upsert_discards_provider_result_from_previous_vector_space():
 
             current_space = CountingFakeEmbeddingStore()
             store.embedding_store = current_space
-            await store.reindex("embedding")
+            await store.require_embedding_rebuild()
             old_space.release_first_batch.set()
             await upsert_task
-            if store._embedding_backfill_task is not None:
-                await store._embedding_backfill_task
+            await store.reindex("embedding")
 
             assert store.file_chunks["a"].embedding.tolist() == [1.0, 0.0]
-            assert current_space.node_embedding_calls == [["a"], ["a"]]
+            assert current_space.node_embedding_calls == [["a"]]
             await store.close()
 
     run(go())
@@ -1156,6 +1157,41 @@ def test_embedding_reindex_retries_when_chunks_change_during_rebuild():
     run(go())
 
 
+def test_upsert_waits_for_embedding_reindex():
+    """A write cannot slip through the gate while reindex is finishing."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_upsert_waits_for_reindex")
+            await store.start()
+            await set_chunks_with_graph(store, {"a": chunk("a", "a.md", "alpha")})
+            store.embedding_store = CountingFakeEmbeddingStore()
+            dump_started = asyncio.Event()
+            release_dump = asyncio.Event()
+            real_dump = store._dump_owned_state
+
+            async def blocking_dump():
+                dump_started.set()
+                await release_dump.wait()
+                await real_dump()
+
+            store._dump_owned_state = blocking_dump
+            reindex_task = asyncio.create_task(store.reindex("embedding"))
+            await dump_started.wait()
+            upsert_task = asyncio.create_task(store.upsert([(node("b.md"), [chunk("b", "b.md", "beta")])]))
+            await asyncio.sleep(0)
+            assert "b" not in store.file_chunks
+
+            release_dump.set()
+            await reindex_task
+            await upsert_task
+
+            assert store.file_chunks["b"].embedding.tolist() == [0.0, 1.0]
+            await store.close()
+
+    run(go())
+
+
 def test_faiss_explicit_finalizer_retries_stale_snapshot():
     """Explicit FAISS publication consumes the retry signal without a worker."""
 
@@ -1204,6 +1240,36 @@ def test_checkpoint_dump_keeps_event_loop_responsive(monkeypatch):
             assert not dump_task.done()
             release.set()
             await dump_task
+            await store.close()
+
+    run(go())
+
+
+def test_checkpoint_dump_finishes_before_propagating_cancellation(monkeypatch):
+    """Cancellation cannot leave an old checkpoint writer running in the background."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_cancelled_dump")
+            await store.start()
+            store.file_chunks["a"] = chunk("a", "a.md", "alpha")
+            entered = threading.Event()
+            release = threading.Event()
+
+            def blocking_dump(_chunks):
+                entered.set()
+                release.wait()
+
+            monkeypatch.setattr(store, "_dump_chunks_sync", blocking_dump)
+            dump_task = asyncio.create_task(store._dump_owned_state())
+            assert await asyncio.to_thread(entered.wait, 1)
+            dump_task.cancel()
+            await asyncio.sleep(0)
+            assert not dump_task.done()
+
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await dump_task
             await store.close()
 
     run(go())
