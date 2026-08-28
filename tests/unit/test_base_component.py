@@ -122,6 +122,25 @@ def test_dependencies_lists_unresolved():
     assert len(deps) == 2
 
 
+def test_dependency_bindings_survive_resolution():
+    async def run():
+        from reme.components.application_context import ApplicationContext
+
+        target = DepTarget(name="real_index")
+        ctx = ApplicationContext()
+        ctx.components = {ComponentEnum.KEYWORD_INDEX: {"real_index": target}}
+        comp = StubComponent(app_context=ctx)
+        comp.dep = BaseComponent.bind("real_index", DepTarget)
+
+        await comp.start()
+
+        assert comp.dep is target
+        assert comp.dependencies[0].name == "real_index"
+        assert comp.dependency_bindings["dep"].ctype == "keyword_index"
+
+    asyncio.run(run())
+
+
 # -- lifecycle ----------------------------------------------------------------
 
 

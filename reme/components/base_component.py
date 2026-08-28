@@ -98,6 +98,10 @@ class BaseComponent(ComponentMixin, ABC):
 
         self._is_started: bool = False
         self._lock: asyncio.Lock = asyncio.Lock()
+        # Preserve bind() declarations after their Dependency placeholders are
+        # resolved. Application uses these specs to validate and rewire a live
+        # component replacement without guessing from arbitrary attributes.
+        self._binding_specs: dict[str, Dependency] = {}
         # Components created via bind() default_factory in standalone mode;
         # their lifecycle is owned by this component.
         self._owned: list["BaseComponent"] = []
@@ -138,13 +142,23 @@ class BaseComponent(ComponentMixin, ABC):
 
     @property
     def dependencies(self) -> list[Dependency]:
-        """All unresolved dependency placeholders on this instance."""
-        return [v for v in self.__dict__.values() if isinstance(v, Dependency)]
+        """All declared dependencies, including bindings resolved at start."""
+        bindings = dict(self._binding_specs)
+        bindings.update((attr, value) for attr, value in self.__dict__.items() if isinstance(value, Dependency))
+        return list(bindings.values())
+
+    @property
+    def dependency_bindings(self) -> dict[str, Dependency]:
+        """Map dependency attributes to their stable bind specifications."""
+        bindings = dict(self._binding_specs)
+        bindings.update((attr, value) for attr, value in self.__dict__.items() if isinstance(value, Dependency))
+        return bindings
 
     async def _resolve_bindings(self) -> None:
         """Replace every ``Dependency`` attribute with its resolved target."""
         for attr, dep in list(self.__dict__.items()):
             if isinstance(dep, Dependency):
+                self._binding_specs[attr] = dep
                 self._resolve_one(attr, dep)
 
     def _resolve_one(self, attr: str, dep: Dependency) -> None:
