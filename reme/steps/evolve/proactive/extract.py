@@ -18,8 +18,6 @@ from .utils import (
     scan_material_daily,
 )
 
-_EXTRACT_SECTIONS = ("follow_ups", "extends", "updates")
-
 
 @R.register("proactive_extract_step")
 class ProactiveExtractStep(BaseStep):
@@ -38,6 +36,7 @@ class ProactiveExtractStep(BaseStep):
         max_carry_forward_topics: int = 20,
         llm_timeout_seconds: float = 300,
         max_chars_per_file: int = 60000,
+        max_total_chars: int = 300000,
         extends_enabled: bool = True,
         skip_key: str = "proactive_skip",
         **kwargs,
@@ -48,6 +47,7 @@ class ProactiveExtractStep(BaseStep):
         self.max_carry_forward_topics = max(int(max_carry_forward_topics), 0)
         self.llm_timeout_seconds = float(llm_timeout_seconds)
         self.max_chars_per_file = max(int(max_chars_per_file), 1000)
+        self.max_total_chars = max(int(max_total_chars), 0)
         self.extends_enabled = bool(extends_enabled)
         self.skip_key = skip_key
 
@@ -165,10 +165,14 @@ class ProactiveExtractStep(BaseStep):
 
     async def _extract_with_retry(self, wrapper, state, ws, day: str) -> dict | None:
         """Returns parsed meta; None means LLM timeout."""
+        # Newest daily material first: when the total budget bites, the
+        # freshest evidence survives and the oldest files are omitted.
+        ordered = list(dict.fromkeys(state.changed_paths))[::-1]
         material_blob = pack_paths(
             ws,
-            list(dict.fromkeys(state.changed_paths)),
+            ordered,
             limit_per_file=self.max_chars_per_file,
+            max_total_chars=self.max_total_chars or None,
         )
         user_message, system_prompt = self._build_messages(state, ws, day, material_blob)
         for attempt in (1, 2):

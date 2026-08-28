@@ -79,21 +79,39 @@ def scan_day_files(workspace: Path, day: str, daily: str, interests_name: str = 
     return [p for p in out if p != f"{daily}/{day}/{interests_name}"]
 
 
-def pack_paths(workspace: Path, paths: list[str], *, limit_per_file: int = 60000) -> str:
-    """Pack paths into a single string."""
+def pack_paths(
+    workspace: Path,
+    paths: list[str],
+    *,
+    limit_per_file: int = 60000,
+    max_total_chars: int | None = None,
+) -> str:
+    """Pack paths into a single string.
+
+    With ``max_total_chars`` set, blocks are packed in the given order until
+    the accumulated size would exceed the budget; the first file is always
+    kept and a trailer records how many files were omitted.
+    """
     blocks: list[str] = []
-    for rel in paths:
+    total = 0
+    for index, rel in enumerate(paths):
         target = workspace / rel
         if not target.is_file():
-            blocks.append(f"### {rel}\n(file not found)\n")
-            continue
-        try:
-            text = target.read_text(encoding="utf-8")
-        except Exception as e:  # noqa: BLE001
-            blocks.append(f"### {rel}\n(error reading: {type(e).__name__}: {e})\n")
-            continue
-        suffix = "\n\n[truncated]\n" if len(text) > limit_per_file else ""
-        blocks.append(f"### {rel}\n{text[:limit_per_file]}{suffix}\n")
+            block = f"### {rel}\n(file not found)\n"
+        else:
+            try:
+                text = target.read_text(encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                block = f"### {rel}\n(error reading: {type(e).__name__}: {e})\n"
+            else:
+                suffix = "\n\n[truncated]\n" if len(text) > limit_per_file else ""
+                block = f"### {rel}\n{text[:limit_per_file]}{suffix}\n"
+        if max_total_chars is not None and index > 0 and total + len(block) > max_total_chars:
+            omitted = len(paths) - index
+            blocks.append(f"(omitted {omitted} file(s) to stay within the {max_total_chars}-char total budget)")
+            break
+        blocks.append(block)
+        total += len(block)
     return "\n".join(blocks)
 
 

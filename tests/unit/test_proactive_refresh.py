@@ -20,6 +20,7 @@ from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
+from reme.steps.evolve.dream.utils import pack_paths
 from reme.steps.evolve.proactive.extract import ProactiveExtractStep
 from reme.steps.evolve.proactive.finish import ProactiveFinishStep
 from reme.steps.evolve.proactive.proactive import ProactiveStep
@@ -29,6 +30,7 @@ from reme.steps.evolve.proactive.utils import (
     load_state,
     normalize_topic,
     parse_interests_topics,
+    parse_extract_reply,
     scan_material_daily,
     topic_id,
 )
@@ -1163,6 +1165,59 @@ def test_parse_failure_retry_then_empty(tmp_path):
         assert wrapper.calls == 2
         assert all(r.success for r in responses)
         assert context.get("proactive")["follow_ups"] == []
+
+    asyncio.run(run())
+
+
+def test_parse_extract_reply_schema_gate():
+    """Non-empty replies without contract sections count as parse failures (audit #1)."""
+    assert parse_extract_reply("followups:\n  - title: misspelled section\n") == {}
+    assert parse_extract_reply("foo: 1") == {}
+    assert parse_extract_reply("```yaml\nfollow_ups: []\n```") == {"follow_ups": []}
+    assert parse_extract_reply("follow_ups: []\nupdates: []") == {"follow_ups": [], "updates": []}
+
+
+def test_schema_error_reply_retries(tmp_path):
+    """Non-empty YAML with wrong section names retries once like a parse failure (audit #1)."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        bad = "followups:\n  - title: 拼错段名的话题\n    reason: because\n"
+        good = _reply(follow_ups=[_topic("补救话题", paths=[f"daily/{DAY}/session.md"])])
+        wrapper = _AgentWrapper([bad, good])
+        _, wrapper, _, context, responses = await _run_chain(ws, wrapper=wrapper)
+        assert wrapper.calls == 2
+        assert all(r.success for r in responses)
+        assert [t["title"] for t in context.get("proactive")["follow_ups"]] == ["补救话题"]
+
+    asyncio.run(run())
+
+
+def test_pack_paths_total_budget(tmp_path):
+    """max_total_chars keeps the first file and reports how many were omitted (audit #5)."""
+    for name in ("a.md", "b.md", "c.md"):
+        _touch(tmp_path / name, "x" * 100)
+    packed = pack_paths(tmp_path, ["a.md", "b.md", "c.md"], limit_per_file=60000, max_total_chars=150)
+    assert "### a.md" in packed
+    assert "### b.md" not in packed
+    assert "(omitted 2 file(s)" in packed
+
+
+def test_extract_material_budget(tmp_path):
+    """Blob packing honors max_total_chars; newest daily material is packed first (audit #5)."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / "2026-08-12" / "big-old.md", "x" * 500)
+        _touch(ws / "daily" / DAY / "fresh.md", "fresh material")
+        reply = _reply(follow_ups=[_topic("预算话题", paths=[f"daily/{DAY}/fresh.md"])])
+        wrapper = _AgentWrapper([reply])
+        await _run_chain(ws, wrapper=wrapper, extract_kwargs={"max_total_chars": 200})
+        blob = wrapper.last_inputs[0]
+        assert "### daily/2026-08-13/fresh.md" in blob  # newest day survives the budget
+        assert "### daily/2026-08-12/big-old.md" not in blob  # omitted from the material section
+        assert "omitted" in blob
 
     asyncio.run(run())
 

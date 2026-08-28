@@ -28,6 +28,7 @@ logger = get_logger(log_to_file=False)
 
 PROACTIVE_STATE_NAME = "_proactive.yaml"
 INTERESTS_NAME = "interests.yaml"
+EXTRACT_SECTIONS = ("follow_ups", "extends", "updates")
 
 
 # ---------------------------------------------------------------------------
@@ -421,6 +422,11 @@ def current_now(step) -> dt.datetime:
 def parse_extract_reply(text: str) -> dict:
     """Parse the A3 fenced YAML/JSON output; fenced blocks take priority.
 
+    A reply only counts as parsed when at least one contract section
+    (``EXTRACT_SECTIONS``) is present as a list; a non-empty mapping with
+    misspelled or missing section names is a parse failure, so
+    ``_extract_with_retry`` retries instead of checkpointing changed files
+    on output that can never yield topics.
     Unlike the dream parser there is no scalar-mapping fallback: proactive
     output is sectioned lists, and a partial fallback would corrupt updates.
     """
@@ -433,7 +439,7 @@ def parse_extract_reply(text: str) -> dict:
             data = yaml.safe_load(raw)
         except yaml.YAMLError:
             continue
-        if isinstance(data, dict) and data:
+        if isinstance(data, dict) and data and any(isinstance(data.get(key), list) for key in EXTRACT_SECTIONS):
             return data
     return {}
 
