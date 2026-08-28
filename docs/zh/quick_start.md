@@ -187,7 +187,7 @@ reme auto_resource changes='[{"path":"resource/2026-06-20/report.md","change":"a
 
 ```bash
 reme auto_dream date=2026-06-20
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 这些流程需要可用 LLM；未配置 LLM 时请先使用 `write/read/search` 这类基础能力。

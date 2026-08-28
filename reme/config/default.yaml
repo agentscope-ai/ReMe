@@ -83,10 +83,7 @@ jobs:
         skip_key: proactive_skip
       - backend: proactive_extract_step
         file_catalog: proactive
-        agent_wrapper: proactive
         scan_days: 2
-        resource_lookback_days: 7
-        max_resource_files: 20
         carry_forward_days: 14
         max_carry_forward_topics: 20
         llm_timeout_seconds: 300
@@ -210,7 +207,7 @@ jobs:
     steps:
       - backend: auto_resource_step
 
-  proactive:
+  proactive_read:
     backend: base
     description: "Proactive: read daily/<date>/interests.yaml and expose the latest user-interest topics."
     parameters:
@@ -800,14 +797,6 @@ components:
         trigger_ratio: 0.8
         reserve_ratio: 0.1
         tool_result_limit: 50000
-      model_config:
-        max_retries: 1
-    proactive:
-      backend: agentscope
-      as_llm: default
-      permission_mode: bypass
-      react_config:
-        max_iters: 5
       model_config:
         max_retries: 1
     claude_code:

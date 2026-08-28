@@ -111,13 +111,13 @@ This lets a host agent treat "there is no dream result for today yet" as a norma
 CLI:
 
 ```bash
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 Omit the raw YAML content:
 
 ```bash
-reme proactive date=2026-06-20 include_content=false
+reme proactive_read date=2026-06-20 include_content=false
 ```
 
 ## Relationship to auto_dream

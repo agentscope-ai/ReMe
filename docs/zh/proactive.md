@@ -106,13 +106,13 @@ Skipped: interests file not found at daily/2026-06-20/interests.yaml
 CLI：
 
 ```bash
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 不返回 YAML 原文：
 
 ```bash
-reme proactive date=2026-06-20 include_content=false
+reme proactive_read date=2026-06-20 include_content=false
 ```
 
 ## 与 auto_dream 的关系

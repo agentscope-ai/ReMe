@@ -183,7 +183,7 @@ async def _run_loop(env, reme) -> None:
     )
 
     # ---- 5. proactive: read the interests surfaced by the dream --
-    proactive = await reme.run_job("proactive", date=today, include_content=True)
+    proactive = await reme.run_job("proactive_read", date=today, include_content=True)
     assert proactive.success is True, f"proactive failed: {proactive.answer!r}"
     pmeta = proactive.metadata or {}
     assert pmeta.get("path") == f"daily/{today}/interests.yaml", f"unexpected interests path: {pmeta!r}"

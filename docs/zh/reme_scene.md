@@ -235,7 +235,7 @@ topics:
 调用：
 
 ```bash
-reme proactive date=2026-05-18
+reme proactive_read date=2026-05-18
 ```
 
 `proactive` Job 返回 `interests.yaml` 中的 topics 和可选 YAML 原文。

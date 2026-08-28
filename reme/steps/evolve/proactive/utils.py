@@ -28,7 +28,6 @@ logger = get_logger(log_to_file=False)
 
 PROACTIVE_STATE_NAME = "_proactive.yaml"
 INTERESTS_NAME = "interests.yaml"
-_RESOURCE_EXTS = {".md", ".txt", ".json", ".jsonl", ".csv", ".yaml", ".yml", ".html"}
 
 
 # ---------------------------------------------------------------------------
@@ -87,26 +86,6 @@ def scan_material_daily(ws: Path, day: str, daily: str, scan_days: int) -> list[
             if rel not in out:
                 out.append(rel)
     return sorted(out)
-
-
-def scan_material_resource(ws: Path, lookback_days: int, max_files: int, now_dt: dt.datetime) -> list[str]:
-    """M_resource: recent uploads under ``resource/``, newest mtime first."""
-    root = ws / "resource"
-    if not root.is_dir():
-        return []
-    cutoff = now_dt.timestamp() - max(int(lookback_days), 0) * 86400
-    found: list[tuple[float, str]] = []
-    for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in _RESOURCE_EXTS:
-            continue
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            continue
-        if mtime >= cutoff:
-            found.append((mtime, norm_path(path.relative_to(ws).as_posix())))
-    found.sort(key=lambda item: (-item[0], item[1]))
-    return [rel for _, rel in found[: max(int(max_files), 0)]]
 
 
 # ---------------------------------------------------------------------------

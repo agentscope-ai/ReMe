@@ -243,7 +243,7 @@ topics:
 Call:
 
 ```bash
-reme proactive date=2026-05-18
+reme proactive_read date=2026-05-18
 ```
 
 The `proactive` Job returns the topics from `interests.yaml` and, optionally, the raw YAML content.

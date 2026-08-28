@@ -11,13 +11,11 @@ from ....schema import ProactiveState
 from ..dream.utils import daily_dir, pack_paths, today, workspace_dir
 from .utils import (
     clean_candidate,
-    current_now,
     load_carry_forward,
     load_state,
     parse_extract_reply,
     resolve_agent_wrapper,
     scan_material_daily,
-    scan_material_resource,
 )
 
 _EXTRACT_SECTIONS = ("follow_ups", "extends", "updates")
@@ -36,8 +34,6 @@ class ProactiveExtractStep(BaseStep):
     def __init__(
         self,
         scan_days: int = 2,
-        resource_lookback_days: int = 7,
-        max_resource_files: int = 20,
         carry_forward_days: int = 14,
         max_carry_forward_topics: int = 20,
         llm_timeout_seconds: float = 300,
@@ -48,8 +44,6 @@ class ProactiveExtractStep(BaseStep):
     ):
         super().__init__(**kwargs)
         self.scan_days = max(int(scan_days), 1)
-        self.resource_lookback_days = max(int(resource_lookback_days), 0)
-        self.max_resource_files = max(int(max_resource_files), 0)
         self.carry_forward_days = max(int(carry_forward_days), 1)
         self.max_carry_forward_topics = max(int(max_carry_forward_topics), 0)
         self.llm_timeout_seconds = float(llm_timeout_seconds)
@@ -63,7 +57,6 @@ class ProactiveExtractStep(BaseStep):
             return passthrough_response(self, self.skip_key)
         started = time.monotonic()
         day = today(self, str(self.context.get("date", "") or ""))
-        now_dt = current_now(self)
         ws = workspace_dir(self)
         daily = daily_dir(self)
         if self.file_catalog is None:
@@ -79,8 +72,7 @@ class ProactiveExtractStep(BaseStep):
 
         # 1) Material set M (F2.0) - all cheap, before any LLM work.
         m_daily = scan_material_daily(ws, day, daily, self.scan_days)
-        m_resource = scan_material_resource(ws, self.resource_lookback_days, self.max_resource_files, now_dt)
-        state.material_paths = list(dict.fromkeys(m_daily + m_resource))
+        state.material_paths = list(m_daily)
 
         # 2) Truth source + carry-forward (F1.3/F1.4).
         state_file, needs_bootstrap = load_state(ws, daily)
@@ -97,11 +89,10 @@ class ProactiveExtractStep(BaseStep):
         state.carry_forward_prompt = carry_prompt
 
         # 3) Change detection against the proactive catalog watermark.
-        # Resources share the same watermark (v5.1): an upload only TRIGGERS in
-        # the first round that sees it, so an unchanged resource cannot keep
-        # firing LLM rounds for the whole lookback.
+        # Only daily notes are material: fresh resource uploads already flow
+        # into daily notes via auto_resource, so no separate resource scan.
         existing = {}
-        for rel in dict.fromkeys(m_daily + m_resource):
+        for rel in m_daily:
             try:
                 existing[rel] = (ws / rel).stat().st_mtime
             except OSError as e:
@@ -109,14 +100,8 @@ class ProactiveExtractStep(BaseStep):
         nodes = await self.file_catalog.get_nodes()
         indexed = {n.path: n.st_mtime for n in nodes}
         state.changed_paths = [rel for rel, mt in existing.items() if indexed.get(rel) != mt]
-        # Trigger vs context (v5.2): the watermark diff alone decides whether the
-        # round fires (a resource consumed once cannot keep firing rounds), but a
-        # fired round keeps the full recent-resource window in the blob so delayed
-        # associations (survey uploaded today, discussion next week) remain
-        # discoverable by the extends branch.
-        state.resource_paths = m_resource
         self.logger.info(
-            f"[{self.name}] material daily={len(m_daily)} resource={len(m_resource)} "
+            f"[{self.name}] material daily={len(m_daily)} "
             f"changed={len(state.changed_paths)} carry_forward={len(carry_all)}",
         )
 
@@ -162,7 +147,7 @@ class ProactiveExtractStep(BaseStep):
             ],
             ensure_ascii=False,
         )
-        changed = list(dict.fromkeys(state.changed_paths + state.resource_paths))
+        changed = list(dict.fromkeys(state.changed_paths))
         user_message = self.prompt_format(
             "extract_user_message",
             date=day,
@@ -182,7 +167,7 @@ class ProactiveExtractStep(BaseStep):
         """Returns parsed meta; None means LLM timeout."""
         material_blob = pack_paths(
             ws,
-            list(dict.fromkeys(state.changed_paths + state.resource_paths)),
+            list(dict.fromkeys(state.changed_paths)),
             limit_per_file=self.max_chars_per_file,
         )
         user_message, system_prompt = self._build_messages(state, ws, day, material_blob)

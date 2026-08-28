@@ -1,14 +1,14 @@
 """Proactive refresh schemas.
 
-Defines the topic model (v2), the LLM extract contract, the chain-shared
-context state, and the ``daily/_proactive.yaml`` truth-source file model.
-See ``PROACTIVE_SPEC.md`` sections F1/A2/A3 for the full contracts.
+Defines the topic model (v2), the chain-shared context state, and the
+``daily/_proactive.yaml`` truth-source file model. The LLM reply contract is
+validated structurally by ``parse_extract_reply`` instead of a model here.
+See ``PROACTIVE_SPEC.md`` sections F1/A2 for the full contracts.
 """
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TOPIC_KINDS = ("follow_up", "interest_extend")
-UPDATE_ACTIONS = ("keep", "update", "resolve")
 
 
 def clamp_confidence(value) -> float:
@@ -58,37 +58,6 @@ class ProactiveTopic(BaseModel):
         return [str(item).strip() for item in value if str(item).strip()]
 
 
-class TopicUpdate(BaseModel):
-    """LLM verdict for one carried-forward topic (F2.3)."""
-
-    id: str = ""
-    action: str = "keep"
-    evidence: str = ""
-    reason: str = ""
-    confidence: float | None = None
-
-    @field_validator("action", mode="before")
-    @classmethod
-    def _fallback_action(cls, value):
-        text = str(value or "").strip()
-        return text if text in UPDATE_ACTIONS else "keep"
-
-    @field_validator("confidence", mode="before")
-    @classmethod
-    def _clean_confidence(cls, value):
-        if value is None or str(value).strip() == "":
-            return None
-        return clamp_confidence(value)
-
-
-class ProactiveExtractOutput(BaseModel):
-    """Structured output contract for ``proactive_extract_step`` (A3)."""
-
-    follow_ups: list[ProactiveTopic] = Field(default_factory=list)
-    extends: list[ProactiveTopic] = Field(default_factory=list)
-    updates: list[TopicUpdate] = Field(default_factory=list)
-
-
 class ProactiveState(BaseModel):
     """Chain-shared proactive context state (``context['proactive']``).
 
@@ -105,7 +74,6 @@ class ProactiveState(BaseModel):
     carry_forward_days: int = 14
     material_paths: list[str] = Field(default_factory=list)
     changed_paths: list[str] = Field(default_factory=list)
-    resource_paths: list[str] = Field(default_factory=list)
     carry_forward_all: list[ProactiveTopic] = Field(default_factory=list)
     carry_forward_prompt: list[ProactiveTopic] = Field(default_factory=list)
     llm_calls: int = 0

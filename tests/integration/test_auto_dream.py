@@ -200,7 +200,7 @@ def test_auto_dream_and_proactive():
                 topics = interests_data.get("topics") or []
                 assert isinstance(topics, list) and topics, f"no topics in interests.yaml\n{interests_text}"
 
-                proactive = await app.run_job("proactive", date=DREAM_DATE, include_content=True)
+                proactive = await app.run_job("proactive_read", date=DREAM_DATE, include_content=True)
                 assert proactive.success is True, f"proactive failed: {proactive.answer!r}"
                 assert proactive.metadata.get("path") == f"daily/{DREAM_DATE}/interests.yaml"
                 assert proactive.metadata.get("topics"), f"proactive returned no topics: {proactive.metadata!r}"

@@ -5,7 +5,6 @@ F5 read extensions, plus the M2 extends branch and semantic dedup.
 """
 
 import asyncio
-import os
 import tempfile
 import time
 from pathlib import Path
@@ -19,7 +18,7 @@ from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
-from reme.schema import FileNode, ProactiveTopic, TopicUpdate
+from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.proactive.extract import ProactiveExtractStep
 from reme.steps.evolve.proactive.finish import ProactiveFinishStep
@@ -389,41 +388,6 @@ def test_update_evidence_anchor(tmp_path):
     asyncio.run(run())
 
 
-def test_delayed_association_context_window(tmp_path):
-    """v5.2 trigger/context split: consumed resources re-enter fired rounds.
-
-    Round 1 consumes the resource (checkpointed). Round 2 is triggered by a new
-    daily note; the blob must carry the unchanged resource again so the extends
-    branch can associate the new discussion with the earlier upload.
-    """
-
-    async def run():
-        ws = tmp_path
-        _touch(ws / "daily" / DAY / "session.md", "initial discussion")
-        resource = _touch(ws / "resource" / "survey.md", "survey on citation credibility")
-        resource_rel = resource.relative_to(ws).as_posix()
-        reply1 = _reply(follow_ups=[_topic("初始话题", paths=[f"daily/{DAY}/session.md"])])
-        reply2 = _reply(
-            extends=[_topic("延迟关联主题", confidence=0.5, paths=[f"daily/{DAY}/1500-extra.md", resource_rel])],
-        )
-        wrapper = _AgentWrapper([reply1, reply2])
-        catalog = _Catalog()
-
-        await _run_chain(ws, wrapper=wrapper, catalog=catalog)
-        assert wrapper.calls == 1
-
-        _touch(ws / "daily" / DAY / "1500-extra.md", "now discussing citation credibility")
-        _, _, _, context2, _ = await _run_chain(ws, wrapper=wrapper, catalog=catalog)
-        assert wrapper.calls == 2
-        assert resource_rel in wrapper.last_inputs[1]  # resource back in the blob as context
-        state = context2.get("proactive")
-        assert state["early_exit"] in (None, "")
-        extends = state["extends"]
-        assert len(extends) == 1 and resource_rel in extends[0]["paths"]
-
-    asyncio.run(run())
-
-
 def test_no_embedding_configured(tmp_path):
     """No as_embedding anywhere: the chain runs and dedups exactly (BM25-only).
 
@@ -496,13 +460,12 @@ def test_legacy_file_parse(tmp_path):
 
 
 def test_field_fallback():
-    """Illegal kind/status/confidence/action values fall back deterministically."""
+    """Illegal kind/confidence values fall back deterministically."""
     topic = ProactiveTopic(title="T", reason="R", kind="bogus", confidence="not-a-number")
     assert topic.kind == "interest_extend"
     assert topic.confidence == 0.5
     assert ProactiveTopic(confidence=1.7).confidence == 1.0
     assert ProactiveTopic(confidence=-3).confidence == 0.0
-    assert TopicUpdate(id="x", action="???").action == "keep"
 
 
 def test_resolved_registry(tmp_path):
@@ -869,7 +832,7 @@ def test_skip_low_confidence(tmp_path):
 
 
 def test_no_new_evidence_zero_llm(tmp_path):
-    """No changed material and no resources -> early exit with zero LLM calls."""
+    """No changed material -> early exit with zero LLM calls."""
 
     async def run():
         ws = tmp_path
@@ -888,40 +851,6 @@ def test_no_new_evidence_zero_llm(tmp_path):
         assert not _interests(ws).exists()
         assert catalog.upserts == [] and catalog.dumps == 0
         assert all(r.success for r in responses)
-
-    asyncio.run(run())
-
-
-def test_resource_watermark_consumed_once(tmp_path):
-    """v5.1: resources share the proactive watermark and are consumed once.
-
-    Round 1 consumes a fresh upload (1 LLM call, checkpointed); round 2 sees
-    nothing changed anywhere and early-exits with zero LLM calls; round 3
-    re-uploads the resource (new mtime) and consumes it again.
-    """
-
-    async def run():
-        ws = tmp_path
-        _touch(ws / "daily" / DAY / "session.md", "discussion about attribution")
-        resource = _touch(ws / "resource" / "notes.md", "fresh upload")
-        reply1 = _reply(follow_ups=[_topic("未决问题", paths=[f"daily/{DAY}/session.md"])])
-        reply2 = _reply(follow_ups=[_topic("资源后续", paths=["resource/notes.md"])])
-        wrapper = _AgentWrapper([reply1, reply2])
-        catalog = _Catalog()
-
-        await _run_chain(ws, wrapper=wrapper, catalog=catalog)
-        assert wrapper.calls == 1
-        assert {n.path for n in catalog.upserts} >= {f"daily/{DAY}/session.md", "resource/notes.md"}
-
-        _, _, _, context2, _ = await _run_chain(ws, wrapper=wrapper, catalog=catalog)
-        assert wrapper.calls == 1  # early exit, no second LLM call
-        assert context2.get("proactive")["early_exit"] == "no_new_evidence"
-
-        stat = resource.stat()
-        os.utime(resource, (stat.st_atime + 60, stat.st_mtime + 60))
-        _, _, _, context3, _ = await _run_chain(ws, wrapper=wrapper, catalog=catalog)
-        assert wrapper.calls == 2  # changed resource is consumed again
-        assert not context3.get("proactive")["early_exit"]
 
     asyncio.run(run())
 
@@ -1362,18 +1291,16 @@ def test_min_confidence(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_extend_from_resources(tmp_path):
-    """Branch B infers extends from recent uploads; out-of-M paths are dropped."""
+def test_extend_from_daily_material(tmp_path):
+    """Branch B infers extends from daily material; out-of-M paths are dropped."""
 
     async def run():
         ws = tmp_path
         _touch(ws / "daily" / DAY / "session.md", "discussion about source attribution")
-        _touch(ws / "resource" / "citation-notes.md", "freshly uploaded notes")
-        resource_rel = "resource/citation-notes.md"
         reply = _reply(
             follow_ups=[],
             extends=[
-                _topic("引用质量评测", confidence=0.5, paths=[resource_rel, f"daily/{DAY}/session.md"]),
+                _topic("引用质量评测", confidence=0.5, paths=[f"daily/{DAY}/session.md"]),
                 _topic("越界扩展", confidence=0.5, paths=["daily/2026-08-01/absent.md"]),
             ],
         )
@@ -1383,7 +1310,7 @@ def test_extend_from_resources(tmp_path):
         assert len(state["extends"]) == 1
         extend = state["extends"][0]
         assert extend["kind"] == "interest_extend"
-        assert resource_rel in extend["paths"]
+        assert f"daily/{DAY}/session.md" in extend["paths"]
         assert state["dropped_missing"] == 1
         data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
         assert [t["title"] for t in data["topics"]] == ["引用质量评测"]
