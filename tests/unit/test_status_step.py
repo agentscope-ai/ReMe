@@ -3,7 +3,7 @@
 import asyncio
 
 from reme.components.application_context import ApplicationContext
-from reme.components.base_component import BaseComponent
+from reme.components.base_component import BaseComponent, Dependency
 from reme.enumeration import ComponentEnum
 from reme.steps.common.status import (
     StatusStep,
@@ -33,6 +33,18 @@ def test_component_size_does_not_charge_referenced_components_twice():
     dependency_size = _component_size(dependency)
 
     assert dependency_size > owner_size
+
+
+def test_component_size_ignores_preserved_dependency_bindings():
+    """Resolved components retain dependency specs for live replacement."""
+    component = _SizedComponent(b"payload")
+    component._binding_specs["as_embedding"] = Dependency(  # pylint: disable=protected-access
+        ComponentEnum.AS_EMBEDDING,
+        "default",
+    )
+    component._is_started = True  # pylint: disable=protected-access
+
+    assert _component_size(component) > 0
 
 
 def test_collect_memory_reports_only_stateful_data_components_and_sum(tmp_path):
