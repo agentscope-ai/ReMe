@@ -5,7 +5,6 @@ import uuid
 import aiofiles
 
 from ...components import R
-from ..file_io import refresh_day_index
 from ._evolve import agent_reply_result_text
 from ._auto_resource import BaseAutoResourceStep
 
@@ -176,9 +175,7 @@ class AutoTextResourceStep(BaseAutoResourceStep):
             return
 
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
-        self.logger.info(f"[{self.name}] refresh index start date={date_str} daily_dir={daily_dir}")
-        index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
-        self.logger.info(f"[{self.name}] refresh index done date={date_str}")
+        index_payload = await self._refresh_day_index(date_str)
 
         self.context.response.success = True
         self.context.response.answer = agent_reply_result_text(result)

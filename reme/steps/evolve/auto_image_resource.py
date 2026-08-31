@@ -11,7 +11,7 @@ from agentscope.message import Base64Source, DataBlock, TextBlock, UserMsg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
-from ..file_io import is_image_file, refresh_day_index
+from ..file_io import is_image_file
 from ..file_io._path import IMAGE_MIME_BY_EXT, IMAGE_SUFFIXES
 from ._auto_resource import _SOURCE_RESOURCE_KEY, _sanitize_note_name, BaseAutoResourceStep
 from ...components import R
@@ -477,7 +477,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
 
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": note_created, "modified": modified})
-        index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
+        index_payload = await self._refresh_day_index(date_str)
 
         self.context.response.success = True
         self.context.response.answer = f"Captioned image resource {file_path} -> {note_path}"

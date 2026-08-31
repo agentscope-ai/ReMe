@@ -140,6 +140,14 @@ class BaseAutoResourceStep(BaseStep):
             return before_bytes is not None
         return after_path != before_path or before_bytes != after_bytes
 
+    async def _refresh_day_index(self, day: str) -> dict:
+        """Refresh and return the derived daily index for a resource-note change."""
+        daily_dir = self.config_value("daily_dir")
+        self.logger.info(f"[{self.name}] refresh index start date={day} daily_dir={daily_dir}")
+        index_payload = await refresh_day_index(self.file_store, day, daily_dir)
+        self.logger.info(f"[{self.name}] refresh index done date={day}")
+        return index_payload
+
     def _find_resource_note(self, notes: list[dict], file_path: str, fallback_path: str) -> dict | None:
         source = self._source_resource_link(file_path)
         for note in notes:
@@ -259,9 +267,7 @@ class BaseAutoResourceStep(BaseStep):
 
         await self.file_store.delete([note_rel])
         self.logger.info(f"[{self.name}] catalog delete done note={note_rel}")
-        self.logger.info(f"[{self.name}] refresh index start date={date_str} daily_dir={daily_dir}")
-        index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
-        self.logger.info(f"[{self.name}] refresh index done date={date_str}")
+        index_payload = await self._refresh_day_index(date_str)
 
         self.context.response.success = True
         self.context.response.answer = f"Deleted resource note: {note_rel}"

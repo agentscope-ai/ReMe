@@ -28,7 +28,9 @@ from PIL import Image
 
 from reme.components import R
 from reme.components.agent_wrapper import BaseAgentWrapper
+from reme.components.component_registry import ComponentRegistry
 from reme.components.file_store import LocalFileStore
+from reme.components.job import BaseJob
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve._auto_resource import BaseAutoResourceStep
@@ -725,6 +727,85 @@ def test_auto_resource_router_requires_the_fallback_processor_to_be_last():
         step._processor_routes()
 
 
+def test_auto_resource_router_discovers_unique_fallback_for_legacy_config():
+    """An old Step spec without dispatch_steps keeps its text-resource behavior."""
+    app_ctx = _make_app_context(Path.cwd())
+    app_ctx.registry = R.copy()
+    step = AutoResourceStep(app_context=app_ctx)
+
+    routes = step._processor_routes()
+
+    assert [(spec, step_cls) for spec, step_cls, _ in routes] == [
+        ({"backend": "auto_text_resource_step"}, AutoTextResourceStep),
+    ]
+
+
+def test_auto_resource_legacy_job_config_dispatches_text_resource():
+    """A real BaseJob accepts the pre-router auto_resource Step configuration."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            app_ctx.registry = R.copy()
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            wrapper = _FakeAgentWrapper()
+            job = BaseJob(
+                name="legacy_auto_resource",
+                app_context=app_ctx,
+                steps=[
+                    {
+                        "backend": "auto_resource_step",
+                        "file_store": fs,
+                        "agent_wrapper": wrapper,
+                    },
+                ],
+            )
+            await job.start()
+            try:
+                source = cwd / "resource" / "2026-01-01" / "legacy.txt"
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("legacy text resource", encoding="utf-8")
+
+                response = await job(changes=[{"change": "added", "path": str(source)}])
+
+                assert response.success is True
+                assert response.metadata["processed"] == 1
+                assert response.metadata["results"][0]["success"] is True
+                assert "legacy text resource" in wrapper.inputs
+            finally:
+                await job.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_router_rejects_ambiguous_registered_fallbacks():
+    """Legacy discovery fails closed when plugins register multiple fallbacks."""
+    app_ctx = _make_app_context(Path.cwd())
+    app_ctx.registry = R.copy()
+    app_ctx.registry.add("second_text_fallback", AutoTextResourceStep, owner=__name__)
+    step = AutoResourceStep(app_context=app_ctx)
+
+    with pytest.raises(RuntimeError, match="exactly one registered fallback resource processor"):
+        step._processor_routes()
+
+    explicit = AutoResourceStep(app_context=app_ctx, dispatch_steps=["auto_text_resource_step"])
+    assert len(explicit._processor_routes()) == 1
+
+
+def test_auto_resource_router_rejects_missing_registered_fallback():
+    """Legacy discovery fails clearly when no fallback processor is installed."""
+    app_ctx = _make_app_context(Path.cwd())
+    app_ctx.registry = ComponentRegistry()
+    step = AutoResourceStep(app_context=app_ctx)
+
+    with pytest.raises(RuntimeError, match=r"fallback resource processor; found: none"):
+        step._processor_routes()
+
+
 def test_resource_processors_have_canonical_registrations_and_isolated_prompts():
     """Each modality owns one backend and loads only its module-local prompts."""
     assert R.get(ComponentEnum.STEP, "auto_resource_step") is AutoResourceStep
@@ -875,7 +956,7 @@ def test_auto_image_reports_modified_when_index_refresh_fails_after_write():
                 async def fail_refresh(*_args, **_kwargs):
                     raise RuntimeError("index refresh failed")
 
-                with patch("reme.steps.evolve.auto_image_resource.refresh_day_index", new=fail_refresh):
+                with patch("reme.steps.evolve._auto_resource.refresh_day_index", new=fail_refresh):
                     resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 result = resp.metadata["results"][0]

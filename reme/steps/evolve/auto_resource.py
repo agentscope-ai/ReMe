@@ -4,6 +4,7 @@ import copy
 import inspect
 
 from ...components import R
+from ...enumeration import ComponentEnum
 from ..base_step import BaseStep
 from ._auto_resource import BaseAutoResourceStep, _results_answer
 
@@ -35,7 +36,23 @@ class AutoResourceStep(BaseStep):
         """Resolve configured processors and allocate their per-invocation batches."""
         raw_specs = self.dispatch_step_specs
         if not raw_specs:
-            raise RuntimeError("AutoResourceStep requires resource processors in dispatch_steps")
+            registry = self.app_context.registry if self.app_context is not None else R
+            raw_specs = [
+                backend
+                for backend, step_cls in registry.get_all(ComponentEnum.STEP).items()
+                if isinstance(step_cls, type)
+                and issubclass(step_cls, BaseAutoResourceStep)
+                and step_cls.resource_fallback
+            ]
+            if len(raw_specs) != 1:
+                candidates = ", ".join(sorted(raw_specs)) or "none"
+                raise RuntimeError(
+                    "AutoResourceStep without dispatch_steps requires exactly one registered "
+                    f"fallback resource processor; found: {candidates}",
+                )
+            self.logger.warning(
+                f"[{self.name}] dispatch_steps omitted; using registered fallback processor={raw_specs[0]}",
+            )
 
         routes: list[_ProcessorRoute] = []
         fallback_indexes: list[int] = []
