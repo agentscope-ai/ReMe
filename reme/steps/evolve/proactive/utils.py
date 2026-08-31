@@ -296,7 +296,6 @@ def parse_interests_topics(data: dict, file_date: str) -> tuple[list[ProactiveTo
                 first_seen=str(raw.get("first_seen") or "").strip() or file_date,
                 last_evidence_at=str(raw.get("last_evidence_at") or "").strip() or file_date,
                 evidence=str(raw.get("evidence") or "").strip()[:120],
-                keywords=raw.get("keywords") or [],
                 paths=raw.get("paths") or [],
             ),
         )
@@ -333,7 +332,6 @@ def dump_topic(topic) -> dict:
         "first_seen": str(get("first_seen") or ""),
         "last_evidence_at": str(get("last_evidence_at") or ""),
         "evidence": str(get("evidence") or "")[:120],
-        "keywords": [str(k) for k in (get("keywords") or [])],
         "paths": [str(p) for p in (get("paths") or [])],
     }
 
@@ -417,8 +415,6 @@ def clean_candidate(raw, allowed_paths: set[str], kind: str, day: str) -> dict:
     paths = clean_paths(raw.get("paths"), allowed_paths)
     if not title or not reason or not paths:
         return {}
-    keywords = raw.get("keywords") or []
-    keywords = [str(k).strip() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
     return {
         "id": topic_id(title),
         "title": title,
@@ -427,8 +423,9 @@ def clean_candidate(raw, allowed_paths: set[str], kind: str, day: str) -> dict:
         "confidence": clamp_confidence(raw.get("confidence")),
         "first_seen": day,
         "last_evidence_at": day,
-        "evidence": str(raw.get("evidence") or "").strip()[:120],
-        "keywords": keywords,
+        # Derived, not LLM-emitted: the first whitelisted path anchors the
+        # candidate, so the output contract stays one field smaller.
+        "evidence": paths[0][:120],
         "paths": paths,
     }
 
@@ -462,6 +459,85 @@ def parse_extract_reply(text: str) -> dict:
         if isinstance(data, dict) and data and any(isinstance(data.get(key), list) for key in EXTRACT_SECTIONS):
             return data
     return {}
+
+
+def strip_frontmatter(text: str) -> tuple[dict, str]:
+    """Split leading ``---`` YAML frontmatter blocks from the body.
+
+    Handles files with several consecutive frontmatter blocks; returns
+    ``(merged_meta, body)``. Parse failures degrade to empty meta.
+    """
+    meta: dict = {}
+    body = text or ""
+    while True:
+        stripped = body.lstrip()
+        if not stripped.startswith("---"):
+            break
+        rest = stripped[3:]
+        end = rest.find("\n---")
+        if end < 0:
+            break
+        block = rest[:end]
+        body = rest[end + 4 :]
+        try:
+            data = yaml.safe_load(block)
+        except yaml.YAMLError:
+            data = None
+        if isinstance(data, dict):
+            for key, value in data.items():
+                meta.setdefault(str(key), value)
+    return meta, body.strip()
+
+
+def load_personal_profile_block(
+    ws: Path,
+    digest_dir: str,
+    max_chars: int,
+    fallback_rel_path: str = "",
+) -> str:
+    """Build the user profile/preference block used to personalize proactive inference.
+
+    Primary source is ``<digest_dir>/personal/*.md`` (one file per profile
+    facet: identity, preferences, constraints). Each file contributes its
+    frontmatter ``description`` plus a body excerpt under an equal per-file
+    budget. Falls back to a single profile file (legacy ``profile.md``) when
+    the personal directory is absent, and to a sentinel when nothing exists.
+    """
+    max_chars = int(max_chars)
+    if max_chars <= 0:
+        return "(no user profile)"
+    personal_dir = ws / digest_dir / "personal"
+    if personal_dir.is_dir():
+        files = sorted(path for path in personal_dir.glob("*.md") if path.is_file())
+        if files:
+            per_file = max(max_chars // len(files), 200)
+            sections: list[str] = []
+            for path in files:
+                try:
+                    raw = path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                meta, body = strip_frontmatter(raw)
+                title = str(meta.get("name") or path.stem)
+                description = str(meta.get("description") or "").strip()
+                excerpt = body[:per_file].strip()
+                section = f"### {title}\n"
+                if description:
+                    section += f"{description}\n"
+                if excerpt:
+                    section += excerpt
+                sections.append(section.rstrip())
+            if sections:
+                return "\n\n".join(sections)[:max_chars]
+    if fallback_rel_path:
+        fallback = ws / fallback_rel_path
+        if fallback.is_file():
+            try:
+                text = fallback.read_text(encoding="utf-8")[:max_chars]
+            except OSError:
+                return "(no user profile)"
+            return text.strip() or "(no user profile)"
+    return "(no user profile)"
 
 
 def parse_fenced_yaml(text: str) -> dict:

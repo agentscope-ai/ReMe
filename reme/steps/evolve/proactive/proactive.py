@@ -104,7 +104,11 @@ class ProactiveStep(BaseStep):
                 # v1 topics carry no confidence and fall back to 0.5 for filtering.
                 resolved_ids = self._resolved_ids(ws, daily)
                 legacy_topics = load_yaml_topics(abs_path)
-                kept = [t for t in legacy_topics if topic_id(str(t.get("title") or "")) not in resolved_ids]
+                kept = [
+                    {k: v for k, v in t.items() if k != "keywords"}
+                    for t in legacy_topics
+                    if topic_id(str(t.get("title") or "")) not in resolved_ids
+                ]
                 if min_confidence > 0.5 + 1e-9:  # v1 topics carry no confidence; fallback is 0.5 (F1.1)
                     kept = []
                 result.topics = kept

@@ -51,7 +51,8 @@ extract_system_prompt: |
   - Empty lists are a normal, expected output. Never invent topics to fill
     space, and never promote a one-off weak mention into a topic.
   - Every topic must be traceable to this round's material: `paths` may only
-    contain values from changed_paths; entries violating this are discarded.
+    contain values from changed_paths (paths look like `{daily_dir}/<date>/...`);
+    entries violating this are discarded.
   - Do not restate topics already listed in carry_forward_topics; use
     `updates` to change their status instead.
   - Same-matter rule: if a finding is really a carry_forward topic in
@@ -62,7 +63,7 @@ extract_system_prompt: |
     update that topic; do NOT open "run the benchmark" as a new topic. Open
     a new entry only for matters no carry_forward topic covers.
   - Quote YAML strings containing punctuation such as `:`; write paths as
-    block lists so `daily/<date>/...` stays parseable.
+    block lists so `{daily_dir}/<date>/...` stays parseable.
 
   ## Output format
 
@@ -72,15 +73,11 @@ extract_system_prompt: |
     - title: <specific unresolved matter>
       reason: <why it is still open>
       confidence: 0.7
-      evidence: <path or path#anchor>
-      keywords: [<keyword>, ...]
       paths: [<changed path>, ...]
   [extends]extends:
   [extends]  - title: <related-but-unfocused topic>
   [extends]    reason: <why it matters, grounded in the material>
   [extends]    confidence: 0.5
-  [extends]    evidence: <path or path#anchor>
-  [extends]    keywords: [<keyword>, ...]
   [extends]    paths: [<changed path>, ...]
   updates:
     - id: <echoed carry-forward id>
@@ -137,8 +134,8 @@ extract_system_prompt_zh: |
 
   - 空列表是正常且预期的输出。不得为凑数编造主题，不得把一次性弱提及
     拔高为主题。
-  - 每个主题必须能追溯到本轮素材：`paths` 只能使用 changed_paths 中的值，
-    越界条目会被丢弃。
+  - 每个主题必须能追溯到本轮素材：`paths` 只能使用 changed_paths 中的值
+    （路径形如 `{daily_dir}/<date>/...`），越界条目会被丢弃。
   - 不要复述 carry_forward_topics 中已 open 的主题；要改变其状态请用
     `updates`。
   - 同一件事规则：若新发现其实只是某个 carry_forward 主题的换种说法，
@@ -148,7 +145,7 @@ extract_system_prompt_zh: |
     不得新开"运行 benchmark"主题。仅当 carry_forward 主题均未覆盖时，
     才可新开主题。
   - 包含 `:` 等标点的 YAML 字符串请加引号；paths 使用 block list，
-    避免 `daily/<date>/...` 解析失败。
+    避免 `{daily_dir}/<date>/...` 解析失败。
 
   ## 输出格式
 
@@ -158,15 +155,11 @@ extract_system_prompt_zh: |
     - title: <具体的未决事项>
       reason: <为什么仍未关闭>
       confidence: 0.7
-      evidence: <路径或 路径#锚点>
-      keywords: [<关键词>, ...]
       paths: [<素材路径>, ...]
   [extends]extends:
   [extends]  - title: <相关但未被关注的主题>
   [extends]    reason: <为什么重要，基于素材>
   [extends]    confidence: 0.5
-  [extends]    evidence: <路径或 路径#锚点>
-  [extends]    keywords: [<关键词>, ...]
   [extends]    paths: [<素材路径>, ...]
   updates:
     - id: <回显的 carry-forward id>
@@ -185,6 +178,11 @@ extract_user_message: |
   carry_forward_topics (already open; only act on them via updates):
   {carry_forward_json}
 
+  user_profile (background knowledge about the user's identity, preferences
+  and constraints; use it ONLY to judge interest relevance and confidence -
+  it is NOT material, never cite it in paths/evidence):
+  {profile_block}
+
   # Material
 
   {material_blob}
@@ -200,6 +198,10 @@ extract_user_message_zh: |
 
   carry_forward_topics（已 open 的主题；只能通过 updates 处置）：
   {carry_forward_json}
+
+  用户画像（用户身份、偏好与约束的背景知识；仅用于判断兴趣相关度与
+  confidence——它不是素材，禁止引用进 paths/evidence）：
+  {profile_block}
 
   # 本轮素材
 

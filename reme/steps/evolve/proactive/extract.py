@@ -12,6 +12,7 @@ from ..dream.utils import daily_dir, pack_paths, today, workspace_dir
 from .utils import (
     clean_candidate,
     load_carry_forward,
+    load_personal_profile_block,
     load_state,
     parse_extract_reply,
     resolve_agent_wrapper,
@@ -37,6 +38,7 @@ class ProactiveExtractStep(BaseStep):
         llm_timeout_seconds: float = 300,
         max_chars_per_file: int = 60000,
         max_total_chars: int = 300000,
+        profile_max_chars: int = 1500,
         extends_enabled: bool = True,
         skip_key: str = "proactive_skip",
         **kwargs,
@@ -48,6 +50,7 @@ class ProactiveExtractStep(BaseStep):
         self.llm_timeout_seconds = float(llm_timeout_seconds)
         self.max_chars_per_file = max(int(max_chars_per_file), 1000)
         self.max_total_chars = max(int(max_total_chars), 0)
+        self.profile_max_chars = max(int(profile_max_chars), 0)
         self.extends_enabled = bool(extends_enabled)
         self.skip_key = skip_key
 
@@ -72,7 +75,6 @@ class ProactiveExtractStep(BaseStep):
 
         # 1) Material set M (F2.0) - all cheap, before any LLM work.
         m_daily = scan_material_daily(ws, day, daily, self.scan_days)
-        state.material_paths = list(m_daily)
 
         # 2) Truth source + carry-forward (F1.3/F1.4).
         state_file, needs_bootstrap = load_state(ws, daily)
@@ -85,7 +87,7 @@ class ProactiveExtractStep(BaseStep):
             daily,
             needs_bootstrap,
         )
-        state.carry_forward_all = carry_all
+        state.carry_forward_count = len(carry_all)
         state.carry_forward_prompt = carry_prompt
 
         # 3) Change detection against the proactive catalog watermark.
@@ -119,19 +121,19 @@ class ProactiveExtractStep(BaseStep):
             return self._finish(state, started, "Skipped: no agent_wrapper configured")
 
         # 6) One LLM call with sectioned output (A3); retry once on parse failure.
-        meta = await self._extract_with_retry(wrapper, state, ws, day)
+        meta = await self._extract_with_retry(wrapper, state, ws, day, daily)
         if meta is None:
             self.context[self.skip_key] = {"reason": "llm_timeout"}
             self._store(state)
             return passthrough_response(self, self.skip_key)
-        self._clean_output(state, meta, set(state.material_paths), day)
+        self._clean_output(state, meta, set(m_daily), day)
         answer = (
             f"Extracted {len(state.follow_ups)} follow_up(s), {len(state.extends)} extend(s), "
             f"{len(state.updates)} update(s) from {len(state.changed_paths)} changed file(s)"
         )
         return self._finish(state, started, answer)
 
-    def _build_messages(self, state: ProactiveState, ws, day: str, material_blob: str) -> tuple[str, str]:
+    def _build_messages(self, state: ProactiveState, ws, day: str, daily: str, material_blob: str) -> tuple[str, str]:
         carry_forward_json = json.dumps(
             [
                 {
@@ -154,16 +156,23 @@ class ProactiveExtractStep(BaseStep):
             changed_paths_json=json.dumps(changed, ensure_ascii=False),
             carry_forward_json=carry_forward_json,
             material_blob=material_blob,
+            profile_block=self._profile_block(ws),
             extends=self.extends_enabled,
         )
         system_prompt = self.prompt_format(
             "extract_system_prompt",
             workspace_dir=str(ws),
+            daily_dir=daily,
             extends=self.extends_enabled,
         )
         return user_message, system_prompt
 
-    async def _extract_with_retry(self, wrapper, state, ws, day: str) -> dict | None:
+    def _profile_block(self, ws) -> str:
+        """Digest-personal profile sketch; background knowledge, never material."""
+        digest_dir = str(self.config_value("digest_dir"))
+        return load_personal_profile_block(ws, digest_dir, self.profile_max_chars)
+
+    async def _extract_with_retry(self, wrapper, state, ws, day: str, daily: str) -> dict | None:
         """Returns parsed meta; None means LLM timeout."""
         # Newest daily material first: when the total budget bites, the
         # freshest evidence survives and the oldest files are omitted.
@@ -174,7 +183,7 @@ class ProactiveExtractStep(BaseStep):
             limit_per_file=self.max_chars_per_file,
             max_total_chars=self.max_total_chars or None,
         )
-        user_message, system_prompt = self._build_messages(state, ws, day, material_blob)
+        user_message, system_prompt = self._build_messages(state, ws, day, daily, material_blob)
         for attempt in (1, 2):
             raw = await self._reply(wrapper, state, user_message, system_prompt)
             if raw is None:

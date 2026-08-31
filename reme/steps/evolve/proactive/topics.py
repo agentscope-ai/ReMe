@@ -24,7 +24,7 @@ from ....components import R
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
-from ..dream.utils import previous_dates, today, workspace_dir
+from ..dream.utils import daily_dir, previous_dates, today, workspace_dir
 from .utils import (
     current_now,
     dump_topic,
@@ -90,10 +90,10 @@ class ProactiveTopicsStep(BaseStep):
             return self.context.response
         day = state.date or today(self, str(self.context.get("date", "") or ""))
         ws = workspace_dir(self)
-        daily = state.daily_dir or "daily"
+        daily = state.daily_dir or daily_dir(self)
         self.logger.info(
             f"[{self.name}] start date={day} follow_ups={len(state.follow_ups)} extends={len(state.extends)} "
-            f"updates={len(state.updates)} carry_forward={len(state.carry_forward_all)}",
+            f"updates={len(state.updates)} carry_forward={state.carry_forward_count}",
         )
 
         state_file, _needs_bootstrap = load_state(ws, daily)
@@ -288,8 +288,6 @@ class ProactiveTopicsStep(BaseStep):
         if candidate.get("evidence"):
             existing.evidence = str(candidate["evidence"])[:120]
         existing.confidence = clamp_confidence(candidate.get("confidence"))
-        if candidate.get("keywords"):
-            existing.keywords = list(candidate["keywords"])
         if candidate.get("paths"):
             existing.paths = list(candidate["paths"])
 
@@ -309,7 +307,6 @@ class ProactiveTopicsStep(BaseStep):
             first_seen=str(tombstone.get("first_seen") or day),
             last_evidence_at=day,
             evidence=str(candidate.get("evidence") or "")[:120],
-            keywords=candidate.get("keywords") or [],
             paths=candidate.get("paths") or [],
         )
 
@@ -446,10 +443,7 @@ def _embed_text(candidate: dict) -> str:
     """Vector text for a candidate (v5.2 calibration: title+reason)."""
     title = str(candidate.get("title") or "")
     reason = str(candidate.get("reason") or "").strip()
-    if reason:
-        return f"{title}。{reason}"
-    keywords = ", ".join(str(k) for k in candidate.get("keywords") or [])
-    return f"{title} | {keywords}" if keywords else title
+    return f"{title}。{reason}" if reason else title
 
 
 def _known_text(title: str, reason: str) -> str:

@@ -89,12 +89,19 @@ plan_system_prompt_zh: |
   ```
 
 plan_user_message: |
+  user_profile (background: let it tune the opener's language and tone; it is
+  NOT material, never cite it):
+  {profile_block}
+
   push_candidates (one scenario card per topic):
   {candidates_json}
 
   Emit the `cards` block per the contract.
 
 plan_user_message_zh: |
+  用户画像（背景信息：用于把握开场白的语言与语气；它不是素材，禁止引用）：
+  {profile_block}
+
   推送候选主题（每个主题一张场景卡）：
   {candidates_json}
 

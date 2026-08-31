@@ -24,7 +24,8 @@ from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
 from ....components import R
 from ....schema import ProactiveState
-from .utils import parse_plan_reply, resolve_agent_wrapper
+from ..dream.utils import workspace_dir
+from .utils import load_personal_profile_block, parse_plan_reply, resolve_agent_wrapper
 
 SCENARIO_TYPES = ("resume_task", "answer_pending", "explore_interest", "prepare_upcoming")
 DELIVERY_MODES = ("in_conversation", "notification", "agenda_item")
@@ -113,12 +114,14 @@ class ProactivePlanStep(BaseStep):
         self,
         max_plan_topics: int = 6,
         llm_timeout_seconds: float = 120,
+        profile_max_chars: int = 800,
         skip_key: str = "proactive_skip",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.max_plan_topics = max(int(max_plan_topics), 1)
         self.llm_timeout_seconds = float(llm_timeout_seconds)
+        self.profile_max_chars = max(int(profile_max_chars), 0)
         self.skip_key = skip_key
 
     async def execute(self):
@@ -186,8 +189,10 @@ class ProactivePlanStep(BaseStep):
             self.logger.warning(f"[{self.name}] no agent_wrapper available; using fallback cards")
             return {}
         selected_ids = {str(c.get("id")) for c in selected}
+        ws = workspace_dir(self)
         user_message = self.prompt_format(
             "plan_user_message",
+            profile_block=self._profile_block(ws),
             candidates_json=json.dumps(
                 [
                     {
@@ -223,6 +228,11 @@ class ProactivePlanStep(BaseStep):
         if not cards_by_id:
             self.logger.warning(f"[{self.name}] plan reply unusable; raw={raw[:200]!r}")
         return cards_by_id
+
+    def _profile_block(self, ws) -> str:
+        """Digest-personal profile sketch so openers respect user preferences."""
+        digest_dir = str(self.config_value("digest_dir"))
+        return load_personal_profile_block(ws, digest_dir, self.profile_max_chars)
 
     def _store(self, state: ProactiveState) -> None:
         assert self.context is not None

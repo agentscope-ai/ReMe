@@ -695,7 +695,6 @@ def test_proactive_answer_includes_topics_and_requested_content(tmp_path):
                     "title": "Retrieval quality",
                     "reason": "Search behavior changed repeatedly.",
                     "evidence": "daily/2026-05-28/session.md",
-                    "keywords": [],
                     "paths": [],
                 },
             ],

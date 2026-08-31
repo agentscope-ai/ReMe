@@ -24,10 +24,11 @@ from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
 from ....components import R
 from ....schema import ProactiveState
-from ..dream.utils import workspace_dir
+from ..dream.utils import daily_dir, workspace_dir
 from .utils import (
     current_now,
     interests_path_for,
+    load_personal_profile_block,
     norm_path,
     parse_agenda_reply,
     render_interests,
@@ -52,7 +53,7 @@ class ProactiveAgendaStep(BaseStep):
         max_agenda_items: int = 6,
         llm_timeout_seconds: float = 120,
         profile_rel_path: str = "profile.md",
-        profile_max_chars: int = 2000,
+        profile_max_chars: int = 2500,
         skip_key: str = "proactive_skip",
         **kwargs,
     ):
@@ -150,7 +151,7 @@ class ProactiveAgendaStep(BaseStep):
         state.push = bool(agenda)
 
         day = state.date
-        daily = state.daily_dir or "daily"
+        daily = state.daily_dir or daily_dir(self)
         rendered = render_interests(
             day,
             state.topics_out,
@@ -257,16 +258,14 @@ class ProactiveAgendaStep(BaseStep):
         return agenda_ids, order_reasons, suppressed_reasons
 
     def _profile_block(self, ws) -> str:
-        if not self.profile_rel_path or self.profile_max_chars <= 0:
-            return "(no user profile)"
-        path = ws / self.profile_rel_path
-        if not path.is_file():
-            return "(no user profile)"
-        try:
-            text = path.read_text(encoding="utf-8")[: self.profile_max_chars]
-        except OSError:
-            return "(no user profile)"
-        return text.strip() or "(no user profile)"
+        """Digest-personal profile first, legacy single profile file as fallback."""
+        digest_dir = str(self.config_value("digest_dir"))
+        return load_personal_profile_block(
+            ws,
+            digest_dir,
+            self.profile_max_chars,
+            self.profile_rel_path,
+        )
 
     def _store(self, state: ProactiveState) -> None:
         assert self.context is not None

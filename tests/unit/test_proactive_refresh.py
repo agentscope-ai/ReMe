@@ -29,11 +29,13 @@ from reme.steps.evolve.proactive.proactive import ProactiveStep
 from reme.steps.evolve.proactive.topics import ProactiveTopicsStep
 from reme.steps.evolve.proactive.utils import (
     load_carry_forward,
+    load_personal_profile_block,
     load_state,
     normalize_topic,
     parse_interests_topics,
     parse_extract_reply,
     scan_material_daily,
+    strip_frontmatter,
     topic_id,
 )
 from reme.steps.evolve.wait_for_idle import WaitForIdleStep
@@ -180,15 +182,16 @@ def _reply(follow_ups=None, extends=None, updates=None) -> str:
     return f"```yaml\n{body}```"
 
 
-def _topic(title, reason="because", confidence=0.7, paths=None, evidence=None, keywords=None):
-    return {
+def _topic(title, reason="because", confidence=0.7, paths=None, evidence=None):
+    doc = {
         "title": title,
         "reason": reason,
         "confidence": confidence,
-        "evidence": evidence or (paths[0] if paths else ""),
-        "keywords": keywords or [],
         "paths": paths or [],
     }
+    if evidence:
+        doc["evidence"] = evidence
+    return doc
 
 
 def _state_topic(title, day=DAY, kind="follow_up", confidence=0.8, topic_id_value=None, status="open"):
@@ -202,7 +205,6 @@ def _state_topic(title, day=DAY, kind="follow_up", confidence=0.8, topic_id_valu
         "first_seen": day,
         "last_evidence_at": day,
         "evidence": "",
-        "keywords": [],
         "paths": [],
     }
 
@@ -567,8 +569,7 @@ def test_bootstrap_upgrade_chain(tmp_path):
         _, _, _, context, responses = await _run_chain(ws, [reply])
         assert all(r.success for r in responses)
 
-        carry = context.get("proactive")["carry_forward_all"]
-        assert [t["title"] for t in carry] == ["历史主题"]  # history reached the chain context
+        assert context.get("proactive")["carry_forward_count"] == 1  # history reached the chain context
 
         truth_titles = {t["title"] for t in _read_state(ws)["open_topics"]}
         assert truth_titles == {"历史主题", "新主题"}
@@ -592,7 +593,7 @@ def test_carry_forward_expiry(tmp_path):
         reply = _reply(follow_ups=[], updates=[])
         _, _, _, context, responses = await _run_chain(ws, [reply])
         assert all(r.success for r in responses)
-        assert context.get("proactive")["carry_forward_all"] == []
+        assert context.get("proactive")["carry_forward_count"] == 0
         assert _read_state(ws)["open_topics"] == []  # pruned from the truth source
 
     asyncio.run(run())
@@ -910,7 +911,6 @@ def test_idempotent_write(tmp_path):
                     "title": "Nightly topic",
                     "reason": "written by dream",
                     "evidence": f"daily/{DAY}/n.md",
-                    "keywords": [],
                     "paths": [f"daily/{DAY}/n.md"],
                 },
             ]
@@ -1253,7 +1253,6 @@ def test_proactive_backward_compat(tmp_path):
                     "title": "Retrieval quality",
                     "reason": "Search behavior changed repeatedly.",
                     "evidence": "daily/2026-05-28/session.md",
-                    "keywords": [],
                     "paths": [],
                 },
             ],
@@ -1416,7 +1415,7 @@ def test_semantic_dedup(tmp_path):
         _touch(ws / "daily" / DAY / "session.md", "material")
         reply = _reply(
             follow_ups=[
-                _topic("Candidate Topic", confidence=0.8, paths=[f"daily/{DAY}/session.md"], keywords=["alpha"]),
+                _topic("Candidate Topic", confidence=0.8, paths=[f"daily/{DAY}/session.md"]),
             ],
         )
         fake = _FakeEmbedding(
@@ -1803,5 +1802,93 @@ def test_read_side_agenda_passthrough(tmp_path):
         response = await step(RuntimeContext(date=DAY, include_content=False, file_store=_FileStore(ws)))
         assert [t["title"] for t in response.answer["topics"]] == ["议程主题"]
         assert response.answer["agenda"] == [{"topic_id": id_a, "opener": "对了，那件事可以动了"}]
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# F2.7 personal profile (digest/personal) + configured daily_dir
+# ---------------------------------------------------------------------------
+
+
+def test_strip_frontmatter_and_profile_loader(tmp_path):
+    """digest/personal/*.md -> profile block; per-file budget; fallbacks."""
+    ws = tmp_path
+    personal = ws / "digest" / "personal"
+    personal.mkdir(parents=True)
+    (personal / "user-profile.md").write_text(
+        "---\ndescription: 用户张三的身份画像\nname: user-profile\n---\n\n用户张三，偏好西瓜。\n",
+        encoding="utf-8",
+    )
+    (personal / "user-position.md").write_text(
+        "---\ndescription: 持仓约束\nname: user-position\n---\n\n持有小米，浮亏较深。\n",
+        encoding="utf-8",
+    )
+
+    meta, body = strip_frontmatter((personal / "user-profile.md").read_text(encoding="utf-8"))
+    assert meta["name"] == "user-profile"
+    assert body == "用户张三，偏好西瓜。"
+
+    block = load_personal_profile_block(ws, "digest", 4000)
+    assert "### user-profile" in block and "### user-position" in block
+    assert "用户张三的身份画像" in block and "偏好西瓜" in block
+    assert "持仓约束" in block
+
+    tiny = load_personal_profile_block(ws, "digest", 300)
+    assert len(tiny) <= 300
+
+    # absent personal dir -> legacy single-file fallback -> sentinel
+    empty_ws = tmp_path / "empty"
+    empty_ws.mkdir()
+    assert load_personal_profile_block(empty_ws, "digest", 1000) == "(no user profile)"
+    (empty_ws / "profile.md").write_text("legacy profile", encoding="utf-8")
+    assert load_personal_profile_block(empty_ws, "digest", 1000, "profile.md") == "legacy profile"
+    assert load_personal_profile_block(empty_ws, "digest", 0, "profile.md") == "(no user profile)"
+
+
+def test_chain_with_configured_daily_dir(tmp_path):
+    """The full chain honours daily_dir=memory (paths, truth source, prompts)."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "memory" / DAY / "session.md", "小米财报讨论")
+        _touch(ws / "digest" / "personal" / "user-profile.md",
+               "---\ndescription: 张三画像\nname: user-profile\n---\n\n张三关注小米与中概股。\n")
+        extract_reply = _reply(
+            follow_ups=[_topic("小米Q2财报跟进", confidence=0.9, paths=[f"memory/{DAY}/session.md"])],
+        )
+        fid = topic_id("小米Q2财报跟进")
+        plan_reply = _plan_reply([_card(fid)])
+        agenda_text = _agenda_reply([{"topic_id": fid, "order_reason": "only candidate"}], [])
+
+        app = ApplicationContext(workspace_dir=str(ws), daily_dir="memory", digest_dir="digest")
+        wrapper = _AgentWrapper([extract_reply, plan_reply, agenda_text])
+        catalog = _Catalog()
+        context = RuntimeContext(date=DAY, file_catalog=catalog, file_store=_FileStore(ws), agent_wrapper=wrapper)
+        extract = ProactiveExtractStep(app_context=app)
+        resp_extract = await extract(context)
+        topics = ProactiveTopicsStep(app_context=app)
+        resp_topics = await topics(context)
+        plan = ProactivePlanStep(app_context=app)
+        resp_plan = await plan(context)
+        agenda = ProactiveAgendaStep(app_context=app)
+        resp_agenda = await agenda(context)
+        finish = ProactiveFinishStep(app_context=app)
+        resp_finish = await finish(context)
+        assert all(r.success for r in (resp_extract, resp_topics, resp_plan, resp_agenda, resp_finish))
+
+        state = context.get("proactive")
+        assert state["daily_dir"] == "memory"
+        assert state["changed_paths"] == [f"memory/{DAY}/session.md"]
+        # truth source + exposure land under memory/, not daily/
+        assert (ws / "memory" / "_proactive.yaml").is_file()
+        data = yaml.safe_load((ws / "memory" / DAY / "interests.yaml").read_text(encoding="utf-8"))
+        assert data["push"] is True
+        assert [t["id"] for t in data["topics"]] == [fid]
+        assert not (ws / "daily").exists()
+        # profile + configured daily dir reached the prompts
+        assert any("张三画像" in inp or "张三关注小米" in inp for inp in wrapper.last_inputs)
+        assert any(f"memory/{DAY}" in inp for inp in wrapper.last_inputs)
+        assert any("memory/<date>" in sp for sp in wrapper.last_system_prompts)
 
     asyncio.run(run())

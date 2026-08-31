@@ -36,7 +36,6 @@ class ProactiveTopic(BaseModel):
     first_seen: str = ""
     last_evidence_at: str = ""
     evidence: str = ""
-    keywords: list[str] = Field(default_factory=list)
     paths: list[str] = Field(default_factory=list)
 
     @field_validator("kind", mode="before")
@@ -50,7 +49,7 @@ class ProactiveTopic(BaseModel):
     def _fallback_confidence(cls, value):
         return clamp_confidence(value)
 
-    @field_validator("keywords", "paths", mode="before")
+    @field_validator("paths", mode="before")
     @classmethod
     def _clean_str_list(cls, value):
         if not isinstance(value, list):
@@ -61,7 +60,7 @@ class ProactiveTopic(BaseModel):
 class ProactiveState(BaseModel):
     """Chain-shared proactive context state (``context['proactive']``).
 
-    Extract fills material/carry-forward/LLM output fields; topics fills the
+    Extract fills change-detection/carry-forward/LLM output fields; topics fills the
     filtering fields plus ``push_candidates`` (today's pushable topics); plan
     expands candidates into ``scenario_cards``; agenda selects the ordered
     ``agenda`` and records ``suppressed`` candidates with reasons; finish
@@ -76,9 +75,8 @@ class ProactiveState(BaseModel):
     workspace: str = ""
     scan_days: int = 2
     carry_forward_days: int = 14
-    material_paths: list[str] = Field(default_factory=list)
     changed_paths: list[str] = Field(default_factory=list)
-    carry_forward_all: list[ProactiveTopic] = Field(default_factory=list)
+    carry_forward_count: int = 0
     carry_forward_prompt: list[ProactiveTopic] = Field(default_factory=list)
     llm_calls: int = 0
     follow_ups: list[dict] = Field(default_factory=list)
@@ -104,7 +102,6 @@ class ProactiveState(BaseModel):
     interests_written: bool = False
     checkpoint_paths: list[str] = Field(default_factory=list)
     duration_ms: int = 0
-    errors: list[str] = Field(default_factory=list)
 
 
 class ProactiveStateFile(BaseModel):
