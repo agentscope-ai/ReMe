@@ -8,7 +8,17 @@ LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评�
 
 题型包括单会话（user / assistant / preference）、多会话推理、知识更新与时间推理等。
 
-> 公共设置（依赖、凭据、日志约定）见[总评测说明](../README_ZH.md)。
+在仓库根目录安装 ReMe 及运行依赖即可，无需执行 `reme plugins install`：
+
+```bash
+python -m pip install -e ".[as]"
+```
+
+runner 在每个 worker 中直接加载仓库内的 [插件源码](../../plugins/lme/README_ZH.md) 和
+`lme.yaml` 应用配置，不安装插件、不修改全局 registry。本目录继续保留评测参数、数据集及输出。
+自定义完整应用配置路径仍可通过 `reme.config` 指定；免安装时，`extends` 请使用插件配置文件的路径，
+而不是依赖安装信息的 `lme` 名称。
+模型凭据通过插件应用配置中声明的环境变量设置。
 
 ## 1. 获取数据集
 
@@ -41,7 +51,7 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 
 1. 加载数据集（ground truth 已内嵌在数据文件中）。
 2. 为每个条目创建独立工作区，按时间顺序摄入会话。
-3. 当相邻会话跨越配置的时刻（默认 23:00）时触发 `auto_dream`。
+3. 若自定义应用配置启用了 `auto_dream`，在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
 4. 以 agentic（ReAct）模式回答每个问题。
 5. 通过 `answer_judge` 任务对答案做二元（yes/no）评判，并输出各类型准确率。
 

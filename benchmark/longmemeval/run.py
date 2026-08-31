@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import time
 import threading
 from datetime import datetime
@@ -28,7 +29,7 @@ import yaml
 from dotenv import load_dotenv
 
 # Load .env from project root
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root for evaluation items — read from config.yaml (dataset.workspace_root)
@@ -150,6 +151,30 @@ def load_eval_config(config_path: str | None = None) -> dict:
     return yaml.safe_load(raw)
 
 
+def create_reme_app(config: str = "lme.yaml", **overrides):
+    """Create an app using this checkout's plugin, without installing its distribution.
+
+    Preset aliases resolve directly to the local plugin configuration. Other config
+    names and paths keep the normal ReMe parser behavior. Only plugins enabled in
+    the resolved configuration are loaded; the package map never enables a plugin.
+    Call this inside each worker so multiprocessing spawn needs no parent setup.
+    """
+    from reme import Application
+    from reme.config import resolve_app_config
+
+    source_root = _PROJECT_ROOT / "plugins" / "lme" / "src"
+    package_root = source_root / "reme_lme"
+    if not (package_root / "plugin.yaml").is_file():
+        raise FileNotFoundError(f"Local lme plugin not found: {package_root}")
+    source_path = str(source_root)
+    if source_path not in sys.path:
+        sys.path.insert(0, source_path)
+    if config in ("lme", "lme.yaml"):
+        config = str(package_root / "configs" / "lme.yaml")
+    app_config = resolve_app_config(config=config, **overrides)
+    return Application(plugin_packages={"lme": "reme_lme"}, **app_config)
+
+
 # ---------------------------------------------------------------------------
 # Date utilities
 # ---------------------------------------------------------------------------
@@ -257,8 +282,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
             using the existing workspace. Useful for re-evaluating different query
             configurations without re-ingesting sessions.
     """
-    from reme import Application
-    from reme.config import resolve_app_config
     from reme.utils.evaluation_interface import track_agent_token_usage, track_job_counts
 
     reme_cfg = eval_config["reme"]
@@ -325,7 +348,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
                 force_init=True,
             )
 
-    cfg = resolve_app_config(
+    app = create_reme_app(
         config=reme_cfg["config"],
         workspace_dir=workspace_dir,
         log_to_console=output_cfg.get("log_to_console", True),
@@ -333,7 +356,6 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
         enable_logo=False,
     )
 
-    app = Application(**cfg)
     await app.start()
 
     try:

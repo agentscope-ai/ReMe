@@ -1,0 +1,36 @@
+[project]
+name = "reme-beam"
+version = "0.1.0"
+description = "BEAM benchmark plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "reme-ai[as]>=0.4.1.11",
+    "json-repair",
+    "numpy>=2.2.6",
+]
+
+[project.entry-points."reme.plugins"]
+beam = "reme_beam"
+
+[project.entry-points."reme.configs"]
+beam = "reme_beam.config:config_path"
+"beam.yaml" = "reme_beam.config:config_path"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["reme_beam*"]
+
+[tool.setuptools.package-data]
+reme_beam = ["plugin.yaml", "configs/*.yaml", "steps/*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src", "../.."]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

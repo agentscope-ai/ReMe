@@ -12,8 +12,18 @@ agentic (ReAct) mode, and scores the answer with an LLM-as-judge.
 Question types include single-session (user / assistant / preference),
 multi-session reasoning, knowledge update, and temporal reasoning.
 
-> For the shared setup (dependencies, credentials, log conventions) see the
-> [top-level benchmark README](../README.md).
+Install ReMe and its runtime dependencies from the repository root; no `reme plugins install` is needed:
+
+```bash
+python -m pip install -e ".[as]"
+```
+
+Each worker directly loads the checkout's [plugin source](../../plugins/lme/README.md) and `lme.yaml`
+application configuration without installing the plugin or mutating the global registry.
+Custom application config paths still work through `reme.config`. Without installation,
+use the plugin configuration file path for `extends`, rather than the installed `lme` alias.
+This directory continues to own the runner, evaluation settings, dataset and outputs.
+Model credentials use the environment variables in the plugin's application configuration.
 
 ## 1. Get the Dataset
 
@@ -46,7 +56,8 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 
 1. Load the dataset (ground truth is embedded in the data file).
 2. For each item, create an isolated workspace and ingest sessions in chronological order.
-3. Trigger `auto_dream` when consecutive sessions cross the configured hour (default 23:00).
+3. If a custom application configuration enables `auto_dream`, trigger it when sessions cross the configured hour
+   (default 23:00). The packaged preset leaves it disabled.
 4. Answer each question via agentic (ReAct) mode.
 5. Judge the answer (binary yes/no) with the `answer_judge` job and print per-type accuracy.
 

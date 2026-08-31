@@ -1,0 +1,763 @@
+service:
+  backend: cli
+jobs:
+  index_update_loop:
+    backend: background
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    watch_suffixes:
+    - md
+    steps:
+    - backend: init_changes_step
+      monitor_type: file_store
+      monitor_name: default
+      dispatch_steps:
+      - update_index_step
+    - backend: watch_changes_step
+      dispatch_steps:
+      - backend: update_index_step
+        persist: false
+  resource_watch_loop:
+    backend: background
+    watch_dirs:
+    - resource_dir
+    watch_suffixes:
+    - md
+    - txt
+    - json
+    - jsonl
+    - csv
+    - yaml
+    - html
+    steps:
+    - backend: init_changes_step
+      monitor_type: file_catalog
+      monitor_name: resource
+      dispatch_steps:
+      - backend: update_catalog_step
+        file_catalog: resource
+      - backend: auto_resource_step
+    - backend: watch_changes_step
+      dispatch_steps:
+      - backend: update_catalog_step
+        file_catalog: resource
+      - backend: auto_resource_step
+  digest_watch_loop:
+    backend: background
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    watch_suffixes:
+    - md
+    steps:
+    - backend: init_changes_step
+      monitor_type: file_catalog
+      monitor_name: digest
+      dispatch_steps:
+      - backend: update_catalog_step
+        file_catalog: digest
+      - backend: log_changes_step
+    - backend: watch_changes_step
+      dispatch_steps:
+      - backend: update_catalog_step
+        file_catalog: digest
+      - backend: log_changes_step
+  dream_cron:
+    backend: cron
+    cron: 0 23 * * *
+    steps:
+    - backend: dream_extract_step
+      file_catalog: dream
+      topic_session_id: interests
+      scan_days: 2
+      max_units: 5
+    - backend: dream_integrate_step
+    - backend: dream_topics_step
+      topic_count: 3
+      topic_diversity_days: 7
+    - backend: dream_finish_step
+      file_catalog: dream
+  optimize_index_cron:
+    backend: cron
+    cron: 0 2 * * *
+    steps:
+    - backend: optimize_index_step
+  auto_dream:
+    backend: base
+    description: 'Auto-dream: scan today''s day-index and daily notes, globally extract
+      merged units/topics, integrate digest units, write interests.yaml, and persist
+      the dream catalog.'
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD to scan; defaults to today in the dreamer's timezone
+          default: ''
+        hint:
+          type: string
+          description: caller guidance passed through to dream extract/integrate
+          default: ''
+        scan_days:
+          type: integer
+          description: number of recent daily directories to scan, ending at date
+          default: 2
+        max_units:
+          type: integer
+          description: maximum number of extracted memory units
+          default: 5
+        topic_count:
+          type: integer
+          description: maximum number of final daily interest topics
+          default: 3
+        topic_diversity_days:
+          type: integer
+          description: number of previous interests.yaml days to avoid repeating
+          default: 7
+    steps:
+    - backend: dream_extract_step
+      file_catalog: dream
+      topic_session_id: interests
+      scan_days: 2
+      max_units: 5
+    - backend: dream_integrate_step
+    - backend: dream_topics_step
+      topic_count: 3
+      topic_diversity_days: 7
+    - backend: dream_finish_step
+      file_catalog: dream
+  auto_memory:
+    backend: base
+    description: 'Auto-memory: record conversation facts into a daily note'
+    parameters:
+      type: object
+      properties:
+        messages:
+          type: array
+          description: messages
+          items:
+            type: object
+        session_id:
+          type: string
+          description: source conversation session identifier
+          default: ''
+        memory_hint:
+          type: string
+          description: optional hint
+        date:
+          type: string
+          description: YYYY-MM-DD daily note date; empty = infer from message timestamps
+            or today
+          default: ''
+      required:
+      - messages
+    steps:
+    - backend: auto_memory_step
+  auto_memory_cc:
+    backend: base
+    description: 'Auto-memory (Claude Code): record a Claude Code session into a daily
+      note, resolved from its session_id'
+    parameters:
+      type: object
+      properties:
+        session_id:
+          type: string
+          description: Claude Code session id; its transcript is resolved from disk
+        memory_hint:
+          type: string
+          description: optional hint
+      required:
+      - session_id
+    steps:
+    - backend: auto_memory_cc_step
+  auto_resource:
+    backend: base
+    description: 'Auto-resource: interpret resource files into daily notes'
+    parameters:
+      type: object
+      properties:
+        changes:
+          type: array
+          description: resource change batch, each item has path/file_path and change
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+              file_path:
+                type: string
+              change:
+                type: string
+                description: added/modified/deleted
+      required:
+      - changes
+    steps:
+    - backend: auto_resource_step
+  proactive:
+    backend: base
+    description: 'Proactive: read daily/<date>/interests.yaml and expose the latest
+      user-interest topics.'
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD to read; defaults to today in the dreamer's timezone
+          default: ''
+        include_content:
+          type: boolean
+          description: whether to include the raw YAML content in the response answer
+            and metadata
+          default: true
+    steps:
+    - backend: proactive_step
+  app_config:
+    backend: base
+    description: return the effective application config with secrets redacted
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: app_config_step
+  chat:
+    backend: stream
+    description: Stream a read-only agent conversation over the ReMe workspace.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: user message
+        session_id:
+          type: string
+          description: agent session to resume
+        system_prompt:
+          type: string
+          description: optional system prompt override
+      required:
+      - query
+    steps:
+    - backend: chat_step
+      agent_wrapper: default
+  health_check:
+    backend: base
+    description: return a concise health-check snapshot of reme components
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: health_check_step
+  status:
+    backend: base
+    description: report memory estimates for stateful data components and process
+      RSS
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: status_step
+  help:
+    backend: base
+    description: list all registered jobs with their metadata
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: help_step
+  traverse:
+    backend: base
+    description: Return a bounded wikilink graph with frontend-ready nodes and directed
+      edges.
+    parameters:
+      type: object
+      properties:
+        path:
+          oneOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+            minItems: 1
+          description: workspace-relative path or paths used as graph seeds
+        depth:
+          type: integer
+          minimum: 0
+          description: maximum number of wikilink hops
+          default: 1
+        direction:
+          type: string
+          description: traversal direction; returned edges always preserve the original
+            wikilink source-to-target direction
+          enum:
+          - forward
+          - backward
+          - both
+          default: both
+      required:
+      - path
+    steps:
+    - backend: traverse_step
+  graph_snapshot:
+    backend: base
+    description: Return the category-rooted digest wikilink graph with daily-note
+      leaves.
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: graph_snapshot_step
+  reindex:
+    backend: base
+    description: wipe the file store and rebuild it from the existing files
+    watch_dirs:
+    - daily_dir
+    - digest_dir
+    - resource_dir
+    watch_suffixes:
+    - md
+    - jsonl
+    parameters:
+      type: object
+      properties: {}
+    steps:
+    - backend: clear_store_step
+    - backend: init_changes_step
+      monitor_type: file_store
+      monitor_name: default
+      dispatch_steps:
+      - update_index_step
+  search:
+    backend: base
+    description: Hybrid workspace search (vector + BM25, RRF-fused).
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: search query
+        limit:
+          type: integer
+          description: max results
+          default: 5
+        min_score:
+          type: number
+          description: min fused score
+          default: 0.0
+        start_date:
+          type: string
+          description: optional inclusive start date filter (YYYY-MM-DD); results
+            earlier than this date are excluded
+        end_date:
+          type: string
+          description: optional inclusive end date filter (YYYY-MM-DD); results later
+            than this date are excluded
+      required:
+      - query
+    steps:
+    - backend: search_step
+      vector_weight: 0.7
+      candidate_multiplier: 5.0
+      expand_links: true
+      max_links_per_direction: 10
+  node_search:
+    backend: base
+    description: Digest node recall — given a candidate abstraction's name+description,
+      surface existing digest nodes similar enough to either dedup against or link
+      to as related.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: search query
+        limit:
+          type: integer
+          description: max digest nodes to return
+          default: 20
+      required:
+      - query
+    steps:
+    - backend: node_search_step
+      vector_weight: 0.7
+      candidate_multiplier: 5.0
+  daily_list:
+    backend: base
+    description: List notes under a single day.
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD; empty = today
+          default: ''
+    steps:
+    - backend: daily_list_step
+  daily_reindex:
+    backend: base
+    description: Rebuild the day-index page daily/<date>.md.
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: YYYY-MM-DD; empty = today
+          default: ''
+    steps:
+    - backend: daily_reindex_step
+  frontmatter_delete:
+    backend: base
+    description: Drop keys from a file's frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        keys:
+          type: array
+          description: keys to remove
+          items:
+            type: string
+      required:
+      - path
+      - keys
+    steps:
+    - backend: frontmatter_delete_step
+  frontmatter_read:
+    backend: base
+    description: Read a file's frontmatter as a dict.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: frontmatter_read_step
+  frontmatter_update:
+    backend: base
+    description: Merge key-values into a file's frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        metadata:
+          type: object
+          description: key-values to merge
+      required:
+      - path
+      - metadata
+    steps:
+    - backend: frontmatter_update_step
+  stat:
+    backend: base
+    description: Stat path (size, mtime, exists, is_dir, is_file).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: stat_step
+  list:
+    backend: base
+    description: List files under a workspace path.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative dir; empty = root
+          default: ''
+        recursive:
+          type: boolean
+          description: recurse
+          default: false
+        limit:
+          type: integer
+          description: max results
+          default: 100
+    steps:
+    - backend: list_step
+  move:
+    backend: base
+    description: Move / rename a workspace file; rewrites inbound wikilinks by default.
+    parameters:
+      type: object
+      properties:
+        src_path:
+          type: string
+          description: workspace-relative source
+        dst_path:
+          type: string
+          description: workspace-relative destination
+        overwrite:
+          type: boolean
+          description: overwrite if dst exists
+          default: false
+        retarget:
+          type: boolean
+          description: rewrite [[src]] → [[dst]] across the workspace
+          default: true
+      required:
+      - src_path
+      - dst_path
+    steps:
+    - backend: move_step
+  delete:
+    backend: base
+    description: Delete a workspace file or folder; returns surviving inbound wikilinks.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: delete_step
+  read:
+    backend: base
+    description: Read a markdown file under the workspace.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path; markdown only
+        start_line:
+          type: integer
+          description: first line (1-based, inclusive)
+        end_line:
+          type: integer
+          description: last line (1-based, inclusive)
+      required:
+      - path
+    steps:
+    - backend: read_step
+      with_neighbors: false
+      max_neighbors_per_direction: 10
+  load:
+    backend: base
+    description: Load a complete text file for the local editor without agent-output
+      truncation.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+      required:
+      - path
+    steps:
+    - backend: load_step
+      max_bytes: 5242880
+  write:
+    backend: base
+    description: Write a markdown file (create or overwrite) with name/description
+      frontmatter.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path; markdown only
+        name:
+          type: string
+          description: frontmatter name
+        description:
+          type: string
+          description: frontmatter description
+        content:
+          type: string
+          description: body
+        metadata:
+          type: object
+          description: Optional extra frontmatter fields (md only).
+      required:
+      - path
+      - name
+      - description
+      - content
+    steps:
+    - backend: write_step
+  save:
+    backend: base
+    description: Save text verbatim, optionally rejecting external changes since the
+      file was opened.
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        content:
+          type: string
+          description: complete file content, including frontmatter
+        expected_mtime:
+          type: string
+          description: optional ISO mtime returned by stat
+      required:
+      - path
+      - content
+    steps:
+    - backend: save_step
+  daily_write:
+    backend: base
+    description: Write a daily markdown note with conversation source frontmatter.
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: daily note filename stem and frontmatter name
+        description:
+          type: string
+          description: frontmatter description
+        session_id:
+          type: string
+          description: source conversation session identifier
+        content:
+          type: string
+          description: body
+        date:
+          type: string
+          description: YYYY-MM-DD daily note date; empty = today
+          default: ''
+        metadata:
+          type: object
+          description: Optional extra frontmatter fields.
+      required:
+      - name
+      - description
+      - session_id
+      - content
+    steps:
+    - backend: daily_write_step
+  edit:
+    backend: base
+    description: Find-and-replace in a markdown file (all occurrences).
+    parameters:
+      type: object
+      properties:
+        path:
+          type: string
+          description: workspace-relative path
+        old:
+          type: string
+          description: text to find
+        new:
+          type: string
+          description: replacement
+          default: ''
+      required:
+      - path
+      - old
+      - new
+    steps:
+    - backend: edit_step
+components:
+  tokenizer:
+    default:
+      backend: regex
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
+      stream: true
+      context_size: 200000
+      max_retries: 3
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      parameters:
+        max_tokens: 65536
+        thinking_enable: false
+  agent_wrapper:
+    default:
+      backend: agentscope
+      as_llm: default
+      permission_mode: bypass
+      react_config:
+        max_iters: 30
+      context_config:
+        trigger_ratio: 0.8
+        reserve_ratio: 0.1
+        tool_result_limit: 50000
+      model_config:
+        max_retries: 1
+    claude_code:
+      backend: claude_code
+      model: ${CLAUDE_CODE_MODEL_NAME:-glm-5.1}
+      api_key: ${CLAUDE_CODE_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+    codex:
+      backend: codex
+      auth_mode: api_key
+      model: ${CODEX_MODEL_NAME:-}
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+      approval_mode: auto_review
+      sandbox: full-access
+    codex_oauth:
+      backend: codex
+      auth_mode: oauth
+      model: ${CODEX_MODEL_NAME:-}
+      codex_home: ${CODEX_HOME:-~/.codex}
+      approval_mode: auto_review
+      sandbox: full-access
+  file_graph:
+    default:
+      backend: local
+  file_catalog:
+    default:
+      backend: local
+    resource:
+      backend: local
+    digest:
+      backend: local
+    dream:
+      backend: local
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions:
+      - md
+      embed_toc: true
+      max_ast_sections: 100
+      include_frontmatter_in_metadata: false
+      include_frontmatter_keys_in_metadata: []
+    json:
+      backend: json
+      supported_extensions:
+      - json
+    jsonl:
+      backend: jsonl
+      supported_extensions:
+      - jsonl
+    default:
+      backend: default
+      supported_extensions:
+      - txt
+      - log
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+  file_store:
+    default:
+      backend: local
+      store_name: local
+      embedding_store: ''
+      keyword_index: default
+      file_graph: default

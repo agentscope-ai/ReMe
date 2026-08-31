@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 import time
 import threading
 from datetime import datetime
@@ -29,7 +30,7 @@ import yaml
 from dotenv import load_dotenv
 
 # Load .env from project root
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root — read from config.yaml (dataset.workspace_root)
@@ -149,6 +150,30 @@ def load_eval_config(config_path: str | None = None) -> dict:
 
     raw = re.sub(r"\$\{([^}]+)\}", _expand, raw)
     return yaml.safe_load(raw)
+
+
+def create_reme_app(config: str = "beam.yaml", **overrides):
+    """Create an app using this checkout's plugin, without installing its distribution.
+
+    Preset aliases resolve directly to the local plugin configuration. Other config
+    names and paths keep the normal ReMe parser behavior. Only plugins enabled in
+    the resolved configuration are loaded; the package map never enables a plugin.
+    Call this inside each worker so multiprocessing spawn needs no parent setup.
+    """
+    from reme import Application
+    from reme.config import resolve_app_config
+
+    source_root = _PROJECT_ROOT / "plugins" / "beam" / "src"
+    package_root = source_root / "reme_beam"
+    if not (package_root / "plugin.yaml").is_file():
+        raise FileNotFoundError(f"Local beam plugin not found: {package_root}")
+    source_path = str(source_root)
+    if source_path not in sys.path:
+        sys.path.insert(0, source_path)
+    if config in ("beam", "beam.yaml"):
+        config = str(package_root / "configs" / "beam.yaml")
+    app_config = resolve_app_config(config=config, **overrides)
+    return Application(plugin_packages={"beam": "reme_beam"}, **app_config)
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +344,6 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     Returns:
         A results dict with all questions, answers, and judgments.
     """
-    from reme import Application
-    from reme.config import resolve_app_config
 
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
@@ -375,7 +398,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 force_init=True,
             )
 
-    cfg = resolve_app_config(
+    app = create_reme_app(
         config=eval_config["reme"]["config"],
         workspace_dir=workspace_dir,
         log_to_console=output_cfg.get("log_to_console", True),
@@ -383,7 +406,6 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         enable_logo=False,
     )
 
-    app = Application(**cfg)
     await app.start()
 
     from reme.utils.evaluation_interface import check_agent_token_usage  # noqa: E402

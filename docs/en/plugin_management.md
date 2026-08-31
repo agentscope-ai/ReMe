@@ -176,6 +176,31 @@ When the application uses an MCP service, service-enabled plugin Jobs appear as 
 Custom application configs must provide the plugin's runtime dependencies, including an `agent_wrapper.default` and
 the `search` and `read` Jobs used by Auto Fin.
 
+## Benchmark application presets
+
+The [LME](../../plugins/lme/README.md) and [BEAM](../../plugins/beam/README.md) plugins
+register backends only. Their `plugin.yaml` files do not contribute `application_defaults`.
+Select `config=lme` or `config=beam` (also `lme.yaml` / `beam.yaml`) to load their complete
+application presets, which explicitly enable the corresponding plugin. These presets do
+not inherit `default`, so default background and cron jobs are not included. Enabling only
+`plugins=["lme"]` registers implementations without switching the default service into an
+evaluation application. Dataset runners remain under `benchmark/`.
+
+## Load an importable plugin package from Python
+
+Python callers can pass `Application(plugin_packages={"lme": "reme_lme"}, **config)`,
+with `lme` enabled in `config["plugins"]` and `reme_lme` available on Python's import path.
+The mapping selects sources only for this Application; it neither enables plugins nor becomes
+part of the serialized application configuration. Explicit sources take precedence over installed
+providers; other enabled plugins still use entry-point discovery. Manifest validation, backend
+type checks and registry conflict detection remain unchanged.
+
+Both benchmark runners use this API to load the checkout's plugin code without
+`reme plugins install`. They resolve their preset aliases to local configuration paths.
+For custom configs that extend these presets without installation, use a file path in `extends`.
+ReMe, AgentScope and other runtime dependencies must still be installed. Ordinary CLI plugin
+and named-config discovery continue to require an installed plugin distribution.
+
 ## Uninstall a plugin
 
 Use the plugin entry-point name, not necessarily the distribution name:

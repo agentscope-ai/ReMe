@@ -40,11 +40,12 @@ jobs:
           pip install -e reme_studio -e ".[dev,core]"
           pip install --no-deps -e plugins/auto-fin
           pip install -e plugins/daily_paper
+          pip install -e plugins/lme -e plugins/beam
           pip install coverage
 
       - name: Run unit tests
         run: |
-          coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper \
+          coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam \
             -v \
             --tb=long \
             -s \

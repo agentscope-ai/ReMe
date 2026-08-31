@@ -23,8 +23,11 @@ _NodeKey = tuple[str, str]
 class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
-    def __init__(self, **kwargs) -> None:
-        runtime = resolve_plugin_runtime(kwargs)
+    def __init__(self, *, plugin_packages: Mapping[str, str] | None = None, **kwargs) -> None:
+        # Python callers may supply importable plugin packages without installing
+        # distributions. This lookup map is not part of the serialized app config;
+        # only names explicitly enabled in kwargs["plugins"] are loaded.
+        runtime = resolve_plugin_runtime(kwargs, plugin_packages=plugin_packages)
         self.context = ApplicationContext(registry=runtime.registry, **runtime.config)
         self._started_components: list[BaseComponent] = []
         self._component_mutation_lock = asyncio.Lock()

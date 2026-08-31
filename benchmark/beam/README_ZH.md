@@ -13,7 +13,17 @@ ordering（事件排序）、information extraction（信息抽取）、instruct
 knowledge update（知识更新）、multi-session reasoning（多会话推理）、preference following
 （偏好遵循）、summarization（摘要）与 temporal reasoning（时间推理）。
 
-> 公共设置（依赖、凭据、日志约定）见[总评测说明](../README_ZH.md)。
+在仓库根目录安装 ReMe 及运行依赖即可，无需执行 `reme plugins install`：
+
+```bash
+python -m pip install -e ".[as]"
+```
+
+runner 在每个 worker 中直接加载仓库内的 [插件源码](../../plugins/beam/README_ZH.md) 和
+`beam.yaml` 应用配置，不安装插件、不修改全局 registry。本目录继续保留评测参数、数据集及输出。
+自定义完整应用配置路径仍可通过 `reme.config` 指定；免安装时，`extends` 请使用插件配置文件的路径，
+而不是依赖安装信息的 `beam` 名称。
+模型凭据通过插件应用配置中声明的环境变量设置。
 
 ## 1. 获取数据集
 

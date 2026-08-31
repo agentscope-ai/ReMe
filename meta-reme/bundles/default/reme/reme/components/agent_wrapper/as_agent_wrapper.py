@@ -1,0 +1,501 @@
+"""AgentScope backend for the unified agent wrapper."""
+
+import asyncio
+import json
+import os
+import re
+import subprocess
+import time
+from collections.abc import AsyncGenerator
+from pathlib import Path
+from typing import Any, TYPE_CHECKING
+from uuid import uuid4
+
+from agentscope.agent import Agent, ContextConfig, ReActConfig
+from agentscope.agent._config import ModelConfig
+from agentscope.event import (
+    DataBlockDeltaEvent,
+    DataBlockEndEvent,
+    DataBlockStartEvent,
+    ExceedMaxItersEvent,
+    ModelCallEndEvent,
+    ModelCallStartEvent,
+    ReplyEndEvent,
+    ReplyStartEvent,
+    ThinkingBlockDeltaEvent,
+    ThinkingBlockEndEvent,
+    ThinkingBlockStartEvent,
+    TextBlockDeltaEvent,
+    TextBlockEndEvent,
+    TextBlockStartEvent,
+    ToolCallDeltaEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    ToolResultDataDeltaEvent,
+    ToolResultEndEvent,
+    ToolResultStartEvent,
+    ToolResultTextDeltaEvent,
+)
+from agentscope.message import TextBlock, ToolResultState, UserMsg
+from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode
+from agentscope.state import AgentState
+from agentscope.tool import (
+    Bash,
+    Edit,
+    ExecResult,
+    FunctionTool,
+    Glob,
+    Grep,
+    LocalBackend,
+    Read,
+    ToolBase,
+    ToolChunk,
+    ToolChoice,
+    Toolkit,
+    Write,
+)
+
+from .base_agent_wrapper import BaseAgentWrapper
+from ..as_llm import BaseAsLLM
+from ..component_registry import R
+from ...enumeration import ChunkEnum
+from ...schema import StreamChunk, TokenUsage
+from ...utils import AsStateHandler
+
+if TYPE_CHECKING:
+    from ..job.base_job import BaseJob
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+class WorkspaceBackend(LocalBackend):
+    """Local backend pinned to the agent cwd and configured environment.
+
+    Some AgentScope builtin tools use ``backend.getcwd()`` for default search
+    paths or safety checks. Pinning it here keeps those operations aligned with
+    the cwd passed to Bash. Tools that require absolute file paths still keep
+    their own validation behavior. Subprocesses receive the startup environment
+    captured in ``ApplicationConfig.environment`` in addition to the parent
+    process environment.
+    """
+
+    def __init__(self, cwd: str, environment: dict[str, str] | None = None) -> None:
+        super().__init__()
+        self._workspace_cwd = cwd
+        self._environment = {**os.environ, **(environment or {})}
+
+    async def getcwd(self) -> str:
+        """Return the configured workspace directory."""
+        return self._workspace_cwd
+
+    async def exec_shell(
+        self,
+        command: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: float | None = None,
+    ) -> ExecResult:
+        """Run a local subprocess with the configured agent environment."""
+        kwargs: dict[str, Any] = {
+            "env": self._environment,
+            "stderr": asyncio.subprocess.PIPE,
+            "stdout": asyncio.subprocess.PIPE,
+        }
+        if cwd is not None:
+            kwargs["cwd"] = cwd
+        if os.name == "nt":
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
+        try:
+            process = await asyncio.create_subprocess_exec(*command, **kwargs)
+        except (FileNotFoundError, NotADirectoryError, OSError) as exc:
+            return ExecResult(exit_code=127, stdout=b"", stderr=str(exc).encode("utf-8"))
+
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            return ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
+        return ExecResult(exit_code=process.returncode or 0, stdout=stdout, stderr=stderr)
+
+
+class BypassAnalysisBash(Bash):
+    """Bash variant that delegates permission decisions to PermissionEngine.
+
+    AgentScope's built-in Bash performs bypass-immune static analysis before
+    the engine can apply `permission_mode: bypass`. For this app we want the
+    configured permission mode to be authoritative.
+    """
+
+    async def check_permissions(
+        self,
+        _tool_input: dict[str, Any],
+        _context: PermissionContext,
+    ) -> PermissionDecision:
+        """Bypass Bash static analysis and let the permission engine decide."""
+        return PermissionDecision(
+            behavior=PermissionBehavior.PASSTHROUGH,
+            message="Bash static analysis skipped; delegating to permission engine.",
+        )
+
+
+@R.register("agentscope")
+class AsAgentWrapper(BaseAgentWrapper):
+    """Agent wrapper backed by AgentScope framework."""
+
+    SDK_PACKAGE = "agentscope"
+
+    @staticmethod
+    def _agentscope_usage(usage: Any) -> TokenUsage:
+        """Normalize AgentScope's portable input/output usage."""
+        return TokenUsage.from_provider(usage)
+
+    def __init__(self, as_llm: str = "default", session_retention_days: int = 10, **kwargs):
+        super().__init__(**kwargs)
+        self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
+        self.session_retention_days = int(session_retention_days)
+        self._session_cleanup_done = False
+
+    @classmethod
+    def _make_tool(
+        cls,
+        job: "BaseJob",
+        tool_context_id: str | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
+    ) -> FunctionTool:
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
+        async def run_job(**kwargs) -> ToolChunk:
+            response = await job(**cls._merge_injected_job_kwargs(kwargs, injected))
+            state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
+            return ToolChunk(content=[TextBlock(text=str(response.answer))], state=state)
+
+        tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
+        if parameters := cls._strip_injected_parameters(job.parameters, injected):
+            tool.input_schema = parameters
+        return tool
+
+    def _builtin_tools(
+        self,
+        names: list[str] | str | bool | None = "all",
+        *,
+        sequential_tool_calls: bool = False,
+    ) -> list[ToolBase]:
+        """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
+        cwd = str(self.cwd)
+        backend = WorkspaceBackend(cwd, self.bash_environment)
+        factories = {
+            "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
+            "edit": lambda: Edit(backend=backend),
+            "glob": lambda: Glob(backend=backend),
+            "grep": lambda: Grep(backend=backend),
+            "read": lambda: Read(backend=backend),
+            "write": lambda: Write(backend=backend),
+        }
+        if names is False:
+            selected_names = []
+        elif names is True or names is None or names == "all":
+            selected_names = list(factories)
+        elif names in ("none", "no", "false"):
+            selected_names = []
+        elif isinstance(names, str):
+            selected_names = [names]
+        else:
+            selected_names = names
+
+        tools: list[ToolBase] = []
+        for name in selected_names:
+            key = name.lower()
+            if key not in factories:
+                allowed = ", ".join(factories)
+                raise ValueError(f"Unknown builtin tool {name!r}; expected one of: {allowed}")
+            tools.append(factories[key]())
+
+        if sequential_tool_calls:
+            for tool in tools:
+                tool.is_concurrency_safe = False
+        return tools
+
+    @property
+    def session_path(self) -> Path:
+        """Directory used for persisted AgentScope sessions."""
+        if self.app_context is None:
+            return self.workspace_path / "mem_session" / "agentscope"
+        return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
+
+    @staticmethod
+    def _validate_session_id(session_id: str, field: str = "session_id") -> str:
+        if not _UUID_RE.match(session_id):
+            raise ValueError(f"{field} must be a valid UUID: {session_id!r}")
+        return session_id.lower()
+
+    def _cleanup_expired_sessions(self) -> None:
+        """Delete persisted session files older than ``session_retention_days``."""
+        if self._session_cleanup_done or self.session_retention_days <= 0:
+            self._session_cleanup_done = True
+            return
+
+        session_path = self.session_path
+        if not session_path.is_dir():
+            self._session_cleanup_done = True
+            return
+
+        cutoff = time.time() - self.session_retention_days * 24 * 60 * 60
+        removed = 0
+        for path in session_path.glob("*.jsonl"):
+            try:
+                if path.is_file() and path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError as exc:
+                self.logger.warning(f"Failed to clean expired AgentScope session {path}: {exc}")
+
+        if removed:
+            self.logger.info(
+                f"Cleaned {removed} AgentScope session(s) older than {self.session_retention_days} day(s)",
+            )
+        self._session_cleanup_done = True
+
+    async def _load_state(self, kwargs: dict[str, Any], perm_mode: PermissionMode) -> AgentState:
+        resume = kwargs.get("resume") or ""
+        session_id = kwargs.get("session_id") or ""
+        fork_session = bool(kwargs.get("fork_session", False))
+        if resume:
+            resume = self._validate_session_id(resume, "resume")
+        if session_id:
+            session_id = self._validate_session_id(session_id)
+
+        if session_id and resume and not fork_session:
+            raise ValueError("session_id cannot be used with resume unless fork_session=True")
+
+        if resume:
+            handler = AsStateHandler.for_session(self.session_path, resume)
+            state = await handler.load_or_none()
+            if state is None:
+                raise FileNotFoundError(f"AgentScope session not found: {resume}")
+            state.permission_context = PermissionContext(mode=perm_mode)
+            state.session_id = resume
+            if fork_session:
+                forked = AgentState(
+                    session_id=session_id or str(uuid4()),
+                    summary=state.summary,
+                    context=list(state.context),
+                    permission_context=PermissionContext(mode=perm_mode),
+                )
+                return forked
+            return state
+
+        return AgentState(session_id=session_id or str(uuid4()), permission_context=PermissionContext(mode=perm_mode))
+
+    async def _dump_state(self, state: AgentState) -> None:
+        await AsStateHandler.for_session(self.session_path, state.session_id).dump(state)
+
+    def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
+        """Resolve configured skill names to AgentScope local skill directories."""
+        return [str(path) for path in self._resolve_project_skills(skills).values()]
+
+    async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
+        """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
+        model = self.as_llm.model if self.as_llm else None
+        if model is None:
+            raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
+
+        self._cleanup_expired_sessions()
+
+        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
+        job_tools: list[str] = kwargs.get("job_tools", [])
+        resolved_jobs = self._resolve_job_tools(job_tools)
+        skills = self._resolve_skills(kwargs.get("skills"))
+        tool_context_id = kwargs.get("tool_context_id")
+        sequential_tool_calls = bool(kwargs.get("sequential_tool_calls", True))
+        builtin_tools = kwargs.get("builtin_tools", "all")
+        if "builtin_tools" not in kwargs and not bool(kwargs.get("use_builtin_tools", True)):
+            builtin_tools = []
+        tools: list[ToolBase] = []
+        tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
+        tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
+        toolkit = kwargs.get("toolkit") or Toolkit(
+            tools=tools,
+            skills_or_loaders=skills,
+        )
+
+        perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
+        state = await self._load_state(kwargs, perm_mode)
+
+        agent = Agent(
+            name=self.name,
+            system_prompt=system_prompt,
+            model=model,
+            toolkit=toolkit,
+            state=state,
+            model_config=ModelConfig(**(kwargs.get("model_config") or {})),
+            context_config=ContextConfig(**(kwargs.get("context_config") or {})),
+            react_config=ReActConfig(**(kwargs.get("react_config") or {})),
+        )
+
+        if isinstance(inputs, str):
+            inputs = UserMsg(name="user", content=inputs)
+
+        return agent, inputs
+
+    async def reply(self, inputs: Any, **kwargs) -> dict:
+        kwargs = self._merged_kwargs(kwargs)
+        agent, inputs = await self._build_agent(inputs, **kwargs)
+
+        await agent.observe(inputs)
+        last_msg = await agent.reply()
+        usage = self._agentscope_usage(last_msg.usage) if last_msg.usage is not None else None
+        await self._dump_state(agent.state)
+
+        result = {
+            "session_id": agent.state.session_id,
+            "last_message": last_msg.model_dump(),
+            "result": last_msg.get_text_content(),
+        }
+
+        if usage is None:
+            self.logger.error("AgentScope did not return token usage; token accounting is unavailable for this reply.")
+
+        output_schema: dict | None = kwargs.get("output_schema")
+        if output_schema is not None:
+            assert self.as_llm is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
+            model = self.as_llm.model
+            assert model is not None, "AsAgentWrapper requires a bound as_llm component with a valid model."
+            res = await model.generate_structured_output(
+                messages=agent.state.context,
+                structured_model=output_schema,
+                tool_choice=ToolChoice(mode="auto"),
+            )
+            result["structured_output"] = res.content
+            if res.usage is None:
+                usage = None
+                self.logger.error(
+                    "AgentScope did not return structured-output token usage; token accounting is unavailable.",
+                )
+            elif usage is not None:
+                usage = TokenUsage.combine([usage, self._agentscope_usage(res.usage)])
+
+        result["usage"] = usage.model_dump() if usage is not None else None
+        if usage is not None:
+            self._record_token_usage(usage)
+
+        return result
+
+    async def compact_session(self, session_id: str) -> None:
+        """Force compression of an AgentScope session."""
+        kwargs = self._merged_kwargs({"resume": session_id})
+        agent, _ = await self._build_agent(None, **kwargs)
+        config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
+        await agent.compress_context(ContextConfig(**config))
+        await self._dump_state(agent.state)
+
+    # ----- StreamChunk conversion -------------------------------------------
+
+    @classmethod
+    # pylint: disable=too-many-return-statements
+    def _event_to_chunk(cls, event: Any) -> StreamChunk | None:
+        """Convert an AgentScope event to a unified StreamChunk.
+
+        Returns ``None`` for events that should be silently skipped
+        (e.g. ``RequireUserConfirmEvent``).
+        """
+        if isinstance(event, ReplyStartEvent):
+            meta = {"reply_id": event.reply_id, "name": event.name, "role": event.role}
+            return cls._chunk(ChunkEnum.REPLY_START, session_id=event.session_id, chunk="", metadata=meta)
+        if isinstance(event, ReplyEndEvent):
+            return cls._chunk(
+                ChunkEnum.REPLY_END,
+                session_id=event.session_id,
+                chunk="",
+                metadata={"reply_id": event.reply_id},
+            )
+
+        for event_cls, chunk_type, attr in (
+            (TextBlockStartEvent, ChunkEnum.CONTENT, None),
+            (TextBlockDeltaEvent, ChunkEnum.CONTENT, "delta"),
+            (TextBlockEndEvent, ChunkEnum.CONTENT, None),
+            (ThinkingBlockStartEvent, ChunkEnum.THINK, None),
+            (ThinkingBlockDeltaEvent, ChunkEnum.THINK, "delta"),
+            (ThinkingBlockEndEvent, ChunkEnum.THINK, None),
+            (DataBlockStartEvent, ChunkEnum.DATA, None),
+            (DataBlockDeltaEvent, ChunkEnum.DATA, "data"),
+            (DataBlockEndEvent, ChunkEnum.DATA, None),
+        ):
+            if isinstance(event, event_cls):
+                kwargs = {"block_id": event.block_id, "chunk": getattr(event, attr) if attr else ""}
+                if isinstance(event, (DataBlockStartEvent, DataBlockDeltaEvent)):
+                    kwargs["media_type"] = event.media_type
+                return cls._chunk(chunk_type, **kwargs)
+
+        if isinstance(event, ToolCallStartEvent):
+            payload = {"name": event.tool_call_name, "id": event.tool_call_id}
+            return cls._chunk(
+                ChunkEnum.TOOL_CALL,
+                tool_call_id=event.tool_call_id,
+                tool_call_name=event.tool_call_name,
+                chunk=json.dumps(payload),
+            )
+        if isinstance(event, ToolCallDeltaEvent):
+            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk=event.delta)
+        if isinstance(event, ToolCallEndEvent):
+            return cls._chunk(ChunkEnum.TOOL_CALL, tool_call_id=event.tool_call_id, chunk="")
+        if isinstance(event, ToolResultStartEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                tool_call_name=event.tool_call_name,
+                chunk="",
+            )
+        if isinstance(event, ToolResultTextDeltaEvent):
+            return cls._chunk(ChunkEnum.TOOL_RESULT, tool_call_id=event.tool_call_id, chunk=event.delta)
+        if isinstance(event, ToolResultDataDeltaEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                chunk=event.data,
+                media_type=event.media_type,
+                metadata={"url": event.url} if event.url else {},
+            )
+        if isinstance(event, ToolResultEndEvent):
+            return cls._chunk(
+                ChunkEnum.TOOL_RESULT,
+                tool_call_id=event.tool_call_id,
+                chunk="",
+                metadata={"state": str(event.state)},
+            )
+        if isinstance(event, ModelCallStartEvent):
+            return cls._chunk(ChunkEnum.USAGE, chunk="", metadata={"model_name": getattr(event, "model_name", None)})
+        if isinstance(event, ModelCallEndEvent):
+            usage = TokenUsage(input_tokens=event.input_tokens, output_tokens=event.output_tokens)
+            return cls._chunk(
+                ChunkEnum.USAGE,
+                chunk=json.dumps(usage.model_dump()),
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+                metadata={
+                    "model_name": getattr(event, "model_name", None),
+                    "usage": usage.model_dump(),
+                },
+            )
+        if isinstance(event, ExceedMaxItersEvent):
+            return cls._chunk(ChunkEnum.ERROR, chunk="Exceeded max iterations")
+        return None
+
+    async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+        """Stream agent events as unified StreamChunk objects."""
+        kwargs = self._merged_stream_kwargs(kwargs)
+        agent, inputs = await self._build_agent(inputs, **kwargs)
+
+        async for event in agent.reply_stream(inputs):
+            chunk = self._event_to_chunk(event)
+            if chunk is not None:
+                chunk.session_id = chunk.session_id or agent.state.session_id
+                yield chunk
+
+        await self._dump_state(agent.state)

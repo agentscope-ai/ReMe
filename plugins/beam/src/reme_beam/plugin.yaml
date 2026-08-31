@@ -1,0 +1,4 @@
+backends:
+  beam_auto_memory_step: reme_beam.steps.auto_memory:BeamAutoMemoryStep
+  beam_agentic_answer_step: reme_beam.steps.agentic_answer:BeamAgenticAnswerStep
+  beam_rubric_judge_step: reme_beam.steps.llm_judge:BeamRubricJudgeStep

@@ -1,0 +1,34 @@
+[project]
+name = "reme-lme"
+version = "0.1.0"
+description = "LongMemEval benchmark plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "reme-ai[as]>=0.4.1.11",
+]
+
+[project.entry-points."reme.plugins"]
+lme = "reme_lme"
+
+[project.entry-points."reme.configs"]
+lme = "reme_lme.config:config_path"
+"lme.yaml" = "reme_lme.config:config_path"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["reme_lme*"]
+
+[tool.setuptools.package-data]
+reme_lme = ["plugin.yaml", "configs/*.yaml", "steps/*.yaml"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src", "../.."]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

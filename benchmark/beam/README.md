@@ -15,8 +15,18 @@ include abstention, contradiction resolution, event ordering, information
 extraction, instruction following, knowledge update, multi-session reasoning,
 preference following, summarization, and temporal reasoning.
 
-> For the shared setup (dependencies, credentials, log conventions) see the
-> [top-level benchmark README](../README.md).
+Install ReMe and its runtime dependencies from the repository root; no `reme plugins install` is needed:
+
+```bash
+python -m pip install -e ".[as]"
+```
+
+Each worker directly loads the checkout's [plugin source](../../plugins/beam/README.md) and `beam.yaml`
+application configuration without installing the plugin or mutating the global registry.
+Custom application config paths still work through `reme.config`. Without installation,
+use the plugin configuration file path for `extends`, rather than the installed `beam` alias.
+This directory continues to own the runner, evaluation settings, dataset and outputs.
+Model credentials use the environment variables in the plugin's application configuration.
 
 ## 1. Get the Dataset
 
