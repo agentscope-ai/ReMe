@@ -1,7 +1,7 @@
 # 发布操作手册：
 # 1. 先将 plugins/auto-fin/pyproject.toml 中的 project.version 更新为待发布版本并合入目标分支。
 # 2. 确认插件依赖的 reme-ai 版本已经发布到 PyPI；本工作流会在构建阶段验证该依赖可下载。
-# 3. 确认仓库 Actions Secret 已配置 PYPI_API_TOKEN，且 PyPI 上不存在相同版本。
+# 3. 确认 PyPI Trusted Publisher 已绑定本仓库、此工作流和 pypi environment，且 PyPI 上不存在相同版本。
 # 4. 在 GitHub 仓库的 Actions 页面选择“Release / Auto Fin plugin”，点击“Run workflow”。
 # 5. 输入与 project.version 完全一致的版本号（例如 0.1.0）后运行；版本也可以带 v 前缀。
 #
@@ -34,10 +34,12 @@ jobs:
       RELEASE_VERSION: ${{ inputs.version }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
 
@@ -71,10 +73,29 @@ jobs:
           if len(requirements) != 1:
               raise SystemExit(f"Expected one reme-ai dependency, found {requirements!r}")
           reme_requirement = Requirement(requirements[0])
-          if reme_requirement.name != "reme-ai" or set(reme_requirement.extras) != {"core"}:
-              raise SystemExit(f"Expected a reme-ai[core] dependency, found {requirements[0]!r}")
+          if reme_requirement.name != "reme-ai" or reme_requirement.extras:
+              raise SystemExit(f"Expected a base reme-ai dependency, found {requirements[0]!r}")
+          if Version("0.4.1.8") in reme_requirement.specifier or Version("0.4.1.9") not in reme_requirement.specifier:
+              raise SystemExit(f"Expected reme-ai>=0.4.1.9, found {requirements[0]!r}")
+          root_project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))["project"]
+          agentscope_requirements = [
+              Requirement(value) for value in root_project["optional-dependencies"]["as"]
+          ]
+          if len(agentscope_requirements) != 1 or agentscope_requirements[0].name != "agentscope":
+              raise SystemExit(f"Expected one agentscope dependency, found {agentscope_requirements!r}")
+          agentscope_requirement = agentscope_requirements[0]
+          agentscope_specifiers = list(agentscope_requirement.specifier)
+          if (
+              agentscope_requirement.extras != {"model-ollama"}
+              or agentscope_requirement.marker is not None
+              or len(agentscope_specifiers) != 1
+              or agentscope_specifiers[0].operator != "=="
+              or Version(agentscope_specifiers[0].version).is_prerelease
+          ):
+              raise SystemExit(f"Expected a stable exact agentscope[model-ollama] pin, found {agentscope_requirement}")
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               print(f"reme_requirement={reme_requirement}", file=output)
+              print(f"agentscope_requirement={agentscope_requirement}", file=output)
           print(f"Publishing {project['name']} {actual}")
           PY
 
@@ -82,10 +103,12 @@ jobs:
         run: python -m pytest plugins/auto-fin -q
 
       - name: Require the plugin-enabled ReMe release on PyPI
+        env:
+          REME_REQUIREMENT: ${{ steps.package.outputs.reme_requirement }}
         run: |
           python -m pip download --no-deps \
-            --dest "${RUNNER_TEMP}/reme-auto-fin-core" \
-            "${{ steps.package.outputs.reme_requirement }}"
+            --dest "${RUNNER_TEMP}/reme-auto-fin-base" \
+            "${REME_REQUIREMENT}"
 
       - name: Build and check distributions
         run: |
@@ -94,26 +117,39 @@ jobs:
           python -m twine check dist/auto-fin/*
 
       - name: Verify distributions and isolated installation
+        env:
+          AGENTSCOPE_REQUIREMENT: ${{ steps.package.outputs.agentscope_requirement }}
         run: |
           AUTO_FIN_WHEEL="$(pwd)/$(ls dist/auto-fin/reme_auto_fin-*.whl)"
           AUTO_FIN_SDIST="$(pwd)/$(ls dist/auto-fin/reme_auto_fin-*.tar.gz)"
           python -m zipfile -l "${AUTO_FIN_WHEEL}" | grep 'dist-info/licenses/LICENSE'
           python -m tarfile -l "${AUTO_FIN_SDIST}" | grep '/LICENSE'
           python -m venv "${RUNNER_TEMP}/reme-auto-fin-smoke"
-          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install "${AUTO_FIN_WHEEL}"
+          "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" -m pip install \
+            "${AGENTSCOPE_REQUIREMENT}" "${AUTO_FIN_WHEEL}"
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-auto-fin-smoke/bin/python" - <<'PY'
           from importlib.metadata import distribution
 
+          from reme.plugin_manifest import load_package_manifest
+
           package = distribution("reme-auto-fin")
           plugins = {entry.name: entry for entry in package.entry_points if entry.group == "reme.plugins"}
-          configs = {entry.name: entry for entry in package.entry_points if entry.group == "reme.configs"}
-          assert plugins["auto-fin"].load().name == "auto-fin"
-          assert configs["auto-fin"].load().is_file()
+          assert plugins["auto-fin"].value == "reme_auto_fin"
+          manifest = load_package_manifest("reme_auto_fin", plugin_name="auto-fin")
+          assert set(manifest.backends) == {
+              "auto_fin_data_step",
+              "auto_fin_topic_step",
+              "auto_fin_merge_step",
+          }
+          assert set(manifest.application_defaults["jobs"]) == {
+              "auto_fin",
+              "auto_fin_cron",
+          }
           PY
 
       - name: Upload distributions
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: reme-auto-fin-${{ inputs.version }}
           path: dist/auto-fin/
@@ -122,17 +158,19 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: reme-auto-fin-${{ inputs.version }}
           path: dist/auto-fin
 
       - name: Publish reme-auto-fin
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/auto-fin

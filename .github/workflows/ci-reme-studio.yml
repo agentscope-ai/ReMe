@@ -1,0 +1,90 @@
+name: CI / ReMe Studio
+
+on:
+  push:
+    paths:
+      - "reme_studio/**"
+      - ".github/workflows/ci-reme-studio.yml"
+      - ".github/workflows/release-reme-studio.yml"
+      - "scripts/package_studio.py"
+      - "tests/unit/test_package_versions.py"
+      - "pyproject.toml"
+      - "LICENSE"
+  pull_request:
+    paths:
+      - "reme_studio/**"
+      - ".github/workflows/ci-reme-studio.yml"
+      - ".github/workflows/release-reme-studio.yml"
+      - "scripts/package_studio.py"
+      - "tests/unit/test_package_versions.py"
+      - "pyproject.toml"
+      - "LICENSE"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  studio:
+    name: Studio checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: reme_studio
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: reme_studio/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run format check
+        run: npm run format:check
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Verify npm package
+        run: |
+          npm pack --pack-destination "${RUNNER_TEMP}"
+          tar -tzf "${RUNNER_TEMP}"/agentscope-ai-reme_studio-*.tgz | grep '^package/dist-static/index.html$'
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Build and verify Python package
+        working-directory: .
+        run: |
+          python -m pip install build packaging pytest twine
+          PYTHONPATH=. python -m pytest tests/unit/test_package_versions.py -q
+          python scripts/package_studio.py
+          python -m build reme_studio --outdir dist/studio
+          python -m twine check dist/studio/*
+          STUDIO_WHEEL="$(pwd)/$(ls dist/studio/reme_studio-*.whl)"
+          python -m venv "${RUNNER_TEMP}/reme-studio-package-smoke"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" -m pip install "${STUDIO_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" - <<'PY'
+          from reme_studio import static_dir
+
+          assert (static_dir() / "index.html").is_file()
+          PY

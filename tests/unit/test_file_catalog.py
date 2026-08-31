@@ -10,6 +10,7 @@ import pytest
 
 from reme.components.file_catalog import LocalFileCatalog
 from reme.schema import FileNode
+from reme.utils.jsonl_zst import write_jsonl_zst
 
 
 class temp_chdir:
@@ -146,6 +147,29 @@ def test_persistence_roundtrip(backend_cls):
             assert [n.st_mtime for n in nodes] == [10.0, 20.0]
             await c2.close()
             print(f"✓ test_persistence_roundtrip[{backend_cls.__name__}] passed")
+
+    asyncio.run(run())
+
+
+def test_start_failure_does_not_overwrite_persisted_catalog(tmp_path):
+    """A partial load must not dump incomplete in-memory state during rollback."""
+
+    async def run():
+        with temp_chdir(tmp_path):
+            catalog = LocalFileCatalog()
+            original_lines = [
+                make_node("a.md").model_dump_json(),
+                "not valid json",
+                make_node("b.md").model_dump_json(),
+            ]
+            write_jsonl_zst(catalog._catalog_file, original_lines)
+            original_bytes = catalog._catalog_file.read_bytes()
+
+            with pytest.raises(ValueError):
+                await catalog.start()
+
+            assert catalog.is_started is False
+            assert catalog._catalog_file.read_bytes() == original_bytes
 
     asyncio.run(run())
 

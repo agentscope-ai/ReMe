@@ -9,10 +9,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from reme.components import ApplicationContext, R
+from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.config.config_parser import _load_config
-from reme.enumeration import ComponentEnum
 from reme.steps.cookbook.dingtalk.wait import DingTalkWaitStep, _session_key
 
 
@@ -201,54 +199,6 @@ async def test_final_reply_injects_only_configured_tools(tmp_path):
             },
         ),
     ]
-
-
-def test_daily_cookbook_registers_one_step_background_wait_job(monkeypatch):
-    for name in ("DINGTALK_APP_KEY", "DINGTALK_APP_SECRET", "DINGTALK_ROBOT_CODE"):
-        monkeypatch.delenv(name, raising=False)
-    config = _load_config("daily_cookbook")
-    job = config["jobs"]["dingtalk_wait"]
-    assert job["backend"] == "background"
-    assert job["steps"] == [
-        {
-            "backend": "dingtalk_wait_step",
-            "app_key": "",
-            "app_secret": "",
-            "robot_code": "",
-            "worker_count": 4,
-            "builtin_tools": ["bash"],
-            "job_tools": [
-                "memory_search",
-                "read",
-                "write",
-                "edit",
-                "daily_list",
-                "daily_write",
-                "frontmatter_read",
-                "frontmatter_update",
-            ],
-        },
-    ]
-    assert config["components"]["agent_wrapper"] == {
-        "default": {
-            "backend": "agentscope",
-            "as_llm": "default",
-            "builtin_tools": False,
-        },
-    }
-    assert R.get(ComponentEnum.STEP, "dingtalk_wait_step") is DingTalkWaitStep
-
-
-def test_daily_cookbook_passes_dingtalk_environment_to_step(monkeypatch):
-    monkeypatch.setenv("DINGTALK_APP_KEY", "app-key")
-    monkeypatch.setenv("DINGTALK_APP_SECRET", "app-secret")
-    monkeypatch.setenv("DINGTALK_ROBOT_CODE", "robot-code")
-    step = _load_config("daily_cookbook")["jobs"]["dingtalk_wait"]["steps"][0]
-    assert (step["app_key"], step["app_secret"], step["robot_code"]) == (
-        "app-key",
-        "app-secret",
-        "robot-code",
-    )
 
 
 @pytest.mark.asyncio

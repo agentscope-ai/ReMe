@@ -1,0 +1,20 @@
+# Build output
+.next/
+.vinext/
+dist/
+dist-static/
+out/
+src/reme_studio/static/
+
+# Dependencies
+node_modules/
+
+# Cache and local state
+.cache/
+.wrangler/
+*.cache
+
+# Misc
+coverage/
+.vscode/
+.idea/

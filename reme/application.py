@@ -2,9 +2,10 @@
 
 import asyncio
 import heapq
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import AsyncGenerator, TypeVar
+from typing import Any, AsyncGenerator, TypeVar
 
 from . import __version__
 from .components import ApplicationContext, BaseComponent
@@ -26,6 +27,7 @@ class Application(BaseComponent):
         runtime = resolve_plugin_runtime(kwargs)
         self.context = ApplicationContext(registry=runtime.registry, **runtime.config)
         self._started_components: list[BaseComponent] = []
+        self._component_mutation_lock = asyncio.Lock()
 
         self._setup_workspace_directories()
         logger = get_logger(
@@ -133,11 +135,16 @@ class Application(BaseComponent):
 
     # ----- Dependency ordering ------------------------------------------
 
-    def _topological_order(self) -> list[BaseComponent]:
+    def _topological_order(
+        self,
+        replacement: tuple[_NodeKey, BaseComponent] | None = None,
+    ) -> list[BaseComponent]:
         """Return components in dependency order via Kahn's algorithm; raise on missing dep or cycle."""
         nodes: dict[_NodeKey, BaseComponent] = {
             (ctype, name): comp for ctype, group in self.context.components.items() for name, comp in group.items()
         }
+        if replacement is not None:
+            nodes[replacement[0]] = replacement[1]
         in_degree, dependents = self._build_dependency_graph(nodes)
 
         ready = [k for k, d in in_degree.items() if d == 0]
@@ -179,22 +186,23 @@ class Application(BaseComponent):
 
     async def _start(self) -> None:
         """Start components, then jobs as base > stream > background > cron."""
-        pool_size = self.config.thread_pool_max_workers
-        if pool_size > 0:
-            self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
-            self.logger.info(f"Thread pool created with max_workers={pool_size}")
-        try:
-            components = self._topological_order()
-            jobs = list(self.context.jobs.values())
-            base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
-            stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
-            background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
-            cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
-            for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
-                await self._start_one(c)
-        except Exception:
-            await self._close()
-            raise
+        async with self._component_mutation_lock:
+            pool_size = self.config.thread_pool_max_workers
+            if pool_size > 0:
+                self.context.thread_pool = ThreadPoolExecutor(max_workers=pool_size)
+                self.logger.info(f"Thread pool created with max_workers={pool_size}")
+            try:
+                components = self._topological_order()
+                jobs = list(self.context.jobs.values())
+                base_jobs = [j for j in jobs if not isinstance(j, (StreamJob, BackgroundJob))]
+                stream_jobs = [j for j in jobs if isinstance(j, StreamJob)]
+                background_jobs = [j for j in jobs if isinstance(j, BackgroundJob) and not isinstance(j, CronJob)]
+                cron_jobs = [j for j in jobs if isinstance(j, CronJob)]
+                for c in components + base_jobs + stream_jobs + background_jobs + cron_jobs:
+                    await self._start_one(c)
+            except Exception:
+                await self._close_started_components()
+                raise
 
     async def _start_one(self, c: BaseComponent) -> None:
         """Start one component and record it for ordered shutdown."""
@@ -209,6 +217,11 @@ class Application(BaseComponent):
 
     async def _close(self) -> None:
         """Close in reverse start order so every peer outlives its dependents."""
+        async with self._component_mutation_lock:
+            await self._close_started_components()
+
+    async def _close_started_components(self) -> None:
+        """Close resources while the caller serializes component mutations."""
         for c in reversed(self._started_components):
             try:
                 await c.close()
@@ -221,17 +234,136 @@ class Application(BaseComponent):
 
     async def update_component(self, component_enum: ComponentType, name: str, /, **kwargs) -> BaseComponent:
         """Update an existing component by type/name; never creates missing components."""
-        component_type = component_type_name(component_enum)
-        group = self.context.components.get(component_type)
-        if not group or name not in group:
-            raise KeyError(f"Component '{name}' not found in {component_type}")
+        async with self._component_mutation_lock:
+            component_type = component_type_name(component_enum)
+            group = self.context.components.get(component_type)
+            if not group or name not in group:
+                raise KeyError(f"Component '{name}' not found in {component_type}")
 
-        component = group[name]
-        for key, value in kwargs.items():
-            if not hasattr(component, key):
-                raise AttributeError(f"Component {component_type}:{name} has no attribute '{key}'")
-            setattr(component, key, value)
-        return component
+            component = group[name]
+            for key in kwargs:
+                if not hasattr(component, key):
+                    raise AttributeError(f"Component {component_type}:{name} has no attribute '{key}'")
+            for key, value in kwargs.items():
+                setattr(component, key, value)
+            return component
+
+    def _replacement_shutdown_order(
+        self,
+        old_component: BaseComponent,
+        replacement: BaseComponent,
+        replacement_order: list[BaseComponent],
+    ) -> list[BaseComponent]:
+        """Precompute shutdown tracking using identity, not component hashing."""
+        started_ids = {id(component) for component in self._started_components}
+        started_ids.discard(id(old_component))
+        started_ids.add(id(replacement))
+        component_ids = {
+            id(component) for components in self.context.components.values() for component in components.values()
+        }
+        non_components = [
+            component
+            for component in self._started_components
+            if component is not old_component and id(component) not in component_ids
+        ]
+        return [component for component in replacement_order if id(component) in started_ids] + non_components
+
+    async def replace_component(
+        self,
+        component_enum: ComponentType,
+        name: str,
+        /,
+        *,
+        config: ComponentConfig | Mapping[str, Any],
+        runtime_updates: Mapping[str, Any] | None = None,
+    ) -> BaseComponent:
+        """Replace an existing component and synchronously commit its references.
+
+        ``config`` is the complete declarative configuration for the new
+        component. ``runtime_updates`` injects non-serializable live objects,
+        such as an already verified model, before the replacement is started.
+
+        The old component is dumped before the replacement starts so compatible
+        ``start()`` / ``load()`` implementations see its latest state. The
+        context, dependent bindings, in-memory application config, and shutdown
+        order are then switched without an await boundary. A dump or start
+        failure leaves the old generation authoritative. Hosts must quiesce
+        calls that may retain component references across this operation and
+        migrate state explicitly when changing between incompatible backends.
+        """
+        async with self._component_mutation_lock:
+            component_type = component_type_name(component_enum)
+            group = self.context.components.get(component_type)
+            config_group = self.config.components.get(component_type)
+            if not group or name not in group or config_group is None:
+                raise KeyError(f"Component '{name}' not found in {component_type}")
+
+            old_component = group[name]
+            replacement_config = (
+                config.model_copy(deep=True)
+                if isinstance(config, ComponentConfig)
+                else ComponentConfig.model_validate(dict(config))
+            )
+            replacement = self._instantiate(
+                component_type,
+                replacement_config,
+                label=f"Component '{name}'",
+                expected_type=BaseComponent,
+                name=name,
+            )
+            for key, value in (runtime_updates or {}).items():
+                if not hasattr(replacement, key):
+                    raise AttributeError(
+                        f"Replacement {component_type}:{name} has no attribute '{key}'",
+                    )
+                setattr(replacement, key, value)
+
+            node_key = (component_type, name)
+            replacement_order = Application._topological_order(self, replacement=(node_key, replacement))
+            was_started = old_component.is_started
+
+            consumers: list[tuple[BaseComponent, str]] = []
+            candidates: list[BaseComponent] = [
+                component for components in self.context.components.values() for component in components.values()
+            ]
+            candidates.extend(self.context.jobs.values())
+            if self.context.service is not None:
+                candidates.append(self.context.service)
+            for consumer in candidates:
+                if consumer is old_component:
+                    continue
+                for attr, dependency in consumer.dependency_bindings.items():
+                    if (
+                        dependency.ctype == component_type
+                        and dependency.name == name
+                        and consumer.__dict__.get(attr) is old_component
+                    ):
+                        consumers.append((consumer, attr))
+
+            replacement_started_components = (
+                self._replacement_shutdown_order(old_component, replacement, replacement_order) if was_started else None
+            )
+            if was_started:
+                await old_component.dump()
+                await replacement.start()
+
+            # Commit the new generation synchronously so observers cannot see
+            # a context with only some dependency references updated.
+            group[name] = replacement
+            config_group[name] = replacement_config
+            for consumer, attr in consumers:
+                consumer.__dict__[attr] = replacement
+            if replacement_started_components is not None:
+                self._started_components = replacement_started_components
+
+            if was_started:
+                try:
+                    await old_component.close()
+                except Exception as exc:  # The committed replacement remains authoritative.
+                    self.logger.exception(
+                        f"Failed to close replaced component {component_type}:{name}: {exc}",
+                    )
+            return replacement
 
     # ----- Job execution -------------------------------------------------
 

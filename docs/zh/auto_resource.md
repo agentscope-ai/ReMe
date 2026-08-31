@@ -91,4 +91,5 @@ Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的�
 ## 后续流向
 
 Auto Resource 只生成 daily 层的资源解读。要把资源中的长期知识沉淀进 `digest/`，使用 [Auto Dream](./auto_dream.md)；默认实时检索会
-索引 daily 卡片和 digest 节点。若还要直接检索原始资源文件，可运行 `reme reindex`，详见 [Memory Search](./memory_search.md)。
+索引 daily 卡片和 digest 节点。手动 `reindex` 只基于摄取流程已经接受的 chunks 重建检索索引，不会把原始资源文件加入检索范围。
+详见 [Memory Search](./memory_search.md)。

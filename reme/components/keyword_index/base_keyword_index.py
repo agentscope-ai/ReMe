@@ -24,7 +24,8 @@ class BaseKeywordIndex(BaseComponent):
         await self.load()
 
     async def _close(self) -> None:
-        await self.dump()
+        if self.is_started:
+            await self.dump()
 
     @property
     def document_ids(self) -> Set[str]:

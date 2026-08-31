@@ -119,7 +119,7 @@ In other words, Auto Memory builds personal knowledge from conversations, while 
 
 ### Daily Paper: An Example External-Resource Workflow
 
-Daily Paper is an optional cookbook built on this file-based memory system. It collects papers from the weekly and monthly Hugging Face Papers rankings, removes items recommended recently, ranks the remaining papers, selects three, saves their PDFs, and generates Chinese paper notes and a briefing that takes about five minutes to read.
+Daily Paper is an optional plugin built on this file-based memory system. It collects papers from the weekly and monthly Hugging Face Papers rankings, removes items recommended recently, ranks the remaining papers, selects three, saves their PDFs, and generates Chinese paper notes and a briefing that takes about five minutes to read.
 
 Imagine that you regularly follow research on agent memory. Each morning, instead of receiving only three links, you get three detailed notes already saved locally. The briefing points to the original notes through Wikilinks, and each note links back to its PDF. A month later, when you ask, “What recent methods compress long-term memory?”, those materials are already in the same retrieval system. There is no need to search through browser history again.
 
@@ -178,8 +178,9 @@ Knowledge evolves and links are created in the same workflow. Relationships are 
 
 Markdown is easy for people to read, but if files are merely piled into directories, agents still struggle to find them
 quickly. The default live index watches Markdown under `daily/` and `digest/`. A separate resource workflow watches
-`resource/` and turns those files into daily cards that enter the same index. For a full rebuild from existing files,
-`reme reindex` also scans `resource/` and JSONL.
+`resource/` and turns those files into daily cards that enter the same index. Manual `reindex` rebuilds BM25 and
+embedding indexes from the chunks those ingestion paths have already accepted; it does not rescan files or rebuild the
+Wikilink graph.
 
 A Markdown file is parsed into:
 
@@ -315,10 +316,12 @@ that best fits their runtime environment and share the same local memory workspa
 
 | Agent | Recommended integration | Capabilities after integration |
 |-------|-------------------------|--------------------------------|
+| **DeepSeek Harness** | Install [`@agentscope-ai/reme`](../../typescript/README.md#deepseek-harness) as a DSH profile bundle. | Long-term memory guidance, `reme_search`, automatic capture of completed main-agent turns, and scheduled Auto Dream. |
+| **OpenClaw** | Install [`@agentscope-ai/reme`](../../typescript/README.md#openclaw) as the native memory plugin. | Recall before conversational root-agent runs, explicit search, automatic turn capture, and scheduled Auto Dream. |
 | **QwenPaw** | Embed ReMe in-process through the Python API. | Reuse the host application's lifecycle and model configuration while keeping memories local and file-based. |
 | **Claude Code** | Start the streamable HTTP MCP Service and install [`integrations/claude_code/reme`](../../integrations/claude_code/reme). | MCP memory-recall tools, the `reme-memory` skill, and a Stop hook that automatically records sessions. |
 | **Hermes** | Start the HTTP Service and install [`integrations/hermes_agent`](../../integrations/hermes_agent). | Automatically recall relevant memories before model calls and invoke `auto_memory` asynchronously after each conversation turn. |
-| **OpenClaw, Codex, and other CLI-capable agents** | Copy or install [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md). | Search, read, and write memories through the CLI; automatic recording requires the host agent to integrate explicitly with the conversation lifecycle. |
+| **Codex and other CLI-capable agents** | Copy or install [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md). | Search, read, and write memories through the CLI; automatic recording requires the host agent to integrate explicitly with the conversation lifecycle. |
 
 For installation, configuration, and integration demos, see the [README](../../README.md).
 

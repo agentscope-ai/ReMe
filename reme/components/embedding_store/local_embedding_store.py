@@ -12,6 +12,7 @@ from ..component_registry import R
 from ..as_embedding import BaseAsEmbedding
 
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
+_MAX_VECTOR_SPACE_ATTEMPTS = 3
 
 
 @R.register("local")
@@ -66,7 +67,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         await self.load()
 
     async def _close(self) -> None:
-        await self.dump()
+        if self.is_started:
+            await self.dump()
 
     async def health_check(self, timeout: float | None = None) -> bool:
         timeout = self.health_check_timeout if timeout is None else timeout
@@ -103,12 +105,25 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     # -- Public API --
 
     async def get_embeddings(self, input_text: list[str], **kwargs) -> list[np.ndarray | None]:
-        await self._sync_cache_space()
         texts = [self._truncate(t) for t in input_text]
-        results, misses = self._partition_by_cache(texts)
-        if misses:
-            await self._fill_misses(misses, results, **kwargs)
-        return results
+        for attempt in range(1, _MAX_VECTOR_SPACE_ATTEMPTS + 1):
+            await self._sync_cache_space()
+            vector_space_id = self._cache_space
+            results, misses = self._partition_by_cache(texts)
+            stable = not misses or await self._fill_misses(misses, results, vector_space_id, **kwargs)
+            if stable and vector_space_id == self.vector_space_id == self._cache_space:
+                return results
+            if attempt == _MAX_VECTOR_SPACE_ATTEMPTS:
+                self.logger.warning(
+                    f"Embedding vector space kept changing while computing a request; "
+                    f"discarding all result(s) after {attempt} attempts",
+                )
+            else:
+                self.logger.info(
+                    f"Embedding vector space changed while computing a request; "
+                    f"discarding all result(s) and retrying ({attempt}/{_MAX_VECTOR_SPACE_ATTEMPTS})",
+                )
+        return [None] * len(texts)
 
     # -- Batching --
 
@@ -124,15 +139,26 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 misses.append((idx, text, key))
         return results, misses
 
-    async def _fill_misses(self, misses: list[Miss], results: list[np.ndarray | None], **kwargs) -> None:
-        vector_space_id = self._cache_space
+    async def _fill_misses(
+        self,
+        misses: list[Miss],
+        results: list[np.ndarray | None],
+        vector_space_id: str,
+        **kwargs,
+    ) -> bool:
+        """Fill every miss only while the request remains in one vector space."""
         size = self.max_batch_size
         for start in range(0, len(misses), size):
+            if vector_space_id != self.vector_space_id or vector_space_id != self._cache_space:
+                return False
             batch = misses[start : start + size]
-            for idx, key, emb in await self._compute_batch(batch, **kwargs):
+            computed = await self._compute_batch(batch, **kwargs)
+            if vector_space_id != self.vector_space_id or vector_space_id != self._cache_space:
+                return False
+            for idx, key, emb in computed:
                 results[idx] = emb
-                if vector_space_id == self.vector_space_id == self._cache_space:
-                    self._cache_put(key, emb)
+                self._cache_put(key, emb)
+        return True
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
         texts = [text for _, text, _ in batch]

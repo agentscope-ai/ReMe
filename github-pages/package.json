@@ -10,7 +10,7 @@
     "dev": "node scripts/generate-content.mjs && vite",
     "build": "node scripts/generate-content.mjs && vite build",
     "preview": "vite preview",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node scripts/generate-content.mjs && node --test tests/*.test.mjs"
   },
   "dependencies": {
     "dompurify": "^3.2.6",

@@ -52,7 +52,10 @@ and concise documentation together.
   accounting, and wikilink handling.
 - `tests/unit/`: primary fast, isolated validation suite.
 - `tests/integration/`: service/model tests that may need credentials or external processes.
-- `website/`: ReMe Workspace frontend source; its static build can be served by the HTTP service.
+- `reme_studio/`: ReMe Studio frontend source plus the independently published `reme_studio` Python package and
+  `@agentscope-ai/reme_studio` npm static distribution.
+- `typescript/`: the independently published `@agentscope-ai/reme` package, including the shared TypeScript client and
+  DeepSeek Harness and OpenClaw adapters.
 - `plugins/`: installable ReMe extensions, such as Auto Fin.
 - `integrations/`: adapters that connect ReMe to external agent hosts, such as Claude Code, DSH, and Hermes Agent.
 - `skills/`: standalone skills; `reme_memory` calls ReMe, while other skills may use separate tools or direct-file
@@ -65,7 +68,7 @@ and concise documentation together.
 ReMe requires Python 3.11 or newer. Install the editable development environment with:
 
 ```bash
-pip install -e packages/reme_ai_studio -e ".[dev,core]"
+pip install -e reme_studio -e ".[dev,core]"
 ```
 
 Before changing behavior, inspect the adjacent implementation, schema, built-in config, and focused tests. Follow
@@ -185,7 +188,7 @@ pre-commit run --all-files
 ```
 
 Black and Flake8 use a 120-character line limit and Python 3.11 formatting; Pylint is also run by pre-commit. If
-`website/` changes, use its Node 22.13+ scripts and run the proportionate checks from that directory, such as
+`reme_studio/` changes, use its Node 22.13+ scripts and run the proportionate checks from that directory, such as
 `npm run format:check`, `npm run lint`, or `npm test`.
 
 Integration tests may contact real model providers, services, or agent subprocesses and can require credentials. Do not
@@ -197,13 +200,14 @@ environment has been supplied or authorized. Mock network, model, and subprocess
 - Preserve unrelated user changes in a dirty working tree.
 - Make the smallest coherent change and avoid unrelated cleanup or broad refactors.
 - Do not edit generated output when the source can be changed instead. The publish workflow builds
-  `website/dist-static` and copies it into `reme/web`; change `website/` source for frontend work.
+  `reme_studio/dist-static` and stages it under `reme_studio/src/reme_studio/static`; change `reme_studio/` source for
+  frontend work.
 - Do not silently change CLI flags, configuration keys, workspace layouts, serialized schemas, endpoint shapes,
   streaming termination, or service interfaces. Preserve compatibility where practical and document intentional
   migrations.
 - Do not introduce dependencies without a concrete repository-level need.
 - Do not commit `.env` files, credentials, runtime memory, logs, indexes, caches, benchmark outputs, or generated
-  website distributions.
+  Studio distributions.
 - State which validations passed and which relevant checks were not run in the final handoff.
 
 If a requirement is ambiguous, infer intent from nearby code, schemas, defaults, and tests. Ask the user only when the

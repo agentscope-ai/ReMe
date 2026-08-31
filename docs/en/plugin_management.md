@@ -17,7 +17,7 @@ A typical plugin workflow has three stages:
 
 1. Install ReMe and the plugin distribution.
 2. Configure the plugin's runtime environment as described in the
-   [ReMe environment-variable guide](../../README.md#environment-variables).
+   [ReMe model-configuration guide](../../README.md#optional-model-configuration).
 3. Start an Application with the plugin explicitly enabled, for example
    `reme start plugins='["auto-fin"]'`.
 
@@ -32,7 +32,7 @@ The table shows the plugin entry-point name, Python distribution, version, and p
 ```text
 PLUGIN    DISTRIBUTION   VERSION  FORMAT
 --------  -------------  -------  --------
-auto-fin  reme-auto-fin  0.1.0    manifest
+auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
 `manifest` plugins use the current package-level `plugin.yaml` contract. `legacy` plugins use the compatible Python
@@ -64,7 +64,7 @@ reme plugins list --json
 To compare installed plugins with one application config:
 
 ```bash
-reme plugins list --config daily_cookbook
+reme plugins list --config default
 ```
 
 The optional `ENABLED` column reflects only the `plugins` list resolved from that config. A command-line override used
@@ -81,7 +81,7 @@ reme plugins install reme-auto-fin
 Install or upgrade a pinned version:
 
 ```bash
-reme plugins install 'reme-auto-fin==0.1.0'
+reme plugins install 'reme-auto-fin==X.Y.Z'
 reme plugins install reme-auto-fin --upgrade
 ```
 
@@ -173,11 +173,8 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 When the application uses an MCP service, service-enabled plugin Jobs appear as MCP tools instead.
 
-To add the plugin to another application config, select it explicitly:
-
-```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
-```
+Custom application configs must provide the plugin's runtime dependencies, including an `agent_wrapper.default` and
+the `search` and `read` Jobs used by Auto Fin.
 
 ## Uninstall a plugin
 

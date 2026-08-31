@@ -15,6 +15,7 @@ lists keep the stale entries until `optimize_index` rewrites them. Updating an
 existing doc_id retires the old slot first, then allocates a fresh idx.
 """
 
+import asyncio
 import hashlib
 import json
 import math
@@ -23,11 +24,13 @@ import re
 from collections import Counter
 from collections.abc import KeysView
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 
 from .base_keyword_index import BaseKeywordIndex
 from ..component_registry import R
+from ...utils.async_utils import complete_in_thread
 
 
 @R.register("bm25")
@@ -52,6 +55,7 @@ class BM25Index(BaseKeywordIndex):
 
         # IDF cache; invalidated whenever live-doc count or postings change.
         self._idf_cache: dict[int, float] = {}
+        self._dump_lock = asyncio.Lock()
 
     # -- Properties -----------------------------------------------------------
 
@@ -322,14 +326,16 @@ class BM25Index(BaseKeywordIndex):
         return {
             "tokenizer_config": self._tokenizer_config(),
             "tokenizer_fingerprint": self._tokenizer_fingerprint(),
-            "vocab": self.vocab,
-            "doc_ids": self._doc_ids,
-            "doc_id_to_idx": self._doc_id_to_idx,
-            "doc_lens": self._doc_lens,
-            "deleted": self._deleted,
-            "doc_token_ids": self._doc_token_ids,
-            "posting_doc_idxs": self._posting_doc_idxs,
-            "posting_tfs": self._posting_tfs,
+            "vocab": dict(self.vocab),
+            "doc_ids": list(self._doc_ids),
+            "doc_id_to_idx": dict(self._doc_id_to_idx),
+            "doc_lens": self._doc_lens.copy(),
+            "deleted": self._deleted.copy(),
+            "doc_token_ids": [token_ids.copy() for token_ids in self._doc_token_ids],
+            "posting_doc_idxs": {token_id: doc_idxs.copy() for token_id, doc_idxs in self._posting_doc_idxs.items()},
+            "posting_tfs": {
+                token_id: term_frequencies.copy() for token_id, term_frequencies in self._posting_tfs.items()
+            },
             "k1": self.k1,
             "b": self.b,
         }
@@ -354,27 +360,37 @@ class BM25Index(BaseKeywordIndex):
 
     async def dump(self) -> None:
         """Persist the index via temp file + atomic rename to avoid torn writes."""
-        if self.n_docs == 0 and not self.vocab:
-            self.index_file.unlink(missing_ok=True)
-            return
+        async with self._dump_lock:
+            if self.n_docs == 0 and not self.vocab:
+                self.index_file.unlink(missing_ok=True)
+                return
+            try:
+                # Keep snapshotting synchronous so the worker receives one coherent
+                # index generation. Move it off-loop only if profiling identifies this
+                # copy, rather than pickle/file I/O, as a material event-loop stall.
+                snapshot = self._snapshot()
+                await complete_in_thread(self._dump_sync, snapshot)
+                self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
+            except Exception as e:
+                self.logger.exception(f"Failed to write {self.index_file}: {e}")
+                raise
+
+    def _dump_sync(self, snapshot: dict) -> None:
+        self.index_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.index_file.with_name(f".{self.index_file.name}.{uuid4().hex}.tmp")
         try:
-            self.index_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.index_file.with_suffix(".tmp")
-            with open(tmp, "wb") as f:
-                pickle.dump(self._snapshot(), f)
+            with open(tmp, "wb") as file:
+                pickle.dump(snapshot, file)
             tmp.replace(self.index_file)
-            self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
-        except Exception as e:
-            self.logger.exception(f"Failed to write {self.index_file}: {e}")
-            raise
+        finally:
+            tmp.unlink(missing_ok=True)
 
     async def load(self) -> None:
         """Load from disk; missing file is a no-op, corrupt file resets state."""
         if not self.index_file.exists():
             return
         try:
-            with open(self.index_file, "rb") as f:
-                data = pickle.load(f)
+            data = await asyncio.to_thread(self._load_sync)
             self._restore(data)
             self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
         except Exception as e:
@@ -382,18 +398,23 @@ class BM25Index(BaseKeywordIndex):
             self.index_file.unlink(missing_ok=True)
             await self.clear()
 
+    def _load_sync(self) -> dict:
+        with open(self.index_file, "rb") as file:
+            return pickle.load(file)
+
     async def clear(self) -> None:
         """Reset in-memory state and remove the persisted file."""
-        self.vocab = {}
-        self._doc_ids = []
-        self._doc_id_to_idx = {}
-        self._doc_lens = np.zeros(0, dtype=np.int32)
-        self._deleted = np.zeros(0, dtype=bool)
-        self._doc_token_ids = []
-        self._posting_doc_idxs = {}
-        self._posting_tfs = {}
-        self._idf_cache = {}
-        self.index_file.unlink(missing_ok=True)
+        async with self._dump_lock:
+            self.vocab = {}
+            self._doc_ids = []
+            self._doc_id_to_idx = {}
+            self._doc_lens = np.zeros(0, dtype=np.int32)
+            self._deleted = np.zeros(0, dtype=bool)
+            self._doc_token_ids = []
+            self._posting_doc_idxs = {}
+            self._posting_tfs = {}
+            self._idf_cache = {}
+            self.index_file.unlink(missing_ok=True)
 
     # -- Compaction -----------------------------------------------------------
 

@@ -10,6 +10,7 @@ from .log_changes import LogChangesStep
 from .node_search import NodeSearchStep
 from .init_changes import InitChangesStep
 from .optimize_index import OptimizeIndexStep
+from .reindex import ReindexStep
 from .search import SearchStep
 from .search_v2 import SearchV2Step
 from .traverse import TraverseStep
@@ -38,6 +39,7 @@ __all__ = [
     "NodeSearchStep",
     "normalize_posix_path",
     "ReadAllDraftStep",
+    "ReindexStep",
     "OptimizeIndexStep",
     "SearchStep",
     "SearchV2Step",

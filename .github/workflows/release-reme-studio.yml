@@ -1,0 +1,158 @@
+# Release checklist:
+# 1. Update reme_studio/pyproject.toml, package.json, and package-lock.json to the same Studio version.
+# 2. Configure npm Trusted Publishing and PyPI Trusted Publishing with the pypi environment.
+# 3. Run this workflow manually with the exact Studio version.
+
+name: Release / ReMe Studio
+
+run-name: Publish ReMe Studio ${{ inputs.version }} (${{ inputs.npm_tag }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from the Studio Python and npm manifests
+        required: true
+        type: string
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - next
+          - latest
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-reme-studio
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      NPM_TAG: ${{ inputs.npm_tag }}
+
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: reme_studio/package-lock.json
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.11"
+
+      - name: Validate Studio package names and version
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import tomllib
+          from pathlib import Path
+
+          studio = Path("reme_studio")
+          python_manifest = tomllib.loads((studio / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+          npm_manifest = json.loads((studio / "package.json").read_text(encoding="utf-8"))
+          expected = os.environ["RELEASE_VERSION"].removeprefix("v")
+          if python_manifest["name"] != "reme_studio":
+              raise SystemExit(f"Unexpected Python package name: {python_manifest['name']}")
+          if npm_manifest["name"] != "@agentscope-ai/reme_studio":
+              raise SystemExit(f"Unexpected npm package name: {npm_manifest['name']}")
+          if python_manifest["version"] != expected or npm_manifest["version"] != expected:
+              raise SystemExit(
+                  f"Studio manifests are {python_manifest['version']} and {npm_manifest['version']}; "
+                  f"workflow input is {expected}",
+              )
+          prerelease = "-" in expected
+          if prerelease != (os.environ["NPM_TAG"] == "next"):
+              raise SystemExit("Prereleases must use next; stable releases must use latest")
+          PY
+
+      - name: Install dependencies and run checks
+        working-directory: reme_studio
+        run: |
+          npm ci
+          npm run format:check
+          npm run lint
+          npm test
+
+      - name: Build Studio distributions
+        run: |
+          python -m pip install build twine
+          mkdir -p dist/studio-python dist/studio-npm
+          npm pack ./reme_studio --pack-destination dist/studio-npm
+          python scripts/package_studio.py
+          python -m build reme_studio --outdir dist/studio-python
+          python -m twine check dist/studio-python/*
+
+      - name: Verify Studio distributions and isolated installation
+        run: |
+          STUDIO_WHEEL="$(pwd)/$(ls dist/studio-python/reme_studio-*.whl)"
+          tar -tzf dist/studio-npm/*.tgz | grep '^package/dist-static/index.html$'
+          python -m venv "${RUNNER_TEMP}/reme-studio-package-smoke"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" -m pip install "${STUDIO_WHEEL}"
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-studio-package-smoke/bin/python" - <<'PY'
+          from reme_studio import static_dir
+
+          assert (static_dir() / "index.html").is_file()
+          PY
+
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: reme-studio-${{ inputs.version }}
+          path: |
+            dist/studio-python/*
+            dist/studio-npm/*
+          if-no-files-found: error
+
+  publish-python:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: reme-studio-${{ inputs.version }}
+          path: dist
+
+      - name: Publish ReMe Studio to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        with:
+          packages-dir: dist/studio-python
+          skip-existing: true
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: reme-studio-${{ inputs.version }}
+          path: dist
+
+      - name: Publish ReMe Studio to npm
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: npm publish dist/studio-npm/*.tgz --access public --tag "${NPM_TAG}" --provenance

@@ -1,5 +1,9 @@
 name: Release / Python packages
 
+# GitHub Releases in this repository publish only the reme-ai Python package.
+# Configure a PyPI Trusted Publisher for this repository, workflow, and its
+# pypi environment before running an automatic or manual release.
+
 on:
   workflow_dispatch:
     inputs:
@@ -13,6 +17,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: publish-reme-ai
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build and verify distributions
@@ -21,38 +29,22 @@ jobs:
       expected_version: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
       upload_artifacts: true
 
-  publish-studio:
+  publish-reme:
     needs: build
     runs-on: ubuntu-latest
-    steps:
-      - name: Download ReMe Studio distributions
-        uses: actions/download-artifact@v4
-        with:
-          name: reme-studio-distributions
-          path: dist/studio
-
-      - name: Publish ReMe Studio
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
-          packages-dir: dist/studio
-          skip-existing: true
-
-  publish-reme:
-    needs: publish-studio
-    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Download ReMe distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: reme-distributions
           path: dist/reme
 
       - name: Publish ReMe
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: dist/reme
           skip-existing: true

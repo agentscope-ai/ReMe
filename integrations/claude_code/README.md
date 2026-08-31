@@ -40,13 +40,13 @@ server means one set of background watchers / dream cron across all your Claude 
    LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
    ```
 
-3. Start the ReMe MCP server (one time, leave it running):
+3. Start the ReMe HTTP server (one time, leave it running):
 
    ```bash
-   reme start service.backend=mcp service.transport=streamable-http
+   reme start service.backend=http
    ```
 
-   It serves `http://127.0.0.1:2333/mcp`. To use a different port, start with
+   The same process serves the JSON Job API and MCP at `http://127.0.0.1:2333/mcp`. To use a different port, start with
    `service.port=<port>` and update the `url` in `.mcp.json` to match.
 
 ## Install the plugin

@@ -11,6 +11,7 @@ single-char ASCII words dropped).
 import asyncio
 import os
 import tempfile
+import threading
 import warnings
 
 from reme.components.keyword_index import BM25Index
@@ -666,6 +667,28 @@ def test_dump_load_roundtrip_preserves_state():
     run(go())
 
 
+def test_runtime_parameter_update_survives_restart():
+    """Persist k1/b updates made after loading an existing index."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            seed = await create_bm25()
+            await seed.add_docs({"d1": "hello world"})
+            await seed.close()
+
+            changed = await create_bm25()
+            assert (changed.k1, changed.b) == (1.5, 0.75)
+            changed.k1 = 2.0
+            changed.b = 0.4
+            await changed.close()
+
+            reopened = await create_bm25()
+            assert (reopened.k1, reopened.b) == (2.0, 0.4)
+            await reopened.close()
+
+    run(go())
+
+
 def test_load_missing_file_keeps_empty_state():
     """Calling load() with no file on disk is a no-op."""
 
@@ -813,6 +836,47 @@ def test_dump_failure_is_not_silent():
                     pass
                 else:
                     raise AssertionError("expected dump() to raise OSError")
+            await bm25.close()
+
+    run(go())
+
+
+def test_concurrent_dumps_publish_in_invocation_order():
+    """A newer dump must wait for and then supersede an older snapshot."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            bm25 = await create_bm25()
+            await bm25.add_docs({"d1": "alpha"})
+
+            first_started = threading.Event()
+            release_first = threading.Event()
+            dump_calls = 0
+            original_dump_sync = bm25._dump_sync
+
+            def blocking_dump_sync(snapshot):
+                nonlocal dump_calls
+                dump_calls += 1
+                if dump_calls == 1:
+                    first_started.set()
+                    release_first.wait()
+                original_dump_sync(snapshot)
+
+            bm25._dump_sync = blocking_dump_sync
+            first = asyncio.create_task(bm25.dump())
+            assert await asyncio.to_thread(first_started.wait, 1)
+
+            await bm25.add_docs({"d2": "beta"})
+            second = asyncio.create_task(bm25.dump())
+            await asyncio.sleep(0.02)
+            assert dump_calls == 1
+
+            release_first.set()
+            await asyncio.gather(first, second)
+            assert dump_calls == 2
+            assert set(bm25._load_sync()["doc_id_to_idx"]) == {"d1", "d2"}
+
+            bm25._dump_sync = original_dump_sync
             await bm25.close()
 
     run(go())

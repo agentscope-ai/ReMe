@@ -24,10 +24,12 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -35,13 +37,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e packages/reme_ai_studio -e ".[dev,core]"
+          pip install -e reme_studio -e ".[dev,core]"
           pip install --no-deps -e plugins/auto-fin
+          pip install -e plugins/daily_paper
           pip install coverage
 
       - name: Run unit tests
         run: |
-          coverage run -m pytest tests/unit plugins/auto-fin \
+          coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper \
             -v \
             --tb=long \
             -s \

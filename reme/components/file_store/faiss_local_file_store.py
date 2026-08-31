@@ -9,6 +9,7 @@ from uuid import uuid4
 import aiofiles
 import numpy as np
 
+from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
@@ -257,6 +258,15 @@ class FaissLocalFileStore(LocalFileStore):
         await self._stop_reindex_worker()
         self._rebuild_index()
 
+    async def _finalize_embedding_reindex(self) -> None:
+        """Build and publish the complete FAISS snapshot before job success."""
+        await self._stop_reindex_worker()
+        while True:
+            self._reindex_event.clear()
+            await self._reindex_async()
+            if not self._reindex_event.is_set():
+                return
+
     # -- async reindex ----------------------------------------------------
 
     def _submit_reindex(self) -> None:
@@ -496,10 +506,10 @@ class FaissLocalFileStore(LocalFileStore):
             self.faiss_idmap_path.unlink(missing_ok=True)
             return False
 
-    async def dump(self) -> None:
-        """Persist chunks JSONL via the parent, then write the FAISS sidecar atomically."""
+    async def _dump_owned_state(self) -> None:
+        """Persist chunks and the FAISS sidecar, excluding dependency snapshots."""
         async with self._faiss_dump_lock:
-            await super().dump()
+            await super()._dump_owned_state()
             if self._faiss_index is None or self.embedding_store is None:
                 return
             try:
@@ -508,6 +518,7 @@ class FaissLocalFileStore(LocalFileStore):
                 self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
             except Exception as e:
                 self.logger.exception(f"Failed to write FAISS index: {e}")
+                raise
 
     async def _write_sidecar(self) -> None:
         token = uuid4().hex
@@ -537,6 +548,7 @@ class FaissLocalFileStore(LocalFileStore):
 
     # -- CRUD overrides ---------------------------------------------------
 
+    @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
@@ -553,7 +565,7 @@ class FaissLocalFileStore(LocalFileStore):
         }
         await super().upsert(files)
 
-        if self._faiss_index is None or self.embedding_store is None:
+        if self._embedding_rebuild_pending or self._faiss_index is None or self.embedding_store is None:
             return
         self._sync_index_after_upsert(files, old_ids_by_path, old_text_by_id)
 
@@ -587,13 +599,16 @@ class FaissLocalFileStore(LocalFileStore):
             self._add_to_index([c.id for c in to_add], vectors)
         self._compact_if_needed()
 
+    @BaseFileStore.serialized
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
         nodes = await self.file_graph.get_nodes(paths)
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
-        if self._faiss_index is None:
+        if nodes:
+            self._mutation_generation += 1
+        if self._embedding_rebuild_pending or self._faiss_index is None:
             return
         for cid in deleted_ids:
             self._tombstone(cid)
@@ -609,6 +624,7 @@ class FaissLocalFileStore(LocalFileStore):
         await self._stop_reindex_worker()
         await super()._close()
 
+    @BaseFileStore.serialized
     async def clear(self) -> None:
         # Serialize with dump so a concurrent _write_sidecar cannot re-create the
         # sidecar files we are about to unlink, or persist a half-reset index.
@@ -640,19 +656,9 @@ class FaissLocalFileStore(LocalFileStore):
         ):
             return []
 
-        query_embedding = None
-        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
-        try:
-            query_embedding = await self.embedding_store.get_embedding(query)
-        except Exception as e:
-            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
-        if query_embedding is None or not self._embedding_dim_matches(query_embedding):
-            if query_embedding is not None:
-                self._mark_embedding_unhealthy(
-                    f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
-                )
+        query_embedding = await self._get_query_embedding(query)
+        if query_embedding is None:
             return []
-        await self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() drops the
         # index to None once embedding is disabled, and a reindex may have swapped

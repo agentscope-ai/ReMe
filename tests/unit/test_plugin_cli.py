@@ -76,7 +76,7 @@ def test_list_plugins_marks_configured_plugins(monkeypatch, tmp_path, capsys):
     )
     monkeypatch.setattr(plugin_cli_module, "_enabled_plugins", lambda _config: {"auto-fin"})
 
-    assert plugin_cli_module.plugin_cli(["list", "--config", "daily_cookbook"]) == 0
+    assert plugin_cli_module.plugin_cli(["list", "--config", "default"]) == 0
 
     output = capsys.readouterr().out
     assert "ENABLED" in output

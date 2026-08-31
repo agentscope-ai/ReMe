@@ -9,9 +9,11 @@ from uuid import uuid4
 import aiofiles
 import numpy as np
 
+from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
+from ...utils.async_utils import complete_in_thread
 
 # Batch size for bulk inserts during a rebuild.
 _ZVEC_INSERT_BATCH_SIZE = 1024
@@ -105,14 +107,19 @@ class ZvecLocalFileStore(LocalFileStore):
 
     def _create_collection(self):
         """Create a fresh (empty) collection, replacing any directory on disk."""
+        self._discard_collection()
+        return self._zvec.create_and_open(path=str(self.zvec_path), schema=self._collection_schema())
+
+    def _discard_collection(self) -> None:
+        """Release and remove the derived collection and its generation sidecar."""
         # Release any open handle first: zvec holds an in-process lock on the
         # collection directory, so the old object must be dropped before the
-        # directory is wiped and re-created.
+        # directory is wiped.
         self._collection = None
         if self.zvec_path.exists():
             shutil.rmtree(self.zvec_path, ignore_errors=True)
         self._indexed_ids = set()
-        return self._zvec.create_and_open(path=str(self.zvec_path), schema=self._collection_schema())
+        self.zvec_sidecar_path.unlink(missing_ok=True)
 
     def _to_doc(self, chunk: FileChunk):
         """Build a zvec Doc carrying only the id and the float32 vector."""
@@ -178,7 +185,14 @@ class ZvecLocalFileStore(LocalFileStore):
 
     async def _reset_vector_index(self) -> None:
         """Discard all vectors before rebuilding a changed vector space."""
-        self._collection = self._create_collection()
+        if self.embedding_store is None or self._dim == 0:
+            await complete_in_thread(self._discard_collection)
+            return
+        self._collection = await complete_in_thread(self._create_collection)
+
+    async def _finalize_embedding_reindex(self) -> None:
+        """Publish the complete zvec snapshot before explicit job success."""
+        await complete_in_thread(self._rebuild_collection)
 
     # -- maintenance ------------------------------------------------------
 
@@ -319,9 +333,9 @@ class ZvecLocalFileStore(LocalFileStore):
             f"elapsed={time.monotonic() - started_at:.3f}s",
         )
 
-    async def dump(self) -> None:
-        """Persist chunks JSONL via the parent, then flush zvec and write the sidecar."""
-        await super().dump()
+    async def _dump_owned_state(self) -> None:
+        """Persist chunks and zvec state, excluding dependency snapshots."""
+        await super()._dump_owned_state()
         if self._collection is None or self.embedding_store is None:
             return
         try:
@@ -330,6 +344,7 @@ class ZvecLocalFileStore(LocalFileStore):
             self.logger.info(f"Saved zvec collection: {len(self._indexed_ids)} vectors to {self.zvec_path}")
         except Exception as e:
             self.logger.exception(f"Failed to persist zvec collection: {e}")
+            raise
 
     async def _write_sidecar(self) -> None:
         """Atomically write the digest sidecar binding the collection to the chunk generation."""
@@ -349,6 +364,7 @@ class ZvecLocalFileStore(LocalFileStore):
 
     # -- CRUD overrides ---------------------------------------------------
 
+    @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
         if not files:
             return
@@ -359,7 +375,7 @@ class ZvecLocalFileStore(LocalFileStore):
         old_ids_by_path = {n.path: set(n.chunk_ids) for n in old_nodes}
         await super().upsert(files)
 
-        if self._collection is None or self.embedding_store is None:
+        if self._embedding_rebuild_pending or self._collection is None or self.embedding_store is None:
             return
         self._sync_collection_after_upsert(files, old_ids_by_path)
 
@@ -392,14 +408,20 @@ class ZvecLocalFileStore(LocalFileStore):
         self._delete_docs(to_delete)
         self._upsert_docs(to_upsert)
 
+    @BaseFileStore.serialized
     async def delete(self, path: str | list[str]) -> None:
         assert self.file_graph is not None
         paths = [path] if isinstance(path, str) else path
         nodes = await self.file_graph.get_nodes(paths)
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
+        if nodes:
+            self._mutation_generation += 1
+        if self._embedding_rebuild_pending:
+            return
         self._delete_docs(deleted_ids)
 
+    @BaseFileStore.serialized
     async def clear(self) -> None:
         await super().clear()
         if self._collection is not None:
@@ -422,19 +444,9 @@ class ZvecLocalFileStore(LocalFileStore):
         if index_empty and getattr(self.embedding_store, "is_healthy", True):
             return []
 
-        query_embedding = None
-        was_healthy = bool(getattr(self.embedding_store, "is_healthy", True))
-        try:
-            query_embedding = await self.embedding_store.get_embedding(query)
-        except Exception as e:
-            self._mark_embedding_unhealthy(f"search: {type(e).__name__}: {e}")
-        if query_embedding is None or not self._embedding_dim_matches(query_embedding):
-            if query_embedding is not None:
-                self._mark_embedding_unhealthy(
-                    f"search: query embedding dimension {len(query_embedding)} != {self.embedding_store.dimensions}",
-                )
+        query_embedding = await self._get_query_embedding(query)
+        if query_embedding is None:
             return []
-        await self._recover_after_real_request(was_healthy)
 
         # get_embedding above yielded control; a concurrent clear() may have
         # swapped or dropped the collection. Re-read before dereferencing.

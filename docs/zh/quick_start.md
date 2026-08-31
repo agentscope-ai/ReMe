@@ -15,8 +15,8 @@ pip install "reme-ai[core]"
 ```bash
 git clone https://github.com/agentscope-ai/ReMe.git
 cd ReMe
-pip install -e packages/reme_ai_studio -e ".[core]"
-cd website
+pip install -e reme_studio -e ".[core]"
+cd reme_studio
 npm ci
 npm run build:static
 cd ..
@@ -109,11 +109,13 @@ reme write \
 
 `path` 是 workspace 内路径；没有后缀时会自动补 `.md`；Markdown 文件会写入 `name` 和 `description` front matter。
 
-后台 watcher 会自动建索引；也可以手动重建：
+后台 watcher 会自动摄取 workspace 文件。也可以基于它已经摄取的 chunks，手动重建派生的 BM25 和 Embedding 索引：
 
 ```bash
 reme reindex
 ```
+
+该命令不会扫描 workspace 文件、重新分块或重建 wikilink 图谱。
 
 搜索：
 

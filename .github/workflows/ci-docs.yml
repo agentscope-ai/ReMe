@@ -11,11 +11,11 @@ on:
       - 'README_ZH.md'
       - 'docs/**'
       - 'github-pages/**'
-      - 'website/README*.md'
-      - 'website/public/og.jpg'
+      - 'reme_studio/README*.md'
+      - 'reme_studio/public/og.jpg'
+      - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
-      - 'skills/reme_memory/SKILL.md'
   pull_request:
     branches: [main, master, dev, develop]
     paths:
@@ -26,11 +26,11 @@ on:
       - 'README_ZH.md'
       - 'docs/**'
       - 'github-pages/**'
-      - 'website/README*.md'
-      - 'website/public/og.jpg'
+      - 'reme_studio/README*.md'
+      - 'reme_studio/public/og.jpg'
+      - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
-      - 'skills/reme_memory/SKILL.md'
   workflow_dispatch:
 
 concurrency:

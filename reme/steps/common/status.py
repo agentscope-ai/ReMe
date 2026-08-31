@@ -9,6 +9,7 @@ import psutil
 
 from ..base_step import BaseStep
 from ...components import BaseComponent, R
+from ...components.base_component import Dependency
 from ...enumeration import ComponentEnum
 
 _SKIPPED_COMPONENT_ATTRIBUTES = {"app_context", "logger"}
@@ -47,6 +48,8 @@ def _component_size(obj: object) -> int:
         seen.add(value_id)
 
         if isinstance(value, BaseComponent) and value_id != root_id:
+            return 0
+        if isinstance(value, Dependency):
             return 0
         if isinstance(value, (type, ModuleType)):
             return 0

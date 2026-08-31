@@ -350,6 +350,7 @@ def test_application_starts_jobs_base_stream_background_cron():
             },
             thread_pool=None,
         )
+        app._component_mutation_lock = asyncio.Lock()
         app._topological_order = lambda: []
 
         async def start_one(component):
@@ -390,6 +391,7 @@ def test_application_start_failure_propagates_and_closes_started_components():
             thread_pool=None,
         )
         app._started_components = []
+        app._component_mutation_lock = asyncio.Lock()
         app._topological_order = lambda: [good, bad]
         app.logger = MagicMock()
 

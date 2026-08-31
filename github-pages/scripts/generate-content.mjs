@@ -6,6 +6,19 @@ const siteDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const repoDir = path.resolve(siteDir, "..");
 const outputDir = path.join(siteDir, ".generated", "content");
 
+const navigationGroupOrder = [
+  "overview",
+  "start",
+  "integration",
+  "fundamentals",
+  "automation",
+  "concepts",
+  "workspace",
+  "plugins",
+  "benchmarks",
+  "development",
+];
+
 const topicOrder = [
   "quick_start",
   "plugin_management",
@@ -56,8 +69,18 @@ const localizedTitles = {
 
 const productDocuments = [
   {
+    slug: "typescript",
+    source: "typescript",
+    titles: { zh: "TypeScript Agent 集成", en: "TypeScript Agent Integrations" },
+    descriptions: {
+      zh: "配置统一 HTTP client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。",
+      en: "Configure the shared HTTP client and native DeepSeek Harness and OpenClaw adapters.",
+    },
+    group: "integration",
+  },
+  {
     slug: "studio",
-    source: "website",
+    source: "reme_studio",
     titles: { zh: "ReMe 工作台", en: "ReMe Studio" },
     descriptions: {
       zh: "浏览、编辑和搜索本地记忆，并探索记忆图谱。",
@@ -68,22 +91,22 @@ const productDocuments = [
   {
     slug: "daily-paper",
     source: "plugins/daily_paper",
-    titles: { zh: "每日论文", en: "Daily Paper" },
+    titles: { zh: "每日论文插件", en: "Daily Paper Plugin" },
     descriptions: {
       zh: "发现论文、解析 PDF，并生成阅读笔记与每日简报。",
       en: "Discover papers, analyze PDFs, and produce reading notes and a daily brief.",
     },
-    group: "cookbooks",
+    group: "plugins",
   },
   {
     slug: "auto-fin",
     source: "plugins/auto-fin",
-    titles: { zh: "财经研究", en: "Auto Fin" },
+    titles: { zh: "Auto Fin 插件", en: "Auto Fin Plugin" },
     descriptions: {
       zh: "结合最新财联社新闻与本地历史记忆生成研究报告。",
       en: "Research recent CLS news with historical context from local memory.",
     },
-    group: "cookbooks",
+    group: "plugins",
   },
   {
     slug: "beam",
@@ -128,18 +151,6 @@ const productDocuments = [
 ];
 
 const sharedDocuments = [
-  {
-    id: "reme-memory-skill",
-    path: "skills/reme_memory/SKILL.md",
-    sourcePath: "skills/reme_memory/SKILL.md",
-    titles: {
-      zh: "ReMe 记忆技能",
-      en: "ReMe Memory Skill",
-    },
-    description: "Bootstrap, retrieve, write, and consolidate memory from an agent.",
-    group: "integration",
-    language: "shared",
-  },
   {
     id: "agents-guide",
     path: "AGENTS.md",
@@ -209,7 +220,9 @@ async function buildManifest() {
     }
   }
 
-  return [...documents, ...sharedDocuments];
+  return [...documents, ...sharedDocuments].sort(
+    (left, right) => navigationGroupOrder.indexOf(left.group) - navigationGroupOrder.indexOf(right.group),
+  );
 }
 
 await rm(path.join(siteDir, ".generated"), { recursive: true, force: true });
@@ -230,14 +243,6 @@ for (const product of productDocuments) {
     await cp(path.join(repoDir, product.source, filename), path.join(outputDir, product.source, filename));
   }
 }
-await mkdir(path.join(outputDir, "website", "public"), { recursive: true });
-await cp(path.join(repoDir, "website", "public", "og.jpg"), path.join(outputDir, "website", "public", "og.jpg"));
-await mkdir(path.join(outputDir, "skills", "reme_memory"), { recursive: true });
-await cp(
-  path.join(repoDir, "skills", "reme_memory", "SKILL.md"),
-  path.join(outputDir, "skills", "reme_memory", "SKILL.md"),
-);
-
 await writeFile(
   path.join(outputDir, "manifest.json"),
   `${JSON.stringify({ documents: await buildManifest() }, null, 2)}\n`,

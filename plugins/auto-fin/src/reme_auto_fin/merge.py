@@ -102,17 +102,24 @@ class AutoFinMergeStep(AutoFinStep):
         )
 
     async def execute(self):
+        """Research the selected news and persist the validated report."""
         assert self.context is not None
         if self.context.get("auto_fin_skipped"):
             return self.context.response
         run_date = date.fromisoformat(str(self._required("auto_fin_date")))
+        historical_search = {
+            "limit": 5,
+            "min_score": 0.0,
+            "start_date": None,
+            "end_date": (run_date - timedelta(days=1)).isoformat(),
+        }
         output = await self._reply(
             "merge_user",
             AutoFinReportOutput,
             job_tools=list(self.kwargs.get("job_tools") or []),
+            injected_job_kwargs=historical_search,
             decision_at=str(self._required("auto_fin_decision_at")),
             window_start=str(self._required("auto_fin_window_start")),
-            historical_end=(run_date - timedelta(days=1)).isoformat(),
             topics=json.dumps(self._required("auto_fin_topics"), ensure_ascii=False),
             news=json.dumps(self._required("auto_fin_selected_news"), ensure_ascii=False),
             current_report=self._current_report(run_date),

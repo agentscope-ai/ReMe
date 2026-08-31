@@ -1,8 +1,9 @@
 # Release checklist:
-# 1. Update packages/typescript/package.json and package-lock.json to the release version and merge them.
+# 1. Update typescript/package.json and package-lock.json to the release version and merge them.
 # 2. Configure npm Trusted Publishing for agentscope-ai/ReMe and this workflow file.
 # 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
-# 4. Use the `next` tag for prereleases and `latest` only for stable releases.
+# 4. Configure ClawHub Trusted Publishing or CLAWHUB_TOKEN before enabling ClawHub publication.
+# 5. Use the `next` tag for prereleases and `latest` only for stable releases.
 
 name: Release / TypeScript integrations
 
@@ -12,7 +13,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version from packages/typescript/package.json (for example, 0.1.0)
+        description: Version from typescript/package.json (for example, 0.1.0)
         required: true
         type: string
       npm_tag:
@@ -23,6 +24,11 @@ on:
         options:
           - next
           - latest
+      publish_clawhub:
+        description: Also publish the verified tarball to ClawHub
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,23 +40,28 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       NPM_TAG: ${{ inputs.npm_tag }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '22.19'
+          node-version: '22.22.3'
 
       - name: Validate package name and release version
-        working-directory: packages/typescript
+        id: validate
+        working-directory: typescript
         run: |
           node --input-type=module <<'JS'
-          import { readFileSync } from 'node:fs';
+          import { appendFileSync, readFileSync } from 'node:fs';
 
           const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
           const expected = process.env.RELEASE_VERSION.replace(/^v/, '');
@@ -68,29 +79,31 @@ jobs:
               : 'Stable versions must use the latest npm tag');
           }
           console.log(`Preparing ${manifest.name}@${manifest.version}`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${manifest.version}\n`);
           JS
 
       - name: Install dependencies
-        working-directory: packages/typescript
+        working-directory: typescript
         run: npm ci
 
       - name: Type-check and test
-        working-directory: packages/typescript
+        working-directory: typescript
         run: |
           npm run format:check
           npm run lint
           npm run typecheck
           npm test
           npm run test:package
+          npx --yes clawhub@0.23.3 package validate . --json
 
       - name: Pack npm tarball
-        working-directory: packages/typescript
+        working-directory: typescript
         run: |
           mkdir -p "${RUNNER_TEMP}/reme-typescript-package"
           npm pack --pack-destination "${RUNNER_TEMP}/reme-typescript-package"
 
       - name: Upload npm tarball
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: agentscope-ai-reme-${{ inputs.version }}
           path: ${{ runner.temp }}/reme-typescript-package/*.tgz
@@ -105,13 +118,13 @@ jobs:
 
     steps:
       - name: Set up Node for npm
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
 
       - name: Download npm tarball
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: agentscope-ai-reme-${{ inputs.version }}
           path: dist/typescript
@@ -130,3 +143,25 @@ jobs:
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
         run: npm publish dist/typescript/*.tgz --access public --tag "${NPM_TAG}" --provenance
+
+  publish-clawhub:
+    if: ${{ inputs.publish_clawhub }}
+    needs: build
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@87ca030c30f3cfb78ab15c8e66b5ff1469c8f9c8 # v0.23.3
+    with:
+      owner: agentscope-ai
+      family: code-plugin
+      version: ${{ needs.build.outputs.version }}
+      tags: ${{ inputs.npm_tag }}
+      source_repo: ${{ github.repository }}
+      source_commit: ${{ github.sha }}
+      source_ref: ${{ github.ref }}
+      source_path: typescript
+      package_artifact_name: agentscope-ai-reme-${{ inputs.version }}
+      wait_for_publication: true
+    secrets:
+      clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}

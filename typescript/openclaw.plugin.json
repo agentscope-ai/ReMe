@@ -1,0 +1,81 @@
+{
+  "id": "reme",
+  "name": "ReMe",
+  "description": "ReMe file-native long-term memory",
+  "kind": "memory",
+  "icon": "https://raw.githubusercontent.com/agentscope-ai/ReMe/main/docs/figure/reme_logo.png",
+  "activation": {
+    "onStartup": true,
+    "onCapabilities": ["hook", "tool"]
+  },
+  "contracts": {
+    "tools": ["reme_search"]
+  },
+  "configUiHints": {
+    "endpoint": {
+      "label": "ReMe endpoint",
+      "placeholder": "http://127.0.0.1:2333"
+    },
+    "autoMemoryEnabled": { "label": "Automatic memory capture" },
+    "autoMemoryInterval": {
+      "label": "Capture batch size",
+      "advanced": true
+    },
+    "autoDreamEnabled": { "label": "Daily memory consolidation" },
+    "dreamCron": {
+      "label": "Auto Dream schedule",
+      "placeholder": "0 23 * * *",
+      "advanced": true
+    },
+    "dreamHint": { "label": "Auto Dream hint", "advanced": true },
+    "timezone": {
+      "label": "Workspace timezone",
+      "placeholder": "Asia/Shanghai"
+    },
+    "rootAgentsOnly": { "label": "Root agents only", "advanced": true },
+    "language": { "label": "Memory guidance language" },
+    "autoRecall": { "label": "Automatic recall" },
+    "searchLimit": { "label": "Search result limit", "advanced": true },
+    "recallMinScore": {
+      "label": "Minimum recall score",
+      "advanced": true
+    }
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": { "type": "string" },
+      "requestTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 120000
+      },
+      "backgroundTimeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 3600000
+      },
+      "shutdownTimeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 60000
+      },
+      "autoMemoryEnabled": { "type": "boolean" },
+      "autoMemoryInterval": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000
+      },
+      "autoDreamEnabled": { "type": "boolean" },
+      "dreamCron": { "type": "string" },
+      "dreamHint": { "type": "string" },
+      "rootAgentsOnly": { "type": "boolean" },
+      "language": { "type": "string", "enum": ["en", "zh"] },
+      "autoRecall": { "type": "boolean" },
+      "searchLimit": { "type": "integer", "minimum": 1, "maximum": 50 },
+      "recallMinScore": { "type": "number", "minimum": 0 },
+      "timezone": { "type": "string" }
+    }
+  }
+}

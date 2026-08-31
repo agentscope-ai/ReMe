@@ -76,6 +76,7 @@ class AutoFinStep(BaseStep):
         prompt_name: str,
         model: type[BaseModel],
         job_tools: list[str] | None = None,
+        injected_job_kwargs: dict[str, Any] | None = None,
         **values: str,
     ) -> BaseModel:
         if self.agent_wrapper is None:
@@ -89,6 +90,8 @@ class AutoFinStep(BaseStep):
         kwargs: dict[str, Any] = {"output_schema": model}
         if job_tools:
             kwargs["job_tools"] = job_tools
+        if injected_job_kwargs:
+            kwargs["injected_job_kwargs"] = injected_job_kwargs
         result = await self.agent_wrapper.reply(prompt, **kwargs)
         if not isinstance(result, dict) or result.get("structured_output") is None:
             raise ValueError(f"Auto Fin Agent returned no structured output: {self._preview(result)}")

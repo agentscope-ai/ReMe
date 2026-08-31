@@ -1,11 +1,13 @@
-"""Keep the separately published distributions version-compatible."""
+"""Validate independently published package metadata and release helpers."""
 
 import importlib.util
+import json
 from pathlib import Path
 import tomllib
 from types import ModuleType
 
 from packaging.requirements import Requirement
+from packaging.version import Version
 import pytest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
@@ -25,72 +27,63 @@ bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
 
 
-def test_studio_package_and_extra_versions_match_reme() -> None:
-    """Require one version bump to update both wheels and their exact pin."""
+def test_studio_packages_have_independent_identity() -> None:
+    """Keep both Studio distributions independent from the ReMe release version."""
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
-    studio_config = tomllib.loads(
-        (REPOSITORY / "packages" / "reme_ai_studio" / "pyproject.toml").read_text(encoding="utf-8"),
+    studio_config = tomllib.loads((REPOSITORY / "reme_studio" / "pyproject.toml").read_text(encoding="utf-8"))
+    npm_config = json.loads((REPOSITORY / "reme_studio" / "package.json").read_text(encoding="utf-8"))
+    auto_fin_config = tomllib.loads(
+        (REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"),
     )
-    version = bump_version.read_version(REPOSITORY)
-    expected_dependency = f"reme-ai-studio=={version}"
+    daily_paper_config = tomllib.loads(
+        (REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"),
+    )
 
-    assert studio_config["project"]["version"] == version
-    assert main_config["project"]["optional-dependencies"]["web"] == [expected_dependency]
-    assert expected_dependency in main_config["project"]["optional-dependencies"]["core"]
+    assert studio_config["project"]["name"] == "reme_studio"
+    assert npm_config["name"] == "@agentscope-ai/reme_studio"
+    assert studio_config["project"]["version"] == npm_config["version"]
+    agentscope_requirements = [Requirement(value) for value in main_config["project"]["optional-dependencies"]["as"]]
+    assert len(agentscope_requirements) == 1
+    agentscope_requirement = agentscope_requirements[0]
+    assert agentscope_requirement.name == "agentscope"
+    assert agentscope_requirement.extras == {"model-ollama"}
+    assert agentscope_requirement.marker is None
+    agentscope_specifiers = list(agentscope_requirement.specifier)
+    assert len(agentscope_specifiers) == 1
+    assert agentscope_specifiers[0].operator == "=="
+    assert not Version(agentscope_specifiers[0].version).is_prerelease
+    assert main_config["project"]["optional-dependencies"]["web"] == ["reme_studio"]
+    assert main_config["project"]["optional-dependencies"]["core"].count("reme-ai[as]") == 1
+    assert main_config["project"]["optional-dependencies"]["core"].count("reme_studio") == 1
+    assert "qwenpaw" not in main_config["project"]["optional-dependencies"]
+    assert auto_fin_config["project"]["version"] == "0.1.2"
+    assert daily_paper_config["project"]["version"] == "0.1.2"
+    assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
+    assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 
 
-def _write_version_fixture(repository: Path, *, studio_version: str = "1.2.3") -> None:
+def _write_version_fixture(repository: Path) -> None:
     (repository / "reme").mkdir()
-    (repository / "packages" / "reme_ai_studio").mkdir(parents=True)
     (repository / "reme" / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
-    (repository / "pyproject.toml").write_text(
-        """[project]
-name = "reme-ai"
-
-[project.optional-dependencies]
-web = ["reme-ai-studio==1.2.3"]
-core = ["example", "reme-ai-studio==1.2.3"]
-""",
-        encoding="utf-8",
-    )
-    (repository / "packages" / "reme_ai_studio" / "pyproject.toml").write_text(
-        f'[project]\nname = "reme-ai-studio"\nversion = "{studio_version}"\n',
-        encoding="utf-8",
-    )
 
 
-def test_bump_version_updates_both_packages_and_exact_pins(tmp_path: Path) -> None:
-    """Update the two package versions and both dependency declarations together."""
+def test_bump_version_updates_only_reme(tmp_path: Path) -> None:
+    """Do not couple an independent Studio release to the ReMe version helper."""
     _write_version_fixture(tmp_path)
+    studio_config = tmp_path / "reme_studio" / "pyproject.toml"
+    studio_config.parent.mkdir()
+    studio_config.write_text('[project]\nname = "reme_studio"\nversion = "0.1.0"\n', encoding="utf-8")
 
     previous_version = bump_version.bump_version("1.2.4", tmp_path)
 
     assert previous_version == "1.2.3"
     assert (tmp_path / "reme" / "__init__.py").read_text(encoding="utf-8") == '__version__ = "1.2.4"\n'
-    assert (tmp_path / "pyproject.toml").read_text(encoding="utf-8").count("reme-ai-studio==1.2.4") == 2
-    studio_config = tomllib.loads(
-        (tmp_path / "packages" / "reme_ai_studio" / "pyproject.toml").read_text(encoding="utf-8"),
-    )
-    assert studio_config["project"]["version"] == "1.2.4"
-
-
-def test_bump_version_rejects_inconsistent_sources_before_writing(
-    tmp_path: Path,
-) -> None:
-    """Refuse to update any file if the current release metadata has drifted."""
-    _write_version_fixture(tmp_path, studio_version="1.2.2")
-    version_file = tmp_path / "reme" / "__init__.py"
-    original_version_text = version_file.read_text(encoding="utf-8")
-
-    with pytest.raises(ValueError, match=r"project.version is '1.2.2'; expected '1.2.3'"):
-        bump_version.bump_version("1.2.4", tmp_path)
-
-    assert version_file.read_text(encoding="utf-8") == original_version_text
+    assert 'version = "0.1.0"' in studio_config.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("version", ["release", "1..2", "1.2.3_"])
 def test_bump_version_rejects_invalid_pep440_versions(tmp_path: Path, version: str) -> None:
-    """Reject invalid release versions before changing any source file."""
+    """Reject invalid release versions before changing the source file."""
     _write_version_fixture(tmp_path)
     version_file = tmp_path / "reme" / "__init__.py"
     original_version_text = version_file.read_text(encoding="utf-8")
@@ -119,67 +112,44 @@ def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
         bump_version.check_versions(tmp_path)
 
 
-def test_check_versions_identifies_invalid_toml_file(tmp_path: Path) -> None:
-    """Point maintainers to malformed package metadata."""
+def test_bump_version_rolls_back_when_validation_fails(monkeypatch, tmp_path: Path) -> None:
+    """Restore the previous version if post-write validation fails."""
     _write_version_fixture(tmp_path)
-    config_file = tmp_path / "pyproject.toml"
-    config_file.write_text("[project\n", encoding="utf-8")
+    version_file = tmp_path / "reme" / "__init__.py"
+    original = version_file.read_text(encoding="utf-8")
 
-    with pytest.raises(ValueError, match=rf"{config_file}.*cannot read valid TOML.*Fix this file"):
-        bump_version.check_versions(tmp_path)
+    def fail_validation(*_args, **_kwargs) -> None:
+        raise ValueError
 
+    monkeypatch.setattr(bump_version, "check_versions", fail_validation)
 
-def test_check_versions_identifies_missing_table(tmp_path: Path) -> None:
-    """Explain which required TOML table must be restored."""
-    _write_version_fixture(tmp_path)
-    config_file = tmp_path / "pyproject.toml"
-    config_file.write_text('[project]\nname = "reme-ai"\n', encoding="utf-8")
-
-    with pytest.raises(ValueError, match=rf"{config_file}.*\[project.optional-dependencies\].*Add or fix"):
-        bump_version.check_versions(tmp_path)
-
-
-def test_bump_version_rolls_back_when_a_write_fails(monkeypatch, tmp_path: Path) -> None:
-    """Restore earlier files when a later atomic replacement fails."""
-    # pylint: disable=protected-access
-    _write_version_fixture(tmp_path)
-    paths = bump_version._paths(tmp_path)
-    original = {path: path.read_text(encoding="utf-8") for path in paths}
-    write_atomic = bump_version._write_atomic
-    attempts = 0
-
-    def fail_second_write(path: Path, content: str) -> None:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 2:
-            raise OSError("simulated write failure")
-        write_atomic(path, content)
-
-    monkeypatch.setattr(bump_version, "_write_atomic", fail_second_write)
-
-    with pytest.raises(RuntimeError, match="all changed files were restored"):
+    with pytest.raises(RuntimeError, match="previous version was restored"):
         bump_version.bump_version("1.2.4", tmp_path)
 
-    assert {path: path.read_text(encoding="utf-8") for path in paths} == original
+    assert version_file.read_text(encoding="utf-8") == original
 
 
-def test_studio_readme_is_generated_from_website_docs() -> None:
-    """Keep the packaged PyPI description synchronized with the source docs."""
-    packaged_readme = REPOSITORY / "packages" / "reme_ai_studio" / "README.md"
-    assert packaged_readme.read_text(encoding="utf-8") == package_studio.build_readme()
+def _studio_package_fixture(monkeypatch, tmp_path: Path) -> tuple[Path, Path]:
+    studio_dir = tmp_path / "reme_studio"
+    source_dir = studio_dir / "dist-static"
+    source_dir.mkdir(parents=True)
+    (source_dir / "index.html").write_text("<html></html>", encoding="utf-8")
+    static_dir = studio_dir / "src" / "reme_studio" / "static"
+    license_file = tmp_path / "LICENSE"
+    license_file.write_text("test license\n", encoding="utf-8")
+    monkeypatch.setattr(package_studio, "STUDIO_DIR", studio_dir)
+    monkeypatch.setattr(package_studio, "STATIC_DIR", static_dir)
+    monkeypatch.setattr(package_studio, "LICENSE_FILE", license_file)
+    return studio_dir, static_dir
 
 
 def test_studio_package_preparation_copies_license(monkeypatch, tmp_path: Path) -> None:
     """Include the repository license in the independently distributed Studio package."""
-    package_dir = tmp_path / "reme_ai_studio"
-    package_dir.mkdir()
-    monkeypatch.setattr(package_studio, "PACKAGE_DIR", package_dir)
+    studio_dir, _ = _studio_package_fixture(monkeypatch, tmp_path)
 
-    package_studio.prepare_package(copy_static=False)
+    package_studio.prepare_package()
 
-    assert (package_dir / "LICENSE").read_text(encoding="utf-8") == (REPOSITORY / "LICENSE").read_text(
-        encoding="utf-8",
-    )
+    assert (studio_dir / "LICENSE").read_text(encoding="utf-8") == "test license\n"
 
 
 def test_auto_fin_license_matches_repository() -> None:
@@ -189,32 +159,40 @@ def test_auto_fin_license_matches_repository() -> None:
     ).read_text(encoding="utf-8")
 
 
-def test_auto_fin_requires_reme_core() -> None:
-    """Install the optional runtime packages needed while loading Auto Fin's entry points."""
+def test_auto_fin_requires_reme_base() -> None:
+    """Keep the plugin dependency limited to ReMe's public base package."""
     config = tomllib.loads((REPOSITORY / "plugins" / "auto-fin" / "pyproject.toml").read_text(encoding="utf-8"))
     requirements = [Requirement(value) for value in config["project"]["dependencies"]]
     reme_requirements = [requirement for requirement in requirements if requirement.name == "reme-ai"]
 
     assert len(reme_requirements) == 1
-    assert set(reme_requirements[0].extras) == {"core"}
+    assert not reme_requirements[0].extras
+    assert Version("0.4.1.8") not in reme_requirements[0].specifier
+    assert Version("0.4.1.9") in reme_requirements[0].specifier
+
+
+def test_daily_paper_license_matches_repository() -> None:
+    """Keep the independently distributed Daily Paper license complete and current."""
+    assert (REPOSITORY / "plugins" / "daily_paper" / "LICENSE").read_text(encoding="utf-8") == (
+        REPOSITORY / "LICENSE"
+    ).read_text(encoding="utf-8")
+
+
+def test_daily_paper_declares_runtime_dependencies() -> None:
+    """Keep Daily Paper's minimal ReMe and PDF dependencies explicit."""
+    config = tomllib.loads((REPOSITORY / "plugins" / "daily_paper" / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = [Requirement(value) for value in config["project"]["dependencies"]]
+    by_name = {requirement.name: requirement for requirement in requirements}
+
+    assert not by_name["reme-ai"].extras
+    assert Version("0.4.1.8") not in by_name["reme-ai"].specifier
+    assert Version("0.4.1.9") in by_name["reme-ai"].specifier
+    assert "pypdf" in by_name
 
 
 def test_studio_package_preparation_preserves_static_gitignore(monkeypatch, tmp_path: Path) -> None:
     """Keep generated static assets ignored after staging the Studio build."""
-    package_dir = tmp_path / "reme_ai_studio"
-    package_dir.mkdir()
-    website_dir = tmp_path / "website"
-    source_dir = website_dir / "dist-static"
-    source_dir.mkdir(parents=True)
-    (source_dir / "index.html").write_text("<html></html>", encoding="utf-8")
-    static_dir = package_dir / "src" / "reme_ai_studio" / "static"
-    static_dir.mkdir(parents=True)
-    (static_dir / ".gitignore").write_text(package_studio.STATIC_GITIGNORE, encoding="utf-8")
-
-    monkeypatch.setattr(package_studio, "PACKAGE_DIR", package_dir)
-    monkeypatch.setattr(package_studio, "WEBSITE_DIR", website_dir)
-    monkeypatch.setattr(package_studio, "STATIC_DIR", static_dir)
-    monkeypatch.setattr(package_studio, "build_readme", lambda: "# ReMe Studio\n")
+    _, static_dir = _studio_package_fixture(monkeypatch, tmp_path)
 
     package_studio.prepare_package()
 

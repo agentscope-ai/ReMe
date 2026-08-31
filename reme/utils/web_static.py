@@ -11,7 +11,7 @@ REME_WEB_STATIC_DIR = "REME_WEB_STATIC_DIR"
 def _packaged_studio_dir() -> Path | None:
     """Return the static directory supplied by the optional Studio package."""
     try:
-        from reme_ai_studio import static_dir
+        from reme_studio import static_dir
     except ImportError:
         return None
     return static_dir()
@@ -36,8 +36,8 @@ def resolve_web_static_dir(configured_dir: str | None = None) -> Path | None:
     fallback_candidates = [
         _packaged_studio_dir(),
         package_dir / "web",
-        repository_dir / "website" / "dist-static",
-        cwd / "website" / "dist-static",
+        repository_dir / "reme_studio" / "dist-static",
+        cwd / "reme_studio" / "dist-static",
         cwd / "web_dist",
     ]
     for candidate in fallback_candidates:

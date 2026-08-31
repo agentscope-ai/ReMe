@@ -8,11 +8,11 @@ on:
       - "docs/**"
       - "README.md"
       - "README_ZH.md"
-      - "website/README*.md"
-      - "website/public/og.jpg"
+      - "reme_studio/README*.md"
+      - "reme_studio/public/og.jpg"
+      - "typescript/README*.md"
       - "plugins/*/README*.md"
       - "benchmark/*/README*.md"
-      - "skills/reme_memory/SKILL.md"
       - "AGENTS.md"
       - ".github/workflows/deploy-docs.yml"
       - ".github/workflows/_build-docs.yml"
@@ -20,8 +20,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -32,7 +30,7 @@ jobs:
     name: Build documentation
     uses: ./.github/workflows/_build-docs.yml
     with:
-      run_tests: false
+      run_tests: true
       upload_pages_artifact: true
     permissions:
       contents: read
@@ -45,7 +43,10 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5

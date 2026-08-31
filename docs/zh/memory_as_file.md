@@ -219,7 +219,8 @@ FileLink
 
 旧文档中的 `related:: [[path]]`、`- related:: [[path]]` 或
 `[related:: [[path]]]` 仍然可以读取。ReMe 会忽略外围文本，把内部 `[[path]]`
-作为普通链接建立索引。从曾存储 typed link 的版本升级后，应执行一次 `reme reindex`，用源文件重建不含旧关系字段的派生图索引。
+作为普通链接建立索引。源文件通过正常摄取路径时会应用图谱变更。`reme reindex` 只基于现有 chunks 重建 BM25 和 Embedding
+索引，不会重新解析文件或重建派生图谱。
 
 ### 来源和关系
 

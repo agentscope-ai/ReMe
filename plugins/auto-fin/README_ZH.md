@@ -14,13 +14,13 @@ distribution：单个 `reme.plugins` entry point 暴露 `plugin.yaml`，其中�
 ### 1. 安装 ReMe 和 Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-auto-fin
 ```
 
 ### 2. 配置模型环境变量
 
-按照 ReMe README 的[环境变量说明](../../README_ZH.md#环境变量)配置 LLM 环境变量，也可以使用其他兼容的模型和服务商。
+按照 ReMe README 的[可选模型配置说明](../../README_ZH.md#可选模型配置)配置 LLM 环境变量，也可以使用其他兼容的模型和服务商。
 
 ### 3. 带插件启动 ReMe
 
@@ -44,21 +44,17 @@ curl -s http://127.0.0.1:2333/auto_fin \
   -d '{"topics":"黄金,AI,存储芯片"}'
 ```
 
-在 MCP service 中启用插件时，同一个 Job 会暴露为 `auto_fin` MCP tool。默认 topics 是 `黄金,机器人,半导体`，
+HTTP service 也会在 `/mcp` 中将同一个 Job 暴露为 `auto_fin` MCP tool。默认 topics 是 `黄金,机器人,半导体`，
 传入空值也会使用默认值。
 
-如果需要将同一个应用作为 MCP service 启动：
+如果需要同时通过 JSON 和 MCP 访问同一个应用：
 
 ```bash
 reme start plugins='["auto-fin"]' \
-  service.backend=mcp service.transport=streamable-http
+  service.backend=http
 ```
 
-如果需要将 Auto Fin 叠加到其他应用，则显式选择相应配置，例如：
-
-```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
-```
+自定义应用配置需要提供 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
 
 ## 流程
 
@@ -69,7 +65,7 @@ reme start config=daily_cookbook plugins='["auto-fin"]'
         ↓
 Topic Agent 分批选择真实 news_id
         ↓
-Research Agent 使用 memory_search + read 检索历史记忆
+Research Agent 使用 search + read 检索历史记忆
         ↓
 代码校验历史 wikilink
         ↓
@@ -82,8 +78,8 @@ daily/YYYY-MM-DD/auto_fin.md
 `auto_fin_topic_step` 分批接收当前新闻，只返回相关的 `news_id`。代码会忽略未知 ID、去除重复 ID，并保持源新闻顺序。如果没有相关新闻，Job
 会成功跳过，不写报告也不发送通知。
 
-`auto_fin_merge_step` 只接收筛选后的当前新闻，并向 Agent 开放 `memory_search` 和 `read`。历史检索截止到昨天；当前新闻以
-CLS ID、时间和标题作为普通证据。Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对
+`auto_fin_merge_step` 只接收筛选后的当前新闻，并向 Agent 开放 `search` 和 `read`。当前新闻以 CLS ID、时间和标题作为普通证据。
+Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对
 workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠和自引用的目标都会降级为可读 alias。
 
 同日重跑会参考当天已有报告并覆盖为修订结果。最终写入使用原子替换并刷新当天索引；流程不会写入 JSONL、中间 Markdown 或 Agent
@@ -100,7 +96,7 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 | `request_interval` |                   `10` | 每次财联社请求尝试后的最小等待秒数，可设为 0 |
 | `max_retries`      |                    `3` | 每页财联社请求的最大尝试次数，至少为 1       |
 
-插件的三个 cron Job 随应用启动，并按 `Asia/Shanghai` 时区在每天 09:30、11:30 和 18:00 运行。
+插件的 cron Job 随应用启动，并按应用配置的时区在每天 18:00 运行。
 
 ## 产物
 

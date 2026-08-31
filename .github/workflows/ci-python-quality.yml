@@ -17,10 +17,12 @@ jobs:
     name: Pre-commit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: '3.11'
           cache: pip
@@ -31,7 +33,8 @@ jobs:
 
       - name: Install
         run: |
-          pip install -q -e packages/reme_ai_studio -e ".[dev,core]"
+          pip install -q -e reme_studio -e ".[dev,core]"
+          pip install -q --no-deps -e plugins/auto-fin -e plugins/daily_paper
 
       - name: Pre-commit starts
         run: pre-commit run --all-files

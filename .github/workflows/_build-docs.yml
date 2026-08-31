@@ -26,12 +26,14 @@ jobs:
         working-directory: github-pages
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: '22.13'
+          node-version: '22.22.3'
           cache: npm
           cache-dependency-path: github-pages/package-lock.json
 
@@ -47,10 +49,10 @@ jobs:
 
       - name: Configure Pages
         if: inputs.upload_pages_artifact
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Upload Pages artifact
         if: inputs.upload_pages_artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
           path: github-pages/dist

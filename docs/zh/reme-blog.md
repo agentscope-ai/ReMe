@@ -126,7 +126,7 @@ Auto Resource 提供了一条更通用的外部资料入口。资料进入 `reso
 
 ### Daily Paper：外部资料工作流的一个例子
 
-Daily Paper 是建立在这套文件化记忆之上的可选 Cookbook。它会从 Hugging Face Papers 的周榜和月榜收集论文，去除近期已经推荐过的内容，排序后精选三篇，保存
+Daily Paper 是建立在这套文件化记忆之上的可选插件。它会从 Hugging Face Papers 的周榜和月榜收集论文，去除近期已经推荐过的内容，排序后精选三篇，保存
 PDF，并生成中文论文笔记与一份约五分钟可读完的简报。
 
 想象一下，你持续关注 Agent Memory：每天早上收到的不只是三个论文链接，而是三篇已经保存到本地的详细笔记。简报通过 Wikilink
@@ -184,8 +184,8 @@ Auto Dream 默认查看以目标日期结尾的最近两天，只把相对上次
 </p>
 
 Markdown 适合人读，但如果只是把文件堆进目录，Agent 仍然很难快速找到它们。默认实时索引持续监听 `daily/` 与 `digest/` 中的
-Markdown；`resource/` 由独立资源流程监听，转成 daily 卡片后进入同一索引。需要从现有文件完整重建时，`reme reindex` 还会扫描
-`resource/` 与 JSONL。
+Markdown；`resource/` 由独立资源流程监听，转成 daily 卡片后进入同一索引。手动 `reindex` 只基于这些摄取路径已经接受的
+chunks 重建 BM25 和 Embedding 索引，不会重新扫描文件或重建 Wikilink 图谱。
 
 一份 Markdown 会被解析为：
 
@@ -334,10 +334,12 @@ ReMe 既可以作为本地记忆服务，通过 CLI、HTTP API 或 MCP Server �
 
 | Agent                                  | 推荐接入方式                                                                                     | 接入后能力                                                                                                   |
 |----------------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| **DeepSeek Harness**                   | 将 [`@agentscope-ai/reme`](../../typescript/README_ZH.md#deepseek-harness) 安装为 DSH profile bundle。 | 长期记忆指引、`reme_search`、自动捕获主 Agent 已完成的对话，以及定时 Auto Dream。                            |
+| **OpenClaw**                           | 将 [`@agentscope-ai/reme`](../../typescript/README_ZH.md#openclaw) 安装为原生 memory plugin。     | 根 Agent 对话运行前召回、显式搜索、自动捕获对话，以及定时 Auto Dream。                                      |
 | **QwenPaw**                            | 通过 Python API 在进程内嵌入 ReMe。                                                              | 复用宿主应用的生命周期和模型配置，同时保持记忆本地、文件化。                                                 |
 | **Claude Code**                        | 启动 streamable HTTP MCP Service，并安装 [`integrations/claude_code/reme`](../../integrations/claude_code/reme)。 | MCP 记忆召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。                                        |
 | **Hermes**                             | 启动 HTTP Service，并安装 [`integrations/hermes_agent`](../../integrations/hermes_agent)。                  | 在模型调用前自动召回相关记忆，并在每轮对话完成后异步调用 `auto_memory`。                                     |
-| **OpenClaw、Codex 等支持 CLI 的 Agent** | 复制或安装 [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md)。                    | 通过 CLI 搜索、读取和写入记忆；自动记录需要宿主 Agent 显式接入会话生命周期。                                 |
+| **Codex 等支持 CLI 的 Agent**          | 复制或安装 [`skills/reme_memory/SKILL.md`](../../skills/reme_memory/SKILL.md)。                    | 通过 CLI 搜索、读取和写入记忆；自动记录需要宿主 Agent 显式接入会话生命周期。                                 |
 
 安装、配置与集成演示可查看 [README 中文版](../../README_ZH.md)。
 

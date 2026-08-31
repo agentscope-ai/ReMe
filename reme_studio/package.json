@@ -1,0 +1,79 @@
+{
+  "name": "@agentscope-ai/reme_studio",
+  "version": "0.1.1",
+  "description": "ReMe Studio web workspace and static distribution",
+  "license": "Apache-2.0",
+  "files": [
+    "dist-static",
+    "README.md",
+    "README_ZH.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentscope-ai/ReMe.git",
+    "directory": "reme_studio"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force",
+    "dev:static": "vite --config vite.static.config.ts",
+    "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
+    "build:static": "vite build --config vite.static.config.ts",
+    "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "test": "npm run build && npm run build:static && node --test tests/*.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-static --ignore-pattern .next",
+    "format": "tsc --noEmit && prettier --write .",
+    "format:check": "tsc --noEmit && prettier --check .",
+    "db:generate": "drizzle-kit generate",
+    "prepack": "npm run build:static"
+  },
+  "devDependencies": {
+    "@agentscope-ai/icons": "^1.0.67",
+    "@monaco-editor/react": "^4.7.0",
+    "@cloudflare/vite-plugin": "1.51.3",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@eslint/js": "9.39.4",
+    "@next/eslint-plugin-next": "16.2.6",
+    "@tailwindcss/postcss": "4.2.1",
+    "@types/node": "22.19.19",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.2",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "drizzle-orm": "0.45.2",
+    "drizzle-kit": "0.31.10",
+    "eslint": "9.39.4",
+    "eslint-plugin-jsx-a11y": "6.10.2",
+    "eslint-plugin-react": "7.37.5",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "16.4.0",
+    "lucide-react": "^1.28.0",
+    "monaco-editor": "^0.55.1",
+    "prettier": "3.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0",
+    "react-server-dom-webpack": "19.2.8",
+    "remark-gfm": "^4.0.1",
+    "tailwindcss": "4.2.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.59.3",
+    "vinext": "1.0.0-beta.2",
+    "vite": "8.2.1",
+    "wrangler": "4.121.0",
+    "zustand": "^5.0.14"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.0"
+    },
+    "dompurify": "3.4.13"
+  },
+  "type": "module"
+}

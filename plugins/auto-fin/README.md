@@ -17,14 +17,15 @@ through `plugins=["auto-fin"]`.
 ### 1. Install ReMe and Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.8"
+python -m pip install "reme-ai[core]>=0.4.1.9"
 reme plugins install reme-auto-fin
 ```
 
 ### 2. Configure the model environment
 
 Configure the LLM environment variables as described in the
-[ReMe README](../../README.md#environment-variables). Other compatible models and providers can also be used.
+[ReMe model-configuration guide](../../README.md#optional-model-configuration). Other compatible models and providers
+can also be used.
 
 ### 3. Start ReMe with the plugin
 
@@ -48,21 +49,17 @@ curl -s http://127.0.0.1:2333/auto_fin \
   -d '{"topics":"黄金,AI,存储芯片"}'
 ```
 
-When enabled on an MCP service, the same Job is exposed as the `auto_fin` MCP tool. The default topics are
+The HTTP service also exposes the same Job as the `auto_fin` MCP tool at `/mcp`. The default topics are
 `黄金,机器人,半导体`; an empty value also uses these defaults.
 
-To host the same application as an MCP service instead:
+To host the application with both JSON and MCP access:
 
 ```bash
 reme start plugins='["auto-fin"]' \
-  service.backend=mcp service.transport=streamable-http
+  service.backend=http
 ```
 
-To add Auto Fin to another application instead, select that config explicitly, for example:
-
-```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
-```
+Custom application configs must provide `agent_wrapper.default` and the `search` and `read` Jobs used by Auto Fin.
 
 ## Pipeline
 
@@ -73,7 +70,7 @@ normalize and deduplicate in RuntimeContext
         ↓
 topic Agent selects real news IDs in bounded batches
         ↓
-research Agent uses memory_search + read on historical memory
+research Agent uses search + read on historical memory
         ↓
 validate historical wikilinks in code
         ↓
@@ -88,8 +85,8 @@ records outside the window are discarded.
 IDs and deduplicates repeated IDs, then preserves the source-news order. If nothing is relevant, the job succeeds as a
 skip without writing or sending a report.
 
-`auto_fin_merge_step` receives only selected current news. It exposes `memory_search` and `read`, instructs the Agent to
-search no later than yesterday, and keeps current CLS IDs, times, and titles as plain evidence. The prompt limits
+`auto_fin_merge_step` receives only selected current news. It exposes `search` and `read`, and keeps current CLS IDs,
+times, and titles as plain evidence. The prompt limits
 wikilinks to historical Markdown actually used by the Agent; the code-level boundary independently keeps only existing,
 workspace-relative Markdown targets. Missing, absolute, escaping, backslash, and self-referential targets are degraded
 to their readable aliases.
@@ -108,7 +105,7 @@ refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent 
 | `request_interval` |                   `10` | Minimum delay in seconds after every CLS request attempt; may be zero    |
 | `max_retries`      |                    `3` | Maximum attempts for each CLS page request; must be at least one         |
 
-The three plugin cron Jobs start with the application and run daily at 09:30, 11:30, and 18:00 in `Asia/Shanghai`.
+The plugin cron Job starts with the application and runs daily at 18:00 in the application timezone.
 
 ## Output
 

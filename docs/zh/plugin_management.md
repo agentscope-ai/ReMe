@@ -15,7 +15,7 @@ plugins: [auto-fin]             为一个 Application 启用已安装插件
 典型的插件使用流程分为三个阶段：
 
 1. 安装 ReMe 和插件 distribution。
-2. 按照 [ReMe 环境变量说明](../../README_ZH.md#环境变量)配置插件运行所需的环境变量。
+2. 按照 [ReMe 可选模型配置说明](../../README_ZH.md#可选模型配置)配置插件运行所需的环境变量。
 3. 启动 Application 时显式启用插件，例如 `reme start plugins='["auto-fin"]'`。
 
 ## 查看已安装插件
@@ -29,7 +29,7 @@ reme plugins list
 ```text
 PLUGIN    DISTRIBUTION   VERSION  FORMAT
 --------  -------------  -------  --------
-auto-fin  reme-auto-fin  0.1.0    manifest
+auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
 `manifest` 表示插件使用当前的 package-level `plugin.yaml` 契约；`legacy` 表示插件使用仍然兼容的 Python descriptor
@@ -61,7 +61,7 @@ reme plugins list --json
 对照某个应用配置查看启用状态：
 
 ```bash
-reme plugins list --config daily_cookbook
+reme plugins list --config default
 ```
 
 可选的 `ENABLED` 列只反映该配置解析出的 `plugins` 列表。其他运行中进程使用的 CLI override 不是全局启用状态。
@@ -77,7 +77,7 @@ reme plugins install reme-auto-fin
 安装指定版本或升级：
 
 ```bash
-reme plugins install 'reme-auto-fin==0.1.0'
+reme plugins install 'reme-auto-fin==X.Y.Z'
 reme plugins install reme-auto-fin --upgrade
 ```
 
@@ -167,11 +167,7 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 当应用使用 MCP service 时，允许对外服务的插件 Job 会显示为 MCP tool。
 
-如果需要将插件叠加到其他应用配置，则显式选择该配置：
-
-```bash
-reme start config=daily_cookbook plugins='["auto-fin"]'
-```
+自定义应用配置需要提供插件的运行依赖，包括 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
 
 ## 卸载插件
 

@@ -3,8 +3,8 @@
 Memory Search is ReMe's memory retrieval entry point. The default background loop continuously builds Markdown under
 `daily/` and `digest/` into a searchable chunk index and wikilink graph. At query time, it first recalls the most
 relevant fragments and then expands context along the bidirectional links of the files containing those fragments.
-`reme reindex` has a broader rebuild scope that also scans `resource/` and JSONL; it is intentionally different from the
-live watcher.
+`reme reindex` rebuilds derived BM25 and embedding indexes from the authoritative in-memory `file_chunks`; it does not
+rescan workspace files, rechunk content, or rewrite the wikilink graph.
 
 <p align="center">
   <img src="../figure/auto-index-and-memory-search.svg" alt="ReMe Auto Index and Memory Search indexing, recall, fusion, and link expansion" width="92%">
@@ -29,11 +29,8 @@ The default `index_update_loop` watches two memory directories:
 - `digest_dir`: long-term distilled digest nodes.
 
 The live watcher handles only the `md` suffix. A separate `resource_watch_loop` watches `resource_dir`, and Auto
-Resource turns those inputs into daily cards that enter the live index. When `reme reindex` is run manually, its
-configuration scans
-`daily_dir`, `digest_dir`, and `resource_dir` for `md` and `jsonl`; Markdown uses the `markdown` chunker and JSONL uses
-the
-`jsonl` chunker.
+Resource turns those inputs into daily cards that enter the live index. Manual `reindex` operates on chunks already
+accepted by those ingestion paths and therefore does not expand the set of searched files.
 
 ## How the Index Is Built
 
@@ -121,9 +118,11 @@ The embedding store accepts `health_check_timeout` for its startup probe. A temp
 backfill while keeping BM25 available; a later successful provider request resumes the missing-vector backfill
 automatically.
 
-Embedded integrations that have already verified a provider can call `resume_embedding(verified=True)`. When changing
-the embedding vector space, pass `rebuild=True`; persisted vectors are invalidated before a serial background rebuild,
-and vector search remains unavailable until the rebuilt vectors are safely persisted.
+Embedded integrations that have already verified a provider can call `resume_embedding(verified=True)` to repair
+missing vectors in the same vector space. Vector-space changes must use the explicit `reindex` job with
+`scope: embedding`; vector search remains unavailable until that job finishes successfully.
+Use `scope: bm25` to rebuild only keyword search. `scope: all` runs the BM25 rebuild first and then the embedding
+rebuild; all scopes use the current `file_chunks` snapshot.
 
 ## How to Search
 
