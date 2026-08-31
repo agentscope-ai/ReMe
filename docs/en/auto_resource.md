@@ -53,6 +53,11 @@ Text resources such as `md`, `txt`, `json`, `jsonl`, `csv`, `yaml`, and `html` a
 (`png`, `jpg`, `jpeg`, `webp`, `gif`, `bmp`, `tiff`, `heic`) produce caption cards as described in
 [Image Resources](#image-resources).
 
+Internally, one `AutoResourceStep` receives each change batch and sends every item to the first configured processor
+whose class-level matcher accepts it. `AutoImageResourceStep` handles image suffixes and `AutoTextResourceStep` is the
+final fallback. A new modality can therefore add a registered processor, its prompt, and one `dispatch_steps` entry
+without changing the router.
+
 ## Image Resources
 
 Image files are interpreted the same way: a vision model writes a caption card that links back to the original image.
@@ -64,6 +69,10 @@ instance — a multimodal default model needs no extra configuration. Images lar
 provider-unfriendly formats are downscaled or re-encoded in memory for the request only; the original file under
 `resource/` is never modified. When an image changes, its card is rewritten in place; when the image is deleted, the
 card is removed with it.
+
+Image preprocessing uses Pillow from the `core` extra. HEIC resources additionally require the optional
+`image-heif` extra: `pip install "reme-ai[image-heif]"`. Other supported image formats do not load or require the HEIF
+plugin.
 
 ## Resource Cards
 

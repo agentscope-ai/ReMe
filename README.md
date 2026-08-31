@@ -340,7 +340,7 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Quick Start](docs/en/quick_start.md)                                     | Install ReMe, start the service, and run the first file and memory operations.                      |
 | [Memory as File](docs/en/memory_as_file.md)                               | Understand workspace layers, frontmatter, wikilinks, chunks, and the file-as-source-of-truth model. |
 | [Auto Memory](docs/en/auto_memory.md)                                     | Preserve source conversations and distill reusable daily memory cards.                              |
-| [Auto Resource](docs/en/auto_resource.md)                                 | Import supported text resources and turn them into source-linked daily cards.                       |
+| [Auto Resource](docs/en/auto_resource.md)                                 | Import supported text and image resources as source-linked daily cards.                             |
 | [Auto Dream](docs/en/auto_dream.md) and [Auto Link](docs/en/auto_link.md) | Consolidate daily notes into evolving digest nodes and readable wikilink relationships.             |
 | [Memory Search](docs/en/memory_search.md)                                 | Use BM25, optional vectors, RRF fusion, line-range recall, and progressive link expansion.          |
 | [Proactive](docs/en/proactive.md)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |

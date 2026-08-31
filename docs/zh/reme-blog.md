@@ -119,7 +119,7 @@ daily/2026-08-07.md                            当天索引，负责总览
 并不是所有有价值的信息都来自对话。研究资料、项目文档、会议纪要、网页存档和结构化数据，同样可能成为个人知识库的一部分。
 
 Auto Resource 提供了一条更通用的外部资料入口。资料进入 `resource/` 后，ReMe 保留原文，再把主题、关键事实和可行动信息整理为带有
-`source_resource` 链接的 daily 卡片。当前可以处理 Markdown、纯文本、JSON、JSONL、CSV、YAML 和 HTML 等文本类资料。
+`source_resource` 链接的 daily 卡片。它支持 Markdown、纯文本、JSON、JSONL、CSV、YAML 和 HTML 等文本类资料，也支持由视觉模型生成 caption 卡片的图像资源。
 
 这意味着，Auto Memory 负责从对话建立个人知识，Auto Resource 负责从非对话资料建立个人知识。两条输入最终进入同一个 daily
 记忆层，再由 ReMe 统一索引、整合和检索。

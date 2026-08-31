@@ -1,8 +1,16 @@
+# AutoImageResourceStep prompts.
 user_message: |
   Describe the attached image from the user's resource library for a memory knowledge base.
 
-  Resource image file: {file_path}
+  Resource image path: {file_path}
+  Filename: {filename}
+  Filename stem: {stem}
   Date: {date}
+
+  The filename and stem are weak hints for naming or disambiguation only. Do not
+  treat words in them as visible facts. If a filename conflicts with the image,
+  trust the visible image content. The description and caption must be grounded
+  in visible content, not inferred from the filename.
 
   ## What to Record
   - **Visible facts**: people, objects, places, actions, and relationships that
@@ -32,8 +40,13 @@ user_message: |
 user_message_zh: |
   为记忆知识库描述用户资源库中的这张图像。
 
-  资源图像文件:{file_path}
+  资源图像路径:{file_path}
+  文件名:{filename}
+  文件名 stem:{stem}
   日期:{date}
+
+  文件名和 stem 只能作为命名或消歧时的弱提示,不能当作图中可见事实。如果文件名与图像内容冲突,以图像中的可见内容为准。
+  description 和 caption 必须基于图像中的可见内容,不得从文件名推断事实。
 
   ## 记录什么
   - **可见事实**:人物、物体、地点、动作及相互关系——未来对话中可能重要的信息。

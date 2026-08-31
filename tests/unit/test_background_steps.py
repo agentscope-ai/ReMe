@@ -31,7 +31,9 @@ from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_memory import AutoMemoryStep
-from reme.steps.evolve.auto_resource import AutoResourceStep, _compute_note_stem
+from reme.steps.evolve._auto_resource import _compute_note_stem
+from reme.steps.evolve.auto_resource import AutoResourceStep
+from reme.steps.evolve.auto_text import AutoTextResourceStep
 from reme.steps.file_io.daily_list import DailyListStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 from reme.steps.file_io.move import MoveStep
@@ -1198,7 +1200,7 @@ def test_auto_resource_batch_deleted_changes():
                     "---\nname: test\nsource_resource: '[[resource/2026-01-01/file.md]]'\n---\nbody\n",
                 )
 
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
                 ctx = RuntimeContext(
                     changes=[
                         {"change": "deleted", "path": str(cwd / "resource" / "2026-01-01" / filename)},
@@ -1231,7 +1233,7 @@ def test_auto_resource_skips_oversized_file_before_reading():
             _install_file_jobs(app_ctx, fs)
             try:
                 source = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(
                         changes=[{"change": "added", "path": str(source)}],
@@ -1266,7 +1268,7 @@ def test_auto_resource_batch_keeps_result_metadata_isolated():
                 large = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
                 small = write_file(cwd / "resource" / "2026-01-01" / "small.txt", "ok")
                 second_large = write_file(cwd / "resource" / "2026-01-01" / "second-large.txt", "also large")
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(
                         changes=[
@@ -1318,7 +1320,7 @@ def test_auto_resource_handles_file_removed_before_stat():
                             raise FileNotFoundError("file disappeared")
                     return original_stat(path, *args, **kwargs)
 
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
                 with patch.object(Path, "stat", disappearing_stat):
                     resp = await step(
                         RuntimeContext(changes=[{"change": "added", "path": str(source)}]),
@@ -1346,7 +1348,7 @@ def test_auto_resource_accepts_loose_root_resource():
             today = datetime.datetime.now().strftime("%Y-%m-%d")
             captured = {}
 
-            step = AutoResourceStep(app_context=app_ctx)
+            step = AutoTextResourceStep(app_context=app_ctx)
 
             async def fake_upsert(file_path, date_str, note_stem, created):
                 captured.update(
@@ -1385,7 +1387,7 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
             source = write_file(workspace / "resource" / "report.txt", "new")
             captured = {}
 
-            step = AutoResourceStep(app_context=app_ctx)
+            step = AutoTextResourceStep(app_context=app_ctx)
 
             async def fake_upsert(file_path, date_str, note_stem, created):
                 captured.update(
@@ -1429,7 +1431,7 @@ def test_auto_resource_modified_missing_note_uses_create_tools():
                     cwd / "daily" / "2026-01-01" / "report.md",
                     "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1466,7 +1468,7 @@ def test_auto_resource_sanitizes_invalid_generated_name():
                     cwd / "daily" / "2026-01-01" / "report.md",
                     "---\nname: bad/name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1503,7 +1505,7 @@ def test_auto_resource_uniquifies_conflicting_generated_name():
                     cwd / "daily" / "2026-01-01" / "report.md",
                     "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1540,7 +1542,7 @@ def test_auto_resource_update_finds_renamed_note_by_source_resource():
                     cwd / "daily" / "2026-01-01" / "generated-name.md",
                     "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1583,7 +1585,7 @@ def test_auto_resource_update_keeps_existing_renamed_path():
                     )
 
                 wrapper.on_reply = rewrite_frontmatter
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1619,7 +1621,7 @@ def test_auto_resource_reports_unmodified_when_agent_skips_existing_note():
                     cwd / "daily" / "2026-01-01" / "report.md",
                     "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
                 resp = await step(
                     RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
                 )
@@ -1648,7 +1650,7 @@ def test_auto_resource_deletes_loose_root_resource_note_for_today():
             try:
                 today = datetime.datetime.now().strftime("%Y-%m-%d")
                 note_path = write_file(workspace / "daily" / today / "report.md", "---\nname: report\n---\nbody\n")
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
 
                 resp = await step(RuntimeContext(changes=[{"change": "deleted", "path": "resource/report.txt"}]))
 
@@ -1679,7 +1681,7 @@ def test_auto_resource_deletes_renamed_note_by_source_resource():
                     workspace / "daily" / "2026-01-01" / "generated-name.md",
                     "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
                 )
-                step = AutoResourceStep(app_context=app_ctx, file_store=fs)
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
 
                 resp = await step(
                     RuntimeContext(changes=[{"change": "deleted", "path": "resource/2026-01-01/report.txt"}]),

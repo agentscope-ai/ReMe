@@ -48,11 +48,18 @@ workspace/
 
 当前 Beta 版本以文本类资源为主，例如 `md`、`txt`、`json`、`jsonl`、`csv`、`yaml`、`html`；图像资源（`png`、`jpg`、`jpeg`、`webp`、`gif`、`bmp`、`tiff`、`heic`）会生成 caption 卡片，见下文[图像资源](#图像资源)一节。
 
+内部由统一的 `AutoResourceStep` 接收每批变更，并将每一项交给配置中第一个匹配它的 processor。
+`AutoImageResourceStep` 声明图像后缀匹配规则，`AutoTextResourceStep` 作为最后的 fallback。后续新增模态时，
+只需注册新的 processor、提供独立 prompt 并在 `dispatch_steps` 中增加一项，无需修改 router。
+
 ## 图像资源
 
 图像文件的解读方式相同：视觉模型写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/...]]` 嵌入链接开头，frontmatter 携带 `kind: image` 与 `media_type`，文本检索因此可以通过 caption 命中图像内容。
 
 视觉模型优先使用配置中的 `as_llm` `vision` 实例，未配置时回退到 `default` 实例——默认模型具备视觉能力时无需额外配置。超过请求预算或格式不被模型接受的图像，仅在请求前于内存中降采样或转码；`resource/` 下的原图文件不会被修改。图像变更时卡片原地重写；图像删除时卡片随之删除。
+
+图像预处理使用 `core` extra 中的 Pillow。HEIC 资源还需要可选的 `image-heif` extra：
+`pip install "reme-ai[image-heif]"`。其他受支持图像格式不会加载或依赖 HEIF 插件。
 
 ## 资源卡片
 

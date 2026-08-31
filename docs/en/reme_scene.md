@@ -66,9 +66,9 @@ The corresponding flow is:
 - `auto_memory` saves a filtered source conversation record to `session/dialog/<session_id>.jsonl`, then asks the agent to write
   important facts to a topic-named `daily/<date>/<generated_name>.md`. The note keeps `session_id` and
   `source_conversation` in frontmatter for stable lookup and provenance.
-- `resource_watch_loop` watches text-file changes under `resource/` and triggers `auto_resource_step` to write a daily note
-  with `source_resource`. The agent suggests a content-based filename, which the system sanitizes and de-duplicates; it is
-  not guaranteed to match the resource filename.
+- `resource_watch_loop` watches supported text and image changes under `resource/` and triggers `auto_resource_step` to
+  write a daily note with `source_resource`. Text resources use an agent, while images use a vision model. The generated
+  content-based filename is sanitized and de-duplicated; it is not guaranteed to match the resource filename.
 - Auto Memory, Auto Resource, and Auto Dream refresh `daily/<date>.md` after writing.
 
 ### Day 1 evening: Auto Dream writes to Digest

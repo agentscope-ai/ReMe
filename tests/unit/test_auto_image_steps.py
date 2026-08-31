@@ -1,4 +1,4 @@
-"""Tests for AutoImageStep: image resource files become caption daily notes.
+"""Tests for AutoImageResourceStep: image resource files become caption daily notes.
 
 The vision model boundary is faked (no network); test images are synthesized
 with PIL inside a temporary workspace.
@@ -12,21 +12,34 @@ import hashlib
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import frontmatter
 import pytest
+import yaml
 from agentscope.model import ChatModelBase
 from PIL import Image
 
+from reme.components import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
-from reme.steps.evolve.auto_image import AutoImageStep, _parse_caption_json
+from reme.enumeration import ComponentEnum
+from reme.steps.evolve._auto_resource import BaseAutoResourceStep
+from reme.steps.evolve.auto_image import (
+    AutoImageResourceStep,
+    _build_image_request_payload,
+    _normalize_image_bytes,
+    _parse_caption_json,
+)
 from reme.steps.evolve.auto_resource import AutoResourceStep
+from reme.steps.evolve.auto_text import AutoTextResourceStep
 from reme.steps.file_io import DailyListStep, FrontmatterUpdateStep, MoveStep, WriteStep
 
 
@@ -53,9 +66,25 @@ class _FakeAgentWrapper(BaseAgentWrapper):
         super().__init__()
         self.inputs = ""
 
-    async def reply(self, inputs, **kwargs) -> dict:
+    async def reply(self, inputs, **_kwargs) -> dict:
+        """Capture the text processor input and return a successful result."""
         self.inputs = inputs
         return {"result": "ok"}
+
+
+class _FlakyAgentWrapper(BaseAgentWrapper):
+    """Fail one text item, then succeed so per-resource isolation is observable."""
+
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    async def reply(self, _inputs, **_kwargs) -> dict:
+        """Raise on the first call and return normally on later calls."""
+        self.calls += 1
+        if self.calls == 1:
+            raise RuntimeError("text provider unavailable")
+        return {"result": "recovered"}
 
 
 class _FakeVisionModel(ChatModelBase):
@@ -72,6 +101,24 @@ class _FakeVisionModel(ChatModelBase):
     async def __call__(self, messages, **kwargs):
         self.calls.append(messages)
         return SimpleNamespace(content=[{"type": "text", "text": self.text}])
+
+
+class _FakeAudioResourceStep(BaseAutoResourceStep):
+    """Minimal third-modality processor used to verify the router extension contract."""
+
+    resource_suffixes = frozenset({".wav"})
+
+    async def _handle_upsert(self, file_path: str, date_str: str, note_stem: str, added: bool) -> None:
+        self.context.response.success = True
+        self.context.response.answer = f"Processed audio resource: {file_path}"
+        self.context.response.metadata.update(
+            {
+                "path": f"daily/{date_str}/{note_stem}.md",
+                "action": "added" if added else "modified",
+                "processor": "audio",
+                "modified": True,
+            },
+        )
 
 
 class _FlakyVisionModel(ChatModelBase):
@@ -207,7 +254,7 @@ def test_auto_image_creates_caption_note():
             try:
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
                 model = _FakeVisionModel(_caption_json("red-square", "A red square", "An 8x8 solid red square."))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -241,14 +288,14 @@ def test_auto_image_parses_fenced_json_and_falls_back_to_raw_text():
             try:
                 fenced = "```json\n" + _caption_json("fenced-note", "Fenced", "Fenced caption body.") + "\n```"
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "fenced.png", _png_bytes())
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=_FakeVisionModel(fenced))
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=_FakeVisionModel(fenced))
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
                 assert resp.success is True
                 fenced_post = frontmatter.loads((cwd / "daily" / "2026-01-01" / "fenced-note.md").read_text("utf-8"))
                 assert "Fenced caption body." in fenced_post.content
 
                 raw = _write_binary(cwd / "resource" / "2026-01-01" / "photo.png", _png_bytes(color=(30, 30, 200)))
-                step = AutoImageStep(
+                step = AutoImageResourceStep(
                     app_context=app_ctx,
                     file_store=fs,
                     as_llm=_FakeVisionModel("A plain description."),
@@ -280,7 +327,7 @@ def test_auto_image_updates_existing_note_in_place():
                     "[[resource/2026-01-01/img.png]]",
                 )
                 model = _FakeVisionModel(_caption_json("red-square", "Updated", "The updated caption."))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "modified", "path": str(source)}])
 
                 assert resp.success is True
@@ -310,7 +357,7 @@ def test_auto_image_deletes_linked_note():
                     cwd / "daily" / "2026-01-01" / "red-square.md",
                     "[[resource/2026-01-01/img.png]]",
                 )
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=_FakeVisionModel("{}"))
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=_FakeVisionModel("{}"))
                 resp = await _run_step(step, [{"change": "deleted", "path": str(source)}])
 
                 assert resp.success is True
@@ -338,7 +385,7 @@ def test_auto_image_downscales_oversized_image_for_request_only():
                 )
                 stored_bytes = source.read_bytes()
                 model = _FakeVisionModel(_caption_json("huge-image", "Big", "A big image."))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -368,7 +415,7 @@ def test_auto_image_skips_oversized_file():
             try:
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
                 model = _FakeVisionModel(_caption_json("x", "y", "z"))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}], max_image_bytes=8)
 
                 result = resp.metadata["results"][0]
@@ -396,7 +443,7 @@ def test_auto_image_skips_without_vision_model():
             _install_file_jobs(app_ctx, fs)
             try:
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
-                step = AutoImageStep(app_context=app_ctx, file_store=fs)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 result = resp.metadata["results"][0]
@@ -409,8 +456,381 @@ def test_auto_image_skips_without_vision_model():
     asyncio.run(run())
 
 
-def test_image_and_text_changes_are_routed_by_suffix():
-    """auto_image skips text changes; auto_resource skips image changes."""
+def test_auto_resource_router_preserves_mixed_result_order_and_emits_one_hook():
+    """The unified router sends each suffix to one processor and aggregates once."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            app_ctx.registry = R.copy()
+            app_ctx.registry.add("fake_audio_resource_step", _FakeAudioResourceStep, owner=__name__)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                image = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
+                text = cwd / "resource" / "2026-01-01" / "note.txt"
+                text.parent.mkdir(parents=True, exist_ok=True)
+                text.write_text("hello", encoding="utf-8")
+                wrapper = _FakeAgentWrapper()
+                model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+                hook_calls = []
+
+                async def hook(**kwargs):
+                    hook_calls.append(kwargs)
+
+                app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
+                changes = [
+                    {"change": "added", "path": str(image)},
+                    {"change": "added", "path": str(cwd / "resource" / "2026-01-01" / "clip.wav")},
+                    {"change": "added", "path": str(text)},
+                ]
+                step = AutoResourceStep(
+                    app_context=app_ctx,
+                    file_store=fs,
+                    agent_wrapper=wrapper,
+                    as_llm=model,
+                    dispatch_steps=[
+                        "auto_image_resource_step",
+                        "fake_audio_resource_step",
+                        "auto_text_resource_step",
+                    ],
+                )
+                context = RuntimeContext(changes=changes)
+                resp = await step(context)
+
+                assert resp.success is True
+                assert [item["path"] for item in resp.metadata["results"]] == [
+                    "resource/2026-01-01/img.png",
+                    "resource/2026-01-01/clip.wav",
+                    "resource/2026-01-01/note.txt",
+                ]
+                assert all(
+                    (item.get("metadata") or {}).get("reason") not in {"image_file", "non_image_file"}
+                    for item in resp.metadata["results"]
+                )
+                assert len(model.calls) == 1
+                assert "hello" in wrapper.inputs
+                assert context.get("changes") == changes
+                assert len(hook_calls) == 1
+                assert hook_calls[0]["kwargs"] == {"changes": changes}
+                assert len(hook_calls[0]["metadata"]["results"]) == 3
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_router_does_not_mask_text_failure_with_image_success():
+    """A later successful image result cannot overwrite an earlier text failure."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            app_ctx.registry = R
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                missing_text = cwd / "resource" / "2026-01-01" / "missing.txt"
+                image = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
+                model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+                changes = [
+                    {"change": "added", "path": str(missing_text)},
+                    {"change": "added", "path": str(image)},
+                ]
+                step = AutoResourceStep(
+                    app_context=app_ctx,
+                    dispatch_steps=[
+                        {"backend": "auto_image_resource_step", "file_store": fs, "as_llm": model},
+                        {
+                            "backend": "auto_text_resource_step",
+                            "file_store": fs,
+                            "agent_wrapper": _FakeAgentWrapper(),
+                        },
+                    ],
+                )
+                resp = await step(RuntimeContext(changes=changes))
+
+                assert resp.success is False
+                assert resp.metadata["results"][0]["success"] is False
+                assert "Resource file not found" in resp.metadata["results"][0]["answer"]
+                assert resp.metadata["results"][1]["success"] is True
+                assert (cwd / "daily" / "2026-01-01" / "red-square.md").is_file()
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_router_isolates_text_exception_and_preserves_image_result():
+    """One text exception cannot discard an earlier image write or stop later resources."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            app_ctx.registry = R.copy()
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                image = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
+                first_text = cwd / "resource" / "2026-01-01" / "first.txt"
+                second_text = cwd / "resource" / "2026-01-01" / "second.txt"
+                first_text.write_text("first", encoding="utf-8")
+                second_text.write_text("second", encoding="utf-8")
+                model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+                wrapper = _FlakyAgentWrapper()
+                hook_calls = []
+
+                async def hook(**kwargs):
+                    hook_calls.append(kwargs)
+
+                app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
+                changes = [
+                    {"change": "added", "path": str(first_text)},
+                    {"change": "added", "path": str(image)},
+                    {"change": "added", "path": str(second_text)},
+                ]
+                context = RuntimeContext(changes=changes)
+                step = AutoResourceStep(
+                    app_context=app_ctx,
+                    dispatch_steps=[
+                        {"backend": "auto_image_resource_step", "file_store": fs, "as_llm": model},
+                        {
+                            "backend": "auto_text_resource_step",
+                            "file_store": fs,
+                            "agent_wrapper": wrapper,
+                        },
+                    ],
+                )
+                response = await step(context)
+
+                results = response.metadata["results"]
+                assert response.success is False
+                assert response.metadata["processed"] == 3
+                assert response.metadata["modified"] is True
+                assert [item["path"] for item in results] == [
+                    "resource/2026-01-01/first.txt",
+                    "resource/2026-01-01/img.png",
+                    "resource/2026-01-01/second.txt",
+                ]
+                assert [item["success"] for item in results] == [False, True, True]
+                assert results[0]["metadata"] == {
+                    "path": "resource/2026-01-01/first.txt",
+                    "modified": False,
+                    "action": "failed",
+                    "error": "text provider unavailable",
+                }
+                assert results[1]["metadata"]["modified"] is True
+                assert "error" not in results[2]["metadata"]
+                assert wrapper.calls == 2
+                assert (cwd / "daily" / "2026-01-01" / "red-square.md").is_file()
+                assert context.get("changes") == changes
+                assert len(hook_calls) == 1
+                assert hook_calls[0]["metadata"]["results"] == results
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_router_inherits_declared_options_with_child_override():
+    """Each processor selects inherited router options; explicit child values win."""
+    file_store = object()
+    agent_wrapper = object()
+    vision_model = object()
+    prompt_dict = {"system_prompt": "legacy text prompt"}
+    step = AutoResourceStep(
+        file_store=file_store,
+        agent_wrapper=agent_wrapper,
+        as_llm=vision_model,
+        language="zh",
+        prompt_dict=prompt_dict,
+        max_file_bytes=4,
+        max_image_bytes=8,
+        dispatch_steps=[
+            {"backend": "auto_image_resource_step", "max_image_bytes": 32},
+            {"backend": "auto_text_resource_step", "max_file_bytes": 16},
+        ],
+    )
+
+    specs = {spec["backend"]: spec for spec, _, _ in step._processor_routes()}
+    assert specs["auto_text_resource_step"] == {
+        "backend": "auto_text_resource_step",
+        "file_store": file_store,
+        "agent_wrapper": agent_wrapper,
+        "language": "zh",
+        "prompt_dict": prompt_dict,
+        "max_file_bytes": 16,
+    }
+    assert specs["auto_image_resource_step"] == {
+        "backend": "auto_image_resource_step",
+        "file_store": file_store,
+        "as_llm": vision_model,
+        "language": "zh",
+        "max_image_bytes": 32,
+    }
+
+
+def test_auto_resource_router_accepts_a_registered_third_modality_without_code_changes():
+    """A new processor only needs registration, a matcher, and dispatch configuration."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            app_ctx.registry = R.copy()
+            app_ctx.registry.add("fake_audio_resource_step", _FakeAudioResourceStep, owner=__name__)
+            step = AutoResourceStep(
+                app_context=app_ctx,
+                dispatch_steps=["fake_audio_resource_step", "auto_text_resource_step"],
+            )
+            response = await step(
+                RuntimeContext(
+                    changes=[{"change": "added", "path": str(cwd / "resource" / "2026-01-01" / "clip.WAV")}],
+                ),
+            )
+
+            assert response.success is True
+            assert response.metadata["results"][0]["metadata"]["processor"] == "audio"
+            assert response.metadata["results"][0]["path"] == "resource/2026-01-01/clip.WAV"
+
+            unsupported = AutoResourceStep(
+                app_context=app_ctx,
+                dispatch_steps=["fake_audio_resource_step"],
+            )
+            response = await unsupported(
+                RuntimeContext(
+                    changes=[{"change": "added", "path": "resource/2026-01-01/archive.bin"}],
+                ),
+            )
+
+            assert response.success is False
+            assert response.metadata["results"][0]["metadata"]["reason"] == "unsupported_resource"
+
+    asyncio.run(run())
+
+
+def test_auto_resource_router_requires_the_fallback_processor_to_be_last():
+    """Processor ordering stays deterministic and first-match routing remains extensible."""
+    step = AutoResourceStep(
+        dispatch_steps=["auto_text_resource_step", "auto_image_resource_step"],
+    )
+
+    with pytest.raises(ValueError, match="fallback processor must be last"):
+        step._processor_routes()
+
+
+def test_resource_processors_have_canonical_registrations_and_isolated_prompts():
+    """Each modality owns one backend and loads only its module-local prompts."""
+    assert R.get(ComponentEnum.STEP, "auto_resource_step") is AutoResourceStep
+    assert R.get(ComponentEnum.STEP, "auto_text_resource_step") is AutoTextResourceStep
+    assert R.get(ComponentEnum.STEP, "auto_image_resource_step") is AutoImageResourceStep
+    assert R.get(ComponentEnum.STEP, "auto_image_step") is None
+
+    text_step = AutoTextResourceStep()
+    image_step = AutoImageResourceStep()
+    assert text_step.prompt.has_prompt("system_prompt")
+    assert text_step.prompt.has_prompt("user_message_create")
+    assert not text_step.prompt.has_prompt("user_message")
+    assert image_step.prompt.has_prompt("user_message")
+    assert not image_step.prompt.has_prompt("system_prompt")
+    assert not image_step.prompt.has_prompt("user_message_create")
+
+
+def test_auto_image_named_model_uses_standard_ref_resolution():
+    """A configured ``as_llm`` component name is honored instead of ignored."""
+    app_ctx = _make_app_context(Path.cwd())
+    named = _FakeVisionModel("named")
+    vision = _FakeVisionModel("vision")
+    default = _FakeVisionModel("default")
+    app_ctx.components = {
+        ComponentEnum.AS_LLM: {
+            "my_vlm": SimpleNamespace(model=named),
+            "vision": SimpleNamespace(model=vision),
+            "default": SimpleNamespace(model=default),
+        },
+    }
+    step = AutoImageResourceStep(app_context=app_ctx, as_llm="my_vlm")
+    step.context = RuntimeContext()
+
+    assert step._vision_model() is named
+
+    implicit = AutoImageResourceStep(app_context=app_ctx)
+    implicit.context = RuntimeContext()
+    assert implicit._vision_model() is vision
+
+    missing = AutoImageResourceStep(app_context=app_ctx, as_llm="missing_vlm")
+    missing.context = RuntimeContext()
+    with pytest.raises(KeyError, match="missing_vlm"):
+        missing._vision_model()
+
+
+def test_image_preprocessing_reports_dependency_and_decode_errors():
+    """Lazy image dependencies and corrupt bytes produce actionable errors."""
+    real_import = __import__
+
+    def import_without_pillow(name, *args, **kwargs):
+        if name == "PIL":
+            raise ImportError("blocked Pillow")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=import_without_pillow):
+        with pytest.raises(RuntimeError, match=r"Pillow.*reme-ai\[core\]"):
+            _normalize_image_bytes(_png_bytes(), ".png")
+
+    def import_without_heif(name, *args, **kwargs):
+        if name == "pillow_heif":
+            raise ImportError("blocked pillow-heif")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=import_without_heif):
+        assert _normalize_image_bytes(_png_bytes(), ".png") is None
+        with pytest.raises(RuntimeError, match=r"pillow-heif.*reme-ai\[image-heif\]"):
+            _normalize_image_bytes(_png_bytes(), ".heic")
+
+    with pytest.raises(RuntimeError, match="Failed to decode image"):
+        _build_image_request_payload(b"not an image", ".png")
+
+    bmp_data = _img_bytes("BMP")
+    with patch("PIL.Image.Image.save", side_effect=OSError("encoder failed")):
+        with pytest.raises(RuntimeError, match="Failed to convert/resize image"):
+            _normalize_image_bytes(bmp_data, ".bmp")
+
+
+def test_auto_image_module_imports_without_pillow():
+    """Importing the registered image Step does not eagerly require Pillow."""
+    root = Path(__file__).resolve().parents[2]
+    script = """
+import builtins
+
+real_import = builtins.__import__
+
+def import_without_pillow(name, *args, **kwargs):
+    if name == "PIL" or name.startswith("PIL."):
+        raise ImportError("Pillow unavailable")
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = import_without_pillow
+import reme.steps.evolve.auto_image
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_auto_image_prompt_treats_filename_as_a_weak_hint():
+    """The VLM prompt separates filename hints from visible image evidence."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -420,25 +840,86 @@ def test_image_and_text_changes_are_routed_by_suffix():
             await fs.start()
             _install_file_jobs(app_ctx, fs)
             try:
-                image_step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=_FakeVisionModel("{}"))
-                resp = await _run_step(
-                    image_step,
-                    [{"change": "added", "path": str(cwd / "resource" / "2026-01-01" / "note.txt")}],
-                )
-                assert resp.metadata["results"][0]["metadata"]["reason"] == "non_image_file"
+                source = _write_binary(cwd / "resource" / "2026-01-01" / "cat-at-beach.png", _png_bytes())
+                model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
-                wrapper = _FakeAgentWrapper()
-                resource_step = AutoResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await _run_step(
-                    resource_step,
-                    [{"change": "added", "path": str(cwd / "resource" / "2026-01-01" / "img.png")}],
-                )
-                assert resp.metadata["results"][0]["metadata"]["reason"] == "image_file"
-                assert wrapper.inputs == ""
+                assert resp.success is True
+                prompt = model.calls[0][0].content[0].text
+                assert "Filename: cat-at-beach.png" in prompt
+                assert "Filename stem: cat-at-beach" in prompt
+                assert "weak hints" in prompt
+                assert "trust the visible image content" in prompt
             finally:
                 await fs.close()
 
     asyncio.run(run())
+
+
+def test_auto_image_reports_modified_when_index_refresh_fails_after_write():
+    """A post-write failure keeps the actual on-disk modification state."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
+                model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
+
+                async def fail_refresh(*_args, **_kwargs):
+                    raise RuntimeError("index refresh failed")
+
+                with patch("reme.steps.evolve.auto_image.refresh_day_index", new=fail_refresh):
+                    resp = await _run_step(step, [{"change": "added", "path": str(source)}])
+
+                result = resp.metadata["results"][0]
+                assert resp.success is False
+                assert result["metadata"]["action"] == "failed"
+                assert result["metadata"]["modified"] is True
+                assert "index refresh failed" in result["metadata"]["error"]
+                assert (cwd / "daily" / "2026-01-01" / "red-square.md").is_file()
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_default_resource_watcher_dispatches_only_the_unified_router():
+    """Both init and live resource producers call one auto-resource router."""
+    root = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load((root / "reme" / "config" / "default.yaml").read_text(encoding="utf-8"))
+    steps = config["jobs"]["resource_watch_loop"]["steps"]
+
+    for producer in steps:
+        backends = [item["backend"] for item in producer["dispatch_steps"]]
+        assert backends == ["update_catalog_step", "auto_resource_step"]
+        router = producer["dispatch_steps"][1]
+        assert router["dispatch_steps"] == ["auto_image_resource_step", "auto_text_resource_step"]
+
+    auto_resource = config["jobs"]["auto_resource"]["steps"][0]
+    assert auto_resource["backend"] == "auto_resource_step"
+    assert auto_resource["dispatch_steps"] == ["auto_image_resource_step", "auto_text_resource_step"]
+    assert config["jobs"]["auto_image"]["steps"] == [{"backend": "auto_image_resource_step"}]
+
+
+def test_image_dependencies_keep_heif_support_optional():
+    """Pillow is core, while pillow-heif stays isolated in its opt-in extra."""
+    root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    base = [item.lower() for item in project["dependencies"]]
+    optional = project["optional-dependencies"]
+
+    assert not any(item.startswith("pillow") for item in base)
+    assert any(item.lower().startswith("pillow>") for item in optional["core"])
+    assert not any(item.lower().startswith("pillow-heif") for item in optional["core"])
+    assert any(item.lower().startswith("pillow-heif") for item in optional["image-heif"])
+    assert "reme-ai[image-heif]" in optional["full"]
 
 
 def test_auto_image_model_failure_is_isolated_per_change():
@@ -455,7 +936,7 @@ def test_auto_image_model_failure_is_isolated_per_change():
                 first = _write_binary(cwd / "resource" / "2026-01-01" / "img-a.png", _png_bytes())
                 second = _write_binary(cwd / "resource" / "2026-01-01" / "img-b.png", _png_bytes(color=(20, 90, 200)))
                 model = _FlakyVisionModel(_caption_json("blue-square", "Blue", "A blue square."))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(
                     step,
                     [
@@ -477,6 +958,41 @@ def test_auto_image_model_failure_is_isolated_per_change():
     asyncio.run(run())
 
 
+def test_auto_image_decode_failure_is_isolated_per_change():
+    """Corrupt image bytes fail one item without blocking a later valid image."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                corrupt = _write_binary(cwd / "resource" / "2026-01-01" / "bad.png", b"not an image")
+                valid = _write_binary(cwd / "resource" / "2026-01-01" / "good.png", _png_bytes())
+                model = _FakeVisionModel(_caption_json("good-image", "Good", "A valid image."))
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                resp = await _run_step(
+                    step,
+                    [
+                        {"change": "added", "path": str(corrupt)},
+                        {"change": "added", "path": str(valid)},
+                    ],
+                )
+
+                assert resp.success is False
+                assert resp.metadata["results"][0]["metadata"]["action"] == "failed"
+                assert "Failed to decode image" in resp.metadata["results"][0]["metadata"]["error"]
+                assert resp.metadata["results"][1]["success"] is True
+                assert len(model.calls) == 1
+                assert (cwd / "daily" / "2026-01-01" / "good-image.md").is_file()
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
 def test_auto_image_uniquifies_conflicting_note_name():
     """A name collision with an unrelated note falls back to the sha1-suffixed path."""
 
@@ -491,7 +1007,7 @@ def test_auto_image_uniquifies_conflicting_note_name():
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
                 _write_note(cwd / "daily" / "2026-01-01" / "red-square.md", "[[resource/2026-01-01/other.png]]")
                 model = _FakeVisionModel(_caption_json("red-square", "A red square", "An 8x8 solid red square."))
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -540,7 +1056,7 @@ def test_auto_image_note_body_stays_clean_when_caption_field_missing():
             try:
                 source = _write_binary(cwd / "resource" / "2026-01-01" / "img.png", _png_bytes())
                 model = _FakeVisionModel('{"file": "resource/2026-01-01/img.png", "description": "A tall waterfall."}')
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -571,7 +1087,7 @@ def test_auto_image_uses_structured_output_first():
                 model = _StructuredVisionModel(
                     content={"name": "red-square", "description": "A red square.", "caption": "An 8x8 red square."},
                 )
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -603,7 +1119,7 @@ def test_auto_image_retries_with_plain_call_when_structured_fails():
                     error=RuntimeError("provider rejects tool_choice"),
                     plain_text=_caption_json("plain-note", "Plain", "Plain-call caption."),
                 )
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -634,7 +1150,7 @@ def test_auto_image_falls_back_when_structured_content_empty():
                     content={"name": "", "description": "", "caption": ""},
                     plain_text=_caption_json("empty-note", "Empty", "Recovered by plain call."),
                 )
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 assert resp.success is True
@@ -647,11 +1163,10 @@ def test_auto_image_falls_back_when_structured_content_empty():
     asyncio.run(run())
 
 
-def test_auto_image_converts_bmp_tiff_heic_requests():
-    """bmp/tiff/heic resources are re-encoded for the request; notes record the source media_type."""
+def test_auto_image_converts_bmp_tiff_requests():
+    """Core BMP/TIFF conversions run without the optional HEIC dependency."""
 
     async def run():
-        pytest.importorskip("pillow_heif")
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             cwd = Path.cwd()
             app_ctx = _make_app_context(cwd)
@@ -663,23 +1178,55 @@ def test_auto_image_converts_bmp_tiff_heic_requests():
                 for stem, fmt, suffix in (
                     ("photo", "BMP", ".bmp"),
                     ("scan", "TIFF", ".tiff"),
-                    ("phone", "HEIF", ".heic"),
                 ):
                     sources.append(_write_binary(cwd / "resource" / "2026-01-01" / f"{stem}{suffix}", _img_bytes(fmt)))
                 model = _StructuredVisionModel(content={"name": "", "description": "d", "caption": "converted caption"})
-                step = AutoImageStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
                 resp = await _run_step(step, [{"change": "added", "path": str(p)} for p in sources])
 
                 assert resp.success is True
-                assert len(model.structured_calls) == 3
+                assert len(model.structured_calls) == 2
                 sent_mimes = set()
                 for call in model.structured_calls:
                     sent_mimes.add(call[0].content[1].source.media_type)
                 assert sent_mimes <= {"image/png", "image/jpeg"}
-                for stem, expected_mime in (("photo", "image/bmp"), ("scan", "image/tiff"), ("phone", "image/heic")):
+                for stem, expected_mime in (("photo", "image/bmp"), ("scan", "image/tiff")):
                     note = frontmatter.loads((cwd / "daily" / "2026-01-01" / f"{stem}.md").read_text(encoding="utf-8"))
                     assert note.metadata["media_type"] == expected_mime
                     assert "converted caption" in note.content
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_image_converts_heic_request_when_extra_is_installed():
+    """HEIC conversion is covered independently when the image-heif extra exists."""
+    pytest.importorskip("pillow_heif")
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = _write_binary(
+                    cwd / "resource" / "2026-01-01" / "phone.heic",
+                    _img_bytes("HEIF"),
+                )
+                model = _StructuredVisionModel(
+                    content={"name": "", "description": "d", "caption": "converted caption"},
+                )
+                step = AutoImageResourceStep(app_context=app_ctx, file_store=fs, as_llm=model)
+                resp = await _run_step(step, [{"change": "added", "path": str(source)}])
+
+                assert resp.success is True
+                assert model.structured_calls[0][0].content[1].source.media_type in {"image/png", "image/jpeg"}
+                note = frontmatter.loads((cwd / "daily" / "2026-01-01" / "phone.md").read_text(encoding="utf-8"))
+                assert note.metadata["media_type"] == "image/heic"
+                assert "converted caption" in note.content
             finally:
                 await fs.close()
 

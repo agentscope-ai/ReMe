@@ -1,36 +1,27 @@
-"""auto_image — interpret image resource files into source-linked daily notes via a VLM."""
+"""Image resource processor for the unified auto-resource router."""
 
 import base64
 import io
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import aiofiles
 from agentscope.message import Base64Source, DataBlock, TextBlock, UserMsg
 from agentscope.model import ChatModelBase
-from PIL import Image
 from pydantic import BaseModel, Field
 
 from ..file_io import is_image_file, refresh_day_index
-from ..file_io._path import IMAGE_MIME_BY_EXT
-from .auto_resource import _SOURCE_RESOURCE_KEY, _sanitize_note_name, AutoResourceStep
+from ..file_io._path import IMAGE_MIME_BY_EXT, IMAGE_SUFFIXES
+from ._auto_resource import _SOURCE_RESOURCE_KEY, _sanitize_note_name, BaseAutoResourceStep
 from ...components import R
 from ...enumeration import ComponentEnum
-
-try:
-    from pillow_heif import register_heif_opener
-
-    register_heif_opener()
-except ImportError:
-    # Without the plugin HEIC files stay passthrough and the provider rejects
-    # them per change; the pipeline itself keeps importing and running.
-    pass
 
 DEFAULT_MAX_IMAGE_INPUT_BYTES = 50 * 1024 * 1024
 MAX_IMAGE_REQUEST_DIMENSION = 2048
 _JPEG_QUALITY = 85
-# Suffixes re-encoded to PNG for VLM requests; the stored resource file is never modified.
+# Suffixes re-encoded to provider-friendly PNG/JPEG for VLM requests;
+# the stored resource file is never modified.
 _CONVERT_SUFFIXES = {".bmp", ".tiff", ".heic"}
 _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL)
 
@@ -38,36 +29,70 @@ _JSON_FENCE_RE = re.compile(r"^\s*```(?:json)?\s*(.*?)\s*```\s*$", re.DOTALL)
 class _CaptionOutput(BaseModel):
     """Structured caption contract enforced on the vision model."""
 
-    name: str = Field(description="short kebab-case topic stem for the note filename; never include dates")
-    description: str = Field(description="one-sentence summary that conveys the key information on its own")
-    caption: str = Field(description="complete description / verbatim transcription of meaningful visible text")
+    name: str = Field(
+        description="short kebab-case topic stem based on visible content; filename is only a weak naming hint",
+    )
+    description: str = Field(description="one-sentence summary of visible image content that stands on its own")
+    caption: str = Field(
+        description="complete description / verbatim transcription of meaningful content visible in the image",
+    )
+
+
+def _load_pillow(suffix: str):
+    """Load Pillow and optional HEIC support only when image processing runs."""
+    try:
+        from PIL import Image  # pylint: disable=import-outside-toplevel
+    except ImportError as exc:
+        raise RuntimeError("Image captioning requires Pillow; install reme-ai[core]") from exc
+
+    if suffix == ".heic":
+        try:
+            from pillow_heif import register_heif_opener  # pylint: disable=import-outside-toplevel
+        except ImportError as exc:
+            raise RuntimeError("HEIC image captioning requires pillow-heif; install reme-ai[image-heif]") from exc
+        try:
+            register_heif_opener()
+        except Exception as exc:  # pylint: disable=broad-except
+            raise RuntimeError(f"Failed to initialize HEIC image support: {exc}") from exc
+    return Image
 
 
 def _normalize_image_bytes(data: bytes, suffix: str) -> tuple[bytes, str] | None:
     """Downscale or re-encode image bytes in memory for a VLM request.
 
-    Returns ``None`` to pass the original bytes through untouched (already a
-    reasonable size and format, or content that PIL cannot decode — left for
-    the provider to reject). The stored resource file is never modified.
+    Returns ``None`` only when valid image bytes already have a suitable size
+    and format. Missing dependencies and decode/convert failures are explicit.
+    The stored resource file is never modified.
     """
+    image_module = _load_pillow(suffix)
     try:
-        with Image.open(io.BytesIO(data)) as image:
-            needs_resize = image.width > MAX_IMAGE_REQUEST_DIMENSION or image.height > MAX_IMAGE_REQUEST_DIMENSION
-            needs_convert = suffix in _CONVERT_SUFFIXES
-            if not needs_resize and not needs_convert:
-                return None
+        image = image_module.open(io.BytesIO(data))
+    except Exception as exc:  # pylint: disable=broad-except
+        raise RuntimeError(f"Failed to decode image ({suffix or 'unknown suffix'}): {exc}") from exc
+
+    with image:
+        try:
+            image.load()
+        except Exception as exc:  # pylint: disable=broad-except
+            raise RuntimeError(f"Failed to decode image ({suffix or 'unknown suffix'}): {exc}") from exc
+
+        needs_resize = image.width > MAX_IMAGE_REQUEST_DIMENSION or image.height > MAX_IMAGE_REQUEST_DIMENSION
+        needs_convert = suffix in _CONVERT_SUFFIXES
+        if not needs_resize and not needs_convert:
+            return None
+        try:
             has_alpha = image.mode in ("RGBA", "LA", "P")
             frame = image.convert("RGBA" if has_alpha else "RGB")
             if needs_resize:
-                frame.thumbnail((MAX_IMAGE_REQUEST_DIMENSION, MAX_IMAGE_REQUEST_DIMENSION), Image.LANCZOS)
+                frame.thumbnail((MAX_IMAGE_REQUEST_DIMENSION, MAX_IMAGE_REQUEST_DIMENSION), image_module.LANCZOS)
             buffer = io.BytesIO()
             if frame.mode == "RGBA":
                 frame.save(buffer, format="PNG")
                 return buffer.getvalue(), "image/png"
             frame.save(buffer, format="JPEG", quality=_JPEG_QUALITY)
             return buffer.getvalue(), "image/jpeg"
-    except Exception:  # pylint: disable=broad-except
-        return None
+        except Exception as exc:  # pylint: disable=broad-except
+            raise RuntimeError(f"Failed to convert/resize image ({suffix or 'unknown suffix'}): {exc}") from exc
 
 
 def _build_image_request_payload(data: bytes, suffix: str) -> dict:
@@ -152,21 +177,20 @@ def _parse_caption_json(text: str) -> dict:
     return {"name": "", "description": "", "caption": text.strip()}
 
 
-@R.register("auto_image_step")
-class AutoImageStep(AutoResourceStep):
+@R.register("auto_image_resource_step")
+class AutoImageResourceStep(BaseAutoResourceStep):
     """Interpret image resource files into daily notes via a direct VLM call.
 
     Unlike text resources (agent + file tools), the image interpretation is a
     single vision-model call. Images larger than the request budget or in
     provider-unfriendly formats are downscaled/re-encoded in memory for the
     request only; files under ``resource/`` are never modified. Note lookup,
-    renaming, deletion linkage, and day-index refresh reuse the inherited
-    AutoResourceStep helpers; only the interpretation differs.
+    renaming, deletion linkage, and day-index refresh reuse the shared
+    BaseAutoResourceStep lifecycle; only the interpretation differs.
     """
 
-    def _skip_image_change(self, file_path: str) -> bool:
-        """This step interprets images, so the inherited image guard never applies."""
-        return False
+    resource_suffixes = IMAGE_SUFFIXES
+    router_inherit_keys = BaseAutoResourceStep.router_inherit_keys | frozenset({"as_llm", "max_image_bytes"})
 
     def _max_image_bytes(self) -> int:
         """Return the image read limit from Step or Job context."""
@@ -176,19 +200,18 @@ class AutoImageStep(AutoResourceStep):
         return int(value) if value is not None else DEFAULT_MAX_IMAGE_INPUT_BYTES
 
     def _vision_model(self) -> ChatModelBase | None:
-        """Resolve the vision model: an explicit instance, then the ``vision``
-        named as_llm component, then the ``default`` one."""
-        for source in (self.kwargs, self.context or {}):
-            value = source.get("as_llm")
-            if isinstance(value, ChatModelBase):
-                return value
+        """Resolve explicit ``as_llm`` through Ref, otherwise prefer vision/default."""
+        context_model = self.context.get("as_llm") if self.context is not None else None
+        if "as_llm" in self.kwargs or isinstance(context_model, ChatModelBase):
+            return self.as_llm
         if self.app_context is None:
             return None
         models = self.app_context.components.get(ComponentEnum.AS_LLM, {})
-        component = models.get("vision") or models.get("default")
-        if component is None:
-            return None
-        return getattr(component, "model", None)
+        for name in ("vision", "default"):
+            if name in models:
+                self.kwargs["as_llm"] = name
+                return self.as_llm
+        return None
 
     async def _caption_with_retry(self, model: ChatModelBase, user_message: UserMsg) -> dict:
         """Return the caption fields from the vision model.
@@ -298,12 +321,12 @@ class AutoImageStep(AutoResourceStep):
         except Exception as exc:  # pylint: disable=broad-except
             self.context.response.success = False
             self.context.response.answer = f"Failed to caption image resource: {file_path}: {exc}"
+            self.context.response.metadata.setdefault("path", file_path)
+            self.context.response.metadata.setdefault("modified", False)
             self.context.response.metadata.update(
                 {
-                    "path": file_path,
                     "action": "failed",
                     "error": str(exc),
-                    "modified": False,
                 },
             )
             self.logger.warning(f"[{self.name}] caption failed file_path={file_path} error={exc}")
@@ -357,7 +380,15 @@ class AutoImageStep(AutoResourceStep):
         user_message = UserMsg(
             name="user",
             content=[
-                TextBlock(text=self.prompt_format("user_message", file_path=file_path, date=date_str)),
+                TextBlock(
+                    text=self.prompt_format(
+                        "user_message",
+                        file_path=file_path,
+                        filename=PurePosixPath(file_path).name,
+                        stem=note_stem,
+                        date=date_str,
+                    ),
+                ),
                 DataBlock(
                     source=Base64Source(data=payload["data_b64"], media_type=payload["mime"]),
                     name="image",
@@ -389,6 +420,13 @@ class AutoImageStep(AutoResourceStep):
         )
         if not write_response.success:
             raise RuntimeError(f"write failed: {write_response.answer}")
+        self.context.response.metadata.update(
+            {
+                "path": note_path,
+                "created": note_created,
+                "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
+            },
+        )
 
         if note_created:
             try:
@@ -396,14 +434,21 @@ class AutoImageStep(AutoResourceStep):
             except RuntimeError as exc:
                 self.context.response.success = False
                 self.context.response.answer = str(exc)
-                self.context.response.metadata.update({"path": None, "created": note_created, "modified": False})
+                self.context.response.metadata.update(
+                    {
+                        "path": note_path,
+                        "created": note_created,
+                        "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
+                    },
+                )
                 self.logger.info(f"[{self.name}] post-create list failed file_path={file_path} answer={str(exc)!r}")
                 return
             if note is None:
                 self.context.response.success = True
                 self.context.response.answer = f"Captioned image resource {file_path}"
-                self.context.response.metadata.update({"path": None, "created": False, "modified": False})
-                self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
+                modified = self._note_modified(before_note_path, before_note_bytes, note_path)
+                self.context.response.metadata.update({"path": note_path, "created": False, "modified": modified})
+                self.logger.info(f"[{self.name}] done without cataloged note file_path={file_path} modified={modified}")
                 return
             note_path = str(note["path"])
 
@@ -431,6 +476,7 @@ class AutoImageStep(AutoResourceStep):
             return
 
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
+        self.context.response.metadata.update({"path": note_path, "created": note_created, "modified": modified})
         index_payload = await refresh_day_index(self.file_store, date_str, daily_dir)
 
         self.context.response.success = True

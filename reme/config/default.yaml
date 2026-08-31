@@ -31,13 +31,17 @@ jobs:
           - backend: update_catalog_step
             file_catalog: resource
           - backend: auto_resource_step
-          - backend: auto_image_step
+            dispatch_steps:
+              - auto_image_resource_step
+              - auto_text_resource_step
       - backend: watch_changes_step
         dispatch_steps:
           - backend: update_catalog_step
             file_catalog: resource
           - backend: auto_resource_step
-          - backend: auto_image_step
+            dispatch_steps:
+              - auto_image_resource_step
+              - auto_text_resource_step
 
   digest_watch_loop:
     backend: background
@@ -189,6 +193,9 @@ jobs:
         - changes
     steps:
       - backend: auto_resource_step
+        dispatch_steps:
+          - auto_image_resource_step
+          - auto_text_resource_step
 
   auto_image:
     backend: base
@@ -212,7 +219,7 @@ jobs:
       required:
         - changes
     steps:
-      - backend: auto_image_step
+      - backend: auto_image_resource_step
 
   proactive:
     backend: base
@@ -781,7 +788,7 @@ components:
         max_tokens: 65536
         thinking_enable: false
 
-    # Optional dedicated vision model for image resources (auto_image_step).
+    # Optional dedicated vision model for image resources (auto_image_resource_step).
     # Falls back to the "default" instance above when absent; uncomment to
     # decouple the vision model from the main LLM.
     # vision:
