@@ -87,6 +87,31 @@ cd ..
 
 静态构建要求 Node.js 22.13 或更高版本，并让源码安装可以直接使用 Studio。
 
+### 环境变量配置
+
+如果需要 LLM 驱动的记忆演化或 embedding 检索，请在启动服务前配置环境变量。embedding 默认关闭，因此默认配置不会启动
+embedding 模型，也不需要 embedding API key。
+
+```bash
+cat > .env <<'EOF'
+# 可选：仅在配置中显式启用 embedding 组件后使用。
+# EMBEDDING_API_KEY=sk-xxx
+# EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# 必须：auto_memory、auto_resource 和 auto_dream 需要 LLM。
+LLM_API_KEY=sk-xxx
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+EOF
+```
+
+基础文件读写、BM25 检索、wikilink 遍历和 proactive topics 读取不需要 LLM 凭证，可以跳过此步骤并直接启动服务。
+
+> [!NOTE]
+> 如需启用基于 embedding 的语义检索，请取消 [`reme/config/default.yaml`](reme/config/default.yaml) 中
+> `components.as_embedding` 和 `components.embedding_store` 的注释，并将
+> `components.file_store.default.embedding_store` 从 `""` 改为 `default`。完整说明见
+> [记忆检索文档](docs/zh/memory_search.md)。
+
 ### 启动服务
 
 ```bash
@@ -146,31 +171,6 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
 [ReMe Studio 指南](https://reme.agentscope.io/?doc=studio-zh)。
-
-### 可选模型配置
-
-如果需要 LLM 驱动的记忆演化或 embedding 检索，可以配置环境变量。embedding 默认关闭，因此默认配置不会启动 embedding 模型，也不需要
-embedding API key。
-
-```bash
-cat > .env <<'EOF'
-# 可选：仅在配置中显式启用 embedding 组件后使用。
-# EMBEDDING_API_KEY=sk-xxx
-# EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-
-# 必须：auto_memory、auto_resource 和 auto_dream 需要 LLM。
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-EOF
-```
-
-基础文件读写、BM25 检索、wikilink 遍历和 proactive topics 读取可以先不配置 LLM 凭证。
-
-> [!NOTE]
-> 如需启用基于 embedding 的语义检索，请取消 [`reme/config/default.yaml`](reme/config/default.yaml) 中
-> `components.as_embedding` 和 `components.embedding_store` 的注释，并将
-> `components.file_store.default.embedding_store` 从 `""` 改为 `default`。完整说明见
-> [记忆检索文档](docs/zh/memory_search.md)。
 
 ## 🤝 将 ReMe 接入你的 Agent
 

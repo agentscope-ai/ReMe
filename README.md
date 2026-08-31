@@ -88,6 +88,31 @@ cd ..
 
 The static build requires Node.js 22.13 or newer and makes Studio available from the source tree.
 
+### Environment Variables
+
+Configure environment variables when you want LLM-powered memory evolution or embedding retrieval. Embeddings are
+disabled by default, so the default setup does not start an embedding model or require an embedding API key.
+
+```bash
+cat > .env <<'EOF'
+# Optional: used only after embedding components are explicitly enabled in the config.
+# EMBEDDING_API_KEY=sk-xxx
+# EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+
+# Required for auto_memory, auto_resource, and auto_dream.
+LLM_API_KEY=sk-xxx
+LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+EOF
+```
+
+Basic file operations, BM25 search, wikilink traversal, and reading proactive topics can run without LLM credentials.
+
+> [!NOTE]
+> To enable embedding-based semantic retrieval, uncomment `components.as_embedding` and
+> `components.embedding_store` in [`reme/config/default.yaml`](reme/config/default.yaml), then change
+> `components.file_store.default.embedding_store` from `""` to `default`. See the
+> [memory search guide](docs/en/memory_search.md) for details.
+
 ### Start the Service
 
 ```bash
@@ -147,31 +172,6 @@ Related: [[digest/wiki/memory-as-file.md]]
 The `core` installation includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and search
 the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
 [ReMe Studio guide](https://reme.agentscope.io/?doc=studio-en) for source builds, configuration, and development.
-
-### Optional Model Configuration
-
-Configure environment variables when you want LLM-powered memory evolution or embedding retrieval. Embeddings are
-disabled by default, so the default setup does not start an embedding model or require an embedding API key.
-
-```bash
-cat > .env <<'EOF'
-# Optional: used only after embedding components are explicitly enabled in the config.
-# EMBEDDING_API_KEY=sk-xxx
-# EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-
-# Required for auto_memory, auto_resource, and auto_dream.
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-EOF
-```
-
-Basic file operations, BM25 search, wikilink traversal, and reading proactive topics can run without LLM credentials.
-
-> [!NOTE]
-> To enable embedding-based semantic retrieval, uncomment `components.as_embedding` and
-> `components.embedding_store` in [`reme/config/default.yaml`](reme/config/default.yaml), then change
-> `components.file_store.default.embedding_store` from `""` to `default`. See the
-> [memory search guide](docs/en/memory_search.md) for details.
 
 ## 🤝 Use ReMe with Your Agent
 
