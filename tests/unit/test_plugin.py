@@ -106,7 +106,7 @@ async def test_plugin_registers_and_runs_custom_component_type(monkeypatch, tmp_
             ),
         ],
     )
-    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs, **kwargs: manager))
+    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs: manager))
 
     app = Application(
         plugins=["example"],

@@ -145,7 +145,12 @@ def resolve_plugin_runtime(
     plugin_packages: Mapping[str, str] | None = None,
 ) -> PluginRuntime:
     """Build one local registry, with user config overriding plugin application defaults."""
-    manager = PluginManager.discover(application_config.get("plugins") or (), packages=plugin_packages)
+    specs = application_config.get("plugins") or ()
+    # Existing discovery replacements need not accept the new optional keyword.
+    if plugin_packages is None:
+        manager = PluginManager.discover(specs)
+    else:
+        manager = PluginManager.discover(specs, packages=plugin_packages)
     registry = create_application_registry()
     manager.register(registry)
     return PluginRuntime(config=manager.merge_config(application_config), registry=registry)

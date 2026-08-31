@@ -18,6 +18,9 @@ inside each worker, reads the evaluation preset directly, and passes
 `plugin_packages={"beam": "reme_beam"}` to `Application`. Only plugins enabled
 in the configuration are loaded. It does not invoke pip or mutate the global registry.
 
+`plugin_packages` is a runtime argument; keep it out of saved configurations.
+Omitting it or passing `None` preserves the original plugin discovery behavior.
+
 For CLI usage outside the runner, such as `reme start config=beam`, install the
 plugin into the same Python environment:
 

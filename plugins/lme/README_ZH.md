@@ -16,6 +16,9 @@ runner 的 `create_reme_app()` 在每个 worker 中将本地插件 `src` 加入 
 直接读取评测配置，并通过 `Application(plugin_packages={"lme": "reme_lme"}, **config)`
 加载配置中启用的插件。它不调用 pip，也不修改全局 registry。
 
+`plugin_packages` 是运行时参数，请勿写入持久化配置。
+省略它或传入 `None` 时，保持原有插件发现行为。
+
 若要在 runner 以外使用 `reme start config=lme` 等 CLI 命令，仍需安装插件到同一个 Python 环境：
 
 ```bash
