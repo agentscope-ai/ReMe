@@ -77,7 +77,7 @@ jobs:
 
   proactive_refresh_cron:
     backend: cron
-    cron: "0 3,9,15,21 * * *"      # avoids 23:00 dream_cron and 02:00 optimize_index_cron
+    cron: "0 18 * * *"             # once a day at 18:00
     steps:
       - backend: wait_for_idle_step
         skip_key: proactive_skip
@@ -94,6 +94,8 @@ jobs:
         known_threshold_calibrated_for: text-embedding-v4@1024
         min_push_confidence: 0.5
         max_topics: 10
+      - backend: proactive_plan_step
+      - backend: proactive_agenda_step
       - backend: proactive_finish_step
         file_catalog: proactive
 

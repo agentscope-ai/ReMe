@@ -71,6 +71,13 @@ topics:
 | `skipped` | 文件不存在时为 `true`。                         |
 | `error`   | 读取或解析异常。                                |
 | `summary` | 简短摘要。                                      |
+| `agenda`  | 当日主动议程（可选，仅 v2 文件携带时返回）。    |
+
+当当天的 `interests.yaml` 由 proactive refresh 链路生成并携带议程时，answer 会附带
+`agenda` 字段：按顺序排列的当日议程条目，每条包含 `topic_id`、`title`、`scenario_type`、
+`opener`（自然口吻的开场白）、`next_action`（最小可执行动作）、`preconditions`、
+`delivery`、`linked_memory` 与 `order_reason`。读侧会过滤已解决或低于 `min_confidence`
+的主题对应的议程条目；文件不含议程时该字段不出现。
 
 文件存在且解析成功时，answer 是结构化数据，例如：
 

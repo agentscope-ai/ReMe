@@ -62,7 +62,11 @@ class ProactiveState(BaseModel):
     """Chain-shared proactive context state (``context['proactive']``).
 
     Extract fills material/carry-forward/LLM output fields; topics fills the
-    filtering/rendering fields; finish records the catalog checkpoint.
+    filtering fields plus ``push_candidates`` (today's pushable topics); plan
+    expands candidates into ``scenario_cards``; agenda selects the ordered
+    ``agenda`` and records ``suppressed`` candidates with reasons; finish
+    records the catalog checkpoint. ``plan_llm_calls`` counts plan+agenda LLM
+    calls separately from extract's ``llm_calls``.
     ``file_skip_reason`` is metadata/log only and never persisted to
     interests.yaml (v5 simplification R7).
     """
@@ -89,6 +93,11 @@ class ProactiveState(BaseModel):
     dropped_duplicate: int = 0
     dropped_known: int = 0
     topics_out: list[dict] = Field(default_factory=list)
+    push_candidates: list[dict] = Field(default_factory=list)
+    scenario_cards: list[dict] = Field(default_factory=list)
+    agenda: list[dict] = Field(default_factory=list)
+    suppressed: list[dict] = Field(default_factory=list)
+    plan_llm_calls: int = 0
     push: bool = False
     file_skip_reason: str = ""
     interests_path: str = ""
@@ -124,3 +133,4 @@ class ProactiveResult(BaseModel):
     summary: str = ""
     push: bool | None = None
     generated_at: str = ""
+    agenda: list[dict] = Field(default_factory=list)

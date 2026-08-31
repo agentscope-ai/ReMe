@@ -237,7 +237,16 @@ class ProactiveTopicsStep(BaseStep):
         # 4) Push derived from the cumulative truth source (v5 R1): a topic
         # discovered today with sufficient confidence. Monotonic across same-day
         # rounds because such topics persist in the truth source once added.
-        push = any(t.first_seen == day and t.confidence >= self.min_push_confidence for t in state_file.open_topics)
+        # The candidate list (sorted deterministically) feeds the plan/agenda
+        # steps; ``push`` is exactly "at least one candidate".
+        push_candidates = sort_topics(
+            [
+                t
+                for t in state_file.open_topics
+                if t.first_seen == day and t.confidence >= self.min_push_confidence
+            ],
+        )
+        push = bool(push_candidates)
         if push:
             file_skip_reason = ""
         elif merged or resurrected or survivors:
@@ -254,6 +263,7 @@ class ProactiveTopicsStep(BaseStep):
         rel_path = norm_path(interests_path.relative_to(ws).as_posix())
 
         state.topics_out = [dump_topic(t) for t in topics_out]
+        state.push_candidates = [dump_topic(t) for t in push_candidates]
         state.push = push
         state.file_skip_reason = file_skip_reason
         state.interests_path = rel_path

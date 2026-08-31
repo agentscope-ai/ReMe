@@ -338,19 +338,34 @@ def dump_topic(topic) -> dict:
     }
 
 
-def render_interests(day: str, topics: list, push: bool, now_dt: dt.datetime) -> dict:
+def render_interests(
+    day: str,
+    topics: list,
+    push: bool,
+    now_dt: dt.datetime,
+    agenda: list | None = None,
+    suppressed: list | None = None,
+) -> dict:
     """Render the full v2 file content from the truth source (INV-6).
 
     v5: ``skip_reason`` is no longer persisted (no consumer); it survives as
     structured log/metadata on ``ProactiveState.file_skip_reason`` (R7).
+    The plan/agenda enrichment keys (``agenda``/``suppressed``) are only
+    present when the agenda step rendered the file; the topics-only renderer
+    passes ``None`` so its file shape stays unchanged.
     """
-    return {
+    rendered = {
         "version": 2,
         "date": day,
         "generated_at": now_dt.isoformat(timespec="seconds"),
         "push": bool(push),
         "topics": [dump_topic(t) for t in topics],
     }
+    if agenda is not None:
+        rendered["agenda"] = list(agenda)
+    if suppressed is not None:
+        rendered["suppressed"] = list(suppressed)
+    return rendered
 
 
 def write_interests_if_changed(ws: Path, path: Path, rendered: dict) -> bool:  # pylint: disable=unused-argument
@@ -367,7 +382,12 @@ def write_interests_if_changed(ws: Path, path: Path, rendered: dict) -> bool:  #
         existing_push = existing.get("push", True)
         if not isinstance(existing_push, bool):
             existing_push = True
-        if existing_push == bool(rendered.get("push")) and existing.get("topics") == rendered.get("topics"):
+        if (
+            existing_push == bool(rendered.get("push"))
+            and existing.get("topics") == rendered.get("topics")
+            and (existing.get("agenda") or []) == (rendered.get("agenda") or [])
+            and (existing.get("suppressed") or []) == (rendered.get("suppressed") or [])
+        ):
             return False
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = yaml.safe_dump(rendered, allow_unicode=True, sort_keys=False)
@@ -442,6 +462,52 @@ def parse_extract_reply(text: str) -> dict:
         if isinstance(data, dict) and data and any(isinstance(data.get(key), list) for key in EXTRACT_SECTIONS):
             return data
     return {}
+
+
+def parse_fenced_yaml(text: str) -> dict:
+    """Parse the first fenced YAML/JSON block (or the bare text) into a dict.
+
+    Shared by the plan/agenda reply parsers; returns ``{}`` when nothing
+    parses to a mapping.
+    """
+    candidates = [m.group(1).strip() for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", text, re.S | re.I)]
+    candidates.append((text or "").strip())
+    for raw in candidates:
+        if not raw:
+            continue
+        try:
+            data = yaml.safe_load(raw)
+        except yaml.YAMLError:
+            continue
+        if isinstance(data, dict):
+            return data
+    return {}
+
+
+def parse_plan_reply(text: str) -> list[dict]:
+    """Parse the plan step reply; requires a ``cards`` list of mappings."""
+    data = parse_fenced_yaml(text)
+    cards = data.get("cards")
+    if not isinstance(cards, list):
+        return []
+    return [card for card in cards if isinstance(card, dict)]
+
+
+def parse_agenda_reply(text: str) -> tuple[list[dict], list[dict]]:
+    """Parse the agenda step reply into ``(agenda, suppressed)`` lists.
+
+    ``agenda`` must be present as a list; ``suppressed`` defaults to empty.
+    """
+    data = parse_fenced_yaml(text)
+    agenda = data.get("agenda")
+    if not isinstance(agenda, list):
+        return [], []
+    suppressed = data.get("suppressed")
+    if not isinstance(suppressed, list):
+        suppressed = []
+    return [item for item in agenda if isinstance(item, dict)], [
+        item for item in suppressed if isinstance(item, dict)
+    ]
 
 
 def resolve_agent_wrapper(step):

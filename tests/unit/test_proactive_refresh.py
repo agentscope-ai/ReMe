@@ -21,8 +21,10 @@ from reme.components.runtime_context import RuntimeContext
 from reme.schema import FileNode, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.utils import pack_paths
+from reme.steps.evolve.proactive.agenda import ProactiveAgendaStep
 from reme.steps.evolve.proactive.extract import ProactiveExtractStep
 from reme.steps.evolve.proactive.finish import ProactiveFinishStep
+from reme.steps.evolve.proactive.plan import ProactivePlanStep
 from reme.steps.evolve.proactive.proactive import ProactiveStep
 from reme.steps.evolve.proactive.topics import ProactiveTopicsStep
 from reme.steps.evolve.proactive.utils import (
@@ -1457,5 +1459,349 @@ def test_known_drop(tmp_path):
         assert state["candidates"] == []
         data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
         assert [t["title"] for t in data["topics"]] == ["Known Topic"]
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# F2.5/F2.6 plan + agenda steps
+# ---------------------------------------------------------------------------
+
+
+def _plan_reply(cards: list[dict]) -> str:
+    body = yaml.safe_dump({"cards": cards}, allow_unicode=True, sort_keys=False)
+    return f"```yaml\n{body}```"
+
+
+def _agenda_reply(agenda: list[dict], suppressed: list[dict] | None = None) -> str:
+    doc = {"agenda": agenda}
+    if suppressed is not None:
+        doc["suppressed"] = suppressed
+    body = yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
+    return f"```yaml\n{body}```"
+
+
+def _card(topic_id_value, index=0, scenario="resume_task"):
+    return {
+        "topic_id": topic_id_value,
+        "scenario_type": scenario,
+        "opener": f"对了，上次那件事还差一步（{index}），要不要现在动起来？",
+        "next_action": f"执行第 {index} 步",
+        "preconditions": [],
+        "delivery": "in_conversation",
+    }
+
+
+async def _run_full_chain(
+    ws,
+    replies=None,
+    *,
+    wrapper=None,
+    catalog=None,
+    app=None,
+    extract_kwargs=None,
+    topics_kwargs=None,
+    plan_kwargs=None,
+    agenda_kwargs=None,
+    extra_ctx=None,
+    context=None,
+):
+    app = app or ApplicationContext(workspace_dir=str(ws))
+    wrapper = wrapper or _AgentWrapper(replies or [])
+    catalog = catalog or _Catalog()
+    context = context or RuntimeContext(
+        date=DAY,
+        file_catalog=catalog,
+        file_store=_FileStore(ws),
+        agent_wrapper=wrapper,
+        **(extra_ctx or {}),
+    )
+    extract = ProactiveExtractStep(app_context=app, **(extract_kwargs or {}))
+    resp_extract = await extract(context)
+    topics = ProactiveTopicsStep(app_context=app, **(topics_kwargs or {}))
+    resp_topics = await topics(context)
+    plan = ProactivePlanStep(app_context=app, **(plan_kwargs or {}))
+    resp_plan = await plan(context)
+    agenda = ProactiveAgendaStep(app_context=app, **(agenda_kwargs or {}))
+    resp_agenda = await agenda(context)
+    finish = ProactiveFinishStep(app_context=app)
+    resp_finish = await finish(context)
+    return app, wrapper, catalog, context, (resp_extract, resp_topics, resp_plan, resp_agenda, resp_finish)
+
+
+def test_plan_agenda_chain_e2e(tmp_path):
+    """extract -> topics -> plan -> agenda -> finish writes the enriched v2 file."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "we discussed the eval plan")
+        extract_reply = _reply(
+            follow_ups=[_topic("记忆检索的可解释性评估", confidence=0.9, paths=[f"daily/{DAY}/session.md"])],
+            extends=[_topic("多跳 RAG 综述", confidence=0.5, paths=[f"daily/{DAY}/session.md"])],
+        )
+        fid, eid = topic_id("记忆检索的可解释性评估"), topic_id("多跳 RAG 综述")
+        plan_reply = _plan_reply(
+            [
+                {
+                    "topic_id": fid,
+                    "scenario_type": "resume_task",
+                    "opener": "对了，上次那个评估还差一步，要不要现在跑起来？",
+                    "next_action": "运行评估脚本",
+                    "preconditions": ["数据集已就绪"],
+                    "delivery": "agenda_item",
+                },
+                _card(eid, 1, scenario="explore_interest"),
+            ],
+        )
+        agenda_text = _agenda_reply(
+            [{"topic_id": fid, "order_reason": "卡点已解除，今天最适合收尾"}],
+            [{"topic_id": eid, "reason": f"merged into {fid}"}],
+        )
+        _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
+        assert all(r.success for r in resps)
+        assert wrapper.calls == 3
+        state = context.get("proactive")
+        assert state["llm_calls"] == 1  # extract only
+        assert state["plan_llm_calls"] == 2  # plan + agenda
+        assert state["push"] is True
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert data["version"] == 2
+        assert data["push"] is True
+        assert len(data["agenda"]) == 1
+        item = data["agenda"][0]
+        assert item["topic_id"] == fid
+        assert item["title"] == "记忆检索的可解释性评估"
+        assert item["scenario_type"] == "resume_task"
+        assert item["opener"].startswith("对了")
+        assert item["next_action"] == "运行评估脚本"
+        assert item["preconditions"] == ["数据集已就绪"]
+        assert item["delivery"] == "agenda_item"
+        assert item["linked_memory"] == [f"daily/{DAY}/session.md"]
+        assert item["order_reason"] == "卡点已解除，今天最适合收尾"
+        assert data["suppressed"] == [
+            {"topic_id": eid, "title": "多跳 RAG 综述", "reason": f"merged into {fid}"},
+        ]
+        assert {t["id"] for t in data["topics"]} == {fid, eid}  # topics view intact
+
+    asyncio.run(run())
+
+
+def test_plan_agenda_fallback_without_llm(tmp_path):
+    """Unusable plan/agenda replies degrade to fallback cards + deterministic agenda."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        extract_reply = _reply(
+            follow_ups=[
+                _topic("任务一", confidence=0.9, paths=[f"daily/{DAY}/session.md"]),
+                _topic("任务二", confidence=0.7, paths=[f"daily/{DAY}/session.md"]),
+            ],
+        )
+        # Only the extract reply is scripted; plan/agenda receive "" and must degrade.
+        _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply])
+        assert all(r.success for r in resps)
+        assert wrapper.calls == 3
+        state = context.get("proactive")
+        assert state["plan_llm_calls"] == 2  # attempted but unusable
+        assert len(state["scenario_cards"]) == 2
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert data["push"] is True
+        assert [i["title"] for i in data["agenda"]] == ["任务一", "任务二"]
+        assert all(
+            i["order_reason"] == "deterministic fallback: freshness/confidence order" for i in data["agenda"]
+        )
+        assert data["suppressed"] == []
+        assert all(i["scenario_type"] == "resume_task" for i in data["agenda"])
+        assert all(i["opener"] for i in data["agenda"])
+
+    asyncio.run(run())
+
+
+def test_agenda_no_candidates_keeps_topics_render(tmp_path):
+    """Without push candidates plan/agenda skip and the topics-only render stays."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        extract_reply = _reply(
+            follow_ups=[_topic("低置信话题", confidence=0.3, paths=[f"daily/{DAY}/session.md"])],
+        )
+        _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply])
+        assert all(r.success for r in resps)
+        assert wrapper.calls == 1  # extract only; plan/agenda made zero LLM calls
+        state = context.get("proactive")
+        assert state["push"] is False
+        assert state["push_candidates"] == []
+        assert state["scenario_cards"] == []
+        assert state["agenda"] == []
+        assert state["suppressed"] == []
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert data["push"] is False
+        assert "agenda" not in data and "suppressed" not in data
+
+    asyncio.run(run())
+
+
+def test_agenda_single_candidate_skips_llm(tmp_path):
+    """Exactly one candidate is auto-agenda without an agenda LLM call."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        extract_reply = _reply(
+            follow_ups=[_topic("唯一候选", confidence=0.9, paths=[f"daily/{DAY}/session.md"])],
+        )
+        fid = topic_id("唯一候选")
+        plan_reply = _plan_reply([_card(fid, scenario="answer_pending")])
+        _, wrapper, _, context, _ = await _run_full_chain(ws, [extract_reply, plan_reply])
+        assert wrapper.calls == 2  # extract + plan only
+        state = context.get("proactive")
+        assert state["plan_llm_calls"] == 1
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert len(data["agenda"]) == 1
+        assert data["agenda"][0]["topic_id"] == fid
+        assert data["agenda"][0]["order_reason"] == "single push candidate; auto-agenda without LLM"
+        assert data["suppressed"] == []
+
+    asyncio.run(run())
+
+
+def test_agenda_merge_and_full_accounting(tmp_path):
+    """LLM merges two entrances of one matter; every candidate is accounted for."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        titles = ["GPU 排期确认", "跑 benchmark 的 GPU 档期", "多跳引用可信度"]
+        extract_reply = _reply(
+            follow_ups=[
+                _topic(titles[0], confidence=0.9, paths=[f"daily/{DAY}/session.md"]),
+                _topic(titles[1], confidence=0.7, paths=[f"daily/{DAY}/session.md"]),
+                _topic(titles[2], confidence=0.9, paths=[f"daily/{DAY}/session.md"]),
+            ],
+        )
+        ids = [topic_id(t) for t in titles]
+        plan_reply = _plan_reply([_card(tid, i) for i, tid in enumerate(ids)])
+        agenda_text = _agenda_reply(
+            [{"topic_id": ids[0], "order_reason": "主入口"}, {"topic_id": ids[2], "order_reason": "独立事项"}],
+            [{"topic_id": ids[1], "reason": f"merged into {ids[0]}"}],
+        )
+        _, _, _, context, _ = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
+        state = context.get("proactive")
+        assert state["push"] is True
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [i["topic_id"] for i in data["agenda"]] == [ids[0], ids[2]]
+        assert data["suppressed"] == [
+            {"topic_id": ids[1], "title": titles[1], "reason": f"merged into {ids[0]}"},
+        ]
+        accounted = {i["topic_id"] for i in data["agenda"]} | {x["topic_id"] for x in data["suppressed"]}
+        assert accounted == set(ids)
+
+    asyncio.run(run())
+
+
+def test_agenda_invalid_ids_and_missing_accounting(tmp_path):
+    """Bogus agenda ids are dropped; candidates the LLM forgot are still suppressed."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        titles = ["候选甲", "候选乙"]
+        extract_reply = _reply(
+            follow_ups=[
+                _topic(titles[0], confidence=0.9, paths=[f"daily/{DAY}/session.md"]),
+                _topic(titles[1], confidence=0.7, paths=[f"daily/{DAY}/session.md"]),
+            ],
+        )
+        ids = [topic_id(t) for t in titles]
+        plan_reply = _plan_reply([_card(tid, i) for i, tid in enumerate(ids)])
+        agenda_text = _agenda_reply(
+            [{"topic_id": "nonexistent01", "order_reason": "bogus"}, {"topic_id": ids[0], "order_reason": "real"}],
+            [],
+        )
+        _, _, _, context, _ = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [i["topic_id"] for i in data["agenda"]] == [ids[0]]
+        assert data["suppressed"] == [
+            {"topic_id": ids[1], "title": titles[1], "reason": "not selected for today's agenda"},
+        ]
+
+    asyncio.run(run())
+
+
+def test_plan_over_budget_suppressed(tmp_path):
+    """Candidates beyond max_plan_topics stay card-less and are suppressed with reason."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        titles = ["高置信一", "高置信二", "高置信三"]
+        extract_reply = _reply(
+            follow_ups=[
+                _topic(titles[0], confidence=0.9, paths=[f"daily/{DAY}/session.md"]),
+                _topic(titles[1], confidence=0.8, paths=[f"daily/{DAY}/session.md"]),
+                _topic(titles[2], confidence=0.7, paths=[f"daily/{DAY}/session.md"]),
+            ],
+        )
+        ids = [topic_id(t) for t in titles]
+        # deterministic sort order: confidence desc -> ids[0], ids[1] selected; ids[2] over budget
+        plan_reply = _plan_reply([_card(ids[0], 0), _card(ids[1], 1)])
+        agenda_text = _agenda_reply(
+            [{"topic_id": ids[0], "order_reason": "first"}, {"topic_id": ids[1], "order_reason": "second"}],
+            [],
+        )
+        _, _, _, context, _ = await _run_full_chain(
+            ws,
+            [extract_reply, plan_reply, agenda_text],
+            plan_kwargs={"max_plan_topics": 2},
+        )
+        state = context.get("proactive")
+        assert len(state["scenario_cards"]) == 2
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [i["topic_id"] for i in data["agenda"]] == [ids[0], ids[1]]
+        assert data["suppressed"] == [
+            {
+                "topic_id": ids[2],
+                "title": titles[2],
+                "reason": "over plan budget: not expanded into a scenario card",
+            },
+        ]
+
+    asyncio.run(run())
+
+
+def test_read_side_agenda_passthrough(tmp_path):
+    """F5 read passes the agenda through, filtering resolved/unknown/low-confidence ids."""
+
+    async def run():
+        ws = tmp_path
+        id_a, id_b = topic_id("议程主题"), topic_id("已解决主题")
+        payload = {
+            "version": 2,
+            "date": DAY,
+            "generated_at": f"{DAY}T09:00:00",
+            "push": True,
+            "topics": [_state_topic("议程主题", topic_id_value=id_a, confidence=0.9),
+                       _state_topic("已解决主题", topic_id_value=id_b, confidence=0.9)],
+            "agenda": [
+                {"topic_id": id_a, "opener": "对了，那件事可以动了"},
+                {"topic_id": id_b, "opener": "resolved, must be filtered"},
+                {"topic_id": "unknown000000", "opener": "not in kept"},
+            ],
+            "suppressed": [],
+        }
+        _touch(_interests(ws, DAY), yaml.safe_dump(payload, allow_unicode=True, sort_keys=False))
+        _write_state(ws, resolved=[{"id": id_b, "title": "已解决主题", "resolved_at": DAY, "evidence": ""}])
+
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(ws)))
+        response = await step(RuntimeContext(date=DAY, include_content=False, file_store=_FileStore(ws)))
+        assert [t["title"] for t in response.answer["topics"]] == ["议程主题"]
+        assert response.answer["agenda"] == [{"topic_id": id_a, "opener": "对了，那件事可以动了"}]
 
     asyncio.run(run())

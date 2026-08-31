@@ -76,6 +76,14 @@ metadata:
 | `skipped` | `true` when the file does not exist.                 |
 | `error`   | Read or parse error.                                 |
 | `summary` | Short summary.                                       |
+| `agenda`  | Today's proactive agenda (optional, v2 files only).  |
+
+When today's `interests.yaml` was produced by the proactive refresh chain with an agenda,
+the answer also carries an `agenda` field: the ordered agenda items, each with `topic_id`,
+`title`, `scenario_type`, `opener` (a natural conversation opener), `next_action` (the
+minimal executable step), `preconditions`, `delivery`, `linked_memory` and `order_reason`.
+Agenda items whose topic is resolved or below `min_confidence` are filtered out on read;
+the field is absent when the file has no agenda.
 
 When the file exists and parses successfully, the answer is structured data. For example:
 

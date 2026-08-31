@@ -117,6 +117,14 @@ class ProactiveStep(BaseStep):
                     if t.id not in resolved_ids and t.confidence >= min_confidence - 1e-9
                 ]
                 result.topics = kept
+                agenda_raw = data.get("agenda")
+                if isinstance(agenda_raw, list):
+                    kept_ids = {str(t.get("id") or "") for t in kept}
+                    result.agenda = [
+                        item
+                        for item in agenda_raw
+                        if isinstance(item, dict) and str(item.get("topic_id") or "") in kept_ids
+                    ]
             result.summary = f"Read {len(result.topics)} proactive topic(s) from {rel_path}"
             self.logger.info(f"[{self.name}] read done path={rel_path} topics={len(result.topics)}")
             return self._finish(True, result, include_content=include_content)
@@ -173,6 +181,7 @@ class ProactiveStep(BaseStep):
             self.context.response.answer = {
                 "summary": result.summary,
                 "topics": result.topics,
+                **({"agenda": result.agenda} if result.agenda else {}),
                 **({"content": result.content} if include_content else {}),
             }
         self.context.response.metadata.update(result.model_dump())
