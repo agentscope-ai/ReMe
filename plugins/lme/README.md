@@ -38,6 +38,7 @@ The existing `auto_memory`, `agentic_answer`, `answer_judge`, `bench` and `judge
 names and model environment variables are unchanged. Explicit application/CLI overrides
 still take precedence. Installing this plugin does not start an evaluation.
 
+The shared answer base class lives in `reme.steps.benchmark.base_agentic_answer`.
 The old core-owned `reme.steps.benchmark.lme` Python import path is removed.
 Custom Python callers should import from `reme_lme.steps` instead. The core must
 no longer ship `lme.yaml`; older cores with a same-name built-in config are incompatible.

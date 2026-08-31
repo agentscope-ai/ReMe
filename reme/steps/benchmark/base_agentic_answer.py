@@ -1,15 +1,15 @@
-"""Plugin-local base class for benchmark agentic-answer steps."""
+"""Shared base class for benchmark agentic-answer steps."""
 
 import os
 
-from reme.steps.base_step import BaseStep
-from reme.steps.index._dedup import _ToolContextDedupMixin
-from reme.enumeration import ChunkEnum
-from reme.utils.counter import global_counter_inc
+from ..base_step import BaseStep
+from ..index._dedup import _ToolContextDedupMixin
+from ...enumeration import ChunkEnum
+from ...utils.counter import global_counter_inc
 
 
 class BaseAgenticAnswerStep(BaseStep):
-    """ReAct-agent answer implementation owned by this benchmark plugin.
+    """ReAct-agent answer implementation shared by benchmark plugins.
 
     Subclasses only need to set:
         TOOL_CONTEXT_PREFIX (str): prefix used to build the unique tool_context_id.

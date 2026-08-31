@@ -32,6 +32,7 @@ reme plugins validate lme
 均保持关闭。原有 `auto_memory`、`agentic_answer`、`answer_judge`、`bench`、`judge` 名称及模型环境变量
 保持不变，显式应用参数和 CLI 覆盖仍优先。安装或启用插件不会自动开始评测。
 
+共享回答基类位于 `reme.steps.benchmark.base_agentic_answer`。
 原 `reme.steps.benchmark.lme` Python 导入路径已移除，自定义 Python 调用应改用 `reme_lme.steps`。
 核心不能再包含同名内置配置；仍内置 `lme.yaml` 的旧版核心与本插件不兼容。
 CLI 服务卸载插件后需要改用其他应用配置；仓库内的 runner 仍可直接加载源码。

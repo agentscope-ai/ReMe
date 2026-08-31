@@ -1,6 +1,6 @@
 """LongMemEval agentic answer step – ReAct agent that answers questions using the search tool."""
 
-from .base import BaseAgenticAnswerStep
+from reme.steps.benchmark import BaseAgenticAnswerStep
 
 
 class LmeAgenticAnswerStep(BaseAgenticAnswerStep):

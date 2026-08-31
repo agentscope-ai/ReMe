@@ -47,7 +47,7 @@ and concise documentation together.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and
   outbound proxies.
 - `reme/steps/`: registered job steps grouped by common, file I/O, index, evolve, cookbook, and transfer
-  concerns.
+  concerns, plus shared benchmark base classes under `benchmark/`.
 - `reme/utils/`: shared utilities, including service discovery, logging, web-static resolution, session I/O, token
   accounting, and wikilink handling.
 - `tests/unit/`: primary fast, isolated validation suite.
