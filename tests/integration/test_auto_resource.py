@@ -26,7 +26,7 @@ sys.path.insert(0, str(INTEGRATION_DIR))
 from _workspace_fixture import workspace_env  # noqa: E402
 
 from reme.steps.evolve._auto_resource import _compute_note_stem  # noqa: E402
-from reme.steps.evolve.auto_text import _compute_agent_session_id  # noqa: E402
+from reme.steps.evolve.auto_text_resource import _compute_agent_session_id  # noqa: E402
 
 RESOURCE_FILENAME = "project-roadmap.md"
 RESOURCE_CONTENT_V1 = """\

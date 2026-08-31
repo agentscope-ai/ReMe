@@ -32,14 +32,14 @@ from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve._auto_resource import BaseAutoResourceStep
-from reme.steps.evolve.auto_image import (
+from reme.steps.evolve.auto_image_resource import (
     AutoImageResourceStep,
     _build_image_request_payload,
     _normalize_image_bytes,
     _parse_caption_json,
 )
 from reme.steps.evolve.auto_resource import AutoResourceStep
-from reme.steps.evolve.auto_text import AutoTextResourceStep
+from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 from reme.steps.file_io import DailyListStep, FrontmatterUpdateStep, MoveStep, WriteStep
 
 
@@ -816,7 +816,7 @@ def import_without_pillow(name, *args, **kwargs):
     return real_import(name, *args, **kwargs)
 
 builtins.__import__ = import_without_pillow
-import reme.steps.evolve.auto_image
+import reme.steps.evolve.auto_image_resource
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -875,7 +875,7 @@ def test_auto_image_reports_modified_when_index_refresh_fails_after_write():
                 async def fail_refresh(*_args, **_kwargs):
                     raise RuntimeError("index refresh failed")
 
-                with patch("reme.steps.evolve.auto_image.refresh_day_index", new=fail_refresh):
+                with patch("reme.steps.evolve.auto_image_resource.refresh_day_index", new=fail_refresh):
                     resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 result = resp.metadata["results"][0]
