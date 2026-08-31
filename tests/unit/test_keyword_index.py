@@ -882,6 +882,32 @@ def test_concurrent_dumps_publish_in_invocation_order():
     run(go())
 
 
+def test_dump_builds_snapshot_off_event_loop():
+    """Large BM25 snapshot copies do not execute on the request event loop."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            bm25 = await create_bm25()
+            await bm25.add_docs({"d1": "alpha beta"})
+            loop_thread = threading.get_ident()
+            snapshot_threads = []
+            original_snapshot = bm25._snapshot
+
+            def observed_snapshot():
+                snapshot_threads.append(threading.get_ident())
+                return original_snapshot()
+
+            bm25._snapshot = observed_snapshot
+            await bm25.dump()
+
+            assert snapshot_threads == [snapshot_threads[0]]
+            assert snapshot_threads[0] != loop_thread
+            bm25._snapshot = original_snapshot
+            await bm25.close()
+
+    run(go())
+
+
 # --------------------------------------------------------------------------- #
 # clear / optimize / reset_index                                              #
 # --------------------------------------------------------------------------- #

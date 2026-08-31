@@ -5,6 +5,7 @@ import asyncio
 from .base_file_catalog import BaseFileCatalog
 from ..component_registry import R
 from ...schema import FileNode
+from ...utils.async_utils import complete_in_thread
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
@@ -24,12 +25,18 @@ class LocalFileCatalog(BaseFileCatalog):
         async with self._io_lock:
             if not self._catalog_file.exists():
                 return
-            await self._read_jsonl()
+            loaded = await complete_in_thread(
+                self._read_jsonl_sync,
+                self._catalog_file,
+                self.encoding,
+                self._nodes,
+            )
+            self._nodes = loaded
             self.logger.debug(f"Loaded {len(self._nodes)} nodes from {self._catalog_file}")
 
     async def dump(self) -> None:
         async with self._io_lock:
-            await self._write_jsonl()
+            await complete_in_thread(self._write_jsonl_sync)
             self.logger.info(f"Saved {len(self._nodes)} nodes to {self._catalog_file}")
 
     async def upsert(self, nodes: list[FileNode]) -> None:
@@ -49,11 +56,16 @@ class LocalFileCatalog(BaseFileCatalog):
                 return list(self._nodes.values())
             return [self._nodes[p] for p in paths if p in self._nodes]
 
-    async def _read_jsonl(self) -> None:
-        for line in read_jsonl_zst(self._catalog_file, self.encoding):
+    @staticmethod
+    def _read_jsonl_sync(path, encoding: str, existing: dict[str, FileNode]) -> dict[str, FileNode]:
+        """Read, decompress, and parse a catalog checkpoint off-loop."""
+        nodes = dict(existing)
+        for line in read_jsonl_zst(path, encoding):
             if stripped := line.strip():
                 node = FileNode.model_validate_json(stripped)
-                self._nodes[node.path] = node
+                nodes[node.path] = node
+        return nodes
 
-    async def _write_jsonl(self) -> None:
+    def _write_jsonl_sync(self) -> None:
+        """Serialize, compress, and atomically publish the locked catalog state."""
         write_jsonl_zst(self._catalog_file, (n.model_dump_json() for n in self._nodes.values()), self.encoding)

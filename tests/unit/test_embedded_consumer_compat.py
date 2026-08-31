@@ -3,14 +3,17 @@
 # pylint: disable=protected-access
 
 import asyncio
+import threading
 
 import pytest
 
 from reme import ReMe
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.as_llm import BaseAsLLM, DashScopeAsLLM
+from reme.components.file_store import local_file_store as local_file_store_module
 from reme.enumeration import ComponentEnum
 from reme.schema import FileNode
+from reme.utils.jsonl_zst import write_jsonl_zst
 
 
 def _qwenpaw_style_config(workspace_dir: str) -> dict:
@@ -57,6 +60,85 @@ def _file_graph_config(workspace_dir: str) -> dict:
         "service": {"backend": "http"},
         "components": {"file_graph": {"default": {"backend": "local"}}},
     }
+
+
+def _file_store_config(workspace_dir: str) -> dict:
+    """Return the persistent component graph used by an embedded local store."""
+    return {
+        "workspace_dir": workspace_dir,
+        "enable_logo": False,
+        "log_to_console": False,
+        "log_to_file": False,
+        "service": {"backend": "http"},
+        "components": {
+            "tokenizer": {"default": {"backend": "regex"}},
+            "keyword_index": {"default": {"backend": "bm25", "tokenizer": "default"}},
+            "file_graph": {"default": {"backend": "local"}},
+            "file_store": {
+                "default": {
+                    "backend": "local",
+                    "embedding_store": "",
+                    "keyword_index": "default",
+                    "file_graph": "default",
+                },
+            },
+        },
+    }
+
+
+def test_embedded_reme_lifecycle_keeps_checkpoint_io_off_loop(tmp_path, monkeypatch):
+    """Real ReMe start and close await worker-backed checkpoint operations."""
+    app = ReMe(**_file_store_config(str(tmp_path)))
+    store = app.context.components[ComponentEnum.FILE_STORE]["default"]
+    graph = app.context.components[ComponentEnum.FILE_GRAPH]["default"]
+    store.chunks_path.parent.mkdir(parents=True, exist_ok=True)
+    write_jsonl_zst(store.chunks_path, [])
+
+    async def exercise_api() -> None:
+        loop_thread = threading.get_ident()
+        load_entered = threading.Event()
+        load_release = threading.Event()
+        load_threads = []
+        original_reader = local_file_store_module.read_jsonl_zst
+
+        def blocking_reader(*args, **kwargs):
+            load_threads.append(threading.get_ident())
+            load_entered.set()
+            assert load_release.wait(timeout=2)
+            yield from original_reader(*args, **kwargs)
+
+        monkeypatch.setattr(local_file_store_module, "read_jsonl_zst", blocking_reader)
+        start_task = asyncio.create_task(app.start())
+        assert await asyncio.to_thread(load_entered.wait, 1)
+        assert load_threads and load_threads[0] != loop_thread
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert not start_task.done()
+        load_release.set()
+        await start_task
+
+        dump_entered = threading.Event()
+        dump_release = threading.Event()
+        dump_threads = []
+        original_dump = graph._dump_sync
+
+        def blocking_dump():
+            dump_threads.append(threading.get_ident())
+            dump_entered.set()
+            assert dump_release.wait(timeout=2)
+            return original_dump()
+
+        monkeypatch.setattr(graph, "_dump_sync", blocking_dump)
+        close_task = asyncio.create_task(app.close())
+        assert await asyncio.to_thread(dump_entered.wait, 1)
+        assert dump_threads and dump_threads[0] != loop_thread
+        for _ in range(5):
+            await asyncio.sleep(0)
+        assert not close_task.done()
+        dump_release.set()
+        await close_task
+
+    asyncio.run(exercise_api())
 
 
 def test_qwenpaw_style_config_preserves_optional_defaults(tmp_path):

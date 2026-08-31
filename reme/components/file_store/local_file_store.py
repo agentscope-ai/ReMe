@@ -73,6 +73,7 @@ class LocalFileStore(BaseFileStore):
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._embedding_space_generation = 0
         self._mutation_generation = 0
+        self._checkpoint_generation = 0
         self._closing = False
 
     # -- lifecycle ------------------------------------------------------------
@@ -213,17 +214,20 @@ class LocalFileStore(BaseFileStore):
 
     # -- persistence ----------------------------------------------------------
 
+    @BaseFileStore.serialized
     async def load(self) -> None:
         """Load chunks from the JSONL file into memory; missing file is a no-op."""
         started_at = time.monotonic()
         chunk_load_started_at = time.monotonic()
         if self.chunks_path.exists():
             try:
-                for line in read_jsonl_zst(self.chunks_path, self.encoding):
-                    line = line.strip()
-                    if line:
-                        chunk = self._deserialize_chunk(line)
-                        self.file_chunks[chunk.id] = chunk
+                chunks = await complete_in_thread(
+                    self._load_chunks_sync,
+                    self.chunks_path,
+                    self.encoding,
+                    self.file_chunks,
+                )
+                self.file_chunks = chunks
                 self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             except Exception as e:
                 self.logger.exception(f"Failed to load {self.chunks_path}: {e}")
@@ -290,6 +294,16 @@ class LocalFileStore(BaseFileStore):
                 raise ValueError("Invalid float16 embedding byte length")
             payload["embedding"] = np.frombuffer(raw, dtype=_EMBEDDING_F16_DTYPE)
         return FileChunk.model_validate(payload)
+
+    @classmethod
+    def _load_chunks_sync(cls, path, encoding: str, existing: dict[str, FileChunk]) -> dict[str, FileChunk]:
+        """Read, decompress, and parse a complete chunk checkpoint off-loop."""
+        chunks = dict(existing)
+        for line in read_jsonl_zst(path, encoding):
+            if stripped := line.strip():
+                chunk = cls._deserialize_chunk(stripped)
+                chunks[chunk.id] = chunk
+        return chunks
 
     @staticmethod
     def _serialize_chunk(chunk: FileChunk) -> str:
@@ -509,6 +523,10 @@ class LocalFileStore(BaseFileStore):
                 batch = missing[start : start + batch_size]
                 await self.embedding_store.get_node_embeddings(batch)
                 self._drop_stale_embeddings(batch, "backfill")
+                # A checkpoint snapshot may be copying chunks in a worker while
+                # this background task applies embeddings on the event loop.
+                # Advance the generation so a mixed snapshot is discarded.
+                self._checkpoint_generation += 1
                 processed += len(batch)
                 batch_count += 1
                 next_percent = self._log_progress("embedding backfill", processed, total, next_percent)
@@ -617,18 +635,27 @@ class LocalFileStore(BaseFileStore):
         elapsed = time.monotonic() - started_at
         self.logger.info(f"{self.name}: keyword index rebuild complete: total={total}, elapsed={elapsed:.2f}s")
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
-            # Keep snapshotting synchronous so concurrent mutation cannot produce a
-            # mixed-generation checkpoint. Move it off-loop only if profiling shows
-            # this copy, rather than serialization/compression, is a material stall.
-            chunks = tuple(chunk.model_copy(deep=True) for chunk in self.file_chunks.values())
+            # The maintenance guard excludes regular mutations. Embedding
+            # backfill intentionally does network I/O outside that guard, so
+            # retry if it publishes a new generation during the worker copy.
+            while True:
+                generation = self._checkpoint_generation
+                chunks = await complete_in_thread(self._snapshot_chunks_sync)
+                if generation == self._checkpoint_generation:
+                    break
             await complete_in_thread(self._dump_chunks_sync, chunks)
             self.logger.info(f"Saved {len(self.file_chunks)} chunks to {self.chunks_path}")
         except Exception as e:
             self.logger.exception(f"Failed to write {self.chunks_path}: {e}")
             raise
+
+    def _snapshot_chunks_sync(self) -> tuple[FileChunk, ...]:
+        """Deep-copy the live chunk generation outside the event-loop thread."""
+        return tuple(chunk.model_copy(deep=True) for chunk in self.file_chunks.values())
 
     def _dump_chunks_sync(self, chunks: tuple[FileChunk, ...]) -> None:
         write_jsonl_zst(
@@ -676,7 +703,12 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.delete_docs(list(old_chunk_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
+        self._advance_mutation_generation()
+
+    def _advance_mutation_generation(self) -> None:
+        """Mark a source mutation for rebuild retries and checkpoint snapshots."""
         self._mutation_generation += 1
+        self._checkpoint_generation += 1
 
     def _stage_upsert(
         self,
@@ -767,7 +799,7 @@ class LocalFileStore(BaseFileStore):
         nodes: list[FileNode] = await self.file_graph.get_nodes(paths)
         await self._delete_nodes(nodes)
         if nodes:
-            self._mutation_generation += 1
+            self._advance_mutation_generation()
 
     async def _delete_nodes(self, nodes: list[FileNode]) -> None:
         """Delete already-resolved nodes and their chunks.
@@ -814,7 +846,7 @@ class LocalFileStore(BaseFileStore):
         if self.keyword_index:
             await self.keyword_index.clear()
         await self.file_graph.clear()
-        self._mutation_generation += 1
+        self._advance_mutation_generation()
 
     # -- search ---------------------------------------------------------------
 

@@ -15,6 +15,7 @@ from .enumeration import ComponentEnum, ComponentType, component_type_name
 from .plugin import resolve_plugin_runtime
 from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
+from .utils.async_utils import complete_in_thread
 
 T = TypeVar("T", bound=BaseComponent)
 _NodeKey = tuple[str, str]
@@ -229,8 +230,9 @@ class Application(BaseComponent):
                 self.logger.exception(f"Failed to close {component_type_name(c.component_type)}:{c.name}: {e}")
         self._started_components.clear()
         if self.context.thread_pool is not None:
-            self.context.thread_pool.shutdown(wait=True)
+            thread_pool = self.context.thread_pool
             self.context.thread_pool = None
+            await complete_in_thread(thread_pool.shutdown, True)
 
     async def update_component(self, component_enum: ComponentType, name: str, /, **kwargs) -> BaseComponent:
         """Update an existing component by type/name; never creates missing components."""
