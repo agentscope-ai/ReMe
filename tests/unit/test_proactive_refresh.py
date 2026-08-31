@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Unit tests for the proactive refresh chain (PROACTIVE_SPEC.md A8 mapping).
 
 Coverage: F1 contracts, F2 discovery, F3 isolation, F4 idle gate/budget/timeout,
@@ -1171,6 +1172,30 @@ def test_parse_failure_retry_then_empty(tmp_path):
     asyncio.run(run())
 
 
+def test_parse_double_failure_keeps_material_uncheckpointed(tmp_path):
+    """Two unusable replies skip without checkpoint; material retries next round (audit #1)."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        wrapper = _AgentWrapper(["garbage one", "garbage two"])
+        catalog = _Catalog()
+        app = ApplicationContext(workspace_dir=str(ws))
+        context = RuntimeContext(date=DAY, file_catalog=catalog, file_store=_FileStore(ws), agent_wrapper=wrapper)
+        extract = ProactiveExtractStep(app_context=app)
+        resp_extract = await extract(context)
+        topics = ProactiveTopicsStep(app_context=app)
+        resp_topics = await topics(context)
+        finish = ProactiveFinishStep(app_context=app)
+        resp_finish = await finish(context)
+        assert all(r.success for r in (resp_extract, resp_topics, resp_finish))
+        assert wrapper.calls == 2
+        assert context.get("proactive_skip") == {"reason": "extract_parse_failed"}
+        assert not catalog.upserts  # nothing checkpointed; material stays changed
+
+    asyncio.run(run())
+
+
 def test_parse_extract_reply_schema_gate():
     """Non-empty replies without contract sections count as parse failures (audit #1)."""
     assert parse_extract_reply("followups:\n  - title: misspelled section\n") == {}
@@ -1609,9 +1634,7 @@ def test_plan_agenda_fallback_without_llm(tmp_path):
         data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
         assert data["push"] is True
         assert [i["title"] for i in data["agenda"]] == ["任务一", "任务二"]
-        assert all(
-            i["order_reason"] == "deterministic fallback: freshness/confidence order" for i in data["agenda"]
-        )
+        assert all(i["order_reason"] == "deterministic fallback: freshness/confidence order" for i in data["agenda"])
         assert data["suppressed"] == []
         assert all(i["scenario_type"] == "resume_task" for i in data["agenda"])
         assert all(i["opener"] for i in data["agenda"])
@@ -1724,7 +1747,7 @@ def test_agenda_invalid_ids_and_missing_accounting(tmp_path):
             [{"topic_id": "nonexistent01", "order_reason": "bogus"}, {"topic_id": ids[0], "order_reason": "real"}],
             [],
         )
-        _, _, _, context, _ = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
+        _, _, _, _, _ = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
         data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
         assert [i["topic_id"] for i in data["agenda"]] == [ids[0]]
         assert data["suppressed"] == [
@@ -1786,8 +1809,10 @@ def test_read_side_agenda_passthrough(tmp_path):
             "date": DAY,
             "generated_at": f"{DAY}T09:00:00",
             "push": True,
-            "topics": [_state_topic("议程主题", topic_id_value=id_a, confidence=0.9),
-                       _state_topic("已解决主题", topic_id_value=id_b, confidence=0.9)],
+            "topics": [
+                _state_topic("议程主题", topic_id_value=id_a, confidence=0.9),
+                _state_topic("已解决主题", topic_id_value=id_b, confidence=0.9),
+            ],
             "agenda": [
                 {"topic_id": id_a, "opener": "对了，那件事可以动了"},
                 {"topic_id": id_b, "opener": "resolved, must be filtered"},
@@ -1852,8 +1877,10 @@ def test_chain_with_configured_daily_dir(tmp_path):
     async def run():
         ws = tmp_path
         _touch(ws / "memory" / DAY / "session.md", "小米财报讨论")
-        _touch(ws / "digest" / "personal" / "user-profile.md",
-               "---\ndescription: 张三画像\nname: user-profile\n---\n\n张三关注小米与中概股。\n")
+        _touch(
+            ws / "digest" / "personal" / "user-profile.md",
+            "---\ndescription: 张三画像\nname: user-profile\n---\n\n张三关注小米与中概股。\n",
+        )
         extract_reply = _reply(
             follow_ups=[_topic("小米Q2财报跟进", confidence=0.9, paths=[f"memory/{DAY}/session.md"])],
         )

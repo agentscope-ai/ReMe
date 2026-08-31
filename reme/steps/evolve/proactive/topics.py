@@ -240,11 +240,7 @@ class ProactiveTopicsStep(BaseStep):
         # The candidate list (sorted deterministically) feeds the plan/agenda
         # steps; ``push`` is exactly "at least one candidate".
         push_candidates = sort_topics(
-            [
-                t
-                for t in state_file.open_topics
-                if t.first_seen == day and t.confidence >= self.min_push_confidence
-            ],
+            [t for t in state_file.open_topics if t.first_seen == day and t.confidence >= self.min_push_confidence],
         )
         push = bool(push_candidates)
         if push:

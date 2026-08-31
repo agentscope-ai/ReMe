@@ -581,9 +581,7 @@ def parse_agenda_reply(text: str) -> tuple[list[dict], list[dict]]:
     suppressed = data.get("suppressed")
     if not isinstance(suppressed, list):
         suppressed = []
-    return [item for item in agenda if isinstance(item, dict)], [
-        item for item in suppressed if isinstance(item, dict)
-    ]
+    return [item for item in agenda if isinstance(item, dict)], [item for item in suppressed if isinstance(item, dict)]
 
 
 def resolve_agent_wrapper(step):

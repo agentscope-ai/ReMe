@@ -252,9 +252,7 @@ class ProactiveAgendaStep(BaseStep):
         """Freshness/confidence head when generation is unavailable (cards keep sort order)."""
         agenda_ids = carded_ids[: self.max_agenda_items]
         order_reasons = {cid: FALLBACK_ORDER_REASON for cid in agenda_ids}
-        suppressed_reasons = {
-            cid: "capacity (deterministic fallback)" for cid in carded_ids if cid not in agenda_ids
-        }
+        suppressed_reasons = {cid: "capacity (deterministic fallback)" for cid in carded_ids if cid not in agenda_ids}
         return agenda_ids, order_reasons, suppressed_reasons
 
     def _profile_block(self, ws) -> str:

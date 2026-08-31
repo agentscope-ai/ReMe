@@ -121,9 +121,12 @@ class ProactiveExtractStep(BaseStep):
             return self._finish(state, started, "Skipped: no agent_wrapper configured")
 
         # 6) One LLM call with sectioned output (A3); retry once on parse failure.
+        # meta is None when this round must NOT checkpoint (timeout, or two
+        # unusable replies): the material stays "changed" for the next round
+        # instead of being silently consumed on output that can never yield
+        # topics (audit #1).
         meta = await self._extract_with_retry(wrapper, state, ws, day, daily)
         if meta is None:
-            self.context[self.skip_key] = {"reason": "llm_timeout"}
             self._store(state)
             return passthrough_response(self, self.skip_key)
         self._clean_output(state, meta, set(m_daily), day)
@@ -173,7 +176,7 @@ class ProactiveExtractStep(BaseStep):
         return load_personal_profile_block(ws, digest_dir, self.profile_max_chars)
 
     async def _extract_with_retry(self, wrapper, state, ws, day: str, daily: str) -> dict | None:
-        """Returns parsed meta; None means LLM timeout."""
+        """Returns parsed meta; None means skip without checkpointing."""
         # Newest daily material first: when the total budget bites, the
         # freshest evidence survives and the oldest files are omitted.
         ordered = list(dict.fromkeys(state.changed_paths))[::-1]
@@ -184,15 +187,21 @@ class ProactiveExtractStep(BaseStep):
             max_total_chars=self.max_total_chars or None,
         )
         user_message, system_prompt = self._build_messages(state, ws, day, daily, material_blob)
+        raw = ""
         for attempt in (1, 2):
             raw = await self._reply(wrapper, state, user_message, system_prompt)
             if raw is None:
+                self.context[self.skip_key] = {"reason": "llm_timeout"}
                 return None
             meta = parse_extract_reply(raw)
             if meta:
                 return meta
             self.logger.warning(f"[{self.name}] parse failed on attempt {attempt}; raw={raw[:200]!r}")
-        return {}
+        self.logger.error(
+            f"[{self.name}] reply unusable after 2 attempts; keeping material un-checkpointed; " f"raw={raw[:200]!r}",
+        )
+        self.context[self.skip_key] = {"reason": "extract_parse_failed"}
+        return None
 
     async def _reply(self, wrapper, state, user_message, system_prompt):
         """One timeout-wrapped reply; returns raw text or None on timeout."""
