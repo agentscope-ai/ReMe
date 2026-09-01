@@ -335,7 +335,7 @@ jobs:
 
   move:
     backend: base
-    description: "Move / rename a workspace file."
+    description: "Move / rename a workspace file; rewrites inbound wikilinks by default."
     parameters:
       type: object
       properties:
@@ -347,9 +347,11 @@ jobs:
           description: "workspace-relative destination"
         overwrite:
           type: boolean
+          description: "overwrite if dst exists"
           default: false
         retarget:
           type: boolean
+          description: "rewrite [[src]] → [[dst]] across the workspace"
           default: true
       required:
         - src_path
@@ -368,8 +370,10 @@ jobs:
           description: "workspace-relative path; markdown only"
         start_line:
           type: integer
+          description: "first line (1-based, inclusive)"
         end_line:
           type: integer
+          description: "last line (1-based, inclusive)"
       required:
         - path
     steps:
@@ -379,20 +383,25 @@ jobs:
 
   write:
     backend: base
-    description: "Write a markdown file."
+    description: "Write a markdown file (create or overwrite) with name/description frontmatter."
     parameters:
       type: object
       properties:
         path:
           type: string
+          description: "workspace-relative path; markdown only"
         name:
           type: string
+          description: "frontmatter name"
         description:
           type: string
+          description: "frontmatter description"
         content:
           type: string
+          description: "body"
         metadata:
           type: object
+          description: "Optional extra frontmatter fields (md only)."
       required:
         - path
         - name
@@ -403,23 +412,29 @@ jobs:
 
   daily_write:
     backend: base
-    description: "Write a daily markdown note."
+    description: "Write a daily markdown note with conversation source frontmatter."
     parameters:
       type: object
       properties:
         name:
           type: string
+          description: "daily note filename stem and frontmatter name"
         description:
           type: string
+          description: "frontmatter description"
         session_id:
           type: string
+          description: "source conversation session identifier"
         content:
           type: string
+          description: "body"
         date:
           type: string
+          description: "YYYY-MM-DD daily note date; empty = today"
           default: ""
         metadata:
           type: object
+          description: "Optional extra frontmatter fields."
       required:
         - name
         - description
@@ -430,16 +445,19 @@ jobs:
 
   edit:
     backend: base
-    description: "Find-and-replace in a markdown file."
+    description: "Find-and-replace in a markdown file (all occurrences)."
     parameters:
       type: object
       properties:
         path:
           type: string
+          description: "workspace-relative path"
         old:
           type: string
+          description: "text to find"
         new:
           type: string
+          description: "replacement"
           default: ""
       required:
         - path
@@ -456,6 +474,7 @@ jobs:
       properties:
         path:
           type: string
+          description: "workspace-relative path"
       required:
         - path
     steps:
@@ -463,14 +482,16 @@ jobs:
 
   node_search:
     backend: base
-    description: "Digest node recall."
+    description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."
     parameters:
       type: object
       properties:
         query:
           type: string
+          description: "search query"
         limit:
           type: integer
+          description: "max digest nodes to return"
           default: 20
       required:
         - query
