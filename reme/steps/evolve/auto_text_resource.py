@@ -6,7 +6,7 @@ import aiofiles
 
 from ...components import R
 from ._evolve import agent_reply_result_text
-from ._auto_resource import BaseAutoResourceStep
+from .base_auto_resource import BaseAutoResourceStep
 
 
 def _compute_agent_session_id(path: str) -> str:
@@ -18,6 +18,8 @@ def _compute_agent_session_id(path: str) -> str:
 class AutoTextResourceStep(BaseAutoResourceStep):
     """Interpret text resource files into daily notes via an Agent."""
 
+    # Preserve the pre-router AutoResourceStep behavior for direct calls and
+    # custom watcher suffixes; the default watcher still limits normal inputs.
     resource_fallback = True
     router_inherit_keys = BaseAutoResourceStep.router_inherit_keys | frozenset(
         {"agent_wrapper", "max_file_bytes", "prompt_dict"},

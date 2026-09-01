@@ -67,7 +67,7 @@ The corresponding flow is:
   important facts to a topic-named `daily/<date>/<generated_name>.md`. The note keeps `session_id` and
   `source_conversation` in frontmatter for stable lookup and provenance.
 - `resource_watch_loop` watches supported text and image changes under `resource/` and triggers `auto_resource_step` to
-  write a daily note with `source_resource`. Text resources use an agent, while images use a vision model. The generated
+  write a daily note with `source_resource`. Text resources use the agent, while images use a vision model. The generated
   content-based filename is sanitized and de-duplicated; it is not guaranteed to match the resource filename.
 - Auto Memory, Auto Resource, and Auto Dream refresh `daily/<date>.md` after writing.
 

@@ -11,9 +11,8 @@ from agentscope.message import Base64Source, DataBlock, TextBlock, UserMsg
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, Field
 
-from ..file_io import is_image_file
 from ..file_io._path import IMAGE_MIME_BY_EXT, IMAGE_SUFFIXES
-from ._auto_resource import _SOURCE_RESOURCE_KEY, _sanitize_note_name, BaseAutoResourceStep
+from .base_auto_resource import _SOURCE_RESOURCE_KEY, _sanitize_note_name, BaseAutoResourceStep
 from ...components import R
 from ...enumeration import ComponentEnum
 
@@ -294,7 +293,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
 
     async def _handle_change(self, file_path: str, raw_change) -> dict:
         """Skip non-image changes; isolate per-change failures so the batch continues."""
-        if file_path and not is_image_file(file_path):
+        if file_path and not self.matches_change({"path": file_path}):
             file_path = self.to_workspace_relative(file_path) if Path(file_path).is_absolute() else file_path
             self.context.response.metadata = {}
             answer = f"Skipped non-image resource file: {file_path}"

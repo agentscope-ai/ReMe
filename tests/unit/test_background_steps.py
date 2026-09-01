@@ -31,7 +31,7 @@ from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_memory import AutoMemoryStep
-from reme.steps.evolve._auto_resource import _compute_note_stem
+from reme.steps.evolve.base_auto_resource import _compute_note_stem
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 from reme.steps.file_io.daily_list import DailyListStep

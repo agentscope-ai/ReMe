@@ -33,7 +33,7 @@ from reme.components.file_store import LocalFileStore
 from reme.components.job import BaseJob
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
-from reme.steps.evolve._auto_resource import BaseAutoResourceStep
+from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep
 from reme.steps.evolve.auto_image_resource import (
     AutoImageResourceStep,
     _build_image_request_payload,
@@ -956,7 +956,7 @@ def test_auto_image_reports_modified_when_index_refresh_fails_after_write():
                 async def fail_refresh(*_args, **_kwargs):
                     raise RuntimeError("index refresh failed")
 
-                with patch("reme.steps.evolve._auto_resource.refresh_day_index", new=fail_refresh):
+                with patch("reme.steps.evolve.base_auto_resource.refresh_day_index", new=fail_refresh):
                     resp = await _run_step(step, [{"change": "added", "path": str(source)}])
 
                 result = resp.metadata["results"][0]

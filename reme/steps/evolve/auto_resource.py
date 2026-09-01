@@ -6,7 +6,7 @@ import inspect
 from ...components import R
 from ...enumeration import ComponentEnum
 from ..base_step import BaseStep
-from ._auto_resource import BaseAutoResourceStep, _results_answer
+from .base_auto_resource import BaseAutoResourceStep, _results_answer
 
 _ProcessorSpec = str | dict
 _IndexedChange = tuple[int, dict]
