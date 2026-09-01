@@ -1,6 +1,6 @@
 {
   "name": "@agentscope-ai/reme",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ReMe client and memory integrations for TypeScript agents",
   "type": "module",
   "main": "./dist/index.js",
@@ -64,6 +64,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "pack:clawhub": "node scripts/pack-clawhub.mjs",
     "pretest": "npm run build",
     "test": "node --test tests/*.test.mjs",
     "test:package": "node scripts/test-package.mjs",

@@ -41,7 +41,7 @@ test("keeps the runtime schema aligned with the OpenClaw manifest", async () => 
     await readFile(new URL("../openclaw.plugin.json", import.meta.url), "utf8"),
   );
   assert.deepEqual(manifest.configSchema, OPENCLAW_CONFIG_SCHEMA);
-  assert.deepEqual(manifest.configUiHints, OPENCLAW_CONFIG_UI_HINTS);
+  assert.deepEqual(manifest.uiHints, OPENCLAW_CONFIG_UI_HINTS);
   assert.deepEqual(manifest.contracts.tools, ["reme_search"]);
   assert.equal(manifest.activation.onStartup, true);
 });
