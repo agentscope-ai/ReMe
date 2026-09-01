@@ -9,7 +9,7 @@ from agentscope.message import Msg
 import pytest
 
 from reme.steps.evolve._evolve import agent_reply_result_text, format_history
-from reme.steps.evolve.auto_memory import AutoMemoryStep, _sanitize_msg_for_save
+from reme.steps.evolve.auto_memory import AutoMemoryStep, _normalize_tags, _sanitize_msg_for_save
 
 
 def test_agent_reply_result_text_uses_last_text_block():
@@ -73,6 +73,30 @@ def test_sanitize_msg_for_save_drops_tool_results_and_base64_data():
     assert [block.type for block in sanitized.content] == ["text", "tool_call"]
     assert sanitized.content[0].text == "real conversation"
     assert sanitized.content[1].name == "memory_search"
+
+
+def test_auto_memory_normalizes_frontmatter_tags():
+    """Tags keep technical punctuation, reject phrases, de-duplicate, and stop at eight."""
+    assert _normalize_tags(
+        [
+            "GPT-5",
+            "C++",
+            "C#",
+            ".NET",
+            "100",
+            100,
+            "memory system",
+            "++",
+            "ReMe",
+            "reme",
+            "tag7",
+            "tag8",
+            "tag9",
+        ],
+    ) == ["GPT-5", "C++", "C#", ".NET", "100", "ReMe", "tag7", "tag8"]
+    assert _normalize_tags(None) == []
+    assert _normalize_tags("GPT-5") == []
+    assert _normalize_tags(["x" * 65, True, {}, "valid"]) == ["valid"]
 
 
 def test_auto_memory_accepts_message_timestamp_aliases():

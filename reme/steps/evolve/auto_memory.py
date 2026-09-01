@@ -17,6 +17,9 @@ from ...components import R
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
+_TAGS_KEY = "tags"
+_MAX_TAGS = 8
+_MAX_TAG_LENGTH = 64
 _MESSAGE_TIME_ALIASES = ("time_created", "timestamp", "createdAt", "timeCreated", "created_time")
 
 
@@ -59,6 +62,39 @@ def _normalize_msg_timestamp(item: dict) -> dict:
     return item
 
 
+def _normalize_tags(value) -> list[str]:
+    """Return up to eight unique, retrieval-friendly frontmatter tags.
+
+    Tags are stored uniformly as strings. Technical tokens such as ``GPT-5``,
+    ``C++``, ``C#``, and ``.NET`` are valid; whitespace-delimited phrases and
+    punctuation-only values are not.
+    """
+    if not isinstance(value, list):
+        return []
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (str, int)):
+            continue
+        tag = str(item).strip()
+        if not tag or len(tag) > _MAX_TAG_LENGTH:
+            continue
+        if any(char.isspace() for char in tag):
+            continue
+        if not any(char.isalnum() for char in tag):
+            continue
+
+        dedupe_key = tag.casefold()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        tags.append(tag)
+        if len(tags) >= _MAX_TAGS:
+            break
+    return tags
+
+
 @R.register("auto_memory_step")
 class AutoMemoryStep(BaseStep):
     """Record conversation facts into a daily note via an Agent."""
@@ -82,6 +118,10 @@ class AutoMemoryStep(BaseStep):
 
     def _daily_note_path(self, day: str, name: str) -> str:
         return f"{self.config_value('daily_dir')}/{day}/{name}.md"
+
+    def _tags_enabled(self) -> bool:
+        """Whether this step should generate and normalize frontmatter tags."""
+        return bool(self.kwargs.get("enable_tags", False))
 
     def _frontmatter(self, path: str) -> dict:
         post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
@@ -118,12 +158,14 @@ class AutoMemoryStep(BaseStep):
         notes = list_response.metadata.get("notes") or []
         return self._find_session_note(notes, session_id)
 
-    async def _ensure_session_frontmatter(self, path: str, session_id: str) -> None:
+    async def _ensure_memory_frontmatter(self, path: str, session_id: str) -> None:
+        current = self._frontmatter(path)
         metadata = {
             _SESSION_ID_KEY: session_id,
             _SOURCE_CONVERSATION_KEY: self._session_link(session_id),
         }
-        current = self._frontmatter(path)
+        if self._tags_enabled():
+            metadata[_TAGS_KEY] = _normalize_tags(current.get(_TAGS_KEY))
         if all(current.get(key) == value for key, value in metadata.items()):
             return
         response = await self.run_job(
@@ -339,6 +381,7 @@ class AutoMemoryStep(BaseStep):
         template_key = "user_message_create" if created else "user_message_update"
         user_message = self.prompt_format(
             template_key,
+            enable_tags=self._tags_enabled(),
             today=day,
             note=memory_hint or "(none)",
             note_path=note_path,
@@ -356,7 +399,7 @@ class AutoMemoryStep(BaseStep):
             reply_kwargs["injected_job_kwargs"] = {"_allowed_paths": [note_path]}
         result = await self.agent_wrapper.reply(
             user_message,
-            system_prompt=self.prompt_format("system_prompt"),
+            system_prompt=self.prompt_format("system_prompt", enable_tags=self._tags_enabled()),
             job_tools=self.create_tools if created else self.update_tools,
             **reply_kwargs,
         )
@@ -382,24 +425,25 @@ class AutoMemoryStep(BaseStep):
                 self.logger.info(f"[{self.name}] done without note session_id={session_id!r} modified=False")
                 return
             note_path = str(note["path"])
-        else:
-            try:
-                await self._ensure_session_frontmatter(note_path, session_id)
+        try:
+            if not created or self._tags_enabled():
+                await self._ensure_memory_frontmatter(note_path, session_id)
+            if not created:
                 note_path = await self._rename_from_frontmatter_name(note_path, day)
-            except RuntimeError as exc:
-                self.context.response.success = False
-                self.context.response.answer = str(exc)
-                self.context.response.metadata.update(
-                    {
-                        "date": day,
-                        "path": note_path,
-                        "created": created,
-                        "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
-                        "n_messages": len(messages),
-                    },
-                )
-                self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
-                return
+        except RuntimeError as exc:
+            self.context.response.success = False
+            self.context.response.answer = str(exc)
+            self.context.response.metadata.update(
+                {
+                    "date": day,
+                    "path": note_path,
+                    "created": created,
+                    "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
+                    "n_messages": len(messages),
+                },
+            )
+            self.logger.info(f"[{self.name}] post-write failed path={note_path} answer={str(exc)!r}")
+            return
 
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         daily_dir = self.config_value("daily_dir")
