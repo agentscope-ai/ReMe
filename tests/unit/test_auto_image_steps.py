@@ -532,23 +532,28 @@ def test_image_preprocessing_reports_dependency_errors(blocked_module, suffix, e
 
 
 @pytest.mark.parametrize(
-    ("payload", "suffix", "save_fails", "error_pattern"),
+    ("payload", "suffix", "failing_method", "error_pattern"),
     [
-        (b"not an image", ".png", False, "Failed to decode image"),
-        (_img_bytes("BMP"), ".bmp", True, "Failed to convert/resize image"),
+        (b"not an image", ".png", None, "Failed to decode image"),
+        (_png_bytes(width=2049, height=1), ".png", "thumbnail", "Failed to convert/resize image"),
+        (_img_bytes("BMP"), ".bmp", "save", "Failed to convert/resize image"),
     ],
-    ids=["decode", "conversion"],
+    ids=["decode", "resize", "conversion"],
 )
-def test_image_preprocessing_reports_data_errors(payload, suffix, save_fails, error_pattern):
-    """Decode and conversion failures remain explicit."""
-    if not save_fails:
+def test_image_preprocessing_reports_data_errors(payload, suffix, failing_method, error_pattern):
+    """Decode, resize, and conversion failures remain explicit."""
+    if failing_method is None:
         with pytest.raises(RuntimeError, match=error_pattern):
             _build_image_request_payload(payload, suffix)
         return
 
-    with patch("PIL.Image.Image.save", side_effect=OSError("encoder failed")):
+    with patch(
+        f"PIL.Image.Image.{failing_method}",
+        side_effect=OSError(f"{failing_method} failed"),
+    ) as failing_call:
         with pytest.raises(RuntimeError, match=error_pattern):
             _normalize_image_bytes(payload, suffix)
+    failing_call.assert_called_once()
 
 
 def test_auto_image_module_imports_without_pillow():
