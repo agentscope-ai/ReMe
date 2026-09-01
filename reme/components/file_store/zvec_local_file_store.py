@@ -6,7 +6,6 @@ import shutil
 import time
 from uuid import uuid4
 
-import aiofiles
 import numpy as np
 
 from .base_file_store import BaseFileStore
@@ -246,6 +245,7 @@ class ZvecLocalFileStore(LocalFileStore):
             digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
         return digest.hexdigest()
 
+    @BaseFileStore.serialized
     async def load(self) -> None:
         """Load chunks via the parent, then attach the zvec collection (open or rebuild)."""
         await super().load()
@@ -253,9 +253,13 @@ class ZvecLocalFileStore(LocalFileStore):
             self._collection = None
             return
         if not await self._try_open_collection():
-            self._rebuild_collection()
+            await complete_in_thread(self._rebuild_collection)
 
     async def _try_open_collection(self) -> bool:
+        """Open and validate the complete zvec checkpoint off-loop."""
+        return await complete_in_thread(self._try_open_collection_sync)
+
+    def _try_open_collection_sync(self) -> bool:
         """Open the persisted collection and validate it against the chunks.
 
         On any mismatch or open error the collection directory and sidecar are
@@ -270,8 +274,7 @@ class ZvecLocalFileStore(LocalFileStore):
             return False
         collection = None
         try:
-            async with aiofiles.open(self.zvec_sidecar_path, encoding=self.encoding) as f:
-                sidecar = json.loads(await f.read())
+            sidecar = json.loads(self.zvec_sidecar_path.read_text(encoding=self.encoding))
             if sidecar.get("digest") != self._chunks_embedding_digest():
                 raise ValueError("zvec sidecar embedding digest does not match persisted chunks")
             indexed_ids = set(sidecar.get("ids", []))
@@ -333,13 +336,14 @@ class ZvecLocalFileStore(LocalFileStore):
             f"elapsed={time.monotonic() - started_at:.3f}s",
         )
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist chunks and zvec state, excluding dependency snapshots."""
         await super()._dump_owned_state()
         if self._collection is None or self.embedding_store is None:
             return
         try:
-            self._collection.flush()
+            await complete_in_thread(self._collection.flush)
             await self._write_sidecar()
             self.logger.info(f"Saved zvec collection: {len(self._indexed_ids)} vectors to {self.zvec_path}")
         except Exception as e:
@@ -348,6 +352,10 @@ class ZvecLocalFileStore(LocalFileStore):
 
     async def _write_sidecar(self) -> None:
         """Atomically write the digest sidecar binding the collection to the chunk generation."""
+        await complete_in_thread(self._write_sidecar_sync)
+
+    def _write_sidecar_sync(self) -> None:
+        """Build and atomically publish the zvec sidecar off-loop."""
         tmp = self.zvec_sidecar_path.with_name(f".{self.zvec_sidecar_path.name}.{uuid4().hex}.tmp")
         payload = json.dumps(
             {
@@ -356,8 +364,7 @@ class ZvecLocalFileStore(LocalFileStore):
             },
         )
         try:
-            async with aiofiles.open(tmp, "w", encoding=self.encoding) as f:
-                await f.write(payload)
+            tmp.write_text(payload, encoding=self.encoding)
             tmp.replace(self.zvec_sidecar_path)
         finally:
             tmp.unlink(missing_ok=True)
@@ -416,7 +423,7 @@ class ZvecLocalFileStore(LocalFileStore):
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
         if nodes:
-            self._mutation_generation += 1
+            self._advance_mutation_generation()
         if self._embedding_rebuild_pending:
             return
         self._delete_docs(deleted_ids)

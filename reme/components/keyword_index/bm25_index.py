@@ -56,6 +56,7 @@ class BM25Index(BaseKeywordIndex):
         # IDF cache; invalidated whenever live-doc count or postings change.
         self._idf_cache: dict[int, float] = {}
         self._dump_lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
 
     # -- Properties -----------------------------------------------------------
 
@@ -249,6 +250,12 @@ class BM25Index(BaseKeywordIndex):
         if not docs_dict:
             return
 
+        async with self._state_lock:
+            self._add_docs_sync(docs_dict)
+
+    def _add_docs_sync(self, docs_dict: dict[str, str]) -> None:
+        """Mutate the inverted index while the caller owns the state lock."""
+
         new_doc_ids: list[str] = []
         new_doc_lens: list[int] = []
         new_doc_token_ids: list[np.ndarray] = []
@@ -276,9 +283,10 @@ class BM25Index(BaseKeywordIndex):
 
     async def delete_docs(self, doc_ids: list[str]) -> None:
         """Lazy-delete a batch of doc_ids; physical reclaim happens in optimize_index."""
-        for doc_id in doc_ids:
-            self._remove_doc(doc_id)
-        self._idf_cache = {}
+        async with self._state_lock:
+            for doc_id in doc_ids:
+                self._remove_doc(doc_id)
+            self._idf_cache = {}
 
     def _score_query(self, query_ids: list[int], n_docs: int) -> np.ndarray:
         """Compute BM25 scores across all docs; deleted docs zeroed out."""
@@ -361,14 +369,12 @@ class BM25Index(BaseKeywordIndex):
     async def dump(self) -> None:
         """Persist the index via temp file + atomic rename to avoid torn writes."""
         async with self._dump_lock:
-            if self.n_docs == 0 and not self.vocab:
-                self.index_file.unlink(missing_ok=True)
-                return
             try:
-                # Keep snapshotting synchronous so the worker receives one coherent
-                # index generation. Move it off-loop only if profiling identifies this
-                # copy, rather than pickle/file I/O, as a material event-loop stall.
-                snapshot = self._snapshot()
+                async with self._state_lock:
+                    if self.n_docs == 0 and not self.vocab:
+                        self.index_file.unlink(missing_ok=True)
+                        return
+                    snapshot = await complete_in_thread(self._snapshot)
                 await complete_in_thread(self._dump_sync, snapshot)
                 self.logger.info(f"Saved {self.n_docs} docs to {self.index_file}")
             except Exception as e:
@@ -389,14 +395,17 @@ class BM25Index(BaseKeywordIndex):
         """Load from disk; missing file is a no-op, corrupt file resets state."""
         if not self.index_file.exists():
             return
-        try:
-            data = await asyncio.to_thread(self._load_sync)
-            self._restore(data)
-            self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
-        except Exception as e:
-            self.logger.exception(f"Failed to load index: {e}")
-            self.index_file.unlink(missing_ok=True)
-            await self.clear()
+        async with self._dump_lock:
+            try:
+                data = await asyncio.to_thread(self._load_sync)
+                async with self._state_lock:
+                    self._restore(data)
+                self.logger.info(f"Loaded {self.n_docs} docs from {self.index_file}")
+            except Exception as e:
+                self.logger.exception(f"Failed to load index: {e}")
+                self.index_file.unlink(missing_ok=True)
+                async with self._state_lock:
+                    self._clear_state()
 
     def _load_sync(self) -> dict:
         with open(self.index_file, "rb") as file:
@@ -405,16 +414,21 @@ class BM25Index(BaseKeywordIndex):
     async def clear(self) -> None:
         """Reset in-memory state and remove the persisted file."""
         async with self._dump_lock:
-            self.vocab = {}
-            self._doc_ids = []
-            self._doc_id_to_idx = {}
-            self._doc_lens = np.zeros(0, dtype=np.int32)
-            self._deleted = np.zeros(0, dtype=bool)
-            self._doc_token_ids = []
-            self._posting_doc_idxs = {}
-            self._posting_tfs = {}
-            self._idf_cache = {}
-            self.index_file.unlink(missing_ok=True)
+            async with self._state_lock:
+                self._clear_state()
+                self.index_file.unlink(missing_ok=True)
+
+    def _clear_state(self) -> None:
+        """Reset every in-memory field while the caller owns the state lock."""
+        self.vocab = {}
+        self._doc_ids = []
+        self._doc_id_to_idx = {}
+        self._doc_lens = np.zeros(0, dtype=np.int32)
+        self._deleted = np.zeros(0, dtype=bool)
+        self._doc_token_ids = []
+        self._posting_doc_idxs = {}
+        self._posting_tfs = {}
+        self._idf_cache = {}
 
     # -- Compaction -----------------------------------------------------------
 
@@ -475,28 +489,30 @@ class BM25Index(BaseKeywordIndex):
 
     async def optimize_index(self) -> None:
         """Physically reclaim deleted docs and unused vocab entries."""
-        if self._deleted.size == 0:
-            return
-        active_mask = ~self._deleted
-        if not active_mask.any():
-            await self.clear()
-            return
+        async with self._state_lock:
+            if self._deleted.size == 0:
+                return
+            active_mask = ~self._deleted
+            if not active_mask.any():
+                self._clear_state()
+                self.index_file.unlink(missing_ok=True)
+                return
 
-        old_to_new_idx, n_active = self._build_idx_remap(active_mask)
-        new_vocab, old_tid_to_new = self._compact_vocab(active_mask)
-        new_posting_idxs, new_posting_tfs = self._compact_postings(
-            active_mask,
-            old_to_new_idx,
-            old_tid_to_new,
-        )
-        new_doc_ids, new_doc_token_ids = self._compact_docs(active_mask, old_tid_to_new)
+            old_to_new_idx, n_active = self._build_idx_remap(active_mask)
+            new_vocab, old_tid_to_new = self._compact_vocab(active_mask)
+            new_posting_idxs, new_posting_tfs = self._compact_postings(
+                active_mask,
+                old_to_new_idx,
+                old_tid_to_new,
+            )
+            new_doc_ids, new_doc_token_ids = self._compact_docs(active_mask, old_tid_to_new)
 
-        self.vocab = new_vocab
-        self._doc_ids = new_doc_ids
-        self._doc_id_to_idx = {doc_id: i for i, doc_id in enumerate(new_doc_ids)}
-        self._doc_lens = self._doc_lens[active_mask].astype(np.int32, copy=True)
-        self._deleted = np.zeros(n_active, dtype=bool)
-        self._doc_token_ids = new_doc_token_ids
-        self._posting_doc_idxs = new_posting_idxs
-        self._posting_tfs = new_posting_tfs
-        self._idf_cache = {}
+            self.vocab = new_vocab
+            self._doc_ids = new_doc_ids
+            self._doc_id_to_idx = {doc_id: i for i, doc_id in enumerate(new_doc_ids)}
+            self._doc_lens = self._doc_lens[active_mask].astype(np.int32, copy=True)
+            self._deleted = np.zeros(n_active, dtype=bool)
+            self._doc_token_ids = new_doc_token_ids
+            self._posting_doc_idxs = new_posting_idxs
+            self._posting_tfs = new_posting_tfs
+            self._idf_cache = {}

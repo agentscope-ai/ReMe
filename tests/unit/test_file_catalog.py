@@ -5,6 +5,7 @@
 import asyncio
 import os
 import tempfile
+import threading
 
 import pytest
 
@@ -170,6 +171,42 @@ def test_start_failure_does_not_overwrite_persisted_catalog(tmp_path):
 
             assert catalog.is_started is False
             assert catalog._catalog_file.read_bytes() == original_bytes
+
+    asyncio.run(run())
+
+
+def test_catalog_lifecycle_checkpoint_work_runs_off_loop(tmp_path, monkeypatch):
+    """Catalog start and close execute full compressed checkpoints in workers."""
+
+    async def run():
+        with temp_chdir(tmp_path):
+            seed = LocalFileCatalog()
+            await seed.start()
+            await seed.upsert([make_node("a.md")])
+            await seed.close()
+
+            catalog = LocalFileCatalog()
+            loop_thread = threading.get_ident()
+            load_threads = []
+            dump_threads = []
+            original_load = catalog._read_jsonl_sync
+            original_dump = catalog._write_jsonl_sync
+
+            def observed_load(*args):
+                load_threads.append(threading.get_ident())
+                return original_load(*args)
+
+            def observed_dump():
+                dump_threads.append(threading.get_ident())
+                return original_dump()
+
+            monkeypatch.setattr(catalog, "_read_jsonl_sync", observed_load)
+            monkeypatch.setattr(catalog, "_write_jsonl_sync", observed_dump)
+            await catalog.start()
+            await catalog.close()
+
+            assert load_threads and all(thread_id != loop_thread for thread_id in load_threads)
+            assert dump_threads and all(thread_id != loop_thread for thread_id in dump_threads)
 
     asyncio.run(run())
 

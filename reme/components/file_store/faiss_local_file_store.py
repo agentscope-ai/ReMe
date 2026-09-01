@@ -6,13 +6,13 @@ import json
 from contextlib import suppress
 from uuid import uuid4
 
-import aiofiles
 import numpy as np
 
 from .base_file_store import BaseFileStore
 from .local_file_store import LocalFileStore
 from ..component_registry import R
 from ...schema import FileChunk, FileNode
+from ...utils.async_utils import complete_in_thread
 
 
 @R.register("faiss")
@@ -410,6 +410,7 @@ class FaissLocalFileStore(LocalFileStore):
             digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
         return digest.hexdigest()
 
+    @BaseFileStore.serialized
     async def load(self) -> None:
         """Load chunks via the parent, then attach FAISS state (sidecar or rebuild)."""
         await super().load()
@@ -417,9 +418,13 @@ class FaissLocalFileStore(LocalFileStore):
             self._faiss_index = None
             return
         if not await self._try_load_sidecar():
-            self._rebuild_index()
+            await complete_in_thread(self._rebuild_index)
 
     async def _try_load_sidecar(self) -> bool:
+        """Load and validate the complete FAISS sidecar outside the event loop."""
+        return await complete_in_thread(self._try_load_sidecar_sync)
+
+    def _try_load_sidecar_sync(self) -> bool:
         """Read the binary index plus id-map sidecar. On any mismatch or read error,
         wipe the partial files so the caller can rebuild from chunks cleanly.
 
@@ -459,8 +464,7 @@ class FaissLocalFileStore(LocalFileStore):
                 raise ValueError(
                     f"FAISS HNSW M mismatch: persisted={persisted_m}, configured={self.hnsw_m}",
                 )
-            async with aiofiles.open(self.faiss_idmap_path, encoding=self.encoding) as f:
-                data = json.loads(await f.read())
+            data = json.loads(self.faiss_idmap_path.read_text(encoding=self.encoding))
             id_map = list(data.get("id_map", []))
             if len(id_map) != index.ntotal:
                 raise ValueError(f"id_map size {len(id_map)} != index ntotal {index.ntotal}")
@@ -506,6 +510,7 @@ class FaissLocalFileStore(LocalFileStore):
             self.faiss_idmap_path.unlink(missing_ok=True)
             return False
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist chunks and the FAISS sidecar, excluding dependency snapshots."""
         async with self._faiss_dump_lock:
@@ -513,7 +518,7 @@ class FaissLocalFileStore(LocalFileStore):
             if self._faiss_index is None or self.embedding_store is None:
                 return
             try:
-                self._compact_if_needed()
+                await complete_in_thread(self._compact_if_needed)
                 await self._write_sidecar()
                 self.logger.info(f"Saved FAISS index: {self._faiss_index.ntotal} vectors to {self.faiss_path}")
             except Exception as e:
@@ -521,6 +526,10 @@ class FaissLocalFileStore(LocalFileStore):
                 raise
 
     async def _write_sidecar(self) -> None:
+        """Persist both FAISS sidecar files outside the event loop."""
+        await complete_in_thread(self._write_sidecar_sync)
+
+    def _write_sidecar_sync(self) -> None:
         token = uuid4().hex
         tmp_index = self.faiss_path.with_name(f".{self.faiss_path.name}.{token}.tmp")
         tmp_idmap = self.faiss_idmap_path.with_name(f".{self.faiss_idmap_path.name}.{token}.tmp")
@@ -536,8 +545,7 @@ class FaissLocalFileStore(LocalFileStore):
         )
         try:
             self._faiss.write_index(self._faiss_index, str(tmp_index))
-            async with aiofiles.open(tmp_idmap, "w", encoding=self.encoding) as f:
-                await f.write(payload)
+            tmp_idmap.write_text(payload, encoding=self.encoding)
 
             # Publish only after both parts of the sidecar have been written successfully.
             tmp_index.replace(self.faiss_path)
@@ -607,7 +615,7 @@ class FaissLocalFileStore(LocalFileStore):
         deleted_ids = [cid for n in nodes for cid in n.chunk_ids]
         await self._delete_nodes(nodes)  # reuse resolved nodes; avoids a second get_nodes
         if nodes:
-            self._mutation_generation += 1
+            self._advance_mutation_generation()
         if self._embedding_rebuild_pending or self._faiss_index is None:
             return
         for cid in deleted_ids:

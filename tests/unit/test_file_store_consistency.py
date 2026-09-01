@@ -1291,6 +1291,125 @@ def test_checkpoint_dump_keeps_event_loop_responsive(monkeypatch):
     run(go())
 
 
+def test_start_and_close_checkpoint_io_keep_event_loop_responsive(monkeypatch):
+    """Public lifecycle methods keep synchronous checkpoint work off-loop."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_nonblocking_lifecycle")
+            store.chunks_path.parent.mkdir(parents=True, exist_ok=True)
+            write_jsonl_zst(store.chunks_path, [])
+            loop_thread = threading.get_ident()
+
+            load_entered = threading.Event()
+            load_release = threading.Event()
+            load_threads = []
+            original_reader = local_file_store_module.read_jsonl_zst
+
+            def blocking_reader(*args, **kwargs):
+                load_threads.append(threading.get_ident())
+                load_entered.set()
+                assert load_release.wait(timeout=2)
+                yield from original_reader(*args, **kwargs)
+
+            monkeypatch.setattr(local_file_store_module, "read_jsonl_zst", blocking_reader)
+            start_task = asyncio.create_task(store.start())
+            assert await asyncio.to_thread(load_entered.wait, 1)
+            assert load_threads == [load_threads[0]]
+            assert load_threads[0] != loop_thread
+            for _ in range(5):
+                await asyncio.sleep(0)
+            assert not start_task.done()
+            load_release.set()
+            await start_task
+
+            graph = store.file_graph
+            dump_entered = threading.Event()
+            dump_release = threading.Event()
+            dump_threads = []
+            original_graph_dump = graph._dump_sync
+
+            def blocking_graph_dump():
+                dump_threads.append(threading.get_ident())
+                dump_entered.set()
+                assert dump_release.wait(timeout=2)
+                return original_graph_dump()
+
+            monkeypatch.setattr(graph, "_dump_sync", blocking_graph_dump)
+            close_task = asyncio.create_task(store.close())
+            assert await asyncio.to_thread(dump_entered.wait, 1)
+            assert dump_threads == [dump_threads[0]]
+            assert dump_threads[0] != loop_thread
+            for _ in range(5):
+                await asyncio.sleep(0)
+            assert not close_task.done()
+            dump_release.set()
+            await close_task
+
+    run(go())
+
+
+def test_checkpoint_snapshot_is_built_off_event_loop(monkeypatch):
+    """Deep-copying a chunk generation runs in the worker before compression."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_nonblocking_snapshot")
+            await store.start()
+            store.file_chunks["a"] = chunk("a", "a.md", "alpha")
+            loop_thread = threading.get_ident()
+            snapshot_threads = []
+            original_snapshot = store._snapshot_chunks_sync
+
+            def observed_snapshot():
+                snapshot_threads.append(threading.get_ident())
+                return original_snapshot()
+
+            monkeypatch.setattr(store, "_snapshot_chunks_sync", observed_snapshot)
+            await store._dump_owned_state()
+
+            assert snapshot_threads == [snapshot_threads[0]]
+            assert snapshot_threads[0] != loop_thread
+            await store.close()
+
+    run(go())
+
+
+def test_checkpoint_snapshot_retries_concurrent_embedding_generation(monkeypatch):
+    """A backfill publication during worker copy cannot produce a mixed checkpoint."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = _new_local_store("t_snapshot_generation_retry")
+            await store.start()
+            store.file_chunks["a"] = chunk("a", "a.md", "alpha")
+            first_entered = threading.Event()
+            release_first = threading.Event()
+            snapshot_calls = 0
+            original_snapshot = store._snapshot_chunks_sync
+
+            def blocking_snapshot():
+                nonlocal snapshot_calls
+                snapshot_calls += 1
+                snapshot = original_snapshot()
+                if snapshot_calls == 1:
+                    first_entered.set()
+                    assert release_first.wait(timeout=2)
+                return snapshot
+
+            monkeypatch.setattr(store, "_snapshot_chunks_sync", blocking_snapshot)
+            dump_task = asyncio.create_task(store._dump_owned_state())
+            assert await asyncio.to_thread(first_entered.wait, 1)
+            store._checkpoint_generation += 1
+            release_first.set()
+            await dump_task
+
+            assert snapshot_calls == 2
+            await store.close()
+
+    run(go())
+
+
 def test_checkpoint_dump_finishes_before_propagating_cancellation(monkeypatch):
     """Cancellation cannot leave an old checkpoint writer running in the background."""
 
