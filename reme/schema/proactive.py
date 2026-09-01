@@ -76,6 +76,7 @@ class ProactiveState(BaseModel):
     scan_days: int = 2
     carry_forward_days: int = 14
     changed_paths: list[str] = Field(default_factory=list)
+    changed_mtimes: dict[str, float] = Field(default_factory=dict)
     carry_forward_count: int = 0
     carry_forward_prompt: list[ProactiveTopic] = Field(default_factory=list)
     llm_calls: int = 0

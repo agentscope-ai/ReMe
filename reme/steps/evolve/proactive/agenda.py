@@ -222,6 +222,11 @@ class ProactiveAgendaStep(BaseStep):
         except asyncio.TimeoutError:
             self.logger.warning(f"[{self.name}] LLM reply timed out after {self.llm_timeout_seconds}s")
             return self._fallback_agenda(carded_ids)
+        except Exception as e:  # noqa: BLE001 - network/provider errors degrade to fallback agenda
+            self.logger.warning(
+                f"[{self.name}] LLM reply failed ({type(e).__name__}: {e}); using fallback agenda",
+            )
+            return self._fallback_agenda(carded_ids)
         raw = agent_reply_result_text(result)
         agenda_raw, suppressed_raw = parse_agenda_reply(raw)
 

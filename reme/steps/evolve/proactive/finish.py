@@ -43,13 +43,24 @@ class ProactiveFinishStep(BaseStep):
         ws = workspace_dir(self)
 
         checkpoint = [rel for rel in state.changed_paths if (ws / rel).is_file()]
+        snapshot = state.changed_mtimes
         nodes: list[FileNode] = []
+        deferred = 0
         for rel in dict.fromkeys(checkpoint):
             try:
-                nodes.append(FileNode(path=rel, st_mtime=(ws / rel).stat().st_mtime))
+                mtime = (ws / rel).stat().st_mtime
             except OSError:
                 continue
-        self.logger.info(f"[{self.name}] start checkpoint={len(nodes)} persist={self.persist}")
+            if rel in snapshot and mtime != snapshot[rel]:
+                # Modified while extract/plan/agenda were running: the new
+                # content never reached this round's prompt, so leave the path
+                # un-checkpointed for the next round (audit item 3).
+                deferred += 1
+                continue
+            nodes.append(FileNode(path=rel, st_mtime=mtime))
+        self.logger.info(
+            f"[{self.name}] start checkpoint={len(nodes)} deferred={deferred} persist={self.persist}",
+        )
         if nodes:
             await self.file_catalog.upsert(nodes)
         if self.persist and nodes:
@@ -60,6 +71,9 @@ class ProactiveFinishStep(BaseStep):
         self.context["proactive"] = data
         self.context.response.metadata["proactive"] = data
         self.context.response.success = True
-        self.context.response.answer = f"Proactive finished: checkpointed {len(nodes)} path(s)"
+        answer = f"Proactive finished: checkpointed {len(nodes)} path(s)"
+        if deferred:
+            answer += f", deferred {deferred} path(s) modified during the round"
+        self.context.response.answer = answer
         self.logger.info(f"[{self.name}] finish checkpointed={len(nodes)}")
         return self.context.response

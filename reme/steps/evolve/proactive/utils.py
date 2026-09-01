@@ -175,7 +175,10 @@ async def load_carry_forward(
         if topic.id and topic.id in resolved_ids:
             continue
         first_seen = _safe_date(topic.first_seen)
-        if base is not None and first_seen is not None and (base - first_seen).days > int(days):
+        # Boundary aligned with trim_state_file/_expiry_cutoff: age >= days is
+        # over-age everywhere, so a topic never enters the prompt in the same
+        # round it gets pruned from the truth source (audit item 9).
+        if base is not None and first_seen is not None and (base - first_seen).days >= int(days):
             expired += 1
             continue
         open_topics.append(topic)
@@ -489,6 +492,25 @@ def strip_frontmatter(text: str) -> tuple[dict, str]:
     return meta, body.strip()
 
 
+def _contained_workspace_path(ws: Path, rel_path: str) -> Path | None:
+    """Resolve ``rel_path`` strictly inside the workspace (audit item 7).
+
+    Rejects absolute paths, home-relative paths and ``..`` traversal so the
+    profile fallback can never read (and then feed into prompts) files that
+    live outside the workspace.
+    """
+    candidate = Path(rel_path)
+    if candidate.is_absolute() or candidate.anchor or rel_path.startswith("~") or ".." in candidate.parts:
+        return None
+    workspace = ws.resolve()
+    resolved = (workspace / candidate).resolve()
+    try:
+        resolved.relative_to(workspace)
+    except ValueError:
+        return None
+    return resolved
+
+
 def load_personal_profile_block(
     ws: Path,
     digest_dir: str,
@@ -530,8 +552,8 @@ def load_personal_profile_block(
             if sections:
                 return "\n\n".join(sections)[:max_chars]
     if fallback_rel_path:
-        fallback = ws / fallback_rel_path
-        if fallback.is_file():
+        fallback = _contained_workspace_path(ws, fallback_rel_path)
+        if fallback is not None and fallback.is_file():
             try:
                 text = fallback.read_text(encoding="utf-8")[:max_chars]
             except OSError:

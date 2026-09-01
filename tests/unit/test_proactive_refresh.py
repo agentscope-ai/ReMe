@@ -6,6 +6,8 @@ F5 read extensions, plus the M2 extends branch and semantic dedup.
 """
 
 import asyncio
+import datetime as dt
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -38,6 +40,7 @@ from reme.steps.evolve.proactive.utils import (
     scan_material_daily,
     strip_frontmatter,
     topic_id,
+    trim_state_file,
 )
 
 DAY = "2026-08-13"
@@ -1844,5 +1847,74 @@ def test_chain_with_configured_daily_dir(tmp_path):
         assert any("张三画像" in inp or "张三关注小米" in inp for inp in wrapper.last_inputs)
         assert any(f"memory/{DAY}" in inp for inp in wrapper.last_inputs)
         assert any("memory/<date>" in sp for sp in wrapper.last_system_prompts)
+
+    asyncio.run(run())
+
+
+def test_finish_defers_paths_modified_during_round(tmp_path):
+    """Files edited while the LLM calls run are left for the next round (audit 3)."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "a.md", "first note")
+        note_b = _touch(ws / "daily" / DAY / "b.md", "second note")
+        reply = _reply(follow_ups=[], extends=[])
+        app = ApplicationContext(workspace_dir=str(ws))
+        wrapper = _AgentWrapper([reply])
+        catalog = _Catalog()
+        context = RuntimeContext(date=DAY, file_catalog=catalog, file_store=_FileStore(ws), agent_wrapper=wrapper)
+
+        resp_extract = await ProactiveExtractStep(app_context=app)(context)
+        assert resp_extract.success is True
+        state = context.get("proactive")
+        assert set(state["changed_paths"]) == {f"daily/{DAY}/a.md", f"daily/{DAY}/b.md"}
+        assert state["changed_mtimes"][f"daily/{DAY}/b.md"] == note_b.stat().st_mtime
+
+        # The user edits b.md while plan/agenda LLM calls are still running.
+        note_b.write_text("second note, edited mid-round", encoding="utf-8")
+        future = time.time() + 5
+        os.utime(note_b, (future, future))
+
+        resp_finish = await ProactiveFinishStep(app_context=app)(context)
+        assert resp_finish.success is True
+        final_state = context.get("proactive")
+        assert final_state["checkpoint_paths"] == [f"daily/{DAY}/a.md"]
+        assert "deferred 1" in resp_finish.answer
+        assert {n.path for n in catalog.upserts} == {f"daily/{DAY}/a.md"}
+
+    asyncio.run(run())
+
+
+def test_read_single_corrupt_yaml_is_read_only_failure(tmp_path):
+    """Corrupt interests.yaml: the read fails loudly and never moves the file (audit 2)."""
+
+    async def run():
+        ws = tmp_path
+        corrupt = "topics: [unclosed"
+        path = _touch(ws / "daily" / DAY / "interests.yaml", corrupt)
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(ws)))
+        response = await step(RuntimeContext(date=DAY, file_store=_FileStore(ws)))
+        assert response.success is False
+        assert response.metadata.get("error")
+        assert path.is_file()
+        assert path.read_text(encoding="utf-8") == corrupt
+        assert not list(path.parent.glob("interests.corrupt-*"))
+
+    asyncio.run(run())
+
+
+def test_carry_forward_expiry_boundary_consistent(tmp_path):
+    """Age == carry_forward_days is over-age in both prompt loading and trim (audit 9)."""
+
+    async def run():
+        ws = tmp_path
+        edge_day = (dt.date.fromisoformat(DAY) - dt.timedelta(days=14)).isoformat()
+        _write_state(ws, open_topics=[_state_topic("Edge Topic", day=edge_day)])
+        state_file, _ = load_state(ws)
+        carry_all, _ = await load_carry_forward(ws, state_file, DAY, 14, 20)
+        assert carry_all == []
+
+        trim_state_file(state_file, DAY, 14)
+        assert state_file.open_topics == []
 
     asyncio.run(run())

@@ -102,6 +102,10 @@ class ProactiveExtractStep(BaseStep):
         nodes = await self.file_catalog.get_nodes()
         indexed = {n.path: n.st_mtime for n in nodes}
         state.changed_paths = [rel for rel, mt in existing.items() if indexed.get(rel) != mt]
+        # mtime snapshot of what this round actually read; finish only
+        # checkpoints paths whose mtime still matches, so files modified while
+        # the LLM calls run stay "changed" for the next round (audit item 3).
+        state.changed_mtimes = {rel: existing[rel] for rel in state.changed_paths}
         self.logger.info(
             f"[{self.name}] material daily={len(m_daily)} "
             f"changed={len(state.changed_paths)} carry_forward={len(carry_all)}",

@@ -20,8 +20,8 @@ from .utils import (
     dump_topic,
     load_state,
     parse_interests_topics,
-    quarantine_interests,
     sort_topics,
+    state_file_path,
     topic_id,
 )
 
@@ -82,13 +82,13 @@ class ProactiveStep(BaseStep):
             return self._finish(True, result, include_content=include_content)
         try:
             raw_text = abs_path.read_text(encoding="utf-8")
-            try:
-                data = yaml.safe_load(raw_text)
-                if not isinstance(data, dict):
-                    raise ValueError("interests.yaml is not a mapping")
-            except Exception as e:  # noqa: BLE001
-                quarantine_interests(abs_path, e)
-                data = {}  # A2: treat corrupt file as empty
+            # The reader stays strictly read-only: a corrupt file is never
+            # moved or renamed here; the parse failure propagates to the
+            # outer handler and surfaces as success=False so callers can see
+            # it instead of a silent empty read (audit item 2).
+            data = yaml.safe_load(raw_text)
+            if not isinstance(data, dict):
+                raise ValueError("interests.yaml is not a mapping")
             topics, is_v1, push = parse_interests_topics(data, day)
             if push is False:
                 result.skipped = True
@@ -148,6 +148,11 @@ class ProactiveStep(BaseStep):
         so the reader no longer re-scans N days of exposure products.
         """
         state_file, _needs_bootstrap = load_state(ws, daily)
+        if include_content:
+            try:
+                result.content = state_file_path(ws, daily).read_text(encoding="utf-8")
+            except OSError:
+                result.content = ""
         if not state_file.open_topics:
             result.skipped = True
             result.summary = f"Skipped: truth source has no open topics (horizon_days={horizon})"
