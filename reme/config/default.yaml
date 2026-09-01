@@ -197,30 +197,6 @@ jobs:
           - auto_image_resource_step
           - auto_text_resource_step
 
-  auto_image:
-    backend: base
-    description: "Auto-image: interpret image resource files into daily caption notes"
-    parameters:
-      type: object
-      properties:
-        changes:
-          type: array
-          description: "image resource change batch, each item has path/file_path and change"
-          items:
-            type: object
-            properties:
-              path:
-                type: string
-              file_path:
-                type: string
-              change:
-                type: string
-                description: "added/modified/deleted"
-      required:
-        - changes
-    steps:
-      - backend: auto_image_resource_step
-
   proactive:
     backend: base
     description: "Proactive: read daily/<date>/interests.yaml and expose the latest user-interest topics."

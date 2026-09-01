@@ -189,6 +189,14 @@ def test_match_file_suffix():
     print("✓ test_match_file_suffix passed")
 
 
+def test_match_file_suffix_is_case_insensitive():
+    """Configured suffixes match uppercase file extensions."""
+    rules = [WatchRule(path=Path("/workspace/resource"), suffixes=["jpg", ".png"])]
+    assert match_file("/workspace/resource/photo.JPG", rules)
+    assert match_file("/workspace/resource/sub/diagram.PNG", rules)
+    assert not match_file("/workspace/resource/photo.GIF", rules)
+
+
 def test_match_file_no_suffix_filter():
     """Empty suffixes list means all files match."""
     rules = [WatchRule(path=Path("/workspace/resource"), suffixes=[])]
@@ -220,6 +228,18 @@ def test_collect_existing_filters():
         assert str((resource / "data.json").absolute()) in paths
         assert str((resource / "binary.png").absolute()) not in paths
     print("✓ test_collect_existing_filters passed")
+
+
+def test_collect_existing_matches_uppercase_suffixes():
+    """The initial scan includes files whose extension casing differs from the rule."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        resource = Path(tmpdir) / "resource"
+        uppercase = write_file(resource / "photo.JPG")
+        write_file(resource / "ignore.GIF")
+
+        result = collect_existing([WatchRule(path=resource, suffixes=["jpg"])], recursive=True)
+
+        assert set(result) == {str(uppercase.absolute())}
 
 
 # ---------------------------------------------------------------------------
@@ -1173,6 +1193,21 @@ def test_watch_changes_filter_matches_rules():
     print("✓ test_watch_changes_filter_matches_rules passed")
 
 
+def test_watch_changes_filter_matches_uppercase_suffixes():
+    """The live watcher accepts uppercase extensions configured in lowercase."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        (workspace / "resource").mkdir()
+        app_ctx = _make_app_context(workspace)
+
+        step = WatchChangesStep(app_context=app_ctx)
+        step.context = RuntimeContext(watch_dirs=["resource_dir"], watch_suffixes=["jpg"])
+        step._rules = step._get_watch_rules()
+
+        assert step._filter(Change.added, str(workspace / "resource/photo.JPG"))
+        assert not step._filter(Change.added, str(workspace / "resource/photo.PNG"))
+
+
 def test_watch_changes_dispatch_steps_list():
     """dispatch_steps config is stored by BaseStep."""
     step = WatchChangesStep(dispatch_steps=["update_catalog_step", "auto_resource_step"])
@@ -1337,6 +1372,155 @@ def test_auto_resource_handles_file_removed_before_stat():
     asyncio.run(run())
 
 
+def test_auto_resource_rejects_paths_outside_resource_scope_before_agent_call():
+    """Traversal, outside absolute paths, and escaping symlinks fail closed."""
+
+    async def run():
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            tempfile.TemporaryDirectory() as outside_dir,
+            temp_chdir(tmpdir),
+        ):
+            workspace = Path.cwd()
+            outside = write_file(Path(outside_dir) / "outside.txt", "secret")
+            workspace_outside = write_file(workspace / "daily" / "outside.txt", "workspace secret")
+            link = workspace / "resource" / "2026-01-01" / "escape.txt"
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(outside)
+            wrapper = _FakeAgentWrapper()
+            step = AutoTextResourceStep(app_context=_make_app_context(workspace), agent_wrapper=wrapper)
+
+            resp = await step(
+                RuntimeContext(
+                    changes=[
+                        {"change": "added", "path": "resource/2026-01-01/../../../outside.txt"},
+                        {"change": "modified", "path": str(outside)},
+                        {"change": "added", "path": str(workspace_outside)},
+                        {"change": "added", "path": str(link)},
+                    ],
+                ),
+            )
+
+            assert resp.success is False
+            assert wrapper.inputs == ""
+            assert len(resp.metadata["results"]) == 4
+            assert all(result["metadata"]["action"] == "failed" for result in resp.metadata["results"])
+            assert all(result["metadata"]["modified"] is False for result in resp.metadata["results"])
+            assert outside.read_text(encoding="utf-8") == "secret"
+            assert workspace_outside.read_text(encoding="utf-8") == "workspace secret"
+
+    asyncio.run(run())
+
+
+def test_auto_resource_rejects_traversal_delete_without_touching_note():
+    """A malicious deleted path cannot reach or remove a daily note."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            note = write_file(
+                workspace / "daily" / "2026-01-01" / "outside.md",
+                "---\nname: outside\n"
+                "source_resource: '[[resource/2026-01-01/../../../outside.txt]]'\n---\nkeep me\n",
+            )
+            step = AutoTextResourceStep(app_context=_make_app_context(workspace))
+
+            resp = await step(
+                RuntimeContext(
+                    changes=[
+                        {"change": "deleted", "path": "resource/2026-01-01/../../../outside.txt"},
+                    ],
+                ),
+            )
+
+            result = resp.metadata["results"][0]
+            assert resp.success is False
+            assert result["metadata"]["action"] == "failed"
+            assert result["metadata"]["modified"] is False
+            assert note.read_text(encoding="utf-8").endswith("keep me\n")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_internal_symlink_keeps_logical_source_identity():
+    """A safe internal symlink is read by target while provenance keeps the link path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            target = write_file(workspace / "resource" / "2026-01-01" / "target.txt", "visible")
+            link = workspace / "resource" / "2026-01-01" / "link.txt"
+            link.symlink_to(target)
+            captured = {}
+            step = AutoTextResourceStep(app_context=_make_app_context(workspace))
+
+            async def fake_upsert(file_path, date_str, note_stem, added, source_path):
+                captured.update(
+                    {
+                        "file_path": file_path,
+                        "date_str": date_str,
+                        "note_stem": note_stem,
+                        "added": added,
+                        "source_path": source_path,
+                    },
+                )
+                step.context.response.success = True
+                step.context.response.answer = "ok"
+
+            step._handle_upsert = fake_upsert
+            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(link)}]))
+
+            assert resp.success is True
+            assert captured == {
+                "file_path": "resource/2026-01-01/link.txt",
+                "date_str": "2026-01-01",
+                "note_stem": "link",
+                "added": True,
+                "source_path": target.resolve(),
+            }
+
+    asyncio.run(run())
+
+
+def test_auto_resource_accepts_absolute_resource_dir_inside_workspace():
+    """An absolute in-workspace resource_dir keeps a workspace-relative source identity."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            resource_dir = workspace / "assets"
+            source = write_file(resource_dir / "2026-01-01" / "report.txt", "visible")
+            step = AutoTextResourceStep(app_context=_make_app_context(workspace, resource_dir=str(resource_dir)))
+            captured = {}
+
+            async def fake_upsert(file_path, date_str, note_stem, added, source_path):
+                captured.update(
+                    {
+                        "file_path": file_path,
+                        "date_str": date_str,
+                        "note_stem": note_stem,
+                        "added": added,
+                        "source_path": source_path,
+                    },
+                )
+                step.context.response.success = True
+                step.context.response.answer = "ok"
+
+            step._handle_upsert = fake_upsert
+            response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+            assert response.success is True
+            assert captured == {
+                "file_path": "assets/2026-01-01/report.txt",
+                "date_str": "2026-01-01",
+                "note_stem": "report",
+                "added": True,
+                "source_path": source.resolve(),
+            }
+
+    asyncio.run(run())
+
+
 def test_auto_resource_accepts_loose_root_resource():
     """Root-level resource files use today's date without moving the source."""
 
@@ -1350,9 +1534,15 @@ def test_auto_resource_accepts_loose_root_resource():
 
             step = AutoTextResourceStep(app_context=app_ctx)
 
-            async def fake_upsert(file_path, date_str, note_stem, created):
+            async def fake_upsert(file_path, date_str, note_stem, created, source_path):
                 captured.update(
-                    {"file_path": file_path, "date_str": date_str, "note_stem": note_stem, "created": created},
+                    {
+                        "file_path": file_path,
+                        "date_str": date_str,
+                        "note_stem": note_stem,
+                        "created": created,
+                        "source_path": source_path,
+                    },
                 )
                 step.context.response.success = True
                 step.context.response.answer = "ok"
@@ -1369,6 +1559,7 @@ def test_auto_resource_accepts_loose_root_resource():
                 "date_str": today,
                 "note_stem": "report",
                 "created": True,
+                "source_path": source.resolve(),
             }
         print("✓ test_auto_resource_accepts_loose_root_resource passed")
 
@@ -1389,9 +1580,15 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
 
             step = AutoTextResourceStep(app_context=app_ctx)
 
-            async def fake_upsert(file_path, date_str, note_stem, created):
+            async def fake_upsert(file_path, date_str, note_stem, created, source_path):
                 captured.update(
-                    {"file_path": file_path, "date_str": date_str, "note_stem": note_stem, "created": created},
+                    {
+                        "file_path": file_path,
+                        "date_str": date_str,
+                        "note_stem": note_stem,
+                        "created": created,
+                        "source_path": source_path,
+                    },
                 )
                 step.context.response.success = True
                 step.context.response.answer = "ok"
@@ -1408,6 +1605,7 @@ def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
                 "date_str": today,
                 "note_stem": "report",
                 "created": True,
+                "source_path": source.resolve(),
             }
         print("✓ test_auto_resource_loose_root_resource_keeps_existing_dated_resource passed")
 
@@ -1447,6 +1645,98 @@ def test_auto_resource_modified_missing_note_uses_create_tools():
             finally:
                 await fs.close()
         print("✓ test_auto_resource_modified_missing_note_uses_create_tools passed")
+
+    asyncio.run(run())
+
+
+def test_auto_resource_create_preserves_unowned_same_stem_note():
+    """A no-source same-stem note is user-owned and never used as the staging path."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            app_ctx = _make_app_context(workspace)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                source = write_file(workspace / "resource" / "2026-01-01" / "report.txt", "resource body")
+                user_note = write_file(
+                    workspace / "daily" / "2026-01-01" / "report.md",
+                    "---\nname: report\ndescription: private user note\n---\nkeep this body\n",
+                )
+                original = user_note.read_bytes()
+
+                def write_allocated_target(inputs, _kwargs):
+                    target_line = next(
+                        line for line in str(inputs).splitlines() if line.startswith("Target note path: ")
+                    )
+                    target_path = target_line.removeprefix("Target note path: ").strip()
+                    assert target_path != "daily/2026-01-01/report.md"
+                    write_file(
+                        workspace / target_path,
+                        "---\nname: generated-topic\ndescription: resource summary\n"
+                        "source_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
+                    )
+
+                wrapper.on_reply = write_allocated_target
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+                result_meta = resp.metadata["results"][0]["metadata"]
+                assert resp.success is True
+                assert result_meta["created"] is True
+                assert result_meta["path"] == "daily/2026-01-01/generated-topic.md"
+                assert user_note.read_bytes() == original
+                assert (workspace / result_meta["path"]).is_file()
+            finally:
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_auto_resource_reports_modified_when_post_write_lookup_fails():
+    """A text note written before post-processing failure remains reported as modified."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            workspace = Path.cwd()
+            app_ctx = _make_app_context(workspace)
+            file_store = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await file_store.start()
+            _install_file_jobs(app_ctx, file_store)
+            try:
+                source = write_file(workspace / "resource/2026-01-01/report.txt", "resource body")
+                wrapper.on_reply = lambda *_: write_file(
+                    workspace / "daily/2026-01-01/report.md",
+                    "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
+                )
+                step = AutoTextResourceStep(app_context=app_ctx, file_store=file_store, agent_wrapper=wrapper)
+                list_resource_note = step._list_resource_note
+                calls = 0
+
+                async def fail_second_lookup(day, file_path):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        raise RuntimeError("daily_list failed after agent write")
+                    return await list_resource_note(day, file_path)
+
+                step._list_resource_note = fail_second_lookup
+                response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+
+                result = response.metadata["results"][0]
+                assert response.success is False
+                assert result["metadata"]["action"] == "failed"
+                assert result["metadata"]["path"] == "daily/2026-01-01/report.md"
+                assert result["metadata"]["created"] is True
+                assert result["metadata"]["modified"] is True
+                assert "daily_list failed after agent write" in result["metadata"]["error"]
+                assert (workspace / "daily/2026-01-01/report.md").is_file()
+            finally:
+                await file_store.close()
 
     asyncio.run(run())
 
@@ -1637,8 +1927,8 @@ def test_auto_resource_reports_unmodified_when_agent_skips_existing_note():
     asyncio.run(run())
 
 
-def test_auto_resource_deletes_loose_root_resource_note_for_today():
-    """Deleting a loose root resource deletes today's same-stem note."""
+def test_auto_resource_preserves_unowned_loose_root_same_stem_note():
+    """Deleting a loose resource never claims an unowned same-stem user note."""
 
     async def run():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
@@ -1656,12 +1946,15 @@ def test_auto_resource_deletes_loose_root_resource_note_for_today():
 
                 assert resp.success is True
                 assert resp.metadata["results"][0]["path"] == "resource/report.txt"
-                assert resp.metadata["results"][0]["metadata"]["modified"] is True
-                assert resp.metadata["modified"] is True
-                assert not note_path.exists()
+                result_meta = resp.metadata["results"][0]["metadata"]
+                assert result_meta["action"] == "skipped"
+                assert result_meta["reason"] == "resource_note_not_found"
+                assert result_meta["modified"] is False
+                assert resp.metadata["modified"] is False
+                assert note_path.read_text(encoding="utf-8") == "---\nname: report\n---\nbody\n"
             finally:
                 await fs.close()
-        print("✓ test_auto_resource_deletes_loose_root_resource_note_for_today passed")
+        print("✓ test_auto_resource_preserves_unowned_loose_root_same_stem_note passed")
 
     asyncio.run(run())
 
@@ -1939,7 +2232,7 @@ if __name__ == "__main__":
     test_auto_resource_update_keeps_existing_renamed_path()
     test_auto_memory_uses_message_day_for_historical_create()
     test_auto_memory_rejects_invalid_explicit_date_before_saving_session()
-    test_auto_resource_deletes_loose_root_resource_note_for_today()
+    test_auto_resource_preserves_unowned_loose_root_same_stem_note()
     test_auto_resource_deletes_renamed_note_by_source_resource()
     test_auto_resource_result_hook_is_optional_and_isolated()
     # LogChangesStep

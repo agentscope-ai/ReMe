@@ -1,6 +1,7 @@
 """Text resource processor for the unified auto-resource router."""
 
 import uuid
+from pathlib import Path
 
 import aiofiles
 
@@ -36,29 +37,18 @@ class AutoTextResourceStep(BaseAutoResourceStep):
         date_str: str,
         note_stem: str,
         added: bool,
+        source_path: Path,
     ) -> None:
         self.logger.info(
             f"[{self.name}] upsert start file_path={file_path} date={date_str} " f"note_stem={note_stem} added={added}",
         )
-        daily_dir = self.config_value("daily_dir")
-        fallback_path = f"{daily_dir}/{date_str}/{note_stem}.md"
-        try:
-            note = await self._list_resource_note(date_str, file_path, fallback_path)
-        except RuntimeError as exc:
-            self.context.response.success = False
-            self.context.response.answer = str(exc)
-            self.logger.info(f"[{self.name}] list failed file_path={file_path} answer={str(exc)!r}")
-            return
-
-        note_path = str(note["path"]) if note else fallback_path
-        note_created = note is None
-        before_note_path = note_path
-        before_note_bytes = self._note_bytes(note_path)
+        note_state = await self._prepare_resource_note(date_str, file_path, note_stem)
+        note_path = note_state.path
+        note_created = note_state.created
         self.logger.info(f"[{self.name}] daily note lookup path={note_path} created={note_created}")
 
         # Read resource file content
-        abs_path = self.workspace_path / file_path
-        if not abs_path.is_file():
+        if not source_path.is_file():
             self.context.response.success = False
             self.context.response.answer = f"Resource file not found: {file_path}"
             self.logger.warning(f"[{self.name}] resource missing file_path={file_path}")
@@ -66,7 +56,7 @@ class AutoTextResourceStep(BaseAutoResourceStep):
 
         skip_read = False
         try:
-            size_bytes = abs_path.stat().st_size
+            size_bytes = source_path.stat().st_size
         except OSError as exc:
             self.context.response.success = False
             self.context.response.answer = f"Failed to inspect resource file: {file_path}: {exc}"
@@ -107,7 +97,7 @@ class AutoTextResourceStep(BaseAutoResourceStep):
             return
 
         self.logger.info(f"[{self.name}] read resource start file_path={file_path}")
-        async with aiofiles.open(abs_path, encoding="utf-8", errors="replace") as f:
+        async with aiofiles.open(source_path, encoding="utf-8", errors="replace") as f:
             file_content = await f.read()
         self.logger.info(f"[{self.name}] read resource done file_path={file_path} chars={len(file_content)}")
 
@@ -136,61 +126,24 @@ class AutoTextResourceStep(BaseAutoResourceStep):
         )
         self.logger.info(f"[{self.name}] agent done file_path={file_path} has_result={bool(result.get('result'))}")
 
-        if note_created:
-            try:
-                note = await self._list_resource_note(date_str, file_path, fallback_path)
-            except RuntimeError as exc:
-                self.context.response.success = False
-                self.context.response.answer = str(exc)
-                self.context.response.metadata.update({"path": None, "created": note_created, "modified": False})
-                self.logger.info(f"[{self.name}] post-create list failed file_path={file_path} answer={str(exc)!r}")
-                return
-            if note is None:
-                self.context.response.success = True
-                self.context.response.answer = agent_reply_result_text(result)
-                self.context.response.metadata.update({"path": None, "created": False, "modified": False})
-                self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
-                return
-            note_path = str(note["path"])
-
-        try:
-            await self._ensure_resource_frontmatter(note_path, file_path)
-            note_path = await self._rename_from_frontmatter_name(
-                note_path,
-                date_str,
-                file_path,
-                note_stem,
-                fallback_path,
-                allow_rename=note_created,
-            )
-        except RuntimeError as exc:
-            self.context.response.success = False
-            self.context.response.answer = str(exc)
-            self.context.response.metadata.update(
-                {
-                    "path": note_path,
-                    "created": note_created,
-                    "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
-                },
-            )
-            self.logger.info(f"[{self.name}] post-agent failed path={note_path} answer={str(exc)!r}")
+        note_path = await self._finalize_resource_note(
+            note_state,
+            date_str,
+            file_path,
+            note_stem,
+            added,
+        )
+        if note_path is None:
+            self.context.response.success = True
+            self.context.response.answer = agent_reply_result_text(result)
+            self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
             return
-
-        modified = self._note_modified(before_note_path, before_note_bytes, note_path)
-        index_payload = await self._refresh_day_index(date_str)
 
         self.context.response.success = True
         self.context.response.answer = agent_reply_result_text(result)
         self.context.response.metadata.update(
             {
-                "path": note_path,
-                "created": note_created,
-                "modified": modified,
-                "session_id": note_stem,
-                "source_resource": self._source_resource_link(file_path),
                 "agent_session_id": agent_session_id,
-                "action": "added" if added else "modified",
-                "index": index_payload,
             },
         )
-        self.logger.info(f"[{self.name}] done {note_path} modified={modified}")
+        self.logger.info(f"[{self.name}] done {note_path} modified={self.context.response.metadata['modified']}")

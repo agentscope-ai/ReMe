@@ -162,6 +162,7 @@ def _parse_caption_json(text: str) -> dict:
     fence = _JSON_FENCE_RE.match(cleaned)
     if fence:
         cleaned = fence.group(1)
+    parsed_json = False
     for candidate in (cleaned, cleaned[cleaned.find("{") : cleaned.rfind("}") + 1]):
         if not candidate:
             continue
@@ -169,11 +170,14 @@ def _parse_caption_json(text: str) -> dict:
             parsed = json.loads(candidate)
         except (json.JSONDecodeError, ValueError):
             continue
+        parsed_json = True
         if isinstance(parsed, dict):
             normalized = _normalize_caption_fields(parsed)
             if normalized["caption"] or normalized["description"]:
                 return normalized
-    return {"name": "", "description": "", "caption": text.strip()}
+    if parsed_json:
+        return {"name": "", "description": "", "caption": ""}
+    return {"name": "", "description": "", "caption": cleaned.strip()}
 
 
 @R.register("auto_image_resource_step")
@@ -234,18 +238,20 @@ class AutoImageResourceStep(BaseAutoResourceStep):
         except Exception as exc:  # pylint: disable=broad-except
             self.logger.warning(f"[{self.name}] structured caption failed ({exc}); retrying with a plain call")
         result = await model([user_message])
-        return _parse_caption_json(await _response_text(result))
+        parsed = _parse_caption_json(await _response_text(result))
+        if not parsed["caption"] and not parsed["description"]:
+            raise RuntimeError("Vision model returned no usable caption")
+        return parsed
 
-    async def _read_image(self, file_path: str) -> dict | None:
+    async def _read_image(self, file_path: str, source_path: Path) -> dict | None:
         """Read the image file and build the VLM request payload.
 
         Returns ``None`` when the change must be skipped (stat failure or
         oversized file); the skip outcome is already recorded on the response.
         """
-        abs_path = self.workspace_path / file_path
         max_image_bytes = self._max_image_bytes()
         try:
-            size_bytes = abs_path.stat().st_size
+            size_bytes = source_path.stat().st_size
         except OSError as exc:
             self.context.response.success = False
             self.context.response.answer = f"Failed to inspect resource file: {file_path}: {exc}"
@@ -282,7 +288,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
             return None
 
         self.logger.info(f"[{self.name}] read image start file_path={file_path}")
-        async with aiofiles.open(abs_path, "rb") as f:
+        async with aiofiles.open(source_path, "rb") as f:
             data = await f.read()
         payload = _build_image_request_payload(data, Path(file_path).suffix.lower())
         self.logger.info(
@@ -291,68 +297,17 @@ class AutoImageResourceStep(BaseAutoResourceStep):
         )
         return payload
 
-    async def _handle_change(self, file_path: str, raw_change) -> dict:
-        """Skip non-image changes; isolate per-change failures so the batch continues."""
-        if file_path and not self.matches_change({"path": file_path}):
-            file_path = self.to_workspace_relative(file_path) if Path(file_path).is_absolute() else file_path
-            self.context.response.metadata = {}
-            answer = f"Skipped non-image resource file: {file_path}"
-            self.context.response.success = True
-            self.context.response.answer = answer
-            self.context.response.metadata.update(
-                {
-                    "path": file_path,
-                    "action": "skipped",
-                    "reason": "non_image_file",
-                    "modified": False,
-                },
-            )
-            self.logger.info(f"[{self.name}] skip change file_path={file_path} reason=non_image_file")
-            return {
-                "success": True,
-                "path": file_path,
-                "change": str(raw_change),
-                "answer": answer,
-                "metadata": dict(self.context.response.metadata),
-            }
-        try:
-            return await super()._handle_change(file_path, raw_change)
-        except Exception as exc:  # pylint: disable=broad-except
-            self.context.response.success = False
-            self.context.response.answer = f"Failed to caption image resource: {file_path}: {exc}"
-            self.context.response.metadata.setdefault("path", file_path)
-            self.context.response.metadata.setdefault("modified", False)
-            self.context.response.metadata.update(
-                {
-                    "action": "failed",
-                    "error": str(exc),
-                },
-            )
-            self.logger.warning(f"[{self.name}] caption failed file_path={file_path} error={exc}")
-            return {
-                "success": False,
-                "path": file_path,
-                "change": str(raw_change),
-                "answer": self.context.response.answer,
-                "metadata": dict(self.context.response.metadata),
-            }
-
-    async def _handle_upsert(self, file_path: str, date_str: str, note_stem: str, added: bool) -> None:
+    async def _handle_upsert(
+        self,
+        file_path: str,
+        date_str: str,
+        note_stem: str,
+        added: bool,
+        source_path: Path,
+    ) -> None:
         """Caption the image and write/refresh its note (image counterpart of the text upsert)."""
-        daily_dir = self.config_value("daily_dir")
-        fallback_path = f"{daily_dir}/{date_str}/{note_stem}.md"
-        try:
-            note = await self._list_resource_note(date_str, file_path, fallback_path)
-        except RuntimeError as exc:
-            self.context.response.success = False
-            self.context.response.answer = str(exc)
-            self.logger.info(f"[{self.name}] list failed file_path={file_path} answer={str(exc)!r}")
-            return
-
-        note_path = str(note["path"]) if note else fallback_path
-        note_created = note is None
-        before_note_path = note_path
-        before_note_bytes = self._note_bytes(note_path)
+        note_state = await self._prepare_resource_note(date_str, file_path, note_stem)
+        note_path = note_state.path
         self.logger.info(
             f"[{self.name}] upsert start file_path={file_path} date={date_str} " f"note_stem={note_stem} added={added}",
         )
@@ -372,7 +327,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
             self.logger.warning(f"[{self.name}] no vision model configured file_path={file_path}")
             return
 
-        payload = await self._read_image(file_path)
+        payload = await self._read_image(file_path, source_path)
         if payload is None:
             return
 
@@ -419,77 +374,21 @@ class AutoImageResourceStep(BaseAutoResourceStep):
         )
         if not write_response.success:
             raise RuntimeError(f"write failed: {write_response.answer}")
-        self.context.response.metadata.update(
-            {
-                "path": note_path,
-                "created": note_created,
-                "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
-            },
+        note_path = await self._finalize_resource_note(
+            note_state,
+            date_str,
+            file_path,
+            note_stem,
+            added,
         )
-
-        if note_created:
-            try:
-                note = await self._list_resource_note(date_str, file_path, fallback_path)
-            except RuntimeError as exc:
-                self.context.response.success = False
-                self.context.response.answer = str(exc)
-                self.context.response.metadata.update(
-                    {
-                        "path": note_path,
-                        "created": note_created,
-                        "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
-                    },
-                )
-                self.logger.info(f"[{self.name}] post-create list failed file_path={file_path} answer={str(exc)!r}")
-                return
-            if note is None:
-                self.context.response.success = True
-                self.context.response.answer = f"Captioned image resource {file_path}"
-                modified = self._note_modified(before_note_path, before_note_bytes, note_path)
-                self.context.response.metadata.update({"path": note_path, "created": False, "modified": modified})
-                self.logger.info(f"[{self.name}] done without cataloged note file_path={file_path} modified={modified}")
-                return
-            note_path = str(note["path"])
-
-        try:
-            await self._ensure_resource_frontmatter(note_path, file_path)
-            note_path = await self._rename_from_frontmatter_name(
-                note_path,
-                date_str,
-                file_path,
-                note_stem,
-                fallback_path,
-                allow_rename=note_created,
-            )
-        except RuntimeError as exc:
-            self.context.response.success = False
-            self.context.response.answer = str(exc)
-            self.context.response.metadata.update(
-                {
-                    "path": note_path,
-                    "created": note_created,
-                    "modified": self._note_modified(before_note_path, before_note_bytes, note_path),
-                },
-            )
-            self.logger.info(f"[{self.name}] post-write failed path={note_path} answer={str(exc)!r}")
-            return
-
-        modified = self._note_modified(before_note_path, before_note_bytes, note_path)
-        self.context.response.metadata.update({"path": note_path, "created": note_created, "modified": modified})
-        index_payload = await self._refresh_day_index(date_str)
+        if note_path is None:
+            raise RuntimeError(f"Image caption note was not written: {file_path}")
 
         self.context.response.success = True
         self.context.response.answer = f"Captioned image resource {file_path} -> {note_path}"
         self.context.response.metadata.update(
             {
-                "path": note_path,
-                "created": note_created,
-                "modified": modified,
-                "session_id": note_stem,
-                "source_resource": self._source_resource_link(file_path),
-                "action": "added" if added else "modified",
                 "media_type": payload["source_mime"],
-                "index": index_payload,
             },
         )
-        self.logger.info(f"[{self.name}] done {note_path} modified={modified}")
+        self.logger.info(f"[{self.name}] done {note_path} modified={self.context.response.metadata['modified']}")

@@ -78,8 +78,8 @@ daily/2026-06-20/市场报告要点.md
 source_resource: "[[resource/2026-06-20/market-report.md]]"
 ```
 
-如果资源文件更新，Auto Resource 会通过 `source_resource` 找到对应卡片并更新；如果资源文件删除，对应的 daily note 也会被清理。旧版本按
-stem 生成的 `daily/YYYY-MM-DD/<resource_stem>.md` 仍作为 fallback 兼容。
+如果资源文件更新，Auto Resource 只会通过精确匹配的 `source_resource` 找到对应卡片并更新；如果资源文件删除，也只会清理显式关联的
+daily note。缺少该来源标记的同 stem 笔记会被视为用户笔记并保留，新资源卡片则会使用无冲突路径。
 
 ## 当天索引
 

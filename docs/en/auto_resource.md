@@ -91,9 +91,9 @@ The resource card links to the original file through frontmatter:
 source_resource: "[[resource/2026-06-20/market-report.md]]"
 ```
 
-When a resource changes, Auto Resource finds and updates the corresponding card through `source_resource`. When a
-resource is deleted, its daily note is also removed. The older `daily/YYYY-MM-DD/<resource_stem>.md` naming convention
-remains supported as a fallback.
+When a resource changes, Auto Resource finds and updates the corresponding card through an exact `source_resource`
+match. When a resource is deleted, only the explicitly linked daily note is removed. A same-stem note without that
+provenance marker is treated as user-owned and left untouched; new resource cards use a collision-free path instead.
 
 ## Daily Index
 
