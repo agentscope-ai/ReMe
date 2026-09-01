@@ -12,14 +12,18 @@ import datetime
 import os
 from typing import Final
 
-from ._dedup import _ToolContextDedupMixin
-from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE, is_session_path, join_chunk_entries
-from ._source_format import merge_session_chunk_intervals, render_chunk_entries
-from ..base_step import BaseStep
-from ..file_io import extract_daily_date
-from ...components import R
-from ...schema import FileChunk
-from ...utils import expand_links
+from reme.schema import FileChunk
+from reme.steps.base_step import BaseStep
+from reme.steps.file_io import extract_daily_date
+from reme.steps.index._dedup import _ToolContextDedupMixin
+from reme.steps.index._source_format import (
+    ALL_RETURNED_MESSAGE,
+    NO_RESULTS_MESSAGE,
+    is_session_path,
+    join_chunk_entries,
+)
+from reme.steps.index._source_format import merge_session_chunk_intervals, render_chunk_entries
+from reme.utils import expand_links
 
 _RRF_K: Final = 60
 _MAX_CANDIDATES: Final = 200
@@ -37,7 +41,6 @@ def _default_limit() -> int:
         return _DEFAULT_LIMIT
 
 
-@R.register("search_v2_step")
 class SearchV2Step(_ToolContextDedupMixin, BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
 

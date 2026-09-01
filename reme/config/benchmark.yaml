@@ -119,46 +119,6 @@ jobs:
     steps:
       - backend: reindex_step
 
-  # ── Search ──
-  #   start_date:
-        #   type: string
-        #   description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
-        # end_date:
-        #   type: string
-        #   description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
-
-  search:
-    backend: base
-    description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "search query"
-        start_date:
-          type: string
-          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
-        end_date:
-          type: string
-          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
-        # vector_weight:
-        #   type: number
-        #   description: >-
-        #     Optional weight balancing vector similarity vs BM25 keyword matching in the
-        #     RRF fusion. Recommended value is 0.7, which provides a good balance between
-        #     semantic (vector) similarity and lexical (BM25) matching. Values close to 0
-        #     emphasize BM25 keyword matching, values close to 1 emphasize vector semantic
-        #     similarity.
-      required:
-        - query
-    steps:
-      - backend: search_v2_step
-        vector_weight: 0.7
-        candidate_multiplier: 5.0
-        expand_links: false
-        max_links_per_direction: 10
-
   add_draft:
     backend: base
     description: "Append text to the current draft list."

@@ -10,7 +10,7 @@ class LmeAgenticAnswerStep(BaseAgenticAnswerStep):
     ``search`` job tool to retrieve relevant memory chunks before generating
     a final answer.
 
-    Session-transcript compression in ``search_v2_step`` is controlled by the
+    Session-transcript compression in the plugin's search Step is controlled by the
     ``compress_session`` flag in the runtime context (set by the benchmark
     runner from ``evaluation.compress_session``); it is off by default.
     """

@@ -2,9 +2,34 @@ backends:
   beam_auto_memory_step: reme_beam.auto_memory:BeamAutoMemoryStep
   beam_agentic_answer_step: reme_beam.agentic_answer:BeamAgenticAnswerStep
   beam_rubric_judge_step: judge.llm_judge:BeamRubricJudgeStep
+  beam_search_v2_step: reme_beam.search_v2:SearchV2Step
 
 application_defaults:
   jobs:
+    search:
+      backend: base
+      description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "search query"
+          start_date:
+            type: string
+            description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+          end_date:
+            type: string
+            description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+        required:
+          - query
+      steps:
+        - backend: beam_search_v2_step
+          vector_weight: 0.7
+          candidate_multiplier: 5.0
+          expand_links: false
+          max_links_per_direction: 10
+
     agentic_answer:
       backend: base
       description: "BEAM agentic answer job (ReAct agent with search tool)"

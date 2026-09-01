@@ -43,7 +43,7 @@ class BaseAgenticAnswerStep(BaseStep):
         ``INJECTED_JOB_KWARGS`` with per-request values derived from ``query``.
 
         When the runtime context carries a truthy ``compress_session`` flag,
-        session-transcript compression is enabled in ``search_v2_step`` by
+        session-transcript compression is enabled in the benchmark plugin's search Step by
         injecting a ``_search._compress.session`` marker plus the current
         ``query`` as the query-aware relevance filter. Default (falsy) leaves
         session chunks uncompressed.
