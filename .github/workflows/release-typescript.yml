@@ -166,7 +166,6 @@ jobs:
       id-token: write
     uses: openclaw/clawhub/.github/workflows/package-publish.yml@87ca030c30f3cfb78ab15c8e66b5ff1469c8f9c8 # v0.23.3
     with:
-      owner: agentscope-ai
       family: code-plugin
       version: ${{ needs.build.outputs.version }}
       tags: ${{ inputs.npm_tag }}
