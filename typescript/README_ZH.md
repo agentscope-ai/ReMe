@@ -130,5 +130,7 @@ npm run test:package
 ```
 
 `npm pack` 会先构建 TypeScript，并且只打包 `dist`、DSH patch、OpenClaw manifest 和中英文 README。
+`npm run pack:clawhub -- <输出目录>` 会使用相同的运行时文件生成 ClawHub 产物，并将仅包含 OpenClaw
+说明的 `README_OPENCLAW.md` 和 `README_OPENCLAW_ZH.md` 放到包内 README 路径。
 
 稳定版本使用 npm 的 `latest` distribution tag 发布，预发布版本使用 `next`。

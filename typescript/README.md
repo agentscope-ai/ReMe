@@ -140,6 +140,7 @@ npm run test:package
 ```
 
 `npm pack` runs the TypeScript build and includes only `dist`, the DSH patch, the OpenClaw manifest, and the English and
-Chinese READMEs.
+Chinese READMEs. `npm run pack:clawhub -- <output-directory>` creates the ClawHub artifact with the same runtime files
+and the OpenClaw-only `README_OPENCLAW.md` and `README_OPENCLAW_ZH.md` content at the package README paths.
 
 Stable releases use npm's `latest` distribution tag; prereleases use `next`.

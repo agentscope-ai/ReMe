@@ -11,7 +11,7 @@
   "contracts": {
     "tools": ["reme_search"]
   },
-  "configUiHints": {
+  "uiHints": {
     "endpoint": {
       "label": "ReMe endpoint",
       "placeholder": "http://127.0.0.1:2333"
