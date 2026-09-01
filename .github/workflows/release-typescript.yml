@@ -175,4 +175,5 @@ jobs:
       source_ref: ${{ github.ref }}
       source_path: typescript
       package_artifact_name: agentscope-ai-reme-clawhub-${{ inputs.version }}
+      dry_run: false
       wait_for_publication: true
