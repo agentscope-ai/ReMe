@@ -77,7 +77,7 @@ plugin.
 ## Resource Cards
 
 Each resource file produces one daily resource card. The system initially uses the resource file's stem as a temporary
-path. After the agent writes the card, the file is renamed according to its frontmatter `name`:
+path. After the matching processor writes the card, the file is renamed according to its frontmatter `name`:
 
 ```text
 resource/2026-06-20/market-report.md
@@ -115,7 +115,7 @@ resource, open its corresponding resource card.
 
 The interpreted daily note is optimized for readability; the original resource is retained for trust and verification.
 
-Auto Resource does not move the original file. It remains at its original path under `resource/`. Text resources can
+Auto Resource does not move the original file. It remains at its original path under `resource/`. Resources can
 therefore enter the daily memory flow while their source files stay in their original location.
 
 ## What Happens Next

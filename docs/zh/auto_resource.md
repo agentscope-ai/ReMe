@@ -63,7 +63,7 @@ workspace/
 
 ## 资源卡片
 
-每个资源文件会生成一张 daily 资源卡片。创建时先使用资源文件 stem 作为临时路径，Agent 写入后，系统会根据 frontmatter `name`
+每个资源文件会生成一张 daily 资源卡片。创建时先使用资源文件 stem 作为临时路径，对应 processor 写入后，系统会根据 frontmatter `name`
 重命名文件：
 
 ```text
@@ -99,7 +99,7 @@ daily/
 
 解读后的 daily note 负责“好读”，原始资源负责“可信”。
 
-Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的原路径。这样，文本资料会进入 daily 记忆流，原始文件也始终保留在它来时的位置。
+Auto Resource 不会把原始文件挪走：它仍然留在 `resource/` 下的原路径。这样，文本与图像资料会进入 daily 记忆流，原始文件也始终保留在它来时的位置。
 
 ## 后续流向
 
