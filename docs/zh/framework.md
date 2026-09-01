@@ -405,7 +405,6 @@ jobs:
     steps:
       - backend: dream_extract_step
       - backend: dream_integrate_step
-      - backend: dream_topics_step
       - backend: dream_finish_step
 ```
 
@@ -784,7 +783,6 @@ jobs:
       - backend: dream_extract_step
         file_catalog: dream
       - backend: dream_integrate_step
-      - backend: dream_topics_step
       - backend: dream_finish_step
         file_catalog: dream
 ```

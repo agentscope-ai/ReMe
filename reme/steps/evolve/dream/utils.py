@@ -3,7 +3,6 @@
 import datetime as dt
 import re
 from pathlib import Path
-from uuid import uuid4
 
 import yaml
 
@@ -127,11 +126,6 @@ def clean_paths(raw_paths, allowed: set[str]) -> list[str]:
     return out
 
 
-def normalize_topic(text: str) -> str:
-    """Normalize topic."""
-    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", text.lower()).strip()
-
-
 def previous_dates(day: str, n_days: int) -> list[str]:
     """Get previous dates."""
     try:
@@ -210,19 +204,6 @@ def clean_topic(raw: dict) -> dict:
         "keywords": ([str(k).strip() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []),
         "paths": ([str(p).strip() for p in paths if str(p).strip()] if isinstance(paths, list) else []),
     }
-
-
-def write_yaml(path: Path, payload: dict) -> None:
-    """Atomically write YAML without exposing a partially written user file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rendered = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    content = rendered if rendered.endswith("\n") else f"{rendered}\n"
-    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        temporary.write_text(content, encoding="utf-8")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def parse_structured_reply(text: str) -> dict:

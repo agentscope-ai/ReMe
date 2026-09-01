@@ -18,7 +18,6 @@ auto_dream:
   steps:
     - dream_extract_step
     - dream_integrate_step   # where auto_link actually happens
-    - dream_topics_step
     - dream_finish_step
 ```
 

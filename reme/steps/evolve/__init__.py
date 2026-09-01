@@ -5,7 +5,7 @@ from .auto_memory import AutoMemoryStep
 from .auto_memory_cc import AutoMemoryCCStep
 from .auto_resource import AutoResourceStep
 from .compressor import CompressorStep
-from .dream import DreamExtractStep, DreamFinishStep, DreamIntegrateStep, DreamTopicsStep
+from .dream import DreamExtractStep, DreamFinishStep, DreamIntegrateStep
 from .proactive import (
     ProactiveAgendaStep,
     ProactiveExtractStep,
@@ -25,7 +25,6 @@ __all__ = [
     "DreamExtractStep",
     "DreamFinishStep",
     "DreamIntegrateStep",
-    "DreamTopicsStep",
     "ProactiveAgendaStep",
     "ProactiveExtractStep",
     "ProactiveFinishStep",

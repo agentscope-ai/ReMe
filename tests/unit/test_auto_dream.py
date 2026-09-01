@@ -19,7 +19,6 @@ from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.integrate import DreamIntegrateStep, _snapshot_digest
 from reme.steps.evolve.proactive.proactive import ProactiveStep
-from reme.steps.evolve.dream.topics import DreamTopicsStep
 from reme.steps.evolve.dream.utils import load_yaml_topics, parse_structured_reply, recent_dates, scan_day_files
 
 
@@ -474,176 +473,6 @@ def test_extract_without_llm_marks_changed_paths_failed(tmp_path):
     asyncio.run(run())
 
 
-def test_topics_step_writes_only_target_date_interests():
-    """Topics are written only to ``state.date`` even when scan dates span multiple days."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
-            _touch(workspace / "daily" / "2026-05-26" / "old.md")
-            _touch(workspace / "daily" / "2026-05-28" / "today.md")
-            old_interests = workspace / "daily" / "2026-05-26" / "interests.yaml"
-            _touch(old_interests, "date: 2026-05-26\ntopics: []\n")
-            state = DreamState(
-                date="2026-05-28",
-                dates=["2026-05-26", "2026-05-27", "2026-05-28"],
-                workspace=str(workspace),
-                daily_dir="daily",
-                topics=[
-                    {
-                        "title": "Old changed topic",
-                        "reason": "Old daily material changed.",
-                        "paths": ["daily/2026-05-26/old.md"],
-                    },
-                    {
-                        "title": "Today changed topic",
-                        "reason": "Today's daily material changed.",
-                        "paths": ["daily/2026-05-28/today.md"],
-                    },
-                ],
-            )
-            step = DreamTopicsStep()
-            resp = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(workspace)))
-
-            target = workspace / "daily" / "2026-05-28" / "interests.yaml"
-            dream = resp.metadata["dream"]
-            assert resp.success is True
-            assert target.is_file()
-            assert old_interests.read_text(encoding="utf-8") == "date: 2026-05-26\ntopics: []\n"
-            assert dream["interests_paths"] == ["daily/2026-05-28/interests.yaml"]
-            assert dream["modified_paths"] == ["daily/2026-05-28/interests.yaml"]
-            assert yaml.safe_load(target.read_text(encoding="utf-8"))["date"] == "2026-05-28"
-
-    asyncio.run(run())
-
-
-def test_topics_same_content_is_not_modified(tmp_path):
-    """Rewriting deterministic interests content does not count as a user-visible change."""
-
-    async def run():
-        topic = {"title": "Topic", "reason": "Reason", "paths": ["daily/source.md"]}
-        step = DreamTopicsStep()
-
-        with patch("reme.steps.evolve.dream.topics.refresh_day_index", return_value={}):
-            first = await step(
-                RuntimeContext(
-                    dream=DreamState(
-                        date="2026-05-28",
-                        workspace=str(tmp_path),
-                        daily_dir="daily",
-                        topics=[topic],
-                    ).model_dump(),
-                    file_store=_FileStore(tmp_path),
-                ),
-            )
-            second = await step(
-                RuntimeContext(
-                    dream=DreamState(
-                        date="2026-05-28",
-                        workspace=str(tmp_path),
-                        daily_dir="daily",
-                        topics=[topic],
-                    ).model_dump(),
-                    file_store=_FileStore(tmp_path),
-                ),
-            )
-            third = await step(
-                RuntimeContext(
-                    dream=DreamState(
-                        date="2026-05-28",
-                        workspace=str(tmp_path),
-                        daily_dir="daily",
-                        topics=[topic],
-                    ).model_dump(),
-                    file_store=_FileStore(tmp_path),
-                ),
-            )
-
-        assert first.metadata["dream"]["modified_paths"] == ["daily/2026-05-28/interests.yaml"]
-        assert second.metadata["dream"]["modified_paths"] == ["daily/2026-05-28/interests.yaml"]
-        assert third.metadata["dream"]["modified_paths"] == []
-
-    asyncio.run(run())
-
-
-def test_topics_agent_failure_falls_back_to_candidates(tmp_path):
-    """Topic ranking remains best-effort when the optional agent is unavailable."""
-
-    async def run():
-        state = DreamState(
-            date="2026-05-28",
-            workspace=str(tmp_path),
-            daily_dir="daily",
-            topics=[{"title": "Topic", "reason": "Reason", "paths": ["daily/source.md"]}],
-        )
-        step = DreamTopicsStep()
-        step.agent_wrapper = _ReplyAgent(error=RuntimeError("temporary model failure"))
-
-        with (
-            patch("reme.steps.evolve.dream.topics.refresh_day_index", return_value={}),
-            patch("reme.steps.evolve.dream.topics.llm_available", return_value=True),
-        ):
-            response = await step(
-                RuntimeContext(
-                    dream=state.model_dump(),
-                    file_store=_FileStore(tmp_path),
-                    agent_wrapper=step.agent_wrapper,
-                ),
-            )
-
-        dream = response.metadata["dream"]
-        assert response.success is True
-        assert dream["topics_written"] == 1
-        assert "deterministic fallback" in dream["warnings"][0]
-
-    asyncio.run(run())
-
-
-def test_topics_does_not_overwrite_invalid_existing_yaml(tmp_path):
-    """A malformed user-owned interests file is preserved instead of treated as empty."""
-
-    async def run():
-        target = _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", "topics: [\n")
-        state = DreamState(
-            date="2026-05-28",
-            workspace=str(tmp_path),
-            daily_dir="daily",
-            topics=[{"title": "Topic", "reason": "Reason", "paths": ["daily/source.md"]}],
-        )
-        step = DreamTopicsStep()
-
-        response = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(tmp_path)))
-
-        assert response.success is False
-        assert target.read_text(encoding="utf-8") == "topics: [\n"
-        assert "Invalid interests YAML" in response.answer
-
-    asyncio.run(run())
-
-
-def test_topics_does_not_overwrite_invalid_existing_topic_entry(tmp_path):
-    """Strict loading rejects entries that lenient loading would discard."""
-
-    async def run():
-        content = "topics:\n  - title: User topic\n    paths:\n      - daily/source.md\n"
-        target = _touch(tmp_path / "daily" / "2026-05-28" / "interests.yaml", content)
-        state = DreamState(
-            date="2026-05-28",
-            workspace=str(tmp_path),
-            daily_dir="daily",
-            topics=[{"title": "New topic", "reason": "New reason", "paths": ["daily/source.md"]}],
-        )
-        step = DreamTopicsStep()
-
-        response = await step(RuntimeContext(dream=state.model_dump(), file_store=_FileStore(tmp_path)))
-
-        assert response.success is False
-        assert target.read_text(encoding="utf-8") == content
-        assert "topics[0].reason must be a non-empty string" in response.answer
-
-    asyncio.run(run())
-
-
 def test_strict_topic_loading_rejects_lossy_fields(tmp_path):
     """Strict mode rejects values and fields that clean_topic would silently lose."""
     target = _touch(tmp_path / "interests.yaml", "topics:\n  - title: Topic\n    reason: Reason\n    custom: keep me\n")
@@ -754,7 +583,6 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
             ok = _touch(workspace / "daily" / "2026-05-28" / "ok.md")
             failed = _touch(workspace / "daily" / "2026-05-28" / "failed.md")
             day_index = _touch(workspace / "daily" / "2026-05-28.md")
-            interests = _touch(workspace / "daily" / "2026-05-28" / "interests.yaml")
             state = DreamState(
                 date="2026-05-28",
                 dates=["2026-05-26", "2026-05-27", "2026-05-28"],
@@ -762,7 +590,6 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
                 daily_dir="daily",
                 changed_paths=[ok.relative_to(workspace).as_posix(), failed.relative_to(workspace).as_posix()],
                 failed_paths=[failed.relative_to(workspace).as_posix()],
-                interests_paths=[interests.relative_to(workspace).as_posix()],
                 modified_paths=["digest/procedure/example.md"],
                 integrate_results=[
                     {
@@ -784,7 +611,6 @@ def test_finish_does_not_checkpoint_failed_changed_paths():
             assert "- [digest/procedure/example.md][CREATE]: Created a concise procedure node." in resp.answer
             assert ok.relative_to(workspace).as_posix() in upserted
             assert failed.relative_to(workspace).as_posix() not in upserted
-            assert interests.relative_to(workspace).as_posix() in upserted
             assert day_index.relative_to(workspace).as_posix() in upserted
             assert catalog.dumps == 1
             assert resp.metadata["modified"] is True

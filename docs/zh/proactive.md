@@ -136,11 +136,11 @@ daily notes
 
 职责边界如下。更完整的 Extract、Integrate、Topics、Finish 说明见 [Auto Dream](./auto_dream.md)：
 
-| 模块                 | 职责                                         |
-|----------------------|----------------------------------------------|
-| `dream_extract_step` | 从 changed daily 输入抽取 topic candidates。 |
-| `dream_topics_step`  | 去重、筛选并写入 `interests.yaml`。          |
-| `proactive_step`     | 读取 `interests.yaml`，暴露给上层 Agent。    |
+| 模块                     | 职责                                         |
+|--------------------------|----------------------------------------------|
+| `dream_extract_step`     | 从 changed daily 输入抽取 topic candidates。 |
+| `proactive_refresh_cron` | `interests.yaml` 的唯一写入方（白天曝光）。  |
+| `proactive_step`         | 读取 `interests.yaml`，暴露给上层 Agent。    |
 
 `proactive` 不修改任何文件，不更新 catalog，也不负责判断是否应该主动打扰用户。它只提供当天主题材料；是否推送、何时推送、用什么语气推送，应由调用方根据产品策略决定。
 

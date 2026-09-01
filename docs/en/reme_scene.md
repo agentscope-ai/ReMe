@@ -88,8 +88,6 @@ dream_extract_step
 dream_integrate_step
   recall existing digest nodes with node_search for each unit
   decide CREATE / CORROBORATE / REFINE / CORRECT
-dream_topics_step
-  write daily/2026-05-18/interests.yaml
 dream_finish_step
   checkpoint successfully processed daily inputs
 ```

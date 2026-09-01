@@ -26,12 +26,11 @@ class DreamFinishStep(BaseStep):
         failed_paths = set(state.failed_paths)
         checkpoint = [p for p in state.changed_paths if p not in failed_paths]
         day_index_paths = [f"{state.daily_dir}/{day}.md" for day in (state.dates or [state.date]) if day]
-        interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
-        supplemental = [p for p in [*interest_paths, *day_index_paths] if p and p not in failed_paths]
+        supplemental = [p for p in day_index_paths if p and p not in failed_paths]
         upsert_paths = list(dict.fromkeys([*checkpoint, *supplemental]))
         self.logger.info(
             f"[{self.name}] start changed={len(state.changed_paths)} failed_paths={len(state.failed_paths)} "
-            f"checkpoint={len(checkpoint)} interest_paths={len(interest_paths)} day_indexes={len(day_index_paths)} "
+            f"checkpoint={len(checkpoint)} day_indexes={len(day_index_paths)} "
             f"deleted={len(state.deleted_paths)} persist={self.persist}",
         )
         upserts = self._nodes(workspace, upsert_paths)
@@ -72,7 +71,6 @@ class DreamFinishStep(BaseStep):
 
 def render_summary(state: DreamState) -> str:
     """Render a concise user-facing summary."""
-    interest_paths = state.interests_paths or ([state.interests_path] if state.interests_path else [])
     dates = ", ".join(state.dates or [state.date])
     lines = [
         ("AutoDream completed with warnings" if state.warnings else "AutoDream completed"),
@@ -88,7 +86,6 @@ def render_summary(state: DreamState) -> str:
             f"- Integrated: {len(state.integrate_results)} ok, {len(state.skipped_units)} skipped, "
             f"{len(state.failed_units)} failed"
         ),
-        f"- Topics: {state.topics_written} written" + (f" to {', '.join(interest_paths)}" if interest_paths else ""),
         f"- Catalog: checkpointed {len(state.checkpoint_paths)} changed path(s)",
     ]
     if state.nodes_created:

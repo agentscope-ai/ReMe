@@ -33,12 +33,6 @@ auto_dream:
     max_units:
       type: integer
       default: 5
-    topic_count:
-      type: integer
-      default: 3
-    topic_diversity_days:
-      type: integer
-      default: 7
   steps:
     - backend: dream_extract_step
       file_catalog: dream
@@ -46,9 +40,6 @@ auto_dream:
       scan_days: 2
       max_units: 5
     - backend: dream_integrate_step
-    - backend: dream_topics_step
-      topic_count: 3
-      topic_diversity_days: 7
     - backend: dream_finish_step
       file_catalog: dream
 ```
@@ -61,8 +52,6 @@ Parameters:
 | `hint`                 | Additional guidance from the caller for the Extract and Integrate stages.                               |
 | `scan_days`            | Recent-date window ending at `date`; defaults to 2 and has a minimum of 1.                              |
 | `max_units`            | Maximum reusable units extracted in one run; defaults to 5.                                             |
-| `topic_count`          | Maximum number of topics written to `interests.yaml`. Defaults to 3.                                    |
-| `topic_diversity_days` | Number of past days of `interests.yaml` files considered when avoiding duplicate topics. Defaults to 7. |
 
 ## Inputs and Outputs
 
@@ -140,47 +129,18 @@ There are four integration actions:
 Successfully integrated units are recorded in `integrate_results`. Failed units enter `failed_units`, and their source
 paths enter `failed_paths`. The Finish stage does not checkpoint failed paths, ensuring that they can be retried later.
 
-### 3. Topics
-
-`dream_topics_step` turns topic candidates from Extract into the final `daily/<date>/interests.yaml` for the day.
-
-It reads:
-
-```text
-daily/<date>/interests.yaml
-daily/<each of the previous topic_diversity_days dates>/interests.yaml
-```
-
-Existing topics from the same day are preserved, while similar topics from the previous `topic_diversity_days` days are
-deduplicated. At most three topics are written by default. With an LLM configured, the LLM selects topics that are more
-specific, actionable, and non-repetitive. Without an LLM, the step falls back to local normalization and deduplication.
-
-Example output format. See [Proactive](./proactive.md) for the interface that reads this file:
-
-```yaml
-date: 2026-06-20
-topic_count: 3
-diversity_days: 7
-topics:
-  - title: Quality regression in the memory retrieval pipeline
-    reason: The user has recently made repeated changes to search, node_search, and dream integration.
-    evidence: daily/2026-06-20/session.md
-    keywords:
-      - memory search
-      - auto dream
-    paths:
-      - daily/2026-06-20/session.md
-```
-
-### 4. Finish
+### 3. Finish
 
 `dream_finish_step` completes the run:
 
 1. Write successfully processed changed paths to `file_catalog: dream`.
-2. Also write the target `daily/<date>/interests.yaml` and every refreshed day-index page in the scan window to the
-   catalog.
+2. Also write every refreshed day-index page in the scan window to the catalog.
 3. Persist the dream catalog if there were upserts or deletions.
-4. Return a summary containing counts for scanned, changed, integrated, topics, checkpoints, and related values.
+4. Return a summary containing counts for scanned, changed, integrated, checkpoints, and related values.
+
+`interests.yaml` is no longer written by auto dream. The daytime exposure file is owned by
+`proactive_refresh_cron`; see [Proactive](./proactive.md). Dream only reads historical `interests.yaml` files as
+extraction material.
 
 Failed paths are not checkpointed. The next `auto_dream` run therefore continues to treat them as changed inputs until
 integration succeeds.
@@ -216,7 +176,6 @@ jobs:
       - backend: dream_extract_step
         file_catalog: dream
       - backend: dream_integrate_step
-      - backend: dream_topics_step
       - backend: dream_finish_step
         file_catalog: dream
 ```

@@ -143,11 +143,11 @@ daily notes
 The responsibilities are divided as follows. For the complete Extract, Integrate, Topics, and Finish flow, see
 [Auto Dream](./auto_dream.md):
 
-| Module               | Responsibility                                         |
-|----------------------|--------------------------------------------------------|
-| `dream_extract_step` | Extract topic candidates from changed daily inputs.    |
-| `dream_topics_step`  | Deduplicate, select, and write `interests.yaml`.       |
-| `proactive_step`     | Read `interests.yaml` and expose it to the host agent. |
+| Module                   | Responsibility                                         |
+|--------------------------|--------------------------------------------------------|
+| `dream_extract_step`     | Extract topic candidates from changed daily inputs.    |
+| `proactive_refresh_cron` | Sole writer of `interests.yaml` (daytime exposure).    |
+| `proactive_step`         | Read `interests.yaml` and expose it to the host agent. |
 
 `proactive` does not modify files, update a catalog, or decide whether the user should be interrupted. It only provides
 the day's topic material. The caller's product policy determines whether, when, and in what tone to push it to the user.
