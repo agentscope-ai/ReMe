@@ -123,9 +123,9 @@ class BackgroundJob(BaseJob):
 
     async def __call__(self, **kwargs) -> Response:
         """Default body: run steps in order; errors propagate to supervisor."""
-        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(stop_event=self._stop_event, **merged)
-        for step in self._build_steps():
-            await step(context)
+        async with self._tracked_execution():
+            for step in self._build_steps():
+                await step(context)
         return context.response

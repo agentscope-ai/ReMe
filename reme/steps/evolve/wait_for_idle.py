@@ -6,6 +6,7 @@ import time
 
 from ..base_step import BaseStep
 from ...components import R
+from ...components.job.activity import JOB_ACTIVITY_KEY
 
 DEFAULT_BUSY_JOB_PATTERNS = ["auto_memory*", "auto_resource*", "dream_cron", "optimize_index_cron"]
 
@@ -78,17 +79,18 @@ class WaitForIdleStep(BaseStep):
         await asyncio.sleep(delay)
 
     def _busy_jobs(self, metadata: dict) -> list[str]:
-        """Return names of matching jobs that are running or inside the quiet window."""
-        last_run = metadata.get("__job_last_run") or {}
+        """Return names of matching jobs that are active or inside the quiet window."""
+        activity = metadata.get(JOB_ACTIVITY_KEY) or {}
         now = time.monotonic()
         busy: list[str] = []
-        for name, info in last_run.items():
+        for name, info in activity.items():
             if not isinstance(info, dict):
                 continue
             if not any(fnmatch.fnmatch(name, pattern) for pattern in self.busy_job_patterns):
                 continue
+            active = int(info.get("active_count") or 0) > 0
             last_end = info.get("last_end")
             recently_active = isinstance(last_end, (int, float)) and now - float(last_end) <= self.quiet_window
-            if info.get("running") or recently_active:
+            if active or recently_active:
                 busy.append(name)
         return sorted(busy)

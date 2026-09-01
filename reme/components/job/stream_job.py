@@ -12,13 +12,13 @@ class StreamJob(BaseJob):
 
     async def __call__(self, **kwargs) -> None:
         """Run steps; emit failures as ERROR chunks, then a terminal DONE marker."""
-        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(**merged)
-        try:
-            for step in self._build_steps():
-                await step(context)
-        except Exception as e:
-            await context.add_stream_string(str(e), ChunkEnum.ERROR)
-        # Always emit DONE so consumers can detach even after an error.
-        await context.add_stream_done()
+        async with self._tracked_execution():
+            try:
+                for step in self._build_steps():
+                    await step(context)
+            except Exception as e:
+                await context.add_stream_string(str(e), ChunkEnum.ERROR)
+            # Always emit DONE so consumers can detach even after an error.
+            await context.add_stream_done()

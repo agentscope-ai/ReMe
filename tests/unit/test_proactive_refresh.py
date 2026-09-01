@@ -1073,9 +1073,9 @@ def test_idle_gate(tmp_path):
     async def run():
         now_mono = time.monotonic()
         app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_last_run"] = {
-            "auto_memory_batch": {"running": True, "last_start": now_mono, "last_end": now_mono - 999},
-            "unrelated_job": {"running": True, "last_start": now_mono, "last_end": now_mono},
+        app.metadata["__job_activity"] = {
+            "auto_memory_batch": {"active_count": 1, "last_start": now_mono, "last_end": now_mono - 999},
+            "unrelated_job": {"active_count": 1, "last_start": now_mono, "last_end": now_mono},
         }
         step = WaitForIdleStep(app_context=app, max_wait=0.3, poll_interval=0.05)
         context = RuntimeContext()
@@ -1085,12 +1085,34 @@ def test_idle_gate(tmp_path):
         assert flag["reason"] == "busy"
         assert flag["busy_jobs"] == ["auto_memory_batch"]  # unrelated_job not matched
 
-        app.metadata["__job_last_run"] = {
-            "auto_memory_batch": {"running": False, "last_start": now_mono - 900, "last_end": now_mono - 900},
+        app.metadata["__job_activity"] = {
+            "auto_memory_batch": {"active_count": 0, "last_start": now_mono - 900, "last_end": now_mono - 900},
         }
         context2 = RuntimeContext()
         response2 = await WaitForIdleStep(app_context=app, quiet_window=120)(context2)
         assert response2.success is True
+        assert "proactive_skip" not in context2
+
+    asyncio.run(run())
+
+
+def test_idle_gate_quiet_window_counts_from_last_end(tmp_path):
+    """A fresh last_end blocks even at active_count=0; an old one proceeds."""
+
+    async def run():
+        now_mono = time.monotonic()
+        app = ApplicationContext(workspace_dir=str(tmp_path))
+        app.metadata["__job_activity"] = {
+            "auto_memory_batch": {"active_count": 0, "last_start": now_mono - 10, "last_end": now_mono - 5},
+        }
+        step = WaitForIdleStep(app_context=app, quiet_window=120, max_wait=0.2, poll_interval=0.05)
+        context = RuntimeContext()
+        await step(context)
+        assert context.get("proactive_skip")["reason"] == "busy"
+
+        app.metadata["__job_activity"]["auto_memory_batch"]["last_end"] = now_mono - 900
+        context2 = RuntimeContext()
+        await WaitForIdleStep(app_context=app, quiet_window=120, max_wait=0.2, poll_interval=0.05)(context2)
         assert "proactive_skip" not in context2
 
     asyncio.run(run())
@@ -1101,8 +1123,8 @@ def test_idle_timeout_skip(tmp_path):
 
     async def run():
         app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_last_run"] = {
-            "dream_cron": {"running": True, "last_start": time.monotonic(), "last_end": 0.0},
+        app.metadata["__job_activity"] = {
+            "dream_cron": {"active_count": 1, "last_start": time.monotonic(), "last_end": 0.0},
         }
         step = WaitForIdleStep(app_context=app, max_wait=0.2, poll_interval=0.05)
         context = RuntimeContext()
@@ -1122,8 +1144,8 @@ def test_wait_for_idle_skip_key(tmp_path):
 
     async def run():
         app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_last_run"] = {
-            "dream_cron": {"running": True, "last_start": time.monotonic(), "last_end": 0.0},
+        app.metadata["__job_activity"] = {
+            "dream_cron": {"active_count": 1, "last_start": time.monotonic(), "last_end": 0.0},
         }
         step = WaitForIdleStep(app_context=app, max_wait=0.15, poll_interval=0.05, skip_key="custom_skip")
         context = RuntimeContext()
