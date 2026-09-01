@@ -45,8 +45,11 @@ def _set_entry_points(monkeypatch, *entries):
 
 
 @pytest.mark.parametrize("name", ["lme", "beam"])
-def test_benchmark_presets_and_backends_are_not_builtin(monkeypatch, name):
+def test_shared_benchmark_preset_is_builtin_but_plugin_aliases_and_backends_are_not(monkeypatch, name):
     _set_entry_points(monkeypatch)
+    benchmark = _load_config("benchmark")
+    assert {"index_update", "digest_update", "search", "read", "write"} <= benchmark["jobs"].keys()
+    assert {"auto_memory", "agentic_answer", "answer_judge"}.isdisjoint(benchmark["jobs"])
     for alias in (name, f"{name}.yaml"):
         with pytest.raises(FileNotFoundError, match="Config file not found"):
             _load_config(alias)

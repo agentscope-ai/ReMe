@@ -1,67 +1,11 @@
-# BEAM application preset; independent of the default service config.
-# All background/cron jobs are converted to base (manually callable).
-# Use with: resolve_app_config(config="beam.yaml", ...)
-
-plugins: [beam]
+# Shared benchmark application preset; independent of the default service config.
+# Background and cron jobs are omitted in favor of manually callable base jobs.
+# Benchmark plugins contribute their own jobs through plugin.yaml.
 
 service:
   backend: http
 
 jobs:
-  # ── BEAM agentic answer (ReAct agent + search tool) ──
-  agentic_answer:
-    backend: base
-    description: "BEAM agentic answer job (ReAct agent with search tool)"
-    watch_dirs: []
-    watch_suffixes: []
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "The query to ask"
-        query_time:
-          type: string
-          description: "ISO timestamp representing the query time"
-          default: ""
-      required:
-        - query
-    steps:
-      - backend: beam_agentic_answer_step
-        agent_wrapper: bench
-
-  # ── BEAM rubric-based LLM-as-Judge ──
-  answer_judge:
-    backend: base
-    description: "BEAM rubric-based LLM-as-Judge: evaluate response against rubric criteria"
-    watch_dirs: []
-    watch_suffixes: []
-    parameters:
-      type: object
-      properties:
-        llm_response:
-          type: string
-          description: "The model's response to evaluate"
-        rubric:
-          type: array
-          description: "List of rubric criteria to check"
-          items:
-            type: string
-        probing_question:
-          type: string
-          description: "The original probing question"
-          default: ""
-        question_type:
-          type: string
-          description: "BEAM question type (e.g. event_ordering)"
-          default: ""
-      required:
-        - llm_response
-        - rubric
-    steps:
-      - backend: beam_rubric_judge_step
-        agent_wrapper: judge
-
   # ── Manual index update (replaces index_update_loop background) ──
   index_update:
     backend: base
@@ -138,39 +82,6 @@ jobs:
   #       topic_diversity_days: 7
   #     - backend: dream_finish_step
   #       file_catalog: dream
-
-  # ── Auto memory (same as default.yaml) ──
-  auto_memory:
-    backend: base
-    description: "Auto-memory: record conversation facts into a daily note"
-    parameters:
-      type: object
-      properties:
-        messages:
-          type: array
-          description: "messages"
-          items:
-            type: object
-        session_id:
-          type: string
-          description: "source conversation session identifier"
-          default: ""
-        memory_hint:
-          type: string
-          description: "optional hint"
-        date:
-          type: string
-          description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
-          default: ""
-      required:
-        - messages
-    steps:
-      - backend: beam_auto_memory_step
-        # Long sessions are split into turn-aligned segments and fed to the
-        # agent incrementally; each segment holds at most this many words.
-        # ("segment" here is a slice of the message list, unrelated to file
-        # chunking in the index.) <= 0 disables splitting.
-        max_segment_words: 10000
 
   # ── Text compression (direct LLM call, no agent) ──
   compressor:
@@ -525,7 +436,6 @@ components:
       model: ${LLM_MODEL_NAME:-qwen3.6-flash}
       stream: true
       context_size: 200000
-      max_retries: 5
       retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
@@ -539,7 +449,6 @@ components:
       stream: false
       context_size: 200000
       max_retries: 5
-      retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}
         base_url: ${LLM_BASE_URL:-}

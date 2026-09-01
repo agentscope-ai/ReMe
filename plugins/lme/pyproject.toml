@@ -13,21 +13,13 @@ dependencies = [
 [project.entry-points."reme.plugins"]
 lme = "reme_lme"
 
-[project.entry-points."reme.configs"]
-lme = "reme_lme.config:config_path"
-"lme.yaml" = "reme_lme.config:config_path"
-
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["reme_lme*"]
+include = ["reme_lme*", "judge*"]
 
 [tool.setuptools.package-data]
-reme_lme = ["plugin.yaml", "configs/*.yaml", "steps/*.yaml"]
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"
-pythonpath = ["src", "../.."]
-testpaths = ["tests"]
+reme_lme = ["plugin.yaml", "*.yaml"]
+judge = ["*.yaml"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

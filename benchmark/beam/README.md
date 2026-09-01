@@ -21,12 +21,12 @@ Install ReMe and its runtime dependencies from the repository root; no `reme plu
 python -m pip install -e ".[as]"
 ```
 
-Each worker directly loads the checkout's [plugin source](../../plugins/beam/README.md) and `beam.yaml`
-application configuration without installing the plugin or mutating the global registry.
-Custom application config paths still work through `reme.config`. Without installation,
-use the plugin configuration file path for `extends`, rather than the installed `beam` alias.
+Each worker combines ReMe's built-in `benchmark` preset with the checkout's
+[plugin source](../../plugins/beam/README.md), without installing the plugin or mutating
+the global registry. Custom application config paths still work through `reme.config` and
+can use `extends: benchmark`.
 This directory continues to own the runner, evaluation settings, dataset and outputs.
-Model credentials use the environment variables in the plugin's application configuration.
+Model credentials use the environment variables declared by the shared benchmark configuration.
 
 ## 1. Get the Dataset
 
@@ -69,7 +69,7 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 | `dataset.start_index` / `num_items` | Case pagination (`num_items` `0` = all). |
 | `dataset.workspace_root` | Per-case workspace root (`benchmark/beam/workspaces/beam`). |
 | `evaluation.num_workers` | `0` = auto, `1` = sequential, `>1` = parallel. |
-| `reme.config` | ReMe config used (`beam.yaml`). |
+| `reme.config` | ReMe config used (`benchmark`). |
 | `output.dir` | Results directory (`benchmark/beam/results`). |
 
 ## 5. Outputs

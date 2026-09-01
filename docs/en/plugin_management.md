@@ -179,12 +179,10 @@ the `search` and `read` Jobs used by Auto Fin.
 ## Benchmark application presets
 
 The [LME](../../plugins/lme/README.md) and [BEAM](../../plugins/beam/README.md) plugins
-register backends only. Their `plugin.yaml` files do not contribute `application_defaults`.
-Select `config=lme` or `config=beam` (also `lme.yaml` / `beam.yaml`) to load their complete
-application presets, which explicitly enable the corresponding plugin. These presets do
-not inherit `default`, so default background and cron jobs are not included. Enabling only
-`plugins=["lme"]` registers implementations without switching the default service into an
-evaluation application. Dataset runners remain under `benchmark/`.
+register their backends and plugin-owned Jobs in `plugin.yaml`. ReMe's built-in `benchmark`
+preset provides the shared core Jobs and components without inheriting `default`, so default
+background and cron jobs are not included. Select `config=benchmark` together with
+`plugins=["lme"]` or `plugins=["beam"]`. Dataset runners remain under `benchmark/`.
 
 ## Load an importable plugin package from Python
 
@@ -196,8 +194,8 @@ providers; other enabled plugins still use entry-point discovery. Manifest valid
 type checks and registry conflict detection remain unchanged.
 
 Both benchmark runners use this API to load the checkout's plugin code without
-`reme plugins install`. They resolve their preset aliases to local configuration paths.
-For custom configs that extend these presets without installation, use a file path in `extends`.
+`reme plugins install`. They combine the built-in `benchmark` preset with the selected local
+plugin. Custom configs can use `extends: benchmark`.
 ReMe, AgentScope and other runtime dependencies must still be installed. Ordinary CLI plugin
 and named-config discovery continue to require an installed plugin distribution.
 

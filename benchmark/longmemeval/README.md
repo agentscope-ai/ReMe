@@ -18,12 +18,12 @@ Install ReMe and its runtime dependencies from the repository root; no `reme plu
 python -m pip install -e ".[as]"
 ```
 
-Each worker directly loads the checkout's [plugin source](../../plugins/lme/README.md) and `lme.yaml`
-application configuration without installing the plugin or mutating the global registry.
-Custom application config paths still work through `reme.config`. Without installation,
-use the plugin configuration file path for `extends`, rather than the installed `lme` alias.
+Each worker combines ReMe's built-in `benchmark` preset with the checkout's
+[plugin source](../../plugins/lme/README.md), without installing the plugin or mutating
+the global registry. Custom application config paths still work through `reme.config` and
+can use `extends: benchmark`.
 This directory continues to own the runner, evaluation settings, dataset and outputs.
-Model credentials use the environment variables in the plugin's application configuration.
+Model credentials use the environment variables declared by the shared benchmark configuration.
 
 ## 1. Get the Dataset
 
@@ -71,7 +71,7 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 | `dataset.workspace_root` | Per-item workspace root (`benchmark/longmemeval/workspaces/longmemeval-s`). |
 | `evaluation.num_workers` | `0` = auto (cpu-2), `1` = sequential, `>1` = parallel. |
 | `evaluation.filter_future_sessions` | Only ingest sessions with timestamp ≤ `question_date`. |
-| `reme.config` | ReMe config used (`lme.yaml`). |
+| `reme.config` | ReMe config used (`benchmark`). |
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | Dream triggering behavior. |
 | `output.dir` | Results directory (`benchmark/longmemeval/results`). |
 

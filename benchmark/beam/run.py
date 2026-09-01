@@ -152,14 +152,12 @@ def load_eval_config(config_path: str | None = None) -> dict:
     return yaml.safe_load(raw)
 
 
-def create_reme_app(config: str = "beam.yaml", **overrides):
+def create_reme_app(config: str = "benchmark", **overrides):
     """Create an app using this checkout's plugin, without installing its distribution.
 
-    An existing local beam.yaml takes precedence over the plugin preset. Otherwise,
-    preset aliases use the checkout's plugin configuration. Other config names and
-    paths keep the normal ReMe parser behavior. Only plugins enabled in
-    the resolved configuration are loaded; the package map never enables a plugin.
-    Call this inside each worker so multiprocessing spawn needs no parent setup.
+    The built-in benchmark preset supplies ReMe jobs and components, while the
+    local plugin manifest supplies BEAM jobs and backends. Call this inside each
+    worker so multiprocessing spawn needs no parent setup.
     """
     from reme import Application
     from reme.config import resolve_app_config
@@ -171,11 +169,10 @@ def create_reme_app(config: str = "beam.yaml", **overrides):
     source_path = str(source_root)
     if source_path not in sys.path:
         sys.path.insert(0, source_path)
-    if config == "beam.yaml" and Path(config).is_file():
-        config = str(Path(config).resolve())
-    elif config in ("beam", "beam.yaml"):
-        config = str(package_root / "configs" / "beam.yaml")
-    app_config = resolve_app_config(config=config, **overrides)
+    enabled_plugins = list(overrides.pop("plugins", ()) or ())
+    if "beam" not in enabled_plugins:
+        enabled_plugins.append("beam")
+    app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
     return Application(plugin_packages={"beam": "reme_beam"}, **app_config)
 
 

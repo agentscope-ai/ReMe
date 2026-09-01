@@ -1,4 +1,88 @@
 backends:
-  lme_auto_memory_step: reme_lme.steps.auto_memory:LmeAutoMemoryStep
-  lme_agentic_answer_step: reme_lme.steps.agentic_answer:LmeAgenticAnswerStep
-  lme_answer_judge_step: reme_lme.steps.llm_judge:LmeAnswerJudgeStep
+  lme_auto_memory_step: reme_lme.auto_memory:LmeAutoMemoryStep
+  lme_agentic_answer_step: reme_lme.agentic_answer:LmeAgenticAnswerStep
+  lme_answer_judge_step: judge.llm_judge:LmeAnswerJudgeStep
+
+application_defaults:
+  jobs:
+    agentic_answer:
+      backend: base
+      description: "LongMemEval agentic answer job (ReAct agent with search tool)"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The query to ask"
+          query_time:
+            type: string
+            description: "ISO timestamp representing the query time"
+            default: ""
+        required:
+          - query
+      steps:
+        - backend: lme_agentic_answer_step
+          agent_wrapper: bench
+
+    answer_judge:
+      backend: base
+      description: "LLM-as-Judge: evaluate agent answer against golden answer"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The question being asked"
+          agent_answer:
+            type: string
+            description: "The model's answer to evaluate"
+          golden_answer:
+            type: string
+            description: "The correct/golden answer"
+          question_type:
+            type: string
+            description: "The question type for prompt selection"
+            default: ""
+        required:
+          - query
+          - agent_answer
+          - golden_answer
+      steps:
+        - backend: lme_answer_judge_step
+          agent_wrapper: judge
+
+    auto_memory:
+      backend: base
+      description: "Auto-memory: record conversation facts into a daily note"
+      parameters:
+        type: object
+        properties:
+          messages:
+            type: array
+            description: "messages"
+            items:
+              type: object
+          session_id:
+            type: string
+            description: "source conversation session identifier"
+            default: ""
+          memory_hint:
+            type: string
+            description: "optional hint"
+          date:
+            type: string
+            description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
+            default: ""
+        required:
+          - messages
+      steps:
+        - backend: lme_auto_memory_step
+
+  components:
+    as_llm:
+      default:
+        max_retries: 3

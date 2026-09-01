@@ -15,21 +15,13 @@ dependencies = [
 [project.entry-points."reme.plugins"]
 beam = "reme_beam"
 
-[project.entry-points."reme.configs"]
-beam = "reme_beam.config:config_path"
-"beam.yaml" = "reme_beam.config:config_path"
-
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["reme_beam*"]
+include = ["reme_beam*", "judge*"]
 
 [tool.setuptools.package-data]
-reme_beam = ["plugin.yaml", "configs/*.yaml", "steps/*.yaml"]
-
-[tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "function"
-pythonpath = ["src", "../.."]
-testpaths = ["tests"]
+reme_beam = ["plugin.yaml", "*.yaml"]
+judge = ["*.yaml"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

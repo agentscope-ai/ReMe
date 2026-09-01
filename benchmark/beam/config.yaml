@@ -14,7 +14,7 @@ evaluation:
   compress_session: false               # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:
-  config: "beam.yaml"                   # reme config (provided by the beam plugin)
+  config: "benchmark"                   # shared ReMe benchmark preset; runner adds the local beam plugin
 
 output:
   dir: "benchmark/beam/results"
