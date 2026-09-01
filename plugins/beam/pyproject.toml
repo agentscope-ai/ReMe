@@ -17,11 +17,11 @@ beam = "reme_beam"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["reme_beam*", "judge*"]
+include = ["reme_beam*", "judge_beam*"]
 
 [tool.setuptools.package-data]
 reme_beam = ["plugin.yaml", "*.yaml"]
-judge = ["*.yaml"]
+judge_beam = ["*.yaml"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

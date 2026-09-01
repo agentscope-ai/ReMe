@@ -1,7 +1,7 @@
 backends:
   lme_auto_memory_step: reme_lme.auto_memory:LmeAutoMemoryStep
   lme_agentic_answer_step: reme_lme.agentic_answer:LmeAgenticAnswerStep
-  lme_answer_judge_step: judge.llm_judge:LmeAnswerJudgeStep
+  lme_answer_judge_step: judge_lme.llm_judge:LmeAnswerJudgeStep
   lme_search_v2_step: reme_lme.search_v2:SearchV2Step
 
 application_defaults:

@@ -15,11 +15,11 @@ lme = "reme_lme"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["reme_lme*", "judge*"]
+include = ["reme_lme*", "judge_lme*"]
 
 [tool.setuptools.package-data]
 reme_lme = ["plugin.yaml", "*.yaml"]
-judge = ["*.yaml"]
+judge_lme = ["*.yaml"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

@@ -1,7 +1,7 @@
 backends:
   beam_auto_memory_step: reme_beam.auto_memory:BeamAutoMemoryStep
   beam_agentic_answer_step: reme_beam.agentic_answer:BeamAgenticAnswerStep
-  beam_rubric_judge_step: judge.llm_judge:BeamRubricJudgeStep
+  beam_rubric_judge_step: judge_beam.llm_judge:BeamRubricJudgeStep
   beam_search_v2_step: reme_beam.search_v2:SearchV2Step
 
 application_defaults:
