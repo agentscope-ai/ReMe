@@ -171,7 +171,7 @@ jobs:
       tags: ${{ inputs.npm_tag }}
       source_repo: ${{ github.repository }}
       source_commit: ${{ github.sha }}
-      source_ref: ${{ github.ref }}
+      source_ref: ${{ github.sha }}
       source_path: typescript
       package_artifact_name: agentscope-ai-reme-clawhub-${{ inputs.version }}
       dry_run: false
