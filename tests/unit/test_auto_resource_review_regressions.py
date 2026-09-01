@@ -12,6 +12,7 @@ from .auto_resource_test_support import (
     write_note,
 )
 
+pytest_plugins = ("unit.auto_resource_test_plugin",)
 pytestmark = pytest.mark.asyncio
 
 
