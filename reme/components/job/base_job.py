@@ -1,12 +1,10 @@
 """Base job component for sequential step execution."""
 
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from ..base_component import BaseComponent
 from ..component_registry import R
 from ..runtime_context import RuntimeContext
-from .activity import JobActivityTracker
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
 from ...utils import global_counter_inc
@@ -60,32 +58,22 @@ class BaseJob(BaseComponent):
         # dict(params) copies kwargs so steps cannot mutate the shared spec.
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
-    @asynccontextmanager
-    async def _tracked_execution(self):
-        """The single real-execution edge shared by every job type.
-
-        Increments the lifetime call counter and marks activity for the idle
-        gate (``wait_for_idle_step``) via ``JobActivityTracker``. Begin/end are
-        always paired, including on errors and cancellations.
-        """
+    def _record_call(self) -> None:
+        """Increment this job's application-lifetime call counter."""
         metadata = getattr(self.app_context, "metadata", None)
-        if not isinstance(metadata, dict):
-            yield
-            return
-        global_counter_inc(metadata, ["__job_counter", self.name])
-        async with JobActivityTracker(metadata).track(self.name):
-            yield
+        if isinstance(metadata, dict):
+            global_counter_inc(metadata, ["__job_counter", self.name])
 
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
+        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(**merged)
-        async with self._tracked_execution():
-            try:
-                for step in self._build_steps():
-                    await step(context)
-            except Exception as e:
-                self.logger.exception(f"Failed to execute job: {e}")
-                context.response.success = False
-                context.response.answer = str(e)
+        try:
+            for step in self._build_steps():
+                await step(context)
+        except Exception as e:
+            self.logger.exception(f"Failed to execute job: {e}")
+            context.response.success = False
+            context.response.answer = str(e)
         return context.response

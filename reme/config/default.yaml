@@ -81,8 +81,6 @@ jobs:
     backend: cron
     cron: "0 18 * * *"             # once a day at 18:00
     steps:
-      - backend: wait_for_idle_step
-        skip_key: proactive_skip
       - backend: proactive_extract_step
         file_catalog: proactive
         scan_days: 2

@@ -1,7 +1,7 @@
 # pylint: disable=too-many-lines
 """Unit tests for the proactive refresh chain (PROACTIVE_SPEC.md A8 mapping).
 
-Coverage: F1 contracts, F2 discovery, F3 isolation, F4 idle gate/budget/timeout,
+Coverage: F1 contracts, F2 discovery, F3 isolation, F4 budget/timeout,
 F5 read extensions, plus the M2 extends branch and semantic dedup.
 """
 
@@ -39,7 +39,6 @@ from reme.steps.evolve.proactive.utils import (
     strip_frontmatter,
     topic_id,
 )
-from reme.steps.evolve.wait_for_idle import WaitForIdleStep
 
 DAY = "2026-08-13"
 
@@ -616,7 +615,7 @@ def test_material_filter(tmp_path):
 
 
 def test_refresh_chain_e2e(tmp_path):
-    """wait_for_idle -> extract -> topics -> finish runs end to end."""
+    """extract -> topics -> finish runs end to end."""
 
     async def run():
         ws = tmp_path
@@ -628,11 +627,6 @@ def test_refresh_chain_e2e(tmp_path):
         wrapper = _AgentWrapper([reply])
         catalog = _Catalog()
         context = RuntimeContext(date=DAY, file_catalog=catalog, file_store=_FileStore(ws), agent_wrapper=wrapper)
-
-        wait = WaitForIdleStep(app_context=app, max_wait=5, poll_interval=0.05)
-        resp_wait = await wait(context)
-        assert resp_wait.success is True
-        assert "proactive_skip" not in context
 
         extract = ProactiveExtractStep(app_context=app)
         resp_extract = await extract(context)
@@ -1063,97 +1057,8 @@ def test_nightly_unit_set_invariant():
 
 
 # ---------------------------------------------------------------------------
-# F4 idle gate, short-circuit, budget, timeout
+# F4 short-circuit, budget, timeout
 # ---------------------------------------------------------------------------
-
-
-def test_idle_gate(tmp_path):
-    """Running/quiet-window jobs block; idle trunk proceeds; fnmatch patterns apply."""
-
-    async def run():
-        now_mono = time.monotonic()
-        app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_activity"] = {
-            "auto_memory_batch": {"active_count": 1, "last_start": now_mono, "last_end": now_mono - 999},
-            "unrelated_job": {"active_count": 1, "last_start": now_mono, "last_end": now_mono},
-        }
-        step = WaitForIdleStep(app_context=app, max_wait=0.3, poll_interval=0.05)
-        context = RuntimeContext()
-        response = await step(context)
-        assert response.success is True  # giving up is not a failure
-        flag = context.get("proactive_skip")
-        assert flag["reason"] == "busy"
-        assert flag["busy_jobs"] == ["auto_memory_batch"]  # unrelated_job not matched
-
-        app.metadata["__job_activity"] = {
-            "auto_memory_batch": {"active_count": 0, "last_start": now_mono - 900, "last_end": now_mono - 900},
-        }
-        context2 = RuntimeContext()
-        response2 = await WaitForIdleStep(app_context=app, quiet_window=120)(context2)
-        assert response2.success is True
-        assert "proactive_skip" not in context2
-
-    asyncio.run(run())
-
-
-def test_idle_gate_quiet_window_counts_from_last_end(tmp_path):
-    """A fresh last_end blocks even at active_count=0; an old one proceeds."""
-
-    async def run():
-        now_mono = time.monotonic()
-        app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_activity"] = {
-            "auto_memory_batch": {"active_count": 0, "last_start": now_mono - 10, "last_end": now_mono - 5},
-        }
-        step = WaitForIdleStep(app_context=app, quiet_window=120, max_wait=0.2, poll_interval=0.05)
-        context = RuntimeContext()
-        await step(context)
-        assert context.get("proactive_skip")["reason"] == "busy"
-
-        app.metadata["__job_activity"]["auto_memory_batch"]["last_end"] = now_mono - 900
-        context2 = RuntimeContext()
-        await WaitForIdleStep(app_context=app, quiet_window=120, max_wait=0.2, poll_interval=0.05)(context2)
-        assert "proactive_skip" not in context2
-
-    asyncio.run(run())
-
-
-def test_idle_timeout_skip(tmp_path):
-    """Waiting past max_wait gives up the round: success=True, skip flag set, no writes."""
-
-    async def run():
-        app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_activity"] = {
-            "dream_cron": {"active_count": 1, "last_start": time.monotonic(), "last_end": 0.0},
-        }
-        step = WaitForIdleStep(app_context=app, max_wait=0.2, poll_interval=0.05)
-        context = RuntimeContext()
-        started = time.monotonic()
-        response = await step(context)
-        assert time.monotonic() - started >= 0.2
-        assert response.success is True
-        assert "Skipped" in str(response.answer)
-        assert context.get("proactive_skip")["reason"] == "busy"
-        assert not _interests(tmp_path).exists()
-
-    asyncio.run(run())
-
-
-def test_wait_for_idle_skip_key(tmp_path):
-    """The short-circuit flag key is parameterized, not hardcoded."""
-
-    async def run():
-        app = ApplicationContext(workspace_dir=str(tmp_path))
-        app.metadata["__job_activity"] = {
-            "dream_cron": {"active_count": 1, "last_start": time.monotonic(), "last_end": 0.0},
-        }
-        step = WaitForIdleStep(app_context=app, max_wait=0.15, poll_interval=0.05, skip_key="custom_skip")
-        context = RuntimeContext()
-        await step(context)
-        assert context.get("custom_skip")["reason"] == "busy"
-        assert context.get("proactive_skip") is None
-
-    asyncio.run(run())
 
 
 def test_llm_timeout(tmp_path):
