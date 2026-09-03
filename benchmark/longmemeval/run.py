@@ -19,7 +19,6 @@ import logging
 import os
 import re
 import shutil
-import sys
 import time
 import threading
 from datetime import datetime
@@ -152,27 +151,19 @@ def load_eval_config(config_path: str | None = None) -> dict:
 
 
 def create_reme_app(config: str = "benchmark", **overrides):
-    """Create an app using this checkout's plugin, without installing its distribution.
+    """Create an app with the installed LongMemEval plugin explicitly enabled.
 
-    The built-in benchmark preset supplies ReMe jobs and components, while the
-    local plugin manifest supplies LongMemEval jobs and backends. Call this inside
-    each worker so multiprocessing spawn needs no parent setup.
+    Plugin discovery remains environment-based; editable installation keeps local
+    plugin source changes visible to every multiprocessing worker.
     """
     from reme import Application
     from reme.config import resolve_app_config
 
-    source_root = _PROJECT_ROOT / "plugins" / "lme" / "src"
-    package_root = source_root / "reme_lme"
-    if not (package_root / "plugin.yaml").is_file():
-        raise FileNotFoundError(f"Local lme plugin not found: {package_root}")
-    source_path = str(source_root)
-    if source_path not in sys.path:
-        sys.path.insert(0, source_path)
     enabled_plugins = list(overrides.pop("plugins", ()) or ())
     if "lme" not in enabled_plugins:
         enabled_plugins.append("lme")
     app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
-    return Application(plugin_packages={"lme": "reme_lme"}, **app_config)
+    return Application(**app_config)
 
 
 # ---------------------------------------------------------------------------

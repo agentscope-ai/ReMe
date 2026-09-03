@@ -75,22 +75,15 @@ def _load_plugin(name: str, entry: EntryPoint) -> Plugin:
     if ":" not in entry.value:
         # Package-only targets use plugin.yaml; package:object targets are the
         # legacy Python descriptor contract.
-        return _load_package_plugin(name, entry.value)
+        from .components.component_registry import R
+
+        with R.preserve(allow_mutation=True):
+            manifest = load_package_manifest(entry.value, plugin_name=name)
+            return _plugin_from_manifest(name, manifest)
     plugin = load_entry_point(entry, invoke=True)
     if not isinstance(plugin, Plugin):
         raise TypeError(f"Plugin entry point '{name}' did not return reme.plugin.Plugin")
     return plugin
-
-
-def _load_package_plugin(name: str, package: str) -> Plugin:
-    """Load an explicitly selected importable package without entry-point discovery."""
-    from .components.component_registry import R
-
-    if not isinstance(package, str) or not package or ":" in package:
-        raise ValueError(f"Plugin '{name}' requires an importable package name: {package!r}")
-    with R.preserve(allow_mutation=True):
-        manifest = load_package_manifest(package, plugin_name=name)
-        return _plugin_from_manifest(name, manifest)
 
 
 class PluginManager:
@@ -100,8 +93,8 @@ class PluginManager:
         self.plugins = tuple(plugins)
 
     @classmethod
-    def discover(cls, specs: Iterable[str], *, packages: Mapping[str, str] | None = None) -> "PluginManager":
-        """Load enabled plugins, preferring explicitly supplied Python packages."""
+    def discover(cls, specs: Iterable[str]) -> "PluginManager":
+        """Load explicitly enabled plugins by entry-point name."""
         plugins: list[Plugin] = []
         seen: set[str] = set()
         for name in specs:
@@ -111,14 +104,11 @@ class PluginManager:
                 raise ValueError("Plugin name cannot be empty")
             if name in seen:
                 raise ValueError(f"Plugin '{name}' is enabled more than once")
-            if packages is not None and name in packages:
-                plugin = _load_package_plugin(name, packages[name])
-            else:
-                entries = find_entry_points(PLUGIN_ENTRY_POINT_GROUP, name)
-                entry = unique_entry_point(entries, name, provider="Plugin")
-                if entry is None:
-                    raise ValueError(f"Plugin '{name}' is not installed")
-                plugin = _load_plugin(name, entry)
+            entries = find_entry_points(PLUGIN_ENTRY_POINT_GROUP, name)
+            entry = unique_entry_point(entries, name, provider="Plugin")
+            if entry is None:
+                raise ValueError(f"Plugin '{name}' is not installed")
+            plugin = _load_plugin(name, entry)
             if plugin.name != name:
                 raise ValueError(f"Plugin entry point '{name}' returned plugin '{plugin.name}'")
             plugins.append(plugin)
@@ -139,18 +129,9 @@ class PluginManager:
                 registry.add(backend.name, backend.implementation, owner=plugin.name)
 
 
-def resolve_plugin_runtime(
-    application_config: Mapping[str, Any],
-    *,
-    plugin_packages: Mapping[str, str] | None = None,
-) -> PluginRuntime:
+def resolve_plugin_runtime(application_config: Mapping[str, Any]) -> PluginRuntime:
     """Build one local registry, with user config overriding plugin application defaults."""
-    specs = application_config.get("plugins") or ()
-    # Existing discovery replacements need not accept the new optional keyword.
-    if plugin_packages is None:
-        manager = PluginManager.discover(specs)
-    else:
-        manager = PluginManager.discover(specs, packages=plugin_packages)
+    manager = PluginManager.discover(application_config.get("plugins") or ())
     registry = create_application_registry()
     manager.register(registry)
     return PluginRuntime(config=manager.merge_config(application_config), registry=registry)

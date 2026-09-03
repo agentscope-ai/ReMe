@@ -173,20 +173,10 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 [LME](../../plugins/lme/README_ZH.md) 和 [BEAM](../../plugins/beam/README_ZH.md) 插件通过
 `plugin.yaml` 注册 backend 和插件拥有的 Job。ReMe 内置的 `benchmark` 配置提供公共核心 Job 和
-Component，并且不继承 `default`，因此不包含默认后台和定时任务。使用 `config=benchmark`，同时指定
-`plugins=["lme"]` 或 `plugins=["beam"]`。数据集 runner 仍位于 `benchmark/`。
-
-## Python 中直接加载插件包
-
-Python 调用方可使用 `Application(plugin_packages={"lme": "reme_lme"}, **config)`，其中
-`config["plugins"]` 包含 `lme`，且 `reme_lme` 已在 Python 导入路径上。该映射只为当前 Application
-指定插件来源，不自动启用插件，也不写入序列化应用配置。同名显式来源优先于安装发现；未指定来源的
-其他插件仍通过 entry point 查找。仍会检查 manifest、backend 类型和 registry 冲突。
-
-两个 benchmark runner 已使用此方式直接加载仓库内的插件，无需 `reme plugins install`。
-它们将内置 `benchmark` 配置与指定的本地插件组合；自定义配置可使用 `extends: benchmark`。
-此入口不会自动安装 ReMe、AgentScope 等运行依赖。
-普通 CLI 的命名插件和配置发现仍要求安装插件包。
+Component，并且不继承 `default`，因此不包含默认后台和定时任务。先安装所需的 benchmark 插件，
+再使用 `config=benchmark`，同时指定 `plugins=["lme"]` 或 `plugins=["beam"]`。仓库内的 benchmark
+runner 会自动启用对应的已安装插件；editable 安装可让本地源码修改直接生效。数据集 runner 仍位于
+`benchmark/`。
 
 ## 卸载插件
 

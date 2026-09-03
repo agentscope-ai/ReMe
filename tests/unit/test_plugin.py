@@ -3,7 +3,6 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
 from pathlib import Path
-import sys
 
 import pytest
 
@@ -190,68 +189,6 @@ def test_plugin_manager_loads_package_manifest(monkeypatch, tmp_path):
     assert backend is not None
     assert backend.__name__ == "ExampleStep"
     assert manager.merge_config({})["jobs"]["example"]["backend"] == "base"
-
-
-@pytest.mark.asyncio
-async def test_application_loads_explicit_package_without_install(monkeypatch, tmp_path):
-    package = tmp_path / "explicit_plugin"
-    package.mkdir()
-    (package / "__init__.py").write_text("", encoding="utf-8")
-    (package / "backend.py").write_text(
-        "from reme.steps import BaseStep\n"
-        "from reme.components import R\n"
-        "@R.register('unlisted_side_effect')\n"
-        "class ExampleStep(BaseStep):\n"
-        "    async def execute(self):\n"
-        "        self.context.response.answer = 'local'\n"
-        "        return self.context.response\n",
-        encoding="utf-8",
-    )
-    (package / "plugin.yaml").write_text(
-        "backends:\n  explicit_step: explicit_plugin.backend:ExampleStep\n"
-        "application_defaults:\n  jobs:\n    example:\n      backend: base\n"
-        "      steps:\n        - backend: explicit_step\n",
-        encoding="utf-8",
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    _set_entry_points(monkeypatch)
-    app = Application(
-        plugins=["example"],
-        plugin_packages={"example": "explicit_plugin"},
-        workspace_dir=str(tmp_path / "workspace"),
-        enable_logo=False,
-        log_to_console=False,
-        log_to_file=False,
-        service={"backend": "cli"},
-    )
-    async with app:
-        result = await app.run_job("example")
-        assert result.success
-        assert result.answer == "local"
-    assert app.config.plugins == ["example"]
-    assert "plugin_packages" not in app.config.model_dump()
-    assert R.get(ComponentEnum.STEP, "explicit_step") is None
-    assert R.get(ComponentEnum.STEP, "unlisted_side_effect") is None
-    assert app.context.registry.get(ComponentEnum.STEP, "unlisted_side_effect") is None
-    with pytest.raises(ValueError, match="Plugin 'example' is not installed"):
-        PluginManager.discover(["example"])
-
-
-def test_explicit_packages_only_load_enabled_plugins(monkeypatch):
-    _set_entry_points(monkeypatch)
-    manager = PluginManager.discover([], packages={"example": "unavailable_plugin_package"})
-    assert not manager.plugins
-    assert "unavailable_plugin_package" not in sys.modules
-
-
-@pytest.mark.parametrize("package", ["", None, "example:descriptor"])
-def test_invalid_explicit_package_never_falls_back_to_installed_plugin(monkeypatch, package):
-    _set_entry_points(
-        monkeypatch,
-        _FakeEntryPoint("example", "installed:plugin", lambda: Plugin(name="example"), "reme.plugins"),
-    )
-    with pytest.raises(ValueError, match="requires an importable package name"):
-        PluginManager.discover(["example"], packages={"example": package})
 
 
 def test_plugin_manifest_rejects_legacy_defaults_field():

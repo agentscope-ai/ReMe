@@ -7,28 +7,18 @@ and their Job defaults in `plugin.yaml`. ReMe's built-in `benchmark.yaml` owns t
 shared evaluation Jobs and components. Dataset handling, the runner and results remain
 in [`benchmark/longmemeval`](../../benchmark/longmemeval/README.md).
 
-From the repository root, install ReMe and its runtime dependencies, then run directly without installing the plugin:
+From the repository root, install ReMe and this plugin in editable mode before running the benchmark:
 
 ```bash
 python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins validate lme
 python benchmark/longmemeval/run.py
 ```
 
-The runner's `create_reme_app()` adds the local plugin `src` to Python's import path
-inside each worker, selects the built-in `benchmark` preset, and passes
-`plugin_packages={"lme": "reme_lme"}` to `Application`. Only plugins enabled
-in the configuration are loaded. It does not invoke pip or mutate the global registry.
-
-`plugin_packages` is a runtime argument; keep it out of saved configurations.
-Omitting it or passing `None` preserves the original plugin discovery behavior.
-
-For CLI usage outside the runner, install the
-plugin into the same Python environment:
-
-```bash
-reme plugins install ./plugins/lme --editable
-reme plugins validate lme
-```
+Editable installation registers the `lme` entry point while keeping source changes immediately
+visible. The runner selects the built-in `benchmark` preset and explicitly enables `lme` for
+each Application. Installing the plugin makes it discoverable but does not enable it globally.
 
 `plugin.yaml` registers backends and contributes the plugin-owned `auto_memory`,
 `agentic_answer` and `answer_judge` Job defaults. Start the installed plugin with
@@ -42,6 +32,6 @@ still take precedence. Installing this plugin does not start an evaluation.
 The shared answer base class lives in `reme.steps.benchmark.base_agentic_answer`.
 The old core-owned `reme.steps.benchmark.lme` Python import path is removed.
 Custom Python callers should import plugin Steps from `reme_lme` instead. After uninstalling,
-CLI services must omit the plugin; checkout runners can still load the source directly.
+Applications and CLI services must omit the plugin until it is installed again.
 Uninstallation never removes datasets, workspaces or results.
 Restart an existing service after changing plugins.

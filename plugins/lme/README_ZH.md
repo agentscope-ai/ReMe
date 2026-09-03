@@ -6,26 +6,17 @@
 ReMe 内置的 `benchmark.yaml` 负责公共评测 Job 和 Component；数据集处理、runner 和结果仍留在
 [`benchmark/longmemeval`](../../benchmark/longmemeval/README_ZH.md)。
 
-在仓库根目录安装 ReMe 及运行依赖后，可以直接运行评测，无需安装插件包：
+在仓库根目录以 editable 模式安装 ReMe 和本插件，再运行评测：
 
 ```bash
 python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins validate lme
 python benchmark/longmemeval/run.py
 ```
 
-runner 的 `create_reme_app()` 在每个 worker 中将本地插件 `src` 加入 Python 导入路径，
-选择内置 `benchmark` 配置，并通过 `Application(plugin_packages={"lme": "reme_lme"}, **config)`
-加载配置中启用的插件。它不调用 pip，也不修改全局 registry。
-
-`plugin_packages` 是运行时参数，请勿写入持久化配置。
-省略它或传入 `None` 时，保持原有插件发现行为。
-
-若要在 runner 以外通过 CLI 使用，仍需安装插件到同一个 Python 环境：
-
-```bash
-reme plugins install ./plugins/lme --editable
-reme plugins validate lme
-```
+editable 安装会注册 `lme` entry point，并让源码修改立即生效。runner 选择内置 `benchmark`
+配置，并为每个 Application 显式启用 `lme`。安装只让插件可被发现，不会在所有应用中全局启用。
 
 `plugin.yaml` 注册 backend，并通过 `application_defaults` 提供插件拥有的 `auto_memory`、
 `agentic_answer` 和 `answer_judge` Job。安装后使用
@@ -36,5 +27,5 @@ reme plugins validate lme
 
 共享回答基类位于 `reme.steps.benchmark.base_agentic_answer`。
 原 `reme.steps.benchmark.lme` Python 导入路径已移除，自定义 Python 调用应从 `reme_lme` 导入插件 Step。
-CLI 服务卸载插件后必须移除插件选择；仓库内的 runner 仍可直接加载源码。
+卸载插件后，Application 和 CLI 服务必须移除插件选择，直到再次安装。
 卸载不会删除数据集、工作区或结果。修改插件后需重启已有服务。

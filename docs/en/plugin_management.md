@@ -181,23 +181,10 @@ the `search` and `read` Jobs used by Auto Fin.
 The [LME](../../plugins/lme/README.md) and [BEAM](../../plugins/beam/README.md) plugins
 register their backends and plugin-owned Jobs in `plugin.yaml`. ReMe's built-in `benchmark`
 preset provides the shared core Jobs and components without inheriting `default`, so default
-background and cron jobs are not included. Select `config=benchmark` together with
-`plugins=["lme"]` or `plugins=["beam"]`. Dataset runners remain under `benchmark/`.
-
-## Load an importable plugin package from Python
-
-Python callers can pass `Application(plugin_packages={"lme": "reme_lme"}, **config)`,
-with `lme` enabled in `config["plugins"]` and `reme_lme` available on Python's import path.
-The mapping selects sources only for this Application; it neither enables plugins nor becomes
-part of the serialized application configuration. Explicit sources take precedence over installed
-providers; other enabled plugins still use entry-point discovery. Manifest validation, backend
-type checks and registry conflict detection remain unchanged.
-
-Both benchmark runners use this API to load the checkout's plugin code without
-`reme plugins install`. They combine the built-in `benchmark` preset with the selected local
-plugin. Custom configs can use `extends: benchmark`.
-ReMe, AgentScope and other runtime dependencies must still be installed. Ordinary CLI plugin
-and named-config discovery continue to require an installed plugin distribution.
+background and cron jobs are not included. Install the selected benchmark plugin, then use
+`config=benchmark` together with `plugins=["lme"]` or `plugins=["beam"]`. The repository's
+benchmark runners enable the corresponding installed plugin automatically; editable installation
+keeps local plugin changes visible. Dataset runners remain under `benchmark/`.
 
 ## Uninstall a plugin
 

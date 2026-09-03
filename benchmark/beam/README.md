@@ -15,16 +15,18 @@ include abstention, contradiction resolution, event ordering, information
 extraction, instruction following, knowledge update, multi-session reasoning,
 preference following, summarization, and temporal reasoning.
 
-Install ReMe and its runtime dependencies from the repository root; no `reme plugins install` is needed:
+Install ReMe and the BEAM plugin in editable mode from the repository root:
 
 ```bash
 python -m pip install -e ".[as]"
+reme plugins install ./plugins/beam --editable
+reme plugins validate beam
 ```
 
-Each worker combines ReMe's built-in `benchmark` preset with the checkout's
-[plugin source](../../plugins/beam/README.md), without installing the plugin or mutating
-the global registry. Custom application config paths still work through `reme.config` and
-can use `extends: benchmark`.
+The runner explicitly enables the installed `beam` plugin and combines its defaults with
+ReMe's built-in `benchmark` preset. Editable installation keeps changes under
+[`plugins/beam`](../../plugins/beam/README.md) visible without reinstalling the plugin.
+Custom application config paths still work through `reme.config` and can use `extends: benchmark`.
 This directory continues to own the runner, evaluation settings, dataset and outputs.
 Model credentials use the environment variables declared by the shared benchmark configuration.
 

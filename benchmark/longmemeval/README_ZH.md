@@ -8,14 +8,16 @@ LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评�
 
 题型包括单会话（user / assistant / preference）、多会话推理、知识更新与时间推理等。
 
-在仓库根目录安装 ReMe 及运行依赖即可，无需执行 `reme plugins install`：
+在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
 
 ```bash
 python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins validate lme
 ```
 
-runner 在每个 worker 中组合 ReMe 内置的 `benchmark` 配置与仓库内的
-[插件源码](../../plugins/lme/README_ZH.md)，不安装插件、不修改全局 registry。
+runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
+editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
 本目录继续保留评测参数、数据集及输出。自定义完整应用配置路径仍可通过 `reme.config` 指定，
 并可使用 `extends: benchmark`。
 模型凭据通过公共 benchmark 配置中声明的环境变量设置。
