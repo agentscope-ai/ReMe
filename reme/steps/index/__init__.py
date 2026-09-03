@@ -14,6 +14,8 @@ from .reindex import ReindexStep
 from .search import SearchStep
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
+from .update_tag_index import UpdateTagIndexStep
+from .tag_index_watch import TagIndexWatchStep
 from .vector_search import VectorSearchStep
 from .wait_for_paths import WaitForPathsStep
 from .watch_changes import (
@@ -44,6 +46,8 @@ __all__ = [
     "TraverseStep",
     "UpdateCatalogStep",
     "UpdateIndexStep",
+    "UpdateTagIndexStep",
+    "TagIndexWatchStep",
     "VectorSearchStep",
     "WaitForPathsStep",
     "WatchChangesStep",
