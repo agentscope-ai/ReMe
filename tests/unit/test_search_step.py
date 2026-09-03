@@ -1,6 +1,8 @@
-"""Unit tests for SearchV2Step without embedding or LLM dependencies."""
+"""Unit tests for workspace search Steps without embedding or LLM dependencies."""
 
 import asyncio
+import importlib.util
+from pathlib import Path
 
 from agentscope.message import Msg
 
@@ -14,10 +16,16 @@ from reme.steps.index import (
     Bm25SearchStep,
     ReadAllDraftStep,
     SearchStep,
-    SearchV2Step,
     VectorSearchStep,
 )
 from reme.steps.index._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
+
+_SEARCH_V2_PATH = Path(__file__).parents[2] / "plugins" / "beam" / "src" / "reme_beam" / "search_v2.py"
+_SEARCH_V2_SPEC = importlib.util.spec_from_file_location("reme_beam.search_v2", _SEARCH_V2_PATH)
+assert _SEARCH_V2_SPEC is not None and _SEARCH_V2_SPEC.loader is not None
+_SEARCH_V2_MODULE = importlib.util.module_from_spec(_SEARCH_V2_SPEC)
+_SEARCH_V2_SPEC.loader.exec_module(_SEARCH_V2_MODULE)
+SearchV2Step = _SEARCH_V2_MODULE.SearchV2Step
 
 
 class FakeSearchStore(BaseFileStore):

@@ -255,7 +255,7 @@ grep -h "overall_average_score\|overall_proactiveness" \
 | user_agent / judger 模型 | `config/models/reme.yaml` |
 | agent system prompt | `bridge_reme.py` `build_system_prompt()` |
 | 记忆检索条数/阈值 | `run_persona.sh` bridge 启动命令的 `--search-limit/--search-min-score` |
-| ReMe 内部参数 | **不要改 ReMe 源码**；仿照 `reme/config/beam.yaml` 写专有配置，经 `resolve_app_config(config=...)` 覆盖（见 bridge `_init_reme_app`） |
+| ReMe 内部参数 | **不要改 ReMe 源码**；继承内置 `benchmark` 配置，并经 `resolve_app_config(config=...)` 覆盖（见 bridge `_init_reme_app`） |
 | 轮超时/工具迭代上限 | `config/models/reme.yaml` `run.turn_timeout`、`model.max_tool_iterations` |
 
 ## 11. 故障排查

@@ -29,7 +29,7 @@ import yaml
 from dotenv import load_dotenv
 
 # Load .env from project root
-_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(_PROJECT_ROOT / ".env")
 
 # Workspace root — read from config.yaml (dataset.workspace_root)
@@ -149,6 +149,22 @@ def load_eval_config(config_path: str | None = None) -> dict:
 
     raw = re.sub(r"\$\{([^}]+)\}", _expand, raw)
     return yaml.safe_load(raw)
+
+
+def create_reme_app(config: str = "benchmark", **overrides):
+    """Create an app with the installed BEAM plugin explicitly enabled.
+
+    Plugin discovery remains environment-based; editable installation keeps local
+    plugin source changes visible to every multiprocessing worker.
+    """
+    from reme import Application
+    from reme.config import resolve_app_config
+
+    enabled_plugins = list(overrides.pop("plugins", ()) or ())
+    if "beam" not in enabled_plugins:
+        enabled_plugins.append("beam")
+    app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
+    return Application(**app_config)
 
 
 # ---------------------------------------------------------------------------
@@ -319,8 +335,6 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
     Returns:
         A results dict with all questions, answers, and judgments.
     """
-    from reme import Application
-    from reme.config import resolve_app_config
 
     dataset_cfg = eval_config["dataset"]
     chat_size = dataset_cfg["chat_size"]
@@ -375,7 +389,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
                 force_init=True,
             )
 
-    cfg = resolve_app_config(
+    app = create_reme_app(
         config=eval_config["reme"]["config"],
         workspace_dir=workspace_dir,
         log_to_console=output_cfg.get("log_to_console", True),
@@ -383,7 +397,6 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
         enable_logo=False,
     )
 
-    app = Application(**cfg)
     await app.start()
 
     from reme.utils.evaluation_interface import check_agent_token_usage  # noqa: E402

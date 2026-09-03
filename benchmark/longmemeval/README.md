@@ -12,8 +12,20 @@ agentic (ReAct) mode, and scores the answer with an LLM-as-judge.
 Question types include single-session (user / assistant / preference),
 multi-session reasoning, knowledge update, and temporal reasoning.
 
-> For the shared setup (dependencies, credentials, log conventions) see the
-> [top-level benchmark README](../README.md).
+Install ReMe and the LongMemEval plugin in editable mode from the repository root:
+
+```bash
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins validate lme
+```
+
+The runner explicitly enables the installed `lme` plugin and combines its defaults with
+ReMe's built-in `benchmark` preset. Editable installation keeps changes under
+[`plugins/lme`](../../plugins/lme/README.md) visible without reinstalling the plugin.
+Custom application config paths still work through `reme.config` and can use `extends: benchmark`.
+This directory continues to own the runner, evaluation settings, dataset and outputs.
+Model credentials use the environment variables declared by the shared benchmark configuration.
 
 ## 1. Get the Dataset
 
@@ -46,7 +58,8 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 
 1. Load the dataset (ground truth is embedded in the data file).
 2. For each item, create an isolated workspace and ingest sessions in chronological order.
-3. Trigger `auto_dream` when consecutive sessions cross the configured hour (default 23:00).
+3. If a custom application configuration enables `auto_dream`, trigger it when sessions cross the configured hour
+   (default 23:00). The packaged preset leaves it disabled.
 4. Answer each question via agentic (ReAct) mode.
 5. Judge the answer (binary yes/no) with the `answer_judge` job and print per-type accuracy.
 
@@ -60,7 +73,7 @@ python benchmark/longmemeval/run.py --eval_only               # reuse existing w
 | `dataset.workspace_root` | Per-item workspace root (`benchmark/longmemeval/workspaces/longmemeval-s`). |
 | `evaluation.num_workers` | `0` = auto (cpu-2), `1` = sequential, `>1` = parallel. |
 | `evaluation.filter_future_sessions` | Only ingest sessions with timestamp ≤ `question_date`. |
-| `reme.config` | ReMe config used (`lme.yaml`). |
+| `reme.config` | ReMe config used (`benchmark`). |
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | Dream triggering behavior. |
 | `output.dir` | Results directory (`benchmark/longmemeval/results`). |
 

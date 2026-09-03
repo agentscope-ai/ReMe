@@ -2,14 +2,14 @@
 
 import os
 
-from ...base_step import BaseStep
-from ...index._dedup import _ToolContextDedupMixin
-from ....enumeration import ChunkEnum
-from ....utils.counter import global_counter_inc
+from ..base_step import BaseStep
+from ..index._dedup import _ToolContextDedupMixin
+from ...enumeration import ChunkEnum
+from ...utils.counter import global_counter_inc
 
 
 class BaseAgenticAnswerStep(BaseStep):
-    """Base ReAct-agent answer step shared by BEAM and LongMemEval benchmarks.
+    """ReAct-agent answer implementation shared by benchmark plugins.
 
     Subclasses only need to set:
         TOOL_CONTEXT_PREFIX (str): prefix used to build the unique tool_context_id.
@@ -18,7 +18,7 @@ class BaseAgenticAnswerStep(BaseStep):
             tool call via ``injected_job_kwargs``; override the attribute or the
             ``_injected_job_kwargs`` hook to customize.
 
-    And apply their own ``@R.register(...)`` decorator and docstring.
+    Concrete subclasses are registered by the plugin manifest.
 
     Inputs (from RuntimeContext):
         query       (str, required): The question to answer.
@@ -43,7 +43,7 @@ class BaseAgenticAnswerStep(BaseStep):
         ``INJECTED_JOB_KWARGS`` with per-request values derived from ``query``.
 
         When the runtime context carries a truthy ``compress_session`` flag,
-        session-transcript compression is enabled in ``search_v2_step`` by
+        session-transcript compression is enabled in the benchmark plugin's search Step by
         injecting a ``_search._compress.session`` marker plus the current
         ``query`` as the query-aware relevance filter. Default (falsy) leaves
         session chunks uncompressed.

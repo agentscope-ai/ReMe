@@ -34,7 +34,7 @@ jobs:
       - name: Install
         run: |
           pip install -q -e reme_studio -e ".[dev,core]"
-          pip install -q --no-deps -e plugins/auto-fin -e plugins/daily_paper
+          pip install -q --no-deps -e plugins/auto-fin -e plugins/daily_paper -e plugins/lme -e plugins/beam
 
       - name: Pre-commit starts
         run: pre-commit run --all-files

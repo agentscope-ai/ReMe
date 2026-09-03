@@ -15,8 +15,20 @@ include abstention, contradiction resolution, event ordering, information
 extraction, instruction following, knowledge update, multi-session reasoning,
 preference following, summarization, and temporal reasoning.
 
-> For the shared setup (dependencies, credentials, log conventions) see the
-> [top-level benchmark README](../README.md).
+Install ReMe and the BEAM plugin in editable mode from the repository root:
+
+```bash
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/beam --editable
+reme plugins validate beam
+```
+
+The runner explicitly enables the installed `beam` plugin and combines its defaults with
+ReMe's built-in `benchmark` preset. Editable installation keeps changes under
+[`plugins/beam`](../../plugins/beam/README.md) visible without reinstalling the plugin.
+Custom application config paths still work through `reme.config` and can use `extends: benchmark`.
+This directory continues to own the runner, evaluation settings, dataset and outputs.
+Model credentials use the environment variables declared by the shared benchmark configuration.
 
 ## 1. Get the Dataset
 
@@ -59,7 +71,7 @@ python benchmark/beam/run.py --eval_only               # reuse existing workspac
 | `dataset.start_index` / `num_items` | Case pagination (`num_items` `0` = all). |
 | `dataset.workspace_root` | Per-case workspace root (`benchmark/beam/workspaces/beam`). |
 | `evaluation.num_workers` | `0` = auto, `1` = sequential, `>1` = parallel. |
-| `reme.config` | ReMe config used (`beam.yaml`). |
+| `reme.config` | ReMe config used (`benchmark`). |
 | `output.dir` | Results directory (`benchmark/beam/results`). |
 
 ## 5. Outputs

@@ -43,6 +43,22 @@ def _set_entry_points(monkeypatch, *entries):
     monkeypatch.setattr("reme.entry_point.metadata.entry_points", lambda: _FakeEntryPoints(entries))
 
 
+@pytest.mark.parametrize("name", ["lme", "beam"])
+def test_shared_benchmark_preset_is_builtin_but_plugin_aliases_and_backends_are_not(monkeypatch, name):
+    _set_entry_points(monkeypatch)
+    benchmark = _load_config("benchmark")
+    assert {"index_update", "digest_update", "read", "write"} <= benchmark["jobs"].keys()
+    assert {"search", "auto_memory", "agentic_answer", "answer_judge"}.isdisjoint(benchmark["jobs"])
+    for alias in (name, f"{name}.yaml"):
+        with pytest.raises(FileNotFoundError, match="Config file not found"):
+            _load_config(alias)
+    assert R.get(ComponentEnum.STEP, f"{name}_auto_memory_step") is None
+    assert R.get(ComponentEnum.STEP, f"{name}_agentic_answer_step") is None
+    assert R.get(ComponentEnum.STEP, f"{name}_search_v2_step") is None
+    judge = "lme_answer_judge_step" if name == "lme" else "beam_rubric_judge_step"
+    assert R.get(ComponentEnum.STEP, judge) is None
+
+
 def test_plugin_application_defaults_are_below_application_config():
     manager = PluginManager(
         [

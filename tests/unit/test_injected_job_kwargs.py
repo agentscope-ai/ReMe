@@ -233,7 +233,7 @@ async def test_auto_memory_update_scopes_tools_to_exact_note_path(tmp_path, monk
 
 
 def test_auto_memory_keeps_original_tool_names():
-    """BEAM/LME configs define only the original jobs; no *_daily variants exist."""
+    """Core auto-memory uses the original file tool names."""
     step = AutoMemoryStep(name="auto_memory")
     assert step.create_tools == ["daily_write"]
     assert step.update_tools == ["read", "edit", "frontmatter_update", "write"]
@@ -290,11 +290,7 @@ def test_auto_memory_create_prompts_match_upstream_date_arguments():
     """Auto-memory prompts keep the upstream model-supplied date argument."""
     from pathlib import Path
 
-    prompt_files = (
-        Path("reme/steps/evolve/auto_memory.yaml"),
-        Path("reme/steps/benchmark/beam/auto_memory.yaml"),
-        Path("reme/steps/benchmark/lme/auto_memory.yaml"),
-    )
+    prompt_files = (Path("reme/steps/evolve/auto_memory.yaml"),)
     for prompt_file in prompt_files:
         content = prompt_file.read_text(encoding="utf-8")
         assert "date={today}" in content or "`date`: {today}" in content or "`date`：{today}" in content
@@ -310,7 +306,7 @@ def test_auto_memory_create_prompts_match_upstream_date_arguments():
 def test_configs_define_original_jobs_without_daily_variants():
     from reme.config import resolve_app_config
 
-    for config_name in ("default", "lme", "beam"):
+    for config_name in ("default",):
         config = resolve_app_config(config=config_name, log_config=False)
         jobs = config["jobs"]
         for name in ("read", "edit", "write", "frontmatter_update", "daily_write"):

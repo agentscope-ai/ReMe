@@ -46,8 +46,8 @@ and concise documentation together.
 - `reme/components/service/`: local CLI, HTTP, and MCP service backends.
 - `reme/components/`: agent wrappers, model adapters, stores, catalogs, graphs, indexes, clients, tokenizers, and
   outbound proxies.
-- `reme/steps/`: registered job steps grouped by common, file I/O, index, evolve, cookbook, benchmark, and transfer
-  concerns.
+- `reme/steps/`: registered job steps grouped by common, file I/O, index, evolve, cookbook, and transfer
+  concerns, plus shared benchmark base classes under `benchmark/`.
 - `reme/utils/`: shared utilities, including service discovery, logging, web-static resolution, session I/O, token
   accounting, and wikilink handling.
 - `tests/unit/`: primary fast, isolated validation suite.
@@ -56,7 +56,7 @@ and concise documentation together.
   `@agentscope-ai/reme_studio` npm static distribution.
 - `typescript/`: the independently published `@agentscope-ai/reme` package, including the shared TypeScript client and
   DeepSeek Harness and OpenClaw adapters.
-- `plugins/`: installable ReMe extensions, such as Auto Fin.
+- `plugins/`: installable ReMe extensions, including Auto Fin and LME/BEAM benchmark Steps and application presets.
 - `integrations/`: adapters that connect ReMe to external agent hosts, such as Claude Code, DSH, and Hermes Agent.
 - `skills/`: standalone skills; `reme_memory` calls ReMe, while other skills may use separate tools or direct-file
   conventions.

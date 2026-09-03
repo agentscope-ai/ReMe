@@ -1,11 +1,11 @@
-"""BEAM benchmark steps."""
+"""BEAM benchmark backends and application configuration for ReMe."""
 
 from .agentic_answer import BeamAgenticAnswerStep
-from .llm_judge import BeamRubricJudgeStep
 from .auto_memory import BeamAutoMemoryStep
+from .search_v2 import SearchV2Step
 
 __all__ = [
     "BeamAgenticAnswerStep",
-    "BeamRubricJudgeStep",
     "BeamAutoMemoryStep",
+    "SearchV2Step",
 ]

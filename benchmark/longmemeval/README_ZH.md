@@ -8,7 +8,19 @@ LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评�
 
 题型包括单会话（user / assistant / preference）、多会话推理、知识更新与时间推理等。
 
-> 公共设置（依赖、凭据、日志约定）见[总评测说明](../README_ZH.md)。
+在仓库根目录以 editable 模式安装 ReMe 和 LongMemEval 插件：
+
+```bash
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/lme --editable
+reme plugins validate lme
+```
+
+runner 显式启用已安装的 `lme` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
+editable 安装会让 [`plugins/lme`](../../plugins/lme/README_ZH.md) 下的源码修改直接生效，无需重复安装。
+本目录继续保留评测参数、数据集及输出。自定义完整应用配置路径仍可通过 `reme.config` 指定，
+并可使用 `extends: benchmark`。
+模型凭据通过公共 benchmark 配置中声明的环境变量设置。
 
 ## 1. 获取数据集
 
@@ -41,7 +53,7 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 
 1. 加载数据集（ground truth 已内嵌在数据文件中）。
 2. 为每个条目创建独立工作区，按时间顺序摄入会话。
-3. 当相邻会话跨越配置的时刻（默认 23:00）时触发 `auto_dream`。
+3. 若自定义应用配置启用了 `auto_dream`，在相邻会话跨越配置时刻（默认 23:00）时触发；插件预设保持关闭。
 4. 以 agentic（ReAct）模式回答每个问题。
 5. 通过 `answer_judge` 任务对答案做二元（yes/no）评判，并输出各类型准确率。
 
@@ -55,7 +67,7 @@ python benchmark/longmemeval/run.py --eval_only               # 复用已有工�
 | `dataset.workspace_root` | 条目工作区根目录（`benchmark/longmemeval/workspaces/longmemeval-s`）。 |
 | `evaluation.num_workers` | `0` = 自动（cpu-2），`1` = 串行，`>1` = 并行。 |
 | `evaluation.filter_future_sessions` | 仅摄入时间戳 ≤ `question_date` 的会话。 |
-| `reme.config` | 使用的 ReMe 配置（`lme.yaml`）。 |
+| `reme.config` | 使用的 ReMe 配置（`benchmark`）。 |
 | `reme.dream_trigger_hour` / `dream_scan_days` / `dream_max_units` | dream 触发行为。 |
 | `output.dir` | 结果目录（`benchmark/longmemeval/results`）。 |
 

@@ -12,7 +12,6 @@ from .init_changes import InitChangesStep
 from .optimize_index import OptimizeIndexStep
 from .reindex import ReindexStep
 from .search import SearchStep
-from .search_v2 import SearchV2Step
 from .traverse import TraverseStep
 from .update_changes import ChangeApplyStep, UpdateCatalogStep, UpdateIndexStep
 from .vector_search import VectorSearchStep
@@ -42,7 +41,6 @@ __all__ = [
     "ReindexStep",
     "OptimizeIndexStep",
     "SearchStep",
-    "SearchV2Step",
     "TraverseStep",
     "UpdateCatalogStep",
     "UpdateIndexStep",

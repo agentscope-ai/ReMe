@@ -1,63 +1,11 @@
-# LongMemEval benchmark config — based on longmemeval.yaml (split)
-# All background/cron jobs are converted to base (manually callable).
-# Use with: resolve_app_config(config="lme.yaml", ...)
+# Shared benchmark application preset; independent of the default service config.
+# Background and cron jobs are omitted in favor of manually callable base jobs.
+# Benchmark plugins contribute their own jobs through plugin.yaml.
 
 service:
   backend: http
 
 jobs:
-  # ── LongMemEval agentic answer (ReAct agent + search tool) ──
-  agentic_answer:
-    backend: base
-    description: "LongMemEval agentic answer job (ReAct agent with search tool)"
-    watch_dirs: []
-    watch_suffixes: []
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "The query to ask"
-        query_time:
-          type: string
-          description: "ISO timestamp representing the query time"
-          default: ""
-      required:
-        - query
-    steps:
-      - backend: lme_agentic_answer_step
-        agent_wrapper: bench
-
-  # ── LLM-as-Judge for evaluating answers ──
-  answer_judge:
-    backend: base
-    description: "LLM-as-Judge: evaluate agent answer against golden answer"
-    watch_dirs: []
-    watch_suffixes: []
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "The question being asked"
-        agent_answer:
-          type: string
-          description: "The model's answer to evaluate"
-        golden_answer:
-          type: string
-          description: "The correct/golden answer"
-        question_type:
-          type: string
-          description: "The question type for prompt selection"
-          default: ""
-      required:
-        - query
-        - agent_answer
-        - golden_answer
-    steps:
-      - backend: lme_answer_judge_step
-        agent_wrapper: judge
-
   # ── Manual index update (replaces index_update_loop background) ──
   index_update:
     backend: base
@@ -135,34 +83,6 @@ jobs:
   #     - backend: dream_finish_step
   #       file_catalog: dream
 
-  # ── Auto memory (same as default.yaml) ──
-  auto_memory:
-    backend: base
-    description: "Auto-memory: record conversation facts into a daily note"
-    parameters:
-      type: object
-      properties:
-        messages:
-          type: array
-          description: "messages"
-          items:
-            type: object
-        session_id:
-          type: string
-          description: "source conversation session identifier"
-          default: ""
-        memory_hint:
-          type: string
-          description: "optional hint"
-        date:
-          type: string
-          description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
-          default: ""
-      required:
-        - messages
-    steps:
-      - backend: lme_auto_memory_step
-
   # ── Text compression (direct LLM call, no agent) ──
   compressor:
     backend: base
@@ -198,46 +118,6 @@ jobs:
           default: all
     steps:
       - backend: reindex_step
-
-  # ── Search ──
-  #   start_date:
-        #   type: string
-        #   description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
-        # end_date:
-        #   type: string
-        #   description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
-
-  search:
-    backend: base
-    description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-          description: "search query"
-        start_date:
-          type: string
-          description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
-        end_date:
-          type: string
-          description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
-        # vector_weight:
-        #   type: number
-        #   description: >-
-        #     Optional weight balancing vector similarity vs BM25 keyword matching in the
-        #     RRF fusion. Recommended value is 0.7, which provides a good balance between
-        #     semantic (vector) similarity and lexical (BM25) matching. Values close to 0
-        #     emphasize BM25 keyword matching, values close to 1 emphasize vector semantic
-        #     similarity.
-      required:
-        - query
-    steps:
-      - backend: search_v2_step
-        vector_weight: 0.7
-        candidate_multiplier: 5.0
-        expand_links: false
-        max_links_per_direction: 10
 
   add_draft:
     backend: base
@@ -326,7 +206,7 @@ jobs:
 
   move:
     backend: base
-    description: "Move / rename a workspace file."
+    description: "Move / rename a workspace file; rewrites inbound wikilinks by default."
     parameters:
       type: object
       properties:
@@ -338,9 +218,11 @@ jobs:
           description: "workspace-relative destination"
         overwrite:
           type: boolean
+          description: "overwrite if dst exists"
           default: false
         retarget:
           type: boolean
+          description: "rewrite [[src]] → [[dst]] across the workspace"
           default: true
       required:
         - src_path
@@ -359,8 +241,10 @@ jobs:
           description: "workspace-relative path; markdown only"
         start_line:
           type: integer
+          description: "first line (1-based, inclusive)"
         end_line:
           type: integer
+          description: "last line (1-based, inclusive)"
       required:
         - path
     steps:
@@ -370,20 +254,25 @@ jobs:
 
   write:
     backend: base
-    description: "Write a markdown file."
+    description: "Write a markdown file (create or overwrite) with name/description frontmatter."
     parameters:
       type: object
       properties:
         path:
           type: string
+          description: "workspace-relative path; markdown only"
         name:
           type: string
+          description: "frontmatter name"
         description:
           type: string
+          description: "frontmatter description"
         content:
           type: string
+          description: "body"
         metadata:
           type: object
+          description: "Optional extra frontmatter fields (md only)."
       required:
         - path
         - name
@@ -394,23 +283,29 @@ jobs:
 
   daily_write:
     backend: base
-    description: "Write a daily markdown note."
+    description: "Write a daily markdown note with conversation source frontmatter."
     parameters:
       type: object
       properties:
         name:
           type: string
+          description: "daily note filename stem and frontmatter name"
         description:
           type: string
+          description: "frontmatter description"
         session_id:
           type: string
+          description: "source conversation session identifier"
         content:
           type: string
+          description: "body"
         date:
           type: string
+          description: "YYYY-MM-DD daily note date; empty = today"
           default: ""
         metadata:
           type: object
+          description: "Optional extra frontmatter fields."
       required:
         - name
         - description
@@ -421,16 +316,19 @@ jobs:
 
   edit:
     backend: base
-    description: "Find-and-replace in a markdown file."
+    description: "Find-and-replace in a markdown file (all occurrences)."
     parameters:
       type: object
       properties:
         path:
           type: string
+          description: "workspace-relative path"
         old:
           type: string
+          description: "text to find"
         new:
           type: string
+          description: "replacement"
           default: ""
       required:
         - path
@@ -447,6 +345,7 @@ jobs:
       properties:
         path:
           type: string
+          description: "workspace-relative path"
       required:
         - path
     steps:
@@ -454,14 +353,16 @@ jobs:
 
   node_search:
     backend: base
-    description: "Digest node recall."
+    description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."
     parameters:
       type: object
       properties:
         query:
           type: string
+          description: "search query"
         limit:
           type: integer
+          description: "max digest nodes to return"
           default: 20
       required:
         - query
@@ -495,7 +396,6 @@ components:
       model: ${LLM_MODEL_NAME:-qwen3.6-flash}
       stream: true
       context_size: 200000
-      max_retries: 3
       retry_delay: 5.0
       credential:
         api_key: ${LLM_API_KEY:-}

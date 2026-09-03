@@ -176,6 +176,16 @@ When the application uses an MCP service, service-enabled plugin Jobs appear as 
 Custom application configs must provide the plugin's runtime dependencies, including an `agent_wrapper.default` and
 the `search` and `read` Jobs used by Auto Fin.
 
+## Benchmark application presets
+
+The [LME](../../plugins/lme/README.md) and [BEAM](../../plugins/beam/README.md) plugins
+register their backends and plugin-owned Jobs in `plugin.yaml`. ReMe's built-in `benchmark`
+preset provides the shared core Jobs and components without inheriting `default`, so default
+background and cron jobs are not included. Install the selected benchmark plugin, then use
+`config=benchmark` together with `plugins=["lme"]` or `plugins=["beam"]`. The repository's
+benchmark runners enable the corresponding installed plugin automatically; editable installation
+keeps local plugin changes visible. Dataset runners remain under `benchmark/`.
+
 ## Uninstall a plugin
 
 Use the plugin entry-point name, not necessarily the distribution name:

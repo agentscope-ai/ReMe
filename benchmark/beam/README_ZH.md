@@ -13,7 +13,19 @@ ordering（事件排序）、information extraction（信息抽取）、instruct
 knowledge update（知识更新）、multi-session reasoning（多会话推理）、preference following
 （偏好遵循）、summarization（摘要）与 temporal reasoning（时间推理）。
 
-> 公共设置（依赖、凭据、日志约定）见[总评测说明](../README_ZH.md)。
+在仓库根目录以 editable 模式安装 ReMe 和 BEAM 插件：
+
+```bash
+python -m pip install -e ".[as]"
+reme plugins install ./plugins/beam --editable
+reme plugins validate beam
+```
+
+runner 显式启用已安装的 `beam` 插件，并将插件默认配置与 ReMe 内置的 `benchmark` 配置组合。
+editable 安装会让 [`plugins/beam`](../../plugins/beam/README_ZH.md) 下的源码修改直接生效，无需重复安装。
+本目录继续保留评测参数、数据集及输出。自定义完整应用配置路径仍可通过 `reme.config` 指定，
+并可使用 `extends: benchmark`。
+模型凭据通过公共 benchmark 配置中声明的环境变量设置。
 
 ## 1. 获取数据集
 
@@ -55,7 +67,7 @@ python benchmark/beam/run.py --eval_only               # 复用已有工作区�
 | `dataset.start_index` / `num_items` | case 分页（`num_items` 为 `0` 表示全部）。 |
 | `dataset.workspace_root` | case 工作区根目录（`benchmark/beam/workspaces/beam`）。 |
 | `evaluation.num_workers` | `0` = 自动，`1` = 串行，`>1` = 并行。 |
-| `reme.config` | 使用的 ReMe 配置（`beam.yaml`）。 |
+| `reme.config` | 使用的 ReMe 配置（`benchmark`）。 |
 | `output.dir` | 结果目录（`benchmark/beam/results`）。 |
 
 ## 5. 输出

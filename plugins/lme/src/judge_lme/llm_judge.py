@@ -2,11 +2,9 @@
 
 import re
 
-from ...base_step import BaseStep
-from ....components import R
+from reme.steps.base_step import BaseStep
 
 
-@R.register("lme_answer_judge_step")
 class LmeAnswerJudgeStep(BaseStep):
     """Evaluate whether an agent answer is correct against a golden answer."""
 

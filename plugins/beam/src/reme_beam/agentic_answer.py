@@ -1,10 +1,8 @@
 """BEAM agentic answer step – ReAct agent that answers questions using the search tool."""
 
-from ....components import R
-from ..base import BaseAgenticAnswerStep
+from reme.steps.benchmark import BaseAgenticAnswerStep
 
 
-@R.register("beam_agentic_answer_step")
 class BeamAgenticAnswerStep(BaseAgenticAnswerStep):
     """Answer a BEAM probing question via ReAct agent with access to the search tool.
 

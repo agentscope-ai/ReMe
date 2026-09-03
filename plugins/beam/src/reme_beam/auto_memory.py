@@ -4,9 +4,8 @@ from datetime import datetime, timedelta
 
 from agentscope.message import Msg
 
-from ...evolve.auto_memory import AutoMemoryStep, _normalize_msg_timestamp
-from ...file_io import validate_session_id
-from ....components import R
+from reme.steps.evolve.auto_memory import AutoMemoryStep, _normalize_msg_timestamp
+from reme.steps.file_io import validate_session_id
 
 # Runtime-context key carrying the 0-based line offset of the current segment
 # inside the full session file (segmented ingestion of long sessions).
@@ -168,7 +167,6 @@ def _interpolate_timestamps(items: list[dict]) -> list[dict]:
     return result
 
 
-@R.register("beam_auto_memory_step")
 class BeamAutoMemoryStep(AutoMemoryStep):
     """AutoMemoryStep variant that interpolates timestamps for BEAM sessions.
 

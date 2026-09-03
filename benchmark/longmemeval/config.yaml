@@ -10,7 +10,7 @@ dataset:
   workspace_root: "benchmark/longmemeval/workspaces/longmemeval-s"  # workspace root for item workspaces
 
 evaluation:
-  # LLM-as-judge uses the 'judge' as_llm component defined in lme.yaml
+  # LLM-as-judge uses the 'judge' as_llm component defined in benchmark.yaml
   # Model and credentials are configured there (reading from .env)
   # Judgment is always binary (yes/no) — defined in lme/llm_judge.yaml
   num_workers: 32            # 0 = auto (cpu_count - 2, min 1); 1 = sequential; >1 = parallel
@@ -18,7 +18,7 @@ evaluation:
   compress_session: false   # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:
-  config: "lme.yaml" # reme config to use (in reme/config/)
+  config: "benchmark" # shared ReMe benchmark preset; runner enables the installed lme plugin
   # Dream trigger: when gap between consecutive sessions crosses this hour (23:00)
   dream_trigger_hour: 23
   # Dream scan_days for each trigger

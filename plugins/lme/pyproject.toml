@@ -1,0 +1,26 @@
+[project]
+name = "reme-lme"
+version = "0.1.0"
+description = "LongMemEval benchmark plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "reme-ai[as]>=0.4.1.11",
+]
+
+[project.entry-points."reme.plugins"]
+lme = "reme_lme"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["reme_lme*", "judge_lme*"]
+
+[tool.setuptools.package-data]
+reme_lme = ["plugin.yaml", "*.yaml"]
+judge_lme = ["*.yaml"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

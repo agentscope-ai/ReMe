@@ -289,7 +289,7 @@ removed"). They need the executed tool calls in the trace. The pipeline:
 | user_agent / judger models | `config/models/reme.yaml` |
 | Agent system prompt | `bridge_reme.py` `build_system_prompt()` |
 | Memory retrieval limit/threshold | `--search-limit/--search-min-score` on the bridge command in `run_persona.sh` |
-| ReMe internal parameters | **Do not modify ReMe source**; write a dedicated config modeled on `reme/config/beam.yaml` and override via `resolve_app_config(config=...)` (see bridge `_init_reme_app`) |
+| ReMe internal parameters | **Do not modify ReMe source**; extend the built-in `benchmark` config and override via `resolve_app_config(config=...)` (see bridge `_init_reme_app`) |
 | Turn timeout / tool iteration cap | `config/models/reme.yaml` `run.turn_timeout`, `model.max_tool_iterations` |
 
 ## 11. Troubleshooting

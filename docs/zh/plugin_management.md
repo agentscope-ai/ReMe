@@ -169,6 +169,15 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 自定义应用配置需要提供插件的运行依赖，包括 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
 
+## Benchmark 应用配置
+
+[LME](../../plugins/lme/README_ZH.md) 和 [BEAM](../../plugins/beam/README_ZH.md) 插件通过
+`plugin.yaml` 注册 backend 和插件拥有的 Job。ReMe 内置的 `benchmark` 配置提供公共核心 Job 和
+Component，并且不继承 `default`，因此不包含默认后台和定时任务。先安装所需的 benchmark 插件，
+再使用 `config=benchmark`，同时指定 `plugins=["lme"]` 或 `plugins=["beam"]`。仓库内的 benchmark
+runner 会自动启用对应的已安装插件；editable 安装可让本地源码修改直接生效。数据集 runner 仍位于
+`benchmark/`。
+
 ## 卸载插件
 
 这里使用插件 entry-point 名称，它不一定等于 distribution 名称：

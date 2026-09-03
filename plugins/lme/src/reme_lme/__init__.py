@@ -1,11 +1,11 @@
-"""LongMemEval benchmark steps."""
+"""LongMemEval benchmark backends and application configuration for ReMe."""
 
 from .agentic_answer import LmeAgenticAnswerStep
-from .llm_judge import LmeAnswerJudgeStep
 from .auto_memory import LmeAutoMemoryStep
+from .search_v2 import SearchV2Step
 
 __all__ = [
     "LmeAgenticAnswerStep",
-    "LmeAnswerJudgeStep",
     "LmeAutoMemoryStep",
+    "SearchV2Step",
 ]

@@ -24,10 +24,9 @@ from typing import List, Tuple
 import numpy as np
 from json_repair import repair_json
 
-from ...base_step import BaseStep, Ref
-from ....components import R
-from ....components.as_embedding import BaseAsEmbedding
-from ....enumeration import ComponentEnum
+from reme.steps.base_step import BaseStep, Ref
+from reme.components.as_embedding import BaseAsEmbedding
+from reme.enumeration import ComponentEnum
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +230,6 @@ def _event_ordering_score(
     }
 
 
-@R.register("beam_rubric_judge_step")
 class BeamRubricJudgeStep(BaseStep):
     """Judge an LLM response against a list of rubric criteria.
 

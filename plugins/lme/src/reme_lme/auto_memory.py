@@ -4,8 +4,7 @@ from datetime import datetime, timedelta
 
 from agentscope.message import Msg
 
-from ...evolve.auto_memory import AutoMemoryStep, _normalize_msg_timestamp
-from ....components import R
+from reme.steps.evolve.auto_memory import AutoMemoryStep, _normalize_msg_timestamp
 
 
 def _parse_iso_seconds(value: str) -> datetime | None:
@@ -115,7 +114,6 @@ def _interpolate_timestamps(items: list[dict]) -> list[dict]:
     return result
 
 
-@R.register("lme_auto_memory_step")
 class LmeAutoMemoryStep(AutoMemoryStep):
     """AutoMemoryStep variant that interpolates timestamps for LongMemEval sessions.
 
