@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Lock
 
 import pytest
+import yaml
 
 from reme.application import Application
 from reme.components.base_component import BaseComponent, ComponentMixin
@@ -135,6 +136,59 @@ def test_cli_override_patches_job_after_atomic_plugin_replacement(tmp_path):
     assert warnings == (
         "Config collision at jobs.task: plugin 'example' replaces the complete definition from application config",
     )
+
+
+def test_resolved_resource_provenance_tracks_only_current_visible_values(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """jobs:
+  task:
+    backend: application
+    enable_serve: true
+""",
+        encoding="utf-8",
+    )
+    raw_overrides = {"task": {"enable_serve": False}}
+    resolved = resolve_app_config(
+        config=str(base),
+        log_config=False,
+        jobs=raw_overrides,
+    )
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    # Mutating the original override must not change the resolved config;
+    # mutating the visible resolved value must be honored.
+    raw_overrides["task"]["enable_serve"] = True
+    assert resolved["jobs"]["task"]["enable_serve"] is False
+    resolved["jobs"]["task"]["enable_serve"] = True
+
+    assert manager.merge_config(dict(resolved))["jobs"]["task"] == {
+        "backend": "plugin",
+        "plugin_only": True,
+        "enable_serve": True,
+    }
+
+    del resolved["jobs"]["task"]["enable_serve"]
+    assert manager.merge_config(dict(resolved))["jobs"]["task"] == {
+        "backend": "plugin",
+        "plugin_only": True,
+    }
+
+
+def test_resolved_config_sections_safe_dump_as_plain_mappings(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text("jobs:\n  task:\n    backend: base\n", encoding="utf-8")
+    resolved = resolve_app_config(
+        config=str(base),
+        log_config=False,
+        jobs={"task": {"enable_serve": False}},
+    )
+
+    dumped = yaml.safe_dump(resolved)
+
+    assert yaml.safe_load(dumped) == resolved
 
 
 def test_atomic_resource_replacement_preserves_runtime_object_identity():

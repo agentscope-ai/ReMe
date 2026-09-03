@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ...config import resolve_app_config
+from ...config import ResolvedConfigSection, resolve_app_config
 from ...reme import ReMe
 
 
@@ -58,6 +58,13 @@ def _prepare_config(
         service["injected_job_kwargs"] = injected
 
     prepared = dict(config)
+    raw_jobs = config.get("jobs")
+    if isinstance(raw_jobs, ResolvedConfigSection):
+        selected_paths = tuple((name, "enable_serve") for name in job_names)
+        jobs = ResolvedConfigSection(
+            jobs,
+            explicit_paths=tuple(dict.fromkeys((*raw_jobs.explicit_paths, *selected_paths))),
+        )
     prepared["jobs"] = jobs
     prepared["service"] = service
     return prepared

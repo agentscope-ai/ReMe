@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from yaml.representer import SafeRepresenter
 
 from ..entry_point import (
     CONFIG_ENTRY_POINT_GROUP,
@@ -27,29 +28,43 @@ _LEADING_ZERO_RE = re.compile(r"^-?0\d")
 
 
 class ResolvedConfigSection(dict[str, Any]):
-    """A resolved mapping that retains its loaded base and explicit override.
+    """A resolved mapping that retains which values were explicitly overridden.
 
     ``resolve_app_config`` still returns an ordinary dict-compatible value, but
-    named resources need the two inputs separately so plugins can replace a
-    complete base definition before CLI dot-notation overrides are applied.
-    Keeping the provenance on the nested section also survives the established
-    ``Application(**resolved_config)`` calling convention.
+    named resources need field-level provenance so plugins can replace a
+    complete definition before CLI dot-notation overrides are applied. Only
+    paths are retained: values are always read from the visible mapping, so
+    normal dict mutations cannot diverge from hidden configuration snapshots.
     """
 
     def __init__(
         self,
         value: Mapping[str, Any],
         *,
-        base: Any,
-        base_present: bool,
-        explicit_overrides: Any,
-        explicit_overrides_present: bool,
+        explicit_paths: tuple[tuple[str, ...], ...],
     ) -> None:
         super().__init__(value)
-        self.base = base
-        self.base_present = base_present
-        self.explicit_overrides = explicit_overrides
-        self.explicit_overrides_present = explicit_overrides_present
+        self.explicit_paths = explicit_paths
+
+
+# PyYAML dispatches representers by exact type, so teach its safe dumper that
+# this dict-compatible provenance carrier serializes exactly like a plain dict.
+yaml.SafeDumper.add_representer(ResolvedConfigSection, SafeRepresenter.represent_dict)
+
+
+def _mapping_leaf_paths(
+    value: Mapping[str, Any],
+    prefix: tuple[str, ...] = (),
+) -> tuple[tuple[str, ...], ...]:
+    """Return the leaf paths explicitly supplied by one config override."""
+    paths: list[tuple[str, ...]] = []
+    for key, child in value.items():
+        path = (*prefix, key)
+        if isinstance(child, Mapping) and child:
+            paths.extend(_mapping_leaf_paths(child, path))
+        else:
+            paths.append(path)
+    return tuple(paths)
 
 
 def _repl(m: re.Match) -> str:
@@ -318,21 +333,19 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
 
     # Jobs and named component instances are complete resource definitions
     # when supplied by config files or plugins. CLI dot-notation values remain
-    # field-level overrides, so retain these two layers until plugin resolution.
+    # field-level overrides, so retain their paths until plugin resolution.
     for section_name in ("jobs", "components"):
-        if section_name not in base_config and section_name not in explicit_overrides:
-            continue
         section = merged.get(section_name)
-        if not isinstance(section, Mapping):
+        section_overrides = explicit_overrides.get(section_name)
+        if not isinstance(section, Mapping) or (
+            section_name in explicit_overrides and not isinstance(section_overrides, Mapping)
+        ):
             # Preserve invalid input verbatim so the schema or plugin merger can
             # report it instead of obscuring the source through normalization.
             continue
         merged[section_name] = ResolvedConfigSection(
             section,
-            base=base_config.get(section_name),
-            base_present=section_name in base_config,
-            explicit_overrides=explicit_overrides.get(section_name),
-            explicit_overrides_present=section_name in explicit_overrides,
+            explicit_paths=_mapping_leaf_paths(section_overrides) if isinstance(section_overrides, Mapping) else (),
         )
 
     return merged

@@ -130,21 +130,32 @@ def _overlay_atomic_resources(
 def _split_application_resource_layers(
     application_config: Mapping[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Separate loaded resource definitions from explicit field overrides."""
-    base_layer: dict[str, Any] = {}
+    """Separate atomic definitions from explicit field-level overrides."""
+    application_layer: dict[str, Any] = {}
     explicit_overrides: dict[str, Any] = {}
     for section_name in ("jobs", "components"):
         if section_name not in application_config:
             continue
         section = application_config[section_name]
+        application_layer[section_name] = section
         if not isinstance(section, ResolvedConfigSection):
-            base_layer[section_name] = section
             continue
-        if section.base_present:
-            base_layer[section_name] = section.base
-        if section.explicit_overrides_present:
-            explicit_overrides[section_name] = section.explicit_overrides
-    return base_layer, explicit_overrides
+
+        projected: dict[str, Any] = {}
+        for path in section.explicit_paths:
+            current: Any = section
+            for key in path:
+                if not isinstance(current, Mapping) or key not in current:
+                    break
+                current = current[key]
+            else:
+                target = projected
+                for key in path[:-1]:
+                    target = target.setdefault(key, {})
+                target[path[-1]] = current
+        if projected:
+            explicit_overrides[section_name] = projected
+    return application_layer, explicit_overrides
 
 
 def _load_backend(target: str, *, plugin_name: str) -> type[ComponentMixin]:
