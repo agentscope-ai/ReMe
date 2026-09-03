@@ -113,11 +113,19 @@ class TagIndexWatchStep(BaseStep):
         rebuild = not bool(getattr(self.tag_index, "loaded", False))
         records: list[TagSourceRecord] = []
         results: list[dict] = []
+        transient_failures: list[str] = []
         for relative, (path, _mtime_ns) in sorted(current.items()):
             read = await asyncio.to_thread(read_frontmatter, path, self.tag_index.max_frontmatter_bytes)
             if read.status in ("io_failed", "changed_during_read"):
+                transient_failures.append(relative)
                 results.append(
-                    {"change": "modified", "path": relative, "success": True, "skipped": True, "reason": read.status},
+                    {
+                        "change": "modified",
+                        "path": relative,
+                        "success": not rebuild,
+                        "skipped": True,
+                        "reason": read.status,
+                    },
                 )
                 continue
             normalized_tags = self.tag_index.normalize_tags((read.metadata or {}).get("tags"))
@@ -136,6 +144,14 @@ class TagIndexWatchStep(BaseStep):
             else:
                 change = "audited"
             results.append({"change": change, "path": relative, "success": True, "skipped": False})
+        if rebuild and transient_failures:
+            self.context.response.answer = results
+            self.context.response.metadata["counts"] = self._counts(results)
+            self.context.response.success = False
+            paths = ", ".join(transient_failures[:3])
+            if len(transient_failures) > 3:
+                paths += f", ... ({len(transient_failures)} total)"
+            raise RuntimeError(f"tag-index cold rebuild deferred after transient read failures: {paths}")
         deleted = sorted(set(indexed) - set(current))
         results.extend({"change": "deleted", "path": path, "success": True, "skipped": False} for path in deleted)
         await self.tag_index.reconcile(records, deleted, rebuild=rebuild, persist=True)

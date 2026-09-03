@@ -14,7 +14,7 @@ from reme.components.tag_index import LocalTagIndex
 from reme.enumeration import ComponentEnum
 from reme.schema import TagSourceRecord
 from reme.steps.index import UpdateTagIndexStep
-from reme.steps.index._tag_index_io import read_frontmatter, scan_watch_scope, validated_watch_rules
+from reme.steps.index._tag_index_io import FrontmatterRead, read_frontmatter, scan_watch_scope, validated_watch_rules
 from reme.steps.index.tag_index_watch import TagIndexWatchStep
 from reme.utils.jsonl_zst import write_jsonl_zst
 
@@ -78,6 +78,61 @@ def test_snapshot_round_trip_and_parameter_change_rebuilds(tmp_path: Path) -> No
         await incompatible.start()
         assert incompatible.loaded is False
         assert await incompatible.get_records() == []
+
+    asyncio.run(run())
+
+
+def test_reconcile_rolls_back_partial_mutations_on_failure(tmp_path: Path) -> None:
+    """A failed batch leaves the previously committed in-memory state intact."""
+
+    async def run() -> None:
+        index = LocalTagIndex(name="default", app_context=_context(tmp_path))
+        await index.start()
+        baseline = TagSourceRecord(path="daily/baseline.md", mtime_ns=1, tags=["baseline"])
+        await index.reconcile([baseline], [], persist=True)
+
+        with pytest.raises(ValueError, match="Invalid workspace-relative"):
+            await index.reconcile(
+                [
+                    TagSourceRecord(path="daily/new.md", mtime_ns=2, tags=["new"]),
+                    TagSourceRecord(path="../escape.md", mtime_ns=3, tags=["invalid"]),
+                ],
+                [],
+                persist=True,
+            )
+
+        assert await index.get_records() == [baseline]
+        await index.dump()
+        await index.close()
+
+    asyncio.run(run())
+
+
+def test_reconcile_rolls_back_when_persistence_fails(tmp_path: Path, monkeypatch) -> None:
+    """A failed snapshot write restores memory while the atomic writer preserves disk."""
+
+    async def run() -> None:
+        index = LocalTagIndex(name="default", app_context=_context(tmp_path))
+        await index.start()
+        baseline = TagSourceRecord(path="daily/baseline.md", mtime_ns=1, tags=["baseline"])
+        await index.reconcile([baseline], [], persist=True)
+        persisted = index.index_file.read_bytes()
+
+        def fail_write(*_args, **_kwargs) -> None:
+            raise OSError("snapshot unavailable")
+
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr("reme.components.tag_index.local_tag_index.write_jsonl_zst", fail_write)
+            with pytest.raises(OSError, match="snapshot unavailable"):
+                await index.reconcile(
+                    [TagSourceRecord(path="daily/new.md", mtime_ns=2, tags=["new"])],
+                    [],
+                    persist=True,
+                )
+
+        assert await index.get_records() == [baseline]
+        assert index.index_file.read_bytes() == persisted
+        await index.close()
 
     asyncio.run(run())
 
@@ -181,6 +236,55 @@ def test_startup_audit_repairs_tags_even_when_mtime_is_unchanged(tmp_path: Path)
             "audited": 1,
             "skipped": 0,
         }
+        await index.close()
+
+    asyncio.run(run())
+
+
+def test_cold_startup_read_failure_defers_rebuild_without_partial_commit(tmp_path: Path, monkeypatch) -> None:
+    """A transient cold-start read failure lets the background supervisor retry the full audit."""
+
+    async def run() -> None:
+        daily = tmp_path / "daily"
+        daily.mkdir()
+        first = daily / "a.md"
+        second = daily / "b.md"
+        first.write_text("---\ntags: [first]\n---\n", encoding="utf-8")
+        second.write_text("---\ntags: [second]\n---\n", encoding="utf-8")
+
+        context = _context(tmp_path)
+        index = LocalTagIndex(name="default", app_context=context)
+        context.components[ComponentEnum.TAG_INDEX]["default"] = index
+        await index.start()
+        runtime = RuntimeContext(stop_event=asyncio.Event(), watch_dirs=["daily_dir"], watch_suffixes=["md"])
+        step = TagIndexWatchStep(app_context=context, tag_index=index)
+        step.context = runtime
+        rules = validated_watch_rules(context.app_config, tmp_path, runtime)
+        current = scan_watch_scope(tmp_path, rules, recursive=True)
+
+        original_read = read_frontmatter
+
+        failed_once = False
+
+        def fail_second_once(path: Path, max_bytes: int, retries: int = 2) -> FrontmatterRead:
+            nonlocal failed_once
+            if path == second and not failed_once:
+                failed_once = True
+                return FrontmatterRead(status="io_failed", reason="PermissionError")
+            return original_read(path, max_bytes, retries)
+
+        monkeypatch.setattr("reme.steps.index.tag_index_watch.read_frontmatter", fail_second_once)
+        with pytest.raises(RuntimeError, match="cold rebuild deferred"):
+            await step._initial_sync(current)
+
+        assert await index.get_records() == []
+        assert not index.index_file.exists()
+        assert runtime.response.success is False
+
+        await step._initial_sync(current)
+        assert [record.path for record in await index.get_records()] == ["daily/a.md", "daily/b.md"]
+        assert index.index_file.exists()
+        assert runtime.response.success is True
         await index.close()
 
     asyncio.run(run())

@@ -13,8 +13,6 @@ import pytest
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper
 from reme.components.file_store import LocalFileStore
 from reme.schema import Response
-from reme.steps.benchmark.beam.auto_memory import BeamAutoMemoryStep
-from reme.steps.benchmark.lme.auto_memory import LmeAutoMemoryStep
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.auto_memory_cc import AutoMemoryCCStep
 
@@ -242,8 +240,6 @@ def test_auto_memory_keeps_original_tool_names():
 def test_auto_memory_tags_are_disabled_by_default_and_enabled_through_kwargs():
     assert AutoMemoryStep()._tags_enabled() is False
     assert AutoMemoryCCStep()._tags_enabled() is False
-    assert BeamAutoMemoryStep()._tags_enabled() is False
-    assert LmeAutoMemoryStep()._tags_enabled() is False
     assert AutoMemoryStep(enable_tags=True)._tags_enabled() is True
 
 
@@ -290,17 +286,11 @@ def test_auto_memory_create_prompts_match_upstream_date_arguments():
     """Auto-memory prompts keep the upstream model-supplied date argument."""
     from pathlib import Path
 
-    prompt_files = (Path("reme/steps/evolve/auto_memory.yaml"),)
-    for prompt_file in prompt_files:
-        content = prompt_file.read_text(encoding="utf-8")
-        assert "date={today}" in content or "`date`: {today}" in content or "`date`：{today}" in content
-
-    evolve_prompt = prompt_files[0].read_text(encoding="utf-8")
+    prompt_file = Path("reme/steps/evolve/auto_memory.yaml")
+    evolve_prompt = prompt_file.read_text(encoding="utf-8")
+    assert "date={today}" in evolve_prompt or "`date`: {today}" in evolve_prompt or "`date`：{today}" in evolve_prompt
     assert '"tags": [<tag>, ...]' in evolve_prompt
     assert '"tags": []' in evolve_prompt or "using `[]`" in evolve_prompt
-
-    for benchmark_prompt in prompt_files[1:]:
-        assert '"tags": [<tag>, ...]' not in benchmark_prompt.read_text(encoding="utf-8")
 
 
 def test_configs_define_original_jobs_without_daily_variants():
@@ -316,10 +306,6 @@ def test_configs_define_original_jobs_without_daily_variants():
 
     default = resolve_app_config(config="default", log_config=False)
     assert default["jobs"]["auto_memory"]["steps"][0]["enable_tags"] is True
-
-    for config_name in ("lme", "beam"):
-        benchmark = resolve_app_config(config=config_name, log_config=False)
-        assert "enable_tags" not in benchmark["jobs"]["auto_memory"]["steps"][0]
 
 
 if __name__ == "__main__":

@@ -128,6 +128,8 @@ class LocalTagIndex(BaseTagIndex):
     ) -> None:
         """Atomically apply one prepared audit/reconcile commit."""
         async with self._maintenance_lock:
+            previous = self._snapshot()
+            previous_persistable = self._state_persistable
             self._state_persistable = False
             try:
                 if rebuild:
@@ -140,8 +142,9 @@ class LocalTagIndex(BaseTagIndex):
                 self._state_persistable = True
                 if persist:
                     await self._dump_locked()
-            except BaseException:
-                self._state_persistable = False
+            except Exception:
+                self._install_candidate(previous)
+                self._state_persistable = previous_persistable
                 raise
 
     def _upsert(self, source: TagSourceRecord) -> None:
