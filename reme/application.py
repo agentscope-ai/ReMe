@@ -36,6 +36,8 @@ class Application(BaseComponent):
             force_init=True,
         )
         super().__init__()
+        for warning in runtime.config_warnings:
+            logger.warning(warning)
         self._init_service()
 
         if self.config.enable_logo:

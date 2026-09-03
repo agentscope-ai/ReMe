@@ -64,21 +64,176 @@ def test_plugin_application_defaults_are_below_application_config():
         [
             Plugin(
                 name="example",
-                config={"jobs": {"task": {"backend": "base", "value": 1}}},
+                config={
+                    "language": "plugin",
+                    "jobs": {"task": {"backend": "plugin_job", "plugin_only": True}},
+                },
             ),
         ],
     )
 
-    merged = manager.merge_config({"jobs": {"task": {"value": 2}}})
+    merged = manager.merge_config(
+        {
+            "language": "application",
+            "jobs": {"task": {"backend": "application_job", "application_only": True}},
+        },
+    )
 
-    assert merged["jobs"]["task"] == {"backend": "base", "value": 2}
+    assert merged["language"] == "application"
+    assert merged["jobs"]["task"] == {"backend": "plugin_job", "plugin_only": True}
+
+
+def test_later_plugin_atomically_replaces_same_name_job_and_records_each_collision():
+    manager = PluginManager(
+        [
+            Plugin(name="first", config={"jobs": {"task": {"backend": "first", "first_only": True}}}),
+            Plugin(name="second", config={"jobs": {"task": {"backend": "second", "second_only": True}}}),
+        ],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        {"jobs": {"task": {"backend": "application", "application_only": True}}},
+    )
+
+    assert merged["jobs"]["task"] == {"backend": "second", "second_only": True}
+    assert warnings == (
+        "Config collision at jobs.task: plugin 'first' replaces the complete definition from application config",
+        "Config collision at jobs.task: plugin 'second' replaces the complete definition from plugin 'first'",
+    )
+
+
+def test_identical_same_name_job_warns_while_different_names_are_merged():
+    definition = {"backend": "same"}
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"shared": definition, "plugin_only": definition}})],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        {"jobs": {"shared": definition, "application_only": definition}},
+    )
+
+    assert set(merged["jobs"]) == {"shared", "plugin_only", "application_only"}
+    expected = "Config collision at jobs.shared: " + (
+        "plugin 'example' replaces the complete definition from application config"
+    )
+    assert warnings == (expected,)
+
+
+def test_plugin_component_identity_is_normalized_before_atomic_replacement():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "components": {
+                        " as_llm ": {
+                            "default": {"backend": "plugin", "plugin_only": True},
+                        },
+                    },
+                },
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        {
+            "components": {
+                "as_llm": {
+                    "default": {"backend": "application", "application_only": True},
+                    "other": {"backend": "other"},
+                },
+            },
+        },
+    )
+
+    assert merged["components"]["as_llm"] == {
+        "default": {"backend": "plugin", "plugin_only": True},
+        "other": {"backend": "other"},
+    }
+    assert warnings == (
+        "Config collision at components.as_llm.default: "
+        "plugin 'example' replaces the complete definition from application config",
+    )
+
+
+def test_later_plugin_atomically_replaces_same_name_component():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="first",
+                config={"components": {"tokenizer": {"default": {"backend": "first", "first_only": True}}}},
+            ),
+            Plugin(
+                name="second",
+                config={"components": {"tokenizer": {"default": {"backend": "second"}}}},
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config({})  # pylint: disable=protected-access
+
+    assert merged["components"]["tokenizer"]["default"] == {"backend": "second"}
+    assert warnings == (
+        "Config collision at components.tokenizer.default: "
+        "plugin 'second' replaces the complete definition from plugin 'first'",
+    )
+
+
+def test_same_component_name_in_different_types_does_not_conflict():
+    manager = PluginManager(
+        [Plugin(name="example", config={"components": {"tokenizer": {"default": {"backend": "plugin"}}}})],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        {"components": {"as_llm": {"default": {"backend": "application"}}}},
+    )
+
+    assert merged["components"] == {
+        "as_llm": {"default": {"backend": "application"}},
+        "tokenizer": {"default": {"backend": "plugin"}},
+    }
+    assert not warnings
+
+
+def test_same_source_component_type_normalization_uses_later_definition_without_warning():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "components": {
+                        "as_llm ": {"default": {"backend": "first"}},
+                        "as_llm": {"default": {"backend": "second"}},
+                    },
+                },
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config({})  # pylint: disable=protected-access
+
+    assert merged["components"] == {"as_llm": {"default": {"backend": "second"}}}
+    assert not warnings
 
 
 def test_plugin_application_defaults_expand_environment(monkeypatch):
     monkeypatch.setenv("PLUGIN_LIMIT", "12")
-    manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "limit": "${PLUGIN_LIMIT}",
+                    "jobs": {"task": {"backend": "base", "limit": "${PLUGIN_LIMIT}"}},
+                },
+            ),
+        ],
+    )
 
-    assert manager.merge_config({})["limit"] == 12
+    merged = manager.merge_config({})
+
+    assert merged["limit"] == 12
+    assert merged["jobs"]["task"]["limit"] == 12
 
 
 def test_plugin_registers_into_only_the_supplied_registry():
@@ -130,6 +285,50 @@ async def test_plugin_registers_and_runs_custom_component_type(monkeypatch, tmp_
     assert component.backend == "updated"
     await app.close()
     assert component.is_started is False
+
+
+def test_application_logs_config_collisions_before_resource_instantiation(monkeypatch, tmp_path):
+    events = []
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin"}}})],
+    )
+
+    class RecordingLogger:
+        def bind(self, **_kwargs):
+            return self
+
+        def warning(self, message):
+            events.append(("warning", message))
+
+        def info(self, _message):
+            events.append(("info", None))
+
+    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs: manager))
+    monkeypatch.setattr("reme.application.get_logger", lambda **_kwargs: RecordingLogger())
+    monkeypatch.setattr("reme.components.base_component.get_logger", lambda **_kwargs: RecordingLogger())
+    monkeypatch.setattr(Application, "_init_service", lambda self: events.append(("service", None)))
+    monkeypatch.setattr(Application, "_init_components", lambda self: events.append(("components", None)))
+    monkeypatch.setattr(Application, "_init_jobs", lambda self: events.append(("jobs", None)))
+
+    Application(
+        plugins=["example"],
+        jobs={"task": {"backend": "application"}},
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "unused"},
+    )
+
+    assert events[0] == (
+        "warning",
+        "Config collision at jobs.task: plugin 'example' replaces the complete definition from application config",
+    )
+    assert [kind for kind, _ in events if kind in {"service", "components", "jobs"}] == [
+        "service",
+        "components",
+        "jobs",
+    ]
 
 
 def test_plugin_backend_collision_fails_with_both_owners():

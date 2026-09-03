@@ -8,6 +8,7 @@ Python ``Plugin`` descriptors remain supported as a compatibility boundary.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.metadata import EntryPoint
@@ -17,6 +18,7 @@ from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry, create_application_registry
 from .config import deep_merge_config, expand_env_vars
 from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, load_entry_point, unique_entry_point
+from .enumeration import component_type_name
 from .plugin_manifest import PluginManifest, load_package_manifest
 
 
@@ -43,6 +45,86 @@ class PluginRuntime:
 
     config: dict[str, Any]
     registry: ComponentRegistry
+    config_warnings: tuple[str, ...] = ()
+
+
+_MISSING = object()
+
+
+def _without_named_resources(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Return fields that retain the ordinary plugin-default merge behavior."""
+    return {key: value for key, value in config.items() if key not in {"jobs", "components"}}
+
+
+def _overlay_jobs(
+    current: Any,
+    owners: dict[tuple[Any, ...], str],
+    warnings: list[str],
+    layer: Mapping[str, Any],
+    source: str,
+) -> Any:
+    """Atomically overlay jobs from one source, warning on cross-source replacement."""
+    if "jobs" not in layer:
+        return current
+    jobs = layer["jobs"]
+    if not isinstance(jobs, Mapping):
+        owners.clear()
+        return deepcopy(jobs)
+
+    merged = dict(current) if isinstance(current, Mapping) else {}
+    for name, definition in jobs.items():
+        identity = ("jobs", name)
+        previous = owners.get(identity)
+        if previous is not None:
+            warnings.append(
+                f"Config collision at jobs.{name}: {source} replaces the complete definition from {previous}",
+            )
+        merged[name] = deepcopy(definition)
+        owners[identity] = source
+    return merged
+
+
+def _overlay_components(
+    current: Any,
+    owners: dict[tuple[Any, ...], str],
+    warnings: list[str],
+    layer: Mapping[str, Any],
+    source: str,
+) -> Any:
+    """Atomically overlay named component instances from one source."""
+    if "components" not in layer:
+        return current
+    components = layer["components"]
+    if not isinstance(components, Mapping):
+        owners.clear()
+        return deepcopy(components)
+
+    # Match ApplicationConfig normalization before comparing identities. If
+    # one source repeats an equivalent type, its later mapping wins without a
+    # new same-source diagnostic, preserving the existing validator behavior.
+    normalized = {component_type_name(component_type): group for component_type, group in components.items()}
+    merged = dict(current) if isinstance(current, Mapping) else {}
+    for component_type, group in normalized.items():
+        if not isinstance(group, Mapping):
+            merged[component_type] = deepcopy(group)
+            for identity in [identity for identity in owners if identity[1] == component_type]:
+                del owners[identity]
+            continue
+
+        current_group = merged.get(component_type)
+        merged_group = dict(current_group) if isinstance(current_group, Mapping) else {}
+        for name, definition in group.items():
+            identity = ("components", component_type, name)
+            previous = owners.get(identity)
+            if previous is not None:
+                warnings.append(
+                    f"Config collision at components.{component_type}.{name}: "
+                    f"{source} replaces the complete definition from {previous}",
+                )
+            merged_group[name] = deepcopy(definition)
+            owners[identity] = source
+        merged[component_type] = merged_group
+    return merged
 
 
 def _load_backend(target: str, *, plugin_name: str) -> type[ComponentMixin]:
@@ -115,12 +197,48 @@ class PluginManager:
             seen.add(name)
         return cls(plugins)
 
-    def merge_config(self, application_config: Mapping[str, Any]) -> dict[str, Any]:
-        """Place plugin application defaults below the user's resolved config."""
+    def _merge_config(self, application_config: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
+        """Merge config and retain startup diagnostics for named resource replacement."""
+        plugin_layers = [expand_env_vars(plugin.config) for plugin in self.plugins]
+
+        # Ordinary fields retain their existing priority: plugin defaults are
+        # merged in enablement order, then application config wins.
         merged: dict[str, Any] = {}
-        for plugin in self.plugins:
-            merged = deep_merge_config(merged, expand_env_vars(plugin.config))
-        return deep_merge_config(merged, application_config)
+        for layer in plugin_layers:
+            merged = deep_merge_config(merged, _without_named_resources(layer))
+        merged = deep_merge_config(merged, _without_named_resources(application_config))
+
+        # Jobs and named component instances use the explicit plugin priority:
+        # application config is lowest and later enabled plugins are highest.
+        jobs: Any = _MISSING
+        components: Any = _MISSING
+        job_owners: dict[tuple[Any, ...], str] = {}
+        component_owners: dict[tuple[Any, ...], str] = {}
+        warnings: list[str] = []
+
+        jobs = _overlay_jobs(jobs, job_owners, warnings, application_config, "application config")
+        components = _overlay_components(
+            components,
+            component_owners,
+            warnings,
+            application_config,
+            "application config",
+        )
+        for plugin, layer in zip(self.plugins, plugin_layers):
+            source = f"plugin '{plugin.name}'"
+            jobs = _overlay_jobs(jobs, job_owners, warnings, layer, source)
+            components = _overlay_components(components, component_owners, warnings, layer, source)
+
+        if jobs is not _MISSING:
+            merged["jobs"] = jobs
+        if components is not _MISSING:
+            merged["components"] = components
+        return merged, tuple(warnings)
+
+    def merge_config(self, application_config: Mapping[str, Any]) -> dict[str, Any]:
+        """Apply plugin config while atomically replacing same-name jobs and components."""
+        merged, _ = self._merge_config(application_config)
+        return merged
 
     def register(self, registry: ComponentRegistry) -> None:
         """Register every backend into an application-local registry."""
@@ -130,8 +248,9 @@ class PluginManager:
 
 
 def resolve_plugin_runtime(application_config: Mapping[str, Any]) -> PluginRuntime:
-    """Build one local registry, with user config overriding plugin application defaults."""
+    """Build one local registry and merge explicitly enabled plugin configuration."""
     manager = PluginManager.discover(application_config.get("plugins") or ())
     registry = create_application_registry()
     manager.register(registry)
-    return PluginRuntime(config=manager.merge_config(application_config), registry=registry)
+    config, config_warnings = manager._merge_config(application_config)  # pylint: disable=protected-access
+    return PluginRuntime(config=config, registry=registry, config_warnings=config_warnings)
