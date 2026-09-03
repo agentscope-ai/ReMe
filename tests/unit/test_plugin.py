@@ -3,16 +3,18 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
 from pathlib import Path
+from threading import Lock
 
 import pytest
 
 from reme.application import Application
 from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry, R
-from reme.config.config_parser import _load_config
+from reme.config.config_parser import _load_config, resolve_app_config
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, _load_backend
 from reme.plugin_manifest import parse_plugin_manifest
+from reme.schema import ApplicationConfig
 
 
 class _PluginStep(ComponentMixin):
@@ -100,6 +102,64 @@ def test_later_plugin_atomically_replaces_same_name_job_and_records_each_collisi
         "Config collision at jobs.task: plugin 'first' replaces the complete definition from application config",
         "Config collision at jobs.task: plugin 'second' replaces the complete definition from plugin 'first'",
     )
+
+
+def test_cli_override_patches_job_after_atomic_plugin_replacement(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """jobs:
+  task:
+    backend: application
+    application_only: true
+""",
+        encoding="utf-8",
+    )
+    resolved = resolve_app_config(
+        config=str(base),
+        log_config=False,
+        jobs={"task": {"enable_serve": False}},
+    )
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    # Expanding a resolved config into Application kwargs retains provenance on
+    # the nested resource sections.
+    merged, warnings = manager._merge_config(dict(resolved))
+
+    assert merged["jobs"]["task"] == {
+        "backend": "plugin",
+        "plugin_only": True,
+        "enable_serve": False,
+    }
+    assert warnings == (
+        "Config collision at jobs.task: plugin 'example' replaces the complete definition from application config",
+    )
+
+
+def test_atomic_resource_replacement_preserves_runtime_object_identity():
+    lock = Lock()
+    definition = {"backend": "base", "runtime_lock": lock}
+
+    merged = PluginManager().merge_config({"jobs": {"task": definition}})
+
+    assert merged["jobs"]["task"] is definition
+    assert merged["jobs"]["task"]["runtime_lock"] is lock
+
+
+@pytest.mark.parametrize(
+    ("application_config", "message"),
+    [
+        ({"jobs": []}, "application config.jobs must be a mapping"),
+        ({"components": {"as_llm": []}}, "application config.components.as_llm must be a mapping"),
+        ({"jobs": {1: {"backend": "base"}}}, "jobs names must be strings"),
+    ],
+)
+def test_atomic_resources_reject_invalid_fragments_at_their_source(application_config, message):
+    manager = PluginManager([Plugin(name="later", config={"jobs": {"valid": {"backend": "base"}}})])
+
+    with pytest.raises(TypeError, match=message):
+        manager.merge_config(application_config)
 
 
 def test_identical_same_name_job_warns_while_different_names_are_merged():
@@ -234,6 +294,28 @@ def test_plugin_application_defaults_expand_environment(monkeypatch):
 
     assert merged["limit"] == 12
     assert merged["jobs"]["task"]["limit"] == 12
+
+
+@pytest.mark.parametrize("plugin_name", ["lme", "beam"])
+def test_benchmark_plugins_share_benchmark_llm_component_definitions(plugin_name):
+    project_root = Path(__file__).parents[2]
+    package_name = "reme_lme" if plugin_name == "lme" else "reme_beam"
+    manifest_path = project_root / "plugins" / plugin_name / "src" / package_name / "plugin.yaml"
+    manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=plugin_name)
+    manager = PluginManager([Plugin(name=plugin_name, config=manifest.application_defaults)])
+
+    merged, warnings = manager._merge_config(_load_config("benchmark"))
+    config = ApplicationConfig(**merged)
+
+    default = config.components["as_llm"]["default"]
+    judge = config.components["as_llm"]["judge"]
+    assert default.backend
+    assert default.model_extra["max_retries"] == 5
+    assert default.model_extra["retry_delay"] == 5.0
+    assert judge.backend
+    assert judge.model_extra["max_retries"] == 5
+    assert judge.model_extra["retry_delay"] == 5.0
+    assert not [warning for warning in warnings if "components.as_llm" in warning]
 
 
 def test_plugin_registers_into_only_the_supplied_registry():

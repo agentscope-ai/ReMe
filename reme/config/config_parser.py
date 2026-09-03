@@ -26,6 +26,32 @@ _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
 
 
+class ResolvedConfigSection(dict[str, Any]):
+    """A resolved mapping that retains its loaded base and explicit override.
+
+    ``resolve_app_config`` still returns an ordinary dict-compatible value, but
+    named resources need the two inputs separately so plugins can replace a
+    complete base definition before CLI dot-notation overrides are applied.
+    Keeping the provenance on the nested section also survives the established
+    ``Application(**resolved_config)`` calling convention.
+    """
+
+    def __init__(
+        self,
+        value: Mapping[str, Any],
+        *,
+        base: Any,
+        base_present: bool,
+        explicit_overrides: Any,
+        explicit_overrides_present: bool,
+    ) -> None:
+        super().__init__(value)
+        self.base = base
+        self.base_present = base_present
+        self.explicit_overrides = explicit_overrides
+        self.explicit_overrides_present = explicit_overrides_present
+
+
 def _repl(m: re.Match) -> str:
     name: str = m.group(1)
     # group(2) is None when the placeholder has no `:-default` part
@@ -272,7 +298,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     from ..utils import get_logger
 
     logger = get_logger(log_to_file=False)
-    configs: list[dict] = []
+    base_config: dict = {}
 
     # `config=path` arrives as a string here; `config.foo=bar` arrives as a
     # nested dict and is left in `kwargs` to be merged as a normal override.
@@ -281,16 +307,32 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
         kwargs.pop("config")
         if log_config:
             logger.info(f"Loading config: {config_value}")
-        configs.append(_load_config(config_value))
+        base_config = _load_config(config_value)
     elif "default" in _CONFIG_REGISTRY:
         if log_config:
             logger.info("No config specified, loading 'default'")
-        configs.append(_load_config("default"))
+        base_config = _load_config("default")
 
-    configs.append(kwargs)
+    explicit_overrides = kwargs
+    merged = deep_merge_config(base_config, explicit_overrides)
 
-    merged: dict = {}
-    for cfg in configs:
-        merged = deep_merge_config(merged, cfg)
+    # Jobs and named component instances are complete resource definitions
+    # when supplied by config files or plugins. CLI dot-notation values remain
+    # field-level overrides, so retain these two layers until plugin resolution.
+    for section_name in ("jobs", "components"):
+        if section_name not in base_config and section_name not in explicit_overrides:
+            continue
+        section = merged.get(section_name)
+        if not isinstance(section, Mapping):
+            # Preserve invalid input verbatim so the schema or plugin merger can
+            # report it instead of obscuring the source through normalization.
+            continue
+        merged[section_name] = ResolvedConfigSection(
+            section,
+            base=base_config.get(section_name),
+            base_present=section_name in base_config,
+            explicit_overrides=explicit_overrides.get(section_name),
+            explicit_overrides_present=section_name in explicit_overrides,
+        )
 
     return merged

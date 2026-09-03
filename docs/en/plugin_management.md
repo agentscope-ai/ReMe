@@ -52,8 +52,10 @@ application_defaults:
         - backend: example_step
 ```
 
-`application_defaults` is a partial `ApplicationConfig`. It is kept below the manifest's `backends` namespace because
-backend import declarations are part of plugin discovery and are not application configuration.
+`application_defaults` is a partial `ApplicationConfig`. Each named Job or Component included in it must nevertheless
+be a complete definition: matching names are atomic resources, not recursively merged fragments. It is kept below the
+manifest's `backends` namespace because backend import declarations are part of plugin discovery and are not
+application configuration.
 
 Use JSON when another local tool needs structured output:
 
@@ -155,9 +157,10 @@ Or add them for one service launch:
 reme start plugins='["auto-fin"]'
 ```
 
-When `config` is omitted, ReMe loads `default.yaml`. The plugin's `application_defaults` are merged below that config,
-so explicit config values and CLI overrides win. This mapping is an `ApplicationConfig` fragment, not a separate
-configuration schema. The plugin backends are registered only in that Application's local registry.
+When `config` is omitted, ReMe loads `default.yaml`. Ordinary plugin defaults remain below application values. Named
+Jobs and Components are atomic: the loaded config is applied first, then plugins in enablement order, so a later plugin
+replaces the complete same-name definition. Explicit CLI dot-notation overrides are applied last as field updates to
+the winning definition. The plugin backends are registered only in that Application's local registry.
 
 After the default HTTP service starts, access plugin Jobs through ReMe's CLI client or HTTP:
 

@@ -8,7 +8,6 @@ Python ``Plugin`` descriptors remain supported as a compatibility boundary.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from copy import deepcopy
 from dataclasses import dataclass, field
 from importlib import import_module
 from importlib.metadata import EntryPoint
@@ -16,7 +15,7 @@ from typing import Any
 
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry, create_application_registry
-from .config import deep_merge_config, expand_env_vars
+from .config import ResolvedConfigSection, deep_merge_config, expand_env_vars
 from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, load_entry_point, unique_entry_point
 from .enumeration import component_type_name
 from .plugin_manifest import PluginManifest, load_package_manifest
@@ -48,83 +47,104 @@ class PluginRuntime:
     config_warnings: tuple[str, ...] = ()
 
 
-_MISSING = object()
-
-
 def _without_named_resources(config: Mapping[str, Any]) -> dict[str, Any]:
     """Return fields that retain the ordinary plugin-default merge behavior."""
     return {key: value for key, value in config.items() if key not in {"jobs", "components"}}
 
 
-def _overlay_jobs(
-    current: Any,
-    owners: dict[tuple[Any, ...], str],
-    warnings: list[str],
-    layer: Mapping[str, Any],
-    source: str,
-) -> Any:
-    """Atomically overlay jobs from one source, warning on cross-source replacement."""
-    if "jobs" not in layer:
-        return current
-    jobs = layer["jobs"]
-    if not isinstance(jobs, Mapping):
-        owners.clear()
-        return deepcopy(jobs)
+def _require_mapping(value: Any, path: str) -> Mapping[str, Any]:
+    """Reject an invalid config fragment at its source."""
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{path} must be a mapping")
+    return value
 
-    merged = dict(current) if isinstance(current, Mapping) else {}
-    for name, definition in jobs.items():
-        identity = ("jobs", name)
+
+def _replace_named(
+    target: dict[str, Any],
+    incoming: Mapping[str, Any],
+    owners: dict[tuple[str, ...], str],
+    warnings: list[str],
+    source: str,
+    prefix: tuple[str, ...],
+) -> None:
+    """Atomically replace resources identified by ``prefix + name``."""
+    for name, definition in incoming.items():
+        if not isinstance(name, str):
+            raise TypeError(f"{'.'.join(prefix)} names must be strings, got {type(name).__name__}")
+        identity = (*prefix, name)
         previous = owners.get(identity)
         if previous is not None:
             warnings.append(
-                f"Config collision at jobs.{name}: {source} replaces the complete definition from {previous}",
+                f"Config collision at {'.'.join(identity)}: "
+                f"{source} replaces the complete definition from {previous}",
             )
-        merged[name] = deepcopy(definition)
+        target[name] = definition
         owners[identity] = source
-    return merged
 
 
-def _overlay_components(
-    current: Any,
-    owners: dict[tuple[Any, ...], str],
+def _overlay_atomic_resources(
+    jobs: dict[str, Any],
+    components: dict[str, dict[str, Any]],
+    job_owners: dict[tuple[str, ...], str],
+    component_owners: dict[tuple[str, ...], str],
     warnings: list[str],
     layer: Mapping[str, Any],
     source: str,
-) -> Any:
-    """Atomically overlay named component instances from one source."""
-    if "components" not in layer:
-        return current
-    components = layer["components"]
-    if not isinstance(components, Mapping):
-        owners.clear()
-        return deepcopy(components)
+) -> tuple[bool, bool]:
+    """Overlay the two resource kinds with atomic identities."""
+    has_jobs = "jobs" in layer
+    has_components = "components" in layer
+
+    if has_jobs:
+        incoming_jobs = _require_mapping(layer["jobs"], f"{source}.jobs")
+        _replace_named(jobs, incoming_jobs, job_owners, warnings, source, ("jobs",))
+
+    if not has_components:
+        return has_jobs, has_components
+
+    raw_components = _require_mapping(layer["components"], f"{source}.components")
 
     # Match ApplicationConfig normalization before comparing identities. If
     # one source repeats an equivalent type, its later mapping wins without a
     # new same-source diagnostic, preserving the existing validator behavior.
-    normalized = {component_type_name(component_type): group for component_type, group in components.items()}
-    merged = dict(current) if isinstance(current, Mapping) else {}
+    normalized = {
+        component_type_name(component_type): _require_mapping(
+            group,
+            f"{source}.components.{component_type}",
+        )
+        for component_type, group in raw_components.items()
+    }
     for component_type, group in normalized.items():
-        if not isinstance(group, Mapping):
-            merged[component_type] = deepcopy(group)
-            for identity in [identity for identity in owners if identity[1] == component_type]:
-                del owners[identity]
-            continue
+        target_group = components.setdefault(component_type, {})
+        _replace_named(
+            target_group,
+            group,
+            component_owners,
+            warnings,
+            source,
+            ("components", component_type),
+        )
+    return has_jobs, has_components
 
-        current_group = merged.get(component_type)
-        merged_group = dict(current_group) if isinstance(current_group, Mapping) else {}
-        for name, definition in group.items():
-            identity = ("components", component_type, name)
-            previous = owners.get(identity)
-            if previous is not None:
-                warnings.append(
-                    f"Config collision at components.{component_type}.{name}: "
-                    f"{source} replaces the complete definition from {previous}",
-                )
-            merged_group[name] = deepcopy(definition)
-            owners[identity] = source
-        merged[component_type] = merged_group
-    return merged
+
+def _split_application_resource_layers(
+    application_config: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate loaded resource definitions from explicit field overrides."""
+    base_layer: dict[str, Any] = {}
+    explicit_overrides: dict[str, Any] = {}
+    for section_name in ("jobs", "components"):
+        if section_name not in application_config:
+            continue
+        section = application_config[section_name]
+        if not isinstance(section, ResolvedConfigSection):
+            base_layer[section_name] = section
+            continue
+        if section.base_present:
+            base_layer[section_name] = section.base
+        if section.explicit_overrides_present:
+            explicit_overrides[section_name] = section.explicit_overrides
+    return base_layer, explicit_overrides
 
 
 def _load_backend(target: str, *, plugin_name: str) -> type[ComponentMixin]:
@@ -199,40 +219,56 @@ class PluginManager:
 
     def _merge_config(self, application_config: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
         """Merge config and retain startup diagnostics for named resource replacement."""
-        plugin_layers = [expand_env_vars(plugin.config) for plugin in self.plugins]
+        plugin_layers = [
+            (
+                f"plugin '{plugin.name}'",
+                _require_mapping(expand_env_vars(plugin.config), f"plugin '{plugin.name}'"),
+            )
+            for plugin in self.plugins
+        ]
 
         # Ordinary fields retain their existing priority: plugin defaults are
         # merged in enablement order, then application config wins.
         merged: dict[str, Any] = {}
-        for layer in plugin_layers:
+        for _, layer in plugin_layers:
             merged = deep_merge_config(merged, _without_named_resources(layer))
         merged = deep_merge_config(merged, _without_named_resources(application_config))
 
-        # Jobs and named component instances use the explicit plugin priority:
-        # application config is lowest and later enabled plugins are highest.
-        jobs: Any = _MISSING
-        components: Any = _MISSING
-        job_owners: dict[tuple[Any, ...], str] = {}
-        component_owners: dict[tuple[Any, ...], str] = {}
+        # Complete jobs and named component instances are atomic resources:
+        # loaded application config is lowest and later plugins are highest.
+        # Explicit CLI dot-notation values are field-level overrides applied
+        # after the winning complete resource has been selected.
+        application_resources, explicit_resource_overrides = _split_application_resource_layers(application_config)
+        jobs: dict[str, Any] = {}
+        components: dict[str, dict[str, Any]] = {}
+        job_owners: dict[tuple[str, ...], str] = {}
+        component_owners: dict[tuple[str, ...], str] = {}
         warnings: list[str] = []
+        has_jobs = False
+        has_components = False
 
-        jobs = _overlay_jobs(jobs, job_owners, warnings, application_config, "application config")
-        components = _overlay_components(
-            components,
-            component_owners,
-            warnings,
-            application_config,
-            "application config",
-        )
-        for plugin, layer in zip(self.plugins, plugin_layers):
-            source = f"plugin '{plugin.name}'"
-            jobs = _overlay_jobs(jobs, job_owners, warnings, layer, source)
-            components = _overlay_components(components, component_owners, warnings, layer, source)
+        atomic_layers = [("application config", application_resources), *plugin_layers]
+        for source, layer in atomic_layers:
+            layer_has_jobs, layer_has_components = _overlay_atomic_resources(
+                jobs,
+                components,
+                job_owners,
+                component_owners,
+                warnings,
+                layer,
+                source,
+            )
+            has_jobs |= layer_has_jobs
+            has_components |= layer_has_components
 
-        if jobs is not _MISSING:
+        if has_jobs:
             merged["jobs"] = jobs
-        if components is not _MISSING:
+        if has_components:
             merged["components"] = components
+
+        # CLI/config kwargs use the established deep-merge contract. They are
+        # patches to the selected complete resources, not additional providers.
+        merged = deep_merge_config(merged, explicit_resource_overrides)
         return merged, tuple(warnings)
 
     def merge_config(self, application_config: Mapping[str, Any]) -> dict[str, Any]:

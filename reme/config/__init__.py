@@ -6,6 +6,7 @@ from .config_parser import (
     parse_action,
     parse_args,
     parse_kwargs,
+    ResolvedConfigSection,
     resolve_app_config,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "parse_action",
     "parse_args",
     "parse_kwargs",
+    "ResolvedConfigSection",
     "resolve_app_config",
 ]
