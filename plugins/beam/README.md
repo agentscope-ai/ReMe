@@ -31,7 +31,8 @@ still take precedence. Installing this plugin does not start an evaluation.
 
 The shared answer base class lives in `reme.steps.benchmark.base_agentic_answer`.
 The old core-owned `reme.steps.benchmark.beam` Python import path is removed.
-Custom Python callers should import plugin Steps from `reme_beam` instead. After uninstalling,
+Custom Python callers should import memory, search and answer Steps from `reme_beam`, and the
+judge Step from `judge_beam`. After uninstalling,
 Applications and CLI services must omit the plugin until it is installed again.
 Uninstallation never removes datasets, workspaces or results.
 Restart an existing service after changing plugins.
