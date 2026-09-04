@@ -121,6 +121,9 @@ export const statusEn = {
   documentContent: "Document content",
   selectFile: "Select a file to preview its contents.",
   fileLoadFailed: "Could not load this file.",
+  copyCode: "Copy",
+  copiedCode: "Copied",
+  footnotes: "Footnotes",
   journalDescription: "Daily notes captured from conversations and sources.",
   knowledgeDescription:
     "Consolidated knowledge organized for long-term recall.",
@@ -229,6 +232,9 @@ export const statusZh: typeof statusEn = {
   documentContent: "文档内容",
   selectFile: "选择一个文件查看内容。",
   fileLoadFailed: "无法读取这个文件。",
+  copyCode: "复制",
+  copiedCode: "已复制",
+  footnotes: "脚注",
   journalDescription: "从对话和其他来源自动沉淀的每日记录。",
   knowledgeDescription: "经过整理、适合长期检索和持续积累的个人知识。",
 };
@@ -929,6 +935,13 @@ function MemoryFiles({
   directory: string;
   t: StatusTranslator;
 }): JSX.Element {
+  const markdownLabels = useMemo(
+    () => ({
+      code: { copyLabel: t("copyCode"), copiedLabel: t("copiedCode") },
+      footnotes: t("footnotes"),
+    }),
+    [t],
+  );
   const [files, setFiles] = useState<string[]>([]);
   const [limited, setLimited] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1084,7 +1097,7 @@ function MemoryFiles({
               <section className="reme-document-content">
                 <h4>{t("documentContent")}</h4>
                 <div className="reme-status-markdown">
-                  <MarkdownText text={document.body} />
+                  <MarkdownText text={document.body} labels={markdownLabels} />
                 </div>
               </section>
             </div>

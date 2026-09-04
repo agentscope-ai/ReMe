@@ -1,11 +1,10 @@
 import z from "@deepseek-ai/schemastery";
-import { settingsNamespace } from "@deepseek-ai/dsh-settings";
 
 import { nextDailyRun, validTimezone } from "../core/scheduling.js";
 import type { ReMeConfig, ReMeConfigInput, ReMeSettings } from "./types.js";
 
 /** Durable DSH settings section owned by the ReMe integration. */
-export const REME_SETTINGS_NAMESPACE = settingsNamespace("reme-memory");
+export const REME_SETTINGS_NAMESPACE = "reme-memory";
 
 export const Config = z.object({
   endpoint: z.string().description("ReMe HTTP service URL"),

@@ -43,7 +43,7 @@ It deliberately avoids silently modifying Python environments, stopping unknown 
 
 ## TypeScript, OpenClaw, and DeepSeek Harness
 
-See [TypeScript Agent Integrations](./integrations/typescript.md) for the shared HTTP client, DeepSeek Harness adapter, OpenClaw adapter, and package validation.
+The [`@agentscope-ai/reme` TypeScript package](./integrations/typescript.md) provides the shared HTTP client and host adapters. See the dedicated guides for [DeepSeek Harness](./integrations/dsh.md) and [OpenClaw](./integrations/openclaw.md).
 
 ## Claude Code
 

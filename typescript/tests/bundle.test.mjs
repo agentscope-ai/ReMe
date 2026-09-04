@@ -32,15 +32,21 @@ test("declares DSH and OpenClaw entries in one installable package", async () =>
       "@deepseek-ai/dsh-client-ui-primitives",
     ),
   );
+  assert.ok(
+    manifest.dsh.client.inject.includes("@deepseek-ai/dsh-client-connection"),
+  );
+  assert.ok(
+    !manifest.dsh.client.inject.includes("@deepseek-ai/dsh-client-runtime"),
+  );
   assert.equal(manifest.dsh.bundle.patch, "./dsh/cordis.patch.yml");
   assert.deepEqual(manifest.openclaw.extensions, ["./dist/openclaw/index.js"]);
   assert.equal(
     manifest.peerDependencies["@deepseek-ai/dsh-llm"],
-    "^0.1.0-rc.8",
+    "^0.1.2-rc.1",
   );
   assert.equal(
     manifest.peerDependencies["@deepseek-ai/dsh-tools"],
-    "^0.1.0-rc.8",
+    "^0.1.2-rc.1",
   );
   assert.match(patch, /remeMemory: true/);
   assert.match(patch, /@agentscope-ai\/reme\/dsh/);

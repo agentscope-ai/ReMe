@@ -1,6 +1,6 @@
 # ReMe memory for OpenClaw
 
-[中文说明](./README_ZH.md)
+[中文说明](./openclaw.zh-CN.md)
 
 ReMe gives OpenClaw file-native long-term memory while keeping durable memory in a workspace you own. The plugin uses
 OpenClaw's native lifecycle, hooks, tools, and memory slot.

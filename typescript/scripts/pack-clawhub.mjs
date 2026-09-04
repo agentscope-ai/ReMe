@@ -49,13 +49,20 @@ try {
       path.join(packageDirectory, "openclaw.plugin.json"),
       path.join(stagingDirectory, "openclaw.plugin.json"),
     ),
-    copyFile(
-      path.join(packageDirectory, "README_OPENCLAW.md"),
+    writeFile(
       path.join(stagingDirectory, "README.md"),
+      (
+        await readFile(path.join(packageDirectory, "docs/openclaw.md"), "utf8")
+      ).replace("(./openclaw.zh-CN.md)", "(./README_ZH.md)"),
     ),
-    copyFile(
-      path.join(packageDirectory, "README_OPENCLAW_ZH.md"),
+    writeFile(
       path.join(stagingDirectory, "README_ZH.md"),
+      (
+        await readFile(
+          path.join(packageDirectory, "docs/openclaw.zh-CN.md"),
+          "utf8",
+        )
+      ).replace("(./openclaw.md)", "(./README.md)"),
     ),
   ]);
 

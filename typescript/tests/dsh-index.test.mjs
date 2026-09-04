@@ -137,23 +137,21 @@ test("registers a ReMe settings namespace and reads changed values for new sessi
     },
     inject(names, callback) {
       if (!names.includes("settings")) return;
-      callback({
+      const settingsCtx = {
         settings: {
-          register(ns, _schema, options) {
-            section = options.base;
+          installSection(owner, ns, _schema, base, hooks) {
+            assert.equal(owner, ctx);
+            section = base;
             assert.equal(String(ns), "reme-memory");
-            return {
-              get: () => section,
-              watch(listener) {
-                notify = listener;
-              },
-            };
+            hooks.setSource(() => section);
+            notify = hooks.onChange;
           },
         },
         effect(execute) {
           return execute();
         },
-      });
+      };
+      callback(settingsCtx);
     },
   };
   apply(ctx, {

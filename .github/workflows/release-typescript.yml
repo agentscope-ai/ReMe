@@ -2,8 +2,9 @@
 # 1. Update typescript/package.json and package-lock.json to the release version and merge them.
 # 2. Configure npm Trusted Publishing for agentscope-ai/ReMe and this workflow file.
 # 3. Run this workflow manually with the exact package version (an optional v prefix is accepted).
-# 4. Configure ClawHub Trusted Publishing for agentscope-ai/ReMe and this workflow file.
-# 5. Use the `next` tag for prereleases and `latest` only for stable releases.
+# 4. Keep the ClawHub publication docs in typescript/docs/openclaw.md and openclaw.zh-CN.md.
+# 5. Configure ClawHub Trusted Publishing for agentscope-ai/ReMe and this workflow file.
+# 6. Use the `next` tag for prereleases and `latest` only for stable releases.
 
 name: Release / TypeScript integrations
 
@@ -112,6 +113,8 @@ jobs:
       - name: Pack ClawHub tarball
         working-directory: typescript
         run: |
+          test -f docs/openclaw.md
+          test -f docs/openclaw.zh-CN.md
           mkdir -p "${RUNNER_TEMP}/reme-clawhub-package"
           npm run pack:clawhub -- "${RUNNER_TEMP}/reme-clawhub-package"
 

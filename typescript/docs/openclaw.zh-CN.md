@@ -1,6 +1,6 @@
 # OpenClaw 的 ReMe 长期记忆插件
 
-[English](./README.md)
+[English](./openclaw.md)
 
 ReMe 为 OpenClaw 提供文件原生的长期记忆，并将持久记忆保存在用户拥有的 workspace 中。插件使用 OpenClaw
 原生的生命周期、Hook、工具接口和 memory slot。

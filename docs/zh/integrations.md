@@ -57,7 +57,7 @@ Skill 不应：
 
 ## TypeScript、OpenClaw 与 DeepSeek Harness
 
-统一 TypeScript 客户端和宿主适配器见 [TypeScript Agent 集成](./integrations/typescript.md)。它包含：
+统一 HTTP 客户端和包能力见 [TypeScript Agent 集成](./integrations/typescript.md)。宿主的完整安装、配置和运行说明见 [DeepSeek Harness](./integrations/dsh.md) 与 [OpenClaw](./integrations/openclaw.md) 指南。它们包含：
 
 - HTTP Client；
 - DeepSeek Harness adapter；

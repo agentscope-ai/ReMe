@@ -47,5 +47,9 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:package
+      - name: Verify OpenClaw publication docs
+        run: |
+          test -f docs/openclaw.md
+          test -f docs/openclaw.zh-CN.md
       - name: Validate OpenClaw package contract
         run: npx --yes clawhub@0.23.3 package validate . --json

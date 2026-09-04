@@ -56,6 +56,9 @@ try {
         sourceManifest.version,
       )});`,
       'assert.match(await readFile(new URL("README_ZH.md", manifestUrl), "utf8"), /TypeScript Agent/);',
+      'assert.match(await readFile(new URL("docs/dsh.md", manifestUrl), "utf8"), /Memory context injection/);',
+      'assert.match(await readFile(new URL("docs/openclaw.md", manifestUrl), "utf8"), /OpenClaw/);',
+      'assert.ok((await readFile(new URL("figures/dsh/reme-status-overview.png", manifestUrl))).length > 0);',
     ].join("\n"),
   );
   await execFileAsync("node", [consumerEntry], { cwd: temporaryDirectory });
@@ -101,8 +104,10 @@ try {
   );
   assert.match(clawHubReadme, /^# ReMe memory for OpenClaw/m);
   assert.doesNotMatch(clawHubReadme, /DeepSeek Harness/);
+  assert.match(clawHubReadme, /\[中文说明\]\(\.\/README_ZH\.md\)/);
   assert.match(clawHubReadmeZh, /^# OpenClaw 的 ReMe 长期记忆插件/m);
   assert.doesNotMatch(clawHubReadmeZh, /DeepSeek Harness/);
+  assert.match(clawHubReadmeZh, /\[English\]\(\.\/README\.md\)/);
   assert.equal(
     JSON.parse(
       await readFile(

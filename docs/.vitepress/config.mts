@@ -153,7 +153,9 @@ function sidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "集成总览" : "Overview", link: `/${language}/integrations` },
         { text: "Claude Code", link: `/${language}/integrations/claude-code` },
         { text: "Hermes Agent", link: `/${language}/integrations/hermes` },
-        { text: "TypeScript / OpenClaw / DSH", link: `/${language}/integrations/typescript` },
+        { text: zh ? "TypeScript 客户端" : "TypeScript Client", link: `/${language}/integrations/typescript` },
+        { text: "DeepSeek Harness", link: `/${language}/integrations/dsh` },
+        { text: "OpenClaw", link: `/${language}/integrations/openclaw` },
       ],
     },
     {

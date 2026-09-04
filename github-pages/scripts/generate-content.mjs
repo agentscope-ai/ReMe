@@ -12,6 +12,10 @@ const externalDocuments = [
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/typescript.md", "typescript/README_ZH.md"],
   ["en/integrations/typescript.md", "typescript/README.md"],
+  ["zh/integrations/dsh.md", "typescript/docs/dsh.zh-CN.md"],
+  ["en/integrations/dsh.md", "typescript/docs/dsh.md"],
+  ["zh/integrations/openclaw.md", "typescript/docs/openclaw.zh-CN.md"],
+  ["en/integrations/openclaw.md", "typescript/docs/openclaw.md"],
   ["zh/workspace/studio.md", "reme_studio/README_ZH.md"],
   ["en/workspace/studio.md", "reme_studio/README.md"],
   ["zh/plugins/daily-paper.md", "plugins/daily_paper/README_ZH.md"],
@@ -31,6 +35,39 @@ const externalDocuments = [
   ["zh/benchmarks/toolmemory.md", "benchmark/toolmemory/README_ZH.md"],
   ["en/benchmarks/toolmemory.md", "benchmark/toolmemory/README.md"],
 ];
+
+const externalDocumentRewrites = {
+  "typescript/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/typescript)"],
+    ["(./docs/dsh.md)", "(/en/integrations/dsh)"],
+    ["(./docs/dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
+    ["(./docs/openclaw.md)", "(/en/integrations/openclaw)"],
+    ["(./docs/openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
+    ["(./figures/dsh/", "(/figures/dsh/"],
+  ],
+  "typescript/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/typescript)"],
+    ["(./docs/dsh.md)", "(/en/integrations/dsh)"],
+    ["(./docs/dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
+    ["(./docs/openclaw.md)", "(/en/integrations/openclaw)"],
+    ["(./docs/openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
+    ["(./figures/dsh/", "(/figures/dsh/"],
+  ],
+  "typescript/docs/dsh.md": [
+    ["(./dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
+    ["(../figures/dsh/", "(/figures/dsh/"],
+  ],
+  "typescript/docs/dsh.zh-CN.md": [
+    ["(./dsh.md)", "(/en/integrations/dsh)"],
+    ["(../figures/dsh/", "(/figures/dsh/"],
+  ],
+  "typescript/docs/openclaw.md": [
+    ["(./openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
+  ],
+  "typescript/docs/openclaw.zh-CN.md": [
+    ["(./openclaw.md)", "(/en/integrations/openclaw)"],
+  ],
+};
 
 const groupNames = {
   zh: {
@@ -169,9 +206,15 @@ const sourceMap = {};
 for (const [destination, source] of externalDocuments) {
   const destinationPath = path.join(outputDir, destination);
   await mkdir(path.dirname(destinationPath), { recursive: true });
-  await cp(path.join(repoDir, source), destinationPath);
+  let content = await readFile(path.join(repoDir, source), "utf8");
+  for (const [from, to] of externalDocumentRewrites[source] || []) content = content.replaceAll(from, to);
+  await writeFile(destinationPath, content);
   sourceMap[destination] = source;
 }
+
+await cp(path.join(repoDir, "typescript/figures/dsh"), path.join(outputDir, "public/figures/dsh"), {
+  recursive: true,
+});
 
 for (const language of ["zh", "en"]) {
   await cp(
