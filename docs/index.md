@@ -2,6 +2,13 @@
 layout: home
 title: ReMe Documentation
 titleTemplate: false
+head:
+  - - meta
+    - http-equiv: refresh
+      content: "0; url=/zh/"
+  - - link
+    - rel: canonical
+      href: https://reme.agentscope.io/zh/
 hero:
   name: ReMe
   text: 让 Agent 真正记住

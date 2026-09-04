@@ -87,12 +87,18 @@ const legacyRedirectScript = `(() => {
   const routes = ${JSON.stringify(legacyRoutes)};
   const id = new URLSearchParams(window.location.search).get("doc");
   const target = id && routes[id];
-  if (!target) return;
   const base = ${JSON.stringify(base)};
-  const destination = /^https?:/.test(target)
-    ? target
-    : base.replace(/\\/$/, "") + target;
-  window.location.replace(destination + window.location.hash);
+  if (target) {
+    const destination = /^https?:/.test(target)
+      ? target
+      : base.replace(/\\/$/, "") + target;
+    window.location.replace(destination + window.location.hash);
+    return;
+  }
+  const root = base.endsWith("/") ? base : base + "/";
+  if (window.location.pathname === root) {
+    window.location.replace(root + "zh/" + window.location.hash);
+  }
 })();`;
 
 function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
@@ -238,10 +244,12 @@ export default defineConfig({
   sitemap: {
     hostname: "https://reme.agentscope.io",
     transformItems(items) {
-      return items.map((item) => {
+      const isRoot = (url: string) => url.replace(/^\/+|\/+$/g, "") === "";
+      return items.filter((item) => !isRoot(item.url)).map((item) => {
         const route = item.url.replace(/^\/+/, "");
         const relativePath = !route || route.endsWith("/") ? `${route}index.md` : `${route}.md`;
-        return { ...item, lastmod: sourceLastUpdated(relativePath) };
+        const links = item.links?.filter((link) => !isRoot(link.url));
+        return { ...item, links, lastmod: sourceLastUpdated(relativePath) };
       });
     },
   },

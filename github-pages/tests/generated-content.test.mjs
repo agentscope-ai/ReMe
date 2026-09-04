@@ -66,8 +66,10 @@ test("maps every legacy query-string document ID to a generated page", async () 
   assert.equal(Object.keys(legacyRoutes).length, 45);
   assert.equal(legacyRoutes["studio-en"], "/en/workspace/studio");
   assert.equal(legacyRoutes["en-quick_start"], "/en/quick_start");
+  assert.equal(legacyRoutes["agents-guide"], "https://github.com/agentscope-ai/ReMe/blob/main/AGENTS.md");
 
   for (const [id, route] of Object.entries(legacyRoutes)) {
+    if (route.startsWith("https://")) continue;
     assert.match(route, /^\/(?:zh|en)\//, id);
     const relative = route.endsWith("/") ? `${route.slice(1)}index.md` : `${route.slice(1)}.md`;
     await access(path.join(generatedDir, relative));

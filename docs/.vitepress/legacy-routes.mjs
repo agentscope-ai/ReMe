@@ -43,5 +43,5 @@ export const legacyRoutes = {
   "pibench-en": "/en/benchmarks/pibench",
   "toolmemory-zh": "/zh/benchmarks/toolmemory",
   "toolmemory-en": "/en/benchmarks/toolmemory",
-  "agents-guide": "/en/development/agents-guide",
+  "agents-guide": "https://github.com/agentscope-ai/ReMe/blob/main/AGENTS.md",
 };
