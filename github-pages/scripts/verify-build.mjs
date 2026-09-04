@@ -41,6 +41,8 @@ const requiredFiles = [
   "llms-full.txt",
   "zh/index.html",
   "en/index.html",
+  "zh/traffic.html",
+  "en/traffic.html",
   "zh/configuration.html",
   "en/configuration.html",
   "zh/services.html",
@@ -59,6 +61,15 @@ const homepage = await readFile(path.join(outputDir, "index.html"), "utf8");
 assert.ok(homepage.includes('href="/en/"'), "root language switch must link to /en/");
 assert.ok(!homepage.includes('href="/en/ex"'), "root language switch must not produce /en/ex");
 assert.ok(homepage.includes('"studio-en":"/en/workspace/studio"'), "legacy redirects must be embedded");
+
+const ChineseHomepage = await readFile(path.join(outputDir, "zh/index.html"), "utf8");
+assert.match(ChineseHomepage, /8cafe9df-d883-4046-b5e9-36dfd21a4884/);
+assert.match(ChineseHomepage, /用真实评测/);
+assert.match(ChineseHomepage, /89\.4%/);
+assert.match(ChineseHomepage, /公开、透明的访问趋势/);
+
+const ChineseTraffic = await readFile(path.join(outputDir, "zh/traffic.html"), "utf8");
+assert.match(ChineseTraffic, /S1OZK1PSDLEpyiU5/);
 
 const sitemap = await readFile(path.join(outputDir, "sitemap.xml"), "utf8");
 assert.ok(sitemap.includes("<lastmod>"), "sitemap must include canonical-source update times");

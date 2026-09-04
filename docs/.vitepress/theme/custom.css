@@ -63,6 +63,39 @@ body {
   background: var(--vp-c-bg-alt);
 }
 
+@media (min-width: 960px) {
+  .VPNavBar.has-sidebar .container > .title {
+    width: 113px !important;
+    padding-right: 0 !important;
+  }
+
+  .VPNavBar.has-sidebar .content {
+    padding-left: 113px !important;
+  }
+
+  .VPNavBarSearch {
+    padding-left: 24px !important;
+  }
+}
+
+@media (min-width: 1496px) {
+  .VPNavBar.has-sidebar .container {
+    position: relative !important;
+    max-width: 1496px !important;
+    margin: 0 auto !important;
+  }
+
+  .VPNavBar.has-sidebar .container > .title {
+    width: 81px !important;
+    padding-left: 0 !important;
+  }
+
+  .VPNavBar.has-sidebar .content {
+    padding-right: 0 !important;
+    padding-left: 81px !important;
+  }
+}
+
 .VPSidebar {
   border-right: 1px solid var(--vp-c-divider);
   background: color-mix(in srgb, var(--vp-c-bg-alt) 82%, transparent);
@@ -183,6 +216,7 @@ body {
 }
 
 .VPHome {
+  overflow: hidden;
   background:
     radial-gradient(circle at 14% 14%, rgba(25, 201, 176, 0.14), transparent 30rem),
     radial-gradient(circle at 86% 10%, rgba(49, 86, 217, 0.11), transparent 28rem);
