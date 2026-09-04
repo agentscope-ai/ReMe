@@ -106,8 +106,3 @@ application_defaults:
           - messages
       steps:
         - backend: lme_auto_memory_step
-
-  components:
-    as_llm:
-      default:
-        max_retries: 3

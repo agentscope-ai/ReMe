@@ -158,13 +158,13 @@ def create_reme_app(config: str = "benchmark", **overrides):
     plugin source changes visible to every multiprocessing worker.
     """
     from reme import Application
-    from reme.config import resolve_app_config
+    from reme.config import resolve_app_config_layers
 
     enabled_plugins = list(overrides.pop("plugins", ()) or ())
     if "beam" not in enabled_plugins:
         enabled_plugins.append("beam")
-    app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
-    return Application(**app_config)
+    app_config = resolve_app_config_layers(config=config, plugins=enabled_plugins, **overrides)
+    return Application(resolved_config=app_config)
 
 
 # ---------------------------------------------------------------------------

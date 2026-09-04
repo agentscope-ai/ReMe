@@ -3,16 +3,18 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access
 
 from pathlib import Path
+from threading import Lock
 
 import pytest
 
 from reme.application import Application
 from reme.components.base_component import BaseComponent, ComponentMixin
 from reme.components.component_registry import ComponentRegistry, R
-from reme.config.config_parser import _load_config
+from reme.config.config_parser import ResolvedAppConfig, _load_config, resolve_app_config_layers
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, _load_backend
 from reme.plugin_manifest import parse_plugin_manifest
+from reme.schema import ApplicationConfig
 
 
 class _PluginStep(ComponentMixin):
@@ -64,21 +66,319 @@ def test_plugin_application_defaults_are_below_application_config():
         [
             Plugin(
                 name="example",
-                config={"jobs": {"task": {"backend": "base", "value": 1}}},
+                config={
+                    "language": "plugin",
+                    "jobs": {"task": {"backend": "plugin_job", "plugin_only": True}},
+                },
             ),
         ],
     )
 
-    merged = manager.merge_config({"jobs": {"task": {"value": 2}}})
+    merged = manager.merge_config(
+        ResolvedAppConfig(
+            base={
+                "language": "application",
+                "jobs": {"task": {"backend": "application_job", "application_only": True}},
+            },
+        ),
+    )
 
-    assert merged["jobs"]["task"] == {"backend": "base", "value": 2}
+    assert merged["language"] == "application"
+    assert merged["jobs"]["task"] == {"backend": "plugin_job", "plugin_only": True}
+
+
+def test_later_plugin_atomically_replaces_same_name_job_and_records_each_collision():
+    manager = PluginManager(
+        [
+            Plugin(name="first", config={"jobs": {"task": {"backend": "first", "first_only": True}}}),
+            Plugin(name="second", config={"jobs": {"task": {"backend": "second", "second_only": True}}}),
+        ],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        ResolvedAppConfig(base={"jobs": {"task": {"backend": "application", "application_only": True}}}),
+    )
+
+    assert merged["jobs"]["task"] == {"backend": "second", "second_only": True}
+    assert warnings == (
+        "Config collision at jobs.task: plugin 'first' replaces the complete definition from application config",
+        "Config collision at jobs.task: plugin 'second' replaces the complete definition from plugin 'first'",
+    )
+
+
+def test_cli_override_patches_job_after_atomic_plugin_replacement(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """jobs:
+  task:
+    backend: application
+    application_only: true
+""",
+        encoding="utf-8",
+    )
+    resolved = resolve_app_config_layers(
+        config=str(base),
+        log_config=False,
+        jobs={"task": {"enable_serve": False}},
+    )
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    merged, warnings = manager._merge_config(resolved)
+
+    assert merged["jobs"]["task"] == {
+        "backend": "plugin",
+        "plugin_only": True,
+        "enable_serve": False,
+    }
+    assert warnings == (
+        "Config collision at jobs.task: plugin 'example' replaces the complete definition from application config",
+    )
+
+
+def test_post_resolution_patch_adds_job_field_after_atomic_plugin_replacement(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        """jobs:
+  task:
+    backend: application
+    enable_serve: true
+""",
+        encoding="utf-8",
+    )
+    resolved = resolve_app_config_layers(
+        config=str(base),
+        log_config=False,
+    )
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    resolved = resolved.with_overrides({"jobs": {"task": {"enable_serve": False}}})
+
+    assert manager.merge_config(resolved)["jobs"]["task"] == {
+        "backend": "plugin",
+        "plugin_only": True,
+        "enable_serve": False,
+    }
+
+
+def test_post_resolution_job_replacement_is_an_explicit_field_patch(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text("jobs:\n  task:\n    backend: application\n", encoding="utf-8")
+    resolved = resolve_app_config_layers(config=str(base), log_config=False).with_overrides(
+        {"jobs": {"task": {"backend": "replacement", "enable_serve": False}}},
+    )
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    assert manager.merge_config(resolved)["jobs"]["task"] == {
+        "backend": "replacement",
+        "plugin_only": True,
+        "enable_serve": False,
+    }
+
+
+def test_materialized_config_copy_has_explicit_python_mapping_semantics(tmp_path):
+    base = tmp_path / "base.yaml"
+    base.write_text("jobs:\n  task:\n    backend: application\n", encoding="utf-8")
+    copied = dict(resolve_app_config_layers(config=str(base), log_config=False).materialize())
+    copied["jobs"] = dict(copied["jobs"])
+    copied["jobs"]["task"] = {"backend": "copied", "enable_serve": False}
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+
+    assert manager.merge_config(copied)["jobs"]["task"] == {
+        "backend": "copied",
+        "plugin_only": True,
+        "enable_serve": False,
+    }
+
+
+def test_atomic_resource_replacement_preserves_runtime_object_identity():
+    lock = Lock()
+    definition = {"backend": "base", "runtime_lock": lock}
+
+    merged = PluginManager().merge_config({"jobs": {"task": definition}})
+
+    assert merged["jobs"]["task"] is definition
+    assert merged["jobs"]["task"]["runtime_lock"] is lock
+
+
+@pytest.mark.parametrize(
+    ("application_config", "message"),
+    [
+        ({"jobs": []}, "application config.jobs must be a mapping"),
+        ({"components": {"as_llm": []}}, "application config.components.as_llm must be a mapping"),
+        ({"jobs": {1: {"backend": "base"}}}, "jobs names must be strings"),
+    ],
+)
+def test_atomic_resources_reject_invalid_fragments_at_their_source(application_config, message):
+    manager = PluginManager([Plugin(name="later", config={"jobs": {"valid": {"backend": "base"}}})])
+
+    with pytest.raises(TypeError, match=message):
+        manager.merge_config(ResolvedAppConfig(base=application_config))
+
+
+def test_identical_same_name_job_warns_while_different_names_are_merged():
+    definition = {"backend": "same"}
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"shared": definition, "plugin_only": definition}})],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        ResolvedAppConfig(base={"jobs": {"shared": definition, "application_only": definition}}),
+    )
+
+    assert set(merged["jobs"]) == {"shared", "plugin_only", "application_only"}
+    expected = "Config collision at jobs.shared: " + (
+        "plugin 'example' replaces the complete definition from application config"
+    )
+    assert warnings == (expected,)
+
+
+def test_plugin_component_identity_is_normalized_before_atomic_replacement():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "components": {
+                        " as_llm ": {
+                            "default": {"backend": "plugin", "plugin_only": True},
+                        },
+                    },
+                },
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        ResolvedAppConfig(
+            base={
+                "components": {
+                    "as_llm": {
+                        "default": {"backend": "application", "application_only": True},
+                        "other": {"backend": "other"},
+                    },
+                },
+            },
+        ),
+    )
+
+    assert merged["components"]["as_llm"] == {
+        "default": {"backend": "plugin", "plugin_only": True},
+        "other": {"backend": "other"},
+    }
+    assert warnings == (
+        "Config collision at components.as_llm.default: "
+        "plugin 'example' replaces the complete definition from application config",
+    )
+
+
+def test_later_plugin_atomically_replaces_same_name_component():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="first",
+                config={"components": {"tokenizer": {"default": {"backend": "first", "first_only": True}}}},
+            ),
+            Plugin(
+                name="second",
+                config={"components": {"tokenizer": {"default": {"backend": "second"}}}},
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config({})  # pylint: disable=protected-access
+
+    assert merged["components"]["tokenizer"]["default"] == {"backend": "second"}
+    assert warnings == (
+        "Config collision at components.tokenizer.default: "
+        "plugin 'second' replaces the complete definition from plugin 'first'",
+    )
+
+
+def test_same_component_name_in_different_types_does_not_conflict():
+    manager = PluginManager(
+        [Plugin(name="example", config={"components": {"tokenizer": {"default": {"backend": "plugin"}}}})],
+    )
+
+    merged, warnings = manager._merge_config(  # pylint: disable=protected-access
+        ResolvedAppConfig(base={"components": {"as_llm": {"default": {"backend": "application"}}}}),
+    )
+
+    assert merged["components"] == {
+        "as_llm": {"default": {"backend": "application"}},
+        "tokenizer": {"default": {"backend": "plugin"}},
+    }
+    assert not warnings
+
+
+def test_same_source_component_type_normalization_uses_later_definition_without_warning():
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "components": {
+                        "as_llm ": {"default": {"backend": "first"}},
+                        "as_llm": {"default": {"backend": "second"}},
+                    },
+                },
+            ),
+        ],
+    )
+
+    merged, warnings = manager._merge_config({})  # pylint: disable=protected-access
+
+    assert merged["components"] == {"as_llm": {"default": {"backend": "second"}}}
+    assert not warnings
 
 
 def test_plugin_application_defaults_expand_environment(monkeypatch):
     monkeypatch.setenv("PLUGIN_LIMIT", "12")
-    manager = PluginManager([Plugin(name="example", config={"limit": "${PLUGIN_LIMIT}"})])
+    manager = PluginManager(
+        [
+            Plugin(
+                name="example",
+                config={
+                    "limit": "${PLUGIN_LIMIT}",
+                    "jobs": {"task": {"backend": "base", "limit": "${PLUGIN_LIMIT}"}},
+                },
+            ),
+        ],
+    )
 
-    assert manager.merge_config({})["limit"] == 12
+    merged = manager.merge_config({})
+
+    assert merged["limit"] == 12
+    assert merged["jobs"]["task"]["limit"] == 12
+
+
+@pytest.mark.parametrize("plugin_name", ["lme", "beam"])
+def test_benchmark_plugins_share_benchmark_llm_component_definitions(plugin_name):
+    project_root = Path(__file__).parents[2]
+    package_name = "reme_lme" if plugin_name == "lme" else "reme_beam"
+    manifest_path = project_root / "plugins" / plugin_name / "src" / package_name / "plugin.yaml"
+    manifest = parse_plugin_manifest(manifest_path.read_text(encoding="utf-8"), plugin_name=plugin_name)
+    manager = PluginManager([Plugin(name=plugin_name, config=manifest.application_defaults)])
+
+    merged, warnings = manager._merge_config(ResolvedAppConfig(base=_load_config("benchmark")))
+    config = ApplicationConfig(**merged)
+
+    default = config.components["as_llm"]["default"]
+    judge = config.components["as_llm"]["judge"]
+    assert default.backend
+    assert default.model_extra["max_retries"] == 5
+    assert default.model_extra["retry_delay"] == 5.0
+    assert judge.backend
+    assert judge.model_extra["max_retries"] == 5
+    assert judge.model_extra["retry_delay"] == 5.0
+    assert not [warning for warning in warnings if "components.as_llm" in warning]
 
 
 def test_plugin_registers_into_only_the_supplied_registry():
@@ -130,6 +430,79 @@ async def test_plugin_registers_and_runs_custom_component_type(monkeypatch, tmp_
     assert component.backend == "updated"
     await app.close()
     assert component.is_started is False
+
+
+def test_application_logs_config_collisions_before_resource_instantiation(monkeypatch, tmp_path):
+    events = []
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin"}}})],
+    )
+
+    class RecordingLogger:
+        def bind(self, **_kwargs):
+            return self
+
+        def warning(self, message):
+            events.append(("warning", message))
+
+        def info(self, _message):
+            events.append(("info", None))
+
+    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs: manager))
+    monkeypatch.setattr("reme.application.get_logger", lambda **_kwargs: RecordingLogger())
+    monkeypatch.setattr("reme.components.base_component.get_logger", lambda **_kwargs: RecordingLogger())
+    monkeypatch.setattr(Application, "_init_service", lambda self: events.append(("service", None)))
+    monkeypatch.setattr(Application, "_init_components", lambda self: events.append(("components", None)))
+    monkeypatch.setattr(Application, "_init_jobs", lambda self: events.append(("jobs", None)))
+
+    Application(
+        resolved_config=ResolvedAppConfig(
+            base={"jobs": {"task": {"backend": "application"}}},
+            overrides={
+                "plugins": ["example"],
+                "workspace_dir": str(tmp_path),
+                "enable_logo": False,
+                "log_to_console": False,
+                "log_to_file": False,
+                "service": {"backend": "unused"},
+            },
+        ),
+    )
+
+    assert events[0] == (
+        "warning",
+        "Config collision at jobs.task: plugin 'example' replaces the complete definition from application config",
+    )
+    assert [kind for kind, _ in events if kind in {"service", "components", "jobs"}] == [
+        "service",
+        "components",
+        "jobs",
+    ]
+
+
+def test_direct_python_kwargs_are_explicit_resource_overrides(monkeypatch, tmp_path):
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"task": {"backend": "plugin", "plugin_only": True}}})],
+    )
+    monkeypatch.setattr(PluginManager, "discover", classmethod(lambda cls, specs: manager))
+    monkeypatch.setattr(Application, "_init_service", lambda self: None)
+    monkeypatch.setattr(Application, "_init_components", lambda self: None)
+    monkeypatch.setattr(Application, "_init_jobs", lambda self: None)
+
+    app = Application(
+        plugins=["example"],
+        jobs={"task": {"backend": "python", "enable_serve": False}},
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "unused"},
+    )
+
+    task = app.config.jobs["task"]
+    assert task.backend == "python"
+    assert task.enable_serve is False
+    assert task.model_extra["plugin_only"] is True
 
 
 def test_plugin_backend_collision_fails_with_both_owners():

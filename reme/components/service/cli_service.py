@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from .base_service import BaseService
 from ..component_registry import R
 from ..job import BaseJob
-from ...config import resolve_app_config
+from ...config import ResolvedAppConfig, resolve_app_config_layers
 from ...schema import ApplicationConfig
 from ...utils import get_logger
 
@@ -18,20 +18,22 @@ if TYPE_CHECKING:
 _APP_CONFIG_KEYS = set(ApplicationConfig.model_fields)
 
 
-def prepare_start_config(kwargs: dict) -> dict:
+def prepare_start_config(kwargs: dict) -> ResolvedAppConfig:
     """Resolve ``reme start`` kwargs, translating top-level ``job=...`` into internal cli service config."""
     if "job" not in kwargs:
-        return resolve_app_config(**kwargs)
+        return resolve_app_config_layers(**kwargs)
     return _prepare_job_start_config(dict(kwargs))
 
 
-def should_precheck_start(config: dict) -> bool:
+def should_precheck_start(config: ResolvedAppConfig | dict) -> bool:
     """CLI service does not bind a port, so it should skip service port prechecks."""
+    if isinstance(config, ResolvedAppConfig):
+        config = config.materialize()
     service = config.get("service")
     return not (isinstance(service, dict) and service.get("backend") == "cli")
 
 
-def _prepare_job_start_config(kwargs: dict) -> dict:
+def _prepare_job_start_config(kwargs: dict) -> ResolvedAppConfig:
     """Translate ``reme start job=...`` args into the internal cli service fields."""
     job = kwargs.pop("job")
     config_kwargs: dict = {}
@@ -48,15 +50,17 @@ def _prepare_job_start_config(kwargs: dict) -> dict:
     if "log_to_console" not in config_kwargs:
         get_logger(log_to_console=False, log_to_file=False, force_init=True)
 
-    config = resolve_app_config(**config_kwargs)
+    config = resolve_app_config_layers(**config_kwargs)
+    visible = config.materialize()
+    patch: dict[str, Any] = {}
     if "enable_logo" not in config_kwargs:
-        config["enable_logo"] = False
+        patch["enable_logo"] = False
     if "log_to_console" not in config_kwargs:
-        config["log_to_console"] = False
-    service = dict(config.get("service") or {})
+        patch["log_to_console"] = False
+    service = dict(visible.get("service") or {})
     service.update({"backend": "cli", "job": job, "job_args": job_args})
-    config["service"] = service
-    return config
+    patch["service"] = service
+    return config.with_overrides(patch)
 
 
 @R.register("cli")

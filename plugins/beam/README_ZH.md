@@ -23,7 +23,7 @@ editable 安装会注册 `beam` entry point，并让源码修改立即生效。r
 `reme start config=benchmark plugins='["beam"]'`。公共评测配置不继承 `default`，只运行声明的 Job：
 索引手动更新，dream 定时任务和可选的 `auto_dream`
 均保持关闭。原有 `auto_memory`、`agentic_answer`、`answer_judge`、`bench`、`judge` 名称及模型环境变量
-保持不变，显式应用参数和 CLI 覆盖仍优先。安装或启用插件不会自动开始评测。
+保持不变；显式 CLI 字段覆盖会在插件的完整具名资源之后应用。安装或启用插件不会自动开始评测。
 
 共享回答基类位于 `reme.steps.benchmark.base_agentic_answer`。
 原 `reme.steps.benchmark.beam` Python 导入路径已移除。自定义 Python 调用应从 `reme_beam`

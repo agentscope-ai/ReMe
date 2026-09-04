@@ -4,6 +4,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,27 @@ _SUPPORTED_EXTS = (".yaml", ".yml", ".json")
 _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 # Strings like "007" / "00501" must stay as strings, not be coerced to numbers
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
+
+
+@dataclass(frozen=True)
+class ResolvedAppConfig:
+    """Application config layers retained until plugin resolution.
+
+    Config files (including ``extends``) form ``base``. Values supplied by the
+    current CLI or Python call form ``overrides`` and are applied only after
+    plugins have selected complete named resources.
+    """
+
+    base: Mapping[str, Any] = field(default_factory=dict)
+    overrides: Mapping[str, Any] = field(default_factory=dict)
+
+    def materialize(self) -> dict[str, Any]:
+        """Return the visible config without discarding the stored layers."""
+        return deep_merge_config(self.base, self.overrides)
+
+    def with_overrides(self, update: Mapping[str, Any]) -> "ResolvedAppConfig":
+        """Return new layers with an additional explicit configuration patch."""
+        return ResolvedAppConfig(base=self.base, overrides=deep_merge_config(self.overrides, update))
 
 
 def _repl(m: re.Match) -> str:
@@ -259,9 +281,8 @@ def parse_args(*args: str) -> tuple[str, dict]:
     return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
-def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
-    """Resolve full app-start config: load `config=path` file, fall back to
-    `default`, then deep-merge with the remaining kwargs as overrides.
+def resolve_app_config_layers(*, log_config: bool = True, **kwargs) -> ResolvedAppConfig:
+    """Resolve the loaded application config and explicit inputs as two layers.
 
     Therefore ``reme start plugins=[...]`` layers that plugin selection over
     ``default.yaml`` without requiring an explicit ``config=default``.
@@ -272,7 +293,7 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
     from ..utils import get_logger
 
     logger = get_logger(log_to_file=False)
-    configs: list[dict] = []
+    base_config: dict = {}
 
     # `config=path` arrives as a string here; `config.foo=bar` arrives as a
     # nested dict and is left in `kwargs` to be merged as a normal override.
@@ -281,16 +302,20 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
         kwargs.pop("config")
         if log_config:
             logger.info(f"Loading config: {config_value}")
-        configs.append(_load_config(config_value))
+        base_config = _load_config(config_value)
     elif "default" in _CONFIG_REGISTRY:
         if log_config:
             logger.info("No config specified, loading 'default'")
-        configs.append(_load_config("default"))
+        base_config = _load_config("default")
 
-    configs.append(kwargs)
+    return ResolvedAppConfig(base=base_config, overrides=kwargs)
 
-    merged: dict = {}
-    for cfg in configs:
-        merged = deep_merge_config(merged, cfg)
 
-    return merged
+def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict[str, Any]:
+    """Return the visible loaded config as a plain mapping.
+
+    Startup paths that still need to apply plugins use
+    :func:`resolve_app_config_layers` so loaded resources and explicit inputs
+    retain their distinct precedence until plugin resolution.
+    """
+    return resolve_app_config_layers(log_config=log_config, **kwargs).materialize()

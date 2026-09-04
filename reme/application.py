@@ -11,6 +11,7 @@ from . import __version__
 from .components import ApplicationContext, BaseComponent
 from .components.job import BackgroundJob, BaseJob, CronJob, StreamJob
 from .components.service import BaseService
+from .config import ResolvedAppConfig
 from .enumeration import ComponentEnum, ComponentType, component_type_name
 from .plugin import resolve_plugin_runtime
 from .schema import ComponentConfig, Response, StreamChunk
@@ -23,8 +24,10 @@ _NodeKey = tuple[str, str]
 class Application(BaseComponent):
     """Wires components from config and runs jobs against them."""
 
-    def __init__(self, **kwargs) -> None:
-        runtime = resolve_plugin_runtime(kwargs)
+    def __init__(self, *, resolved_config: ResolvedAppConfig | None = None, **kwargs) -> None:
+        if resolved_config is not None and kwargs:
+            resolved_config = resolved_config.with_overrides(kwargs)
+        runtime = resolve_plugin_runtime(resolved_config or ResolvedAppConfig(overrides=kwargs))
         self.context = ApplicationContext(registry=runtime.registry, **runtime.config)
         self._started_components: list[BaseComponent] = []
         self._component_mutation_lock = asyncio.Lock()
@@ -36,6 +39,8 @@ class Application(BaseComponent):
             force_init=True,
         )
         super().__init__()
+        for warning in runtime.config_warnings:
+            logger.warning(warning)
         self._init_service()
 
         if self.config.enable_logo:

@@ -13,6 +13,7 @@ from reme.components.service.cli_service import CliService
 from reme import reme as reme_module
 from reme.components.base_component import ComponentMixin
 from reme.components.component_registry import create_application_registry
+from reme.config import ResolvedAppConfig
 from reme.enumeration import ComponentEnum
 from reme.plugin import Backend, Plugin, PluginManager, PluginRuntime
 
@@ -129,31 +130,35 @@ def test_main_saves_loaded_environment_in_start_config(monkeypatch):
     main_globals = reme_module.main.__globals__
     monkeypatch.setattr("sys.argv", ["reme", "start"])
     monkeypatch.setitem(main_globals, "load_env", lambda: {"TOOL_ENV": "configured"})
-    monkeypatch.setitem(main_globals, "prepare_start_config", lambda _kwargs: {"service": {"backend": "cli"}})
+    monkeypatch.setitem(
+        main_globals,
+        "prepare_start_config",
+        lambda _kwargs: ResolvedAppConfig(base={"service": {"backend": "cli"}}),
+    )
     monkeypatch.setitem(main_globals, "ReMe", FakeReMe)
 
     reme_module.main()
 
-    assert observed == {
-        "config": {
-            "service": {"backend": "cli"},
-            "environment": {"TOOL_ENV": "configured"},
-        },
-        "ran": True,
+    assert observed["config"]["resolved_config"].materialize() == {
+        "service": {"backend": "cli"},
+        "environment": {"TOOL_ENV": "configured"},
     }
+    assert observed["ran"] is True
 
 
 def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
     """``reme start job=...`` is translated into a one-shot cli service config."""
 
-    monkeypatch.setattr(
-        cli_service,
-        "resolve_app_config",
-        lambda **kwargs: {
-            **kwargs,
-            "service": {"backend": "http", "host": "127.0.0.1"},
-        },
-    )
+    seen = {}
+
+    def resolve_layers(**kwargs):
+        seen.update(kwargs)
+        return ResolvedAppConfig(
+            base={"service": {"backend": "http", "host": "127.0.0.1"}},
+            overrides={"workspace_dir": kwargs["workspace_dir"]},
+        )
+
+    monkeypatch.setattr(cli_service, "resolve_app_config_layers", resolve_layers)
 
     cfg = cli_service.prepare_start_config(
         {
@@ -165,7 +170,8 @@ def test_prepare_start_config_moves_unknown_start_args_to_job_args(monkeypatch):
         },
     )
 
-    assert cfg["config"] == "jinli_lme"
+    assert seen["config"] == "jinli_lme"
+    cfg = cfg.materialize()
     assert cfg["workspace_dir"] == "/tmp/reme"
     assert cfg["enable_logo"] is False
     assert cfg["log_to_console"] is False

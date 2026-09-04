@@ -111,10 +111,3 @@ application_defaults:
           # Long sessions are split into turn-aligned segments and fed to the
           # agent incrementally; <= 0 disables splitting.
           max_segment_words: 10000
-
-  components:
-    as_llm:
-      default:
-        max_retries: 5
-      judge:
-        retry_delay: 5.0

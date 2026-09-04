@@ -223,7 +223,8 @@ class VersionStep(BaseStep):
 内置实现通过 package import 填充内置注册表；bootstrap 完成后 ReMe 会冻结这个模板，并为每个 `Application` 创建可写副本。
 运行期代码通过当前 Application 的注册表解析 backend，不能修改进程级模板。随后只加载最终配置中 `plugins` 明确启用的已安装插件。
 插件通过 Python `reme.plugins` entry-point group 暴露其 package。package 内的 `plugin.yaml` 只有两个可选 mapping：
-`backends` 将注册名映射到 `module:Class`，`application_defaults` 提供低优先级的 `ApplicationConfig` 配置片段。
+`backends` 将注册名映射到 `module:Class`，`application_defaults` 提供 `ApplicationConfig` 配置片段。普通字段是低优先级
+默认值；具名 Job 和 Component 是完整的原子定义，在已加载配置之后按插件启用顺序应用，显式 CLI 字段 override 最后应用。
 entry-point 名称就是插件标识；使用
 应用配置的 `plugins` 列表或 CLI 的 `plugins=[...]` override 显式启用插件。插件注册因此只影响当前 Application；两个插件提供相同
 `(component_type, backend)` 时会在装配阶段失败，

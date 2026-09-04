@@ -234,8 +234,9 @@ bootstrap, and each `Application` receives a mutable copy. Runtime code resolves
 registry rather than changing the process-wide template. ReMe then loads only the installed plugins explicitly named by
 `plugins` in the resolved configuration. A plugin exposes its package through the `reme.plugins` Python entry-point
 group. The package's `plugin.yaml` has two optional mappings: `backends` maps registration names to
-`module:Class` targets, and `application_defaults` contributes a low-priority `ApplicationConfig` fragment. The
-entry-point name is the plugin's identity.
+`module:Class` targets, and `application_defaults` contributes an `ApplicationConfig` fragment. Ordinary fields are
+low-priority defaults. Named Jobs and Components are complete atomic definitions applied after the loaded config and
+in plugin enablement order; explicit CLI field overrides are applied last. The entry-point name is the plugin's identity.
 Plugins are enabled explicitly through the application config's `plugins` list or a `plugins=[...]` CLI override.
 Plugin registration therefore stays local to one application;
 duplicate `(component_type, backend)` providers fail during assembly instead of overwriting each other.

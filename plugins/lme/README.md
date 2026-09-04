@@ -26,8 +26,8 @@ each Application. Installing the plugin makes it discoverable but does not enabl
 `default`: only declared Jobs run, indexing is manual, and neither scheduled dream
 nor the optional `auto_dream` Job is enabled.
 The existing `auto_memory`, `agentic_answer`, `answer_judge`, `bench` and `judge`
-names and model environment variables are unchanged. Explicit application/CLI overrides
-still take precedence. Installing this plugin does not start an evaluation.
+names and model environment variables are unchanged. Explicit CLI field overrides are
+applied after the plugin's complete named resources. Installing this plugin does not start an evaluation.
 
 The shared answer base class lives in `reme.steps.benchmark.base_agentic_answer`.
 The old core-owned `reme.steps.benchmark.lme` Python import path is removed.
