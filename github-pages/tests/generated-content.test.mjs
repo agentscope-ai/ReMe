@@ -12,6 +12,7 @@ const generatedDir = path.join(siteDir, ".generated", "site");
 
 test("generates every required bilingual guide", async () => {
   const names = [
+    "overview.md",
     "configuration.md",
     "services.md",
     "operations.md",
@@ -37,6 +38,8 @@ test("generates every required bilingual guide", async () => {
 
 test("maps mirrored pages back to their canonical repository sources", async () => {
   const sourceMap = JSON.parse(await readFile(path.join(generatedDir, ".source-map.json"), "utf8"));
+  assert.equal(sourceMap["zh/overview.md"], "README_ZH.md");
+  assert.equal(sourceMap["en/overview.md"], "README.md");
   assert.equal(sourceMap["zh/integrations/typescript.md"], "typescript/README_ZH.md");
   assert.equal(sourceMap["en/integrations/dsh.md"], "typescript/docs/dsh.md");
   assert.equal(sourceMap["zh/integrations/openclaw.md"], "typescript/docs/openclaw.zh-CN.md");
@@ -45,6 +48,17 @@ test("maps mirrored pages back to their canonical repository sources", async () 
   assert.equal(sourceMap["en/workspace/studio.md"], "reme_studio/README.md");
   assert.equal(sourceMap["zh/plugins/lme.md"], "plugins/lme/README_ZH.md");
   assert.equal(sourceMap["en/reference/jobs.md"], "reme/config/default.yaml");
+});
+
+test("publishes the root READMEs as localized project overviews", async () => {
+  const english = await readFile(path.join(generatedDir, "en/overview.md"), "utf8");
+  const chinese = await readFile(path.join(generatedDir, "zh/overview.md"), "utf8");
+  assert.match(english, /^---\ntitle: ReMe Overview/m);
+  assert.match(chinese, /^---\ntitle: ReMe 项目介绍/m);
+  assert.match(english, /href="\/zh\/overview"/);
+  assert.match(chinese, /href="\/en\/overview"/);
+  assert.match(english, /src="\.\.\/figure\/design-philosophy\.svg"/);
+  assert.match(chinese, /\(\.\/memory_search\.md\)/);
 });
 
 test("publishes portable and accurate DSH instructions", async () => {

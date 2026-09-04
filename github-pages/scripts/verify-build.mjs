@@ -41,6 +41,8 @@ const requiredFiles = [
   "llms-full.txt",
   "zh/index.html",
   "en/index.html",
+  "zh/overview.html",
+  "en/overview.html",
   "zh/traffic.html",
   "en/traffic.html",
   "zh/configuration.html",

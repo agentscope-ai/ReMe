@@ -8,6 +8,8 @@ const repoDir = path.resolve(siteDir, "..");
 const outputDir = path.join(siteDir, ".generated", "site");
 
 const externalDocuments = [
+  ["zh/overview.md", "README_ZH.md"],
+  ["en/overview.md", "README.md"],
   ["en/integrations/claude-code.md", "integrations/claude_code/README.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/typescript.md", "typescript/README_ZH.md"],
@@ -37,6 +39,20 @@ const externalDocuments = [
 ];
 
 const externalDocumentRewrites = {
+  "README.md": [
+    ['href="./LICENSE"', 'href="https://github.com/agentscope-ai/ReMe/blob/main/LICENSE"'],
+    ['href="./README.md"', 'href="/en/overview"'],
+    ['href="./README_ZH.md"', 'href="/zh/overview"'],
+    ['src="docs/figure/', 'src="../figure/'],
+    ["(docs/en/", "(./"],
+  ],
+  "README_ZH.md": [
+    ['href="./LICENSE"', 'href="https://github.com/agentscope-ai/ReMe/blob/main/LICENSE"'],
+    ['href="./README.md"', 'href="/en/overview"'],
+    ['href="./README_ZH.md"', 'href="/zh/overview"'],
+    ['src="docs/figure/', 'src="../figure/'],
+    ["(docs/zh/", "(./"],
+  ],
   "typescript/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/typescript)"],
     ["(./docs/dsh.md)", "(/en/integrations/dsh)"],
@@ -67,6 +83,11 @@ const externalDocumentRewrites = {
   "typescript/docs/openclaw.zh-CN.md": [
     ["(./openclaw.md)", "(/en/integrations/openclaw)"],
   ],
+};
+
+const externalDocumentPreambles = {
+  "README.md": "---\ntitle: ReMe Overview\ndescription: A local-first, self-evolving personal knowledge base for AI agents.\n---\n\n# ReMe Overview\n\n",
+  "README_ZH.md": "---\ntitle: ReMe 项目介绍\ndescription: 面向 AI Agent 的 local-first 自进化个人知识库。\n---\n\n# ReMe 项目介绍\n\n",
 };
 
 const groupNames = {
@@ -210,6 +231,7 @@ for (const [destination, source] of externalDocuments) {
   await mkdir(path.dirname(destinationPath), { recursive: true });
   let content = await readFile(path.join(repoDir, source), "utf8");
   for (const [from, to] of externalDocumentRewrites[source] || []) content = content.replaceAll(from, to);
+  content = `${externalDocumentPreambles[source] || ""}${content}`;
   await writeFile(destinationPath, content);
   sourceMap[destination] = source;
 }

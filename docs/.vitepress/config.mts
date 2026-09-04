@@ -121,7 +121,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
       text: zh ? "开始使用" : "Get Started",
       collapsed: false,
       items: [
-        { text: zh ? "项目介绍" : "Introduction", link: `/${language}/` },
+        { text: zh ? "项目介绍" : "Introduction", link: `/${language}/overview` },
         { text: zh ? "快速开始" : "Quick Start", link: `/${language}/quick_start` },
         { text: zh ? "基础配置" : "Configuration", link: `/${language}/configuration` },
         { text: zh ? "服务与部署" : "Services and Deployment", link: `/${language}/services` },
