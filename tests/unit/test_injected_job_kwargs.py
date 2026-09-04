@@ -305,7 +305,7 @@ def test_configs_define_original_jobs_without_daily_variants():
             assert name not in jobs, f"{config_name} unexpectedly defines {name}"
 
     default = resolve_app_config(config="default", log_config=False)
-    assert default["jobs"]["auto_memory"]["steps"][0]["enable_tags"] is True
+    assert default["jobs"]["auto_memory"]["steps"][0]["enable_tags"] is False
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@ jobs:
         - messages
     steps:
       - backend: auto_memory_step
-        enable_tags: true
+        enable_tags: false
 
   auto_memory_cc:
     backend: base

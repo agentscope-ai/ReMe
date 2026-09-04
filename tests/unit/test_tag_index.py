@@ -1,5 +1,7 @@
 """Focused contracts for the FileNode-derived tag index."""
 
+# pylint: disable=protected-access
+
 import asyncio
 from pathlib import Path
 
@@ -9,12 +11,16 @@ from reme.components.file_chunker import MarkdownFileChunker
 from reme.components.file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex
 from reme.config import resolve_app_config
-from reme.schema import FileFrontMatter, FileNode
+from reme.schema import FileChunk, FileFrontMatter, FileNode
 
 
 def _node(path: str, tags: object = None) -> FileNode:
     metadata = {} if tags is None else {"tags": tags}
     return FileNode(path=path, st_mtime=1.0, front_matter=FileFrontMatter(**metadata))
+
+
+def _chunk(chunk_id: str, path: str, text: str) -> FileChunk:
+    return FileChunk(id=chunk_id, path=path, text=text, start_line=1, end_line=1)
 
 
 def test_tag_normalization_and_bidirectional_mutations() -> None:
@@ -103,6 +109,76 @@ def test_file_store_updates_tag_index_from_file_nodes(monkeypatch, tmp_path: Pat
         await store.clear()
         assert store.tag_index.path_to_tags == {}
         assert store.tag_index.tag_to_paths == {}
+        await store.close()
+
+    asyncio.run(run())
+
+
+def test_tag_failures_do_not_block_other_indexes_and_retry_rebuild(monkeypatch, tmp_path: Path) -> None:
+    """Keep core indexes writable and rebuild tags on the next mutation after a failed recovery."""
+
+    async def run() -> None:
+        monkeypatch.chdir(tmp_path)
+        store = LocalFileStore(name="test", embedding_store="", tag_index="default")
+        await store.start()
+        assert store.tag_index is not None
+        original_rebuild = store.tag_index.rebuild
+
+        async def fail_incremental(_nodes) -> None:
+            raise RuntimeError("incremental tag failure")
+
+        async def fail_rebuild(_nodes) -> None:
+            raise RuntimeError("tag rebuild failure")
+
+        monkeypatch.setattr(store.tag_index, "upsert_nodes", fail_incremental)
+        monkeypatch.setattr(store.tag_index, "rebuild", fail_rebuild)
+
+        first_chunk = _chunk("chunk-a", "daily/a.md", "alpha memory")
+        await store.upsert([(_node("daily/a.md", ["alpha"]), [first_chunk])])
+
+        assert [node.path for node in await store.get_nodes()] == ["daily/a.md"]
+        assert "chunk-a" in store.file_chunks
+        assert "chunk-a" in store.keyword_index.document_ids
+        assert store._tag_index_rebuild_required is True
+
+        monkeypatch.setattr(store.tag_index, "rebuild", original_rebuild)
+        second_chunk = _chunk("chunk-b", "digest/b.md", "beta memory")
+        await store.upsert([(_node("digest/b.md", ["beta"]), [second_chunk])])
+
+        assert store._tag_index_rebuild_required is False
+        assert await store.tag_index.paths_for_tags(["alpha"]) == ["daily/a.md"]
+        assert await store.tag_index.paths_for_tags(["beta"]) == ["digest/b.md"]
+        assert {"chunk-a", "chunk-b"}.issubset(store.keyword_index.document_ids)
+        await store.close()
+
+    asyncio.run(run())
+
+
+def test_tag_delete_failures_do_not_block_core_deletion(monkeypatch, tmp_path: Path) -> None:
+    """Complete graph, chunk, and keyword deletion when tag deletion and recovery fail."""
+
+    async def run() -> None:
+        monkeypatch.chdir(tmp_path)
+        store = LocalFileStore(name="test", embedding_store="", tag_index="default")
+        await store.start()
+        assert store.tag_index is not None
+        chunk = _chunk("chunk-a", "daily/a.md", "alpha memory")
+        await store.upsert([(_node("daily/a.md", ["alpha"]), [chunk])])
+
+        async def fail_delete(_paths) -> None:
+            raise RuntimeError("incremental tag delete failure")
+
+        async def fail_rebuild(_nodes) -> None:
+            raise RuntimeError("tag rebuild failure")
+
+        monkeypatch.setattr(store.tag_index, "delete", fail_delete)
+        monkeypatch.setattr(store.tag_index, "rebuild", fail_rebuild)
+        await store.delete("daily/a.md")
+
+        assert await store.get_nodes() == []
+        assert "chunk-a" not in store.file_chunks
+        assert "chunk-a" not in store.keyword_index.document_ids
+        assert store._tag_index_rebuild_required is True
         await store.close()
 
     asyncio.run(run())

@@ -77,6 +77,7 @@ class LocalFileStore(BaseFileStore):
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._embedding_space_generation = 0
         self._mutation_generation = 0
+        self._tag_index_rebuild_required = False
         self._closing = False
 
     # -- lifecycle ------------------------------------------------------------
@@ -244,10 +245,10 @@ class LocalFileStore(BaseFileStore):
         )
 
         tag_sync_started_at = time.monotonic()
-        if self.tag_index is not None:
-            await self.tag_index.rebuild(await self.file_graph.get_nodes())
+        tag_synced = await self._rebuild_tag_index("startup synchronization")
         self.logger.info(
             f"{self.name}: tag index sync complete: enabled={self.tag_index is not None}, "
+            f"healthy={tag_synced}, "
             f"elapsed={time.monotonic() - tag_sync_started_at:.3f}s",
         )
 
@@ -629,25 +630,50 @@ class LocalFileStore(BaseFileStore):
         elapsed = time.monotonic() - started_at
         self.logger.info(f"{self.name}: keyword index rebuild complete: total={total}, elapsed={elapsed:.2f}s")
 
-    async def _upsert_tag_nodes(self, nodes: list[FileNode]) -> None:
-        """Update tags from graph nodes, rebuilding from graph after an unexpected failure."""
+    async def _rebuild_tag_index(self, reason: str) -> bool:
+        """Best-effort rebuild that never lets an optional tag index block the file store."""
         if self.tag_index is None:
+            self._tag_index_rebuild_required = False
+            return True
+        nodes = await self.file_graph.get_nodes()
+        try:
+            await self.tag_index.rebuild(nodes)
+        except Exception:
+            self._tag_index_rebuild_required = True
+            self.logger.exception(
+                f"{self.name}: tag index rebuild failed during {reason}; keeping file store available",
+            )
+            return False
+        self._tag_index_rebuild_required = False
+        return True
+
+    async def _upsert_tag_nodes(self, nodes: list[FileNode]) -> None:
+        """Update tags without allowing optional-index failures to block other indexes."""
+        if self.tag_index is None:
+            return
+        if self._tag_index_rebuild_required:
+            await self._rebuild_tag_index("retry before incremental update")
             return
         try:
             await self.tag_index.upsert_nodes(nodes)
         except Exception:
+            self._tag_index_rebuild_required = True
             self.logger.exception(f"{self.name}: incremental tag index update failed; rebuilding from graph")
-            await self.tag_index.rebuild(await self.file_graph.get_nodes())
+            await self._rebuild_tag_index("incremental update recovery")
 
     async def _delete_tag_paths(self, paths: list[str]) -> None:
-        """Delete tag paths, rebuilding from graph after an unexpected failure."""
+        """Delete tag paths without allowing optional-index failures to block other indexes."""
         if self.tag_index is None:
+            return
+        if self._tag_index_rebuild_required:
+            await self._rebuild_tag_index("retry before incremental delete")
             return
         try:
             await self.tag_index.delete(paths)
         except Exception:
+            self._tag_index_rebuild_required = True
             self.logger.exception(f"{self.name}: incremental tag index delete failed; rebuilding from graph")
-            await self.tag_index.rebuild(await self.file_graph.get_nodes())
+            await self._rebuild_tag_index("incremental delete recovery")
 
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
@@ -849,7 +875,13 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.clear()
         await self.file_graph.clear()
         if self.tag_index is not None:
-            await self.tag_index.clear()
+            try:
+                await self.tag_index.clear()
+                self._tag_index_rebuild_required = False
+            except Exception:
+                self._tag_index_rebuild_required = True
+                self.logger.exception(f"{self.name}: tag index clear failed; rebuilding from empty graph")
+                await self._rebuild_tag_index("clear recovery")
         self._mutation_generation += 1
 
     # -- search ---------------------------------------------------------------
