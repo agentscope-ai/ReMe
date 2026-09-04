@@ -1,24 +1,11 @@
 extends: default
 
-jobs:
-  tag_index_loop:
-    backend: background
-    watch_dirs: [daily_dir]
-    watch_suffixes: [md]
-    steps:
-      - backend: tag_index_watch_step
-        tag_index: default
-        recursive: true
-        force_polling: true
-        dispatch_steps:
-          - backend: update_tag_index_step
-            tag_index: default
-            persist: false
-
 components:
   tag_index:
     default:
       backend: local
       max_tags_per_file: 8
       max_tag_length: 64
-      max_frontmatter_bytes: 65536
+  file_store:
+    default:
+      tag_index: default

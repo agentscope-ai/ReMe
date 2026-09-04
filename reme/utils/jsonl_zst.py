@@ -25,17 +25,14 @@ def write_jsonl_zst(path: str | Path, lines: Iterable[str], encoding: str = "utf
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        with tmp.open("wb") as raw:
-            with zstd.ZstdCompressor(level=3).stream_writer(raw) as writer:
-                text = io.TextIOWrapper(writer, encoding=encoding)
-                for line in lines:
-                    text.write(line)
-                    if not line.endswith("\n"):
-                        text.write("\n")
-                text.flush()
-                text.detach()
-        os.replace(tmp, path)
-    finally:
-        tmp.unlink(missing_ok=True)
+    with tmp.open("wb") as raw:
+        with zstd.ZstdCompressor(level=3).stream_writer(raw) as writer:
+            text = io.TextIOWrapper(writer, encoding=encoding)
+            for line in lines:
+                text.write(line)
+                if not line.endswith("\n"):
+                    text.write("\n")
+            text.flush()
+            text.detach()
+    os.replace(tmp, path)
     return path

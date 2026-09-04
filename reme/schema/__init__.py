@@ -19,7 +19,6 @@ from .file_node import FileNode
 from .request import Request
 from .response import Response
 from .stream_chunk import StreamChunk
-from .tag_record import TagFileRecord, TagIndexSnapshot, TagRecord, TagSourceRecord
 from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
@@ -44,10 +43,6 @@ __all__ = [
     "Request",
     "Response",
     "StreamChunk",
-    "TagFileRecord",
-    "TagIndexSnapshot",
-    "TagRecord",
-    "TagSourceRecord",
     "TokenUsage",
     "TopicSelectionOutput",
     "TraverseGraph",

@@ -1,14 +1,14 @@
-"""Abstract maintenance interface for file-level tag indexes."""
+"""Abstract interface for file-level tag indexes derived from graph nodes."""
 
 from abc import abstractmethod
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
-from ...schema import TagSourceRecord
+from ...schema import FileNode
 
 
 class BaseTagIndex(BaseComponent):
-    """A rebuildable index of normalized frontmatter tags."""
+    """A rebuildable index of normalized ``FileNode`` frontmatter tags."""
 
     component_type = ComponentEnum.TAG_INDEX
 
@@ -17,27 +17,24 @@ class BaseTagIndex(BaseComponent):
         """Return canonical tags according to this index's configured limits."""
 
     @abstractmethod
-    async def get_records(self) -> list[TagSourceRecord]:
-        """Return a detached view of indexed source records."""
+    async def rebuild(self, nodes: list[FileNode]) -> None:
+        """Replace the complete index with relationships derived from ``nodes``."""
 
     @abstractmethod
-    async def upsert(self, records: list[TagSourceRecord]) -> None:
-        """Insert or replace source records."""
+    async def upsert_nodes(self, nodes: list[FileNode]) -> None:
+        """Insert or replace relationships derived from ``nodes``."""
 
     @abstractmethod
     async def delete(self, paths: list[str]) -> None:
-        """Delete source records by workspace-relative path."""
+        """Delete relationships by workspace-relative path."""
 
     @abstractmethod
-    async def reconcile(
-        self,
-        records: list[TagSourceRecord],
-        deleted_paths: list[str],
-        *,
-        rebuild: bool = False,
-        persist: bool = True,
-    ) -> None:
-        """Apply one complete prepared reconciliation batch."""
+    async def paths_for_tags(self, tags: object, *, match_all: bool = True) -> list[str]:
+        """Return sorted paths matching all or any normalized tags."""
+
+    @abstractmethod
+    async def tags_for_path(self, path: str) -> list[str]:
+        """Return normalized tags for one workspace-relative path."""
 
     @abstractmethod
     async def clear(self) -> None:
