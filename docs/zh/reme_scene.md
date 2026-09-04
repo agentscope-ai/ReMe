@@ -61,8 +61,8 @@ daily/
 
 - `auto_memory` 保存对话来源消息到 `session/dialog/<session_id>.jsonl`，再让 Agent 把重要事实写入按主题命名的
   `daily/<date>/<generated_name>.md`；卡片 frontmatter 保留 `session_id` 和 `source_conversation` 用于稳定定位和追溯。
-- `resource_watch_loop` 监听 `resource/` 文本文件变化，并触发 `auto_resource_step` 写带 `source_resource` 的 daily note；文件名由
-  Agent 根据内容建议，再由系统清洗并处理冲突，不保证与资源同名。
+- `resource_watch_loop` 监听 `resource/` 下支持的文本与图像变化，并触发 `auto_resource_step` 写带
+  `source_resource` 的 daily note；文本资源由 Agent 处理，图像由视觉模型处理。根据内容生成的文件名会被系统清洗并处理冲突，不保证与资源同名。
 - Auto Memory、Auto Resource 和 Auto Dream 都会在写入后刷新 `daily/<date>.md` 当天索引页。
 
 ### Day 1 晚上：Auto Dream 进入 Digest

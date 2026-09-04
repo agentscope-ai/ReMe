@@ -92,6 +92,7 @@ def match_file(file_path: str, rules: list[WatchRule]) -> bool:
 
 def _match_rule(p: Path, rule: WatchRule) -> bool:
     """Check if a single path matches a rule's suffix constraint."""
-    if rule.suffixes and not any(p.name.endswith("." + s.strip(".")) for s in rule.suffixes):
+    filename = p.name.casefold()
+    if rule.suffixes and not any(filename.endswith("." + suffix.strip(".").casefold()) for suffix in rule.suffixes):
         return False
     return True

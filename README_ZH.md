@@ -332,7 +332,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [服务与部署](docs/zh/services.md)                                        | 使用 HTTP、SSE、MCP 和 Studio，并理解默认安全边界。                    |
 | [Memory as File](docs/zh/memory_as_file.md)                              | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
 | [Auto Memory](docs/zh/auto_memory.md)                                    | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。              |
-| [Auto Resource](docs/zh/auto_resource.md)                                | 导入支持的文本资料，转换为可追溯来源的 daily 卡片。                    |
+| [Auto Resource](docs/zh/auto_resource.md)                                | 导入支持的文本与图像资料，转换为可追溯来源的 daily 卡片。              |
 | [Auto Dream](docs/zh/auto_dream.md) 与 [Auto Link](docs/zh/auto_link.md) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
 | [记忆检索](docs/zh/memory_search.md)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
 | [Proactive](docs/zh/proactive.md)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |

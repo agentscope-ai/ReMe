@@ -1,0 +1,65 @@
+# AutoImageResourceStep prompts.
+user_message: |
+  Describe the attached image from the user's resource library for a memory knowledge base.
+
+  Resource image path: {file_path}
+  Filename: {filename}
+  Filename stem: {stem}
+  Date: {date}
+
+  The filename and stem are weak hints for naming or disambiguation only. Do not
+  treat words in them as visible facts. If a filename conflicts with the image,
+  trust the visible image content. The description and caption must be grounded
+  in visible content, not inferred from the filename.
+
+  ## What to Record
+  - **Visible facts**: people, objects, places, actions, and relationships that
+    may matter in future conversations.
+  - **Text in the image**: transcribe meaningful visible text verbatim (slides,
+    whiteboards, screenshots, signs, labels); keep the original language; do not
+    translate or correct it.
+  - **Numbers and dates**: quantities, measurements, versions, prices, timestamps.
+  - **Image type and purpose**: photo / screenshot / diagram / whiteboard /
+    document scan, and what it appears to be for.
+
+  ## What to Ignore
+  - Pure visual style, composition, lighting, or aesthetic qualities with no
+    informational value.
+  - Speculation about anything not visible in the image.
+
+  ## Completeness
+  The caption must let a person who cannot see the image understand its content.
+  For text-heavy images, verbatim transcription takes priority over summary; use
+  lists or line breaks to mirror the layout when helpful.
+
+  ## Output
+  Return a JSON object with the fields `name` (short kebab-case topic stem for
+  the note filename; never include dates), `description` (one-sentence summary
+  that conveys the key information on its own), and `caption` (complete
+  description / transcription). Return only the JSON object.
+user_message_zh: |
+  为记忆知识库描述用户资源库中的这张图像。
+
+  资源图像路径:{file_path}
+  文件名:{filename}
+  文件名 stem:{stem}
+  日期:{date}
+
+  文件名和 stem 只能作为命名或消歧时的弱提示,不能当作图中可见事实。如果文件名与图像内容冲突,以图像中的可见内容为准。
+  description 和 caption 必须基于图像中的可见内容,不得从文件名推断事实。
+
+  ## 记录什么
+  - **可见事实**:人物、物体、地点、动作及相互关系——未来对话中可能重要的信息。
+  - **图中的文字**:逐字转录有意义的可见文字(幻灯片、白板、截图、招牌、标签);保留原语言,不翻译、不纠错。
+  - **数字与日期**:数量、度量、版本号、价格、时间戳。
+  - **图像类型与用途**:照片/截图/图表/白板/文档扫描,以及它看起来是做什么用的。
+
+  ## 忽略什么
+  - 纯视觉风格、构图、光照等无信息量的美学属性。
+  - 对图中不存在内容的猜测。
+
+  ## 完整性
+  caption 必须让看不到图的人理解其内容。文本密集的图,逐字转录优先于概括;可借用列表/换行还原版式。
+
+  ## 输出
+  返回只含以下字段的 JSON 对象:`name`(笔记文件名的简短 kebab-case 主题词;不要含任何日期)、`description`(一句话总结,单独读即可传达关键信息)、`caption`(完整描述/转录)。只返回 JSON 对象本身。

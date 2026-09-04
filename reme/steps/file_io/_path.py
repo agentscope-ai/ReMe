@@ -28,6 +28,9 @@ IMAGE_MIME_BY_EXT: dict[str, str] = {
     ".heic": "image/heic",
 }
 
+IMAGE_SUFFIXES = frozenset(IMAGE_MIME_BY_EXT)
+
+
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _RESERVED_NAMES = {
     "CON",

@@ -113,7 +113,7 @@ It is like having a recorder who is always present—not one that mechanically t
 
 Not all valuable information comes from conversations. Research materials, project documents, meeting notes, archived web pages, and structured data may all become part of a personal knowledge base.
 
-Auto Resource provides a general entry point for external materials. After a resource enters `resource/`, ReMe preserves the original and organizes its topics, key facts, and actionable information into daily cards with `source_resource` links. It currently supports text-based resources including Markdown, plain text, JSON, JSONL, CSV, YAML, and HTML.
+Auto Resource provides a general entry point for external materials. After a resource enters `resource/`, ReMe preserves the original and organizes its topics, key facts, and actionable information into daily cards with `source_resource` links. It supports text resources including Markdown, plain text, JSON, JSONL, CSV, YAML, and HTML, plus image resources that a vision model turns into caption cards.
 
 In other words, Auto Memory builds personal knowledge from conversations, while Auto Resource builds it from non-conversational materials. Both streams flow into the same daily memory layer, where ReMe indexes, consolidates, and retrieves them together.
 

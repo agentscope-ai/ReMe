@@ -49,6 +49,7 @@ web = [
 ]
 core = [
     "reme-ai[as]",
+    "pillow>=10.0.0",
     "claude-agent-sdk>=0.2.126",
     "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
@@ -62,6 +63,10 @@ core = [
     "polars>=1.43.0",
     "reme_studio",
 ]
+image-heif = [
+    "pillow>=10.0.0",
+    "pillow-heif>=0.13.0",
+]
 dev = [
     "packaging>=24.2",
     "pre-commit>=4.6.1",
@@ -71,6 +76,7 @@ dev = [
 full = [
     "reme-ai[core]",
     "reme-ai[dev]",
+    "reme-ai[image-heif]",
 ]
 
 [project.urls]
