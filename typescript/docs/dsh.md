@@ -139,7 +139,7 @@ Chat completion and durable memory completion are asynchronous. To verify persis
 
 ## 8. ReMe Status tabs
 
-Open **Settings → ReMe Status**. Diagnostics load when the page opens or when the user refreshes them; the page does not poll continuously.
+Open **Settings → ReMe Status**. Full service diagnostics load when the page opens or the user refreshes them. While the page is visible, only the DSH plugin runtime counters refresh every 5 seconds.
 
 ### 8.1 Overview
 

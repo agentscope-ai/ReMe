@@ -147,9 +147,6 @@ test("registers a ReMe settings namespace and reads changed values for new sessi
             notify = hooks.onChange;
           },
         },
-        effect(execute) {
-          return execute();
-        },
       };
       callback(settingsCtx);
     },

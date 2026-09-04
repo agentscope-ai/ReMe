@@ -29,7 +29,6 @@ DSH 启动新会话时，插件向根 Agent 注入一段“如何使用长期记
 - DeepSeek Harness `0.1.2-rc.1` 或更高版本。
 - Node.js `22.22.3+`、`24.15.0+` 或 `25.9.0+` 中的一条受支持版本线。
 - DSH 页面能够访问 ReMe HTTP 地址；跨机器部署时还要允许 DSH 页面所在的浏览器 Origin。
-- 模型凭据可从 `/Users/yuli/workspace/deepseek-harness/.env` 加载。不要把该文件或其内容提交到仓库。
 
 ReMe HTTP 服务默认监听 `http://127.0.0.1:2333`，不使用 API Key 认证。因此不建议未经网络隔离直接暴露到公网。
 
@@ -37,14 +36,7 @@ ReMe HTTP 服务默认监听 `http://127.0.0.1:2333`，不使用 API Key 认证�
 
 ### 3.1 启动 ReMe
 
-下面的命令把 `.env` 只加载到当前 shell 环境，不会打印变量值：
-
 ```bash
-cd /Users/yuli/workspace/deepseek-harness
-set -a
-source .env
-set +a
-
 reme start workspace_dir=/absolute/path/to/your/reme-workspace
 ```
 
@@ -61,8 +53,8 @@ dsh plugin --profile web add @agentscope-ai/reme
 开发本仓库时，也可以把本地 TypeScript 包链接到 DSH workspace，然后仍按 DSH 的 bundle 协议加载：
 
 ```bash
-cd /Users/yuli/workspace/deepseek-harness
-pnpm link /Users/yuli/workspace/ReMe2/typescript --workspace-root
+cd /path/to/deepseek-harness
+pnpm link /path/to/ReMe/typescript --workspace-root
 dsh plugin --profile web add @agentscope-ai/reme
 ```
 
@@ -71,7 +63,7 @@ dsh plugin --profile web add @agentscope-ai/reme
 ### 3.3 启动 DSH Web
 
 ```bash
-cd /Users/yuli/workspace/deepseek-harness
+cd /path/to/deepseek-harness
 set -a
 source .env
 set +a
@@ -162,7 +154,7 @@ on the retrieved memory and cite the memory sources.
 
 ## 8. ReMe 状态页六个标签
 
-进入 **Settings → ReMe Status**。页面首次打开或主动刷新时读取诊断信息，不会持续轮询。这里的“标签”指页面顶部的六个 tab：Overview、Auto Memory、Memory Consolidation、Components、Journal、Personal Knowledge Base。
+进入 **Settings → ReMe Status**。页面首次打开或主动刷新时读取完整服务诊断；页面可见时，每 5 秒仅刷新 DSH 插件的运行时计数。这里的“标签”指页面顶部的六个 tab：Overview、Auto Memory、Memory Consolidation、Components、Journal、Personal Knowledge Base。
 
 ### 8.1 总览
 

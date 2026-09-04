@@ -22,7 +22,8 @@ export const inject = ["agents", "sessions", "tools"];
 
 export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
   const base = resolveConfig(input);
-  let settingsSource: () => ReMeSettings = () => settingsFrom(base);
+  const defaultSettings = settingsFrom(base);
+  let settingsSource: () => ReMeSettings = () => defaultSettings;
   const current = () => mergeSettings(base, settingsSource());
   const client = new ReMeClient(current);
   const runtime = new ReMeRuntime(client, current, ctx.logger);
@@ -31,14 +32,12 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
       ctx,
       REME_SETTINGS_NAMESPACE,
       SettingsConfig,
-      settingsFrom(base),
+      defaultSettings,
       {
-        setSource: (source) => {
+        setSource(source) {
           settingsSource = source;
         },
-        onChange: () => {
-          runtime.reconfigure();
-        },
+        onChange: () => runtime.reconfigure(),
         validate: validateSettings,
       },
     );

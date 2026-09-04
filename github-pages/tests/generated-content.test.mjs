@@ -47,6 +47,15 @@ test("maps mirrored pages back to their canonical repository sources", async () 
   assert.equal(sourceMap["en/reference/jobs.md"], "reme/config/default.yaml");
 });
 
+test("publishes portable and accurate DSH instructions", async () => {
+  const english = await readFile(path.join(generatedDir, "en/integrations/dsh.md"), "utf8");
+  const chinese = await readFile(path.join(generatedDir, "zh/integrations/dsh.md"), "utf8");
+  assert.doesNotMatch(english, /\/Users\//);
+  assert.doesNotMatch(chinese, /\/Users\//);
+  assert.match(english, /runtime counters refresh every 5 seconds/);
+  assert.match(chinese, /每 5 秒仅刷新 DSH 插件的运行时计数/);
+});
+
 test("generates the callable Job reference from default.yaml", async () => {
   const config = parseYaml(await readFile(path.join(repoDir, "reme/config/default.yaml"), "utf8"));
   const callableJobs = Object.entries(config.jobs)
