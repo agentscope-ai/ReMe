@@ -6,7 +6,7 @@
 > Code: [https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">
-  <img src="gitcha.png" alt="ExpG challenges and overview" width="85%">
+  <img src="./gitcha.png" alt="ExpG challenges and overview" width="85%">
 </p>
 
 ### Overview

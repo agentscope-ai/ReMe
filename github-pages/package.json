@@ -7,16 +7,14 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node scripts/generate-content.mjs && vite",
-    "build": "node scripts/generate-content.mjs && vite build",
-    "preview": "vite preview",
-    "test": "node scripts/generate-content.mjs && node --test tests/*.test.mjs"
-  },
-  "dependencies": {
-    "dompurify": "^3.2.6",
-    "marked": "^16.2.1"
+    "content": "node scripts/generate-content.mjs",
+    "dev": "npm run content && vitepress dev .generated/site",
+    "build": "npm run content && vitepress build .generated/site --outDir dist && node scripts/verify-build.mjs",
+    "preview": "vitepress preview .generated/site --outDir dist",
+    "test": "npm run content && node --test tests/*.test.mjs"
   },
   "devDependencies": {
-    "vite": "^7.1.1"
+    "vitepress": "1.6.4",
+    "yaml": "^2.8.1"
   }
 }

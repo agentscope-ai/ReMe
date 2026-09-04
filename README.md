@@ -51,12 +51,12 @@ users retain control of the durable files.
 
 - [2026.08] - Published [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme), providing native
   ReMe memory integrations for DeepSeek Harness and OpenClaw plus a shared TypeScript HTTP client.
-- [2026.08] - Published the [ReMe blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog), an end-to-end introduction to its local-first memory
+- [2026.08] - Published the [ReMe blog](https://reme.agentscope.io/en/reme-blog), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
-- [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/?doc=toolmemory-en) of agent tool-use execution built
+- [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/en/benchmarks/toolmemory) of agent tool-use execution built
   on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
-- [2026.07] - Introduced optional plugins: [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) for paper discovery and
-  analysis, and [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en) for researching the latest 24 hours of topic-related CLS news
+- [2026.07] - Introduced optional plugins: [Daily Paper](https://reme.agentscope.io/en/plugins/daily-paper) for paper discovery and
+  analysis, and [Auto Fin](https://reme.agentscope.io/en/plugins/auto-fin) for researching the latest 24 hours of topic-related CLS news
   with local-memory search and validated historical wikilinks.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -171,7 +171,7 @@ Related: [[digest/wiki/memory-as-file.md]]
 
 The `core` installation includes Studio. After starting ReMe, open <http://127.0.0.1:2333/> to browse, edit, and search
 the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
-[ReMe Studio guide](https://reme.agentscope.io/?doc=studio-en) for source builds, configuration, and development.
+[ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
 
 ## 🤝 Use ReMe with Your Agent
 
@@ -308,12 +308,12 @@ benchmark.
 
 | Benchmark                                                                   | Setting      |              Sample size | Agentic score | Focus                                                              |
 | --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/?doc=longmemeval-en)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
-| [BEAM](https://reme.agentscope.io/?doc=beam-en)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
-| [BEAM](https://reme.agentscope.io/?doc=beam-en)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
+| [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
 
 ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
-[π-Bench evaluation](https://reme.agentscope.io/?doc=pibench-en), 2.4% above NanoBot under the same test-model configuration. PROC
+[π-Bench evaluation](https://reme.agentscope.io/en/benchmarks/pibench), 2.4% above NanoBot under the same test-model configuration. PROC
 measures proactive handling of hidden intent, clarification, cross-session preferences and conventions, task
 dependencies, and underspecified requests.
 
@@ -326,8 +326,8 @@ plugins; see the source distributions and their documentation for [Daily Paper](
 
 | Plugin                                                        | Capability                                                                                                    |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| [Daily Paper](https://reme.agentscope.io/?doc=daily-paper-en) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
-| [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-en)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |
+| [Daily Paper](https://reme.agentscope.io/en/plugins/daily-paper) | Discover and rank papers, analyze PDFs with an agent, and generate file-native notes and a five-minute brief. |
+| [Auto Fin](https://reme.agentscope.io/en/plugins/auto-fin)       | Fetch topic-related CLS news, search ReMe history, and generate wikilink-backed Markdown reports.             |
 
 See [Plugin Management](docs/en/plugin_management.md) to install, inspect, validate, enable, and uninstall ReMe plugins.
 
@@ -338,6 +338,8 @@ These guides cover the main user workflows and the runtime contracts implemented
 | Guide                                                                     | What you will learn                                                                                 |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | [Quick Start](docs/en/quick_start.md)                                     | Install ReMe, start the service, and run the first file and memory operations.                      |
+| [Configuration](docs/en/configuration.md)                                 | Configure the workspace, models, Service, Jobs, Components, plugins, and CLI overrides.             |
+| [Services and Deployment](docs/en/services.md)                            | Use HTTP, SSE, MCP, and Studio while respecting the default security boundary.                       |
 | [Memory as File](docs/en/memory_as_file.md)                               | Understand workspace layers, frontmatter, wikilinks, chunks, and the file-as-source-of-truth model. |
 | [Auto Memory](docs/en/auto_memory.md)                                     | Preserve source conversations and distill reusable daily memory cards.                              |
 | [Auto Resource](docs/en/auto_resource.md)                                 | Import supported text resources and turn them into source-linked daily cards.                       |
@@ -347,7 +349,9 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Application Scenarios](docs/en/reme_scene.md)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](docs/en/framework.md)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
 | [TypeScript integrations](typescript/README.md)                            | Configure the shared client and native DeepSeek Harness and OpenClaw adapters.                       |
-| [ReMe Blog](https://agentscope-ai.github.io/ReMe/?doc=en-reme-blog)       | Read the product story, design rationale, examples, and benchmark summary.                          |
+| [CLI and Job API](docs/en/reference/cli.md)                               | Learn command syntax and use the generated default Job parameter reference.                         |
+| [Operations and Recovery](docs/en/operations.md)                          | Diagnose services, maintain indexes, and back up, migrate, or recover a workspace.                   |
+| [ReMe Blog](https://reme.agentscope.io/en/reme-blog)                      | Read the product story, design rationale, examples, and benchmark summary.                           |
 
 ## 🛠️ Common Commands
 

@@ -6,7 +6,7 @@
 > 代码：[https://github.com/WangCan1178/ExpG](https://github.com/WangCan1178/ExpG)
 
 <p align="center">
-  <img src="gitcha.png" alt="ExpG 挑战与概览" width="85%">
+  <img src="./gitcha.png" alt="ExpG 挑战与概览" width="85%">
 </p>
 
 ### 简介

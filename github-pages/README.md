@@ -1,8 +1,8 @@
-# ReMe GitHub Pages
+# ReMe documentation site
 
-This directory contains the standalone Vite documentation site published at <https://reme.agentscope.io>. The
-GitHub Pages fallback is <https://agentscope-ai.github.io/ReMe/>. It does not depend on the ReMe Studio application in
-`reme_studio/`.
+This package builds the VitePress site published at <https://reme.agentscope.io>. The canonical documentation lives in
+`docs/`; selected product, integration, plugin, and benchmark READMEs are mirrored into a disposable source tree during
+the build. Do not edit `.generated/` or `dist/`.
 
 ## Requirements
 
@@ -11,79 +11,41 @@ GitHub Pages fallback is <https://agentscope-ai.github.io/ReMe/>. It does not de
 
 ## Local development
 
-From the repository root:
-
 ```bash
 cd github-pages
-npm install
+npm ci
 npm run dev
 ```
 
-Open the URL printed by Vite, normally <http://localhost:5173/>. The development server watches the frontend source.
-When a repository Markdown file changes, restart the development command to regenerate the documentation content.
+The development server prints its local URL. Restart it after changing a mirrored README or `reme/config/default.yaml`
+so the generated source tree and Job reference are refreshed. Changes under `docs/` are also refreshed on restart.
 
-For subsequent installs or CI-compatible dependency installation, use:
-
-```bash
-npm ci
-```
-
-## Preview the production build
-
-Build and start the preview server:
+## Validation
 
 ```bash
+npm test
 npm run build
 npm run preview
 ```
 
-Open the URL printed by Vite, normally <http://localhost:4173/>. Production assets use relative paths so the same build
-works on both the custom domain and the GitHub Pages project path.
+The test suite verifies bilingual core pages, canonical-source mappings, generated Job coverage, and disposable output.
+The production build is written to `github-pages/dist/` for the existing GitHub Pages workflow.
 
-The generated `dist/` and `.generated/` directories are disposable build output and are excluded from Git.
+## Sources
 
-## Documentation sources
-
-The build script reads the canonical repository files directly. Do not edit generated copies under `.generated/` or
-`dist/`.
-
-- `README.md` and `README_ZH.md`: project introductions
-- `docs/en/` and `docs/zh/`: English and Chinese guides
-- `docs/figure/`: documentation images
-- `reme_studio/README.md` and `reme_studio/README_ZH.md`: ReMe Studio guide
-- `typescript/README.md` and `typescript/README_ZH.md`: TypeScript client, DeepSeek Harness, and OpenClaw integration guide
+- `docs/`: canonical guides, VitePress configuration, theme, and brand assets
+- `reme/config/default.yaml`: generated callable Job reference
+- `reme_studio/README*.md`: ReMe Studio
+- `typescript/README*.md`: TypeScript client and adapters
 - `plugins/*/README*.md`: plugin guides
-- `benchmark/{beam,longmemeval,pibench,toolmemory}/README*.md`: benchmark guides and results
-- `AGENTS.md`: repository development guide
+- `benchmark/*/README*.md`: benchmark guides
+- `scripts/generate-content.mjs`: source mirroring and reference generation
 
-To add or reorganize a document in the site navigation, update
-[`scripts/generate-content.mjs`](./scripts/generate-content.mjs). Presentation and interaction code lives in `src/`.
-
-## Project structure
-
-```text
-github-pages/
-├── index.html
-├── package.json
-├── scripts/
-│   └── generate-content.mjs
-├── src/
-│   ├── main.js
-│   └── styles.css
-└── vite.config.js
-```
+When adding a canonical guide, add both `docs/zh/<name>.md` and `docs/en/<name>.md`, then include it in the appropriate
+sidebar in `docs/.vitepress/config.mts`. Add repository-owned READMEs to `externalDocuments` in the generator rather than
+duplicating their full content under `docs/`.
 
 ## Deployment
 
-The repository workflow `.github/workflows/deploy-docs.yml` builds this directory and publishes `dist/` to GitHub Pages.
-It runs after relevant documentation or site files change on `main`, and it can also be started manually from the
-GitHub Actions page.
-
-The repository's **Settings → Pages → Build and deployment → Source** must be set to **GitHub Actions**. Its custom
-domain must be set to `reme.agentscope.io`; `public/CNAME` preserves that domain in the published artifact.
-
-Useful links:
-
-- ReMe documentation: <https://reme.agentscope.io>
-- GitHub Pages fallback: <https://agentscope-ai.github.io/ReMe/>
-- ReMe repository: <https://github.com/agentscope-ai/ReMe>
+`.github/workflows/deploy-docs.yml` uses the reusable documentation build workflow and publishes `dist/` to GitHub
+Pages. `public/CNAME` preserves the `reme.agentscope.io` custom domain.

@@ -1,4 +1,11 @@
+---
+title: 快速开始
+description: 安装并启动 ReMe，完成文件写入、检索和自动记忆的第一个闭环。
+---
+
 # 快速开始
+
+本页用于完成第一次可运行闭环。需要完整配置字段时查看[基础配置](./configuration.md)；接入 HTTP 或 MCP 时查看[服务与部署](./services.md)。
 
 ## 安装
 
@@ -228,3 +235,5 @@ reme start \
 ```bash
 reme start config=/path/to/custom.yaml
 ```
+
+下一步可以查看 [CLI 参考](./reference/cli.md)、[Job API 参考](./reference/jobs.md)和[诊断、备份与恢复](./operations.md)。

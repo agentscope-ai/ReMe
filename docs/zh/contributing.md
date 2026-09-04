@@ -190,12 +190,27 @@ pytest tests/unit/test_reme_cli.py
 docs/
 ```
 
+用户指南应同时提供 `docs/zh/` 与 `docs/en/` 版本，并在 `docs/.vitepress/config.mts` 的对应导航中注册。ReMe Studio、
+TypeScript、插件和评测的 README 是各自目录中的规范源文件；`github-pages/scripts/generate-content.mjs` 会在构建时镜像它们，
+不要编辑 `.generated/` 或 `dist/`。
+
+`Job API 参考`由 `reme/config/default.yaml` 自动生成。修改默认 Job 参数时更新 YAML 和测试，不要手工维护生成页。
+
 建议文档保持：
 
 - 标题明确，直接说明能力或流程。
 - 命令可以复制运行。
 - 涉及路径时使用仓库内真实路径，例如 `reme/config/default.yaml`、`reme/steps/`、`tests/unit/`。
 - 涉及默认行为时，以当前代码和 `pyproject.toml`、默认配置为准。
+
+文档站检查：
+
+```bash
+cd github-pages
+npm ci
+npm test
+npm run build
+```
 
 ---
 

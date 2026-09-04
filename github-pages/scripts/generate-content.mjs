@@ -1,249 +1,191 @@
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
 
 const siteDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoDir = path.resolve(siteDir, "..");
-const outputDir = path.join(siteDir, ".generated", "content");
+const outputDir = path.join(siteDir, ".generated", "site");
 
-const navigationGroupOrder = [
-  "overview",
-  "start",
-  "integration",
-  "fundamentals",
-  "automation",
-  "concepts",
-  "workspace",
-  "plugins",
-  "benchmarks",
-  "development",
+const externalDocuments = [
+  ["en/integrations/claude-code.md", "integrations/claude_code/README.md"],
+  ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
+  ["zh/integrations/typescript.md", "typescript/README_ZH.md"],
+  ["en/integrations/typescript.md", "typescript/README.md"],
+  ["zh/workspace/studio.md", "reme_studio/README_ZH.md"],
+  ["en/workspace/studio.md", "reme_studio/README.md"],
+  ["zh/plugins/daily-paper.md", "plugins/daily_paper/README_ZH.md"],
+  ["en/plugins/daily-paper.md", "plugins/daily_paper/README.md"],
+  ["zh/plugins/auto-fin.md", "plugins/auto-fin/README_ZH.md"],
+  ["en/plugins/auto-fin.md", "plugins/auto-fin/README.md"],
+  ["zh/plugins/lme.md", "plugins/lme/README_ZH.md"],
+  ["en/plugins/lme.md", "plugins/lme/README.md"],
+  ["zh/plugins/beam.md", "plugins/beam/README_ZH.md"],
+  ["en/plugins/beam.md", "plugins/beam/README.md"],
+  ["zh/benchmarks/beam.md", "benchmark/beam/README_ZH.md"],
+  ["en/benchmarks/beam.md", "benchmark/beam/README.md"],
+  ["zh/benchmarks/longmemeval.md", "benchmark/longmemeval/README_ZH.md"],
+  ["en/benchmarks/longmemeval.md", "benchmark/longmemeval/README.md"],
+  ["zh/benchmarks/pibench.md", "benchmark/pibench/README_ZH.md"],
+  ["en/benchmarks/pibench.md", "benchmark/pibench/README.md"],
+  ["zh/benchmarks/toolmemory.md", "benchmark/toolmemory/README_ZH.md"],
+  ["en/benchmarks/toolmemory.md", "benchmark/toolmemory/README.md"],
 ];
 
-const topicOrder = [
-  "quick_start",
-  "plugin_management",
-  "memory_as_file",
-  "memory_search",
-  "auto_memory",
-  "auto_resource",
-  "auto_link",
-  "auto_dream",
-  "proactive",
-  "reme_scene",
-  "framework",
-  "reme-blog",
-  "contributing",
-];
-
-const groups = {
-  quick_start: "start",
-  plugin_management: "start",
-  memory_as_file: "fundamentals",
-  memory_search: "fundamentals",
-  auto_memory: "automation",
-  auto_resource: "automation",
-  auto_link: "automation",
-  auto_dream: "automation",
-  proactive: "automation",
-  reme_scene: "concepts",
-  framework: "concepts",
-  "reme-blog": "concepts",
-  contributing: "development",
+const groupNames = {
+  zh: {
+    system: "系统与诊断",
+    memory: "记忆演化",
+    retrieval: "检索与图谱",
+    daily: "Daily Note",
+    files: "文件操作",
+  },
+  en: {
+    system: "System and diagnostics",
+    memory: "Memory evolution",
+    retrieval: "Retrieval and graph",
+    daily: "Daily notes",
+    files: "File operations",
+  },
 };
 
-const localizedTitles = {
-  quick_start: { zh: "快速开始", en: "Quick Start" },
-  plugin_management: { zh: "插件管理", en: "Plugin Management" },
-  memory_as_file: { zh: "文件即记忆", en: "Memory as File" },
-  memory_search: { zh: "记忆检索", en: "Memory Search" },
-  auto_memory: { zh: "自动记忆", en: "Auto Memory" },
-  auto_resource: { zh: "自动资料整理", en: "Auto Resource" },
-  auto_link: { zh: "自动关联", en: "Auto Link" },
-  auto_dream: { zh: "自动沉淀", en: "Auto Dream" },
-  proactive: { zh: "主动发现", en: "Proactive" },
-  reme_scene: { zh: "ReMe 应用场景", en: "ReMe Application Scenarios" },
-  framework: { zh: "ReMe 代码框架", en: "ReMe Framework" },
-  "reme-blog": { zh: "ReMe 博客", en: "ReMe Blog" },
-  contributing: { zh: "开源与贡献", en: "Open Source and Contributing" },
+const jobGroups = {
+  version: "system",
+  app_config: "system",
+  chat: "system",
+  health_check: "system",
+  status: "system",
+  help: "system",
+  auto_dream: "memory",
+  auto_memory: "memory",
+  auto_memory_cc: "memory",
+  auto_resource: "memory",
+  proactive: "memory",
+  traverse: "retrieval",
+  graph_snapshot: "retrieval",
+  reindex: "retrieval",
+  search: "retrieval",
+  node_search: "retrieval",
+  daily_list: "daily",
+  daily_reindex: "daily",
+  daily_write: "daily",
+  frontmatter_delete: "files",
+  frontmatter_read: "files",
+  frontmatter_update: "files",
+  stat: "files",
+  list: "files",
+  move: "files",
+  delete: "files",
+  read: "files",
+  load: "files",
+  read_image: "files",
+  write: "files",
+  save: "files",
+  edit: "files",
 };
 
-const productDocuments = [
-  {
-    slug: "typescript",
-    source: "typescript",
-    titles: { zh: "TypeScript Agent 集成", en: "TypeScript Agent Integrations" },
-    descriptions: {
-      zh: "配置统一 HTTP client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。",
-      en: "Configure the shared HTTP client and native DeepSeek Harness and OpenClaw adapters.",
-    },
-    group: "integration",
-  },
-  {
-    slug: "studio",
-    source: "reme_studio",
-    titles: { zh: "ReMe 工作台", en: "ReMe Studio" },
-    descriptions: {
-      zh: "浏览、编辑和搜索本地记忆，并探索记忆图谱。",
-      en: "Browse, edit, search, and explore local memory from the web workspace.",
-    },
-    group: "workspace",
-  },
-  {
-    slug: "daily-paper",
-    source: "plugins/daily_paper",
-    titles: { zh: "每日论文插件", en: "Daily Paper Plugin" },
-    descriptions: {
-      zh: "发现论文、解析 PDF，并生成阅读笔记与每日简报。",
-      en: "Discover papers, analyze PDFs, and produce reading notes and a daily brief.",
-    },
-    group: "plugins",
-  },
-  {
-    slug: "auto-fin",
-    source: "plugins/auto-fin",
-    titles: { zh: "Auto Fin 插件", en: "Auto Fin Plugin" },
-    descriptions: {
-      zh: "结合最新财联社新闻与本地历史记忆生成研究报告。",
-      en: "Research recent CLS news with historical context from local memory.",
-    },
-    group: "plugins",
-  },
-  {
-    slug: "beam",
-    source: "benchmark/beam",
-    titles: { zh: "BEAM", en: "BEAM" },
-    descriptions: {
-      zh: "评测大规模记忆检索能力。",
-      en: "Evaluate memory retrieval at scale.",
-    },
-    group: "benchmarks",
-  },
-  {
-    slug: "longmemeval",
-    source: "benchmark/longmemeval",
-    titles: { zh: "LongMemEval", en: "LongMemEval" },
-    descriptions: {
-      zh: "评测跨会话长期记忆问答能力。",
-      en: "Evaluate long-term, cross-session memory question answering.",
-    },
-    group: "benchmarks",
-  },
-  {
-    slug: "pibench",
-    source: "benchmark/pibench",
-    titles: { zh: "π-Bench", en: "π-Bench" },
-    descriptions: {
-      zh: "评测带持久记忆的个人智能体。",
-      en: "Evaluate personal agents with persistent memory.",
-    },
-    group: "benchmarks",
-  },
-  {
-    slug: "toolmemory",
-    source: "benchmark/toolmemory",
-    titles: { zh: "Tool Memory / ExpG", en: "Tool Memory / ExpG" },
-    descriptions: {
-      zh: "通过经验驱动的自适应指导增强 Agent 工具使用。",
-      en: "Improve agent tool use through experience-driven adaptive guidance.",
-    },
-    group: "benchmarks",
-  },
-];
-
-const sharedDocuments = [
-  {
-    id: "agents-guide",
-    path: "AGENTS.md",
-    sourcePath: "AGENTS.md",
-    titles: {
-      zh: "Agent 开发指南",
-      en: "Agent Development Guide",
-    },
-    description: "Repository contracts, lifecycle rules, safety boundaries, and validation.",
-    group: "development",
-    language: "shared",
-  },
-];
-
-async function markdownTitle(filePath) {
-  const source = await readFile(filePath, "utf8");
-  return source.match(/^#\s+(.+)$/m)?.[1]?.replace(/[`*_]/g, "") || path.basename(filePath, ".md");
+function typeLabel(schema = {}) {
+  if (schema.oneOf) return schema.oneOf.map(typeLabel).join(" or ");
+  if (schema.type === "array") return `${typeLabel(schema.items || {})}[]`;
+  return schema.type || "any";
 }
 
-async function buildManifest() {
-  const documents = [
-    {
-      id: "readme-zh",
-      path: "README_ZH.md",
-      sourcePath: "README_ZH.md",
-      title: "ReMe 项目介绍",
-      description: "核心理念、快速开始、使用场景与社区入口。",
-      group: "overview",
-      language: "zh",
-    },
-    {
-      id: "readme-en",
-      path: "README.md",
-      sourcePath: "README.md",
-      title: "Introducing ReMe",
-      description: "Core ideas, quick start, use cases, and community resources.",
-      group: "overview",
-      language: "en",
-    },
-  ];
+function markdownCell(value) {
+  if (value === undefined) return "—";
+  const rendered = typeof value === "string" ? value : JSON.stringify(value);
+  return rendered
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("|", "\\|")
+    .replaceAll("\n", " ");
+}
 
-  for (const language of ["zh", "en"]) {
-    for (const topic of topicOrder) {
-      const sourcePath = `docs/${language}/${topic}.md`;
-      documents.push({
-        id: `${language}-${topic}`,
-        path: sourcePath,
-        sourcePath,
-        title: localizedTitles[topic]?.[language] || (await markdownTitle(path.join(repoDir, sourcePath))),
-        description: "",
-        group: groups[topic],
-        language,
-      });
-    }
+function buildJobReference(config, language) {
+  const isZh = language === "zh";
+  const jobs = Object.entries(config.jobs || {}).filter(([, job]) => !["background", "cron"].includes(job.backend));
+  const sections = new Map();
 
-    for (const product of productDocuments) {
-      const filename = language === "zh" ? "README_ZH.md" : "README.md";
-      documents.push({
-        id: `${product.slug}-${language}`,
-        path: `${product.source}/${filename}`,
-        sourcePath: `${product.source}/${filename}`,
-        title: product.titles[language],
-        description: product.descriptions[language],
-        group: product.group,
-        language,
-      });
-    }
+  for (const [name, job] of jobs) {
+    const group = jobGroups[name] || "system";
+    if (!sections.has(group)) sections.set(group, []);
+    sections.get(group).push([name, job]);
   }
 
-  return [...documents, ...sharedDocuments].sort(
-    (left, right) => navigationGroupOrder.indexOf(left.group) - navigationGroupOrder.indexOf(right.group),
-  );
+  const lines = [
+    "---",
+    `title: ${isZh ? "Job API 参考" : "Job API Reference"}`,
+    `description: ${isZh ? "从默认配置自动生成的可调用 Job、参数和服务边界。" : "Callable jobs, parameters, and service boundaries generated from the default configuration."}`,
+    "---",
+    "",
+    `# ${isZh ? "Job API 参考" : "Job API Reference"}`,
+    "",
+    isZh
+      ? "本页从 `reme/config/default.yaml` 自动生成。它描述默认应用中的可调用 Job；插件和自定义配置可以增加、删除或覆盖 Job。运行 `reme help` 可查看当前服务的实际能力。"
+      : "This page is generated from `reme/config/default.yaml`. It describes callable jobs in the default application; plugins and custom configurations may add, remove, or override jobs. Run `reme help` to inspect the active service.",
+    "",
+    isZh
+      ? "> 后台 Job 和 Cron Job 不通过服务暴露，因此不列入调用参考。"
+      : "> Background and cron jobs are not service-exposed and are omitted from the callable reference.",
+    "",
+  ];
+
+  for (const [group, entries] of sections) {
+    lines.push(`## ${groupNames[language][group]}`, "");
+    for (const [name, job] of entries) {
+      const properties = job.parameters?.properties || {};
+      const required = new Set(job.parameters?.required || []);
+      lines.push(`### \`${name}\``, "", markdownCell(job.description || ""), "");
+      lines.push("```bash", `reme ${name}${Object.keys(properties).length ? " ..." : ""}`, "```", "");
+      if (!Object.keys(properties).length) {
+        lines.push(isZh ? "无参数。" : "No parameters.", "");
+        continue;
+      }
+      lines.push(
+        isZh
+          ? "| 参数 | 类型 | 必填 | 默认值 | 说明 |"
+          : "| Parameter | Type | Required | Default | Description |",
+        "|---|---|---:|---|---|",
+      );
+      for (const [parameter, schema] of Object.entries(properties)) {
+        lines.push(
+          `| \`${parameter}\` | \`${markdownCell(typeLabel(schema))}\` | ${required.has(parameter) ? (isZh ? "是" : "yes") : (isZh ? "否" : "no")} | ${markdownCell(schema.default)} | ${markdownCell(schema.description || "—")} |`,
+        );
+      }
+      lines.push("");
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 await rm(path.join(siteDir, ".generated"), { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });
-await cp(path.join(siteDir, "public", "favicon.svg"), path.join(siteDir, ".generated", "favicon.svg"));
-await cp(path.join(siteDir, "public", "CNAME"), path.join(siteDir, ".generated", "CNAME"));
-
-for (const file of ["README.md", "README_ZH.md", "AGENTS.md"]) {
-  await cp(path.join(repoDir, file), path.join(outputDir, file));
-}
-await cp(path.join(repoDir, "docs"), path.join(outputDir, "docs"), {
+await cp(path.join(repoDir, "docs"), outputDir, {
   recursive: true,
-  filter: (source) => path.basename(source) !== ".DS_Store",
+  filter: (source) => ![".DS_Store", "plans"].includes(path.basename(source)),
 });
-for (const product of productDocuments) {
-  await mkdir(path.join(outputDir, product.source), { recursive: true });
-  for (const filename of ["README.md", "README_ZH.md"]) {
-    await cp(path.join(repoDir, product.source, filename), path.join(outputDir, product.source, filename));
-  }
+await cp(path.join(siteDir, "public", "CNAME"), path.join(outputDir, "public", "CNAME"));
+
+const sourceMap = {};
+for (const [destination, source] of externalDocuments) {
+  const destinationPath = path.join(outputDir, destination);
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+  await cp(path.join(repoDir, source), destinationPath);
+  sourceMap[destination] = source;
 }
-await writeFile(
-  path.join(outputDir, "manifest.json"),
-  `${JSON.stringify({ documents: await buildManifest() }, null, 2)}\n`,
-);
+
+for (const language of ["zh", "en"]) {
+  await cp(
+    path.join(repoDir, "benchmark/toolmemory/gitcha.png"),
+    path.join(outputDir, language, "benchmarks", "gitcha.png"),
+  );
+}
+
+const defaultConfig = parseYaml(await readFile(path.join(repoDir, "reme/config/default.yaml"), "utf8"));
+for (const language of ["zh", "en"]) {
+  const destination = path.join(outputDir, language, "reference", "jobs.md");
+  await mkdir(path.dirname(destination), { recursive: true });
+  await writeFile(destination, buildJobReference(defaultConfig, language));
+  sourceMap[`${language}/reference/jobs.md`] = "reme/config/default.yaml";
+}
+
+await writeFile(path.join(outputDir, ".source-map.json"), `${JSON.stringify(sourceMap, null, 2)}\n`);

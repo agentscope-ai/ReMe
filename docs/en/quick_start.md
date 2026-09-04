@@ -1,4 +1,11 @@
+---
+title: Quick Start
+description: Install and start ReMe, then complete a first file, retrieval, and automatic-memory workflow.
+---
+
 # Quick Start
+
+This page gets one working loop running. See [Configuration](./configuration.md) for the full configuration contract and [Services and Deployment](./services.md) for HTTP or MCP integration.
 
 ## Installation
 
@@ -237,3 +244,5 @@ You can also specify a YAML or JSON configuration file:
 ```bash
 reme start config=/path/to/custom.yaml
 ```
+
+Continue with the [CLI Reference](./reference/cli.md), [Job API Reference](./reference/jobs.md), or [Diagnostics, Backup, and Recovery](./operations.md).

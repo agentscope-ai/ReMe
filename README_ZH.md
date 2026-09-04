@@ -49,13 +49,13 @@
 
 - [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，提供统一 TypeScript HTTP
   client，以及 DeepSeek Harness 和 OpenClaw 的原生 ReMe 记忆集成。
-- [2026.08] - 发布 [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
+- [2026.08] - 发布 [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 基于 ReMe 的智能体工具使用
-  [经验驱动增强方法](https://reme.agentscope.io/?doc=toolmemory-zh)已发布，见
+  [经验驱动增强方法](https://reme.agentscope.io/zh/benchmarks/toolmemory)已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
-- [2026.07] - 新增可选插件：[每日论文](https://reme.agentscope.io/?doc=daily-paper-zh)用于论文发现与解析，
-  [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
+- [2026.07] - 新增可选插件：[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper)用于论文发现与解析，
+  [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
   wikilink。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
@@ -170,7 +170,7 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 
 上面的 `core` 安装已包含 Studio。启动 ReMe 后，打开 <http://127.0.0.1:2333/> 即可浏览、编辑和搜索 workspace。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
-[ReMe Studio 指南](https://reme.agentscope.io/?doc=studio-zh)。
+[ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
 
 ## 🤝 将 ReMe 接入你的 Agent
 
@@ -301,11 +301,11 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 | 基准                                                                        | 设置        |            样本量 | Agentic 得分 | 主要检验内容                   |
 | --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
-| **[LongMemEval cleaned-s](https://reme.agentscope.io/?doc=longmemeval-zh)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
-| [BEAM](https://reme.agentscope.io/?doc=beam-zh)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
-| [BEAM](https://reme.agentscope.io/?doc=beam-zh)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
+| **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
+| [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
 
-在仓库的 [π-Bench 评测](https://reme.agentscope.io/?doc=pibench-zh)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
+在仓库的 [π-Bench 评测](https://reme.agentscope.io/zh/benchmarks/pibench)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。
 
 ## 🧩 扩展与插件
@@ -316,8 +316,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 | 插件                                                       | 能力                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [每日论文](https://reme.agentscope.io/?doc=daily-paper-zh) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
-| [Auto Fin](https://reme.agentscope.io/?doc=auto-fin-zh)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
+| [每日论文](https://reme.agentscope.io/zh/plugins/daily-paper) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
+| [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
 
 安装、查看、校验、启用和卸载 ReMe 插件的方法见[插件管理](docs/zh/plugin_management.md)。
 
@@ -328,6 +328,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | 文档                                                                     | 主要内容                                                               |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
 | [快速开始](docs/zh/quick_start.md)                                       | 安装 ReMe、启动服务，并执行首次文件和记忆操作。                        |
+| [基础配置](docs/zh/configuration.md)                                     | 配置 workspace、模型、Service、Job、Component、插件和命令行覆盖。      |
+| [服务与部署](docs/zh/services.md)                                        | 使用 HTTP、SSE、MCP 和 Studio，并理解默认安全边界。                    |
 | [Memory as File](docs/zh/memory_as_file.md)                              | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
 | [Auto Memory](docs/zh/auto_memory.md)                                    | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。              |
 | [Auto Resource](docs/zh/auto_resource.md)                                | 导入支持的文本资料，转换为可追溯来源的 daily 卡片。                    |
@@ -337,7 +339,9 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [应用场景](docs/zh/reme_scene.md)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](docs/zh/framework.md)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
 | [TypeScript 集成](typescript/README_ZH.md)                               | 配置统一 client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。        |
-| [ReMe 博客](https://agentscope-ai.github.io/ReMe/?doc=zh-reme-blog)      | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |
+| [CLI 与 Job API](docs/zh/reference/cli.md)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
+| [运维与恢复](docs/zh/operations.md)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
+| [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |
 
 ## 🛠️ 常用命令
 

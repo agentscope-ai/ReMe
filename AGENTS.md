@@ -62,6 +62,8 @@ and concise documentation together.
   conventions.
 - `benchmark/` and `cookbook/`: runnable evaluations and example workflows.
 - `docs/`: README-linked supporting pages and figures.
+- `github-pages/`: VitePress build shell, generated-content assembly, documentation checks, and GitHub Pages output. The
+  canonical theme and guides remain under `docs/`; `.generated/` and `dist/` are disposable.
 
 ## Development Setup
 
@@ -194,6 +196,9 @@ Black and Flake8 use a 120-character line limit and Python 3.11 formatting; Pyli
 Integration tests may contact real model providers, services, or agent subprocesses and can require credentials. Do not
 run credentialed or externally mutating tests automatically; run them only when the task requires them and the necessary
 environment has been supplied or authorized. Mock network, model, and subprocess boundaries in unit tests.
+
+If documentation or the documentation theme changes, run `npm test` and `npm run build` from `github-pages/`. The Job
+reference is generated from `reme/config/default.yaml`; do not edit generated pages directly.
 
 ## Change Guardrails
 

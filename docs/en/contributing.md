@@ -209,12 +209,28 @@ Documentation lives under:
 docs/
 ```
 
+User guides should have matching `docs/zh/` and `docs/en/` versions and appear in the corresponding navigation in
+`docs/.vitepress/config.mts`. The ReMe Studio, TypeScript, plugin, and benchmark READMEs remain canonical in their own
+directories; `github-pages/scripts/generate-content.mjs` mirrors them during builds. Never edit `.generated/` or `dist/`.
+
+The Job API reference is generated from `reme/config/default.yaml`. Update that YAML and its tests when a default Job
+contract changes rather than editing generated pages.
+
 Documentation should:
 
 - Use clear titles that directly identify a capability or flow.
 - Provide commands that can be copied and run.
 - Use real repository paths such as `reme/config/default.yaml`, `reme/steps/`, and `tests/unit/`.
 - Describe default behavior according to the current code, `pyproject.toml`, and default configuration.
+
+Validate the documentation site with:
+
+```bash
+cd github-pages
+npm ci
+npm test
+npm run build
+```
 
 ---
 
