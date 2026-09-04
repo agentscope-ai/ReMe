@@ -146,6 +146,7 @@ jobs:
         - messages
     steps:
       - backend: auto_memory_step
+        enable_tags: false
 
   auto_memory_cc:
     backend: base
@@ -827,6 +828,12 @@ components:
       backend: bm25
       tokenizer: default
 
+#  tag_index:
+#    default:
+#      backend: local
+#      max_tags_per_file: 8
+#      max_tag_length: 64
+
   file_store:
     default:
       backend: local
@@ -836,3 +843,4 @@ components:
       embedding_store: ""
       keyword_index: default
       file_graph: default
+#      tag_index: default

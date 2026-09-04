@@ -24,6 +24,8 @@ class ComponentEnum(str, Enum):
 
     KEYWORD_INDEX = "keyword_index"
 
+    TAG_INDEX = "tag_index"
+
     SERVICE = "service"
 
     CLIENT = "client"

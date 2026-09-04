@@ -20,6 +20,7 @@ system_prompt: |
 
   - `name` = a concise, stable topic/event filename stem, such as `cold-remedies` or `project-kickoff-decision`. Do not include today's date or the daily directory date; the outer daily path already records the date. For existing notes, update it when a better filename is clearly warranted.
   - `description` = a thorough summary; vague descriptions like "notes" / "misc" are unacceptable.
+  [enable_tags] - `tags` = 0–8 unique retrieval keywords for the complete note. Always include the field, using `[]` when no useful tags exist. Each tag must be one string with no whitespace, may contain technical punctuation (for example `GPT-5`, `C++`, `C#`, or `.NET`), must contain at least one letter or digit, and must be at most 64 characters. Store numeric tags as strings, for example `"100"`.
   - **Never set `status`** — it is a field reserved for downstream processing.
 system_prompt_zh: |
   你是自动记忆系统。你的职责是将最近对话中的核心信息记录到日记记忆中。思考人类会从这段对话中自然地记住什么——不是所有内容，而是真正重要的信息。
@@ -43,6 +44,7 @@ system_prompt_zh: |
 
   - `name` = 简洁、稳定的主题/事件文件名 stem，例如 `cold-remedies` 或 `project-kickoff-decision`。不要包含今天日期或日记目录日期；外层日记路径已经记录日期。对已有笔记，如果明显有更好的文件名，就更新它。
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
+  [enable_tags] - `tags` = 针对完整笔记的 0–8 个不重复检索关键词。该字段必须始终存在；没有合适关键词时使用 `[]`。每个 tag 必须是一个不含空白字符的字符串，可以包含技术名称中的标点（例如 `GPT-5`、`C++`、`C#` 或 `.NET`），必须至少包含一个字母或数字，且不得超过 64 个字符。数字 tag 也保存为字符串，例如 `"100"`。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
 user_message_create: |
@@ -68,11 +70,13 @@ user_message_create: |
 
   Create the note in one shot:
   `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<body>`
+  [enable_tags] Also pass `metadata={{"tags": [<tag>, ...]}}` in the same `daily_write` call.
 
   - Generate `name` as a concise, stable topic/event filename stem for this memory. Prefer a reusable topic or event summary, optionally in kebab-case.
   - Do not include today's date or the daily directory date in `name`; the note already lives under today's daily path.
   - `name` must be a valid single filename component: no slash, backslash, leading/trailing whitespace, or characters like `< > : " | ? *`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+  [enable_tags] - Generate 0–8 `tags` from the complete note. Always pass `metadata={{"tags": [...]}}`, including an empty list when there are no useful tags. Follow the system prompt's tag format exactly.
 
   ## Step 3 — Summary
 
@@ -104,11 +108,13 @@ user_message_create_zh: |
 
   一次性创建笔记：
   `daily_write name=<name> description=<description> session_id={session_id} date={today} content=<正文>`
+  [enable_tags] 在同一次 `daily_write` 调用中另外传入 `metadata={{"tags": [<tag>, ...]}}`。
 
   - 由你生成 `name`，作为这条记忆简洁、稳定的主题/事件文件名 stem。优先使用可复用的主题或事件总结，可以采用 kebab-case。
   - `name` 不要包含今天日期或日记目录日期；笔记已经位于当天日记路径下。
   - `name` 必须是合法的单个文件名组件：不能包含 slash、反斜杠、首尾空白，或 `< > : " | ? *` 等字符。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+  [enable_tags] - 根据完整笔记生成 0–8 个 `tags`。必须始终传入 `metadata={{"tags": [...]}}`，没有合适关键词时也要传入空数组。严格遵守 system prompt 的 tag 格式。
 
   ## 步骤 3 — 总结
 
@@ -155,18 +161,22 @@ user_message_update: |
   Execution:
   1. Use `edit path={note_path} old=<original fragment> new=<replacement fragment>` for each section that needs updating. You may call `edit` multiple times.
   2. After body changes, refresh frontmatter with `frontmatter_update path={note_path} metadata={{"name": "<updated filename stem>", "description": "<updated summary>"}}`.
+  [enable_tags]    Also regenerate 0–8 tags from the complete merged note and include `"tags": [<tag>, ...]` in the same metadata object. Always include `tags`, using `[]` when none are useful.
      - Keep the existing `name` only when it is already the best concise topic/event filename stem. The system will rename the file after your final response.
      - Do not add today's date or the daily directory date to `name`.
   3. If `edit` fails repeatedly (e.g., cannot find the original text due to formatting mismatch), fall back to `write path={note_path} name=<name> description=<description> content=<full body>` for a complete rewrite.
+  [enable_tags]    In this fallback, also pass `metadata={{"tags": [<tag>, ...]}}`.
 
   ## Step 3b — Full Write (Empty File Fallback)
 
   The file exists but its body is empty. Write the full content in one shot:
   `write path={note_path} name=<name> description=<description> content=<body>`
+  [enable_tags] Also pass `metadata={{"tags": [<tag>, ...]}}` in this call.
 
   - Use a concise, stable topic/event `name`; filename changes are applied after your final response.
   - Do not include today's date or the daily directory date in `name`.
   - `description` must be a thorough summary of the body — specific enough that the description alone conveys all key information.
+  [enable_tags] - Generate 0–8 tags from the complete body and always include `metadata={{"tags": [...]}}`, using `[]` when none are useful.
 
   ## Step 4 — Summary
 
@@ -214,18 +224,22 @@ user_message_update_zh: |
   执行：
   1. 对需要更新的每个部分使用 `edit path={note_path} old=<原文片段> new=<替换片段>`。可以多次调用 `edit`。
   2. 正文变更后，刷新 frontmatter：`frontmatter_update path={note_path} metadata={{"name": "<更新后的文件名 stem>", "description": "<更新后的总结>"}}`。
+  [enable_tags]    同时根据合并后的完整笔记重新生成 0–8 个 tags，并在同一个 metadata 对象中包含 `"tags": [<tag>, ...]`。必须始终包含 `tags`，没有合适关键词时使用 `[]`。
      - 只有当前 `name` 已经是最合适的简洁主题/事件文件名 stem 时才保留。系统会在你最终回复后负责重命名文件。
      - 不要在 `name` 中加入今天日期或日记目录日期。
   3. 如果 `edit` 多次失败（如因格式不匹配找不到原文），退回 `write path={note_path} name=<name> description=<description> content=<完整正文>` 全量重写。
+  [enable_tags]    在该 fallback 中还要传入 `metadata={{"tags": [<tag>, ...]}}`。
 
   ## 步骤 3b — 全量写入（空文件 fallback）
 
   文件存在但正文为空。一次性写入完整内容：
   `write path={note_path} name=<name> description=<description> content=<正文>`
+  [enable_tags] 在该调用中另外传入 `metadata={{"tags": [<tag>, ...]}}`。
 
   - 使用简洁、稳定的主题/事件 `name`；文件名变化会在你最终回复后应用。
   - `name` 不要包含今天日期或日记目录日期。
   - `description` 必须是正文的详尽总结——具体到仅凭 description 就能传达全部核心信息。
+  [enable_tags] - 根据完整正文生成 0–8 个 tags，并始终包含 `metadata={{"tags": [...]}}`；没有合适关键词时使用 `[]`。
 
   ## 步骤 4 — 总结
 

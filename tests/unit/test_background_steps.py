@@ -1713,7 +1713,12 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
                     "---\nname: memory\nsession_id: s1\n"
                     "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
                 )
-                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+                step = AutoMemoryStep(
+                    app_context=app_ctx,
+                    file_store=fs,
+                    agent_wrapper=wrapper,
+                    enable_tags=True,
+                )
                 resp = await step(
                     RuntimeContext(
                         messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
@@ -1725,6 +1730,7 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
                 assert resp.success is True
                 assert resp.metadata["created"] is True
                 assert resp.metadata["modified"] is True
+                assert "tags: []" in (cwd / "daily" / today / "memory.md").read_text(encoding="utf-8")
 
                 wrapper.on_reply = None
                 resp = await step(RuntimeContext(messages=[], session_id="s2"))
@@ -1736,6 +1742,58 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
             finally:
                 await fs.close()
         print("✓ test_auto_memory_reports_modified_for_create_and_false_for_skip passed")
+
+    asyncio.run(run())
+
+
+def test_auto_memory_normalizes_tags_after_existing_note_update():
+    """Existing notes receive a refreshed, normalized tags field capped at eight entries."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            app_ctx = _make_app_context(cwd)
+            fs = LocalFileStore(name="test_store", embedding_store="")
+            wrapper = _FakeAgentWrapper()
+            await fs.start()
+            _install_file_jobs(app_ctx, fs)
+            try:
+                today = datetime.datetime.now().strftime("%Y-%m-%d")
+                note_path = cwd / "daily" / today / "memory.md"
+                write_file(
+                    note_path,
+                    "---\nname: memory\nsession_id: s1\n"
+                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n"
+                    "tags: [old]\n---\nold body\n",
+                )
+
+                wrapper.on_reply = lambda *_: write_file(
+                    note_path,
+                    "---\nname: memory\nsession_id: s1\n"
+                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n"
+                    "tags: [GPT-5, C++, C#, .NET, 100, 'memory system', '++', ReMe, reme, tag7, tag8, tag9]\n"
+                    "---\nupdated body\n",
+                )
+
+                step = AutoMemoryStep(
+                    app_context=app_ctx,
+                    file_store=fs,
+                    agent_wrapper=wrapper,
+                    enable_tags=True,
+                )
+                resp = await step(
+                    RuntimeContext(
+                        messages=[{"name": "user", "role": "user", "content": "updated project detail"}],
+                        session_id="s1",
+                    ),
+                )
+                resp = resp or step.context.response
+
+                assert resp.success is True
+                metadata = step._frontmatter(f"daily/{today}/memory.md")
+                assert metadata["tags"] == ["GPT-5", "C++", "C#", ".NET", "100", "ReMe", "tag7", "tag8"]
+            finally:
+                await fs.close()
 
     asyncio.run(run())
 

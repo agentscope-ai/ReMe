@@ -13,6 +13,7 @@ from . import job
 from . import keyword_index
 from . import outbound_proxy
 from . import service
+from . import tag_index
 from . import tokenizer
 from .application_context import ApplicationContext
 from .base_component import BaseComponent, ComponentMixin
@@ -43,5 +44,6 @@ __all__ = [
     "keyword_index",
     "outbound_proxy",
     "service",
+    "tag_index",
     "tokenizer",
 ]
