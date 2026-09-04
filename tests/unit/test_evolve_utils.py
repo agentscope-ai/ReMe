@@ -94,8 +94,10 @@ def test_auto_memory_normalizes_frontmatter_tags():
             "tag9",
         ],
     ) == ["GPT-5", "C++", "C#", ".NET", "100", "ReMe", "tag7", "tag8"]
+    # pylint: disable=use-implicit-booleaness-not-comparison
     assert _normalize_tags(None) == []
     assert _normalize_tags("GPT-5") == []
+    # pylint: enable=use-implicit-booleaness-not-comparison
     assert _normalize_tags(["x" * 65, True, {}, "valid"]) == ["valid"]
 
 
