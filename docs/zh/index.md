@@ -7,8 +7,8 @@ hero:
   text: 让 Agent 真正记住
   tagline: 文件属于你，记忆服务于 Agent。ReMe 将对话和资料沉淀为可读、可编辑、可检索、相互链接的本地文件。
   image:
-    src: /favicon.svg
-    alt: ReMe
+    src: /reme-logo.svg
+    alt: ReMe Logo
   actions:
     - theme: brand
       text: 快速开始

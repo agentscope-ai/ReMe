@@ -1,5 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="g" x1="8" y1="7" x2="57" y2="58" gradientUnits="userSpaceOnUse"><stop stop-color="#19c9b0"/><stop offset="1" stop-color="#3156d9"/></linearGradient></defs>
-  <rect x="4" y="4" width="56" height="56" rx="18" fill="url(#g)"/>
-  <path d="M20 46V18h13.2c7.2 0 11.8 3.8 11.8 10 0 4.3-2.2 7.5-6 9l7 9h-8l-5.8-7.8H27V46h-7Zm7-13.6h5.6c3.5 0 5.4-1.4 5.4-4.2 0-2.8-1.9-4.1-5.4-4.1H27v8.3Z" fill="white"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ReMe">
+  <defs>
+    <linearGradient id="brand" x1="14" y1="12" x2="51" y2="51" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#21d1bb"/>
+      <stop offset="0.52" stop-color="#159fc9"/>
+      <stop offset="1" stop-color="#3156d9"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="10" y1="7" x2="56" y2="59" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity="0.94"/>
+      <stop offset="0.48" stop-color="#e4fffa" stop-opacity="0.82"/>
+      <stop offset="1" stop-color="#dbe7ff" stop-opacity="0.74"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#287ca6" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+
+  <!-- Liquid glass tile shared with the full ReMe wordmark. -->
+  <g filter="url(#shadow)">
+    <rect x="3" y="3" width="58" height="58" rx="18" fill="url(#glass)"/>
+    <rect x="3.75" y="3.75" width="56.5" height="56.5" rx="17.25" fill="none" stroke="url(#brand)" stroke-opacity="0.46" stroke-width="1.5"/>
+    <path d="M10 21C18 8 43 7 55 17" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" opacity="0.9"/>
+  </g>
+
+  <path d="M18 49V15h14.5C41 15 46 19.5 46 27s-5 12-13.5 12H27" fill="none" stroke="url(#brand)" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M27 38.5 46 49" fill="none" stroke="url(#brand)" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="27" cy="38.5" r="2.2" fill="white" stroke="#43d7c5" stroke-width="0.8"/>
 </svg>

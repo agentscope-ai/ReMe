@@ -7,8 +7,8 @@ hero:
   text: Memory that works for agents
   tagline: Files remain yours. ReMe turns conversations and resources into readable, editable, searchable, interconnected local files.
   image:
-    src: /favicon.svg
-    alt: ReMe
+    src: /reme-logo.svg
+    alt: ReMe logo
   actions:
     - theme: brand
       text: Quick Start
