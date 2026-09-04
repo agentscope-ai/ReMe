@@ -4,12 +4,12 @@ import json
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from typing import Any
 
 import yaml
-from yaml.representer import SafeRepresenter
 
 from ..entry_point import (
     CONFIG_ENTRY_POINT_GROUP,
@@ -27,44 +27,25 @@ _ENV_VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}")
 _LEADING_ZERO_RE = re.compile(r"^-?0\d")
 
 
-class ResolvedConfigSection(dict[str, Any]):
-    """A resolved mapping that retains which values were explicitly overridden.
+@dataclass(frozen=True)
+class ResolvedAppConfig:
+    """Application config layers retained until plugin resolution.
 
-    ``resolve_app_config`` still returns an ordinary dict-compatible value, but
-    named resources need field-level provenance so plugins can replace a
-    complete definition before CLI dot-notation overrides are applied. Only
-    paths are retained: values are always read from the visible mapping, so
-    normal dict mutations cannot diverge from hidden configuration snapshots.
+    Config files (including ``extends``) form ``base``. Values supplied by the
+    current CLI or Python call form ``overrides`` and are applied only after
+    plugins have selected complete named resources.
     """
 
-    def __init__(
-        self,
-        value: Mapping[str, Any],
-        *,
-        explicit_paths: tuple[tuple[str, ...], ...],
-    ) -> None:
-        super().__init__(value)
-        self.explicit_paths = explicit_paths
+    base: Mapping[str, Any] = field(default_factory=dict)
+    overrides: Mapping[str, Any] = field(default_factory=dict)
 
+    def materialize(self) -> dict[str, Any]:
+        """Return the visible config without discarding the stored layers."""
+        return deep_merge_config(self.base, self.overrides)
 
-# PyYAML dispatches representers by exact type, so teach its safe dumper that
-# this dict-compatible provenance carrier serializes exactly like a plain dict.
-yaml.SafeDumper.add_representer(ResolvedConfigSection, SafeRepresenter.represent_dict)
-
-
-def _mapping_leaf_paths(
-    value: Mapping[str, Any],
-    prefix: tuple[str, ...] = (),
-) -> tuple[tuple[str, ...], ...]:
-    """Return the leaf paths explicitly supplied by one config override."""
-    paths: list[tuple[str, ...]] = []
-    for key, child in value.items():
-        path = (*prefix, key)
-        if isinstance(child, Mapping) and child:
-            paths.extend(_mapping_leaf_paths(child, path))
-        else:
-            paths.append(path)
-    return tuple(paths)
+    def with_overrides(self, update: Mapping[str, Any]) -> "ResolvedAppConfig":
+        """Return new layers with an additional explicit configuration patch."""
+        return ResolvedAppConfig(base=self.base, overrides=deep_merge_config(self.overrides, update))
 
 
 def _repl(m: re.Match) -> str:
@@ -300,9 +281,8 @@ def parse_args(*args: str) -> tuple[str, dict]:
     return parse_action(args[0]), parse_kwargs(*args[1:])
 
 
-def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
-    """Resolve full app-start config: load `config=path` file, fall back to
-    `default`, then deep-merge with the remaining kwargs as overrides.
+def resolve_app_config_layers(*, log_config: bool = True, **kwargs) -> ResolvedAppConfig:
+    """Resolve the loaded application config and explicit inputs as two layers.
 
     Therefore ``reme start plugins=[...]`` layers that plugin selection over
     ``default.yaml`` without requiring an explicit ``config=default``.
@@ -328,24 +308,14 @@ def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict:
             logger.info("No config specified, loading 'default'")
         base_config = _load_config("default")
 
-    explicit_overrides = kwargs
-    merged = deep_merge_config(base_config, explicit_overrides)
+    return ResolvedAppConfig(base=base_config, overrides=kwargs)
 
-    # Jobs and named component instances are complete resource definitions
-    # when supplied by config files or plugins. CLI dot-notation values remain
-    # field-level overrides, so retain their paths until plugin resolution.
-    for section_name in ("jobs", "components"):
-        section = merged.get(section_name)
-        section_overrides = explicit_overrides.get(section_name)
-        if not isinstance(section, Mapping) or (
-            section_name in explicit_overrides and not isinstance(section_overrides, Mapping)
-        ):
-            # Preserve invalid input verbatim so the schema or plugin merger can
-            # report it instead of obscuring the source through normalization.
-            continue
-        merged[section_name] = ResolvedConfigSection(
-            section,
-            explicit_paths=_mapping_leaf_paths(section_overrides) if isinstance(section_overrides, Mapping) else (),
-        )
 
-    return merged
+def resolve_app_config(*, log_config: bool = True, **kwargs) -> dict[str, Any]:
+    """Return the visible loaded config as a plain mapping.
+
+    Startup paths that still need to apply plugins use
+    :func:`resolve_app_config_layers` so loaded resources and explicit inputs
+    retain their distinct precedence until plugin resolution.
+    """
+    return resolve_app_config_layers(log_config=log_config, **kwargs).materialize()

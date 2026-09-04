@@ -152,7 +152,8 @@ reme start plugins='["auto-fin"]'
 
 未传入 `config` 时，ReMe 加载 `default.yaml`。普通插件默认值仍低于应用配置。具名 Job 和 Component 按原子资源处理：
 先应用已加载配置，再按启用顺序应用插件，后面的插件会整体替换同名定义。显式 CLI dot-notation override 最后作为字段
-更新应用到胜出的完整定义。插件 backend 只注册到该 Application 的局部 registry。
+更新应用到胜出的完整定义；直接传给 `ReMe(...)` 的 Python kwargs 也属于这一显式 override 层。插件 backend 只注册到
+该 Application 的局部 registry。
 
 默认 HTTP service 启动后，可以通过 ReMe CLI client 或 HTTP 访问插件 Job：
 

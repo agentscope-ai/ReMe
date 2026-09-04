@@ -18,8 +18,9 @@ from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
 from reme.components.job import BackgroundJob
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
-from reme.config import resolve_app_config
+from reme.config import ResolvedAppConfig, resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
+from reme.plugin import Plugin, PluginManager
 from reme.schema import ApplicationConfig, Response
 
 
@@ -196,6 +197,22 @@ def test_prepare_config_rejects_missing_or_background_selected_jobs():
         _prepare_config({"jobs": {}}, ["missing"])
     with pytest.raises(KeyError, match="watch"):
         _prepare_config({"jobs": {"watch": {"backend": "background"}}}, ["watch"])
+
+
+def test_prepare_config_job_selection_survives_plugin_replacement():
+    resolved = ResolvedAppConfig(
+        base={"jobs": {"selected": {"backend": "base", "enable_serve": False}}},
+    )
+    prepared = _prepare_config(resolved, ["selected"])
+    manager = PluginManager(
+        [Plugin(name="example", config={"jobs": {"selected": {"backend": "plugin"}}})],
+    )
+
+    assert isinstance(prepared, ResolvedAppConfig)
+    assert manager.merge_config(prepared)["jobs"]["selected"] == {
+        "backend": "plugin",
+        "enable_serve": True,
+    }
 
 
 @pytest.mark.asyncio

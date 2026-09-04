@@ -7,7 +7,7 @@ import sys
 
 from .application import Application
 from .components.service.cli_service import prepare_start_config, should_precheck_start
-from .config import parse_action, parse_kwargs, resolve_app_config
+from .config import ResolvedAppConfig, parse_action, parse_kwargs, resolve_app_config
 from .enumeration import ComponentEnum
 from .plugin import resolve_plugin_runtime
 from .utils import cli_find_reme, load_env, precheck_start, running_app_config
@@ -91,11 +91,13 @@ def _run_plugin_command(argv: Sequence[str]) -> None:
 
 def _start_application(kwargs: dict, environment: dict) -> None:
     """Resolve startup configuration and run the application."""
-    kwargs = prepare_start_config(kwargs)
-    kwargs["environment"] = environment
-    if should_precheck_start(kwargs) and not precheck_start(kwargs.get("service")):
+    prepared = prepare_start_config(kwargs)
+    config = prepared if isinstance(prepared, ResolvedAppConfig) else ResolvedAppConfig(overrides=prepared)
+    config = config.with_overrides({"environment": environment})
+    visible = config.materialize()
+    if should_precheck_start(config) and not precheck_start(visible.get("service")):
         return
-    ReMe(**kwargs).run_app()
+    ReMe(resolved_config=config).run_app()
 
 
 def main() -> None:

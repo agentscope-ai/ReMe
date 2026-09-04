@@ -15,7 +15,7 @@ from typing import Any
 
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry, create_application_registry
-from .config import ResolvedConfigSection, deep_merge_config, expand_env_vars
+from .config import ResolvedAppConfig, deep_merge_config, expand_env_vars
 from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, load_entry_point, unique_entry_point
 from .enumeration import component_type_name
 from .plugin_manifest import PluginManifest, load_package_manifest
@@ -57,6 +57,30 @@ def _require_mapping(value: Any, path: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise TypeError(f"{path} must be a mapping")
     return value
+
+
+def _explicit_resource_overrides(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate and normalize explicit named-resource field patches."""
+    result: dict[str, Any] = {}
+    if "jobs" in config:
+        jobs = _require_mapping(config["jobs"], "explicit overrides.jobs")
+        for name in jobs:
+            if not isinstance(name, str):
+                raise TypeError(f"jobs names must be strings, got {type(name).__name__}")
+        result["jobs"] = jobs
+
+    if "components" in config:
+        components = _require_mapping(config["components"], "explicit overrides.components")
+        normalized: dict[str, Mapping[str, Any]] = {}
+        for component_type, group in components.items():
+            normalized_type = component_type_name(component_type)
+            instances = _require_mapping(group, f"explicit overrides.components.{component_type}")
+            for name in instances:
+                if not isinstance(name, str):
+                    raise TypeError(f"components names must be strings, got {type(name).__name__}")
+            normalized[normalized_type] = instances
+        result["components"] = normalized
+    return result
 
 
 def _replace_named(
@@ -125,37 +149,6 @@ def _overlay_atomic_resources(
             ("components", component_type),
         )
     return has_jobs, has_components
-
-
-def _split_application_resource_layers(
-    application_config: Mapping[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Separate atomic definitions from explicit field-level overrides."""
-    application_layer: dict[str, Any] = {}
-    explicit_overrides: dict[str, Any] = {}
-    for section_name in ("jobs", "components"):
-        if section_name not in application_config:
-            continue
-        section = application_config[section_name]
-        application_layer[section_name] = section
-        if not isinstance(section, ResolvedConfigSection):
-            continue
-
-        projected: dict[str, Any] = {}
-        for path in section.explicit_paths:
-            current: Any = section
-            for key in path:
-                if not isinstance(current, Mapping) or key not in current:
-                    break
-                current = current[key]
-            else:
-                target = projected
-                for key in path[:-1]:
-                    target = target.setdefault(key, {})
-                target[path[-1]] = current
-        if projected:
-            explicit_overrides[section_name] = projected
-    return application_layer, explicit_overrides
 
 
 def _load_backend(target: str, *, plugin_name: str) -> type[ComponentMixin]:
@@ -228,8 +221,22 @@ class PluginManager:
             seen.add(name)
         return cls(plugins)
 
-    def _merge_config(self, application_config: Mapping[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
-        """Merge config and retain startup diagnostics for named resource replacement."""
+    def _merge_config(
+        self,
+        application_config: ResolvedAppConfig | Mapping[str, Any],
+    ) -> tuple[dict[str, Any], tuple[str, ...]]:
+        """Merge layered config and retain named-resource replacement diagnostics.
+
+        A plain mapping represents direct Python overrides. Config-file callers
+        use ``ResolvedAppConfig`` to retain the loaded base as a provider layer.
+        """
+        resolved = (
+            application_config
+            if isinstance(application_config, ResolvedAppConfig)
+            else ResolvedAppConfig(overrides=application_config)
+        )
+        base = _require_mapping(resolved.base, "application config")
+        overrides = _require_mapping(resolved.overrides, "explicit overrides")
         plugin_layers = [
             (
                 f"plugin '{plugin.name}'",
@@ -243,13 +250,13 @@ class PluginManager:
         merged: dict[str, Any] = {}
         for _, layer in plugin_layers:
             merged = deep_merge_config(merged, _without_named_resources(layer))
-        merged = deep_merge_config(merged, _without_named_resources(application_config))
+        merged = deep_merge_config(merged, _without_named_resources(base))
+        merged = deep_merge_config(merged, _without_named_resources(overrides))
 
         # Complete jobs and named component instances are atomic resources:
         # loaded application config is lowest and later plugins are highest.
         # Explicit CLI dot-notation values are field-level overrides applied
         # after the winning complete resource has been selected.
-        application_resources, explicit_resource_overrides = _split_application_resource_layers(application_config)
         jobs: dict[str, Any] = {}
         components: dict[str, dict[str, Any]] = {}
         job_owners: dict[tuple[str, ...], str] = {}
@@ -258,7 +265,7 @@ class PluginManager:
         has_jobs = False
         has_components = False
 
-        atomic_layers = [("application config", application_resources), *plugin_layers]
+        atomic_layers = [("application config", base), *plugin_layers]
         for source, layer in atomic_layers:
             layer_has_jobs, layer_has_components = _overlay_atomic_resources(
                 jobs,
@@ -279,11 +286,11 @@ class PluginManager:
 
         # CLI/config kwargs use the established deep-merge contract. They are
         # patches to the selected complete resources, not additional providers.
-        merged = deep_merge_config(merged, explicit_resource_overrides)
+        merged = deep_merge_config(merged, _explicit_resource_overrides(overrides))
         return merged, tuple(warnings)
 
-    def merge_config(self, application_config: Mapping[str, Any]) -> dict[str, Any]:
-        """Apply plugin config while atomically replacing same-name jobs and components."""
+    def merge_config(self, application_config: ResolvedAppConfig | Mapping[str, Any]) -> dict[str, Any]:
+        """Apply plugins, treating a plain Python mapping as explicit overrides."""
         merged, _ = self._merge_config(application_config)
         return merged
 
@@ -294,10 +301,15 @@ class PluginManager:
                 registry.add(backend.name, backend.implementation, owner=plugin.name)
 
 
-def resolve_plugin_runtime(application_config: Mapping[str, Any]) -> PluginRuntime:
+def resolve_plugin_runtime(application_config: ResolvedAppConfig | Mapping[str, Any]) -> PluginRuntime:
     """Build one local registry and merge explicitly enabled plugin configuration."""
-    manager = PluginManager.discover(application_config.get("plugins") or ())
+    resolved = (
+        application_config
+        if isinstance(application_config, ResolvedAppConfig)
+        else ResolvedAppConfig(overrides=application_config)
+    )
+    manager = PluginManager.discover(resolved.materialize().get("plugins") or ())
     registry = create_application_registry()
     manager.register(registry)
-    config, config_warnings = manager._merge_config(application_config)  # pylint: disable=protected-access
+    config, config_warnings = manager._merge_config(resolved)  # pylint: disable=protected-access
     return PluginRuntime(config=config, registry=registry, config_warnings=config_warnings)

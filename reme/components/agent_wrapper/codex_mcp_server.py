@@ -2,10 +2,11 @@
 
 import argparse
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ...config import ResolvedConfigSection, resolve_app_config
+from ...config import ResolvedAppConfig, deep_merge_config, resolve_app_config_layers
 from ...reme import ReMe
 
 
@@ -24,24 +25,24 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _prepare_config(
-    config: dict[str, Any],
+    config: ResolvedAppConfig | Mapping[str, Any],
     job_names: list[str],
     tool_context_id: str = "",
     injected_job_kwargs: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+) -> ResolvedAppConfig | dict[str, Any]:
     """Configure the dedicated child Application to serve selected jobs over MCP STDIO."""
+    return_layers = isinstance(config, ResolvedAppConfig)
+    resolved = config if return_layers else ResolvedAppConfig(overrides=config)
+    visible = resolved.materialize()
     selected = set(job_names)
-    jobs: dict[str, dict[str, Any]] = {}
-    for name, raw_job_config in (config.get("jobs") or {}).items():
+    allowed_jobs: set[str] = set()
+    for name, raw_job_config in (visible.get("jobs") or {}).items():
         job_config = dict(raw_job_config)
         if job_config.get("backend") in {"background", "cron"}:
             continue
-        if name in selected:
-            # An explicit Codex job_tools selection has always overridden enable_serve.
-            job_config["enable_serve"] = True
-        jobs[name] = job_config
+        allowed_jobs.add(name)
 
-    missing = sorted(selected.difference(jobs))
+    missing = sorted(selected.difference(allowed_jobs))
     if missing:
         raise KeyError(f"Codex job tools not found or not request jobs: {', '.join(missing)}")
 
@@ -57,23 +58,26 @@ def _prepare_config(
     if injected:
         service["injected_job_kwargs"] = injected
 
-    prepared = dict(config)
-    raw_jobs = config.get("jobs")
-    if isinstance(raw_jobs, ResolvedConfigSection):
-        selected_paths = tuple((name, "enable_serve") for name in job_names)
-        jobs = ResolvedConfigSection(
-            jobs,
-            explicit_paths=tuple(dict.fromkeys((*raw_jobs.explicit_paths, *selected_paths))),
-        )
-    prepared["jobs"] = jobs
-    prepared["service"] = service
-    return prepared
+    base = dict(resolved.base)
+    if isinstance(base.get("jobs"), Mapping):
+        base["jobs"] = {name: value for name, value in base["jobs"].items() if name in allowed_jobs}
+
+    overrides = dict(resolved.overrides)
+    if isinstance(overrides.get("jobs"), Mapping):
+        overrides["jobs"] = {name: value for name, value in overrides["jobs"].items() if name in allowed_jobs}
+
+    # Job selection is an explicit server-owned patch. It must win after a
+    # plugin atomically replaces a loaded Job with the same name.
+    selected_patch = {name: {"enable_serve": True} for name in job_names}
+    overrides = deep_merge_config(overrides, {"jobs": selected_patch, "service": service})
+    prepared = ResolvedAppConfig(base=base, overrides=overrides)
+    return prepared if return_layers else prepared.materialize()
 
 
 def main() -> None:
     """Load ReMe and serve the requested jobs over STDIO."""
     args = _parse_args()
-    config = resolve_app_config(
+    config = resolve_app_config_layers(
         config=args.config,
         workspace_dir=str(Path(args.workspace).absolute()),
         enable_logo=False,
@@ -85,7 +89,7 @@ def main() -> None:
     if injected_job_kwargs is not None and not isinstance(injected_job_kwargs, dict):
         raise TypeError("--injected-job-kwargs must be a JSON object")
     config = _prepare_config(config, args.jobs, args.tool_context_id, injected_job_kwargs)
-    ReMe(**config).run_app()
+    ReMe(resolved_config=config).run_app()
 
 
 if __name__ == "__main__":

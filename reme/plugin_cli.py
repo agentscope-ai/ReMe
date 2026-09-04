@@ -220,12 +220,12 @@ def _uninstall_plugin(args: argparse.Namespace) -> int:
 def _validate_plugins(manager) -> None:
     """Validate imports, registry ownership, and merged application schema."""
     from .components.component_registry import create_application_registry
-    from .config.config_parser import resolve_app_config
+    from .config.config_parser import resolve_app_config_layers
     from .schema.application_config import ApplicationConfig
 
     registry = create_application_registry()
     manager.register(registry)
-    ApplicationConfig(**manager.merge_config(resolve_app_config(log_config=False)))
+    ApplicationConfig(**manager.merge_config(resolve_app_config_layers(log_config=False)))
 
 
 def _validate_installed(name: str) -> list[str]:

@@ -11,6 +11,7 @@ from reme.config.config_parser import (
     parse_args,
     parse_dot_notation,
     resolve_app_config,
+    resolve_app_config_layers,
 )
 
 
@@ -79,6 +80,30 @@ def test_resolve_app_config_layers_plugins_over_default():
 
     assert config["service"]["backend"] == "http"
     assert config["plugins"] == ["auto-fin"]
+
+
+def test_resolve_app_config_layers_keep_loaded_values_and_explicit_inputs_separate(tmp_path):
+    """Loaded resource providers stay separate from explicit field patches."""
+    config_path = tmp_path / "base.yaml"
+    config_path.write_text("language: base\njobs:\n  task:\n    backend: base\n", encoding="utf-8")
+
+    resolved = resolve_app_config_layers(
+        config=str(config_path),
+        log_config=False,
+        language="override",
+        jobs={"task": {"enable_serve": False}},
+    )
+
+    assert resolved.base["language"] == "base"
+    assert resolved.base["jobs"]["task"] == {"backend": "base"}
+    assert resolved.overrides == {
+        "language": "override",
+        "jobs": {"task": {"enable_serve": False}},
+    }
+    assert resolved.materialize()["jobs"]["task"] == {
+        "backend": "base",
+        "enable_serve": False,
+    }
 
 
 def test_default_config_registers_daily_write_job():

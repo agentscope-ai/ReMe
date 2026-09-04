@@ -160,7 +160,8 @@ reme start plugins='["auto-fin"]'
 When `config` is omitted, ReMe loads `default.yaml`. Ordinary plugin defaults remain below application values. Named
 Jobs and Components are atomic: the loaded config is applied first, then plugins in enablement order, so a later plugin
 replaces the complete same-name definition. Explicit CLI dot-notation overrides are applied last as field updates to
-the winning definition. The plugin backends are registered only in that Application's local registry.
+the winning definition. Keyword arguments passed directly to `ReMe(...)` use the same explicit-override layer. The
+plugin backends are registered only in that Application's local registry.
 
 After the default HTTP service starts, access plugin Jobs through ReMe's CLI client or HTTP:
 

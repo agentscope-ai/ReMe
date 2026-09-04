@@ -6,8 +6,9 @@ from .config_parser import (
     parse_action,
     parse_args,
     parse_kwargs,
-    ResolvedConfigSection,
+    ResolvedAppConfig,
     resolve_app_config,
+    resolve_app_config_layers,
 )
 
 __all__ = [
@@ -16,6 +17,7 @@ __all__ = [
     "parse_action",
     "parse_args",
     "parse_kwargs",
-    "ResolvedConfigSection",
+    "ResolvedAppConfig",
     "resolve_app_config",
+    "resolve_app_config_layers",
 ]
