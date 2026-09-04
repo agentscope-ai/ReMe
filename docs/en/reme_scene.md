@@ -88,8 +88,6 @@ dream_extract_step
 dream_integrate_step
   recall existing digest nodes with node_search for each unit
   decide CREATE / CORROBORATE / REFINE / CORRECT
-dream_topics_step
-  write daily/2026-05-18/interests.yaml
 dream_finish_step
   checkpoint successfully processed daily inputs
 ```
@@ -243,7 +241,7 @@ topics:
 Call:
 
 ```bash
-reme proactive date=2026-05-18
+reme proactive_read date=2026-05-18
 ```
 
 The `proactive` Job returns the topics from `interests.yaml` and, optionally, the raw YAML content.

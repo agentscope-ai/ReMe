@@ -84,9 +84,6 @@ dream_integrate_step
   每个 unit 用 node_search 召回已有 digest 节点
   决定 CREATE / CORROBORATE / REFINE / CORRECT
 
-dream_topics_step
-  写 daily/2026-05-18/interests.yaml
-
 dream_finish_step
   checkpoint 成功处理的 daily 输入
 ```
@@ -235,7 +232,7 @@ topics:
 调用：
 
 ```bash
-reme proactive date=2026-05-18
+reme proactive_read date=2026-05-18
 ```
 
 `proactive` Job 返回 `interests.yaml` 中的 topics 和可选 YAML 原文。

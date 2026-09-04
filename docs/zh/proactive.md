@@ -71,6 +71,13 @@ topics:
 | `skipped` | 文件不存在时为 `true`。                         |
 | `error`   | 读取或解析异常。                                |
 | `summary` | 简短摘要。                                      |
+| `agenda`  | 当日主动议程（可选，仅 v2 文件携带时返回）。    |
+
+当当天的 `interests.yaml` 由 proactive refresh 链路生成并携带议程时，answer 会附带
+`agenda` 字段：按顺序排列的当日议程条目，每条包含 `topic_id`、`title`、`scenario_type`、
+`opener`（自然口吻的开场白）、`next_action`（最小可执行动作）、`preconditions`、
+`delivery`、`linked_memory` 与 `order_reason`。读侧会过滤已解决或低于 `min_confidence`
+的主题对应的议程条目；文件不含议程时该字段不出现。
 
 文件存在且解析成功时，answer 是结构化数据，例如：
 
@@ -106,13 +113,13 @@ Skipped: interests file not found at daily/2026-06-20/interests.yaml
 CLI：
 
 ```bash
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 不返回 YAML 原文：
 
 ```bash
-reme proactive date=2026-06-20 include_content=false
+reme proactive_read date=2026-06-20 include_content=false
 ```
 
 ## 与 auto_dream 的关系
@@ -129,11 +136,11 @@ daily notes
 
 职责边界如下。更完整的 Extract、Integrate、Topics、Finish 说明见 [Auto Dream](./auto_dream.md)：
 
-| 模块                 | 职责                                         |
-|----------------------|----------------------------------------------|
-| `dream_extract_step` | 从 changed daily 输入抽取 topic candidates。 |
-| `dream_topics_step`  | 去重、筛选并写入 `interests.yaml`。          |
-| `proactive_step`     | 读取 `interests.yaml`，暴露给上层 Agent。    |
+| 模块                     | 职责                                         |
+|--------------------------|----------------------------------------------|
+| `dream_extract_step`     | 从 changed daily 输入抽取 topic candidates。 |
+| `proactive_refresh_cron` | `interests.yaml` 的唯一写入方（白天曝光）。  |
+| `proactive_step`         | 读取 `interests.yaml`，暴露给上层 Agent。    |
 
 `proactive` 不修改任何文件，不更新 catalog，也不负责判断是否应该主动打扰用户。它只提供当天主题材料；是否推送、何时推送、用什么语气推送，应由调用方根据产品策略决定。
 

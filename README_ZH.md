@@ -267,7 +267,7 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。workspace �
 | [`auto_resource`](docs/zh/auto_resource.md) | 资源监听或 `reme auto_resource`           | 将 `resource/` 下的文件转为带来源链接、按内容命名的 daily 卡片。                             | `daily/<date>/<resource-card>.md`                            |
 | [`auto_index`](docs/zh/memory_search.md)    | 后台监听或 `reme reindex`                 | watcher 摄取 `daily/` 和 `digest/` 中的 Markdown；`reindex` 只基于已摄取的 chunks 重建 BM25 和 Embedding。 | 可检索的 chunks、BM25、wikilink 图谱和可选向量               |
 | [`auto_dream`](docs/zh/auto_dream.md)       | `dream_cron` 或 `reme auto_dream`         | 默认从最近两天内变化的文件中最多提取 5 个可复用 unit，再创建、印证、补充或修正 digest 节点。 | `digest/**`、`daily/<date>/interests.yaml`                   |
-| [`proactive`](docs/zh/proactive.md)         | Agent 决定主动行动前调用 `reme proactive` | 读取 `auto_dream` 生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。                     | 来自 `daily/<date>/interests.yaml` 的结构化 topics           |
+| [`proactive_read`](docs/zh/proactive.md)         | Agent 决定主动行动前调用 `reme proactive_read` | 读取 `auto_dream` 生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。                     | 来自 `daily/<date>/interests.yaml` 的结构化 topics           |
 
 <table>
   <tr>

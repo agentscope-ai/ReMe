@@ -3,7 +3,6 @@
 import datetime as dt
 import re
 from pathlib import Path
-from uuid import uuid4
 
 import yaml
 
@@ -79,21 +78,39 @@ def scan_day_files(workspace: Path, day: str, daily: str, interests_name: str = 
     return [p for p in out if p != f"{daily}/{day}/{interests_name}"]
 
 
-def pack_paths(workspace: Path, paths: list[str], *, limit_per_file: int = 60000) -> str:
-    """Pack paths into a single string."""
+def pack_paths(
+    workspace: Path,
+    paths: list[str],
+    *,
+    limit_per_file: int = 60000,
+    max_total_chars: int | None = None,
+) -> str:
+    """Pack paths into a single string.
+
+    With ``max_total_chars`` set, blocks are packed in the given order until
+    the accumulated size would exceed the budget; the first file is always
+    kept and a trailer records how many files were omitted.
+    """
     blocks: list[str] = []
-    for rel in paths:
+    total = 0
+    for index, rel in enumerate(paths):
         target = workspace / rel
         if not target.is_file():
-            blocks.append(f"### {rel}\n(file not found)\n")
-            continue
-        try:
-            text = target.read_text(encoding="utf-8")
-        except Exception as e:  # noqa: BLE001
-            blocks.append(f"### {rel}\n(error reading: {type(e).__name__}: {e})\n")
-            continue
-        suffix = "\n\n[truncated]\n" if len(text) > limit_per_file else ""
-        blocks.append(f"### {rel}\n{text[:limit_per_file]}{suffix}\n")
+            block = f"### {rel}\n(file not found)\n"
+        else:
+            try:
+                text = target.read_text(encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                block = f"### {rel}\n(error reading: {type(e).__name__}: {e})\n"
+            else:
+                suffix = "\n\n[truncated]\n" if len(text) > limit_per_file else ""
+                block = f"### {rel}\n{text[:limit_per_file]}{suffix}\n"
+        if max_total_chars is not None and index > 0 and total + len(block) > max_total_chars:
+            omitted = len(paths) - index
+            blocks.append(f"(omitted {omitted} file(s) to stay within the {max_total_chars}-char total budget)")
+            break
+        blocks.append(block)
+        total += len(block)
     return "\n".join(blocks)
 
 
@@ -107,11 +124,6 @@ def clean_paths(raw_paths, allowed: set[str]) -> list[str]:
         if path in allowed and path not in out:
             out.append(path)
     return out
-
-
-def normalize_topic(text: str) -> str:
-    """Normalize topic."""
-    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", text.lower()).strip()
 
 
 def previous_dates(day: str, n_days: int) -> list[str]:
@@ -192,19 +204,6 @@ def clean_topic(raw: dict) -> dict:
         "keywords": ([str(k).strip() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []),
         "paths": ([str(p).strip() for p in paths if str(p).strip()] if isinstance(paths, list) else []),
     }
-
-
-def write_yaml(path: Path, payload: dict) -> None:
-    """Atomically write YAML without exposing a partially written user file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    rendered = yaml.safe_dump(payload, allow_unicode=True, sort_keys=False)
-    content = rendered if rendered.endswith("\n") else f"{rendered}\n"
-    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-    try:
-        temporary.write_text(content, encoding="utf-8")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def parse_structured_reply(text: str) -> dict:

@@ -76,6 +76,14 @@ metadata:
 | `skipped` | `true` when the file does not exist.                 |
 | `error`   | Read or parse error.                                 |
 | `summary` | Short summary.                                       |
+| `agenda`  | Today's proactive agenda (optional, v2 files only).  |
+
+When today's `interests.yaml` was produced by the proactive refresh chain with an agenda,
+the answer also carries an `agenda` field: the ordered agenda items, each with `topic_id`,
+`title`, `scenario_type`, `opener` (a natural conversation opener), `next_action` (the
+minimal executable step), `preconditions`, `delivery`, `linked_memory` and `order_reason`.
+Agenda items whose topic is resolved or below `min_confidence` are filtered out on read;
+the field is absent when the file has no agenda.
 
 When the file exists and parses successfully, the answer is structured data. For example:
 
@@ -111,13 +119,13 @@ This lets a host agent treat "there is no dream result for today yet" as a norma
 CLI:
 
 ```bash
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 Omit the raw YAML content:
 
 ```bash
-reme proactive date=2026-06-20 include_content=false
+reme proactive_read date=2026-06-20 include_content=false
 ```
 
 ## Relationship to auto_dream
@@ -135,11 +143,11 @@ daily notes
 The responsibilities are divided as follows. For the complete Extract, Integrate, Topics, and Finish flow, see
 [Auto Dream](./auto_dream.md):
 
-| Module               | Responsibility                                         |
-|----------------------|--------------------------------------------------------|
-| `dream_extract_step` | Extract topic candidates from changed daily inputs.    |
-| `dream_topics_step`  | Deduplicate, select, and write `interests.yaml`.       |
-| `proactive_step`     | Read `interests.yaml` and expose it to the host agent. |
+| Module                   | Responsibility                                         |
+|--------------------------|--------------------------------------------------------|
+| `dream_extract_step`     | Extract topic candidates from changed daily inputs.    |
+| `proactive_refresh_cron` | Sole writer of `interests.yaml` (daytime exposure).    |
+| `proactive_step`         | Read `interests.yaml` and expose it to the host agent. |
 
 `proactive` does not modify files, update a catalog, or decide whether the user should be interrupted. It only provides
 the day's topic material. The caller's product policy determines whether, when, and in what tone to push it to the user.

@@ -15,7 +15,6 @@ auto_dream:
   steps:
     - dream_extract_step
     - dream_integrate_step   # auto_link 的实际发生位置
-    - dream_topics_step
     - dream_finish_step
 ```
 

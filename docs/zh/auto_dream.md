@@ -32,12 +32,6 @@ auto_dream:
     max_units:
       type: integer
       default: 5
-    topic_count:
-      type: integer
-      default: 3
-    topic_diversity_days:
-      type: integer
-      default: 7
   steps:
     - backend: dream_extract_step
       file_catalog: dream
@@ -45,9 +39,6 @@ auto_dream:
       scan_days: 2
       max_units: 5
     - backend: dream_integrate_step
-    - backend: dream_topics_step
-      topic_count: 3
-      topic_diversity_days: 7
     - backend: dream_finish_step
       file_catalog: dream
 ```
@@ -60,8 +51,6 @@ auto_dream:
 | `hint`                 | 调用方给抽取和整合阶段的额外指导。                                |
 | `scan_days`            | 以 `date` 结尾的最近日期窗口；默认扫描 2 天，最小为 1。           |
 | `max_units`            | 一次最多抽取多少个可复用 unit；默认 5。                           |
-| `topic_count`          | 最终写入 `interests.yaml` 的 topic 上限，默认 3。                 |
-| `topic_diversity_days` | 选择 topic 时参考过去多少天的 `interests.yaml` 避免重复，默认 7。 |
 
 ## 输入和输出
 
@@ -131,45 +120,17 @@ digest 节点。新增与更新都必须保留来源，并把相关 digest 链�
 Integrate 成功的 unit 会记录到 `integrate_results`；失败的 unit 会进入 `failed_units`，其来源路径会进入 `failed_paths`。
 Finish 阶段不会 checkpoint 失败路径，保证下次还能重试。
 
-### 3. Topics
-
-`dream_topics_step` 将 Extract 阶段产生的 topic candidates 变成当天最终的 `daily/<date>/interests.yaml`。
-
-它会读取：
-
-```text
-daily/<date>/interests.yaml
-daily/<过去 topic_diversity_days 天中的每一天>/interests.yaml
-```
-
-同一天已有 topics 会被保留，最近 `topic_diversity_days` 天出现过的相似主题会被去重。默认最多写 3 个 topic。配置了 LLM 时会让
-LLM 选择更具体、可行动、非重复的主题；没有 LLM 时会退化成本地规范化去重。
-
-写入格式示例。读取这个文件的接口见 [Proactive](./proactive.md)：
-
-```yaml
-date: 2026-06-20
-topic_count: 3
-diversity_days: 7
-topics:
-  - title: 记忆检索链路的质量回归
-    reason: 用户近期持续修改 search、node_search 和 dream 集成链路。
-    evidence: daily/2026-06-20/session.md
-    keywords:
-      - memory search
-      - auto dream
-    paths:
-      - daily/2026-06-20/session.md
-```
-
-### 4. Finish
+### 3. Finish
 
 `dream_finish_step` 负责收尾：
 
 1. 将成功处理的 changed paths 写入 `file_catalog: dream`。
-2. 将目标日期的 `daily/<date>/interests.yaml` 和扫描窗口内每个已刷新的 day-index 页也写入 catalog。
+2. 将扫描窗口内每个已刷新的 day-index 页也写入 catalog。
 3. 如果有 upsert 或 delete，持久化 dream catalog。
-4. 返回包含 scanned、changed、integrated、topics、checkpoint 等计数的摘要。
+4. 返回包含 scanned、changed、integrated、checkpoint 等计数的摘要。
+
+`interests.yaml` 不再由 auto dream 写入。白天曝光文件由 `proactive_refresh_cron` 独占写入，见
+[Proactive](./proactive.md)。dream 只把历史 `interests.yaml` 作为抽取材料读取。
 
 失败路径不会被 checkpoint。这样下一次 `auto_dream` 仍会把它们视作 changed input，直到整合成功。
 
@@ -204,7 +165,6 @@ jobs:
       - backend: dream_extract_step
         file_catalog: dream
       - backend: dream_integrate_step
-      - backend: dream_topics_step
       - backend: dream_finish_step
         file_catalog: dream
 ```

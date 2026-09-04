@@ -7,8 +7,13 @@ from .dream import (
     DreamTopic,
     DreamUnit,
     IntegrateOutcome,
-    ProactiveResult,
     TopicSelectionOutput,
+)
+from .proactive import (
+    ProactiveResult,
+    ProactiveState,
+    ProactiveStateFile,
+    ProactiveTopic,
 )
 from .emb_node import EmbNode
 from .file_chunk import FileChunk
@@ -40,6 +45,9 @@ __all__ = [
     "IntegrateOutcome",
     "JobConfig",
     "ProactiveResult",
+    "ProactiveState",
+    "ProactiveStateFile",
+    "ProactiveTopic",
     "Request",
     "Response",
     "StreamChunk",

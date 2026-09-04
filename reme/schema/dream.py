@@ -6,6 +6,9 @@ from pydantic import BaseModel, Field
 
 from ..enumeration import DreamBucketEnum
 
+# ProactiveResult moved to reme.schema.proactive; re-exported for import compatibility.
+from .proactive import ProactiveResult  # noqa: F401  # pylint: disable=unused-import
+
 
 class DreamUnit(BaseModel):
     """One cross-file memory unit emitted by global extract."""
@@ -47,18 +50,6 @@ class TopicSelectionOutput(BaseModel):
     topics: list[DreamTopic] = Field(default_factory=list)
 
 
-class ProactiveResult(BaseModel):
-    """Result of reading daily interest topics."""
-
-    date: str = ""
-    path: str = ""
-    topics: list[dict] = Field(default_factory=list)
-    content: str = ""
-    skipped: bool = False
-    error: str = ""
-    summary: str = ""
-
-
 class DreamState(BaseModel):
     """Shared state passed across the dream steps."""
 
@@ -86,14 +77,10 @@ class DreamState(BaseModel):
     nodes_updated: list[str] = Field(default_factory=list)
     modified_paths: list[str] = Field(
         default_factory=list,
-        description="Durable digest or interests files detected as created or changed during this run.",
+        description="Durable digest files detected as created or changed during this run.",
     )
     failed_units: list[dict] = Field(default_factory=list)
     failed_paths: list[str] = Field(default_factory=list)
-    interests_path: str = ""
-    interests_paths: list[str] = Field(default_factory=list)
-    topics_written: int = 0
-    topic_error: str = ""
     checkpoint_paths: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)

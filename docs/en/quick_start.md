@@ -203,7 +203,7 @@ Distill daily notes into long-term digest memory:
 
 ```bash
 reme auto_dream date=2026-06-20
-reme proactive date=2026-06-20
+reme proactive_read date=2026-06-20
 ```
 
 These flows require a working LLM. Without an LLM configuration, start with basic capabilities such as `write`, `read`,
