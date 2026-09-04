@@ -31,6 +31,14 @@ for (const relativePath of requiredFiles) await access(path.join(outputDir, rela
 
 assert.equal((await readFile(path.join(outputDir, "CNAME"), "utf8")).trim(), "reme.agentscope.io");
 
+const homepage = await readFile(path.join(outputDir, "index.html"), "utf8");
+assert.ok(homepage.includes('href="/en/"'), "root language switch must link to /en/");
+assert.ok(!homepage.includes('href="/en/ex"'), "root language switch must not produce /en/ex");
+assert.ok(homepage.includes('"studio-en":"/en/workspace/studio"'), "legacy redirects must be embedded");
+
+const sitemap = await readFile(path.join(outputDir, "sitemap.xml"), "utf8");
+assert.ok(sitemap.includes("<lastmod>"), "sitemap must include canonical-source update times");
+
 const ChineseConfiguration = await readFile(path.join(outputDir, "zh/configuration.html"), "utf8");
 assert.match(ChineseConfiguration, /搜索文档/);
 assert.match(ChineseConfiguration, /复制 Markdown/);

@@ -8,6 +8,7 @@ const repoDir = path.resolve(siteDir, "..");
 const outputDir = path.join(siteDir, ".generated", "site");
 
 const externalDocuments = [
+  ["en/development/agents-guide.md", "AGENTS.md"],
   ["en/integrations/claude-code.md", "integrations/claude_code/README.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/typescript.md", "typescript/README_ZH.md"],

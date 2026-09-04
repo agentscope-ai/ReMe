@@ -11,11 +11,15 @@ on:
       - 'README_ZH.md'
       - 'docs/**'
       - 'github-pages/**'
+      - 'reme/config/default.yaml'
+      - 'integrations/claude_code/README.md'
+      - 'integrations/hermes_agent/README.md'
       - 'reme_studio/README*.md'
       - 'reme_studio/public/og.jpg'
       - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
+      - 'benchmark/toolmemory/gitcha.png'
   pull_request:
     branches: [main, master, dev, develop]
     paths:
@@ -26,11 +30,15 @@ on:
       - 'README_ZH.md'
       - 'docs/**'
       - 'github-pages/**'
+      - 'reme/config/default.yaml'
+      - 'integrations/claude_code/README.md'
+      - 'integrations/hermes_agent/README.md'
       - 'reme_studio/README*.md'
       - 'reme_studio/public/og.jpg'
       - 'typescript/README*.md'
       - 'plugins/*/README*.md'
       - 'benchmark/*/README*.md'
+      - 'benchmark/toolmemory/gitcha.png'
   workflow_dispatch:
 
 concurrency:

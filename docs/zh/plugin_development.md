@@ -65,7 +65,7 @@ Step 实例属于单次 Job 调用。跨调用的内存状态应放在带命名�
 `application_defaults` 是不完整的 `ApplicationConfig`。合并顺序为：
 
 ```text
-base config < plugin defaults < explicit config < CLI overrides
+插件默认值 < 选中/default 配置 < CLI 覆盖
 ```
 
 插件不应自动修改用户的配置文件。只有在 Application 的 `plugins` 列表中显式启用后，插件 backend 才会加入该 Application 的局部 registry。

@@ -4,6 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { legacyRoutes } from "../../docs/.vitepress/legacy-routes.mjs";
 
 const siteDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoDir = path.resolve(siteDir, "..");
@@ -59,4 +60,29 @@ test("keeps generated content disposable and excludes internal plans", async () 
     (await readFile(path.join(generatedDir, "public", "CNAME"), "utf8")).trim(),
     "reme.agentscope.io",
   );
+});
+
+test("maps every legacy query-string document ID to a generated page", async () => {
+  assert.equal(Object.keys(legacyRoutes).length, 45);
+  assert.equal(legacyRoutes["studio-en"], "/en/workspace/studio");
+  assert.equal(legacyRoutes["en-quick_start"], "/en/quick_start");
+
+  for (const [id, route] of Object.entries(legacyRoutes)) {
+    assert.match(route, /^\/(?:zh|en)\//, id);
+    const relative = route.endsWith("/") ? `${route.slice(1)}index.md` : `${route.slice(1)}.md`;
+    await access(path.join(generatedDir, relative));
+  }
+});
+
+test("tracks every generated input in documentation CI and deployment", async () => {
+  const requiredPaths = [
+    "reme/config/default.yaml",
+    "integrations/claude_code/README.md",
+    "integrations/hermes_agent/README.md",
+    "benchmark/toolmemory/gitcha.png",
+  ];
+  for (const workflow of ["ci-docs.yml", "deploy-docs.yml"]) {
+    const source = await readFile(path.join(repoDir, ".github/workflows", workflow), "utf8");
+    for (const requiredPath of requiredPaths) assert.ok(source.includes(requiredPath), `${workflow}: ${requiredPath}`);
+  }
 });

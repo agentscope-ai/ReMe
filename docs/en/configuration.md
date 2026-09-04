@@ -11,8 +11,8 @@ ReMe uses YAML or JSON to describe its Service, Jobs, and Components. The built-
 
 Configuration is merged in this order, with later values winning:
 
-1. The selected file; `default` is used when none is specified.
-2. `application_defaults` from enabled plugins.
+1. `application_defaults` from enabled plugins.
+2. The selected file; `default` is used when none is specified.
 3. CLI dot-notation overrides.
 
 ```bash

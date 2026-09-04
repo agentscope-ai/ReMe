@@ -1,9 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type DefaultTheme } from "vitepress";
+import { legacyRoutes } from "./legacy-routes.mjs";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repositoryRoot = path.resolve(sourceRoot, "../../..");
 const repository = "https://github.com/agentscope-ai/ReMe";
 const base = process.env.DOCS_BASE || "/";
 
@@ -61,6 +64,36 @@ function buildLlmsFiles(outDir: string) {
 function sourcePathFor(relativePath: string) {
   return sourceMap[relativePath] || `docs/${relativePath}`;
 }
+
+function sourceLastUpdated(relativePath: string): number | undefined {
+  const sourcePath = sourcePathFor(relativePath);
+  try {
+    const timestamp = execFileSync("git", ["log", "-1", "--format=%ct", "--", sourcePath], {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+    }).trim();
+    if (timestamp) return Number(timestamp) * 1000;
+  } catch {
+    // Fall back to the canonical file timestamp outside a Git checkout.
+  }
+  try {
+    return fs.statSync(path.join(repositoryRoot, sourcePath)).mtimeMs;
+  } catch {
+    return undefined;
+  }
+}
+
+const legacyRedirectScript = `(() => {
+  const routes = ${JSON.stringify(legacyRoutes)};
+  const id = new URLSearchParams(window.location.search).get("doc");
+  const target = id && routes[id];
+  if (!target) return;
+  const base = ${JSON.stringify(base)};
+  const destination = /^https?:/.test(target)
+    ? target
+    : base.replace(/\\/$/, "") + target;
+  window.location.replace(destination + window.location.hash);
+})();`;
 
 function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
   const zh = language === "zh";
@@ -195,16 +228,27 @@ function configureRepositoryLinks(md: any) {
 }
 
 export default defineConfig({
+  lang: "zh-CN",
   title: "ReMe",
   description: "Local-first, file-native memory for agents",
   base,
   cleanUrls: true,
   lastUpdated: true,
   ignoreDeadLinks: [/^http:\/\/localhost(?::\d+)?(?:\/|$)/],
-  sitemap: { hostname: "https://reme.agentscope.io" },
+  sitemap: {
+    hostname: "https://reme.agentscope.io",
+    transformItems(items) {
+      return items.map((item) => {
+        const route = item.url.replace(/^\/+/, "");
+        const relativePath = !route || route.endsWith("/") ? `${route}index.md` : `${route}.md`;
+        return { ...item, lastmod: sourceLastUpdated(relativePath) };
+      });
+    },
+  },
   head: [
     ["link", { rel: "icon", type: "image/svg+xml", href: `${base}favicon.svg` }],
     ["meta", { name: "theme-color", content: "#087f6a" }],
+    ["script", {}, legacyRedirectScript],
   ],
   markdown: {
     config: configureRepositoryLinks,
@@ -212,6 +256,7 @@ export default defineConfig({
   transformPageData(pageData, { siteConfig }) {
     const sourcePath = path.join(siteConfig.srcDir, pageData.relativePath);
     pageData.frontmatter._sourcePath = sourcePathFor(pageData.relativePath);
+    pageData.lastUpdated = sourceLastUpdated(pageData.relativePath);
     try {
       pageData.frontmatter._rawMarkdown = fs.readFileSync(sourcePath, "utf8");
     } catch {
@@ -224,6 +269,17 @@ export default defineConfig({
   themeConfig: {
     logo: "/favicon.svg",
     siteTitle: "ReMe",
+    nav: [
+      ...nav("zh"),
+      {
+        text: "语言",
+        items: [
+          { text: "简体中文", link: "/zh/" },
+          { text: "English", link: "/en/" },
+        ],
+      },
+    ],
+    outline: { label: "页面导航", level: [2, 3] },
     search: {
       provider: "local",
       options: {
@@ -248,16 +304,6 @@ export default defineConfig({
     },
   },
   locales: {
-    root: {
-      label: "简体中文",
-      lang: "zh-CN",
-      link: "/zh/",
-      themeConfig: {
-        nav: nav("zh"),
-        sidebar: { "/": sidebar("zh") },
-        outline: { label: "页面导航", level: [2, 3] },
-      },
-    },
     zh: {
       label: "简体中文",
       lang: "zh-CN",

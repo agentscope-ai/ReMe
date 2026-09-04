@@ -11,8 +11,8 @@ ReMe 使用 YAML 或 JSON 描述 Service、Job 和 Component。默认配置位�
 
 配置按下面的顺序合并，靠后的值优先：
 
-1. 选中的配置文件；未指定时使用内置 `default`。
-2. 已启用插件提供的 `application_defaults`。
+1. 已启用插件提供的 `application_defaults`。
+2. 选中的配置文件；未指定时使用内置 `default`。
 3. 命令行 dot notation 覆盖。
 
 ```bash

@@ -6,6 +6,9 @@ on:
     paths:
       - "github-pages/**"
       - "docs/**"
+      - "reme/config/default.yaml"
+      - "integrations/claude_code/README.md"
+      - "integrations/hermes_agent/README.md"
       - "README.md"
       - "README_ZH.md"
       - "reme_studio/README*.md"
@@ -13,6 +16,7 @@ on:
       - "typescript/README*.md"
       - "plugins/*/README*.md"
       - "benchmark/*/README*.md"
+      - "benchmark/toolmemory/gitcha.png"
       - "AGENTS.md"
       - ".github/workflows/deploy-docs.yml"
       - ".github/workflows/_build-docs.yml"

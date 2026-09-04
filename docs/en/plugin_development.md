@@ -65,7 +65,7 @@ Step instances belong to one Job invocation. Put shared in-memory state under a 
 `application_defaults` is a partial `ApplicationConfig`:
 
 ```text
-base config < plugin defaults < explicit config < CLI overrides
+plugin defaults < selected/default config < CLI overrides
 ```
 
 Plugins must not rewrite user configuration. Their backends enter an Application-local registry only when the plugin appears in that Application's `plugins` list.
