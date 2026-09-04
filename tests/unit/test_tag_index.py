@@ -148,16 +148,16 @@ def test_file_store_rebuilds_non_persistent_tag_index_from_graph(monkeypatch, tm
     asyncio.run(run())
 
 
-def test_tag_index_config_reuses_default_daily_and_digest_watch() -> None:
-    """Enable tag indexing without defining a second filesystem watcher."""
+def test_default_config_documents_optional_tag_index_without_enabling_it() -> None:
+    """Document tag indexing in the default config without enabling another index or watcher."""
 
-    config = resolve_app_config(config="tag_index", log_config=False)
+    config = resolve_app_config(config="default", log_config=False)
 
     assert config["jobs"]["index_update_loop"]["watch_dirs"] == ["daily_dir", "digest_dir"]
     assert "tag_index_loop" not in config["jobs"]
-    assert config["components"]["file_store"]["default"]["tag_index"] == "default"
-    assert config["components"]["tag_index"]["default"] == {
-        "backend": "local",
-        "max_tags_per_file": 8,
-        "max_tag_length": 64,
-    }
+    assert "tag_index" not in config["components"]
+    assert "tag_index" not in config["components"]["file_store"]["default"]
+
+    default_yaml = Path("reme/config/default.yaml").read_text(encoding="utf-8")
+    assert "#  tag_index:" in default_yaml
+    assert "#      tag_index: default" in default_yaml
