@@ -201,6 +201,7 @@ await cp(path.join(repoDir, "docs"), outputDir, {
   filter: (source) => ![".DS_Store", "plans"].includes(path.basename(source)),
 });
 await cp(path.join(siteDir, "public", "CNAME"), path.join(outputDir, "public", "CNAME"));
+await cp(path.join(repoDir, "docs/figure/reme-icon.svg"), path.join(outputDir, "public", "reme-icon.svg"));
 await cp(path.join(repoDir, "docs/figure/reme-logo-fashion.svg"), path.join(outputDir, "public", "reme-logo.svg"));
 
 const sourceMap = {};

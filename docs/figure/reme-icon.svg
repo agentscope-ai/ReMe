@@ -15,7 +15,6 @@
     </filter>
   </defs>
 
-  <!-- Liquid glass tile shared with the full ReMe wordmark. -->
   <g filter="url(#shadow)">
     <rect x="3" y="3" width="58" height="58" rx="18" fill="url(#glass)"/>
     <rect x="3.75" y="3.75" width="56.5" height="56.5" rx="17.25" fill="none" stroke="url(#brand)" stroke-opacity="0.46" stroke-width="1.5"/>

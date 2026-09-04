@@ -71,7 +71,7 @@ test("generates the callable Job reference from default.yaml", async () => {
 test("keeps generated content disposable and excludes internal plans", async () => {
   await assert.rejects(access(path.join(generatedDir, "plans")));
   await access(path.join(generatedDir, ".vitepress", "config.mts"));
-  await access(path.join(generatedDir, "public", "favicon.svg"));
+  await access(path.join(generatedDir, "public", "reme-icon.svg"));
   await access(path.join(generatedDir, "public", "reme-logo.svg"));
   assert.equal(
     (await readFile(path.join(generatedDir, "public", "CNAME"), "utf8")).trim(),

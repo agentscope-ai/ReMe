@@ -256,7 +256,7 @@ export default defineConfig({
     },
   },
   head: [
-    ["link", { rel: "icon", type: "image/svg+xml", href: `${base}favicon.svg` }],
+    ["link", { rel: "icon", type: "image/svg+xml", href: `${base}reme-icon.svg` }],
     ["meta", { name: "theme-color", content: "#087f6a" }],
     ["script", {}, legacyRedirectScript],
   ],
@@ -277,7 +277,7 @@ export default defineConfig({
     buildLlmsFiles(siteConfig.outDir);
   },
   themeConfig: {
-    logo: "/favicon.svg",
+    logo: "/reme-icon.svg",
     siteTitle: "ReMe",
     nav: [
       ...nav("zh"),

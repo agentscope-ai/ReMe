@@ -33,7 +33,7 @@ const requiredFiles = [
   "index.html",
   "404.html",
   "CNAME",
-  "favicon.svg",
+  "reme-icon.svg",
   "reme-logo.svg",
   "hashmap.json",
   "sitemap.xml",
