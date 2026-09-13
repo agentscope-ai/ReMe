@@ -46,6 +46,19 @@ class JsonlFileChunker(BaseFileChunker):
         self.max_lines_per_chunk = max(1, max_lines_per_chunk) if max_lines_per_chunk is not None else None
         self.mode = mode
 
+    def _config_fingerprint_payload(self) -> dict:
+        payload = super()._config_fingerprint_payload()
+        payload.update(
+            {
+                "encoding": self.encoding,
+                "max_chars": self.max_chars,
+                "max_overlap_chars": self.max_overlap_chars,
+                "max_lines_per_chunk": self.max_lines_per_chunk,
+                "mode": self.mode,
+            },
+        )
+        return payload
+
     # ------------------------------------------------------------------
     # Size helpers
     # ------------------------------------------------------------------

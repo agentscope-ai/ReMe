@@ -38,6 +38,18 @@ class DefaultFileChunker(BaseFileChunker):
         self.chunk_byte_size = max(100, chunk_byte_size)
         self.overlap_byte_size = max(4, overlap_byte_size)
 
+    def _config_fingerprint_payload(self) -> dict:
+        payload = super()._config_fingerprint_payload()
+        payload.update(
+            {
+                "encoding": self.encoding,
+                "invalid_encoding_policy": self.invalid_encoding_policy,
+                "chunk_byte_size": self.chunk_byte_size,
+                "overlap_byte_size": self.overlap_byte_size,
+            },
+        )
+        return payload
+
     @staticmethod
     def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str]:
         """Parse YAML front matter delimited by ---, return (front_matter, remaining)."""

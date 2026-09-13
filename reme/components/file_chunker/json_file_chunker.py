@@ -34,6 +34,17 @@ class JsonFileChunker(BaseFileChunker):
         self.chunk_chars = max(256, chunk_chars)
         self.min_element_size = max(64, int(self.chunk_chars * 0.05))
 
+    def _config_fingerprint_payload(self) -> dict:
+        payload = super()._config_fingerprint_payload()
+        payload.update(
+            {
+                "encoding": self.encoding,
+                "chunk_chars": self.chunk_chars,
+                "min_element_size": self.min_element_size,
+            },
+        )
+        return payload
+
     class Node:
         """AST node for JSON tree construction."""
 

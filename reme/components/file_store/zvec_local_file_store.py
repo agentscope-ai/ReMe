@@ -64,10 +64,16 @@ class ZvecLocalFileStore(LocalFileStore):
         self._zvec = self._import_zvec()
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construction = hnsw_ef_construction
-        self.zvec_path = self.component_metadata_path / f"zvec_index_{self.name}_{self.store_version}"
-        self.zvec_sidecar_path = self.component_metadata_path / f"zvec_sidecar_{self.name}_{self.store_version}.json"
         self._collection = None  # zvec.Collection | None
         self._indexed_ids: set[str] = set()  # chunk ids currently present in the collection
+
+    @property
+    def zvec_path(self):
+        return self.component_metadata_path / f"zvec_index_{self.name}_{self._store_version_suffix()}"
+
+    @property
+    def zvec_sidecar_path(self):
+        return self.component_metadata_path / f"zvec_sidecar_{self.name}_{self._store_version_suffix()}.json"
 
     @staticmethod
     def _import_zvec():
