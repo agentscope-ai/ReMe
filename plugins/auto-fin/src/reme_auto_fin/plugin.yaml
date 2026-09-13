@@ -43,6 +43,7 @@ application_defaults:
         - backend: auto_fin_topic_step
         - backend: auto_fin_merge_step
           job_tools: [search, read]
+        - backend: auto_tag_step
 
     auto_fin_cron:
       backend: cron

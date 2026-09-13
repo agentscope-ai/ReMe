@@ -1,0 +1,155 @@
+name: _Release npm plugin
+
+on:
+  workflow_call:
+    inputs:
+      directory:
+        description: Repository-relative package directory
+        required: true
+        type: string
+      package_name:
+        description: Exact public npm package name
+        required: true
+        type: string
+      artifact_name:
+        description: Prefix for the packed package artifact
+        required: true
+        type: string
+      version:
+        description: Exact package.json version; an optional v prefix is accepted
+        required: true
+        type: string
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        type: string
+      use_npm_token:
+        description: Use the npm environment NPM_TOKEN instead of Trusted Publishing
+        required: false
+        default: false
+        type: boolean
+      validate_clawhub:
+        description: Validate the package against the ClawHub contract
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      version:
+        description: Normalized package version
+        value: ${{ jobs.build.outputs.version }}
+    secrets:
+      NPM_TOKEN:
+        description: Optional bootstrap or recovery token for npm publishing
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.16.0"
+          cache: npm
+          cache-dependency-path: ${{ inputs.directory }}/package-lock.json
+
+      - name: Validate package identity and version
+        id: validate
+        working-directory: ${{ inputs.directory }}
+        env:
+          EXPECTED_NAME: ${{ inputs.package_name }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+          const expected = process.env.RELEASE_VERSION.replace(/^v/, '');
+          if (manifest.name !== process.env.EXPECTED_NAME) {
+            throw new Error(`Expected ${process.env.EXPECTED_NAME}, found ${manifest.name}`);
+          }
+          if (manifest.version !== expected) throw new Error(`package.json is ${manifest.version}, workflow input is ${expected}`);
+          if (manifest.version.includes('-') !== (process.env.NPM_TAG === 'next')) {
+            throw new Error('Prereleases must use next; stable releases must use latest');
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${manifest.version}\n`);
+          JS
+
+      - run: npm ci
+        working-directory: ${{ inputs.directory }}
+      - name: Validate package
+        working-directory: ${{ inputs.directory }}
+        run: |
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run test:package
+      - name: Validate ClawHub contract
+        if: inputs.validate_clawhub
+        working-directory: ${{ inputs.directory }}
+        run: npx --yes clawhub@0.23.3 package validate . --json
+      - name: Pack
+        working-directory: ${{ inputs.directory }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/plugin-package"
+          npm pack --pack-destination "$RUNNER_TEMP/plugin-package"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ steps.validate.outputs.version }}
+          path: ${{ runner.temp }}/plugin-package/*.tgz
+          if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.artifact_name }}-${{ needs.build.outputs.version }}
+          path: dist/plugin
+      - name: Reject an existing package version
+        env:
+          PACKAGE_NAME: ${{ inputs.package_name }}
+          PACKAGE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          if npm view "${PACKAGE_NAME}@${PACKAGE_VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${PACKAGE_VERSION} already exists" >&2
+            exit 1
+          fi
+      - name: Publish to npm with Trusted Publishing
+        if: ${{ !inputs.use_npm_token }}
+        env:
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: npm publish dist/plugin/*.tgz --access public --tag "$NPM_TAG" --provenance
+      - name: Publish to npm with NPM_TOKEN
+        if: inputs.use_npm_token
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "NPM_TOKEN is required when use_npm_token is enabled" >&2
+            exit 1
+          fi
+          npm publish dist/plugin/*.tgz --access public --tag "$NPM_TAG" --provenance

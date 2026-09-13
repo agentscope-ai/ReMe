@@ -35,6 +35,7 @@ auto_dream:
     - backend: dream_integrate_step
     - backend: dream_finish_step
       file_catalog: dream
+    - backend: auto_tag_step
 ```
 
 参数含义：
@@ -68,7 +69,7 @@ Auto Dream 只扫描 Markdown 日期索引和笔记，不读取 proactive 状态
 | `digest/wiki/*.md`             | 通用知识、概念、观察、决策先例。                  |
 | `metadata/file_catalog/dream*` | dream 专用 catalog，用于判断 daily 输入是否变化。 |
 
-## 三个阶段
+## 四个阶段
 
 ### 1. Extract
 
@@ -125,6 +126,15 @@ Auto Dream 不读取或写入 proactive 状态和 `interests.yaml`。这些文�
 
 失败路径不会被 checkpoint。这样下一次 `auto_dream` 仍会把它们视作 changed input，直到整合成功。
 
+### 4. Auto Tag
+
+Finish 后，`auto_dream` 和 `dream_cron` 都会通过 `auto_tag_step` 为本轮整合实际新增或修改的 Markdown digest 文件打标，
+包括 Agent 异常后恢复的落盘结果。同一文件被多次写入时只打标一次。该 Step 复用 [Auto Memory](./auto_memory.md) 的请求级
+`changes` 协议，将实体标签写入配置的 frontmatter 字段，默认为 `memory_tags`。Dream 不为未变化文件或 daily 来源笔记打标。
+
+打标诊断记录在 `metadata.auto_tag`。单文件打标失败保留 dream 原有的摘要、成功状态和 checkpoint 决策；后续没有文件变化的
+调用不会自动重试失败的打标。标签索引通过现有文件 watcher 异步更新。
+
 ## 运行方式
 
 CLI：
@@ -158,6 +168,7 @@ jobs:
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream
+      - backend: auto_tag_step
 ```
 
 ## 关键边界
@@ -170,4 +181,4 @@ jobs:
 
 `auto_dream` 不凭空生成总览。只有 daily 输入中确实出现、并被抽取为 memory unit 的内容，才会进入 digest。
 
-完整流程依赖 LLM 完成 Extract 和 Integrate。
+完整流程依赖 LLM 完成 Extract、Integrate 和 Auto Tag。

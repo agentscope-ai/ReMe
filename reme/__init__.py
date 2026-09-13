@@ -1,6 +1,6 @@
 """ReMe CLI package."""
 
-__version__ = "0.4.1.11"
+__version__ = "0.4.1.12"
 
 from . import config
 from . import constants

@@ -20,6 +20,7 @@ Install ReMe and the BEAM plugin in editable mode from the repository root:
 ```bash
 python -m pip install -e ".[as]"
 reme plugins install ./plugins/beam --editable
+reme plugins install ./plugins/beam-judge --editable
 reme plugins validate beam
 ```
 

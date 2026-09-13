@@ -1,0 +1,44 @@
+backends:
+  lme_answer_judge_step: judge_lme.llm_judge:LmeAnswerJudgeStep
+
+application_defaults:
+  jobs:
+    answer_judge:
+      backend: base
+      description: "LLM-as-Judge: evaluate agent answer against golden answer"
+      parameters:
+        type: object
+        properties:
+          query: {type: string}
+          agent_answer: {type: string}
+          golden_answer: {type: string}
+          question_type: {type: string, default: ""}
+        required: [query, agent_answer, golden_answer]
+      steps:
+        - backend: lme_answer_judge_step
+          agent_wrapper: judge
+  components:
+    as_llm:
+      judge:
+        backend: ${LLM_BACKEND:-openai}
+        model: ${JUDGE_MODEL_NAME:-qwen3.7-max}
+        stream: false
+        context_size: 200000
+        max_retries: 5
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
+    agent_wrapper:
+      judge:
+        backend: agentscope
+        as_llm: judge
+        permission_mode: bypass
+        react_config: {max_iters: 1}
+        context_config:
+          trigger_ratio: 0.8
+          reserve_ratio: 0.1
+          tool_result_limit: 50000
+        model_config: {max_retries: 1}

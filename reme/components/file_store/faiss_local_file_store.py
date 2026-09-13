@@ -654,12 +654,7 @@ class FaissLocalFileStore(LocalFileStore):
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
         index_empty = self._faiss_index is None or self._faiss_index.ntotal == 0
         embedding_unavailable = self.embedding_store is None or self._embedding_rebuild_pending
-        if (
-            embedding_unavailable
-            or not query
-            or limit <= 0
-            or (index_empty and getattr(self.embedding_store, "is_healthy", True))
-        ):
+        if embedding_unavailable or not query or limit <= 0 or (index_empty and self.embedding_store.is_healthy):
             return []
 
         query_embedding = await self._get_query_embedding(query)

@@ -18,6 +18,7 @@ knowledge update（知识更新）、multi-session reasoning（多会话推理�
 ```bash
 python -m pip install -e ".[as]"
 reme plugins install ./plugins/beam --editable
+reme plugins install ./plugins/beam-judge --editable
 reme plugins validate beam
 ```
 

@@ -152,7 +152,7 @@ def load_eval_config(config_path: str | None = None) -> dict:
 
 
 def create_reme_app(config: str = "benchmark", **overrides):
-    """Create an app with the installed BEAM plugin explicitly enabled.
+    """Create an app with the BEAM candidate and judge plugins enabled.
 
     Plugin discovery remains environment-based; editable installation keeps local
     plugin source changes visible to every multiprocessing worker.
@@ -161,8 +161,9 @@ def create_reme_app(config: str = "benchmark", **overrides):
     from reme.config import resolve_app_config
 
     enabled_plugins = list(overrides.pop("plugins", ()) or ())
-    if "beam" not in enabled_plugins:
-        enabled_plugins.append("beam")
+    for plugin in ("beam", "beam-judge"):
+        if plugin not in enabled_plugins:
+            enabled_plugins.append(plugin)
     app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
     return Application(**app_config)
 
@@ -391,6 +392,7 @@ async def evaluate_case(eval_config: dict, case_id: str, eval_only: bool = False
 
     app = create_reme_app(
         config=eval_config["reme"]["config"],
+        plugins=eval_config["reme"].get("plugins", ()),
         workspace_dir=workspace_dir,
         log_to_console=output_cfg.get("log_to_console", True),
         log_to_file=output_cfg.get("log_to_file", False),

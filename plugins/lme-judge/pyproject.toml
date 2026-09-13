@@ -1,0 +1,22 @@
+[project]
+name = "reme-lme-judge"
+version = "0.1.0"
+description = "Trusted LongMemEval judge plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["reme-ai[as]>=0.4.1.11"]
+
+[project.entry-points."reme.plugins"]
+lme-judge = "judge_lme"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["judge_lme*"]
+
+[tool.setuptools.package-data]
+judge_lme = ["plugin.yaml", "*.yaml"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

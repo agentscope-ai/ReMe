@@ -2,8 +2,8 @@ name: Policy / PR title
 
 on:
   pull_request:
-    branches: [main, master, dev, develop]
-    types: [opened, edited, synchronize, reopened]
+    branches: [main]
+    types: [opened, edited, reopened]
 
 permissions:
   contents: read
@@ -12,6 +12,7 @@ permissions:
 jobs:
   check-pr-title:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check PR title format
         uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1

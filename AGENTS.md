@@ -54,10 +54,9 @@ and concise documentation together.
 - `tests/integration/`: service/model tests that may need credentials or external processes.
 - `reme_studio/`: ReMe Studio frontend source plus the independently published `reme_studio` Python package and
   `@agentscope-ai/reme_studio` npm static distribution.
-- `typescript/`: the independently published `@agentscope-ai/reme` package, including the shared TypeScript client and
-  DeepSeek Harness and OpenClaw adapters.
-- `plugins/`: installable ReMe extensions, including Auto Fin and LME/BEAM benchmark Steps and application presets.
-- `integrations/`: adapters that connect ReMe to external agent hosts, such as Claude Code, DSH, and Hermes Agent.
+- `plugins/`: installable ReMe extensions, including Auto Fin and LME/BEAM plugins.
+- `integrations/`: adapters that connect ReMe to external agent hosts, including the independent, self-contained DSH
+  and OpenClaw TypeScript plugins plus the Claude Code and Hermes Agent integrations.
 - `skills/`: standalone skills; `reme_memory` calls ReMe, while other skills may use separate tools or direct-file
   conventions.
 - `benchmark/` and `cookbook/`: runnable evaluations and example workflows.

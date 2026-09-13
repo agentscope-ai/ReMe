@@ -3,6 +3,7 @@
 from ._evolve import now, passthrough_response
 from .auto_image_resource import AutoImageResourceStep
 from .auto_memory import AutoMemoryStep
+from .auto_tag import AutoTagStep
 from .auto_memory_cc import AutoMemoryCCStep
 from .auto_resource import AutoResourceStep
 from .auto_text_resource import AutoTextResourceStep
@@ -22,6 +23,7 @@ __all__ = [
     "AutoImageResourceStep",
     "passthrough_response",
     "AutoMemoryStep",
+    "AutoTagStep",
     "AutoMemoryCCStep",
     "AutoResourceStep",
     "AutoTextResourceStep",

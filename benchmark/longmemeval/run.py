@@ -151,7 +151,7 @@ def load_eval_config(config_path: str | None = None) -> dict:
 
 
 def create_reme_app(config: str = "benchmark", **overrides):
-    """Create an app with the installed LongMemEval plugin explicitly enabled.
+    """Create an app with the LongMemEval candidate and judge plugins enabled.
 
     Plugin discovery remains environment-based; editable installation keeps local
     plugin source changes visible to every multiprocessing worker.
@@ -160,8 +160,9 @@ def create_reme_app(config: str = "benchmark", **overrides):
     from reme.config import resolve_app_config
 
     enabled_plugins = list(overrides.pop("plugins", ()) or ())
-    if "lme" not in enabled_plugins:
-        enabled_plugins.append("lme")
+    for plugin in ("lme", "lme-judge"):
+        if plugin not in enabled_plugins:
+            enabled_plugins.append(plugin)
     app_config = resolve_app_config(config=config, plugins=enabled_plugins, **overrides)
     return Application(**app_config)
 
@@ -341,6 +342,7 @@ async def evaluate_item(item: dict, eval_config: dict, item_index: int, eval_onl
 
     app = create_reme_app(
         config=reme_cfg["config"],
+        plugins=reme_cfg.get("plugins", ()),
         workspace_dir=workspace_dir,
         log_to_console=output_cfg.get("log_to_console", True),
         log_to_file=output_cfg.get("log_to_file", False),

@@ -31,8 +31,7 @@ def store_state(step: BaseStep, state: DreamState) -> None:
 
 def workspace_dir(step: BaseStep) -> Path:
     """Get workspace directory."""
-    vr = getattr(step.file_store, "workspace_path", None)
-    return Path(vr).resolve() if vr else Path.cwd().resolve()
+    return step.file_store.workspace_path.resolve()
 
 
 def daily_dir(step: BaseStep) -> str:

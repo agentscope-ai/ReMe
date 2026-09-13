@@ -16,6 +16,7 @@ auto_dream:
     - dream_extract_step
     - dream_integrate_step   # auto_link 的实际发生位置
     - dream_finish_step
+    - auto_tag_step
 ```
 
 Integrate 阶段对每个 unit 独立运行。一个 unit 只落到一个目标 digest 节点，但这个目标节点可以链接多个来源和多个相关 digest

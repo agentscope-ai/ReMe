@@ -63,7 +63,19 @@ def test_plugin_manifest_declares_complete_runtime_surface():
         "daily_paper_analyze_step",
         "daily_paper_digest_step",
     }
-    assert set(_plugin_config()["jobs"]) == {"daily_paper", "daily_paper_cron"}
+    jobs = _plugin_config()["jobs"]
+    assert set(jobs) == {"daily_paper", "daily_paper_cron"}
+    assert [step["backend"] for step in jobs["daily_paper"]["steps"]] == [
+        "daily_paper_collect_step",
+        "daily_paper_rank_step",
+        "daily_paper_select_step",
+        "daily_paper_analyze_step",
+        "daily_paper_digest_step",
+        "auto_tag_step",
+        "dingtalk_markdown_send_step",
+    ]
+    assert jobs["daily_paper"]["steps"][5] == {"backend": "auto_tag_step"}
+    assert jobs["daily_paper_cron"]["steps"] == jobs["daily_paper"]["steps"]
 
 
 class _QueuedAgentWrapper(BaseAgentWrapper):
@@ -644,6 +656,9 @@ def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
 
     assert "`memory/`" in prompt
     assert "搜索结果不必局限于 `memory/`" in prompt
+    assert "最多调用两次 `search`" in prompt
+    assert "首要任务是基于它们生成每日论文速读" in prompt
+    assert "不得将搜索无结果误判为论文输入缺失" in prompt
     assert "[[memory/2026-07-01/旧文章.md" in prompt
     assert "[[daily/2026-07-01/" not in prompt
 
@@ -898,6 +913,12 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
         "Clear evidence",
     ]
     assert digest.metadata["arxiv_ids"] == ["2607.10001", "2607.10004", "2607.10005"]
+    assert context["changes"] == [
+        {"change": "added", "path": "daily/2026-07-21/记忆代理研究.md"},
+        {"change": "added", "path": "daily/2026-07-21/上下文压缩研究.md"},
+        {"change": "added", "path": "daily/2026-07-21/持续学习研究.md"},
+        {"change": "added", "path": "daily/2026-07-21/今日智能体论文简报.md"},
+    ]
     assert cc_wrapper.calls[0]["kwargs"] == {"output_schema": PaperPickList}
     assert "用户感兴趣的主题" not in cc_wrapper.calls[0]["inputs"]
     assert "用户未提供明确的 topic 倾向" in cc_wrapper.calls[0]["inputs"]
@@ -933,7 +954,9 @@ async def test_pipeline_filters_strict_yesterday_and_writes_outputs(
     assert "调用 Read" not in digest_prompt
     assert "daily/2026-07-21" not in digest_prompt
     assert "长期记忆" not in digest_prompt
-    assert "先调用 `search` 检索已有记忆" in digest_prompt
+    assert "历史搜索只用于帮助构建 Wikilink，最多调用两次 `search`" in digest_prompt
+    assert "首要任务是基于它们生成每日论文速读" in digest_prompt
+    assert "不得将搜索无结果误判为论文输入缺失" in digest_prompt
     assert "搜索结果不必局限于 `daily/`" in digest_prompt
     assert "end_date" not in digest_prompt
     assert "limit=" not in digest_prompt
@@ -984,6 +1007,10 @@ async def test_digest_force_migrates_old_fixed_filename_to_chinese_title(tmp_pat
     assert new_path.is_file()
     assert not old_path.exists()
     assert context["daily_paper_digest_path"] == "daily/2026-07-21/全新论文简报.md"
+    assert context["changes"] == [
+        {"change": "deleted", "path": "daily/2026-07-21/daily-paper-brief.md"},
+        {"change": "added", "path": "daily/2026-07-21/全新论文简报.md"},
+    ]
 
 
 @pytest.mark.asyncio

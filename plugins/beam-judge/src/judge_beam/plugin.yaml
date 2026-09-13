@@ -1,0 +1,47 @@
+backends:
+  beam_rubric_judge_step: judge_beam.llm_judge:BeamRubricJudgeStep
+
+application_defaults:
+  jobs:
+    answer_judge:
+      backend: base
+      description: "BEAM rubric-based LLM-as-Judge"
+      parameters:
+        type: object
+        properties:
+          llm_response: {type: string}
+          rubric:
+            type: array
+            items: {type: string}
+          probing_question: {type: string, default: ""}
+          question_type: {type: string, default: ""}
+        required: [llm_response, rubric]
+      steps:
+        - backend: beam_rubric_judge_step
+          agent_wrapper: judge
+  components:
+    as_llm:
+      judge:
+        backend: ${LLM_BACKEND:-openai}
+        model: ${JUDGE_MODEL_NAME:-qwen3.7-max}
+        stream: false
+        context_size: 200000
+        max_retries: 5
+        retry_delay: 5.0
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
+    agent_wrapper:
+      judge:
+        backend: agentscope
+        as_llm: judge
+        permission_mode: bypass
+        react_config: {max_iters: 1}
+        context_config:
+          trigger_ratio: 0.8
+          reserve_ratio: 0.1
+          tool_result_limit: 50000
+        model_config: {max_retries: 1}

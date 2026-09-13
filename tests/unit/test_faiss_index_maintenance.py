@@ -36,6 +36,7 @@ class FakeEmbeddingStore:
 
     dimensions = 2
     max_batch_size = 10
+    is_healthy = True
 
     def _embed(self, text: str) -> np.ndarray:
         if "beta" in text or "fresh" in text:

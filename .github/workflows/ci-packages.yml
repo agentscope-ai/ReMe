@@ -2,7 +2,7 @@ name: CI / Python packages
 
 on:
   push:
-    branches: [main, master, dev, develop]
+    branches: [main]
     paths:
       - '.github/workflows/ci-packages.yml'
       - '.github/workflows/_build-python-packages.yml'
@@ -14,7 +14,7 @@ on:
       - 'tests/unit/test_package_versions.py'
       - 'LICENSE'
   pull_request:
-    branches: [main, master, dev, develop]
+    branches: [main]
     paths:
       - '.github/workflows/ci-packages.yml'
       - '.github/workflows/_build-python-packages.yml'

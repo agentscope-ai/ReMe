@@ -1,7 +1,6 @@
 backends:
   lme_auto_memory_step: reme_lme.auto_memory:LmeAutoMemoryStep
   lme_agentic_answer_step: reme_lme.agentic_answer:LmeAgenticAnswerStep
-  lme_answer_judge_step: judge_lme.llm_judge:LmeAnswerJudgeStep
   lme_search_v2_step: reme_lme.search_v2:SearchV2Step
 
 application_defaults:
@@ -50,35 +49,6 @@ application_defaults:
       steps:
         - backend: lme_agentic_answer_step
           agent_wrapper: bench
-
-    answer_judge:
-      backend: base
-      description: "LLM-as-Judge: evaluate agent answer against golden answer"
-      watch_dirs: []
-      watch_suffixes: []
-      parameters:
-        type: object
-        properties:
-          query:
-            type: string
-            description: "The question being asked"
-          agent_answer:
-            type: string
-            description: "The model's answer to evaluate"
-          golden_answer:
-            type: string
-            description: "The correct/golden answer"
-          question_type:
-            type: string
-            description: "The question type for prompt selection"
-            default: ""
-        required:
-          - query
-          - agent_answer
-          - golden_answer
-      steps:
-        - backend: lme_answer_judge_step
-          agent_wrapper: judge
 
     auto_memory:
       backend: base

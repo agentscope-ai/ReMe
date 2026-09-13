@@ -167,7 +167,9 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 当应用使用 MCP service 时，允许对外服务的插件 Job 会显示为 MCP tool。
 
-自定义应用配置需要提供插件的运行依赖，包括 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
+自定义应用配置需要提供插件的运行依赖，包括 `agent_wrapper.default`、启用 tag index 的
+`file_store.default`，以及 Auto Fin 和自动标签使用的 `search`、`read`、`list_tags`、
+`frontmatter_read` 和 `frontmatter_update` Jobs。
 
 ## Benchmark 应用配置
 

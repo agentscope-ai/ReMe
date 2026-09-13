@@ -47,8 +47,7 @@
 
 ## 📰 最新动态
 
-- [2026.08] - 发布 [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme)，提供统一 TypeScript HTTP
-  client，以及 DeepSeek Harness 和 OpenClaw 的原生 ReMe 记忆集成。
+- [2026.08] - 新增可独立安装的 DeepSeek Harness 和 OpenClaw ReMe 记忆插件。
 - [2026.08] - 发布 [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
   主动发现与评测结果。
 - [2026.08] - 基于 ReMe 的智能体工具使用
@@ -179,11 +178,11 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 
 | Agent                      | 推荐接入方式                                                                                                                              | 接入后能力                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](typescript/README_ZH.md#deepseek-harness)。 | 长期记忆指引、`reme_search` 工具，以及自动捕获已完成的主 Agent 对话。 |
-| **OpenClaw**               | 使用 `openclaw plugins install @agentscope-ai/reme` 安装 [`@agentscope-ai/reme`](typescript/README_ZH.md#openclaw)。             | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
+| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README_ZH.md)。 | 长期记忆指引、`reme_search` 工具，以及自动捕获已完成的主 Agent 对话。 |
+| **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](integrations/openclaw/README_ZH.md)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
 | **Claude Code**            | 启动 streamable HTTP MCP service，并安装 [ReMe 插件](integrations/claude_code/reme)。                                                     | MCP 召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。     |
-| **Hermes**                 | 启动 HTTP service，并安装 [ReMe provider](integrations/hermes_agent)。                                                                    | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
+| **Hermes**                 | 安装 [ReMe provider](integrations/hermes_agent)，并选择 HTTP 或 Embedded 模式。                                                           | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
 | **Codex 及其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。                                                                             | 通过 CLI 搜索、读取和写入记忆；自动捕获需要显式接入宿主生命周期。     |
 
 <p align="center"><b>集成演示</b></p>
@@ -338,7 +337,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Proactive](docs/zh/proactive.md)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
 | [应用场景](docs/zh/reme_scene.md)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](docs/zh/framework.md)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
-| [TypeScript 集成](typescript/README_ZH.md)                               | 配置统一 client，以及 DeepSeek Harness 和 OpenClaw 原生适配器。        |
+| [DSH 插件](integrations/dsh/README_ZH.md) 与 [OpenClaw 插件](integrations/openclaw/README_ZH.md) | 安装具有独立依赖和发布周期的原生宿主适配器。       |
 | [CLI 与 Job API](docs/zh/reference/cli.md)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
 | [运维与恢复](docs/zh/operations.md)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
 | [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |

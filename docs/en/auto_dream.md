@@ -37,6 +37,7 @@ auto_dream:
     - backend: dream_integrate_step
     - backend: dream_finish_step
       file_catalog: dream
+    - backend: auto_tag_step
 ```
 
 Parameters:
@@ -71,7 +72,7 @@ The main outputs are:
 | `digest/wiki/*.md`             | General knowledge, concepts, observations, and decision precedents.          |
 | `metadata/file_catalog/dream*` | Dream-specific catalog used to detect changes in daily inputs.               |
 
-## Three Stages
+## Four Stages
 
 ### 1. Extract
 
@@ -134,6 +135,17 @@ pipeline; see [Proactive](./proactive.md).
 Failed paths are not checkpointed. The next `auto_dream` run therefore continues to treat them as changed inputs until
 integration succeeds.
 
+### 4. Auto Tag
+
+After Finish, both `auto_dream` and `dream_cron` run `auto_tag_step` on Markdown digest files actually created or modified
+during integration, including writes recovered after agent errors. Repeated writes to one file are tagged once. The
+Step uses the same request-scoped `changes` contract as [Auto Memory](./auto_memory.md) and writes entity tags to the
+configured frontmatter key, `memory_tags` by default. Unchanged files and daily source notes are not tagged by Dream.
+
+Tagging diagnostics appear in `metadata.auto_tag`. Per-file tagging failures preserve the dream answer, success status,
+and checkpoint decisions. A later run without file changes does not automatically retry failed tagging. Tag-index
+updates follow the existing asynchronous file watcher.
+
 ## Running Auto Dream
 
 CLI:
@@ -167,6 +179,7 @@ jobs:
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream
+      - backend: auto_tag_step
 ```
 
 ## Important Boundaries
@@ -182,4 +195,4 @@ the workspace-relative wikilink semantics described in
 `auto_dream` does not invent an overview from nothing. Only content that actually appears in daily input and is
 extracted as a memory unit can enter digest.
 
-The complete flow depends on an LLM for Extract and Integrate.
+The complete flow depends on an LLM for Extract, Integrate, and Auto Tag.

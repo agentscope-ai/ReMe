@@ -104,6 +104,7 @@ class AutoFinMergeStep(AutoFinStep):
     async def execute(self):
         """Research the selected news and persist the validated report."""
         assert self.context is not None
+        self.context["changes"] = []
         if self.context.get("auto_fin_skipped"):
             return self.context.response
         run_date = date.fromisoformat(str(self._required("auto_fin_date")))
@@ -131,6 +132,7 @@ class AutoFinMergeStep(AutoFinStep):
         markdown = f"# {output.title}\n\n> {output.description}\n\n{output.body}\n\n"
         markdown += "> 未接入可靠行情数据；本文只提供新闻研究和回顾线索，不提供收益、目标价或买卖建议。\n"
         report = self._report_path(run_date)
+        change = "modified" if report.is_file() else "added"
         _write(report, markdown)
         await refresh_day_index(
             SimpleNamespace(workspace_path=self.workspace_path),
@@ -138,6 +140,7 @@ class AutoFinMergeStep(AutoFinStep):
             str(self.config_value("daily_dir")),
         )
         relative = report.relative_to(self.workspace_path).as_posix()
+        self.context["changes"] = [{"change": change, "path": relative}]
         self.context["markdown_path"] = relative
         self.context["auto_fin_digest_path"] = relative
         self.context.response.answer = output.body

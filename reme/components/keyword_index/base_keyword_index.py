@@ -1,7 +1,7 @@
 """Abstract base class for keyword indexes (BM25 and other lexical backends)."""
 
 from abc import abstractmethod
-from collections.abc import Set
+from collections.abc import Collection, Set
 
 from ..base_component import BaseComponent
 from ..tokenizer import BaseTokenizer
@@ -53,6 +53,30 @@ class BaseKeywordIndex(BaseComponent):
     @abstractmethod
     async def retrieve(self, query: str, limit: int = 3) -> dict[str, float]:
         """Return top-`limit` doc_id → score for the given query."""
+
+    async def score_documents(self, query: str, document_ids: Collection[str]) -> dict[str, float]:
+        """Score selected documents using the index's normal corpus statistics.
+
+        This compatibility implementation uses the existing public retrieval
+        contract. Backends can override it to avoid ranking the whole corpus.
+        """
+        allowed = set(document_ids)
+        if not allowed:
+            return {}
+        results = await self.retrieve(query, limit=len(self.document_ids))
+        return {doc_id: score for doc_id, score in results.items() if doc_id in allowed}
+
+    async def retrieve_filtered(
+        self,
+        query: str,
+        limit: int,
+        document_ids: Collection[str],
+    ) -> dict[str, float]:
+        """Return top results restricted to document IDs, preserving old APIs."""
+        if limit <= 0:
+            return {}
+        scores = await self.score_documents(query, document_ids)
+        return dict(list(scores.items())[:limit])
 
     @abstractmethod
     async def clear(self) -> None:

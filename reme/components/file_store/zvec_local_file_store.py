@@ -447,7 +447,7 @@ class ZvecLocalFileStore(LocalFileStore):
         if self.embedding_store is None or self._embedding_rebuild_pending or not query or limit <= 0:
             return []
         index_empty = self._collection is None or not self._indexed_ids
-        if index_empty and getattr(self.embedding_store, "is_healthy", True):
+        if index_empty and self.embedding_store.is_healthy:
             return []
 
         query_embedding = await self._get_query_embedding(query)

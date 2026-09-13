@@ -3,22 +3,30 @@
 # pylint: disable=protected-access
 
 import asyncio
+import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import frontmatter
+import pytest
 import yaml
 
 from reme.components.application_context import ApplicationContext
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
+from reme.components.job import BaseJob
 from reme.components.runtime_context import RuntimeContext
+from reme.components.tag_index import LocalTagIndex
+from reme.config import resolve_app_config
 from reme.schema import DreamState, FileNode
+from reme.steps.evolve.auto_tag import AutoTagStep
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.integrate import DreamIntegrateStep, _snapshot_digest
 from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
+from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 
 
 def _touch(path: Path, text: str = "x") -> Path:
@@ -110,6 +118,8 @@ class _SequenceAgent(BaseAgentWrapper):
     async def reply(self, _message, **_kwargs):
         self.calls += 1
         outcome = self.outcomes.pop(0)
+        if callable(outcome):
+            outcome = outcome()
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
@@ -495,6 +505,175 @@ def test_integrate_uses_one_application_wide_lock(tmp_path):
     second = DreamIntegrateStep(app_context=app_context)
 
     assert first._integration_lock() is second._integration_lock()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_integrate_emits_actual_changes_once_across_units(tmp_path, monkeypatch):
+    """Creation followed by updates stays added; receipt-only updates emit nothing."""
+    created = "digest/wiki/created.md"
+    updated = "digest/procedure/updated.md"
+    untouched = "digest/personal/untouched.md"
+    _touch(tmp_path / updated, "old")
+    _touch(tmp_path / untouched, "unchanged")
+
+    def create():
+        _touch(tmp_path / created, "new")
+        return {"result": json.dumps({"action": "CREATE", "target_path": created})}
+
+    def update():
+        _touch(tmp_path / created, "new with more evidence")
+        _touch(tmp_path / updated, "updated existing memory")
+        return {"result": json.dumps({"action": "REFINE", "target_path": created})}
+
+    agent = _SequenceAgent(
+        create,
+        update,
+        {"result": json.dumps({"action": "CORROBORATE", "target_path": untouched})},
+    )
+    state = DreamState(
+        units=[{"name": str(i), "bucket": "wiki", "paths": ["daily/source.md"]} for i in range(3)],
+    )
+    context = RuntimeContext(dream=state.model_dump(), file_store=_FileStore(tmp_path))
+    step = DreamIntegrateStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_wrapper=agent)
+    monkeypatch.setattr("reme.steps.evolve.dream.integrate.llm_available", lambda _step: True)
+
+    await step(context)
+
+    assert context.response.success is True
+    assert context["changes"] == [
+        {"change": "modified", "path": updated},
+        {"change": "added", "path": created},
+    ]
+    assert untouched in context.response.metadata["dream"]["nodes_updated"]
+    assert untouched not in context.response.metadata["dream"]["modified_paths"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("agent_error", [False, True])
+async def test_integrate_keeps_added_changes_across_retry_recovery(tmp_path, monkeypatch, agent_error):
+    """Files from both attempts remain eligible for tagging after receipt recovery."""
+    first, second = "digest/wiki/first.md", "digest/wiki/second.md"
+
+    def attempt_one():
+        _touch(tmp_path / first, "first")
+        _touch(tmp_path / second, "second")
+        return RuntimeError("agent failed") if agent_error else {"result": "{}"}
+
+    def attempt_two():
+        _touch(tmp_path / first, "first with more evidence")
+        return RuntimeError("agent failed") if agent_error else {"result": "{}"}
+
+    agent = _SequenceAgent(attempt_one, attempt_two)
+    state = DreamState(units=[{"name": "unit", "bucket": "wiki", "paths": ["daily/source.md"]}])
+    context = RuntimeContext(dream=state.model_dump(), file_store=_FileStore(tmp_path))
+    step = DreamIntegrateStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_wrapper=agent)
+    monkeypatch.setattr("reme.steps.evolve.dream.integrate.llm_available", lambda _step: True)
+
+    await step(context)
+
+    assert agent.calls == 2
+    assert context.response.success is True
+    assert context.response.metadata["dream"]["warnings"]
+    assert context["changes"] == [{"change": "added", "path": path} for path in (first, second)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_units", [False, True])
+async def test_integrate_clears_changes_when_skipping_or_missing_llm(tmp_path, monkeypatch, with_units):
+    """Early returns cannot pass caller-supplied paths into AutoTag."""
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    state = DreamState(units=[{"name": "unit", "paths": ["daily/source.md"]}] if with_units else [])
+    agent = _ReplyAgent()
+    context = RuntimeContext(dream=state.model_dump(), changes=[{"change": "added", "path": "daily/source.md"}])
+    monkeypatch.setattr("reme.steps.evolve.dream.integrate.llm_available", lambda _step: False)
+
+    await DreamIntegrateStep(app_context=app_context, agent_wrapper=agent)(context)
+    response = await AutoTagStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    assert context["changes"] == []
+    assert response.success is not with_units
+    assert response.metadata["auto_tag"]["processed"] == 0
+    assert agent.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("job_name", ["auto_dream", "dream_cron"])
+@pytest.mark.parametrize("tag_fails", [False, True])
+@pytest.mark.parametrize("integrate_fails", [False, True])
+async def test_dream_jobs_tag_outputs_and_preserve_checkpoint_results(
+    tmp_path,
+    monkeypatch,
+    job_name,
+    tag_fails,
+    integrate_fails,
+):
+    """Both configured pipelines tag durable outputs without changing dream success."""
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    catalog, store = _Catalog(), _FileStore(tmp_path)
+    store.tag_index = LocalTagIndex()
+    source = "daily/2026-09-11/source.md"
+    targets = ["digest/wiki/first.md", "digest/wiki/second.md"]
+    _touch(tmp_path / source, "Source about ReMe")
+    unit = {"name": "unit", "bucket": "wiki", "summary": "ReMe memory", "paths": [source]}
+
+    async def reply(_message, **kwargs):
+        if kwargs["job_tools"] == ["read"]:
+            return {"result": json.dumps({"units": [unit]})}
+        if "list_tags" in kwargs["job_tools"]:
+            injected = kwargs["injected_job_kwargs"]
+            path = injected["_allowed_paths"][0]
+            if tag_fails and path == targets[0]:
+                raise RuntimeError("tagging unavailable")
+            update_context = RuntimeContext(
+                path=path,
+                metadata={"memory_tags": ["ReMe"]},
+                **injected,
+            )
+            await FrontmatterUpdateStep(file_store=store)(update_context)
+            assert update_context.response.success
+            return {"result": "Tagged ReMe"}
+        for path in targets:
+            previous = (tmp_path / path).read_text(encoding="utf-8") if (tmp_path / path).exists() else ""
+            _touch(tmp_path / path, previous + "ReMe evidence\n")
+        if integrate_fails:
+            raise RuntimeError("integration unavailable")
+        return {"result": json.dumps({"action": "CREATE", "target_path": targets[0]})}
+
+    agent = _ReplyAgent()
+    monkeypatch.setattr(agent, "reply", AsyncMock(side_effect=reply))
+    monkeypatch.setattr("reme.steps.evolve.dream.extract.llm_available", lambda _step: True)
+    monkeypatch.setattr("reme.steps.evolve.dream.integrate.llm_available", lambda _step: True)
+    config = resolve_app_config(config="default", log_config=False)["jobs"][job_name]
+    # Execute the cron's configured steps once without starting a scheduler.
+    job = BaseJob(name=job_name, steps=config["steps"], app_context=app_context)
+    await job.start()
+    try:
+        response = await job(
+            date="2026-09-11",
+            scan_days=1,
+            agent_wrapper=agent,
+            file_store=store,
+            file_catalog=catalog,
+        )
+    finally:
+        await job.close()
+
+    assert response.success is not integrate_fails
+    assert response.answer.startswith("AutoDream completed")
+    assert response.metadata["modified"] is True
+    dream, tagging = response.metadata["dream"], response.metadata["auto_tag"]
+    assert (source in dream["checkpoint_paths"]) is not integrate_fails
+    assert (source in dream["failed_paths"]) is integrate_fails
+    assert tagging["processed"] == 2
+    assert tagging["failed"] == int(tag_fails)
+    assert tagging["succeeded"] == 2 - int(tag_fails)
+    assert [{"change": item["change"], "path": item["path"]} for item in tagging["results"]] == [
+        {"change": "added", "path": path} for path in targets
+    ]
+    for path in targets:
+        post = frontmatter.loads((tmp_path / path).read_text(encoding="utf-8"))
+        assert post.metadata.get("memory_tags") == (None if tag_fails and path == targets[0] else ["ReMe"])
+    assert (tmp_path / source).read_text(encoding="utf-8") == "Source about ReMe"
 
 
 def test_extract_without_llm_marks_changed_paths_failed(tmp_path):

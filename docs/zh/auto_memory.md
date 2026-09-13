@@ -100,5 +100,11 @@ reme auto_memory \
 
 ## 后续流向
 
+默认的 `auto_memory` 和 `auto_memory_cc` Job 会在记录记忆后执行 `auto_tag_step`，只为实际新增或修改的 daily 笔记打标，
+并使用重命名后的最终路径。Claude Code 调用方仍只需传入 `session_id`；重复 Stop 没有新增消息时，记忆生成和打标都会跳过。
+
+标签描述文档的核心实体，写入配置的 frontmatter 字段，默认为 `memory_tags`。单文件打标失败记录在 `metadata.auto_tag`，
+保留原有记忆响应；没有笔记变化的调用不会自动重试失败的打标。标签索引通过现有文件 watcher 异步更新。
+
 Auto Memory 只生成 daily 层记忆。要把这些材料进一步沉淀为长期 `digest/` 节点，使用 [Auto Dream](./auto_dream.md)；要搜索
 daily 和 digest，使用 [Memory Search](./memory_search.md)。

@@ -2,8 +2,8 @@
 
 [中文说明](./README_ZH.md)
 
-This plugin owns the BEAM memory, agentic-answer and judge Steps, their prompts,
-and their Job defaults in `plugin.yaml`. ReMe's built-in `benchmark.yaml` owns the
+This plugin owns the BEAM memory and agentic-answer Steps and their Job defaults.
+The trusted judge Step, prompts and `answer_judge` Job live in `plugins/beam-judge`. ReMe's built-in `benchmark.yaml` owns the
 shared evaluation Jobs and components. Dataset handling, the runner and results
 remain in [`benchmark/beam`](../../benchmark/beam/README.md).
 
@@ -12,17 +12,19 @@ From the repository root, install ReMe and this plugin in editable mode before r
 ```bash
 python -m pip install -e ".[as]"
 reme plugins install ./plugins/beam --editable
+reme plugins install ./plugins/beam-judge --editable
 reme plugins validate beam
+reme plugins validate beam-judge
 python benchmark/beam/run.py
 ```
 
 Editable installation registers the `beam` entry point while keeping source changes immediately
-visible. The runner selects the built-in `benchmark` preset and explicitly enables `beam` for
+visible. The runner selects the built-in `benchmark` preset and explicitly enables `beam` and `beam-judge` for
 each Application. Installing the plugin makes it discoverable but does not enable it globally.
 
 `plugin.yaml` registers backends and contributes the plugin-owned `auto_memory`,
-`agentic_answer` and `answer_judge` Job defaults. Start the installed plugin with
-`reme start config=benchmark plugins='["beam"]'`. The shared preset does not inherit
+`agentic_answer` Job defaults. Start a full benchmark application with
+`reme start config=benchmark plugins='["beam", "beam-judge"]'`. The shared preset does not inherit
 `default`: only declared Jobs run, indexing is manual, and neither scheduled dream
 nor the optional `auto_dream` Job is enabled.
 The existing `auto_memory`, `agentic_answer`, `answer_judge`, `bench` and `judge`
@@ -31,8 +33,8 @@ still take precedence. Installing this plugin does not start an evaluation.
 
 The shared answer base class lives in `reme.steps.benchmark.base_agentic_answer`.
 The old core-owned `reme.steps.benchmark.beam` Python import path is removed.
-Custom Python callers should import memory, search and answer Steps from `reme_beam`, and the
-judge Step from `judge_beam`. After uninstalling,
+Custom Python callers should import memory, search and answer Steps from `reme_beam`, and install
+`beam-judge` before importing the judge Step from `judge_beam`. After uninstalling,
 Applications and CLI services must omit the plugin until it is installed again.
 Uninstallation never removes datasets, workspaces or results.
 Restart an existing service after changing plugins.

@@ -8,8 +8,6 @@ license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "reme-ai[as]>=0.4.1.11",
-    "json-repair",
-    "numpy>=2.2.6",
 ]
 
 [project.entry-points."reme.plugins"]
@@ -17,11 +15,10 @@ beam = "reme_beam"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["reme_beam*", "judge_beam*"]
+include = ["reme_beam*"]
 
 [tool.setuptools.package-data]
 reme_beam = ["plugin.yaml", "*.yaml"]
-judge_beam = ["*.yaml"]
 
 [build-system]
 requires = ["setuptools>=77", "wheel"]

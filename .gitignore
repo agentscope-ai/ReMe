@@ -32,7 +32,7 @@ build/
 dist/
 node_modules/
 *.egg-info/
-typescript/reports/
+integrations/*/reports/
 
 # Logs / temporary files
 *.log

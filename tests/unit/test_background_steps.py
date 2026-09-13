@@ -837,6 +837,7 @@ def test_update_catalog_yields_to_event_loop_while_building_batch():
 class _CountingEmbeddingStore:
     dimensions = 2
     max_batch_size = 10
+    is_healthy = True
 
     def __init__(self):
         self.calls = 0
@@ -1344,19 +1345,24 @@ def test_auto_resource_handles_file_removed_before_stat():
             _install_file_jobs(app_ctx, fs)
             try:
                 source = write_file(cwd / "resource" / "2026-01-01" / "vanishing.txt", "content")
+                original_is_file = Path.is_file
                 original_stat = Path.stat
-                source_stat_calls = 0
+
+                def existing_is_file(path, *args, **kwargs):
+                    if path == source:
+                        return True
+                    return original_is_file(path, *args, **kwargs)
 
                 def disappearing_stat(path, *args, **kwargs):
-                    nonlocal source_stat_calls
                     if path == source:
-                        source_stat_calls += 1
-                        if source_stat_calls > 1:
-                            raise FileNotFoundError("file disappeared")
+                        raise FileNotFoundError("file disappeared")
                     return original_stat(path, *args, **kwargs)
 
                 step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
-                with patch.object(Path, "stat", disappearing_stat):
+                with (
+                    patch.object(Path, "is_file", existing_is_file),
+                    patch.object(Path, "stat", disappearing_stat),
+                ):
                     resp = await step(
                         RuntimeContext(changes=[{"change": "added", "path": str(source)}]),
                     )
@@ -1997,7 +2003,7 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             cwd = Path.cwd()
             app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
+            fs = LocalFileStore(name="test_store", embedding_store="", tag_index="")
             wrapper = _FakeAgentWrapper()
             await fs.start()
             _install_file_jobs(app_ctx, fs)
@@ -2012,83 +2018,32 @@ def test_auto_memory_reports_modified_for_create_and_false_for_skip():
                     app_context=app_ctx,
                     file_store=fs,
                     agent_wrapper=wrapper,
-                    enable_tags=True,
                 )
-                resp = await step(
-                    RuntimeContext(
-                        messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
-                        session_id="s1",
-                    ),
+                context = RuntimeContext(
+                    messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
+                    session_id="s1",
                 )
+                resp = await step(context)
                 resp = resp or step.context.response
 
                 assert resp.success is True
                 assert resp.metadata["created"] is True
                 assert resp.metadata["modified"] is True
-                assert "tags: []" in (cwd / "daily" / today / "memory.md").read_text(encoding="utf-8")
+                assert context["changes"] == [{"change": "added", "path": f"daily/{today}/memory.md"}]
+                assert "tags:" not in (cwd / "daily" / today / "memory.md").read_text(encoding="utf-8")
 
                 wrapper.on_reply = None
-                resp = await step(RuntimeContext(messages=[], session_id="s2"))
+                context = RuntimeContext(messages=[], session_id="s2")
+                resp = await step(context)
                 resp = resp or step.context.response
 
                 assert resp.success is True
                 assert resp.metadata["modified"] is False
                 assert resp.metadata["n_messages"] == 0
+                assert context["changes"] == []
             finally:
                 await fs.close()
         print("✓ test_auto_memory_reports_modified_for_create_and_false_for_skip passed")
-
-    asyncio.run(run())
-
-
-def test_auto_memory_normalizes_tags_after_existing_note_update():
-    """Existing notes receive a refreshed, normalized tags field capped at eight entries."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                today = datetime.datetime.now().strftime("%Y-%m-%d")
-                note_path = cwd / "daily" / today / "memory.md"
-                write_file(
-                    note_path,
-                    "---\nname: memory\nsession_id: s1\n"
-                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n"
-                    "tags: [old]\n---\nold body\n",
-                )
-
-                wrapper.on_reply = lambda *_: write_file(
-                    note_path,
-                    "---\nname: memory\nsession_id: s1\n"
-                    "source_conversation: '[[session/dialog/s1.jsonl]]'\n"
-                    "tags: [GPT-5, C++, C#, .NET, 100, 'memory system', '++', ReMe, reme, tag7, tag8, tag9]\n"
-                    "---\nupdated body\n",
-                )
-
-                step = AutoMemoryStep(
-                    app_context=app_ctx,
-                    file_store=fs,
-                    agent_wrapper=wrapper,
-                    enable_tags=True,
-                )
-                resp = await step(
-                    RuntimeContext(
-                        messages=[{"name": "user", "role": "user", "content": "updated project detail"}],
-                        session_id="s1",
-                    ),
-                )
-                resp = resp or step.context.response
-
-                assert resp.success is True
-                metadata = step._frontmatter(f"daily/{today}/memory.md")
-                assert metadata["tags"] == ["GPT-5", "C++", "C#", ".NET", "100", "ReMe", "tag7", "tag8"]
-            finally:
-                await fs.close()
 
     asyncio.run(run())
 

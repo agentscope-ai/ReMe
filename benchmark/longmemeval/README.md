@@ -17,6 +17,7 @@ Install ReMe and the LongMemEval plugin in editable mode from the repository roo
 ```bash
 python -m pip install -e ".[as]"
 reme plugins install ./plugins/lme --editable
+reme plugins install ./plugins/lme-judge --editable
 reme plugins validate lme
 ```
 

@@ -14,7 +14,8 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 | 本机脚本或 Hook | ReMe CLI |
 | 应用后端 | HTTP Client |
 | 支持工具协议的 Agent | MCP |
-| TypeScript Agent | `@agentscope-ai/reme` |
+| DeepSeek Harness | `@agentscope-ai/reme-dsh-plugin` |
+| OpenClaw | `@agentscope-ai/reme-openclaw-plugin` |
 | Claude Code | MCP + Skill + Stop Hook |
 | Hermes Agent | Memory provider adapter |
 | Codex 或其他 coding agent | `reme_memory` Skill 或 MCP |
@@ -57,12 +58,8 @@ Skill 不应：
 
 ## TypeScript、OpenClaw 与 DeepSeek Harness
 
-统一 HTTP 客户端和包能力见 [TypeScript Agent 集成](./integrations/typescript.md)。宿主的完整安装、配置和运行说明见 [DeepSeek Harness](./integrations/dsh.md) 与 [OpenClaw](./integrations/openclaw.md) 指南。它们包含：
-
-- HTTP Client；
-- DeepSeek Harness adapter；
-- OpenClaw adapter；
-- 构建与发布检查。
+安装自包含、独立发布的 [DeepSeek Harness 插件](./integrations/dsh.md)或
+[OpenClaw 插件](./integrations/openclaw.md)。每个包拥有自己的 ReMe HTTP 边界，可以跟随对应宿主独立演进。
 
 ## Claude Code
 
@@ -76,7 +73,7 @@ Skill 不应：
 
 ## Hermes Agent
 
-`integrations/hermes_agent/` 提供 memory provider：模型调用前检索相关记忆，每轮结束后异步调用 `auto_memory`。完整配置见该目录 README。
+`integrations/hermes_agent/` 提供 HTTP 和 Embedded 双模式 memory provider：模型调用前检索相关记忆，每轮结束后异步调用 `auto_memory`，并通过 Hermes 通用配置面板展示设置。完整配置见该目录 README。
 
 ## 生产接入建议
 

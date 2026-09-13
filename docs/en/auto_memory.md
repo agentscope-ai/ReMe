@@ -110,5 +110,13 @@ reme auto_memory \
 
 ## What Happens Next
 
+The default `auto_memory` and `auto_memory_cc` jobs run `auto_tag_step` after recording memory. Only a daily note that
+was actually created or modified is tagged, using its final path after any rename. Claude Code callers still pass only
+`session_id`; repeated Stop events with no new messages skip both memory generation and tagging.
+
+Tags describe the document's central entities and are stored in the configured frontmatter key (`memory_tags` by default).
+Per-file tagging failures are reported in `metadata.auto_tag` while preserving the memory response. Calls without note
+changes do not automatically retry failed tagging; the existing file watcher updates the tag index asynchronously.
+
 Auto Memory only creates memory in the daily layer. To distill this material further into long-term `digest/` nodes, use
 [Auto Dream](./auto_dream.md). To search daily and digest content, use [Memory Search](./memory_search.md).

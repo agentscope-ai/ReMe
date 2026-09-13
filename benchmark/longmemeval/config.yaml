@@ -18,7 +18,8 @@ evaluation:
   compress_session: false   # true = compress session chunks in search_v2 (query-aware); false = no compression
 
 reme:
-  config: "benchmark" # shared ReMe benchmark preset; runner enables the installed lme plugin
+  config: "benchmark" # runner enables both plugins below
+  plugins: [lme, lme-judge]
   # Dream trigger: when gap between consecutive sessions crosses this hour (23:00)
   dream_trigger_hour: 23
   # Dream scan_days for each trigger

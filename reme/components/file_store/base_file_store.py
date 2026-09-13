@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from functools import wraps
 
 from ..base_component import BaseComponent
+from ..tag_index import BaseTagIndex
 from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 
@@ -23,8 +24,25 @@ class BaseFileStore(BaseComponent):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.tag_index: BaseTagIndex | None = None
         self._maintenance_lock = asyncio.Lock()
         self._maintenance_lock_owner = None
+
+    @property
+    def tag_index_enabled(self) -> bool:
+        """Whether this file-store backend has a tag index configured."""
+        return self.tag_index is not None
+
+    def require_tag_index(self) -> BaseTagIndex:
+        """Return the configured tag index or fail with one consistent error."""
+        if self.tag_index is None:
+            raise RuntimeError("tag index is not configured")
+        return self.tag_index
+
+    @property
+    def embedding_dimensions(self) -> int:
+        """Vector dimensions used for memory estimates; zero when unavailable."""
+        return 0
 
     @asynccontextmanager
     async def _maintenance_guard(self):

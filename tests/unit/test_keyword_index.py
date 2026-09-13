@@ -351,6 +351,32 @@ def test_retrieve_score_ordering_by_tf():
     run(go())
 
 
+def test_filtered_scoring_preserves_global_bm25_scores():
+    """Selected-document scoring filters results without redefining the corpus."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            bm25 = await create_bm25()
+            await bm25.add_docs(
+                {
+                    "high": "python python python",
+                    "mid": "python python other",
+                    "low": "python alpha beta",
+                    "unrelated": "java only",
+                },
+            )
+
+            global_scores = await bm25.retrieve("python", limit=4)
+            selected = await bm25.score_documents("python", {"mid", "low", "unrelated", "missing"})
+            filtered = await bm25.retrieve_filtered("python", 1, {"mid", "low", "unrelated"})
+
+            assert selected == {"mid": global_scores["mid"], "low": global_scores["low"]}
+            assert filtered == {"mid": global_scores["mid"]}
+            await bm25.close()
+
+    run(go())
+
+
 def test_retrieve_idf_favours_rare_terms():
     """In a query of {common, rare}, the doc containing the rare term wins."""
 

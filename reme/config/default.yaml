@@ -72,6 +72,7 @@ jobs:
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream
+      - backend: auto_tag_step
 
   optimize_index_cron:
     backend: cron
@@ -161,6 +162,7 @@ jobs:
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream
+      - backend: auto_tag_step
 
   auto_memory:
     backend: base
@@ -188,7 +190,7 @@ jobs:
         - messages
     steps:
       - backend: auto_memory_step
-        enable_tags: false
+      - backend: auto_tag_step
 
   auto_memory_cc:
     backend: base
@@ -206,6 +208,7 @@ jobs:
         - session_id
     steps:
       - backend: auto_memory_cc_step
+      - backend: auto_tag_step
 
   auto_resource:
     backend: base
@@ -388,6 +391,37 @@ jobs:
     steps:
       - backend: graph_snapshot_step
 
+  list_tags:
+    backend: base
+    description: >-
+      List active tags with file counts. Returns {total_tags, total_pages, page, range, items}; range is the inclusive
+      1-based item range and each item is [tag, file_count]. A page past the end returns empty items and range [0, 0].
+    parameters:
+      type: object
+      properties:
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: "1-based page; values past the end return an empty page"
+        order_by:
+          type: string
+          enum: [tag, file_count]
+          default: tag
+          description: "sort by tag or file count"
+        order:
+          type: string
+          enum: [asc, desc]
+          description: "defaults to asc for tag, desc for file_count"
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 100
+          description: "items per page"
+    steps:
+      - backend: list_tags_step
+
   reindex:
     backend: base
     description: "rebuild BM25, embedding, and/or tag indexes without rescanning workspace files"
@@ -418,6 +452,12 @@ jobs:
           type: number
           description: "min fused score"
           default: 0.0
+        tags:
+          type: array
+          items:
+            type: string
+          description: "optional tags filter; a file matches when it contains at least one valid tag"
+          default: []
         start_date:
           type: string
           description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
@@ -515,7 +555,7 @@ jobs:
 
   frontmatter_update:
     backend: base
-    description: "Merge key-values into a file's frontmatter."
+    description: "Merge key-value pairs into a Markdown file's frontmatter while preserving its body and unrelated fields."
     parameters:
       type: object
       properties:
@@ -896,11 +936,12 @@ components:
       backend: bm25
       tokenizer: default
 
-#  tag_index:
-#    default:
-#      backend: local
-#      max_tags_per_file: 8
-#      max_tag_length: 64
+  tag_index:
+    default:
+      backend: local
+      tag_key: memory_tags
+      max_tags_per_file: 3
+      max_tag_length: 64
 
   file_store:
     default:
@@ -911,4 +952,4 @@ components:
       embedding_store: ""
       keyword_index: default
       file_graph: default
-#      tag_index: default
+      tag_index: default

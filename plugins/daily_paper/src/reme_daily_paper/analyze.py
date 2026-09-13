@@ -155,8 +155,18 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
                 "pdf_text_truncated": truncated,
             },
         )
+        changes = list(self.context.get("changes") or [])
         if existing_note is not None and existing_note != note_path:
+            existing_rel = existing_note.relative_to(self.workspace_path).as_posix()
             existing_note.unlink()
+            changes.append({"change": "deleted", "path": existing_rel})
+        changes.append(
+            {
+                "change": "modified" if existing_note == note_path else "added",
+                "path": note_rel,
+            },
+        )
+        self.context["changes"] = changes
         self.logger.info(
             f"[{self.name}] paper done arxiv_id={paper.arxiv_id} note_path={note_rel}",
         )
@@ -172,6 +182,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
 
     async def execute(self):
         assert self.context is not None
+        self.context["changes"] = []
         if self._skip():
             self.logger.info(f"[{self.name}] skip existing digest")
             return self.context.response

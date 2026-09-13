@@ -351,13 +351,7 @@ class UpdateIndexStep(ChangeApplyStep):
         return self._estimate_index_memory(size_bytes, len(item[1]))
 
     def _estimate_index_memory(self, size_bytes: int, chunk_count: int) -> int:
-        embedding_bytes = 0
-        embedding_store = getattr(self.file_store, "embedding_store", None)
-        if embedding_store is not None:
-            try:
-                embedding_bytes = max(0, int(embedding_store.dimensions)) * self.float16_bytes
-            except (AttributeError, TypeError, ValueError):
-                embedding_bytes = 0
+        embedding_bytes = self.file_store.embedding_dimensions * self.float16_bytes
         expanded_content = int(size_bytes * self.batch_memory_expansion_factor)
         per_chunk = self.chunk_memory_overhead_bytes + embedding_bytes
         return expanded_content + self.file_memory_overhead_bytes + max(0, chunk_count) * per_chunk

@@ -18,3 +18,8 @@ DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # Background content-processing jobs skip files above this size. File watchers
 # and catalogs still track them so deletes and later size reductions are seen.
 DEFAULT_MAX_FILE_BYTES = 20 * 1024 * 1024
+
+# Memory-tag generation and indexing defaults.
+DEFAULT_MEMORY_TAG_KEY = "memory_tags"
+DEFAULT_MAX_MEMORY_TAGS = 3
+DEFAULT_MAX_MEMORY_TAG_LENGTH = 64

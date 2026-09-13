@@ -25,8 +25,14 @@ class _ForwardToLoggerHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         target = logging.getLogger(self.target_name)
-        if target.isEnabledFor(record.levelno):
-            target.handle(record)
+        # Python 3.13 treats both ``isEnabledFor`` and ``handle`` as disabled
+        # during a nested logger call. Apply their stable public checks here,
+        # then dispatch directly so forwarded ReMe records are not dropped.
+        if target.disabled or target.manager.disable >= record.levelno or record.levelno < target.getEffectiveLevel():
+            return
+        filtered = target.filter(record)
+        if filtered:
+            target.callHandlers(filtered if isinstance(filtered, logging.LogRecord) else record)
 
 
 class _QwenPawStdlibFormatter(logging.Formatter):

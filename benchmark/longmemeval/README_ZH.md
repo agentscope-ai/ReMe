@@ -13,6 +13,7 @@ LongMemEval 是一个面向**多轮多会话历史的长期记忆能力**的评�
 ```bash
 python -m pip install -e ".[as]"
 reme plugins install ./plugins/lme --editable
+reme plugins install ./plugins/lme-judge --editable
 reme plugins validate lme
 ```
 

@@ -14,6 +14,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import frontmatter
 import pytest
 
 from reme.components.file_store import LocalFileStore
@@ -86,6 +87,58 @@ async def test_update_no_suffix_autoappends_md():
         assert resp.metadata["updated"] == {"name": "renamed"}
         assert resp.metadata["resolved_path"] == "notes/post.md"
         assert "name: renamed" in note.read_text(encoding="utf-8")
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_update_honors_injected_frontmatter_key_scope():
+    """Injected key scope rejects the entire update when any key is outside it."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        note = _seed(Path(tmp), NOTE, BODY)
+        store = await _make_store()
+
+        before = note.read_bytes()
+        resp = await _run(
+            FrontmatterUpdateStep,
+            store,
+            path=NOTE,
+            metadata={"tags": ["new"], "name": "renamed"},
+            _allowed_frontmatter_keys=["tags"],
+        )
+        assert resp.success is False
+        assert resp.metadata["error"] == "frontmatter key(s) not allowed: 'name'"
+        assert note.read_bytes() == before
+
+        resp = await _run(
+            FrontmatterUpdateStep,
+            store,
+            path=NOTE,
+            metadata={"tags": ["new"]},
+            _allowed_frontmatter_keys=["tags"],
+        )
+        assert resp.success is True
+        assert frontmatter.loads(note.read_text(encoding="utf-8")).metadata == {"name": "n", "tags": ["new"]}
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_update_empty_frontmatter_key_scope_denies_all_updates():
+    """An empty injected list is restrictive, unlike an omitted constraint."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        note = _seed(Path(tmp), NOTE, BODY)
+        store = await _make_store()
+        before = note.read_bytes()
+
+        resp = await _run(
+            FrontmatterUpdateStep,
+            store,
+            path=NOTE,
+            metadata={"tags": ["new"]},
+            _allowed_frontmatter_keys=[],
+        )
+
+        assert resp.success is False
+        assert note.read_bytes() == before
         await store.close()
 
 

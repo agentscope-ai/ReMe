@@ -75,7 +75,7 @@ daily/
 reme auto_dream date=2026-05-18
 ```
 
-`auto_dream` 是三步管线：
+`auto_dream` 是四步管线：
 
 ```text
 dream_extract_step
@@ -88,6 +88,9 @@ dream_integrate_step
 
 dream_finish_step
   checkpoint 成功处理的 daily 输入
+
+auto_tag_step
+  为新增或修改的 digest 笔记生成实体标签
 ```
 
 本场景中的产物：

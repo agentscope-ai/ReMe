@@ -1,5 +1,7 @@
 """Unit tests for workspace search Steps without embedding or LLM dependencies."""
 
+# pylint: disable=protected-access
+
 import asyncio
 import importlib.util
 from pathlib import Path
@@ -7,6 +9,8 @@ from pathlib import Path
 from agentscope.message import Msg
 
 from reme.components.file_store import BaseFileStore
+from reme.components.file_store.local_file_store import LocalFileStore
+from reme.components.tag_index import LocalTagIndex
 from reme.components import ApplicationContext
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import LinkScopeEnum
@@ -42,15 +46,22 @@ class FakeSearchStore(BaseFileStore):
         self.calls: list[tuple[str, str, int, dict]] = []
 
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
-        raise NotImplementedError
+        """Ignore writes in this read-only search fixture."""
+        del files
 
     async def delete(self, path: str | list[str]) -> None:
-        raise NotImplementedError
+        """Ignore deletes in this read-only search fixture."""
+        del path
 
     async def clear(self) -> None:
-        raise NotImplementedError
+        """Clear the fixture's in-memory results and recorded calls."""
+        self.vector_results.clear()
+        self.keyword_results.clear()
+        self.calls.clear()
 
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
+        """Return no graph nodes for search-only tests."""
+        del paths
         return []
 
     async def get_outlinks(
@@ -58,6 +69,8 @@ class FakeSearchStore(BaseFileStore):
         path: str,
         scope: LinkScopeEnum = LinkScopeEnum.REAL,
     ) -> list[FileLink]:
+        """Return no outgoing links for search-only tests."""
+        del path, scope
         return []
 
     async def get_inlinks(
@@ -65,15 +78,40 @@ class FakeSearchStore(BaseFileStore):
         path: str,
         scope: LinkScopeEnum = LinkScopeEnum.REAL,
     ) -> list[FileLink]:
+        """Return no incoming links for search-only tests."""
+        del path, scope
         return []
 
     async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        """Return the configured vector results."""
         self.calls.append(("vector", query, limit, search_filter))
         return self.vector_results[:limit]
 
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        """Return the configured keyword results."""
         self.calls.append(("keyword", query, limit, search_filter))
         return self.keyword_results[:limit]
+
+
+class TaggedFakeSearchStore(FakeSearchStore):
+    """Fake store with a tag index and ordinary file-store filtering."""
+
+    def __init__(self, *, chunks: list[FileChunk]):
+        super().__init__(vector_results=chunks, keyword_results=chunks)
+        self.file_chunks = {chunk.id: chunk for chunk in chunks}
+        self.tag_index = LocalTagIndex()
+
+    async def vector_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        self.calls.append(("vector", query, limit, search_filter))
+        return [chunk for chunk in self.vector_results if LocalFileStore._matches_search_filter(chunk, search_filter)][
+            :limit
+        ]
+
+    async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
+        self.calls.append(("keyword", query, limit, search_filter))
+        return [chunk for chunk in self.keyword_results if LocalFileStore._matches_search_filter(chunk, search_filter)][
+            :limit
+        ]
 
 
 def _chunk(
@@ -894,6 +932,87 @@ def test_search_step_empty_query_fails_before_store_calls():
         assert resp.success is False
         assert resp.answer == "Error: query cannot be empty"
         assert not store.calls
+
+    asyncio.run(run())
+
+
+def test_search_step_falls_back_for_unavailable_index_and_rejects_invalid_tags():
+    """Unavailable optional indexes preserve search, while malformed tags still fail."""
+
+    async def run():
+        hit = _chunk("hit", "daily/a.md", "text", "keyword", 3.0)
+        missing = FakeSearchStore(keyword_results=[hit])
+        unhealthy = TaggedFakeSearchStore(chunks=[hit])
+        unhealthy.tag_index.set_healthy(False)
+
+        for store in (missing, unhealthy):
+            resp = await SearchStep(file_store=store, expand_links=False)(
+                RuntimeContext(query="hello", limit=5, tags=["python"]),
+            )
+            assert resp.success is True
+            assert [result["id"] for result in resp.metadata["results"]] == ["hit"]
+            assert {call[0] for call in store.calls} == {"vector", "keyword"}
+            assert all(call[3] == {} for call in store.calls)
+            assert resp.metadata["tag_filter"] == {
+                "requested": True,
+                "applied": False,
+                "reason": "tag_index_unavailable",
+            }
+
+        invalid = TaggedFakeSearchStore(chunks=[])
+        resp = await SearchStep(file_store=invalid, expand_links=False)(
+            RuntimeContext(query="hello", limit=5, tags=["!", "++", "x" * 65]),
+        )
+        assert resp.success is False
+        assert resp.answer == "Error: tags contained no valid values"
+        assert not invalid.calls
+
+    asyncio.run(run())
+
+
+def test_search_step_combines_tags_with_existing_chunk_filters():
+    """Tags use OR internally and are ANDed with existing path/date behavior."""
+
+    async def run():
+        matching = _chunk("a", "daily/2024-03-01/a.md", "match", "keyword", 3.0)
+        old = _chunk("b", "daily/2023-03-01/b.md", "old", "keyword", 2.0)
+        wrong_prefix = _chunk("c", "resource/2024-03-01/c.md", "resource", "keyword", 1.0)
+        store = TaggedFakeSearchStore(chunks=[matching, old, wrong_prefix])
+        await store.tag_index.rebuild(
+            [
+                FileNode(path=matching.path, st_mtime=1.0, front_matter={"memory_tags": ["Python"]}),
+                FileNode(path=old.path, st_mtime=1.0, front_matter={"memory_tags": ["ReMe"]}),
+                FileNode(path=wrong_prefix.path, st_mtime=1.0, front_matter={"memory_tags": ["python"]}),
+            ],
+        )
+        step = SearchStep(file_store=store, expand_links=False)
+
+        resp = await step(
+            RuntimeContext(
+                query="hello",
+                limit=5,
+                tags=[" PYTHON ", "REME"],
+                start_date="2024-01-01",
+                search_filter={"path_prefix": "daily/"},
+            ),
+        )
+
+        assert resp.success is True
+        assert [result["id"] for result in resp.metadata["results"]] == ["a"]
+        assert resp.metadata["tag_filter"] == {
+            "requested": True,
+            "applied": True,
+            "tags": ["python", "reme"],
+            "matched_paths": 3,
+        }
+        assert {call[0] for call in store.calls} == {"vector", "keyword"}
+        assert all(set(call[3]["paths"]) == {matching.path, old.path, wrong_prefix.path} for call in store.calls)
+        store.calls.clear()
+        resp = await step(RuntimeContext(query="hello", limit=5, tags=["missing"]))
+        assert resp.success is True
+        assert resp.metadata["results"] == []
+        assert resp.metadata["tag_filter"]["matched_paths"] == 0
+        assert all(call[3]["paths"] == [] for call in store.calls)
 
     asyncio.run(run())
 

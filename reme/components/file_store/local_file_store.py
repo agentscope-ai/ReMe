@@ -68,7 +68,12 @@ class LocalFileStore(BaseFileStore):
         self.embedding_store = self.bind(embedding_store, BaseEmbeddingStore, default_factory=LocalEmbeddingStore)
         self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
-        self.tag_index = self.bind(tag_index, BaseTagIndex, default_factory=LocalTagIndex)
+        self.tag_index = self.bind(
+            tag_index,
+            BaseTagIndex,
+            default_factory=LocalTagIndex if tag_index == "default" else None,
+            optional=False,
+        )
 
         self.encoding = encoding
         self.store_version = store_version
@@ -107,6 +112,12 @@ class LocalFileStore(BaseFileStore):
     @property
     def chunks_path(self) -> Path:
         return self.component_metadata_path / f"file_chunks_{self.name}_{self._store_version_suffix()}.jsonl.zst"
+
+    @property
+    def embedding_dimensions(self) -> int:
+        if self.embedding_store is None:
+            return 0
+        return max(0, int(getattr(self.embedding_store, "dimensions", 0)))
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -163,7 +174,7 @@ class LocalFileStore(BaseFileStore):
             self.embedding_store is None
             or self._embedding_rebuild_pending
             or was_healthy
-            or not getattr(self.embedding_store, "is_healthy", True)
+            or not self.embedding_store.is_healthy
         ):
             return
         self.logger.info(f"{self.name}: embedding provider recovered; scheduling missing-vector backfill")
@@ -223,7 +234,7 @@ class LocalFileStore(BaseFileStore):
             return None
 
         embedding_generation = self._embedding_space_generation
-        was_healthy = bool(getattr(embedding_store, "is_healthy", True))
+        was_healthy = embedding_store.is_healthy
         try:
             query_embedding = await embedding_store.get_embedding(query)
         except Exception as e:
@@ -275,7 +286,7 @@ class LocalFileStore(BaseFileStore):
         tag_sync_started_at = time.monotonic()
         tag_synced = await self._rebuild_tag_index("startup synchronization")
         self.logger.info(
-            f"{self.name}: tag index sync complete: enabled={self.tag_index is not None}, "
+            f"{self.name}: tag index sync complete: enabled={self.tag_index_enabled}, "
             f"healthy={tag_synced}, "
             f"elapsed={time.monotonic() - tag_sync_started_at:.3f}s",
         )
@@ -529,7 +540,7 @@ class LocalFileStore(BaseFileStore):
             return
 
         total = len(missing)
-        batch_size = max(1, int(getattr(self.embedding_store, "max_batch_size", 10)))
+        batch_size = max(1, int(self.embedding_store.max_batch_size))
         self.logger.info(f"{self.name}: embedding backfill started: total={total}, batch_size={batch_size}")
         try:
             if not skip_health_check:
@@ -663,13 +674,14 @@ class LocalFileStore(BaseFileStore):
 
     async def _rebuild_tag_index(self, reason: str) -> bool:
         """Best-effort rebuild that never lets an optional tag index block the file store."""
-        if self.tag_index is None:
+        if not self.tag_index_enabled:
             self._tag_index_rebuild_required = False
             self._tag_indexed_file_count = 0
             return True
+        tag_index = self.require_tag_index()
         try:
             nodes = await self.file_graph.get_nodes()
-            await self.tag_index.rebuild(nodes)
+            await tag_index.rebuild(nodes)
         except Exception:
             self._tag_index_rebuild_required = True
             self.logger.exception(
@@ -678,20 +690,20 @@ class LocalFileStore(BaseFileStore):
             await self._quarantine_tag_index(reason)
             return False
         self._tag_index_rebuild_required = False
-        self.tag_index.set_healthy(True)
-        self._tag_indexed_file_count = self.tag_index.n_files
+        tag_index.set_healthy(True)
+        self._tag_indexed_file_count = tag_index.n_files
         return True
 
     async def _quarantine_tag_index(self, reason: str) -> None:
         """Fail closed after a reconciliation error without propagating cleanup failures."""
-        assert self.tag_index is not None
-        self.tag_index.set_healthy(False)
+        tag_index = self.require_tag_index()
+        tag_index.set_healthy(False)
         try:
-            await self.tag_index.clear()
+            await tag_index.clear()
         except Exception:
             self.logger.exception(f"{self.name}: failed to clear unhealthy tag index during {reason}")
         finally:
-            self.tag_index.set_healthy(False)
+            tag_index.set_healthy(False)
 
     async def _reindex_tag(self) -> dict:
         """Synchronously rebuild the optional tag index from the authoritative file graph."""
@@ -701,33 +713,35 @@ class LocalFileStore(BaseFileStore):
 
     async def _upsert_tag_nodes(self, nodes: list[FileNode]) -> None:
         """Update tags without allowing optional-index failures to block other indexes."""
-        if self.tag_index is None:
+        if not self.tag_index_enabled:
             return
+        tag_index = self.require_tag_index()
         if self._tag_index_rebuild_required:
             await self._rebuild_tag_index("retry before incremental update")
             return
         try:
-            await self.tag_index.upsert_nodes(nodes)
-            self.tag_index.set_healthy(True)
+            await tag_index.upsert_nodes(nodes)
+            tag_index.set_healthy(True)
         except Exception:
             self._tag_index_rebuild_required = True
-            self.tag_index.set_healthy(False)
+            tag_index.set_healthy(False)
             self.logger.exception(f"{self.name}: incremental tag index update failed; rebuilding from graph")
             await self._rebuild_tag_index("incremental update recovery")
 
     async def _delete_tag_paths(self, paths: list[str]) -> None:
         """Delete tag paths without allowing optional-index failures to block other indexes."""
-        if self.tag_index is None:
+        if not self.tag_index_enabled:
             return
+        tag_index = self.require_tag_index()
         if self._tag_index_rebuild_required:
             await self._rebuild_tag_index("retry before incremental delete")
             return
         try:
-            await self.tag_index.delete(paths)
-            self.tag_index.set_healthy(True)
+            await tag_index.delete(paths)
+            tag_index.set_healthy(True)
         except Exception:
             self._tag_index_rebuild_required = True
-            self.tag_index.set_healthy(False)
+            tag_index.set_healthy(False)
             self.logger.exception(f"{self.name}: incremental tag index delete failed; rebuilding from graph")
             await self._rebuild_tag_index("incremental delete recovery")
 
@@ -858,7 +872,7 @@ class LocalFileStore(BaseFileStore):
             return
         embedding_store = self.embedding_store
         embedding_generation = self._embedding_space_generation
-        was_healthy = bool(getattr(embedding_store, "is_healthy", True))
+        was_healthy = embedding_store.is_healthy
         try:
             await embedding_store.get_node_embeddings(chunks)
         except Exception as e:
@@ -930,15 +944,16 @@ class LocalFileStore(BaseFileStore):
         if self.keyword_index:
             await self.keyword_index.clear()
         await self.file_graph.clear()
-        if self.tag_index is not None:
+        if self.tag_index_enabled:
+            tag_index = self.require_tag_index()
             try:
-                await self.tag_index.clear()
+                await tag_index.clear()
                 self._tag_index_rebuild_required = False
                 self._tag_indexed_file_count = 0
-                self.tag_index.set_healthy(True)
+                tag_index.set_healthy(True)
             except Exception:
                 self._tag_index_rebuild_required = True
-                self.tag_index.set_healthy(False)
+                tag_index.set_healthy(False)
                 self.logger.exception(f"{self.name}: tag index clear failed; rebuilding from empty graph")
                 await self._rebuild_tag_index("clear recovery")
         self._mutation_generation += 1
@@ -994,17 +1009,32 @@ class LocalFileStore(BaseFileStore):
         ]
 
     async def keyword_search(self, query: str, limit: int, search_filter: dict) -> list[FileChunk]:
-        if not self.keyword_index:
+        if not self.keyword_index or limit <= 0:
             return []
 
         query = query.strip()
         if not query:
             return []
 
-        retrieve_limit = limit
         if search_filter:
-            retrieve_limit = max(limit, getattr(self.keyword_index, "n_docs", limit))
-        doc_id_score_dict = await self.keyword_index.retrieve(query, limit=retrieve_limit)
+            eligible_ids = {
+                chunk.id for chunk in self.file_chunks.values() if self._matches_search_filter(chunk, search_filter)
+            }
+            if not eligible_ids:
+                return []
+            try:
+                eligible_ids.intersection_update(self.keyword_index.document_ids)
+                if not eligible_ids:
+                    return []
+                doc_id_score_dict = await self.keyword_index.retrieve_filtered(query, limit, eligible_ids)
+            except NotImplementedError:
+                # Compatibility path for third-party indexes implementing only retrieve().
+                doc_id_score_dict = await self.keyword_index.retrieve(
+                    query,
+                    limit=max(limit, getattr(self.keyword_index, "n_docs", limit)),
+                )
+        else:
+            doc_id_score_dict = await self.keyword_index.retrieve(query, limit=limit)
         results = []
         for doc_id, score in doc_id_score_dict.items():
             chunk = self.file_chunks.get(doc_id)
@@ -1060,10 +1090,12 @@ class LocalFileStore(BaseFileStore):
             return True
 
         exact_paths = set()
+        has_exact_path_filter = False
         for key in ("path", "paths"):
             if key in search_filter:
+                has_exact_path_filter = True
                 exact_paths.update(cls._as_filter_values(search_filter[key]))
-        if exact_paths and chunk.path not in exact_paths:
+        if has_exact_path_filter and chunk.path not in exact_paths:
             return False
 
         prefixes = []

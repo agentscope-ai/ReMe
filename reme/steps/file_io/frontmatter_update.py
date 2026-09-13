@@ -30,6 +30,10 @@ class FrontmatterUpdateStep(BaseStep):
     injected by the server into the RuntimeContext;
     without it, restricting read/edit/write alone would still leave
     frontmatter of arbitrary workspace Markdown files mutable.
+
+    ``_allowed_frontmatter_keys`` optionally limits updates to an injected
+    list of top-level keys.  Omitting it (or setting it to ``None``) preserves
+    the unrestricted historical behavior.
     """
 
     async def execute(self):
@@ -38,6 +42,18 @@ class FrontmatterUpdateStep(BaseStep):
         assert path, "path is required"
         metadata = self.context.get("metadata") or {}
         assert isinstance(metadata, dict), "metadata must be a dict"
+
+        allowed_keys = self.context.get("_allowed_frontmatter_keys")
+        key_error: str | None = None
+        if allowed_keys is not None:
+            if not isinstance(allowed_keys, list) or any(not isinstance(key, str) for key in allowed_keys):
+                key_error = "_allowed_frontmatter_keys must be a list of strings"
+            else:
+                allowed = set(allowed_keys)
+                denied = [key for key in metadata if not isinstance(key, str) or key not in allowed]
+                if denied:
+                    names = ", ".join(sorted(repr(key) for key in denied))
+                    key_error = f"frontmatter key(s) not allowed: {names}"
 
         workspace_dir = Path(self.file_store.workspace_path or ".").resolve()
         target, err = resolve_path(workspace_dir, path)
@@ -57,6 +73,8 @@ class FrontmatterUpdateStep(BaseStep):
                         payload = {"path": path, "error": "not markdown"}
                     elif not metadata:
                         payload = {"path": path, "error": "no fields to update"}
+                    elif key_error:
+                        payload = {"path": path, "error": key_error}
                     else:
                         post = frontmatter.loads(target.read_text(encoding="utf-8"))
                         post.metadata.update(metadata)
