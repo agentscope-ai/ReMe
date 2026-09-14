@@ -106,6 +106,7 @@ function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
   return [
     { text: zh ? "首页" : "Home", link: `/${language}/` },
     { text: zh ? "文档" : "Docs", link: `/${language}/quick_start` },
+    { text: "Studio", link: `/${language}/workspace/studio` },
     { text: zh ? "集成" : "Integrations", link: `/${language}/integrations` },
     { text: zh ? "插件" : "Plugins", link: `/${language}/plugin_management` },
     { text: zh ? "评测" : "Benchmarks", link: `/${language}/benchmarks/longmemeval` },
@@ -185,25 +186,18 @@ function integrationsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] 
 
 function pluginsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
   const zh = language === "zh";
-  return [
-    {
-      text: zh ? "工作区" : "Workspace",
-      collapsed: false,
-      items: [{ text: "ReMe Studio", link: `/${language}/workspace/studio` }],
-    },
-    {
-      text: zh ? "插件" : "Plugins",
-      collapsed: false,
-      items: [
-        { text: zh ? "插件管理" : "Plugin Management", link: `/${language}/plugin_management` },
-        { text: zh ? "插件开发" : "Plugin Development", link: `/${language}/plugin_development` },
-        { text: zh ? "每日论文" : "Daily Paper", link: `/${language}/plugins/daily-paper` },
-        { text: "Auto Fin", link: `/${language}/plugins/auto-fin` },
-        { text: "LME", link: `/${language}/plugins/lme` },
-        { text: "BEAM", link: `/${language}/plugins/beam` },
-      ],
-    },
-  ];
+  return [{
+    text: zh ? "插件" : "Plugins",
+    collapsed: false,
+    items: [
+      { text: zh ? "插件管理" : "Plugin Management", link: `/${language}/plugin_management` },
+      { text: zh ? "插件开发" : "Plugin Development", link: `/${language}/plugin_development` },
+      { text: zh ? "每日论文" : "Daily Paper", link: `/${language}/plugins/daily-paper` },
+      { text: "Auto Fin", link: `/${language}/plugins/auto-fin` },
+      { text: "LME", link: `/${language}/plugins/lme` },
+      { text: "BEAM", link: `/${language}/plugins/beam` },
+    ],
+  }];
 }
 
 function benchmarksSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
@@ -235,7 +229,7 @@ function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): Default
 function sidebars(language: "zh" | "en"): DefaultTheme.SidebarMulti {
   return {
     [`/${language}/integrations`]: integrationsSidebar(language),
-    [`/${language}/workspace/`]: pluginsSidebar(language),
+    [`/${language}/workspace/`]: [],
     [`/${language}/plugins/`]: pluginsSidebar(language),
     [`/${language}/plugin_management`]: pluginsSidebar(language),
     [`/${language}/plugin_development`]: pluginsSidebar(language),

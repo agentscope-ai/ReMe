@@ -49,6 +49,8 @@ const requiredFiles = [
   "en/configuration.html",
   "zh/services.html",
   "en/services.html",
+  "zh/workspace/studio.html",
+  "en/workspace/studio.html",
   "zh/reference/jobs.html",
   "en/reference/jobs.html",
   "zh/configuration/llms.txt",
@@ -69,6 +71,11 @@ assert.match(ChineseHomepage, /8cafe9df-d883-4046-b5e9-36dfd21a4884/);
 assert.match(ChineseHomepage, /用真实评测/);
 assert.match(ChineseHomepage, /89\.4%/);
 assert.match(ChineseHomepage, /公开、透明的访问趋势/);
+
+const ChineseStudio = await readFile(path.join(outputDir, "zh/workspace/studio.html"), "utf8");
+assert.match(ChineseStudio, /class="VPLink link VPNavBarMenuLink active" href="\/zh\/workspace\/studio"/);
+assert.match(ChineseStudio, /<span[^>]*>Studio<\/span>/);
+assert.doesNotMatch(ChineseStudio, /<aside[^>]*class="VPSidebar/);
 
 const ChineseTraffic = await readFile(path.join(outputDir, "zh/traffic.html"), "utf8");
 assert.match(ChineseTraffic, /S1OZK1PSDLEpyiU5/);
