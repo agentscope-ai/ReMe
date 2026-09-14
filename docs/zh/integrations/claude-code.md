@@ -39,6 +39,11 @@ reme start service.backend=http
 
 请勿将默认 HTTP 服务直接暴露到不可信网络；跨主机使用时应在反向代理层提供认证和 TLS，并限制可调用 Job。
 
+自动捕获还要求 ReMe 服务进程能读取 Claude Code transcript。它默认在服务端的 `~/.claude/projects`
+下查找会话；因此 ReMe 应与 Claude Code 运行在同一主机，或者将 transcript 挂载/同步到服务端，并在启动
+ReMe 时用 `CLAUDE_CONFIG_DIR` 指向对应目录。如果服务端无法访问 transcript，远程 MCP 召回等功能仍可使用，但
+`auto_memory_cc` 会因没有消息而跳过，不会生成记忆。
+
 ## 安装插件
 
 在 Claude Code 中运行：
@@ -56,7 +61,7 @@ reme start service.backend=http
 - 自动记忆 Hook：`integrations/claude_code/reme/hooks/auto_memory.py`；
 - Hook 日志：`integrations/claude_code/reme/logs/auto_memory_hook.log`；
 - 默认 transcript 根目录：`~/.claude/projects`；
-- 可通过 `CLAUDE_CONFIG_DIR` 修改 transcript 根目录；
+- 启动 ReMe 服务时，可通过 `CLAUDE_CONFIG_DIR` 修改服务端的 transcript 根目录；
 - 可通过 `REME_HOST`、`REME_PORT` 覆盖 Hook 使用的服务地址。
 
 Hook 需要 `python3` 位于 `PATH`。MCP 工具名前缀可能随 Claude Code 版本包含 server segment；Skill 使用 `mcp__reme__*` 匹配这一差异。
