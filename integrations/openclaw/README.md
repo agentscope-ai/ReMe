@@ -54,7 +54,9 @@ ReMe HTTP does not add API-key authentication. Keep it on loopback or place it b
 
 ## 2. Install the plugin
 
-From a released package:
+From a released package. See its listings on
+[ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) and
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin):
 
 ```bash
 openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin

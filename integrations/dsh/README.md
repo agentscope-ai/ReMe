@@ -48,7 +48,9 @@ For development and screenshots, use an isolated directory outside the repositor
 
 ### 3.2 Install the DSH bundle
 
-Install the published package:
+Install the published package. See its listings on
+[Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) and
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin):
 
 ```bash
 dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin

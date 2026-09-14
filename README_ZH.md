@@ -47,15 +47,21 @@
 
 ## 📰 最新动态
 
-- [2026.08] - 新增可独立安装的 DeepSeek Harness 和 OpenClaw ReMe 记忆插件。
-- [2026.08] - 发布 [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)，系统介绍本地优先的记忆架构、自进化工作流、混合检索、
-  主动发现与评测结果。
+- [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过
+  [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 或
+  [npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin) 安装，为 OpenClaw 提供原生记忆召回、自动对话捕获和定时整理能力。
+- [2026.09] - **[DeepSeek Harness 插件](https://reme.agentscope.io/zh/integrations/dsh) 发布**：可通过
+  [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) 或
+  [npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin) 安装，提供长期记忆指引、`reme_search`、自动记忆、Auto Dream 和 ReMe Status。
+- [2026.08] - **ReMe 博客发布**：[ReMe 博客](https://reme.agentscope.io/zh/reme-blog) 系统介绍了本地优先的记忆架构、
+  自进化工作流、混合检索、主动发现与评测结果。
+- [2026.08] - **新增 ReMe 生态插件**：[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper) 可自动发现、解析论文并生成文件化简报；
+  [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin) 可研究最近 24 小时的主题相关财联社新闻，并结合本地记忆构建可追溯报告。欢迎体验。
+- [2026.08] - **插件开发能力上线**：参考 [插件开发](docs/zh/plugin_development.md) 与 [插件管理](docs/zh/plugin_management.md)，
+  为 ReMe 扩展 Component、Step 和 Job；欢迎开发并分享你的插件。
 - [2026.08] - 基于 ReMe 的智能体工具使用
-  [经验驱动增强方法](https://reme.agentscope.io/zh/benchmarks/toolmemory)已发布，见
+  [经验驱动增强方法](https://reme.agentscope.io/zh/benchmarks/toolmemory) 已发布，见
   [arXiv:2608.03403](https://arxiv.org/abs/2608.03403)。
-- [2026.07] - 新增可选插件：[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper)用于论文发现与解析，
-  [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin)用于研究最近 24 小时的主题相关财联社新闻，通过本地记忆搜索回顾历史材料并构建
-  wikilink。
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   已被 Findings of ACL 2026 接收。
@@ -178,10 +184,10 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 
 | Agent                      | 推荐接入方式                                                                                                                              | 接入后能力                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README_ZH.md)。 | 长期记忆指引、`reme_search` 工具，以及自动捕获已完成的主 Agent 对话。 |
+| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README_ZH.md)。 | 可配置记忆指引、`reme_search`、自动对话捕获、定时 Auto Dream 和 ReMe Status。 |
 | **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](integrations/openclaw/README_ZH.md)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
-| **Claude Code**            | 启动 streamable HTTP MCP service，并安装 [ReMe 插件](integrations/claude_code/reme)。                                                     | MCP 召回工具、`reme-memory` skill，以及自动记录会话的 Stop hook。     |
+| **Claude Code**            | 启动共享的 streamable HTTP MCP service，并安装 [ReMe 插件](integrations/claude_code/README.md)。                                        | 通过 MCP 进行语义、图关系和状态召回，并由 Stop Hook 异步捕获会话。 |
 | **Hermes**                 | 安装 [ReMe provider](integrations/hermes_agent)，并选择 HTTP 或 Embedded 模式。                                                           | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
 | **Codex 及其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。                                                                             | 通过 CLI 搜索、读取和写入记忆；自动捕获需要显式接入宿主生命周期。     |
 
@@ -337,7 +343,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Proactive](docs/zh/proactive.md)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
 | [应用场景](docs/zh/reme_scene.md)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](docs/zh/framework.md)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
-| [DSH 插件](integrations/dsh/README_ZH.md) 与 [OpenClaw 插件](integrations/openclaw/README_ZH.md) | 安装具有独立依赖和发布周期的原生宿主适配器。       |
+| [Agent 集成](docs/zh/integrations.md)                                      | 选择接口，并将 DSH、Claude Code、OpenClaw、Hermes、Codex 或其他 Agent 接入 ReMe。 |
+| [DSH 插件](integrations/dsh/README_ZH.md) 与 [Claude Code 插件](integrations/claude_code/README.md) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
 | [CLI 与 Job API](docs/zh/reference/cli.md)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
 | [运维与恢复](docs/zh/operations.md)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
 | [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |
