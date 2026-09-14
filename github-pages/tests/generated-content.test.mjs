@@ -34,6 +34,7 @@ test("generates every required bilingual guide", async () => {
   await access(path.join(generatedDir, "zh/integrations/openclaw.md"));
   await access(path.join(generatedDir, "en/integrations/openclaw.md"));
   await access(path.join(generatedDir, "public/figures/dsh/reme-status-overview.png"));
+  await access(path.join(generatedDir, "public/figures/studio/studio-overview.png"));
 });
 
 test("maps mirrored pages back to their canonical repository sources", async () => {
@@ -67,6 +68,15 @@ test("publishes portable and accurate DSH instructions", async () => {
   assert.doesNotMatch(chinese, /\/Users\//);
   assert.match(english, /runtime counters refresh every 5 seconds/);
   assert.match(chinese, /每 5 秒仅刷新 DSH 插件的运行时计数/);
+});
+
+test("publishes Studio screenshots with site-safe links", async () => {
+  const english = await readFile(path.join(generatedDir, "en/workspace/studio.md"), "utf8");
+  const chinese = await readFile(path.join(generatedDir, "zh/workspace/studio.md"), "utf8");
+  assert.match(english, /\(\/figures\/studio\/studio-overview\.png\)/);
+  assert.match(chinese, /\(\/figures\/studio\/settings-status\.png\)/);
+  assert.match(english, /\(\/zh\/workspace\/studio\)/);
+  assert.match(chinese, /\(\/en\/workspace\/studio\)/);
 });
 
 test("generates the callable Job reference from default.yaml", async () => {
@@ -114,6 +124,8 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "integrations/dsh/README*.md",
     "integrations/dsh/figures/**",
     "integrations/openclaw/README*.md",
+    "reme_studio/README*.md",
+    "reme_studio/figures/**",
     "benchmark/toolmemory/gitcha.png",
   ];
   for (const workflow of ["ci-docs.yml", "deploy-docs.yml"]) {

@@ -64,6 +64,14 @@ const externalDocumentRewrites = {
   "integrations/openclaw/README_ZH.md": [
     ["(./README.md)", "(/en/integrations/openclaw)"],
   ],
+  "reme_studio/README.md": [
+    ["(./README_ZH.md)", "(/zh/workspace/studio)"],
+    ["(./figures/", "(/figures/studio/"],
+  ],
+  "reme_studio/README_ZH.md": [
+    ["(./README.md)", "(/en/workspace/studio)"],
+    ["(./figures/", "(/figures/studio/"],
+  ],
 };
 
 const externalDocumentPreambles = {
@@ -218,6 +226,9 @@ for (const [destination, source] of externalDocuments) {
 }
 
 await cp(path.join(repoDir, "integrations/dsh/figures"), path.join(outputDir, "public/figures/dsh"), {
+  recursive: true,
+});
+await cp(path.join(repoDir, "reme_studio/figures"), path.join(outputDir, "public/figures/studio"), {
   recursive: true,
 });
 
