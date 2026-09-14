@@ -15,15 +15,28 @@ class ReMeServiceError(RuntimeError):
     """Raised when a ReMe action cannot be completed successfully."""
 
 
+def normalize_http_endpoint(endpoint: str) -> str:
+    """Validate an HTTP service base URL without accepting embedded secrets."""
+    normalized = str(endpoint or "").strip().rstrip("/")
+    try:
+        parsed = urlsplit(normalized)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError("ReMe endpoint must be an absolute http(s) URL") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("ReMe endpoint must be an absolute http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("ReMe endpoint must be an absolute http(s) URL")
+    if parsed.query or parsed.fragment:
+        raise ValueError("ReMe endpoint must be an absolute http(s) URL")
+    return normalized
+
+
 class ReMeHttpClient:
     """Call ReMe JSON actions without adding a runtime dependency to Hermes."""
 
     def __init__(self, endpoint: str, *, timeout: float) -> None:
-        endpoint = str(endpoint or "").strip().rstrip("/")
-        parsed = urlsplit(endpoint)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("ReMe endpoint must be an absolute http(s) URL")
-        self.endpoint = endpoint
+        self.endpoint = normalize_http_endpoint(endpoint)
         self.timeout = max(0.1, float(timeout))
 
     def call(
@@ -63,7 +76,9 @@ class ReMeHttpClient:
         if not isinstance(result, dict):
             raise ReMeServiceError("ReMe returned a non-object response")
         if result.get("success") is not True:
-            raise ReMeServiceError(str(result.get("answer") or "ReMe action did not report success"))
+            raise ReMeServiceError(
+                str(result.get("answer") or "ReMe action did not report success"),
+            )
         return result
 
     def health(self, *, timeout: float) -> dict[str, Any]:

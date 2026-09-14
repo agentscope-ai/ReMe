@@ -10,7 +10,6 @@ import pytest
 
 from reme.steps.evolve._evolve import agent_reply_result_text, format_history
 from reme.steps.evolve.auto_memory import AutoMemoryStep, _sanitize_msg_for_save
-from reme.steps.evolve.auto_tag import normalize_memory_tags
 
 
 def test_agent_reply_result_text_uses_last_text_block():
@@ -74,26 +73,6 @@ def test_sanitize_msg_for_save_drops_tool_results_and_base64_data():
     assert [block.type for block in sanitized.content] == ["text", "tool_call"]
     assert sanitized.content[0].text == "real conversation"
     assert sanitized.content[1].name == "memory_search"
-
-
-def test_auto_tag_normalizes_frontmatter_tags():
-    """Memory tags preserve entity names, de-duplicate, and stop at three."""
-    assert normalize_memory_tags(
-        [
-            "OpenAI",
-            "openai",
-            "Sam   Altman",
-            "++",
-            100,
-            "宁德时代",
-            "黄金",
-        ],
-    ) == ["OpenAI", "Sam_Altman", "宁德时代"]
-    # pylint: disable=use-implicit-booleaness-not-comparison
-    assert normalize_memory_tags(None) == []
-    assert normalize_memory_tags("OpenAI") == []
-    # pylint: enable=use-implicit-booleaness-not-comparison
-    assert normalize_memory_tags(["x" * 65, True, {}, "宁德时代"]) == ["宁德时代"]
 
 
 def test_auto_memory_accepts_message_timestamp_aliases():

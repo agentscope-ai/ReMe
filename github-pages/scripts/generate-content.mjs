@@ -12,12 +12,10 @@ const externalDocuments = [
   ["en/overview.md", "README.md"],
   ["en/integrations/claude-code.md", "integrations/claude_code/README.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
-  ["zh/integrations/typescript.md", "typescript/README_ZH.md"],
-  ["en/integrations/typescript.md", "typescript/README.md"],
-  ["zh/integrations/dsh.md", "typescript/docs/dsh.zh-CN.md"],
-  ["en/integrations/dsh.md", "typescript/docs/dsh.md"],
-  ["zh/integrations/openclaw.md", "typescript/docs/openclaw.zh-CN.md"],
-  ["en/integrations/openclaw.md", "typescript/docs/openclaw.md"],
+  ["zh/integrations/dsh.md", "integrations/dsh/README_ZH.md"],
+  ["en/integrations/dsh.md", "integrations/dsh/README.md"],
+  ["zh/integrations/openclaw.md", "integrations/openclaw/README_ZH.md"],
+  ["en/integrations/openclaw.md", "integrations/openclaw/README.md"],
   ["zh/workspace/studio.md", "reme_studio/README_ZH.md"],
   ["en/workspace/studio.md", "reme_studio/README.md"],
   ["zh/plugins/daily-paper.md", "plugins/daily_paper/README_ZH.md"],
@@ -53,35 +51,18 @@ const externalDocumentRewrites = {
     ['src="docs/figure/', 'src="../figure/'],
     ["(docs/zh/", "(./"],
   ],
-  "typescript/README.md": [
-    ["(./README_ZH.md)", "(/zh/integrations/typescript)"],
-    ["(./docs/dsh.md)", "(/en/integrations/dsh)"],
-    ["(./docs/dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
-    ["(./docs/openclaw.md)", "(/en/integrations/openclaw)"],
-    ["(./docs/openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
-    ["(./figures/dsh/", "(/figures/dsh/"],
+  "integrations/dsh/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/dsh)"],
+    ["(./figures/", "(/figures/dsh/"],
   ],
-  "typescript/README_ZH.md": [
-    ["(./README.md)", "(/en/integrations/typescript)"],
-    ["(./docs/dsh.md)", "(/en/integrations/dsh)"],
-    ["(./docs/dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
-    ["(./docs/openclaw.md)", "(/en/integrations/openclaw)"],
-    ["(./docs/openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
-    ["(./figures/dsh/", "(/figures/dsh/"],
+  "integrations/dsh/README_ZH.md": [
+    ["(./figures/", "(/figures/dsh/"],
   ],
-  "typescript/docs/dsh.md": [
-    ["(./dsh.zh-CN.md)", "(/zh/integrations/dsh)"],
-    ["(../figures/dsh/", "(/figures/dsh/"],
+  "integrations/openclaw/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/openclaw)"],
   ],
-  "typescript/docs/dsh.zh-CN.md": [
-    ["(./dsh.md)", "(/en/integrations/dsh)"],
-    ["(../figures/dsh/", "(/figures/dsh/"],
-  ],
-  "typescript/docs/openclaw.md": [
-    ["(./openclaw.zh-CN.md)", "(/zh/integrations/openclaw)"],
-  ],
-  "typescript/docs/openclaw.zh-CN.md": [
-    ["(./openclaw.md)", "(/en/integrations/openclaw)"],
+  "integrations/openclaw/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/openclaw)"],
   ],
 };
 
@@ -236,7 +217,7 @@ for (const [destination, source] of externalDocuments) {
   sourceMap[destination] = source;
 }
 
-await cp(path.join(repoDir, "typescript/figures/dsh"), path.join(outputDir, "public/figures/dsh"), {
+await cp(path.join(repoDir, "integrations/dsh/figures"), path.join(outputDir, "public/figures/dsh"), {
   recursive: true,
 });
 

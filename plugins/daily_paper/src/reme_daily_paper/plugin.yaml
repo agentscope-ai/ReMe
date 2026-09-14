@@ -54,6 +54,7 @@ application_defaults:
         - backend: daily_paper_analyze_step
         - backend: daily_paper_digest_step
           job_tools: [search, read]
+        - backend: auto_tag_step
         - backend: dingtalk_markdown_send_step
           input_mapping:
             daily_paper_digest_path: markdown_path

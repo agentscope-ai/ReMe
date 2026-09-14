@@ -219,6 +219,7 @@ async def test_merge_writes_only_final_report_and_validates_historical_links(tmp
     assert "missing.md" not in report and "outside.md" not in report
     assert not (tmp_path / "daily" / "2026-08-10" / "auto_fin_news.md").exists()
     assert not (tmp_path / "resource").exists()
+    assert context["changes"] == [{"change": "added", "path": "daily/2026-08-10/auto_fin.md"}]
     assert response.metadata["source_paths"] == ["daily/2026-08-01/auto_fin.md"]
 
 
@@ -262,8 +263,10 @@ def test_plugin_config_has_default_topics_and_no_intermediate_index_step():
         "auto_fin_data_step",
         "auto_fin_topic_step",
         "auto_fin_merge_step",
+        "auto_tag_step",
     ]
     assert job["steps"][2]["job_tools"] == ["search", "read"]
+    assert job["steps"][3] == {"backend": "auto_tag_step"}
     assert jobs["auto_fin_cron"]["cron"] == "0 18 * * *"
     assert jobs["auto_fin_cron"]["steps"] == job["steps"]
     assert (

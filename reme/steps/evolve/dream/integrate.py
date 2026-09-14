@@ -57,6 +57,7 @@ class DreamIntegrateStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
+        self.context["changes"] = []
         state = state_from_context(self)
         if not state.units:
             self.logger.info(f"[{self.name}] skip no units")
@@ -81,8 +82,16 @@ class DreamIntegrateStep(BaseStep):
         for bucket in DreamBucketEnum:
             (workspace / digest_dir / bucket.value).mkdir(parents=True, exist_ok=True)
         self.logger.info(f"[{self.name}] digest dirs ready buckets={len(list(DreamBucketEnum))}")
+        # Compare the whole run so retries and later units updating a newly
+        # created file still emit one "added" change for the final file.
+        before = _snapshot_digest(workspace, digest_dir)
         for i, unit in enumerate(state.units, start=1):
             await self._integrate_one(state, unit, i, workspace, digest_dir)
+        after = _snapshot_digest(workspace, digest_dir)
+        self.context["changes"] = [
+            {"change": "modified" if path in before else "added", "path": path}
+            for path in _changed_digest_paths(before, after)
+        ]
         state.failed_paths = sorted(set(state.failed_paths))
         answer = (
             f"Integrated {len(state.integrate_results)} unit(s); skipped {len(state.skipped_units)} unit(s); "

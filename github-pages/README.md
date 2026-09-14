@@ -36,7 +36,7 @@ The production build is written to `github-pages/dist/` for the existing GitHub 
 - `docs/`: canonical guides, VitePress configuration, theme, and brand assets
 - `reme/config/default.yaml`: generated callable Job reference
 - `reme_studio/README*.md`: ReMe Studio
-- `typescript/README*.md`: TypeScript client and adapters
+- `integrations/{dsh,openclaw}/README*.md`: TypeScript host plugins
 - `plugins/*/README*.md`: plugin guides
 - `benchmark/*/README*.md`: benchmark guides
 - `scripts/generate-content.mjs`: source mirroring and reference generation

@@ -71,12 +71,18 @@ class Ref:
         obj.__dict__.pop(self._cache_attr, None)
 
     def _resolve(self, obj: "BaseStep"):
-        for source in (obj.kwargs, obj.context or {}):
+        sources = (obj.kwargs, obj.context or {})
+        for source in sources:
             value = source.get(self.key)
             if isinstance(value, self.base_cls):
                 return value
 
-        name = obj.kwargs.get(self.key, "default")
+        name = "default"
+        for source in sources:
+            value = source.get(self.key)
+            if isinstance(value, str):
+                name = value
+                break
         if obj.app_context is None:
             if self.optional:
                 return None

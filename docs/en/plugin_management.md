@@ -173,8 +173,9 @@ curl -s http://127.0.0.1:2333/auto_fin \
 
 When the application uses an MCP service, service-enabled plugin Jobs appear as MCP tools instead.
 
-Custom application configs must provide the plugin's runtime dependencies, including an `agent_wrapper.default` and
-the `search` and `read` Jobs used by Auto Fin.
+Custom application configs must provide the plugin's runtime dependencies, including an `agent_wrapper.default`, a
+`file_store.default` with an enabled tag index, and the `search`, `read`, `list_tags`, `frontmatter_read`, and
+`frontmatter_update` Jobs used by Auto Fin and automatic tagging.
 
 ## Benchmark application presets
 

@@ -1,6 +1,6 @@
 # Release checklist:
 # 1. Update reme_studio/pyproject.toml, package.json, and package-lock.json to the same Studio version.
-# 2. Configure npm Trusted Publishing and PyPI Trusted Publishing with the pypi environment.
+# 2. Configure npm Trusted Publishing with the npm environment and PyPI Trusted Publishing with the pypi environment.
 # 3. Run this workflow manually with the exact Studio version.
 
 name: Release / ReMe Studio
@@ -22,6 +22,20 @@ on:
         options:
           - next
           - latest
+      use_npm_token:
+        description: Use the npm environment NPM_TOKEN instead of Trusted Publishing
+        required: true
+        default: false
+        type: boolean
+      publish_target:
+        description: Packages to publish; single-package modes are for release recovery
+        required: true
+        default: both
+        type: choice
+        options:
+          - both
+          - pypi
+          - npm
 
 permissions:
   contents: read
@@ -32,23 +46,25 @@ concurrency:
 
 jobs:
   build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       NPM_TAG: ${{ inputs.npm_tag }}
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22.22.3"
           cache: npm
           cache-dependency-path: reme_studio/package-lock.json
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.11"
 
@@ -108,7 +124,7 @@ jobs:
           assert (static_dir() / "index.html").is_file()
           PY
 
-      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reme-studio-${{ inputs.version }}
           path: |
@@ -117,14 +133,16 @@ jobs:
           if-no-files-found: error
 
   publish-python:
+    if: inputs.publish_target != 'npm'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: pypi
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: reme-studio-${{ inputs.version }}
           path: dist
@@ -136,23 +154,90 @@ jobs:
           skip-existing: true
 
   publish-npm:
-    needs: build
+    if: >-
+      !cancelled() &&
+      needs.build.result == 'success' &&
+      (inputs.publish_target == 'npm' ||
+       (inputs.publish_target == 'both' && needs.publish-python.result == 'success'))
+    needs: [build, publish-python]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
 
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: reme-studio-${{ inputs.version }}
           path: dist
 
-      - name: Publish ReMe Studio to npm
+      - name: Verify the matching PyPI release for npm-only recovery
+        if: inputs.publish_target == 'npm'
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import urllib.error
+          import urllib.request
+
+          version = os.environ["PACKAGE_VERSION"].removeprefix("v")
+          url = f"https://pypi.org/pypi/reme-studio/{version}/json"
+          try:
+              with urllib.request.urlopen(url, timeout=30) as response:
+                  if response.status != 200:
+                      raise SystemExit(f"Unexpected PyPI response for reme-studio {version}: {response.status}")
+          except urllib.error.HTTPError as exc:
+              raise SystemExit(f"reme-studio {version} must exist on PyPI before npm-only recovery") from exc
+          PY
+
+      - name: Check for an identical existing npm package
+        id: npm-version
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          package_file=$(find dist/studio-npm -maxdepth 1 -name '*.tgz' -print -quit)
+          if [[ -z "${package_file}" ]]; then
+            echo "Studio npm artifact is missing" >&2
+            exit 1
+          fi
+          local_integrity=$(node --input-type=module - "${package_file}" <<'JS'
+          import { createHash } from 'node:crypto';
+          import { readFileSync } from 'node:fs';
+          const digest = createHash('sha512').update(readFileSync(process.argv[2])).digest('base64');
+          console.log(`sha512-${digest}`);
+          JS
+          )
+          if remote_integrity=$(npm view "@agentscope-ai/reme_studio@${PACKAGE_VERSION#v}" dist.integrity 2>/dev/null); then
+            if [[ "${remote_integrity}" != "${local_integrity}" ]]; then
+              echo "Existing npm package has different contents" >&2
+              exit 1
+            fi
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "The identical npm package already exists; nothing to publish"
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Publish ReMe Studio to npm with Trusted Publishing
+        if: ${{ steps.npm-version.outputs.exists != 'true' && !inputs.use_npm_token }}
         env:
           NPM_TAG: ${{ inputs.npm_tag }}
         run: npm publish dist/studio-npm/*.tgz --access public --tag "${NPM_TAG}" --provenance
+      - name: Publish ReMe Studio to npm with NPM_TOKEN
+        if: ${{ steps.npm-version.outputs.exists != 'true' && inputs.use_npm_token }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ inputs.npm_tag }}
+        run: |
+          if [[ -z "${NODE_AUTH_TOKEN}" ]]; then
+            echo "NPM_TOKEN is required when use_npm_token is enabled" >&2
+            exit 1
+          fi
+          npm publish dist/studio-npm/*.tgz --access public --tag "${NPM_TAG}" --provenance

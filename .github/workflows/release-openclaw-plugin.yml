@@ -1,0 +1,75 @@
+# Configure npm Trusted Publishing for this caller filename and the npm environment.
+name: Release / OpenClaw plugin
+
+run-name: Publish ReMe OpenClaw plugin ${{ inputs.version }} (${{ inputs.npm_tag }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact package.json version; an optional v prefix is accepted
+        required: true
+        type: string
+      npm_tag:
+        description: npm distribution tag
+        required: true
+        default: latest
+        type: choice
+        options:
+          - next
+          - latest
+      use_npm_token:
+        description: Use the npm environment NPM_TOKEN instead of Trusted Publishing
+        required: true
+        default: false
+        type: boolean
+      publish_clawhub:
+        description: Also publish the package to ClawHub
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-reme-openclaw-plugin
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_release-npm-plugin.yml
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    with:
+      directory: integrations/openclaw
+      package_name: '@agentscope-ai/reme-openclaw-plugin'
+      artifact_name: agentscope-ai-reme-openclaw-plugin
+      version: ${{ inputs.version }}
+      npm_tag: ${{ inputs.npm_tag }}
+      use_npm_token: ${{ inputs.use_npm_token }}
+      validate_clawhub: true
+
+  publish-clawhub:
+    if: ${{ inputs.publish_clawhub && github.ref == 'refs/heads/main' }}
+    needs: release
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@87ca030c30f3cfb78ab15c8e66b5ff1469c8f9c8 # v0.23.3
+    with:
+      family: code-plugin
+      version: ${{ needs.release.outputs.version }}
+      tags: ${{ inputs.npm_tag }}
+      source_repo: ${{ github.repository }}
+      source_commit: ${{ github.sha }}
+      source_ref: ${{ github.sha }}
+      source_path: integrations/openclaw
+      package_artifact_name: agentscope-ai-reme-openclaw-plugin-${{ needs.release.outputs.version }}
+      dry_run: false
+      wait_for_publication: true

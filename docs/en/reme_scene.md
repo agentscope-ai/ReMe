@@ -81,7 +81,7 @@ Run:
 reme auto_dream date=2026-05-18
 ```
 
-`auto_dream` is a three-step pipeline:
+`auto_dream` is a four-step pipeline:
 
 ```text
 dream_extract_step
@@ -92,6 +92,8 @@ dream_integrate_step
   decide CREATE / CORROBORATE / REFINE / CORRECT
 dream_finish_step
   checkpoint successfully processed daily inputs
+auto_tag_step
+  tag the entities in created or modified digest notes
 ```
 
 Outputs in this scenario:

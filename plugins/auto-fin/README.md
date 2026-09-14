@@ -17,7 +17,7 @@ through `plugins=["auto-fin"]`.
 ### 1. Install ReMe and Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.9"
+python -m pip install "reme-ai[core]>=0.4.1.12"
 reme plugins install reme-auto-fin
 ```
 
@@ -59,7 +59,9 @@ reme start plugins='["auto-fin"]' \
   service.backend=http
 ```
 
-Custom application configs must provide `agent_wrapper.default` and the `search` and `read` Jobs used by Auto Fin.
+Custom application configs must provide `agent_wrapper.default`, a `file_store.default` with an enabled tag index, and
+the `search`, `read`, `list_tags`, `frontmatter_read`, and `frontmatter_update` Jobs used by Auto Fin and automatic
+tagging.
 
 ## Pipeline
 
@@ -75,6 +77,8 @@ research Agent uses search + read on historical memory
 validate historical wikilinks in code
         ↓
 daily/YYYY-MM-DD/auto_fin.md
+        ↓
+generate memory tags; the background file watcher refreshes indexes
 ```
 
 `auto_fin_data_step` signs and paginates the same endpoint used by the CLS website. It starts at the decision time and
@@ -92,7 +96,9 @@ workspace-relative Markdown targets. Missing, absolute, escaping, backslash, and
 to their readable aliases.
 
 Same-day reruns use the existing report as context and replace it with the revised result. The final write is atomic and
-refreshes the daily index. No JSONL, intermediate Markdown, or structured Agent output is written.
+refreshes the daily index. The workflow then runs `auto_tag_step` to update the generated report's memory-tag
+frontmatter; the normal background file watcher observes that source-file change and refreshes derived indexes. No
+JSONL, intermediate Markdown, or structured Agent output is written.
 
 ## Parameters
 

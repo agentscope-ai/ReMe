@@ -14,7 +14,7 @@ distribution：单个 `reme.plugins` entry point 暴露 `plugin.yaml`，其中�
 ### 1. 安装 ReMe 和 Auto Fin
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.9"
+python -m pip install "reme-ai[core]>=0.4.1.12"
 reme plugins install reme-auto-fin
 ```
 
@@ -54,7 +54,9 @@ reme start plugins='["auto-fin"]' \
   service.backend=http
 ```
 
-自定义应用配置需要提供 `agent_wrapper.default`，以及 Auto Fin 使用的 `search` 和 `read` Jobs。
+自定义应用配置需要提供 `agent_wrapper.default`、启用 tag index 的 `file_store.default`，以及
+Auto Fin 和自动标签使用的 `search`、`read`、`list_tags`、`frontmatter_read` 和
+`frontmatter_update` Jobs。
 
 ## 流程
 
@@ -70,6 +72,8 @@ Research Agent 使用 search + read 检索历史记忆
 代码校验历史 wikilink
         ↓
 daily/YYYY-MM-DD/auto_fin.md
+        ↓
+生成记忆标签，由后台文件 watcher 刷新索引
 ```
 
 `auto_fin_data_step` 使用财联社网页同源接口的签名和分页方式，从分析时刻开始向前翻页，直到完整覆盖严格的最近 24
@@ -82,8 +86,9 @@ daily/YYYY-MM-DD/auto_fin.md
 Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对
 workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠和自引用的目标都会降级为可读 alias。
 
-同日重跑会参考当天已有报告并覆盖为修订结果。最终写入使用原子替换并刷新当天索引；流程不会写入 JSONL、中间 Markdown 或 Agent
-结构化输出。
+同日重跑会参考当天已有报告并覆盖为修订结果。最终写入使用原子替换并刷新当天索引，随后通过 `auto_tag_step`
+更新报告的记忆标签 frontmatter；常规后台文件 watcher 会观察该源文件变化并刷新派生索引。流程不会写入 JSONL、
+中间 Markdown 或 Agent 结构化输出。
 
 ## 参数
 

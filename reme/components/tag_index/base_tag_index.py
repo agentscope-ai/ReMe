@@ -4,6 +4,7 @@ from abc import abstractmethod
 from typing import ClassVar, Literal, TypedDict
 
 from ..base_component import BaseComponent
+from ...constants import DEFAULT_MAX_MEMORY_TAG_LENGTH, DEFAULT_MAX_MEMORY_TAGS, DEFAULT_MEMORY_TAG_KEY
 from ...enumeration import ComponentEnum
 from ...schema import FileNode
 
@@ -28,10 +29,24 @@ class BaseTagIndex(BaseComponent):
     component_type = ComponentEnum.TAG_INDEX
     reserved_tag_keys: ClassVar[frozenset[str]] = frozenset()
 
-    def __init__(self, tag_key: object = "memory_tags", **kwargs):
+    def __init__(
+        self,
+        tag_key: object = DEFAULT_MEMORY_TAG_KEY,
+        max_tags_per_file: int = DEFAULT_MAX_MEMORY_TAGS,
+        max_tag_length: int = DEFAULT_MAX_MEMORY_TAG_LENGTH,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._tag_key = self._validate_tag_key(tag_key)
+        self.max_tags_per_file = self._positive_int("max_tags_per_file", max_tags_per_file)
+        self.max_tag_length = self._positive_int("max_tag_length", max_tag_length)
         self.is_healthy = True
+
+    @staticmethod
+    def _positive_int(name: str, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be a positive integer")
+        return value
 
     @property
     def tag_key(self) -> str:

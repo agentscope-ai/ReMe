@@ -11,7 +11,7 @@ Step backend，并在 `application_defaults` 下提供 Job 配置；通过 `plug
 ### 1. 安装 ReMe 和每日论文插件
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.9"
+python -m pip install "reme-ai[core]>=0.4.1.12"
 reme plugins install reme-daily-paper
 ```
 
@@ -47,6 +47,10 @@ curl -s http://127.0.0.1:2333/daily_paper \
 reme start plugins='["daily-paper"]' job=daily_paper topics="Agent memory"
 ```
 
+自定义应用配置需要提供 `agent_wrapper.default`、启用 tag index 的 `file_store.default`，以及
+Daily Paper 和自动标签使用的 `search`、`read`、`list_tags`、`frontmatter_read` 和
+`frontmatter_update` Jobs。
+
 ## 流程
 
 ```text
@@ -60,7 +64,9 @@ RRF 排序后由 Agent 精选三篇
           ↓
 使用 search + read 关联历史记忆并生成简报
           ↓
-写入当日索引，并按需发送到钉钉
+生成记忆标签，由后台文件 watcher 刷新索引
+          ↓
+按需发送到钉钉
 ```
 
 `daily_paper_collect_step` 并发读取运行日期所在周和所在月的榜单，以及严格前一日的 Daily Papers。候选按 arXiv ID
@@ -73,8 +79,9 @@ RRF 排序后由 Agent 精选三篇
 文本。三篇中文解读按精选顺序写入当天目录；扫描版或没有文本层的 PDF 会明确失败。
 
 `daily_paper_digest_step` 以本次生成的三篇解读为事实来源，只开放只读的 `search` 和 `read` 来关联较早记忆。
-代码会校验历史 wikilink、追加三篇源笔记链接，并重建当日索引。可选的 `dingtalk_markdown_send_step` 在配置群会话后
-发送最终简报；未配置时无副作用跳过。
+代码会校验历史 wikilink、追加三篇源笔记链接，并重建当日索引。随后 `auto_tag_step` 会更新三篇解读及最终简报的
+记忆标签 frontmatter，常规后台文件 watcher 会观察这些源文件变化并刷新派生索引，再由可选的
+`dingtalk_markdown_send_step` 发送最终简报；未配置群会话时无副作用跳过。
 
 ## 参数
 

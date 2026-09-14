@@ -49,8 +49,7 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
-- [2026.08] - Published [`@agentscope-ai/reme`](https://www.npmjs.com/package/@agentscope-ai/reme), providing native
-  ReMe memory integrations for DeepSeek Harness and OpenClaw plus a shared TypeScript HTTP client.
+- [2026.08] - Added independently installable ReMe memory plugins for DeepSeek Harness and OpenClaw.
 - [2026.08] - Published the [ReMe blog](https://reme.agentscope.io/en/reme-blog), an end-to-end introduction to its local-first memory
   architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/en/benchmarks/toolmemory) of agent tool-use execution built
@@ -181,11 +180,11 @@ lifecycle according to the capabilities of each runtime.
 
 | Agent                          | Recommended path                                                                                                                         | Available after integration                                                                             |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **DeepSeek Harness**           | Install [`@agentscope-ai/reme`](typescript/README.md#deepseek-harness) with `dsh plugin --profile web add @agentscope-ai/reme`. | Long-term memory guidance, the `reme_search` tool, and automatic capture of completed main-agent turns. |
-| **OpenClaw**                   | Install [`@agentscope-ai/reme`](typescript/README.md#openclaw) with `openclaw plugins install @agentscope-ai/reme`.             | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
+| **DeepSeek Harness**           | Install [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README.md) with `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin`. | Long-term memory guidance, the `reme_search` tool, and automatic capture of completed main-agent turns. |
+| **OpenClaw**                   | Install [`@agentscope-ai/reme-openclaw-plugin`](integrations/openclaw/README.md) with `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin`. | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
 | **QwenPaw**                    | Embed ReMe in-process through its Python API.                                                                                            | Reuse the host lifecycle and model config while keeping memory local and file-based.                    |
 | **Claude Code**                | Start the streamable HTTP MCP service and install [the ReMe plugin](integrations/claude_code/reme).                                      | MCP recall tools, the `reme-memory` skill, and a Stop hook that records sessions automatically.         |
-| **Hermes**                     | Start the HTTP service and install [the ReMe provider](integrations/hermes_agent).                                                       | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |
+| **Hermes**                     | Install [the ReMe provider](integrations/hermes_agent) and choose HTTP or embedded mode.                                                 | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |
 | **Codex and other CLI agents** | Install or copy the [ReMe Memory skill](skills/reme_memory/SKILL.md).                                                                    | Search, read, and write memory through the CLI; automatic capture requires host lifecycle integration.  |
 
 <p align="center"><b>Integration demos</b></p>
@@ -348,7 +347,7 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Proactive](docs/en/proactive.md)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |
 | [Application Scenarios](docs/en/reme_scene.md)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](docs/en/framework.md)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
-| [TypeScript integrations](typescript/README.md)                            | Configure the shared client and native DeepSeek Harness and OpenClaw adapters.                       |
+| [DSH plugin](integrations/dsh/README.md) and [OpenClaw plugin](integrations/openclaw/README.md) | Install native host adapters with independent dependencies and releases.              |
 | [CLI and Job API](docs/en/reference/cli.md)                               | Learn command syntax and use the generated default Job parameter reference.                         |
 | [Operations and Recovery](docs/en/operations.md)                          | Diagnose services, maintain indexes, and back up, migrate, or recover a workspace.                   |
 | [ReMe Blog](https://reme.agentscope.io/en/reme-blog)                      | Read the product story, design rationale, examples, and benchmark summary.                           |

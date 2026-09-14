@@ -66,7 +66,12 @@ class LocalFileStore(BaseFileStore):
         self.embedding_store = self.bind(embedding_store, BaseEmbeddingStore, default_factory=LocalEmbeddingStore)
         self.keyword_index = self.bind(keyword_index, BaseKeywordIndex, default_factory=BM25Index)
         self.file_graph = self.bind(file_graph, BaseFileGraph, default_factory=LocalFileGraph)
-        self.tag_index = self.bind(tag_index, BaseTagIndex, default_factory=LocalTagIndex)
+        self.tag_index = self.bind(
+            tag_index,
+            BaseTagIndex,
+            default_factory=LocalTagIndex if tag_index == "default" else None,
+            optional=False,
+        )
 
         self.encoding = encoding
         self.store_version = store_version

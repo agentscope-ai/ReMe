@@ -13,7 +13,7 @@ their Job configuration under `application_defaults`. Enable the installed plugi
 ### 1. Install ReMe and Daily Paper
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.9"
+python -m pip install "reme-ai[core]>=0.4.1.12"
 reme plugins install reme-daily-paper
 ```
 
@@ -51,6 +51,10 @@ To run the Job once without starting a long-lived service:
 reme start plugins='["daily-paper"]' job=daily_paper topics="Agent memory"
 ```
 
+Custom application configs must provide `agent_wrapper.default`, a `file_store.default` with an enabled tag index, and
+the `search`, `read`, `list_tags`, `frontmatter_read`, and `frontmatter_update` Jobs used by Daily Paper and automatic
+tagging.
+
 ## Pipeline
 
 ```text
@@ -64,7 +68,9 @@ download and parse arXiv PDFs, then write three Chinese analyses
                  ↓
 use search + read to connect prior memory and generate a brief
                  ↓
-refresh the daily index and optionally send the brief to DingTalk
+generate memory tags; the background file watcher refreshes indexes
+                 ↓
+optionally send the brief to DingTalk
 ```
 
 `daily_paper_collect_step` concurrently reads the weekly and monthly rankings for the run date plus the strictly
@@ -81,8 +87,10 @@ PDFs and files without a text layer fail explicitly.
 
 `daily_paper_digest_step` treats those three analyses as the factual source and receives only the read-only
 `search` and `read` tools for linking earlier memory. Code validates historical wikilinks, appends links to all
-three source notes, and rebuilds the daily index. The optional `dingtalk_markdown_send_step` sends the final brief when
-conversation IDs are configured and otherwise skips without side effects.
+three source notes, and rebuilds the daily index. The workflow then runs `auto_tag_step` to update the memory-tag
+frontmatter of all three analyses and the final brief. The normal background file watcher observes those source-file
+changes and refreshes derived indexes before the optional `dingtalk_markdown_send_step` sends the brief. DingTalk
+delivery skips without side effects when conversation IDs are not configured.
 
 ## Parameters
 

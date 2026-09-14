@@ -20,16 +20,8 @@ class LocalTagIndex(BaseTagIndex):
         "status",
     }
 
-    def __init__(
-        self,
-        tag_key: object = "memory_tags",
-        max_tags_per_file: int = 3,
-        max_tag_length: int = 64,
-        **kwargs,
-    ):
-        super().__init__(tag_key=tag_key, **kwargs)
-        self.max_tags_per_file = self._positive_int("max_tags_per_file", max_tags_per_file)
-        self.max_tag_length = self._positive_int("max_tag_length", max_tag_length)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.path_to_tags: dict[str, tuple[str, ...]] = {}
         self.tag_to_paths: dict[str, set[str]] = {}
         self._maintenance_lock = asyncio.Lock()
@@ -37,12 +29,6 @@ class LocalTagIndex(BaseTagIndex):
     @property
     def n_files(self) -> int:
         return len(self.path_to_tags)
-
-    @staticmethod
-    def _positive_int(name: str, value: object) -> int:
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ValueError(f"{name} must be a positive integer")
-        return value
 
     def _normalize_tags(self, value: object, *, limit: int | None) -> list[str]:
         """Normalize a strict tag list, optionally limiting the result count."""

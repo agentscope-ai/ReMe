@@ -14,7 +14,8 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Local script or hook | ReMe CLI |
 | Application backend | HTTP Client |
 | Tool-protocol host | MCP |
-| TypeScript agent | `@agentscope-ai/reme` |
+| DeepSeek Harness | `@agentscope-ai/reme-dsh-plugin` |
+| OpenClaw | `@agentscope-ai/reme-openclaw-plugin` |
 | Claude Code | MCP + Skill + Stop Hook |
 | Hermes Agent | Memory provider adapter |
 | Codex or another coding agent | `reme_memory` Skill or MCP |
@@ -44,7 +45,8 @@ It deliberately avoids silently modifying Python environments, stopping unknown 
 
 ## TypeScript, OpenClaw, and DeepSeek Harness
 
-The [`@agentscope-ai/reme` TypeScript package](./integrations/typescript.md) provides the shared HTTP client and host adapters. See the dedicated guides for [DeepSeek Harness](./integrations/dsh.md) and [OpenClaw](./integrations/openclaw.md).
+Install the self-contained [DeepSeek Harness](./integrations/dsh.md) or [OpenClaw](./integrations/openclaw.md) plugin.
+Each package owns its ReMe HTTP boundary and can evolve with its host independently.
 
 ## Claude Code
 
@@ -52,7 +54,7 @@ The [`@agentscope-ai/reme` TypeScript package](./integrations/typescript.md) pro
 
 ## Hermes Agent
 
-`integrations/hermes_agent/` provides a memory provider that recalls context before model calls and asynchronously invokes `auto_memory` after each turn.
+`integrations/hermes_agent/` provides a memory provider with HTTP and embedded modes. It recalls context before model calls and asynchronously invokes `auto_memory` after each turn. Its `config_schema.py` is rendered by Hermes' generic memory settings UI.
 
 ## Production guidance
 

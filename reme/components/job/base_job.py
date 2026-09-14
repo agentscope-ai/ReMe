@@ -13,6 +13,25 @@ if TYPE_CHECKING:
     from ...steps import BaseStep
 
 
+def _describe_exception(exc: BaseException) -> str:
+    """Render an exception and its causes without dropping empty messages."""
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip()
+        name = type(current).__name__
+        parts.append(f"{name}: {message}" if message else name)
+        if current.__cause__ is not None:
+            current = current.__cause__
+        elif not current.__suppress_context__:
+            current = current.__context__
+        else:
+            current = None
+    return " <- ".join(parts)
+
+
 @R.register("base")
 class BaseJob(BaseComponent):
     """Job that executes steps sequentially and returns a Response."""
@@ -75,5 +94,5 @@ class BaseJob(BaseComponent):
         except Exception as e:
             self.logger.exception(f"Failed to execute job: {e}")
             context.response.success = False
-            context.response.answer = str(e)
+            context.response.answer = _describe_exception(e)
         return context.response

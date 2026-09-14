@@ -71,6 +71,26 @@ def test_call_captures_exception():
     asyncio.run(run())
 
 
+def test_call_preserves_cause_when_outer_exception_message_is_empty():
+    async def run():
+        async def failing_step(_context):
+            try:
+                raise RuntimeError("connection reset by peer")
+            except RuntimeError as exc:
+                raise ConnectionError() from exc
+
+        job = BaseJob(name="j")
+        job.app_context = MagicMock()
+        job.step_specs = []
+        job._build_steps = lambda: [failing_step]
+
+        response = await job()
+        assert response.success is False
+        assert response.answer == ("ConnectionError <- RuntimeError: connection reset by peer")
+
+    asyncio.run(run())
+
+
 def test_call_runs_steps_in_order():
     async def run():
         call_order = []

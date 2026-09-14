@@ -1,6 +1,7 @@
 """Daily-note helpers: session_id validation + day-index rebuild."""
 
 import datetime
+import errno
 from pathlib import Path
 
 import frontmatter
@@ -73,16 +74,41 @@ def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
 
         {"path": str, "metadata": dict}
     """
-    date_dir, err = resolve_path(workspace_dir, f"{daily_dir}/{date}")
-    if err or date_dir is None:
-        logger.info(f"scan_notes skipped invalid daily path date={date!r} daily_dir={daily_dir!r} error={err!r}")
+    try:
+        date_dir, err = resolve_path(workspace_dir, f"{daily_dir}/{date}")
+        if err or date_dir is None:
+            logger.info(f"scan_notes skipped invalid daily path date={date!r} daily_dir={daily_dir!r} error={err!r}")
+            return []
+        if not date_dir.is_dir():
+            return []
+        entries = sorted(date_dir.iterdir())
+    except RuntimeError:
+        # Path.resolve reports symlink loops this way before Python 3.13.
         return []
-    if not date_dir.is_dir():
-        return []
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            return []
+        raise
     out: list[dict] = []
-    for md_path in sorted(p for p in date_dir.iterdir() if p.is_file() and p.suffix == ".md"):
+    for md_path in entries:
+        if md_path.suffix != ".md":
+            continue
         try:
-            post = frontmatter.loads(md_path.read_text(encoding="utf-8"))
+            target = md_path
+            if md_path.is_symlink():
+                target, err = resolve_path(workspace_dir, str(md_path))
+                if err or target is None:
+                    continue
+            if not target.is_file():
+                continue
+        except RuntimeError:
+            continue
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                continue
+            raise
+        try:
+            post = frontmatter.loads(target.read_text(encoding="utf-8"))
         except Exception:
             continue
         out.append(
