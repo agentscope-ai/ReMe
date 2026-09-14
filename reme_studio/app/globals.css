@@ -114,15 +114,15 @@ textarea:focus-visible {
   font-weight: 750;
   white-space: nowrap;
 }
-.brand-wordmark {
-  width: 66px;
-  height: 23px;
+.brand-icon {
+  width: 28px;
+  height: 28px;
   display: block;
   flex: none;
-  background: url("/reme_logo.png") center / contain no-repeat;
+  background: url("/reme-icon.svg") center / contain no-repeat;
 }
-.brand-product {
-  margin-left: 5px;
+.brand-title {
+  margin-left: 8px;
   letter-spacing: -0.02em;
 }
 .app-version-divider {
@@ -734,13 +734,17 @@ textarea:focus-visible {
   gap: 7px;
 }
 .welcome-wordmark {
-  width: 112px;
-  height: 38px;
+  width: 124px;
+  height: 42px;
   display: block;
+  flex: none;
   background: url("/reme_logo.png") center / contain no-repeat;
 }
-.welcome-brand span {
+.welcome-brand > span:last-child {
+  font-size: 40px;
   font-weight: 750;
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 .welcome p,
 .chat-empty p {

@@ -635,8 +635,8 @@ function Workspace() {
           </span>
         </button>
         <strong>
-          <span className="brand-wordmark" role="img" aria-label="ReMe" />
-          <span className="brand-product">Studio</span>
+          <span className="brand-icon" aria-hidden="true" />
+          <span className="brand-title">ReMe Studio</span>
           <span className="app-version-divider" aria-hidden="true" />
           <span className="app-version">v{packageJson.version}</span>
         </strong>
