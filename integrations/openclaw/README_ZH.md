@@ -51,7 +51,9 @@ ReMe HTTP 本身不增加 API Key 认证。应保持 loopback，或在可信的�
 
 ## 2. 安装插件
 
-安装发布包：
+安装发布包，发布信息见
+[ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 和
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin)：
 
 ```bash
 openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin

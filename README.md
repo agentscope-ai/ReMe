@@ -49,14 +49,25 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
-- [2026.08] - Added independently installable ReMe memory plugins for DeepSeek Harness and OpenClaw.
-- [2026.08] - Published the [ReMe blog](https://reme.agentscope.io/en/reme-blog), an end-to-end introduction to its local-first memory
-  architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
-- [2026.08] - [Experience-driven enhancement method](https://reme.agentscope.io/en/benchmarks/toolmemory) of agent tool-use execution built
-  on ReMe is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
-- [2026.07] - Introduced optional plugins: [Daily Paper](https://reme.agentscope.io/en/plugins/daily-paper) for paper discovery and
-  analysis, and [Auto Fin](https://reme.agentscope.io/en/plugins/auto-fin) for researching the latest 24 hours of topic-related CLS news
-  with local-memory search and validated historical wikilinks.
+- [2026.09] - **[OpenClaw plugin](https://reme.agentscope.io/en/integrations/openclaw) released**: install it from
+  [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) or
+  [npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin) to add native memory recall, automatic
+  conversation capture, and scheduled consolidation to OpenClaw.
+- [2026.09] - **[DeepSeek Harness plugin](https://reme.agentscope.io/en/integrations/dsh) released**: install it from
+  [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) or
+  [npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin) for long-term-memory guidance, `reme_search`,
+  automatic memory, Auto Dream, and ReMe Status.
+- [2026.08] - **ReMe blog published**: the [ReMe blog](https://reme.agentscope.io/en/reme-blog) introduces the
+  local-first memory architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
+- [2026.08] - **New ReMe ecosystem plugins**: [Daily Paper](https://reme.agentscope.io/en/plugins/daily-paper)
+  discovers and analyzes papers and generates file-native briefs, while
+  [Auto Fin](https://reme.agentscope.io/en/plugins/auto-fin) researches the latest 24 hours of topic-related CLS news
+  and builds traceable reports with local memory. Try them out.
+- [2026.08] - **Plugin development support released**: use [Plugin Development](docs/en/plugin_development.md) and
+  [Plugin Management](docs/en/plugin_management.md) to extend ReMe with Components, Steps, and Jobs. Contributions and
+  new community plugins are welcome.
+- [2026.08] - ReMe's [experience-driven enhancement method](https://reme.agentscope.io/en/benchmarks/toolmemory) for
+  agent tool use is available on [arXiv:2608.03403](https://arxiv.org/abs/2608.03403).
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   has been accepted to Findings of ACL 2026.
@@ -180,10 +191,10 @@ lifecycle according to the capabilities of each runtime.
 
 | Agent                          | Recommended path                                                                                                                         | Available after integration                                                                             |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **DeepSeek Harness**           | Install [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README.md) with `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin`. | Long-term memory guidance, the `reme_search` tool, and automatic capture of completed main-agent turns. |
+| **DeepSeek Harness**           | Install [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README.md) with `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin`. | Configurable memory guidance, `reme_search`, automatic turn capture, scheduled Auto Dream, and ReMe Status. |
 | **OpenClaw**                   | Install [`@agentscope-ai/reme-openclaw-plugin`](integrations/openclaw/README.md) with `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin`. | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
 | **QwenPaw**                    | Embed ReMe in-process through its Python API.                                                                                            | Reuse the host lifecycle and model config while keeping memory local and file-based.                    |
-| **Claude Code**                | Start the streamable HTTP MCP service and install [the ReMe plugin](integrations/claude_code/reme).                                      | MCP recall tools, the `reme-memory` skill, and a Stop hook that records sessions automatically.         |
+| **Claude Code**                | Start the shared streamable HTTP MCP service and install [the ReMe plugin](integrations/claude_code/README.md).                          | Semantic, graph, and state recall through MCP, plus asynchronous session capture through a Stop hook.   |
 | **Hermes**                     | Install [the ReMe provider](integrations/hermes_agent) and choose HTTP or embedded mode.                                                 | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |
 | **Codex and other CLI agents** | Install or copy the [ReMe Memory skill](skills/reme_memory/SKILL.md).                                                                    | Search, read, and write memory through the CLI; automatic capture requires host lifecycle integration.  |
 
@@ -347,7 +358,8 @@ These guides cover the main user workflows and the runtime contracts implemented
 | [Proactive](docs/en/proactive.md)                                         | Read interest topics safely and integrate them into a host agent's decision flow.                   |
 | [Application Scenarios](docs/en/reme_scene.md)                            | Follow concrete financial research, coding-memory, and personal knowledge-base examples.           |
 | [Framework](docs/en/framework.md)                                         | Understand Application, Job, Step, Component, service, configuration, and lifecycle boundaries.     |
-| [DSH plugin](integrations/dsh/README.md) and [OpenClaw plugin](integrations/openclaw/README.md) | Install native host adapters with independent dependencies and releases.              |
+| [Agent Integrations](docs/en/integrations.md)                             | Choose an interface and connect DSH, Claude Code, OpenClaw, Hermes, Codex, or another agent.          |
+| [DSH plugin](integrations/dsh/README.md) and [Claude Code plugin](integrations/claude_code/README.md) | Configure host-native recall, automatic capture, consolidation, and diagnostics. |
 | [CLI and Job API](docs/en/reference/cli.md)                               | Learn command syntax and use the generated default Job parameter reference.                         |
 | [Operations and Recovery](docs/en/operations.md)                          | Diagnose services, maintain indexes, and back up, migrate, or recover a workspace.                   |
 | [ReMe Blog](https://reme.agentscope.io/en/reme-blog)                      | Read the product story, design rationale, examples, and benchmark summary.                           |

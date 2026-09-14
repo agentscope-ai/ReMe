@@ -5,14 +5,17 @@ description: 通过 MCP、reme-memory Skill 和 Stop Hook 将 Claude Code 连接
 
 # Claude Code 集成
 
-ReMe 的 Claude Code 插件提供长期记忆召回，并在每次会话结束后异步记录对话。Daily 到 digest 的整理仍由共享的 ReMe 服务负责。
+ReMe 的 Claude Code 插件负责召回和会话捕获：所有 Claude Code 窗口共享一个 ReMe HTTP MCP 服务，Daily 到 digest 的
+整理、watcher 和 dream cron 也只在这个服务中运行一份。
 
 ## 能力
 
-- 通过 MCP 使用 `search`、`traverse`、`daily_list`、`frontmatter_read`、`read`、`auto_memory_cc` 等工具；
-- `reme-memory` Skill 在回答前召回长期记忆并保留来源路径；
+- 通过 MCP 使用 `search`、`traverse`、`daily_list`、`frontmatter_read`、`read`、`version`、`health_check` 和
+  `auto_memory_cc` 等工具；
+- `reme-memory` Skill 区分语义、图关系和状态三种查询，再用 `read` 读取命中内容并保留 workspace-relative 来源路径；
+- Skill 可通过 `version` 和 `health_check` 检查共享服务；工具缺失时应提示启动 ReMe，不得猜测历史记忆；
 - Stop Hook 只把 Claude Code `session_id` 传给服务端，服务端从本地 transcript 解析会话；
-- 记录在脱离 Claude Code 的后台进程中进行，不延迟退出；服务不可用时记录日志并结束。
+- POSIX 系统上的记录会在脱离 Claude Code 的后台进程中进行，不延迟退出；服务不可用时记录日志并结束。
 
 ## 部署模型
 
@@ -34,6 +37,13 @@ reme start service.backend=http
 
 默认搜索使用 BM25；只有启用向量检索时才需要 Embedding 配置。
 
+请勿将默认 HTTP 服务直接暴露到不可信网络；跨主机使用时应在反向代理层提供认证和 TLS，并限制可调用 Job。
+
+自动捕获还要求 ReMe 服务进程能读取 Claude Code transcript。它默认在服务端的 `~/.claude/projects`
+下查找会话；因此 ReMe 应与 Claude Code 运行在同一主机，或者将 transcript 挂载/同步到服务端，并在启动
+ReMe 时用 `CLAUDE_CONFIG_DIR` 指向对应目录。如果服务端无法访问 transcript，远程 MCP 召回等功能仍可使用，但
+`auto_memory_cc` 会因没有消息而跳过，不会生成记忆。
+
 ## 安装插件
 
 在 Claude Code 中运行：
@@ -51,10 +61,13 @@ reme start service.backend=http
 - 自动记忆 Hook：`integrations/claude_code/reme/hooks/auto_memory.py`；
 - Hook 日志：`integrations/claude_code/reme/logs/auto_memory_hook.log`；
 - 默认 transcript 根目录：`~/.claude/projects`；
-- 可通过 `CLAUDE_CONFIG_DIR` 修改 transcript 根目录；
+- 启动 ReMe 服务时，可通过 `CLAUDE_CONFIG_DIR` 修改服务端的 transcript 根目录；
 - 可通过 `REME_HOST`、`REME_PORT` 覆盖 Hook 使用的服务地址。
 
 Hook 需要 `python3` 位于 `PATH`。MCP 工具名前缀可能随 Claude Code 版本包含 server segment；Skill 使用 `mcp__reme__*` 匹配这一差异。
+
+Hook 是 best-effort 的：它不会因记忆服务故障而阻塞 Claude Code。服务端会保留 transcript 处理进度；同一会话重复触发 Stop 且没有新消息时，
+`auto_memory_cc` 会跳过重复的记忆生成和打标。
 
 ## 验证
 

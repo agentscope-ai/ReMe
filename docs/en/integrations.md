@@ -14,9 +14,9 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Local script or hook | ReMe CLI |
 | Application backend | HTTP Client |
 | Tool-protocol host | MCP |
-| DeepSeek Harness | `@agentscope-ai/reme-dsh-plugin` |
-| OpenClaw | `@agentscope-ai/reme-openclaw-plugin` |
-| Claude Code | MCP + Skill + Stop Hook |
+| DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
+| OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
+| Claude Code | [Shared HTTP MCP + Skill + Stop Hook](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
 | Codex or another coding agent | `reme_memory` Skill or MCP |
 
@@ -43,14 +43,48 @@ Use `service.jobs` to expose a read-only subset or keep write tools in a separat
 
 It deliberately avoids silently modifying Python environments, stopping unknown processes on port conflicts, writing recalled tool output back as conversation source, or persisting credentials.
 
-## TypeScript, OpenClaw, and DeepSeek Harness
+## DeepSeek Harness
 
-Install the self-contained [DeepSeek Harness](./integrations/dsh.md) or [OpenClaw](./integrations/openclaw.md) plugin.
-Each package owns its ReMe HTTP boundary and can evolve with its host independently.
+Install the self-contained [DeepSeek Harness plugin](./integrations/dsh.md):
+
+```bash
+dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin
+```
+
+Release links: [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) and
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin).
+
+It injects long-term-memory usage guidance into new root-agent sessions and exposes the read-only `reme_search` tool;
+it does not preload the full memory history into the prompt. Completed user/assistant turns can be submitted to
+`auto_memory` in background batches, while a timezone-aware schedule runs `auto_dream` to consolidate daily notes.
+
+DSH settings configure the endpoint, guidance language, search limits, capture interval, root-agent filtering, and
+consolidation schedule. The ReMe Status page exposes Overview, Auto Memory, Memory Consolidation, Components, Journal,
+and Personal Knowledge Base views. Runtime counters are diagnostic state; workspace Markdown remains the durable source
+of truth.
+
+## OpenClaw
+
+Install the independently published [OpenClaw plugin](./integrations/openclaw.md):
+
+```bash
+openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin
+```
+
+Release links: [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) and
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin). The plugin provides its own host-specific
+ReMe HTTP boundary and release lifecycle.
 
 ## Claude Code
 
-`integrations/claude_code/` provides streamable HTTP MCP configuration, a `reme-memory` Skill, and a Stop hook that calls `auto_memory_cc`. Follow that directory's README for installation.
+The [Claude Code plugin](./integrations/claude-code.md) connects every Claude Code window to one ReMe HTTP process at
+`http://127.0.0.1:2333/mcp` by default. The `reme-memory` Skill selects among semantic `search`, topological `traverse`,
+and state-oriented `daily_list` / `frontmatter_read`, then reads and cites the relevant workspace paths.
+
+On Stop, the hook passes only the Claude Code `session_id` to the server-side `auto_memory_cc` job. On POSIX systems it
+detaches the potentially long model call so Claude Code can stop immediately; unreachable-service and other best-effort
+failures are written to the plugin log instead of blocking the host. ReMe resolves the local transcript, and repeated
+Stop events with no new messages do not create duplicate memory.
 
 ## Hermes Agent
 

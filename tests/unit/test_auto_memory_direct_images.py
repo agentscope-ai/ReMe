@@ -58,7 +58,7 @@ def test_default_config_keeps_images_disabled_and_selects_direct_mode():
     assert job["steps"][0]["image_mode"] == "direct"
     assert [step["backend"] for step in job["steps"]] == ["auto_memory_step", "auto_tag_step"]
     assert "enable_tags" not in job["steps"][0]
-    assert job["steps"][1] == {"backend": "auto_tag_step", "max_tags_per_file": 3}
+    assert job["steps"][1] == {"backend": "auto_tag_step"}
 
 
 @pytest.mark.asyncio

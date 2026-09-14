@@ -47,7 +47,9 @@ reme start workspace_dir=/absolute/path/to/your/reme-workspace \
 
 ### 3.2 安装插件
 
-安装已发布版本：
+安装已发布版本，发布信息见
+[Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) 和
+[npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin)：
 
 ```bash
 dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin
