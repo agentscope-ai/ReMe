@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
@@ -21,7 +22,14 @@ test("server-renders the ReMe Studio shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
+  const packageJson = JSON.parse(
+    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+  );
   assert.match(html, /<title>ReMe Studio<\/title>/i);
+  assert.match(
+    html.replaceAll("<!-- -->", ""),
+    new RegExp(`v${packageJson.version}`),
+  );
   assert.match(html, /新建 Agent 对话/);
   assert.match(html, /文件保留在你的本地工作区/);
   assert.doesNotMatch(

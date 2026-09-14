@@ -1,6 +1,6 @@
 {
   "name": "@agentscope-ai/reme_studio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ReMe Studio web workspace and static distribution",
   "license": "Apache-2.0",
   "files": [

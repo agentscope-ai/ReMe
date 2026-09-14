@@ -17,7 +17,7 @@
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  color: #99918a;
+  color: var(--muted);
   font: 11px var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -58,7 +58,7 @@
   cursor: pointer;
 }
 .modeSwitch .modeActive {
-  color: #8e3b12;
+  color: var(--accent-strong);
   background: var(--soft);
 }
 .iconBtn {
@@ -74,7 +74,7 @@
 }
 .iconBtn:hover {
   color: var(--accent);
-  border-color: #f2c7ad;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
 }
 .iconBtn:disabled {
   opacity: 0.42;

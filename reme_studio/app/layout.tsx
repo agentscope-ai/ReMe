@@ -28,7 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
     title: "ReMe Studio",
     description:
       "Browse, edit, and discuss your local-first ReMe memory workspace.",
-    icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
+    icons: { icon: "/reme-icon.svg", shortcut: "/reme-icon.svg" },
     openGraph: {
       title: "ReMe Studio",
       description: "本地优先的 Agent 记忆工作区",

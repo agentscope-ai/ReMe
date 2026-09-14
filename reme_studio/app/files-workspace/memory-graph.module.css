@@ -370,7 +370,7 @@
     max-height: 45%;
     border: 1px solid var(--line);
     border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(35, 25, 18, 0.18);
+    box-shadow: 0 12px 32px var(--shadow);
   }
   .legend {
     display: none;
