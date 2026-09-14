@@ -710,7 +710,6 @@ function Workspace() {
           <div className="content">
             {!active && (
               <div className="welcome">
-                <div className="agent-logo" aria-hidden="true" />
                 <h1 className="welcome-brand">
                   <span
                     className="welcome-wordmark"
