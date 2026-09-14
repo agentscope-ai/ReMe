@@ -1,5 +1,5 @@
 name: reme
-version: 0.2.0
+version: 0.1.0
 description: "ReMe local-first, file-native long-term memory for Hermes Agent (HTTP or embedded)."
 kind: exclusive
 manifest_version: 2
