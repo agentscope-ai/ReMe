@@ -32,7 +32,8 @@ jobs:
             file_catalog: resource
           - backend: auto_resource_step
             dispatch_steps:
-              - auto_image_resource_step
+              - backend: auto_image_resource_step
+                include_images: true
               - auto_text_resource_step
       - backend: watch_changes_step
         dispatch_steps:
@@ -40,7 +41,8 @@ jobs:
             file_catalog: resource
           - backend: auto_resource_step
             dispatch_steps:
-              - auto_image_resource_step
+              - backend: auto_image_resource_step
+                include_images: true
               - auto_text_resource_step
 
   digest_watch_loop:
@@ -216,6 +218,10 @@ jobs:
     parameters:
       type: object
       properties:
+        include_images:
+          type: boolean
+          description: "Process image resource changes with a vision-capable AgentScope wrapper; false skips all image events, including deletes"
+          default: true
         changes:
           type: array
           description: "resource change batch, each item has path/file_path and change"
@@ -234,7 +240,8 @@ jobs:
     steps:
       - backend: auto_resource_step
         dispatch_steps:
-          - auto_image_resource_step
+          - backend: auto_image_resource_step
+            include_images: true
           - auto_text_resource_step
 
   proactive_read:
@@ -850,17 +857,6 @@ components:
       parameters:
         max_tokens: 65536
         thinking_enable: false
-
-    # Optional dedicated vision model for image resources (auto_image_resource_step).
-    # Falls back to the "default" instance above when absent; uncomment to
-    # decouple the vision model from the main LLM.
-    # vision:
-    #   backend: ${VLM_BACKEND:-openai}
-    #   model: ${VLM_MODEL_NAME:-}
-    #   stream: false
-    #   credential:
-    #     api_key: ${VLM_API_KEY:-}
-    #     base_url: ${VLM_BASE_URL:-}
 
   agent_wrapper:
     default:

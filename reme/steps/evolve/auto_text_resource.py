@@ -1,18 +1,11 @@
 """Text resource processor for the unified auto-resource router."""
 
-import uuid
 from pathlib import Path
 
 import aiofiles
 
 from ...components import R
-from ._evolve import agent_reply_result_text
 from .base_auto_resource import BaseAutoResourceStep
-
-
-def _compute_agent_session_id(path: str) -> str:
-    """Return a stable UUID session id for agent backends."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, path))
 
 
 @R.register("auto_text_resource_step")
@@ -26,11 +19,6 @@ class AutoTextResourceStep(BaseAutoResourceStep):
         {"agent_wrapper", "max_file_bytes", "prompt_dict"},
     )
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.create_tools: list[str] = ["write"]
-        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
-
     async def _handle_upsert(
         self,
         file_path: str,
@@ -42,11 +30,6 @@ class AutoTextResourceStep(BaseAutoResourceStep):
         self.logger.info(
             f"[{self.name}] upsert start file_path={file_path} date={date_str} " f"note_stem={note_stem} added={added}",
         )
-        note_state = await self._prepare_resource_note(date_str, file_path, note_stem)
-        note_path = note_state.path
-        note_created = note_state.created
-        self.logger.info(f"[{self.name}] daily note lookup path={note_path} created={note_created}")
-
         # Read resource file content
         if not source_path.is_file():
             self.context.response.success = False
@@ -101,49 +84,4 @@ class AutoTextResourceStep(BaseAutoResourceStep):
             file_content = await f.read()
         self.logger.info(f"[{self.name}] read resource done file_path={file_path} chars={len(file_content)}")
 
-        template_key = "user_message_create" if note_created else "user_message_update"
-        user_message = self.prompt_format(
-            template_key,
-            workspace_dir=str(self.workspace_path),
-            note_path=note_path,
-            note_stem=note_stem,
-            file_path=file_path,
-            source_resource=self._source_resource_link(file_path),
-            file_content=file_content,
-            date=date_str,
-        )
-
-        agent_session_id = _compute_agent_session_id(file_path)
-        self.logger.info(
-            f"[{self.name}] agent start file_path={file_path} note_path={note_path} "
-            f"agent_session_id={agent_session_id}",
-        )
-        result = await self.agent_wrapper.reply(
-            user_message,
-            system_prompt=self.prompt_format("system_prompt"),
-            job_tools=self.create_tools if note_created else self.update_tools,
-            session_id=agent_session_id,
-        )
-        self.logger.info(f"[{self.name}] agent done file_path={file_path} has_result={bool(result.get('result'))}")
-
-        note_path = await self._finalize_resource_note(
-            note_state,
-            date_str,
-            file_path,
-            note_stem,
-            added,
-        )
-        if note_path is None:
-            self.context.response.success = True
-            self.context.response.answer = agent_reply_result_text(result)
-            self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
-            return
-
-        self.context.response.success = True
-        self.context.response.answer = agent_reply_result_text(result)
-        self.context.response.metadata.update(
-            {
-                "agent_session_id": agent_session_id,
-            },
-        )
-        self.logger.info(f"[{self.name}] done {note_path} modified={self.context.response.metadata['modified']}")
+        await self._interpret_resource(file_path, date_str, note_stem, added, file_content)

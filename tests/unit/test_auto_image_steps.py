@@ -1,6 +1,7 @@
 """Tests for AutoImageResourceStep: image resource files become caption daily notes.
 
-The vision model boundary is faked (no network); test images are synthesized
+The agent reply boundary is faked (no network); real scoped file jobs write notes.
+Test images are synthesized
 with PIL inside a temporary workspace.
 """
 
@@ -33,18 +34,16 @@ from reme.steps.evolve.auto_image_resource import (
     DEFAULT_MAX_IMAGE_PIXELS,
     _build_image_request_payload,
     _normalize_image_bytes,
-    _parse_caption_json,
 )
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 from .auto_resource_test_support import (
     FakeAgentWrapper as _FakeAgentWrapper,
     FakeAudioResourceStep as _FakeAudioResourceStep,
-    FakeVisionModel as _FakeVisionModel,
+    FakeImageAgentWrapper as _FakeImageAgentWrapper,
     FlakyAgentWrapper as _FlakyAgentWrapper,
-    FlakyVisionModel as _FlakyVisionModel,
-    StructuredVisionModel as _StructuredVisionModel,
-    caption_json as _caption_json,
+    FlakyImageAgentWrapper as _FlakyImageAgentWrapper,
+    caption_fields as _caption_fields,
     image_bytes as _img_bytes,
     make_app_context as _make_app_context,
     png_bytes as _png_bytes,
@@ -84,7 +83,7 @@ async def test_auto_image_supports_core_formats(
     """Core formats preserve source metadata and use a provider-safe request payload."""
     env = auto_resource_env
     source = env.write_binary(f"resource/2026-01-01/image{suffix}", _img_bytes(image_format))
-    model = _StructuredVisionModel(
+    model = _FakeImageAgentWrapper(
         content={"name": "visible-subject", "description": "Visible", "caption": "Visible caption."},
     )
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
@@ -98,7 +97,7 @@ async def test_auto_image_supports_core_formats(
     assert post.metadata["name"] == "visible-subject"
     assert f"![[resource/2026-01-01/image{suffix}]]" in post.content
     assert "Visible caption." in post.content
-    assert model.structured_calls[0][0].content[1].source.media_type == request_mime
+    assert model.calls[0][0].content[1].source.media_type == request_mime
     assert (env.workspace / "daily/2026-01-01.md").is_file()
 
 
@@ -114,7 +113,7 @@ async def test_auto_image_note_lifecycle(change, auto_resource_env):
     if change != "added":
         _write_note(note_path, "[[resource/2026-01-01/img.png]]")
 
-    model = _FakeVisionModel(_caption_json("red-square", "Updated", "The updated caption."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Updated", "The updated caption."))
     response = await env.run(env.processor(model), [{"change": change, "path": str(source)}])
 
     result = response.metadata["results"][0]["metadata"]
@@ -128,48 +127,6 @@ async def test_auto_image_note_lifecycle(change, auto_resource_env):
         assert "The updated caption." in frontmatter.loads(note_path.read_text(encoding="utf-8")).content
 
 
-@pytest.mark.parametrize(
-    ("stem", "plain_text", "note_name", "caption", "raw_json_must_be_absent"),
-    [
-        (
-            "fenced",
-            "```json\n" + _caption_json("fenced-note", "Fenced", "Fenced caption body.") + "\n```",
-            "fenced-note",
-            "Fenced caption body.",
-            False,
-        ),
-        ("photo", "A plain description.", "photo", "A plain description.", False),
-        (
-            "waterfall",
-            '{"file": "resource/2026-01-01/waterfall.png", "description": "A tall waterfall."}',
-            "waterfall",
-            "A tall waterfall.",
-            True,
-        ),
-    ],
-)
-@pytest.mark.asyncio
-async def test_auto_image_plain_outputs_create_clean_notes(
-    stem,
-    plain_text,
-    note_name,
-    caption,
-    raw_json_must_be_absent,
-    auto_resource_env,
-):
-    """Fenced JSON, raw text, and description-only JSON remain valid plain fallbacks."""
-    env = auto_resource_env
-    source = env.write_binary(f"resource/2026-01-01/{stem}.png", _png_bytes())
-    response = await env.run(env.processor(_FakeVisionModel(plain_text)), [{"change": "added", "path": str(source)}])
-
-    assert response.success is True
-    content = (env.workspace / f"daily/2026-01-01/{note_name}.md").read_text(encoding="utf-8")
-    assert caption in content
-    if raw_json_must_be_absent:
-        assert '{"file"' not in content
-        assert '"description"' not in content
-
-
 @pytest.mark.asyncio
 async def test_auto_image_downscales_oversized_image_for_request_only(auto_resource_env):
     """Images beyond the request budget are downscaled in the request; storage is untouched."""
@@ -177,7 +134,7 @@ async def test_auto_image_downscales_oversized_image_for_request_only(auto_resou
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/huge.png", _png_bytes(width=3000, height=3000))
     stored_bytes = source.read_bytes()
-    model = _FakeVisionModel(_caption_json("huge-image", "Big", "A big image."))
+    model = _FakeImageAgentWrapper(_caption_fields("huge-image", "Big", "A big image."))
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
@@ -195,7 +152,7 @@ async def test_auto_image_uses_jpeg_decoder_downsampling_before_load(auto_resour
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/large.jpg", _img_bytes("JPEG", (4096, 2048)))
     stored_bytes = source.read_bytes()
-    model = _FakeVisionModel(_caption_json("large-jpeg", "Large", "A large JPEG."))
+    model = _FakeImageAgentWrapper(_caption_fields("large-jpeg", "Large", "A large JPEG."))
     decoded_sizes = []
     original_load = JpegImagePlugin.JpegImageFile.load
 
@@ -314,7 +271,7 @@ async def test_auto_image_applies_exif_orientation_before_resizing(source_size, 
     image.close()
     source = env.write_binary("resource/2026-01-01/phone.jpg", buffer.getvalue())
     stored_bytes = source.read_bytes()
-    model = _FakeVisionModel(_caption_json("upright-phone-photo", "Upright", "An upright phone photo."))
+    model = _FakeImageAgentWrapper(_caption_fields("upright-phone-photo", "Upright", "An upright phone photo."))
 
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
@@ -352,14 +309,14 @@ async def test_auto_image_uses_decoded_format_when_suffix_is_misleading(
     env = auto_resource_env
     source = env.write_binary(f"resource/2026-01-01/mislabeled{suffix}", _img_bytes(image_format))
     stored_bytes = source.read_bytes()
-    model = _StructuredVisionModel(
+    model = _FakeImageAgentWrapper(
         content={"name": "actual-format", "description": "Decoded", "caption": "Decoded image content."},
     )
 
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
-    data_block = model.structured_calls[0][0].content[1]
+    data_block = model.calls[0][0].content[1]
     assert data_block.source.media_type == request_mime
     with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
         assert sent.get_format_mimetype() == request_mime
@@ -378,7 +335,7 @@ async def test_auto_image_rejects_pixel_bomb_before_decode_and_isolates_batch(ro
         _png_bytes_with_header_size(8000, 6000),
     )
     safe = env.write_binary("resource/2026-01-01/safe.png", _png_bytes())
-    model = _FakeVisionModel(_caption_json("safe-image", "Safe", "A safe image."))
+    model = _FakeImageAgentWrapper(_caption_fields("safe-image", "Safe", "A safe image."))
 
     response = await env.run(
         env.processor(model, routed=routed),
@@ -422,7 +379,7 @@ async def test_decompression_bomb_warning_is_isolated_per_change(routed, auto_re
     env = auto_resource_env
     warned = env.write_binary("resource/2026-01-01/warned.png", _png_bytes())
     safe = env.write_binary("resource/2026-01-01/safe.png", _png_bytes(width=4, height=4))
-    model = _FakeVisionModel(_caption_json("safe-image", "Safe", "A safe image."))
+    model = _FakeImageAgentWrapper(_caption_fields("safe-image", "Safe", "A safe image."))
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 32)
 
     response = await env.run(
@@ -456,7 +413,7 @@ async def test_auto_image_skips_oversized_file(auto_resource_env):
 
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/img.png", _png_bytes())
-    model = _FakeVisionModel(_caption_json("x", "y", "z"))
+    model = _FakeImageAgentWrapper(_caption_fields("x", "y", "z"))
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}], max_image_bytes=8)
 
     result = response.metadata["results"][0]
@@ -468,8 +425,8 @@ async def test_auto_image_skips_oversized_file(auto_resource_env):
 
 
 @pytest.mark.asyncio
-async def test_auto_image_skips_without_vision_model(auto_resource_env):
-    """Without any resolvable vision model the change is skipped with a reason."""
+async def test_auto_image_fails_without_agent_wrapper(auto_resource_env):
+    """Missing agent configuration cannot silently generate a text-only image note."""
 
     env = auto_resource_env
     env.app_context.components = {}
@@ -478,8 +435,8 @@ async def test_auto_image_skips_without_vision_model(auto_resource_env):
     response = await env.run(step, [{"change": "added", "path": str(source)}])
 
     result = response.metadata["results"][0]
-    assert response.success is True
-    assert result["metadata"]["reason"] == "vision_model_not_configured"
+    assert response.success is False
+    assert result["metadata"]["action"] == "failed"
     assert not (env.workspace / "daily/2026-01-01/img.md").exists()
 
 
@@ -493,7 +450,8 @@ async def test_auto_resource_router_preserves_mixed_result_order_and_emits_one_h
     text = env.workspace / "resource/2026-01-01/note.txt"
     text.write_text("hello", encoding="utf-8")
     wrapper = _FakeAgentWrapper()
-    model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
+    model.app_context = env.app_context
     hook_calls = []
 
     async def hook(**kwargs):
@@ -509,8 +467,11 @@ async def test_auto_resource_router_preserves_mixed_result_order_and_emits_one_h
         app_context=env.app_context,
         file_store=env.file_store,
         agent_wrapper=wrapper,
-        as_llm=model,
-        dispatch_steps=["auto_image_resource_step", "fake_audio_resource_step", "auto_text_resource_step"],
+        dispatch_steps=[
+            {"backend": "auto_image_resource_step", "agent_wrapper": model},
+            "fake_audio_resource_step",
+            "auto_text_resource_step",
+        ],
     )
     context = RuntimeContext(changes=changes)
     response = await step(context)
@@ -540,8 +501,9 @@ async def test_auto_resource_router_isolates_text_exception_and_preserves_image_
     second_text = env.workspace / "resource/2026-01-01/second.txt"
     first_text.write_text("first", encoding="utf-8")
     second_text.write_text("second", encoding="utf-8")
-    model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
     wrapper = _FlakyAgentWrapper()
+    model.app_context = env.app_context
     hook_calls = []
 
     async def hook(**kwargs):
@@ -557,7 +519,7 @@ async def test_auto_resource_router_isolates_text_exception_and_preserves_image_
     step = AutoResourceStep(
         app_context=env.app_context,
         dispatch_steps=[
-            {"backend": "auto_image_resource_step", "file_store": env.file_store, "as_llm": model},
+            {"backend": "auto_image_resource_step", "file_store": env.file_store, "agent_wrapper": model},
             {
                 "backend": "auto_text_resource_step",
                 "file_store": env.file_store,
@@ -577,12 +539,9 @@ async def test_auto_resource_router_isolates_text_exception_and_preserves_image_
         "resource/2026-01-01/second.txt",
     ]
     assert [item["success"] for item in results] == [False, True, True]
-    assert results[0]["metadata"] == {
-        "path": "resource/2026-01-01/first.txt",
-        "modified": False,
-        "action": "failed",
-        "error": "text provider unavailable",
-    }
+    assert results[0]["metadata"]["modified"] is False
+    assert results[0]["metadata"]["action"] == "failed"
+    assert results[0]["metadata"]["error"] == "text provider unavailable"
     assert results[1]["metadata"]["modified"] is True
     assert "error" not in results[2]["metadata"]
     assert wrapper.calls == 2
@@ -596,12 +555,11 @@ def test_auto_resource_router_inherits_declared_options_with_child_override():
     """Each processor selects inherited router options; explicit child values win."""
     file_store = object()
     agent_wrapper = object()
-    vision_model = object()
     prompt_dict = {"system_prompt": "legacy text prompt"}
     step = AutoResourceStep(
         file_store=file_store,
         agent_wrapper=agent_wrapper,
-        as_llm=vision_model,
+        include_images=False,
         language="zh",
         prompt_dict=prompt_dict,
         max_file_bytes=4,
@@ -625,8 +583,10 @@ def test_auto_resource_router_inherits_declared_options_with_child_override():
     assert specs["auto_image_resource_step"] == {
         "backend": "auto_image_resource_step",
         "file_store": file_store,
-        "as_llm": vision_model,
+        "agent_wrapper": agent_wrapper,
+        "include_images": False,
         "language": "zh",
+        "prompt_dict": prompt_dict,
         "max_image_bytes": 32,
         "max_image_pixels": 128,
     }
@@ -759,36 +719,28 @@ def test_resource_processors_have_canonical_registrations_and_isolated_prompts()
     assert text_step.prompt.has_prompt("user_message_create")
     assert not text_step.prompt.has_prompt("user_message")
     assert image_step.prompt.has_prompt("user_message")
-    assert not image_step.prompt.has_prompt("system_prompt")
-    assert not image_step.prompt.has_prompt("user_message_create")
+    assert image_step.prompt.has_prompt("system_prompt")
+    assert image_step.prompt.has_prompt("user_message_create")
 
 
-def test_auto_image_named_model_uses_standard_ref_resolution():
-    """A configured ``as_llm`` component name is honored instead of ignored."""
+def test_auto_image_named_wrapper_uses_standard_ref_resolution():
+    """An explicit wrapper owns model selection; an unrelated vision model is ignored."""
     app_ctx = _make_app_context(Path.cwd())
-    named = _FakeVisionModel("named")
-    vision = _FakeVisionModel("vision")
-    default = _FakeVisionModel("default")
+    named = _FakeImageAgentWrapper("named")
+    default = _FakeImageAgentWrapper("default")
     app_ctx.components = {
-        ComponentEnum.AS_LLM: {
-            "my_vlm": SimpleNamespace(model=named),
-            "vision": SimpleNamespace(model=vision),
-            "default": SimpleNamespace(model=default),
-        },
+        ComponentEnum.AGENT_WRAPPER: {"my_agent": named, "default": default},
+        ComponentEnum.AS_LLM: {"vision": SimpleNamespace(model=object())},
     }
-    step = AutoImageResourceStep(app_context=app_ctx, as_llm="my_vlm")
+    step = AutoImageResourceStep(app_context=app_ctx, agent_wrapper="my_agent")
     step.context = RuntimeContext()
-
-    assert step._vision_model() is named
-
+    assert step.agent_wrapper is named
     implicit = AutoImageResourceStep(app_context=app_ctx)
     implicit.context = RuntimeContext()
-    assert implicit._vision_model() is vision
-
-    missing = AutoImageResourceStep(app_context=app_ctx, as_llm="missing_vlm")
+    assert implicit.agent_wrapper is default
+    missing = AutoImageResourceStep(app_context=app_ctx, agent_wrapper="missing_agent")
     missing.context = RuntimeContext()
-    with pytest.raises(KeyError, match="missing_vlm"):
-        missing._vision_model()
+    assert missing.agent_wrapper is None  # The standard wrapper Ref is optional.
 
 
 @pytest.mark.parametrize(
@@ -891,7 +843,7 @@ async def test_auto_image_prompt_treats_filename_as_a_weak_hint(auto_resource_en
     """The VLM prompt separates filename hints from visible image evidence."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/cat-at-beach.png", _png_bytes())
-    model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
@@ -907,7 +859,7 @@ async def test_auto_image_reports_modified_when_index_refresh_fails_after_write(
     """A post-write failure keeps the actual on-disk modification state."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/img.png", _png_bytes())
-    model = _FakeVisionModel(_caption_json("red-square", "Red", "A red square."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
 
     async def fail_refresh(*_args, **_kwargs):
         raise RuntimeError("index refresh failed")
@@ -928,16 +880,23 @@ def test_default_resource_watcher_dispatches_only_the_unified_router():
     root = Path(__file__).resolve().parents[2]
     config = yaml.safe_load((root / "reme" / "config" / "default.yaml").read_text(encoding="utf-8"))
     steps = config["jobs"]["resource_watch_loop"]["steps"]
+    expected_processors = [
+        {"backend": "auto_image_resource_step", "include_images": True},
+        "auto_text_resource_step",
+    ]
 
     for producer in steps:
         backends = [item["backend"] for item in producer["dispatch_steps"]]
         assert backends == ["update_catalog_step", "auto_resource_step"]
         router = producer["dispatch_steps"][1]
-        assert router["dispatch_steps"] == ["auto_image_resource_step", "auto_text_resource_step"]
+        assert router["dispatch_steps"] == expected_processors
 
     auto_resource = config["jobs"]["auto_resource"]["steps"][0]
     assert auto_resource["backend"] == "auto_resource_step"
-    assert auto_resource["dispatch_steps"] == ["auto_image_resource_step", "auto_text_resource_step"]
+    assert auto_resource["dispatch_steps"] == expected_processors
+    include_images = config["jobs"]["auto_resource"]["parameters"]["properties"]["include_images"]
+    assert include_images["type"] == "boolean"
+    assert include_images["default"] is True
     assert "auto_image" not in config["jobs"]
 
 
@@ -962,11 +921,11 @@ async def test_auto_image_failure_is_isolated_per_change(failure_stage, auto_res
     env = auto_resource_env
     if failure_stage == "model":
         first_data = _png_bytes()
-        model = _FlakyVisionModel(_caption_json("good-image", "Good", "A valid image."))
-        expected_error = "vision backend unavailable"
+        model = _FlakyImageAgentWrapper(_caption_fields("good-image", "Good", "A valid image."))
+        expected_error = "image agent unavailable"
     else:
         first_data = b"not an image"
-        model = _FakeVisionModel(_caption_json("good-image", "Good", "A valid image."))
+        model = _FakeImageAgentWrapper(_caption_fields("good-image", "Good", "A valid image."))
         expected_error = "Failed to decode image"
     first = env.write_binary("resource/2026-01-01/first.png", first_data)
     second = env.write_binary("resource/2026-01-01/second.png", _png_bytes(color=(20, 90, 200)))
@@ -996,80 +955,12 @@ async def test_auto_image_uniquifies_conflicting_note_name(auto_resource_env):
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/img.png", _png_bytes())
     env.write_note("daily/2026-01-01/red-square.md", "[[resource/2026-01-01/other.png]]")
-    model = _FakeVisionModel(_caption_json("red-square", "A red square", "An 8x8 solid red square."))
+    model = _FakeImageAgentWrapper(_caption_fields("red-square", "A red square", "An 8x8 solid red square."))
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
     suffix = hashlib.sha1(b"resource/2026-01-01/img.png").hexdigest()[:8]
     assert (env.workspace / f"daily/2026-01-01/red-square--{suffix}.md").is_file()
-
-
-@pytest.mark.parametrize(
-    ("text", "expected"),
-    [
-        (
-            '{"description": "Waterfall in Iceland."}',
-            {"name": "", "description": "Waterfall in Iceland.", "caption": "Waterfall in Iceland."},
-        ),
-        ('{"caption": "A red square."}', {"name": "", "description": "", "caption": "A red square."}),
-        (
-            '```json\n{"name": "n", "description": "d", "caption": "c"}\n```',
-            {"name": "n", "description": "d", "caption": "c"},
-        ),
-        (
-            "A plain description without json.",
-            {"name": "", "description": "", "caption": "A plain description without json."},
-        ),
-        ('{"foo": 1}', {"name": "", "description": "", "caption": ""}),
-        ("```json\n\n```", {"name": "", "description": "", "caption": ""}),
-    ],
-)
-def test_parse_caption_json(text, expected):
-    """Plain fallback parsing normalizes useful fields without leaking unusable JSON."""
-    assert _parse_caption_json(text) == expected
-
-
-@pytest.mark.parametrize(
-    ("structured_mode", "note_name", "caption", "expected_plain_calls"),
-    [
-        ("success", "red-square", "An 8x8 red square.", 0),
-        ("error", "plain-note", "Plain-call caption.", 1),
-        ("empty", "empty-note", "Recovered by plain call.", 1),
-    ],
-)
-@pytest.mark.asyncio
-async def test_auto_image_structured_output_and_plain_retry(
-    structured_mode,
-    note_name,
-    caption,
-    expected_plain_calls,
-    auto_resource_env,
-):
-    """Structured success stays primary; structured errors and empties retry plain once."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/img.png", _png_bytes())
-    if structured_mode == "success":
-        model = _StructuredVisionModel(
-            content={"name": note_name, "description": "A red square.", "caption": caption},
-        )
-    elif structured_mode == "error":
-        model = _StructuredVisionModel(
-            error=RuntimeError("provider rejects tool_choice"),
-            plain_text=_caption_json(note_name, "Plain", caption),
-        )
-    else:
-        model = _StructuredVisionModel(
-            content={"name": "", "description": "", "caption": ""},
-            plain_text=_caption_json(note_name, "Empty", caption),
-        )
-
-    response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
-
-    assert response.success is True
-    assert len(model.structured_calls) == 1
-    assert len(model.plain_calls) == expected_plain_calls
-    content = (env.workspace / f"daily/2026-01-01/{note_name}.md").read_text(encoding="utf-8")
-    assert caption in content
 
 
 @pytest.mark.asyncio
@@ -1079,11 +970,11 @@ async def test_auto_image_converts_heic_request_when_extra_is_installed(auto_res
 
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/phone.heic", _img_bytes("HEIF"))
-    model = _StructuredVisionModel(content={"name": "", "description": "d", "caption": "converted caption"})
+    model = _FakeImageAgentWrapper(content={"name": "", "description": "d", "caption": "converted caption"})
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
-    assert model.structured_calls[0][0].content[1].source.media_type in {"image/png", "image/jpeg"}
+    assert model.calls[0][0].content[1].source.media_type in {"image/png", "image/jpeg"}
     note = frontmatter.loads((env.workspace / "daily/2026-01-01/phone.md").read_text(encoding="utf-8"))
     assert note.metadata["media_type"] == "image/heic"
     assert "converted caption" in note.content
