@@ -1,0 +1,163 @@
+extends: default
+
+app_name: ReMe Cookbook
+
+# Quick start
+# ===========
+#
+# This configuration composes three independently installable plugins. Install
+# all three packages into the same Python environment as the `reme` command:
+#
+#   reme plugins install plugins/dingtalk
+#   reme plugins install plugins/auto-fin
+#   reme plugins install plugins/daily_paper
+#
+# Create a `.env` file in the directory where `reme start` will run (or export
+# the variables in the shell). These DingTalk application credentials are
+# required because this configuration starts the background Agent bridge:
+#
+#   DINGTALK_APP_KEY=your-app-key
+#   DINGTALK_APP_SECRET=your-app-secret
+#   DINGTALK_ROBOT_CODE=your-robot-code
+#
+# Configure one or more comma-separated group conversation IDs to enable the
+# Auto Fin and Daily Paper notifications. An empty value keeps report generation
+# and the Agent bridge enabled but makes proactive group delivery a no-op:
+#
+#   DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
+#
+# The default AgentScope workflows and the DingTalk Claude Code bridge share the
+# same model name and API key. `LLM_BASE_URL` is used only by AgentScope;
+# `CLAUDE_CODE_BASE_URL` is used only by Claude Code:
+#
+#   LLM_API_KEY=your-llm-api-key
+#   LLM_MODEL_NAME=qwen3.8-max
+#   LLM_BACKEND=openai
+#   LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+#   CLAUDE_CODE_BASE_URL=https://dashscope.aliyuncs.com/apps/anthropic
+#
+# Vector retrieval is enabled by this configuration. Set the embedding API key;
+# the remaining values show the built-in defaults and only need to be exported
+# when another compatible embedding service or model is required:
+#
+#   EMBEDDING_API_KEY=your-embedding-api-key
+#   EMBEDDING_BACKEND=openai
+#   EMBEDDING_MODEL_NAME=text-embedding-v4
+#   EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+#
+# Start the composed application after installing the plugins and configuring
+# the environment:
+#
+#   reme start config=cookbook
+#
+# Auto Fin and Daily Paper remain independently usable without DingTalk when
+# they are enabled outside this composed configuration.
+plugins:
+  - auto-fin
+  - daily-paper
+  - dingtalk
+
+components:
+  as_embedding:
+    default:
+      backend: ${EMBEDDING_BACKEND:-openai}
+      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      dimensions: 1024
+      credential:
+        api_key: ${EMBEDDING_API_KEY:-}
+        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters: {}
+
+  embedding_store:
+    default:
+      backend: local
+      as_embedding: default
+      max_retries: 3
+      quota_retry_delay: 60
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+
+  agent_wrapper:
+    claude_code:
+      backend: claude_code
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      api_key: ${LLM_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+      # Keep Claude Code's native tools; the wrapper disables WebSearch by default.
+
+  file_store:
+    default:
+      embedding_store: default
+
+jobs:
+  dingtalk_send:
+    backend: base
+    enable_serve: false
+    description: "Send one workspace Markdown file to configured DingTalk groups."
+    parameters:
+      type: object
+      properties:
+        markdown_path:
+          type: string
+          description: "Workspace-relative path to the Markdown file to send."
+      required:
+        - markdown_path
+    steps:
+      - &dingtalk_send_defaults
+        backend: dingtalk_markdown_send_step
+        app_key: ${DINGTALK_APP_KEY}
+        app_secret: ${DINGTALK_APP_SECRET}
+        robot_code: ${DINGTALK_ROBOT_CODE}
+        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+        timeout: 15
+
+  auto_fin:
+    steps: &auto_fin_steps
+      - backend: auto_fin_data_step
+      - backend: auto_fin_topic_step
+      - backend: auto_fin_merge_step
+        job_tools: [search, read]
+      - backend: auto_tag_step
+      - <<: *dingtalk_send_defaults
+        title: ReMe Auto Fin
+
+  auto_fin_cron:
+    steps: *auto_fin_steps
+
+  daily_paper:
+    steps: &daily_paper_steps
+      - backend: daily_paper_collect_step
+      - backend: daily_paper_rank_step
+      - backend: daily_paper_select_step
+      - backend: daily_paper_analyze_step
+      - backend: daily_paper_digest_step
+        job_tools: [search, read]
+      - backend: auto_tag_step
+      - <<: *dingtalk_send_defaults
+        input_mapping:
+          daily_paper_digest_path: markdown_path
+        title: ReMe Daily Paper
+
+  daily_paper_cron:
+    steps: *daily_paper_steps
+
+  dingtalk_wait:
+    backend: background
+    supervisor: true
+    close_timeout: 10
+    steps:
+      - backend: dingtalk_wait_step
+        agent_wrapper: claude_code
+        app_key: ${DINGTALK_APP_KEY}
+        app_secret: ${DINGTALK_APP_SECRET}
+        robot_code: ${DINGTALK_ROBOT_CODE}
+        worker_count: 4
+        # Add ReMe memory search alongside Claude Code's native tools.
+        job_tools: [search]

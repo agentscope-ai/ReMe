@@ -7,9 +7,8 @@ import aiofiles
 import frontmatter
 import httpx
 
-from ....components import R
-from ...base_step import BaseStep
-from ...file_io._path import gate_md, resolve_path
+from reme.steps.base_step import BaseStep
+from reme.steps.file_io._path import gate_md, resolve_path
 
 _GROUP_SEND_URL = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
 
@@ -18,7 +17,6 @@ def _conversation_ids(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-@R.register("dingtalk_markdown_send_step")
 class DingTalkMarkdownSendStep(BaseStep):
     """Send one Markdown document serially to configured DingTalk groups."""
 
@@ -41,6 +39,7 @@ class DingTalkMarkdownSendStep(BaseStep):
         self.timeout = timeout
 
     async def execute(self):
+        """Read the configured Markdown file and deliver its body to each group."""
         assert self.context is not None
         recipients = self.conversation_ids
         self.context.response.metadata["dingtalk_configured_count"] = len(recipients)

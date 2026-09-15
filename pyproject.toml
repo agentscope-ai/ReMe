@@ -51,7 +51,6 @@ core = [
     "reme-ai[as]",
     "pillow>=10.0.0",
     "claude-agent-sdk>=0.2.126",
-    "dingtalk-stream>=0.24.3",
     "openai-codex>=0.144.4",
     "pproxy>=2.7.9,<3",
     "faiss-cpu>=1.13.2",

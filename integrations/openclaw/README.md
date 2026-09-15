@@ -68,8 +68,8 @@ From this repository, build and install the exact archive that was tested:
 cd /path/to/ReMe/integrations/openclaw
 npm ci
 npm run build
-npm pack
-openclaw plugins install --force ./agentscope-ai-reme-openclaw-plugin-0.1.0.tgz
+PACKAGE_TARBALL="$(npm pack --silent)"
+openclaw plugins install --force "./${PACKAGE_TARBALL}"
 ```
 
 Restart the Gateway after installation. In **Settings → Plugins**, search for `ReMe`; it should be enabled, categorized

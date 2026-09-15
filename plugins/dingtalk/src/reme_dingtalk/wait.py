@@ -1,4 +1,4 @@
-"""Long-running DingTalk Stream bridge for the cookbook application."""
+"""Long-running DingTalk Stream bridge for a ReMe Agent."""
 
 import asyncio
 import hashlib
@@ -7,13 +7,12 @@ import time
 from typing import Any
 from urllib.parse import quote_plus
 
-from ...base_step import BaseStep
-from ....components import R
-from ....components.agent_wrapper import handle_session_command
+from reme.components.agent_wrapper import handle_session_command
+from reme.steps.base_step import BaseStep
 
 
 def _session_key(message: Any) -> str:
-    """Return the per-sender, per-conversation Claude session key."""
+    """Return the per-sender, per-conversation Agent session key."""
     parts = (
         message.conversation_type,
         message.conversation_id,
@@ -29,7 +28,6 @@ def _session_ref(key: str) -> str:
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
-@R.register("dingtalk_wait_step")
 class DingTalkWaitStep(BaseStep):
     """Receive DingTalk messages and send final Agent responses as Markdown."""
 
@@ -52,6 +50,7 @@ class DingTalkWaitStep(BaseStep):
         self.job_tools = list(job_tools or [])
 
     async def execute(self):
+        """Run the callback bridge until its background Job requests shutdown."""
         assert self.context is not None
         if self.context.stop_event is None or self.app_context is None:
             raise RuntimeError("dingtalk_wait_step requires an ApplicationContext and background stop_event")

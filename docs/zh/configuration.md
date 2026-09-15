@@ -18,11 +18,15 @@ ReMe 使用 YAML 或 JSON 描述 Service、Job 和 Component。默认配置位�
 ```bash
 reme start
 reme start config=demo
+reme start config=cookbook
 reme start config=/absolute/path/to/app.yaml
 reme start service.port=8181 workspace_dir=/data/reme
 ```
 
 `config` 支持内置配置名以及 `.yaml`、`.yml`、`.json` 文件。覆盖采用深度合并，不会因为修改 `service.port` 而丢失 `service` 下的其他字段。
+可选的 `cookbook` 变体继承 `default`，并组合独立安装的 Auto Fin、Daily Paper 与钉钉插件；配置加载前必须提供三个
+钉钉应用凭据环境变量。该配置还会启用 `text-embedding-v4` 向量检索，默认通过 AgentScope 使用
+`${LLM_MODEL_NAME:-qwen3.8-max}`，并让钉钉桥接通过 Claude Code 复用 `LLM_MODEL_NAME` 与 `LLM_API_KEY`。
 
 ## 值的解析
 

@@ -65,8 +65,8 @@ openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin
 cd /path/to/ReMe/integrations/openclaw
 npm ci
 npm run build
-npm pack
-openclaw plugins install --force ./agentscope-ai-reme-openclaw-plugin-0.1.0.tgz
+PACKAGE_TARBALL="$(npm pack --silent)"
+openclaw plugins install --force "./${PACKAGE_TARBALL}"
 ```
 
 安装后重启 Gateway。在 **Settings → Plugins** 搜索 `ReMe`，应看到插件已启用、分类为 Memory，并暴露
