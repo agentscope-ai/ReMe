@@ -2,8 +2,56 @@ extends: default
 
 app_name: ReMe Cookbook
 
-# This named application composes three independently installable plugins.
-# Install them before starting with `reme start config=cookbook`.
+# Quick start
+# ===========
+#
+# This configuration composes three independently installable plugins. Install
+# all three packages into the same Python environment as the `reme` command:
+#
+#   reme plugins install reme-dingtalk
+#   reme plugins install reme-auto-fin
+#   reme plugins install reme-daily-paper
+#
+# Create a `.env` file in the directory where `reme start` will run (or export
+# the variables in the shell). These DingTalk application credentials are
+# required because this configuration starts the background Agent bridge:
+#
+#   DINGTALK_APP_KEY=your-app-key
+#   DINGTALK_APP_SECRET=your-app-secret
+#   DINGTALK_ROBOT_CODE=your-robot-code
+#
+# Configure one or more comma-separated group conversation IDs to enable the
+# Auto Fin and Daily Paper notifications. An empty value keeps report generation
+# and the Agent bridge enabled but makes proactive group delivery a no-op:
+#
+#   DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
+#
+# The default AgentScope workflows and the DingTalk Claude Code bridge share the
+# same model name and API key. `LLM_BASE_URL` is used only by AgentScope;
+# `CLAUDE_CODE_BASE_URL` is used only by Claude Code:
+#
+#   LLM_API_KEY=your-llm-api-key
+#   LLM_MODEL_NAME=qwen3.8-max
+#   LLM_BACKEND=openai
+#   LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+#   CLAUDE_CODE_BASE_URL=https://dashscope.aliyuncs.com/apps/anthropic
+#
+# Vector retrieval is enabled by this configuration. Set the embedding API key;
+# the remaining values show the built-in defaults and only need to be exported
+# when another compatible embedding service or model is required:
+#
+#   EMBEDDING_API_KEY=your-embedding-api-key
+#   EMBEDDING_BACKEND=openai
+#   EMBEDDING_MODEL_NAME=text-embedding-v4
+#   EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+#
+# Start the composed application after installing the plugins and configuring
+# the environment:
+#
+#   reme start config=cookbook
+#
+# Auto Fin and Daily Paper remain independently usable without DingTalk when
+# they are enabled outside this composed configuration.
 plugins:
   - auto-fin
   - daily-paper
