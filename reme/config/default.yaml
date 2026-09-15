@@ -184,17 +184,8 @@ jobs:
           description: "optional hint"
         include_images:
           type: boolean
-          description: "Use session images for memory extraction when supports_vision is true; source JSONL saving is unchanged"
+          description: "Use session images with a caller-configured vision-capable AgentScope model and formatter"
           default: false
-        supports_vision:
-          type: boolean
-          description: "Caller declares that the AgentScope wrapper's bound as_llm supports images; does not enable images by itself"
-          default: false
-        image_mode:
-          type: string
-          enum: [direct]
-          description: "direct: interleaved multimodal AgentScope memory input; other modes are not supported"
-          default: direct
         date:
           type: string
           description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
@@ -204,8 +195,6 @@ jobs:
     steps:
       - backend: auto_memory_step
         include_images: false
-        supports_vision: false
-        image_mode: direct
       - backend: auto_tag_step
 
   auto_memory_cc:

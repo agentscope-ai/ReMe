@@ -73,65 +73,48 @@ daily note 会指向对应的对话记录。持久化时会排除 tool-result bl
 
 ## 可选的 Session 图像
 
-默认不开启图像。`include_images` 和 `supports_vision` 是两个独立的布尔选项，默认都为 `false`。
-发送图像前，既要开启功能，也要明确声明所选模型支持视觉：
+默认不开启图像。设置 `include_images=true` 后，记忆 Agent 可以同时利用对话文本和图像：
 
 ```bash
-reme auto_memory session_id=session-a include_images=true supports_vision=true messages='[...]'
+reme auto_memory session_id=session-a include_images=true messages='[...]'
 ```
 
 单次 CLI 调用可使用 `reme start job=auto_memory`，其余参数相同。
-不需要修改 YAML 或重新编译。`include_images` 控制是否考虑图像；`supports_vision` 声明 AgentScope wrapper 绑定的 `as_llm`
-是否支持图像，不会自动探测能力或切换模型。仅当 `include_images=true supports_vision=true` 时才发送图像；
-请选用支持这些图像的模型与 AgentScope formatter。
-
-`include_images=false` 时，无论 `supports_vision` 如何设置，各种 wrapper 都保持原有纯文本行为。
-纯文本仍通过已有的 `agent_wrapper.reply()` 字符串输入路径执行，无需为其他 wrapper 改造多模态接口。
-`include_images=true` 时必须使用 AgentScope wrapper；其他后端会抛出 `NotImplementedError`，不会降级为纯文本。
-`image_mode` 默认为 `direct`，目前只支持此模式；开启图像时选择其他模式会抛出 `ValueError`。
-
-如果输入含图像但 `supports_vision=false`，Auto Memory 不读取图像，记录 warning 后沿用原始纯文本输入，
-并在 `auto_memory_images` metadata 中报告 `status=fallback`、`reason=supports_vision=false`。
-开启功能但输入中没有图像块时报告 `status=skipped`。
+不需要修改 YAML 或重新编译。关闭图像，或输入没有图像块时，各种 wrapper 都保持原有纯文本行为。
+只有开启且实际包含图像的调用才要求 AgentScope wrapper（`AsAgentWrapper`），其他后端会抛出 `NotImplementedError`。
+开启图像表示调用方已经选用兼容的模型与 formatter。Auto Memory 沿用 wrapper 通过 `as_llm` 绑定的模型，
+不会自动探测能力或切换模型。
 
 `messages` 使用 AgentScope 格式，处理顶层图像 `DataBlock`（`source.media_type` 以 `image/` 开头）。
-支持 Base64、HTTP(S) URL 和 workspace 内的 `file://` URI；本地读取遵守 `_allowed_paths`。
-图像输入使用有界读取与 provider 预处理，包括已有的最长边 2048 像素限制、方向纠正和必要的格式转换。
-调用方原始消息与文件保持不变。
+Auto Memory 构建 `UserMsg`，按原会话顺序交错放置文本与原始图像块，保留说话人、时间和任务提示的文本边界。
+记忆 Agent 同时从图文中提取信息，不单独调用 caption 模型。这是一次 Agent 工作流，不保证只有一次 API 请求：
+工具调用可能触发后续模型轮次。
 
-### 直接多模态输入
+Base64 source 与 HTTP(S) 图像 URL 原样传给 AgentScope formatter，Auto Memory 不下载、解码、缩放或转码图像。
+所提供的 URL 必须能被模型供应商访问。`file://` 和其他 URL scheme 会被拒绝，请先将本地图像转换为 Base64 再提交。
+调用方原始消息与图像文件保持不变。
 
-使用默认的会话渲染时，Auto Memory 构建 AgentScope `UserMsg`，在会话历史中按原顺序交错放置文本与图像 `DataBlock`，
-保留每条消息的说话人和时间边界，也支持只有图像的消息及重复 block ID。
-这里描述的是 ReMe 传给 wrapper 的输入；实际 provider 请求中的表示方式由所选 AgentScope formatter 决定。
-记忆 Agent 同时读取文本与图像，不单独调用 caption 模型。这是一次 Agent 工作流，不保证只有一次 API 请求：
-调用写笔记等工具后，后续模型轮次仍可能携带图像。
-未显式设置图像数量上限时，直接模式会为全部输入图像保留 Agent 上下文容量。
-若显式设置的 `context_config.max_image_num` 小于输入图像数，会整次显式回退为纯文本，不静默移除较早图像。
-模型和 provider 自身的上下文限制仍然适用。
+Auto Memory 检查 wrapper 实际生效的 `context_config.max_image_num`，超限时明确报错，不自动提高上限。
+当前 AgentScope 默认允许 5 张图像。如果需要更多，请显式配置 wrapper，例如：
 
-纯文本与图文 Auto Memory 均使用 AgentScope wrapper 通过 `as_llm` 绑定的同一个模型。
-`supports_vision=true` 应当描述这个模型的能力。图像资源处理使用的可选 `components.as_llm.vision`
-不会改变 Auto Memory 的模型。
+```bash
+reme start job=auto_memory \
+  components.agent_wrapper.default.context_config.max_image_num=20 \
+  session_id=session-a include_images=true messages='[...]'
+```
 
-Auto Memory 不创建 resource 图像文件或独立 caption 卡片；
-相关图像事实仍可被提取进普通 daily 记忆笔记。AgentScope wrapper 仍按原有行为在 `mem_session/agentscope` 保存
-内部 Agent 状态，直接模式的状态中包含图像输入。
+模型与 formatter 自身的限制仍然适用。无效的图像选项、不支持的后端、禁止的 URL scheme 和图像数量超限，
+都在保存源会话之前检查。formatter 或 provider 的错误沿现有错误流程返回，不以纯文本重试。
+与纯文本调用相同，保存后发生的错误不会回滚源会话记录。
 
-**开启与关闭图像时的源 JSONL 保存行为完全不变。** 不补充 caption 或图像 metadata，仍执行上文的过滤规则。
-重放已保存的 JSONL 无法恢复被过滤掉的 Base64 图像；再次处理这些图像需要重新提交原始带图消息。
+**开启与关闭图像时的源 JSONL 保存行为完全不变。** 仍执行上文的过滤规则，不补充 caption 或图像 metadata。
+重放已保存的 JSONL 无法恢复被过滤掉的 Base64 图像；再次处理需要提交原始带图消息。
+Auto Memory 不创建独立图像资源或 caption 卡片，但 AgentScope wrapper 按原有行为保存在 `mem_session/agentscope`
+的内部 Agent 状态可能包含图像输入。
 
-图像读取或预处理失败时，Auto Memory 会记录 warning，并在响应的 `auto_memory_images` metadata 中说明降级。
-本次请求的所有临时图像增强都会被丢弃，然后使用原始纯文本输入继续提取记忆，不会混入部分成功的结果。
-只要普通 memory 操作成功，CLI 仍可成功；需查看 metadata 区分纯文本降级与图像处理成功。
-取消操作、开启图像时的无效模式配置、不支持的 wrapper，以及图像阶段以外的错误，不会被这个降级逻辑吞掉。
-记忆 Agent 开始运行后，错误按原有方式传播，不会再以纯文本重跑，以免重复执行已经写入记忆的工具。
-直接模式在调用 Agent 前记录 `prepared`，正常返回后记录 `completed`，`captioned_images` 始终为零。
-`completed` 表示图像处理完成，不保证一定生成了笔记。
-
-若需持久默认值，在应用配置（或 `reme start` 对应覆盖项）中设置 `jobs.auto_memory.include_images` 和
-`jobs.auto_memory.supports_vision`。两个选项各自遵守相同优先级：调用时参数高于 Job 默认值，Job 默认值高于 Step 配置；
-两个选项默认均为 `false`。无需编译。本适配针对 AgentScope 消息，不扩展 Claude Code 原始 transcript 的解析。
+若需持久默认值，在应用配置或 `reme start` 对应覆盖项中设置 `jobs.auto_memory.include_images`。
+调用时参数高于 Job 默认值，Job 默认值高于 Step 配置；默认值为 `false`。
+本适配针对 AgentScope 消息，不扩展 Claude Code 原始 transcript 的解析。
 
 ## 消息时间
 
