@@ -17,7 +17,19 @@ def _cookbook(monkeypatch) -> dict:
         "DINGTALK_APP_SECRET": "app-secret",
         "DINGTALK_ROBOT_CODE": "robot-code",
         "DINGTALK_CONVERSATION_IDS": "group-one,group-two",
+        "LLM_API_KEY": "llm-api-key",
+        "EMBEDDING_API_KEY": "embedding-api-key",
     }
+    for name in (
+        "LLM_BACKEND",
+        "LLM_MODEL_NAME",
+        "LLM_BASE_URL",
+        "CLAUDE_CODE_BASE_URL",
+        "EMBEDDING_BACKEND",
+        "EMBEDDING_MODEL_NAME",
+        "EMBEDDING_BASE_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
     for name, value in credentials.items():
         monkeypatch.setenv(name, value)
     return _load_config("cookbook")
@@ -38,6 +50,42 @@ def test_cookbook_requires_dingtalk_application_credentials(monkeypatch):
 
     with pytest.raises(ValueError, match="undefined env var: DINGTALK_APP_KEY"):
         _load_config("cookbook")
+
+
+def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
+    """The composed application enables vector search and isolates the DingTalk Claude Code bridge."""
+    components = _cookbook(monkeypatch)["components"]
+
+    assert components["as_embedding"]["default"] == {
+        "backend": "openai",
+        "model": "text-embedding-v4",
+        "dimensions": 1024,
+        "credential": {
+            "api_key": "embedding-api-key",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        },
+        "parameters": {},
+    }
+    assert components["embedding_store"]["default"] == {
+        "backend": "local",
+        "as_embedding": "default",
+    }
+    assert components["file_store"]["default"]["embedding_store"] == "default"
+
+    assert components["as_llm"]["default"]["backend"] == "openai"
+    assert components["as_llm"]["default"]["model"] == "qwen3.8-max"
+    assert components["as_llm"]["default"]["credential"] == {
+        "api_key": "llm-api-key",
+        "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    }
+    assert components["agent_wrapper"]["default"]["backend"] == "agentscope"
+    assert components["agent_wrapper"]["claude_code"] == {
+        "backend": "claude_code",
+        "model": "qwen3.8-max",
+        "api_key": "llm-api-key",
+        "base_url": "https://dashscope.aliyuncs.com/apps/anthropic",
+        "permission_mode": "bypassPermissions",
+    }
 
 
 def test_cookbook_appends_dingtalk_to_business_pipelines(monkeypatch):
@@ -93,7 +141,7 @@ def test_cookbook_owns_safe_send_and_background_bridge_jobs(monkeypatch):
     assert wait["steps"] == [
         {
             "backend": "dingtalk_wait_step",
-            "agent_wrapper": "default",
+            "agent_wrapper": "claude_code",
             "app_key": "app-key",
             "app_secret": "app-secret",
             "robot_code": "robot-code",

@@ -9,6 +9,42 @@ plugins:
   - daily-paper
   - dingtalk
 
+components:
+  as_embedding:
+    default:
+      backend: ${EMBEDDING_BACKEND:-openai}
+      model: ${EMBEDDING_MODEL_NAME:-text-embedding-v4}
+      dimensions: 1024
+      credential:
+        api_key: ${EMBEDDING_API_KEY:-}
+        base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      parameters: {}
+
+  embedding_store:
+    default:
+      backend: local
+      as_embedding: default
+
+  as_llm:
+    default:
+      backend: ${LLM_BACKEND:-openai}
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+
+  agent_wrapper:
+    claude_code:
+      backend: claude_code
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      api_key: ${LLM_API_KEY:-}
+      base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
+      permission_mode: bypassPermissions
+
+  file_store:
+    default:
+      embedding_store: default
+
 jobs:
   dingtalk_send:
     backend: base
@@ -67,7 +103,7 @@ jobs:
     close_timeout: 10
     steps:
       - backend: dingtalk_wait_step
-        agent_wrapper: default
+        agent_wrapper: claude_code
         app_key: ${DINGTALK_APP_KEY}
         app_secret: ${DINGTALK_APP_SECRET}
         robot_code: ${DINGTALK_ROBOT_CODE}
