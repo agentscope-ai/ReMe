@@ -67,10 +67,14 @@ const externalDocumentRewrites = {
   "reme_studio/README.md": [
     ["(./README_ZH.md)", "(/zh/workspace/studio)"],
     ["(./figures/", "(/figures/studio/"],
+    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)", "(/zh/workspace/studio)"],
+    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
   ],
   "reme_studio/README_ZH.md": [
     ["(./README.md)", "(/en/workspace/studio)"],
     ["(./figures/", "(/figures/studio/"],
+    ["(https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md)", "(/en/workspace/studio)"],
+    ["(https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/", "(/figures/studio/"],
   ],
 };
 

@@ -1,12 +1,12 @@
 # ReMe Studio
 
-[English](./README.md) | 简体中文
+[English](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README.md) | 简体中文
 
 ReMe Studio 是 [ReMe](https://github.com/agentscope-ai/ReMe) 的本地 Web 工作区。你可以在一个界面中浏览和编辑用户拥有的记忆文件、查看文件之间的关系、与 ReMe Agent 对话，并了解本地服务的运行状态。
 
 Studio 遵循 ReMe 的本地优先理念：Markdown 和其他工作区文件始终是持久数据的唯一事实来源；搜索索引、目录、图谱、缓存和运行时元数据都是可重建的派生数据。
 
-![ReMe Studio 概览](./figures/studio-overview.png)
+![ReMe Studio 概览](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png)
 
 > 本 README 中的所有截图均来自真实运行的本地 ReMe 服务，Studio 界面统一设置为英文。截图使用隔离的虚构 `Project Aurora` 工作区，不包含用户数据、凭证或私有服务地址。
 
@@ -103,7 +103,7 @@ Studio 会在导航器底部显示当前连接的服务地址；绿色指示点�
 
 目录可以独立展开。导航器会隐藏点文件和点目录，优先显示最新文件，应用有界的结果数量，并在磁盘文件变化后刷新。可以拖动分隔线调整导航器宽度，也可以使用顶部菜单按钮将其收起。
 
-![工作区导航器与 Markdown 预览](./figures/files-workspace.png)
+![工作区导航器与 Markdown 预览](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
 
 标签栏会把文件、图谱和对话放在同一个工作空间中。关闭标签页不会删除文件。文件存在未保存修改时，Studio 会阻止误关闭；标签页上下文菜单还支持关闭当前标签页或关闭其他标签页。
 
@@ -111,7 +111,7 @@ Studio 会在导航器底部显示当前连接的服务地址；绿色指示点�
 
 Daily 视图会汇总日期索引页面和按日期组织的笔记目录，但不会改变它们在磁盘上的路径。它只是同一本地工作区的聚焦视图，因此在这里打开的笔记也可以出现在 Files 中，并继续参与 ReMe 的索引和 Agent 工作流。
 
-![日记视图](./figures/daily-notes.png)
+![日记视图](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/daily-notes.png)
 
 可以用 Daily 检查时间顺序记忆、打开资源生成的笔记，并在无需浏览完整工作区树的情况下查看近期工作。
 
@@ -125,13 +125,13 @@ Daily 视图会汇总日期索引页面和按日期组织的笔记目录，但�
 
 下载按钮会通过浏览器保存文件副本；预览模式不会修改源文件。
 
-![Markdown 预览](./figures/files-workspace.png)
+![Markdown 预览](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
 
 ### 4. Markdown 编辑与安全保存
 
 编辑模式使用 Monaco，提供 Markdown 语法高亮、行号、键盘导航和占满可用高度的编辑区域。可以随时在 **Preview** 和 **Edit** 之间切换。
 
-![Markdown 编辑器](./figures/markdown-editor.png)
+![Markdown 编辑器](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/markdown-editor.png)
 
 Studio 会在加载文档时记录文件修改时间，并在保存时把该值发送给后端。如果其他进程已经修改文件，ReMe 服务会拒绝过期写入，而不是静默覆盖更新后的内容。保存成功后，Studio 会刷新文件状态并清除未保存标记。
 
@@ -145,7 +145,7 @@ Knowledge 将长期记忆分为三个约定目录：
 
 每个分类都有 **Graph** 操作。图谱由 ReMe 已索引的 wikilink 生成，并保留原始的源到目标方向。
 
-![记忆图谱](./figures/memory-graph.png)
+![记忆图谱](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/memory-graph.png)
 
 图谱视图提供：
 
@@ -161,7 +161,7 @@ Knowledge 将长期记忆分为三个约定目录：
 
 Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留文件和图谱。
 
-![Agent 对话](./figures/agent-chat.png)
+![Agent 对话](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/agent-chat.png)
 
 对话界面支持：
 
@@ -179,7 +179,7 @@ Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留
 
 从顶部栏打开 **Settings**，可以检查 Studio 实际连接的后端。
 
-![服务状态](./figures/settings-status.png)
+![服务状态](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-status.png)
 
 Status 会显示：
 
@@ -195,7 +195,7 @@ Status 会显示：
 
 Index 页面为派生搜索状态提供明确的维护入口。
 
-![索引管理](./figures/settings-index.png)
+![索引管理](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-index.png)
 
 **Rebuild index** 会基于 ReMe 已经摄取的 chunk 重建 BM25、embedding 和 tag 索引。Studio 会在执行前要求确认。该操作不会扫描工作区、重新分块、修改源记忆，也不会重建 wikilink 图谱。这些边界保证 ReMe 的文件仍是唯一事实来源。
 
@@ -203,7 +203,7 @@ Index 页面为派生搜索状态提供明确的维护入口。
 
 Configuration 显示当前后端返回的完整解析后应用配置。
 
-![生效配置](./figures/settings-configuration.png)
+![生效配置](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-configuration.png)
 
 在文件配置与命令行覆盖完成合并后，可以在这里确认实际工作区、目录布局、服务选项、jobs 和组件后端。ReMe 会在配置到达浏览器之前对敏感字段进行脱敏。
 
@@ -211,7 +211,7 @@ Configuration 显示当前后端返回的完整解析后应用配置。
 
 Version 会显示 ReMe 后端版本和服务地址，并与左上角品牌区域显示的 Studio 版本明确区分。
 
-![版本与服务地址](./figures/settings-version.png)
+![版本与服务地址](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-version.png)
 
 这有助于定位前后端版本不一致的问题：顶部栏标识当前安装的 Studio 构建，Settings 标识当前连接的 ReMe 服务。
 
@@ -219,7 +219,7 @@ Version 会显示 ReMe 后端版本和服务地址，并与左上角品牌区域
 
 顶部栏可以把整个界面切换为英文或中文。外观支持 **Light**、**Dark** 和 **System**；System 会跟随操作系统的颜色偏好。
 
-![ReMe Studio 深色外观](./figures/appearance-dark.png)
+![ReMe Studio 深色外观](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/appearance-dark.png)
 
 语言和外观选择会保存在浏览器中。两套主题都复用 ReMe 文档站的品牌色，并为健康状态、选择状态、焦点和图谱保留足够对比度。
 

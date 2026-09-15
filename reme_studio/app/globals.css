@@ -14,11 +14,13 @@
   --ink: #17221d;
   --muted: #526159;
   --accent: #087f6a;
+  --accent-foreground: #ffffff;
   --accent-strong: #086554;
   --accent-bright: #19a98f;
   --brand-blue: #3156d9;
   --soft: rgba(8, 127, 106, 0.14);
   --danger: #d8433e;
+  --danger-foreground: #000000;
   --success: #087f6a;
   --shadow: rgba(19, 70, 91, 0.14);
   --shadow-strong: rgba(19, 70, 91, 0.24);
@@ -38,11 +40,13 @@
   --ink: #edf7f3;
   --muted: #bacbc4;
   --accent: #57dfc3;
+  --accent-foreground: #0d1512;
   --accent-strong: #35c6a9;
   --accent-bright: #57dfc3;
   --brand-blue: #6575e8;
   --soft: rgba(87, 223, 195, 0.14);
   --danger: #f07872;
+  --danger-foreground: #0d1512;
   --success: #57dfc3;
   --shadow: rgba(2, 14, 10, 0.34);
   --shadow-strong: rgba(2, 14, 10, 0.52);
@@ -759,7 +763,7 @@ textarea:focus-visible {
   gap: 8px;
   border: 0;
   border-radius: 9px;
-  color: #fff;
+  color: var(--accent-foreground);
   background: var(--accent);
   cursor: pointer;
 }
@@ -874,7 +878,7 @@ textarea:focus-visible {
   display: grid;
   place-items: center;
   border-radius: 9px;
-  color: #fff;
+  color: var(--accent-foreground);
   background: var(--accent);
   font-size: 11px;
 }
@@ -1060,8 +1064,8 @@ textarea:focus-visible {
   flex: none;
   border: 0;
   border-radius: 10px;
-  color: #fff;
-  background: color-mix(in srgb, var(--accent) 82%, #fff);
+  color: var(--accent-foreground);
+  background: var(--accent);
   cursor: pointer;
 }
 .composer button:disabled {
@@ -1257,12 +1261,8 @@ textarea:focus-visible {
   background: var(--hover);
 }
 .settings-sidebar button.active {
-  color: #fff;
-  background: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 82%, #fff),
-    var(--accent)
-  );
+  color: var(--accent-foreground);
+  background: linear-gradient(135deg, var(--accent-strong), var(--accent));
   box-shadow: 0 5px 14px color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .settings-sidebar button > span {
@@ -1647,7 +1647,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   border: 0;
-  color: #fff;
+  color: var(--accent-foreground);
   background: var(--accent);
 }
 .primary-action:disabled {
@@ -1678,7 +1678,7 @@ textarea:focus-visible {
   background: var(--surface);
 }
 .index-confirm .danger-action {
-  color: #fff;
+  color: var(--danger-foreground);
   border-color: var(--danger);
   background: var(--danger);
 }

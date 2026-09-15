@@ -1,6 +1,6 @@
 # ReMe Studio
 
-English | [简体中文](./README_ZH.md)
+English | [简体中文](https://github.com/agentscope-ai/ReMe/blob/main/reme_studio/README_ZH.md)
 
 ReMe Studio is the local web workspace for [ReMe](https://github.com/agentscope-ai/ReMe). It provides one place to
 browse and edit user-owned memory files, inspect the relationships between them, talk to the ReMe Agent, and understand
@@ -9,7 +9,7 @@ the health of the local service.
 Studio follows ReMe's local-first model: Markdown and other workspace files remain the durable source of truth. Search
 indexes, catalogs, graphs, caches, and runtime metadata stay derived and rebuildable.
 
-![ReMe Studio overview](./figures/studio-overview.png)
+![ReMe Studio overview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png)
 
 > All screenshots in this README were captured from a real local ReMe service with the Studio UI set to English. The
 > isolated `Project Aurora` workspace is fictional and contains no user data, credentials, or private endpoints.
@@ -114,7 +114,7 @@ Directories can be expanded independently. The navigator hides dotfiles and dot-
 first, applies a bounded result limit, and refreshes when files change on disk. The divider can be dragged to resize the
 navigator, and the menu control in the top bar can collapse it.
 
-![Workspace navigator and Markdown preview](./figures/files-workspace.png)
+![Workspace navigator and Markdown preview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
 
 The tab strip keeps files, graphs, and conversations together. Closing a tab does not delete its file. When an edited
 file has unsaved changes, Studio protects it from an accidental close and also supports closing the current tab or the
@@ -126,7 +126,7 @@ The Daily view gathers both day-index pages and dated note directories without c
 focused view of the same local workspace, so a note opened here can also appear in Files and remains available to ReMe's
 indexing and Agent workflows.
 
-![Daily notes](./figures/daily-notes.png)
+![Daily notes](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/daily-notes.png)
 
 Use Daily to review chronological memory, open generated resource notes, and move between recent work without browsing
 the rest of the workspace tree.
@@ -141,14 +141,14 @@ Preview mode renders:
 
 The download control saves a local copy through the browser. Preview mode never modifies the source file.
 
-![Markdown preview](./figures/files-workspace.png)
+![Markdown preview](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/files-workspace.png)
 
 ### 4. Markdown editing and safe saves
 
 Edit mode uses Monaco with Markdown syntax highlighting, line numbers, keyboard navigation, and a full-height editing
 surface. Switch between **Preview** and **Edit** at any time.
 
-![Markdown editor](./figures/markdown-editor.png)
+![Markdown editor](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/markdown-editor.png)
 
 Studio records the file modification time when it loads a document and sends that value back on save. If another
 process changed the file in the meantime, the ReMe service rejects the stale write instead of silently overwriting the
@@ -165,7 +165,7 @@ Knowledge groups durable memory into three conventional roots:
 Each category has a **Graph** action. The graph is generated from ReMe's indexed wikilinks and preserves their original
 source-to-target direction.
 
-![Memory graph](./figures/memory-graph.png)
+![Memory graph](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/memory-graph.png)
 
 The graph view provides:
 
@@ -182,7 +182,7 @@ Settings does not rescan files or reconstruct the wikilink graph.
 
 Chat opens in the same tab workspace, so files and graphs can remain available while a conversation is in progress.
 
-![Agent chat](./figures/agent-chat.png)
+![Agent chat](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/agent-chat.png)
 
 The conversation surface supports:
 
@@ -202,7 +202,7 @@ editing, graphs, and service inspection do not.
 
 Open **Settings** from the top bar to inspect the backend that Studio is actually using.
 
-![Service status](./figures/settings-status.png)
+![Service status](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-status.png)
 
 Status reports:
 
@@ -219,7 +219,7 @@ Use **Refresh** to request a new snapshot after files are indexed or service con
 
 The Index page provides an explicit maintenance action for derived search state.
 
-![Index management](./figures/settings-index.png)
+![Index management](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-index.png)
 
 **Rebuild index** reconstructs the BM25, embedding, and tag indexes from chunks that ReMe has already ingested. Before
 running, Studio asks for confirmation. This action does not scan the workspace, rechunk files, edit source memory, or
@@ -229,7 +229,7 @@ rebuild the wikilink graph. Those boundaries preserve ReMe's file-native source 
 
 Configuration shows the fully resolved application configuration returned by the connected backend.
 
-![Effective configuration](./figures/settings-configuration.png)
+![Effective configuration](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-configuration.png)
 
 This is useful for confirming the active workspace, directory layout, service options, jobs, and component backends
 after file configuration and command-line overrides have been merged. Sensitive fields are redacted by ReMe before the
@@ -240,7 +240,7 @@ configuration reaches the browser.
 Version presents the ReMe backend version and service endpoint separately from the Studio version shown in the top-left
 brand lockup.
 
-![Version and endpoint](./figures/settings-version.png)
+![Version and endpoint](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/settings-version.png)
 
 This distinction helps when diagnosing a frontend/backend mismatch: the top bar identifies the installed Studio build,
 while Settings identifies the connected ReMe service.
@@ -250,7 +250,7 @@ while Settings identifies the connected ReMe service.
 The top bar switches the entire interface between English and Chinese. Appearance supports **Light**, **Dark**, and
 **System**; System follows the operating-system color preference.
 
-![ReMe Studio dark appearance](./figures/appearance-dark.png)
+![ReMe Studio dark appearance](https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/appearance-dark.png)
 
 The selected language and appearance are remembered in the browser. Both themes use the same ReMe documentation-site
 brand palette and retain health, selection, focus, and graph contrast.

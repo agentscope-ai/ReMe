@@ -79,6 +79,17 @@ test("publishes Studio screenshots with site-safe links", async () => {
   assert.match(chinese, /\(\/en\/workspace\/studio\)/);
 });
 
+test("keeps Studio source READMEs portable for package registries", async () => {
+  for (const name of ["README.md", "README_ZH.md"]) {
+    const source = await readFile(path.join(repoDir, "reme_studio", name), "utf8");
+    assert.doesNotMatch(source, /\]\(\.\/figures\//);
+    assert.match(
+      source,
+      /\]\(https:\/\/raw\.githubusercontent\.com\/agentscope-ai\/ReMe\/main\/reme_studio\/figures\//,
+    );
+  }
+});
+
 test("generates the callable Job reference from default.yaml", async () => {
   const config = parseYaml(await readFile(path.join(repoDir, "reme/config/default.yaml"), "utf8"));
   const callableJobs = Object.entries(config.jobs)
