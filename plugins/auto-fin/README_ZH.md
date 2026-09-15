@@ -80,7 +80,7 @@ daily/YYYY-MM-DD/auto_fin.md
 小时。请求带有限速和重试；损坏记录及窗口外记录会被丢弃。
 
 `auto_fin_topic_step` 分批接收当前新闻，只返回相关的 `news_id`。代码会忽略未知 ID、去除重复 ID，并保持源新闻顺序。如果没有相关新闻，Job
-会成功跳过，不写报告也不发送通知。
+会成功跳过，不写报告。
 
 `auto_fin_merge_step` 只接收筛选后的当前新闻，并向 Agent 开放 `search` 和 `read`。当前新闻以 CLS ID、时间和标题作为普通证据。
 Prompt 要求 Agent 只链接实际使用过的历史 Markdown；代码边界则独立保证只保留真实存在、相对

@@ -55,15 +55,6 @@ application_defaults:
         - backend: daily_paper_digest_step
           job_tools: [search, read]
         - backend: auto_tag_step
-        - backend: dingtalk_markdown_send_step
-          input_mapping:
-            daily_paper_digest_path: markdown_path
-          app_key: ${DINGTALK_APP_KEY:-}
-          app_secret: ${DINGTALK_APP_SECRET:-}
-          robot_code: ${DINGTALK_ROBOT_CODE:-}
-          conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
-          title: ReMe Daily Paper
-          timeout: 15
 
     daily_paper_cron:
       backend: cron

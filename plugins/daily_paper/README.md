@@ -69,8 +69,6 @@ download and parse arXiv PDFs, then write three Chinese analyses
 use search + read to connect prior memory and generate a brief
                  ↓
 generate memory tags; the background file watcher refreshes indexes
-                 ↓
-optionally send the brief to DingTalk
 ```
 
 `daily_paper_collect_step` concurrently reads the weekly and monthly rankings for the run date plus the strictly
@@ -89,8 +87,7 @@ PDFs and files without a text layer fail explicitly.
 `search` and `read` tools for linking earlier memory. Code validates historical wikilinks, appends links to all
 three source notes, and rebuilds the daily index. The workflow then runs `auto_tag_step` to update the memory-tag
 frontmatter of all three analyses and the final brief. The normal background file watcher observes those source-file
-changes and refreshes derived indexes before the optional `dingtalk_markdown_send_step` sends the brief. DingTalk
-delivery skips without side effects when conversation IDs are not configured.
+changes and refreshes derived indexes.
 
 ## Parameters
 
@@ -108,15 +105,11 @@ Step-level defaults are `candidate_limit=20`, `rrf_k=60`, `hf_timeout=600`, `hf_
 
 The data clients automatically honor `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY`. Manual runs enable the Hugging Face
 mirror with `use_hf_mirror=true`; the cron Job enables it by default and can use the official service with
-`DAILY_PAPER_USE_HF_MIRROR=false`. These environment variables override data sources and DingTalk settings:
+`DAILY_PAPER_USE_HF_MIRROR=false`. These environment variables override the data sources:
 
 ```dotenv
 HF_MIRROR_URL=https://hf-mirror.com
 ARXIV_MIRROR_URL=https://export.arxiv.org
-DINGTALK_APP_KEY=your-app-key
-DINGTALK_APP_SECRET=your-app-secret
-DINGTALK_ROBOT_CODE=your-robot-code
-DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 ```
 
 ## Output
@@ -142,4 +135,4 @@ Network errors, too few candidates, invalid Agent output, and unparseable PDFs f
 python -m pytest plugins/daily_paper -v
 ```
 
-Unit tests mock the Hugging Face, arXiv, AgentScope, and DingTalk boundaries and do not contact external services.
+Unit tests mock the Hugging Face, arXiv, and AgentScope boundaries and do not contact external services.

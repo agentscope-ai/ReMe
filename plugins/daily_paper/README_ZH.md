@@ -65,8 +65,6 @@ RRF 排序后由 Agent 精选三篇
 使用 search + read 关联历史记忆并生成简报
           ↓
 生成记忆标签，由后台文件 watcher 刷新索引
-          ↓
-按需发送到钉钉
 ```
 
 `daily_paper_collect_step` 并发读取运行日期所在周和所在月的榜单，以及严格前一日的 Daily Papers。候选按 arXiv ID
@@ -80,8 +78,7 @@ RRF 排序后由 Agent 精选三篇
 
 `daily_paper_digest_step` 以本次生成的三篇解读为事实来源，只开放只读的 `search` 和 `read` 来关联较早记忆。
 代码会校验历史 wikilink、追加三篇源笔记链接，并重建当日索引。随后 `auto_tag_step` 会更新三篇解读及最终简报的
-记忆标签 frontmatter，常规后台文件 watcher 会观察这些源文件变化并刷新派生索引，再由可选的
-`dingtalk_markdown_send_step` 发送最终简报；未配置群会话时无副作用跳过。
+记忆标签 frontmatter，常规后台文件 watcher 会观察这些源文件变化并刷新派生索引。
 
 ## 参数
 
@@ -98,15 +95,11 @@ RRF 排序后由 Agent 精选三篇
 `pdf_timeout=600`、`max_pdf_bytes=52428800`、`max_pdf_pages=35` 和 `max_pdf_chars=300000`。
 
 数据客户端自动使用 `HTTP_PROXY`、`HTTPS_PROXY` 和 `NO_PROXY`。手动任务通过 `use_hf_mirror=true` 启用 Hugging Face
-镜像；定时任务默认启用，可设置 `DAILY_PAPER_USE_HF_MIRROR=false` 改用官方服务。以下环境变量可覆盖数据源和钉钉配置：
+镜像；定时任务默认启用，可设置 `DAILY_PAPER_USE_HF_MIRROR=false` 改用官方服务。以下环境变量可覆盖数据源配置：
 
 ```dotenv
 HF_MIRROR_URL=https://hf-mirror.com
 ARXIV_MIRROR_URL=https://export.arxiv.org
-DINGTALK_APP_KEY=your-app-key
-DINGTALK_APP_SECRET=your-app-secret
-DINGTALK_ROBOT_CODE=your-robot-code
-DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 ```
 
 ## 产物
@@ -131,4 +124,4 @@ Markdown 和 PDF 都通过同目录临时文件原子写入。`force=true` 会�
 python -m pytest plugins/daily_paper -v
 ```
 
-单元测试 mock Hugging Face、arXiv、AgentScope 和钉钉边界，不访问外部服务。
+单元测试 mock Hugging Face、arXiv 和 AgentScope 边界，不访问外部服务。

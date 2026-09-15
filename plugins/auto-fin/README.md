@@ -87,7 +87,7 @@ records outside the window are discarded.
 
 `auto_fin_topic_step` receives batches of current news and returns only related `news_id` values. Code ignores unknown
 IDs and deduplicates repeated IDs, then preserves the source-news order. If nothing is relevant, the job succeeds as a
-skip without writing or sending a report.
+skip without writing a report.
 
 `auto_fin_merge_step` receives only selected current news. It exposes `search` and `read`, and keeps current CLS IDs,
 times, and titles as plain evidence. The prompt limits
