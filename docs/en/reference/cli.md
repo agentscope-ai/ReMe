@@ -71,7 +71,7 @@ Package management runs locally rather than through HTTP or MCP:
 reme plugins list
 reme plugins show auto-fin
 reme plugins validate auto-fin
-reme plugins install reme-auto-fin
+reme plugins install plugins/auto-fin
 reme plugins uninstall auto-fin
 ```
 

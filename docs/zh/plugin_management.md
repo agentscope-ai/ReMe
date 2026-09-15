@@ -68,17 +68,17 @@ reme plugins list --config default
 
 ## 安装插件包
 
-安装已发布的 distribution：
+使用包名安装已发布的 distribution：
 
 ```bash
-reme plugins install reme-auto-fin
+reme plugins install your-plugin-package
 ```
 
 安装指定版本或升级：
 
 ```bash
-reme plugins install 'reme-auto-fin==X.Y.Z'
-reme plugins install reme-auto-fin --upgrade
+reme plugins install 'your-plugin-package==X.Y.Z'
+reme plugins install your-plugin-package --upgrade
 ```
 
 安装本地插件项目：
