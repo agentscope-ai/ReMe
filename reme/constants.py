@@ -2,9 +2,20 @@
 
 REME_SERVICE_INFO = "REME_SERVICE_INFO"
 
+# Loopback address used by services and clients unless a host is configured.
 REME_DEFAULT_HOST = "127.0.0.1"
 
+# Wildcard address accepted when a service is explicitly configured to listen
+# on every IPv4 interface.
+REME_WILDCARD_BIND_HOST = "0.0.0.0"
+
 REME_DEFAULT_PORT = 2333
+
+
+def normalize_connect_host(host: str) -> str:
+    """Return a local destination for an address used only for binding."""
+    return REME_DEFAULT_HOST if host == REME_WILDCARD_BIND_HOST else host
+
 
 # CRUD steps: file IO limits and truncation marker (shared across CRUD steps).
 DEFAULT_MAX_BYTES = 50 * 1024

@@ -1,13 +1,16 @@
 """Tests for service job registration behavior."""
 
 import asyncio
+import json
+import os
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from reme.components.job import BaseJob, StreamJob
-from reme.components.service import MCPService
+from reme.components.service import HttpService, MCPService
+from reme.constants import REME_SERVICE_INFO
 from reme.schema import Response
 
 
@@ -188,5 +191,30 @@ def test_service_lifespan_closes_app_after_error():
             async with lifespan(None):
                 raise RuntimeError("stop")
         assert events == ["start", "close"]
+
+    asyncio.run(run())
+
+
+def test_network_services_bind_loopback_by_default():
+    """HTTP and network MCP services stay local unless remote access is explicit."""
+    assert HttpService().host == "127.0.0.1"
+    assert MCPService().host == "127.0.0.1"
+
+
+def test_network_services_accept_explicit_wildcard_bind():
+    """Remote access remains available through explicit service configuration."""
+    assert HttpService(host="0.0.0.0").host == "0.0.0.0"
+    assert MCPService(host="0.0.0.0").host == "0.0.0.0"
+
+
+def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):
+    """In-process clients receive a connectable address, not the wildcard bind address."""
+    monkeypatch.delenv(REME_SERVICE_INFO, raising=False)
+
+    async def run():
+        app = _dummy_app()
+        lifespan = HttpService()._lifespan(app, "0.0.0.0", 8123)  # pylint: disable=protected-access
+        async with lifespan(None):
+            assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "127.0.0.1", "port": 8123}
 
     asyncio.run(run())

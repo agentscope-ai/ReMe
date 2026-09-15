@@ -1,14 +1,12 @@
 """HTTP client for ReMe services."""
 
 import json
-import os
 from collections.abc import AsyncGenerator
 
 import httpx
 
 from .base_client import BaseClient
 from ..component_registry import R
-from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 
@@ -27,19 +25,7 @@ class HttpClient(BaseClient):
     ):
         super().__init__(**kwargs)
 
-        # Resolve host/port: explicit args > env var > defaults
-        if not (host and port):
-            if service_info := os.environ.get(REME_SERVICE_INFO):
-                try:
-                    data = json.loads(service_info)
-                    host = data["host"]
-                    port = data["port"]
-                except Exception:
-                    self.logger.warning(f"Invalid service info: {service_info}")
-                    host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-            else:
-                host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-
+        host, port = self._resolve_service_address(host, port)
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout
         self.show_metadata = show_metadata

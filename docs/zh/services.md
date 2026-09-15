@@ -5,7 +5,8 @@ description: 使用 ReMe 的 HTTP、SSE、MCP 和 Studio 服务，并理解默�
 
 # 服务与部署
 
-ReMe 可以作为本地 HTTP 服务、独立 MCP Server 或一次性 CLI Job 运行。默认模式是在 `127.0.0.1:2333` 启动 HTTP 服务，并在同一进程中提供 JSON API、SSE、MCP 与可选的 ReMe Studio。
+ReMe 可以作为本地 HTTP 服务、独立 MCP Server 或一次性 CLI Job 运行。默认 HTTP 服务监听
+`127.0.0.1:2333`；同一进程提供 JSON API、SSE、MCP 与可选的 ReMe Studio。
 
 ## HTTP 服务
 
@@ -124,7 +125,8 @@ ReMe 默认定位为本地服务：
 - Job 可进行文件写入、移动和删除；
 - 当前服务层不提供通用用户认证。
 
-不要直接把默认服务暴露到公网。需要远程访问时，在受控网络或带身份认证、TLS、访问控制和请求大小限制的反向代理后部署，并通过 `service.jobs` 只开放必要 Job。
+远程访问必须通过 `reme start service.host=0.0.0.0` 显式启用。不要直接把服务暴露到公网。请在受控网络或带
+身份认证、TLS、访问控制和请求大小限制的反向代理后部署，并通过 `service.jobs` 只开放必要 Job。
 
 ## OpenAPI
 

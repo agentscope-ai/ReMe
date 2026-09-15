@@ -26,7 +26,7 @@ The DSH adapter injects **usage guidance**, not every historical memory. Relevan
 ## 2. Requirements
 
 - ReMe is installed and its configuration exposes the `search`, `auto_memory`, and `auto_dream` jobs.
-- DeepSeek Harness `0.1.2-rc.1` or later; this integration is tested against `0.1.5-rc.2`.
+- DeepSeek Harness `0.1.5-rc.2`.
 - Node.js `^22.19.0` or `>=24.0.0`, matching the current DSH engine range.
 - The browser running DSH can reach the configured ReMe HTTP endpoint. Cross-machine deployments must also allow the DSH browser origin.
 

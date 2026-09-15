@@ -10,7 +10,11 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ..constants import (
+    REME_DEFAULT_HOST,
+    REME_DEFAULT_PORT,
+    normalize_connect_host,
+)
 
 if TYPE_CHECKING:
     from ..components.service import BaseService
@@ -78,11 +82,12 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
         case "http":
             host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
             port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-            info_table.add_row("🔗", "URL:", f"http://{host}:{port}")
+            display_host = normalize_connect_host(host)
+            info_table.add_row("🔗", "URL:", f"http://{display_host}:{port}")
             mcp_enabled = getattr(runtime_service, "mcp_enabled", extra.get("mcp_enabled", True))
             if mcp_enabled:
                 mcp_path = getattr(runtime_service, "mcp_path", extra.get("mcp_path", "/mcp"))
-                info_table.add_row("🚌", "MCP:", f"http://{host}:{port}{mcp_path}")
+                info_table.add_row("🚌", "MCP:", f"http://{display_host}:{port}{mcp_path}")
             info_table.add_row("📚", "FastAPI:", Text(get_version("fastapi"), style="dim"))
             if mcp_enabled:
                 info_table.add_row("📚", "FastMCP:", Text(get_version("fastmcp"), style="dim"))
@@ -92,7 +97,8 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             if transport != "stdio":
                 host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
                 port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-                url = f"http://{host}:{port}"
+                display_host = normalize_connect_host(host)
+                url = f"http://{display_host}:{port}"
                 if transport == "sse":
                     url += "/sse"
                 info_table.add_row("🔗", "URL:", url)

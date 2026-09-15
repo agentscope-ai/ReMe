@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from ..base_component import BaseComponent
 from ..job.base_job import BaseJob
-from ...constants import REME_SERVICE_INFO
+from ...constants import REME_SERVICE_INFO, normalize_connect_host
 from ...enumeration import ComponentEnum
 
 if TYPE_CHECKING:
@@ -52,15 +52,16 @@ class BaseService(BaseComponent):
     def _lifespan(self, app: "Application", host: str, port: int):
         """Build an async-context lifespan that brackets the server with app start/close.
 
-        Publishes the bound address via the REME_SERVICE_INFO environment variable so
-        in-process clients can discover where this service is listening.
+        Publishes a connectable address via the REME_SERVICE_INFO environment variable
+        so in-process clients can discover the service even when it binds a wildcard.
         """
 
         @asynccontextmanager
         async def lifespan(_):
             await app.start()
             try:
-                service_info = json.dumps({"host": host, "port": port})
+                advertised_host = normalize_connect_host(host)
+                service_info = json.dumps({"host": advertised_host, "port": port})
                 os.environ[REME_SERVICE_INFO] = service_info
                 self.logger.info(f"{self.name} started: {REME_SERVICE_INFO}={service_info}")
                 yield

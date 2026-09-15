@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import psutil
 
+from reme.constants import normalize_connect_host
 from reme.utils import service_utils as su
 
 # ----------------------------------------------------------------------
@@ -125,6 +126,17 @@ def test_scan_reme_procs_parses_host_and_port(monkeypatch):
     assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
 
 
+def test_scan_reme_procs_accepts_prefixed_cli_arguments(monkeypatch):
+    procs = [
+        _FakeProc(
+            123,
+            cmdline=["reme", "start", "--service.host=0.0.0.0", "-service.port=8123"],
+        ),
+    ]
+    _patch_iter(monkeypatch, procs)
+    assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
+
+
 def test_scan_reme_procs_defaults_when_args_absent(monkeypatch):
     procs = [_FakeProc(7, cmdline=["reme", "start"])]
     _patch_iter(monkeypatch, procs)
@@ -156,6 +168,11 @@ def test_scan_reme_procs_skips_access_denied(monkeypatch):
     ]
     _patch_iter(monkeypatch, procs)
     assert su._scan_reme_procs() == [(5, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
+
+
+def test_connect_host_converts_wildcard_bind_address():
+    assert normalize_connect_host("0.0.0.0") == "127.0.0.1"
+    assert normalize_connect_host("192.0.2.10") == "192.0.2.10"
 
 
 def test_running_app_config_preserves_plugins(monkeypatch):

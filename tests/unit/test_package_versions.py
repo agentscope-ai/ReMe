@@ -71,7 +71,7 @@ def test_typescript_host_plugins_are_independent_packages() -> None:
 
     assert manifests["dsh"]["name"] == "@agentscope-ai/reme-dsh-plugin"
     assert manifests["openclaw"]["name"] == "@agentscope-ai/reme-openclaw-plugin"
-    assert manifests["dsh"]["version"] == "0.1.0"
+    assert manifests["dsh"]["version"] == "0.1.1"
     assert manifests["openclaw"]["version"] == "0.1.0"
     assert manifests["dsh"].get("dependencies", {}) == {}
     assert manifests["openclaw"].get("dependencies", {}) == {"typebox": "1.3.19"}

@@ -1,6 +1,6 @@
 [project]
 name = "reme_studio"
-version = "0.1.1"
+version = "0.1.2"
 description = "Optional ReMe Studio static frontend."
 readme = "README.md"
 license = "Apache-2.0"

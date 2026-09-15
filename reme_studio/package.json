@@ -1,6 +1,6 @@
 {
   "name": "@agentscope-ai/reme_studio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "ReMe Studio web workspace and static distribution",
   "license": "Apache-2.0",
   "files": [
@@ -22,7 +22,9 @@
   },
   "scripts": {
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force",
+    "dev:remote": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force --hostname 0.0.0.0",
     "dev:static": "vite --config vite.static.config.ts",
+    "dev:static:remote": "vite --config vite.static.config.ts --host 0.0.0.0",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:static": "vite build --config vite.static.config.ts",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",

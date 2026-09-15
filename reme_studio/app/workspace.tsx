@@ -22,7 +22,7 @@ import {
   SunMoon,
   X,
 } from "lucide-react";
-import { getReMeVersion, readWorkspaceFile, streamChat } from "./api";
+import { readWorkspaceFile, streamChat } from "./api";
 import { chatStreamError, formatStreamPayloads } from "./chat-stream";
 import FilesNavigator from "./files-workspace/FilesNavigator";
 import MemoryGraphView from "./files-workspace/MemoryGraphView";
@@ -42,6 +42,7 @@ import {
 } from "./workspace-drag";
 import SettingsCenter from "./settings-center";
 import { hasUnsavedChanges, unsavedTabsClosedBy } from "./tab-close";
+import packageJson from "../package.json";
 
 const TabbedEditor = dynamic(() => import("./files-workspace/TabbedEditor"), {
   ssr: false,
@@ -403,9 +404,7 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
       <div className="messages">
         {!tab.messages.length && (
           <div className="chat-empty">
-            <div className="agent-logo">
-              <Sparkles size={24} />
-            </div>
+            <div className="agent-logo" aria-hidden="true" />
             <h1>{t("chatTitle")}</h1>
             <p>{t("chatDescription")}</p>
             <div className="suggestions">
@@ -425,9 +424,11 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
               {message.role === "user" ? (
                 t("you")
               ) : (
-                <span aria-label="ReMe" title="ReMe">
-                  R
-                </span>
+                <span
+                  className="assistant-logo"
+                  aria-label="ReMe"
+                  title="ReMe"
+                />
               )}
             </div>
             <div className="bubble">
@@ -507,7 +508,6 @@ function Workspace() {
   const [navOpen, setNavOpen] = useState(true);
   const [navigatorWidth, setNavigatorWidth] = useState(260);
   const [resizingNavigator, setResizingNavigator] = useState(false);
-  const [version, setVersion] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { tabs, activeTabId, openAgent, hydrateMarkdown, failMarkdown } =
     useWorkspaceStore();
@@ -551,15 +551,6 @@ function Workspace() {
   useEffect(() => {
     hydrateTheme();
   }, [hydrateTheme]);
-  useEffect(() => {
-    const controller = new AbortController();
-    void getReMeVersion()
-      .then((nextVersion) => {
-        if (!controller.signal.aborted) setVersion(nextVersion);
-      })
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, []);
   useEffect(() => {
     const saved = Number(localStorage.getItem("reme-navigator-width"));
     if (!Number.isFinite(saved) || saved <= 0) return;
@@ -644,13 +635,10 @@ function Workspace() {
           </span>
         </button>
         <strong>
-          ReMe Studio
-          {version && (
-            <>
-              <span className="app-version-divider" aria-hidden="true" />
-              <span className="app-version">v{version}</span>
-            </>
-          )}
+          <span className="brand-icon" aria-hidden="true" />
+          <span className="brand-title">ReMe Studio</span>
+          <span className="app-version-divider" aria-hidden="true" />
+          <span className="app-version">v{packageJson.version}</span>
         </strong>
         <span>
           {active?.type === "markdown"
@@ -662,7 +650,7 @@ function Workspace() {
         <div className="topbar-actions">
           <nav className="resource-links" aria-label={t("documentation")}>
             <a
-              href="https://docs.agentscope.io/reme/latest/en/overview"
+              href="https://reme.agentscope.io"
               target="_blank"
               rel="noreferrer"
             >
@@ -722,8 +710,14 @@ function Workspace() {
           <div className="content">
             {!active && (
               <div className="welcome">
-                <div className="agent-logo">R</div>
-                <h1>ReMe Studio</h1>
+                <h1 className="welcome-brand">
+                  <span
+                    className="welcome-wordmark"
+                    role="img"
+                    aria-label="ReMe"
+                  />
+                  <span>Studio</span>
+                </h1>
                 <p>{t("welcomeDescription")}</p>
                 <button onClick={openAgent}>
                   <Sparkles size={16} />

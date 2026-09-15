@@ -29,8 +29,9 @@ def test_logo_uses_runtime_http_address(monkeypatch) -> None:
 
     output = _render_logo(monkeypatch, config, runtime_service)
 
-    assert "http://0.0.0.0:8123" in output
-    assert "http://0.0.0.0:8123/mcp" in output
+    assert "http://127.0.0.1:8123" in output
+    assert "http://127.0.0.1:8123/mcp" in output
+    assert "http://0.0.0.0:8123" not in output
 
 
 def test_logo_fallback_matches_service_defaults(monkeypatch) -> None:
@@ -62,7 +63,8 @@ def test_logo_uses_runtime_mcp_transport_and_address(monkeypatch) -> None:
     output = _render_logo(monkeypatch, config, runtime_service)
 
     assert "Transport: sse" in output
-    assert "http://0.0.0.0:8123/sse" in output
+    assert "http://127.0.0.1:8123/sse" in output
+    assert "http://0.0.0.0:8123/sse" not in output
 
 
 def test_logo_mcp_fallback_matches_service_defaults(monkeypatch) -> None:

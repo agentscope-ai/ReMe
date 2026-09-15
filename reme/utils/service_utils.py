@@ -6,7 +6,11 @@ import sys
 
 import psutil
 
-from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ..constants import (
+    REME_DEFAULT_HOST,
+    REME_DEFAULT_PORT,
+    normalize_connect_host,
+)
 
 
 async def find_reme(host: str, port: int) -> str:
@@ -14,7 +18,7 @@ async def find_reme(host: str, port: int) -> str:
     from ..components.client.http_client import HttpClient
 
     try:
-        async with HttpClient(host=host, port=port, timeout=2.0) as client:
+        async with HttpClient(host=normalize_connect_host(host), port=port, timeout=2.0) as client:
             async for _ in client(action="health_check"):
                 break
         return "reme"
@@ -59,7 +63,8 @@ def _scan_reme_procs() -> list[tuple[int, str, int]]:
         if "start" not in cmdline or not any("reme" in tok for tok in cmdline):
             continue
         host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-        for t in cmdline:
+        for raw_arg in cmdline:
+            t = raw_arg.lstrip("-")
             if t.startswith("service.host="):
                 host = t.split("=", 1)[1]
             elif t.startswith("service.port=") and t.split("=", 1)[1].isdigit():
@@ -124,7 +129,7 @@ async def locate_reme() -> tuple[str, int, int | None] | None:
         return REME_DEFAULT_HOST, REME_DEFAULT_PORT, _pid_on_port(REME_DEFAULT_PORT)
     for pid, host, port in _scan_reme_procs():
         if await find_reme(host, port) == "reme":
-            return host, port, pid
+            return normalize_connect_host(host), port, pid
     return None
 
 
@@ -135,7 +140,7 @@ def precheck_start(svc_config: dict | None) -> bool:
     port = int(port)
     status = asyncio.run(find_reme(host, port))
     if status == "reme":
-        print(f"reme already running at {host}:{port}")
+        print(f"reme already running at {normalize_connect_host(host)}:{port}")
         return False
     if status == "occupied":
         print(

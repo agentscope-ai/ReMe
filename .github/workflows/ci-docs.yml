@@ -15,6 +15,7 @@ on:
       - 'integrations/claude_code/README.md'
       - 'integrations/hermes_agent/README.md'
       - 'reme_studio/README*.md'
+      - 'reme_studio/figures/**'
       - 'reme_studio/public/og.jpg'
       - 'integrations/dsh/README*.md'
       - 'integrations/dsh/figures/**'

@@ -26,7 +26,7 @@ DSH 启动新会话时，插件向根 Agent 注入一段“如何使用长期记
 ## 2. 环境要求
 
 - ReMe Python 服务已安装，且配置中提供 `search`、`auto_memory` 和 `auto_dream` Job。
-- DeepSeek Harness `0.1.2-rc.1` 或更高版本；本次已针对 `0.1.5-rc.2` 验证。
+- DeepSeek Harness `0.1.5-rc.2`。
 - Node.js `^22.19.0` 或 `>=24.0.0`，与当前 DSH 的 engine 范围一致。
 - DSH 页面能够访问 ReMe HTTP 地址；跨机器部署时还要允许 DSH 页面所在的浏览器 Origin。
 

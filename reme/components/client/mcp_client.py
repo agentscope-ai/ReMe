@@ -1,13 +1,10 @@
 """MCP client for ReMe services."""
 
-import json
-import os
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any
 
 from .base_client import BaseClient
 from ..component_registry import R
-from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
 if TYPE_CHECKING:
     from fastmcp.client.client import CallToolResult
@@ -51,19 +48,7 @@ class MCPClient(BaseClient):
             raise ValueError(f"Unknown transport: {transport!r}, expected one of {sorted(_VALID_TRANSPORTS)}")
 
         if isinstance(transport, str) and transport != "stdio":
-            if not (host and port):
-                if service_info := os.environ.get(REME_SERVICE_INFO):
-                    try:
-                        data = json.loads(service_info)
-                        host = data["host"]
-                        port = data["port"]
-                    except Exception:
-                        self.logger.warning(f"Invalid service info: {service_info}")
-                        host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-                else:
-                    host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-            self.host = host
-            self.port = port
+            self.host, self.port = self._resolve_service_address(host, port)
 
         self.transport = transport
         self.timeout = timeout
