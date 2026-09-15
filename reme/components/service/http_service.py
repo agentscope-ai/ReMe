@@ -16,7 +16,7 @@ from starlette.routing import Route
 from .base_service import BaseService
 from ..component_registry import R
 from ..job import BaseJob, StreamJob
-from ...constants import REME_DEFAULT_BIND_HOST, REME_DEFAULT_PORT
+from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from ...schema import Request, Response
 from ...utils import execute_stream_task, resolve_web_static_dir
 from .mcp_tools import add_mcp_job
@@ -39,7 +39,7 @@ class HttpService(BaseService):
 
     def __init__(
         self,
-        host: str = REME_DEFAULT_BIND_HOST,
+        host: str = REME_DEFAULT_HOST,
         port: int = REME_DEFAULT_PORT,
         web_enabled: bool = True,
         web_static_dir: str | None = None,

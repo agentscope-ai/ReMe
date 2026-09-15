@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 from .base_service import BaseService
 from ..component_registry import R
 from ..job import BaseJob
-from ...constants import REME_DEFAULT_BIND_HOST, REME_DEFAULT_PORT
+from ...constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from .mcp_tools import add_mcp_job
 
 if TYPE_CHECKING:
@@ -20,7 +20,7 @@ class MCPService(BaseService):
     def __init__(
         self,
         transport: "Transport" = "sse",
-        host: str = REME_DEFAULT_BIND_HOST,
+        host: str = REME_DEFAULT_HOST,
         port: int = REME_DEFAULT_PORT,
         injected_job_kwargs: dict[str, Any] | None = None,
         tool_error_on_failure: bool = False,

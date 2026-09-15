@@ -298,6 +298,20 @@ needed:
 NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
 ```
 
+For development from another machine on a controlled network, bind both services explicitly and configure the browser
+to use the ReMe host's reachable address (replace `192.168.1.10` as appropriate):
+
+```bash
+# ReMe repository root, on the host running ReMe
+reme start service.host=0.0.0.0
+
+# reme_studio/, on the same host
+NEXT_PUBLIC_REME_API_URL=http://192.168.1.10:2333 npm run dev:remote
+```
+
+The ReMe service has no general-purpose authentication. Do not use the remote development command on an untrusted
+network or expose either endpoint directly to the public internet.
+
 ## Build the ReMe-hosted static frontend
 
 ReMe can serve Studio from the same FastAPI process as its HTTP API. Build the static variant and restart ReMe:
@@ -315,6 +329,8 @@ Open <http://127.0.0.1:2333>. The static build uses same-origin requests by defa
 ```bash
 VITE_REME_API_URL=http://127.0.0.1:2333 npm run dev:static
 ```
+
+Use `dev:static:remote` with a reachable `VITE_REME_API_URL` for explicit remote static development.
 
 `npm run build` remains the vinext/Sites deployment build. `npm run build:static` creates `dist-static/` exclusively for
 FastAPI and Python/npm package distribution. Change frontend source rather than committing generated distribution files.

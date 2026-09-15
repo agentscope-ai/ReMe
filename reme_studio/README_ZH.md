@@ -263,6 +263,19 @@ npm run dev
 NEXT_PUBLIC_REME_API_URL=http://127.0.0.1:8000 npm run dev
 ```
 
+需要从受控网络中的另一台机器进行开发时，应显式开放两个服务，并让浏览器连接 ReMe 主机的可达地址（请按
+实际情况替换 `192.168.1.10`）：
+
+```bash
+# 在运行 ReMe 的主机上，从仓库根目录执行
+reme start service.host=0.0.0.0
+
+# 在同一主机的 reme_studio/ 目录执行
+NEXT_PUBLIC_REME_API_URL=http://192.168.1.10:2333 npm run dev:remote
+```
+
+ReMe 服务当前不提供通用身份认证。请勿在不可信网络中使用远程开发命令，也不要把任一端点直接暴露到公网。
+
 ## 构建由 ReMe 托管的静态前端
 
 ReMe 可以使用提供 HTTP API 的同一个 FastAPI 进程托管 Studio。构建静态版本并重启 ReMe：
@@ -280,6 +293,8 @@ reme start
 ```bash
 VITE_REME_API_URL=http://127.0.0.1:2333 npm run dev:static
 ```
+
+需要显式进行远程静态开发时，请使用 `dev:static:remote`，并将 `VITE_REME_API_URL` 设置为可达地址。
 
 `npm run build` 仍用于 vinext/Sites 部署构建；`npm run build:static` 仅为 FastAPI 以及 Python/npm 包分发生成 `dist-static/`。应修改前端源文件，而不是提交生成的分发文件。
 

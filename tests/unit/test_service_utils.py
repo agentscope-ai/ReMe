@@ -18,6 +18,7 @@ from types import SimpleNamespace
 
 import psutil
 
+from reme.constants import normalize_connect_host
 from reme.utils import service_utils as su
 
 # ----------------------------------------------------------------------
@@ -125,10 +126,21 @@ def test_scan_reme_procs_parses_host_and_port(monkeypatch):
     assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
 
 
+def test_scan_reme_procs_accepts_prefixed_cli_arguments(monkeypatch):
+    procs = [
+        _FakeProc(
+            123,
+            cmdline=["reme", "start", "--service.host=0.0.0.0", "-service.port=8123"],
+        ),
+    ]
+    _patch_iter(monkeypatch, procs)
+    assert su._scan_reme_procs() == [(123, "0.0.0.0", 8123)]
+
+
 def test_scan_reme_procs_defaults_when_args_absent(monkeypatch):
     procs = [_FakeProc(7, cmdline=["reme", "start"])]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(7, su.REME_DEFAULT_BIND_HOST, su.REME_DEFAULT_PORT)]
+    assert su._scan_reme_procs() == [(7, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_scan_reme_procs_filters_unrelated(monkeypatch):
@@ -145,7 +157,7 @@ def test_scan_reme_procs_ignores_non_digit_port(monkeypatch):
     """A malformed service.port= falls back to the default port, not a crash."""
     procs = [_FakeProc(9, cmdline=["reme", "start", "service.port=notaport"])]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(9, su.REME_DEFAULT_BIND_HOST, su.REME_DEFAULT_PORT)]
+    assert su._scan_reme_procs() == [(9, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_scan_reme_procs_skips_access_denied(monkeypatch):
@@ -155,12 +167,12 @@ def test_scan_reme_procs_skips_access_denied(monkeypatch):
         _FakeProc(5, cmdline=["reme", "start"]),
     ]
     _patch_iter(monkeypatch, procs)
-    assert su._scan_reme_procs() == [(5, su.REME_DEFAULT_BIND_HOST, su.REME_DEFAULT_PORT)]
+    assert su._scan_reme_procs() == [(5, su.REME_DEFAULT_HOST, su.REME_DEFAULT_PORT)]
 
 
 def test_connect_host_converts_wildcard_bind_address():
-    assert su._connect_host("0.0.0.0") == "127.0.0.1"
-    assert su._connect_host("192.0.2.10") == "192.0.2.10"
+    assert normalize_connect_host("0.0.0.0") == "127.0.0.1"
+    assert normalize_connect_host("192.0.2.10") == "192.0.2.10"
 
 
 def test_running_app_config_preserves_plugins(monkeypatch):

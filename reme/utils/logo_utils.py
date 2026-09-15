@@ -11,10 +11,9 @@ from rich.table import Table
 from rich.text import Text
 
 from ..constants import (
-    REME_DEFAULT_BIND_HOST,
-    REME_DEFAULT_CONNECT_HOST,
+    REME_DEFAULT_HOST,
     REME_DEFAULT_PORT,
-    REME_WILDCARD_BIND_HOST,
+    normalize_connect_host,
 )
 
 if TYPE_CHECKING:
@@ -81,9 +80,9 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
 
     match backend:
         case "http":
-            host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_BIND_HOST))
+            host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
             port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-            display_host = REME_DEFAULT_CONNECT_HOST if host == REME_WILDCARD_BIND_HOST else host
+            display_host = normalize_connect_host(host)
             info_table.add_row("🔗", "URL:", f"http://{display_host}:{port}")
             mcp_enabled = getattr(runtime_service, "mcp_enabled", extra.get("mcp_enabled", True))
             if mcp_enabled:
@@ -96,9 +95,9 @@ def print_logo(app_config: "ApplicationConfig", runtime_service: "BaseService | 
             transport = getattr(runtime_service, "transport", extra.get("transport", "sse"))
             info_table.add_row("🚌", "Transport:", transport)
             if transport != "stdio":
-                host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_BIND_HOST))
+                host = getattr(runtime_service, "host", extra.get("host", REME_DEFAULT_HOST))
                 port = getattr(runtime_service, "port", extra.get("port", REME_DEFAULT_PORT))
-                display_host = REME_DEFAULT_CONNECT_HOST if host == REME_WILDCARD_BIND_HOST else host
+                display_host = normalize_connect_host(host)
                 url = f"http://{display_host}:{port}"
                 if transport == "sse":
                     url += "/sse"

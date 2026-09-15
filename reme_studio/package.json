@@ -21,8 +21,10 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force --hostname 0.0.0.0",
-    "dev:static": "vite --config vite.static.config.ts --host 0.0.0.0",
+    "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force",
+    "dev:remote": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext dev --force --hostname 0.0.0.0",
+    "dev:static": "vite --config vite.static.config.ts",
+    "dev:static:remote": "vite --config vite.static.config.ts --host 0.0.0.0",
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:static": "vite build --config vite.static.config.ts",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",

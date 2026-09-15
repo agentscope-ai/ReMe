@@ -3,14 +3,14 @@
 # pylint: disable=protected-access
 
 from reme.components.client.http_client import HttpClient
-from reme.constants import REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
+from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 
 
 def test_default_client_uses_loopback_address():
     """Clients connect to loopback when no service address is configured."""
     client = HttpClient()
 
-    assert client.base_url == f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}"
+    assert client.base_url == f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}"
 
 
 def test_client_converts_wildcard_bind_address_to_loopback():

@@ -1,10 +1,17 @@
 """Base client abstraction."""
 
 import json
+import os
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
 
 from ..base_component import BaseComponent
+from ...constants import (
+    REME_DEFAULT_HOST,
+    REME_DEFAULT_PORT,
+    REME_SERVICE_INFO,
+    normalize_connect_host,
+)
 from ...enumeration import ComponentEnum
 
 
@@ -16,6 +23,20 @@ class BaseClient(BaseComponent):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.client = None
+
+    def _resolve_service_address(self, host: str | None, port: int | None) -> tuple[str, int]:
+        """Resolve explicit, discovered, or default network coordinates."""
+        if not (host and port):
+            if service_info := os.environ.get(REME_SERVICE_INFO):
+                try:
+                    data = json.loads(service_info)
+                    host, port = data["host"], data["port"]
+                except Exception:
+                    self.logger.warning(f"Invalid service info: {service_info}")
+                    host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+            else:
+                host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+        return normalize_connect_host(host), port
 
     async def _start(self) -> None:
         """Initialize the client."""

@@ -7,7 +7,7 @@ from rich.console import Console
 
 from reme import application as application_module
 from reme.application import Application
-from reme.constants import REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
+from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from reme.schema import ApplicationConfig, ComponentConfig
 from reme.utils import logo_utils
 
@@ -40,8 +40,8 @@ def test_logo_fallback_matches_service_defaults(monkeypatch) -> None:
 
     output = _render_logo(monkeypatch, config)
 
-    assert f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}" in output
-    assert f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}/mcp" in output
+    assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}" in output
+    assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/mcp" in output
 
 
 def test_logo_hides_disabled_http_mcp_endpoint(monkeypatch) -> None:
@@ -52,7 +52,7 @@ def test_logo_hides_disabled_http_mcp_endpoint(monkeypatch) -> None:
 
     output = _render_logo(monkeypatch, config)
 
-    assert f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}/mcp" not in output
+    assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/mcp" not in output
 
 
 def test_logo_uses_runtime_mcp_transport_and_address(monkeypatch) -> None:
@@ -74,7 +74,7 @@ def test_logo_mcp_fallback_matches_service_defaults(monkeypatch) -> None:
     output = _render_logo(monkeypatch, config)
 
     assert "Transport: sse" in output
-    assert f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}/sse" in output
+    assert f"http://{REME_DEFAULT_HOST}:{REME_DEFAULT_PORT}/sse" in output
 
 
 def test_application_passes_instantiated_service_to_logo(monkeypatch, tmp_path) -> None:
