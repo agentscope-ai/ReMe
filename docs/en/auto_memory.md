@@ -78,6 +78,41 @@ session/
 Each daily note points to its corresponding conversation record. Saved messages omit tool-result blocks and base64 data
 blocks, preventing recalled memory and binary payloads from being mistaken for user-provided evidence later.
 
+## Images in Conversations
+
+Auto Memory can read images together with the surrounding conversation. Images are disabled by default; enable them for a
+call with `include_images=true`:
+
+```bash
+reme auto_memory session_id=session-a include_images=true messages='[...]'
+```
+
+Image input requires an AgentScope wrapper (`AsAgentWrapper`) with a vision-capable `as_llm` model and compatible formatter.
+Auto Memory uses that model to read the conversation, without generating captions first. When images are disabled or no
+image blocks are present, the existing text-only behavior is unchanged, including support for other wrappers.
+
+Pass images as top-level AgentScope `DataBlock` values in `messages`, with an `image/` media type. Text and images stay in
+their original order, with speaker and timestamp boundaries preserved. Base64 sources and HTTP(S) URLs pass unchanged to
+the formatter; Auto Memory does not download or preprocess the images. URLs must be accessible to the model provider. For local
+files, submit Base64 instead of a `file://` URL; other URL schemes are also unsupported.
+
+The wrapper's `context_config.max_image_num` limits the number of images per call; Auto Memory rejects excess images rather
+than increasing the limit. The AgentScope default is 5. To use a higher limit in a one-shot CLI call:
+
+```bash
+reme start job=auto_memory \
+  components.agent_wrapper.default.context_config.max_image_num=20 \
+  session_id=session-a include_images=true messages='[...]'
+```
+
+Model and formatter limits still apply. Options, wrapper type, URL schemes and image count are checked before saving the
+conversation. Later formatter or provider errors are returned without retrying as text-only. As with text-only calls,
+those errors do not roll back an already saved conversation.
+
+Source JSONL saving follows the filtering rules above, including the omission of Base64 blocks. To process those images
+again, resubmit the original messages rather than the saved JSONL. No separate image files or caption cards are created,
+though the wrapper's internal Agent state under `mem_session/agentscope` can contain image inputs.
+
 ## Message Timestamps
 
 Auto Memory preserves each retained message's `created_at` in both the prompt and the source conversation JSONL. When importing historical
