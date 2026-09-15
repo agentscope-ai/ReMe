@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock
 
 from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
 from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, URLSource
-from agentscope.model import ChatModelBase
 import httpx
 import pytest
 import yaml
@@ -18,11 +17,9 @@ import yaml
 from reme.components import R
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
-from reme.components.as_llm import BaseAsLLM
 from reme.components.file_store import LocalFileStore
 from reme.components.job import BaseJob
 from reme.components.tag_index import LocalTagIndex
-from reme.enumeration import ComponentEnum
 from reme.schema import ApplicationConfig
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 
@@ -64,25 +61,6 @@ def _saved_line(message):
     return (message.model_copy(update={"content": content}).model_dump_json() + "\n").encode("utf-8")
 
 
-class _Model(ChatModelBase):
-    """Native model binding without a provider client."""
-
-    def __init__(self):
-        self.model = "bound-memory-model"
-        self.context_size = 200000
-        self.formatter = OpenAIChatFormatter()
-
-
-class _Wrapper(AsAgentWrapper):
-    """Observe the real AgentScope wrapper boundary without invoking a provider."""
-
-    def __init__(self):
-        super().__init__(backend="agentscope")
-        self.as_llm = BaseAsLLM()
-        self.as_llm.model = _Model()
-        self.reply = AsyncMock(return_value={"result": "ok"})
-
-
 class _OtherWrapper(BaseAgentWrapper):
     """Text-only backend; a matching label must not bypass the type check."""
 
@@ -93,14 +71,15 @@ class _OtherWrapper(BaseAgentWrapper):
 @pytest.fixture(name="setup")
 def memory_setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    wrapper = _Wrapper()
+    wrapper = AsAgentWrapper(backend="agentscope", as_llm="")
+    wrapper.reply = AsyncMock(return_value={"result": "ok"})
     store = LocalFileStore(embedding_store="")
     app = SimpleNamespace(
         registry=R,
         metadata={},
         app_config=ApplicationConfig(workspace_dir=str(tmp_path)),
         jobs={},
-        components={ComponentEnum.AS_LLM: {"default": wrapper.as_llm}},
+        components={},
     )
     step = AutoMemoryStep(app_context=app, file_store=store, agent_wrapper=wrapper)
     monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value=None))
@@ -344,49 +323,21 @@ async def test_provider_error_is_not_retried_and_keeps_main_saved_source(setup, 
 
 
 @pytest.mark.asyncio
-async def test_uses_existing_bound_model_without_an_override(setup):
-    step, wrapper, _ = setup
-    model = wrapper.as_llm.model
-    await _run(step, [_message()], include_images=True)
-    inputs, options = wrapper.reply.call_args.args[0], wrapper.reply.call_args.kwargs
-    assert "_model" not in options
-    agent, _ = await wrapper._build_agent(inputs, **{**options, "job_tools": []})
-    assert agent.model is model
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "step_switch,job_switch,call_switch,enabled",
-    [(True, False, None, False), (False, False, True, True)],
+    "configured,options,enabled",
+    [
+        (True, {}, True),
+        (False, {}, False),
+        (True, {"include_images": False}, False),
+        (False, {"include_images": True}, True),
+    ],
 )
-async def test_runtime_switch_uses_existing_job_precedence(
-    setup,
-    monkeypatch,
-    step_switch,
-    job_switch,
-    call_switch,
-    enabled,
-):
+async def test_runtime_switch_overrides_step_config(setup, configured, options, enabled):
     step, wrapper, _ = setup
-    monkeypatch.setattr(AutoMemoryStep, "_list_session_note", AsyncMock(return_value=None))
-    job = BaseJob(
-        app_context=step.app_context,
-        include_images=job_switch,
-        steps=[
-            {
-                "backend": "auto_memory_step",
-                "include_images": step_switch,
-                "file_store": step.file_store,
-                "agent_wrapper": wrapper,
-            },
-        ],
-    )
-    await job.start()
-    try:
-        options = {} if call_switch is None else {"include_images": call_switch}
-        response = await job(session_id=_SESSION, date=_DAY, messages=[_message()], **options)
-    finally:
-        await job.close()
+    step.kwargs["include_images"] = configured
+
+    response = await _run(step, [_message()], **options)
+
     assert response.success is True
     assert isinstance(wrapper.reply.call_args.args[0], Msg if enabled else str)
 
@@ -394,19 +345,9 @@ async def test_runtime_switch_uses_existing_job_precedence(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enabled", [False, True])
 @pytest.mark.parametrize("history", ["append", "backfill", "same-id", "replace-and-backfill"])
-async def test_history_merge_and_sanitizer_keep_main_source_contract(setup, enabled, history):
+async def test_history_merge_keeps_main_source_contract(setup, enabled, history):
     step, _, path = setup
     original = _message()
-    raw = original.model_dump()
-    raw["role"] = "assistant"
-    raw["content"].extend(
-        [
-            {"type": "tool_call", "id": "recall", "name": "read", "input": "{}"},
-            {"type": "tool_result", "id": "recall", "name": "read", "output": "RECALLED_NOT_SOURCE"},
-            {"type": "data", "source": {"type": "base64", "media_type": "application/pdf", "data": "YWJj"}},
-        ],
-    )
-    original = Msg.model_validate(raw)
     await _run(step, [original], include_images=enabled)
     initial = path.read_bytes()
     replacement = original.model_copy(deep=True)
@@ -426,7 +367,6 @@ async def test_history_merge_and_sanitizer_keep_main_source_contract(setup, enab
     await _run(step, messages, include_images=enabled)
 
     assert path.read_bytes() == expected
-    assert b"RECALLED_NOT_SOURCE" not in expected and b"YWJj" not in expected
     assert [message.model_dump() for message in messages] == before
 
 

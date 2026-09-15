@@ -71,31 +71,24 @@ session/
 daily note 会指向对应的对话记录。持久化时会排除 tool-result block 和 base64 data block，避免召回记忆或二进制负载在后续流程中被误当成
 用户提供的证据。
 
-## 可选的 Session 图像
+## 对话中的图像
 
-默认不开启图像。设置 `include_images=true` 后，记忆 Agent 可以同时利用对话文本和图像：
+Auto Memory 可以结合上下文理解对话中的图像。默认只处理文本，调用时加上 `include_images=true` 即可开启图像：
 
 ```bash
 reme auto_memory session_id=session-a include_images=true messages='[...]'
 ```
 
-单次 CLI 调用可使用 `reme start job=auto_memory`，其余参数相同。
-不需要修改 YAML 或重新编译。关闭图像，或输入没有图像块时，各种 wrapper 都保持原有纯文本行为。
-只有开启且实际包含图像的调用才要求 AgentScope wrapper（`AsAgentWrapper`），其他后端会抛出 `NotImplementedError`。
-开启图像表示调用方已经选用兼容的模型与 formatter。Auto Memory 沿用 wrapper 通过 `as_llm` 绑定的模型，
-不会自动探测能力或切换模型。
+图像输入需要 AgentScope wrapper（`AsAgentWrapper`），其 `as_llm` 应绑定支持视觉的模型，并使用兼容的 formatter。
+Auto Memory 直接用这个模型理解图文，不先生成 caption。关闭图像或消息中没有图像块时，仍按原有方式处理文本，也不限制
+wrapper 类型。
 
-`messages` 使用 AgentScope 格式，处理顶层图像 `DataBlock`（`source.media_type` 以 `image/` 开头）。
-Auto Memory 构建 `UserMsg`，按原会话顺序交错放置文本与原始图像块，保留说话人、时间和任务提示的文本边界。
-记忆 Agent 同时从图文中提取信息，不单独调用 caption 模型。这是一次 Agent 工作流，不保证只有一次 API 请求：
-工具调用可能触发后续模型轮次。
+在 `messages` 中用 AgentScope 顶层 `DataBlock` 传入图像，媒体类型以 `image/` 开头。文本和图像按原顺序交错排列，
+保留说话人和时间信息。Base64 source 与 HTTP(S) URL 原样交给 formatter，Auto Memory 不下载或预处理图像。URL 需要能被模型
+供应商访问；本地文件请先转为 Base64，不使用 `file://` URL，其他 URL scheme 也不支持。
 
-Base64 source 与 HTTP(S) 图像 URL 原样传给 AgentScope formatter，Auto Memory 不下载、解码、缩放或转码图像。
-所提供的 URL 必须能被模型供应商访问。`file://` 和其他 URL scheme 会被拒绝，请先将本地图像转换为 Base64 再提交。
-调用方原始消息与图像文件保持不变。
-
-Auto Memory 检查 wrapper 实际生效的 `context_config.max_image_num`，超限时明确报错，不自动提高上限。
-当前 AgentScope 默认允许 5 张图像。如果需要更多，请显式配置 wrapper，例如：
+每次调用的图像数量受 wrapper 的 `context_config.max_image_num` 限制，超限会报错，不会自动提高上限。
+AgentScope 默认允许 5 张图像。需要更多时，可以在单次 CLI 调用中指定：
 
 ```bash
 reme start job=auto_memory \
@@ -103,18 +96,11 @@ reme start job=auto_memory \
   session_id=session-a include_images=true messages='[...]'
 ```
 
-模型与 formatter 自身的限制仍然适用。无效的图像选项、不支持的后端、禁止的 URL scheme 和图像数量超限，
-都在保存源会话之前检查。formatter 或 provider 的错误沿现有错误流程返回，不以纯文本重试。
-与纯文本调用相同，保存后发生的错误不会回滚源会话记录。
+模型与 formatter 自身的限制仍然适用。图像选项、wrapper 类型、URL scheme 和图像数量会在保存对话前检查。
+之后的 formatter 或 provider 错误直接返回，不转为纯文本重试；与纯文本调用相同，已保存的对话不会因此回滚。
 
-**开启与关闭图像时的源 JSONL 保存行为完全不变。** 仍执行上文的过滤规则，不补充 caption 或图像 metadata。
-重放已保存的 JSONL 无法恢复被过滤掉的 Base64 图像；再次处理需要提交原始带图消息。
-Auto Memory 不创建独立图像资源或 caption 卡片，但 AgentScope wrapper 按原有行为保存在 `mem_session/agentscope`
-的内部 Agent 状态可能包含图像输入。
-
-若需持久默认值，在应用配置或 `reme start` 对应覆盖项中设置 `jobs.auto_memory.include_images`。
-调用时参数高于 Job 默认值，Job 默认值高于 Step 配置；默认值为 `false`。
-本适配针对 AgentScope 消息，不扩展 Claude Code 原始 transcript 的解析。
+源 JSONL 仍按上文规则保存，包括过滤 Base64 block。因此，再次处理这些图像需要提交原始消息，而不是读取已保存的 JSONL。
+不会另外生成图像文件或 caption 卡片，但 wrapper 保存在 `mem_session/agentscope` 中的内部 Agent 状态可能包含图像输入。
 
 ## 消息时间
 
