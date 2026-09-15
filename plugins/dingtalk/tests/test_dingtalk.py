@@ -3,15 +3,99 @@
 # pylint: disable=missing-function-docstring,protected-access
 
 import asyncio
+import importlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import frontmatter
+import httpx
 import pytest
+import yaml
 
+from reme_dingtalk import DingTalkMarkdownSendStep
+from reme_dingtalk import send as dingtalk_send
+from reme_dingtalk.wait import DingTalkWaitStep, _session_key
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from reme.steps.cookbook.dingtalk.wait import DingTalkWaitStep, _session_key
+from reme.components.runtime_context import RuntimeContext
+
+PLUGIN_MANIFEST = yaml.safe_load(
+    (Path(__file__).parents[1] / "src" / "reme_dingtalk" / "plugin.yaml").read_text(encoding="utf-8"),
+)
+
+
+def test_plugin_manifest_declares_only_dingtalk_backends():
+    assert set(PLUGIN_MANIFEST) == {"backends"}
+    assert PLUGIN_MANIFEST["backends"] == {
+        "dingtalk_markdown_send_step": "reme_dingtalk.send:DingTalkMarkdownSendStep",
+        "dingtalk_wait_step": "reme_dingtalk.wait:DingTalkWaitStep",
+    }
+
+
+@pytest.mark.asyncio
+async def test_markdown_send_delivers_body_to_groups_in_order(tmp_path, monkeypatch):
+    report = tmp_path / "daily" / "report.md"
+    report.parent.mkdir()
+    report.write_text(
+        frontmatter.dumps(frontmatter.Post("# Report\n\nBody", name="Frontmatter title")),
+        encoding="utf-8",
+    )
+    payloads = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json={"processQueryKey": f"query-{len(payloads)}"})
+
+    transport = httpx.MockTransport(handler)
+    transport_kwargs = {}
+
+    def ipv4_transport(**kwargs):
+        transport_kwargs.update(kwargs)
+        return transport
+
+    dingtalk_stream = importlib.import_module("dingtalk_stream")
+    monkeypatch.setattr(
+        dingtalk_stream.DingTalkStreamClient,
+        "get_access_token",
+        lambda _client: "access-token",
+    )
+    monkeypatch.setattr(dingtalk_send.httpx, "AsyncHTTPTransport", ipv4_transport)
+    step = DingTalkMarkdownSendStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        app_key="app-key",
+        app_secret="app-secret",
+        robot_code="robot-code",
+        conversation_ids=" group-one,group-two ",
+        title="Configured title",
+    )
+    step.logger = MagicMock()
+
+    response = await step(RuntimeContext(markdown_path="daily/report.md"))
+
+    assert transport_kwargs == {"local_address": "0.0.0.0"}
+    assert [payload["openConversationId"] for payload in payloads] == ["group-one", "group-two"]
+    assert [json.loads(payload["msgParam"]) for payload in payloads] == [
+        {"title": "Configured title", "text": "# Report\n\nBody"},
+    ] * 2
+    assert response.metadata["dingtalk_configured_count"] == 2
+    assert response.metadata["dingtalk_sent_count"] == 2
+    logs = "\n".join(call.args[0] for call in step.logger.info.call_args_list)
+    assert all(value not in logs for value in ("app-key", "app-secret", "robot-code", "group-one", "group-two"))
+
+
+@pytest.mark.asyncio
+async def test_markdown_send_without_conversations_is_a_noop(tmp_path):
+    response = await DingTalkMarkdownSendStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+    )(RuntimeContext(markdown_path="missing.md"))
+
+    assert response.success is True
+    assert response.metadata == {
+        "dingtalk_configured_count": 0,
+        "dingtalk_sent_count": 0,
+    }
 
 
 class _AgentWrapper(BaseAgentWrapper):

@@ -18,11 +18,15 @@ Configuration is merged in this order, with later values winning:
 ```bash
 reme start
 reme start config=demo
+reme start config=cookbook
 reme start config=/absolute/path/to/app.yaml
 reme start service.port=8181 workspace_dir=/data/reme
 ```
 
 `config` accepts a built-in name or a `.yaml`, `.yml`, or `.json` file. Overrides are deep-merged, so changing `service.port` preserves sibling service settings.
+The optional `cookbook` variant extends `default` and composes the separately installed Auto Fin, Daily Paper, and
+DingTalk plugins. It requires the three DingTalk application credential environment variables before configuration
+loading.
 
 ## CLI values
 

@@ -58,6 +58,7 @@ reme/
   plugin.py                  # installed plugin contract and entry-point loader
   config/
     default.yaml             # default service / jobs / components
+    cookbook.yaml            # Auto Fin + Daily Paper + DingTalk composition
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
     component_registry.py    # backend registry and application-local copies
@@ -77,12 +78,12 @@ reme/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
     benchmark/               # LongMemEval / BEAM evaluation steps
-    cookbook/                # built-in cookbook support steps
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory, auto_resource, auto_dream, proactive
     transfer/                # upload/download
 plugins/
+  dingtalk/                  # independent DingTalk integration plugin distribution
   auto-fin/                  # independent example plugin distribution
   daily_paper/               # independent paper-research plugin distribution
 integrations/
@@ -242,22 +243,27 @@ duplicate `(component_type, backend)` providers fail during assembly instead of 
 
 The legacy Python `Plugin` descriptor and `reme.configs` entry points remain accepted during migration. Configuration
 files can use `extends` to inherit another built-in, legacy plugin, or file-based configuration. See the independently
-packaged [Auto Fin](../../plugins/auto-fin/README.md) and [Daily Paper](../../plugins/daily_paper/README.md) plugins.
+packaged [DingTalk](../../plugins/dingtalk/README.md), [Auto Fin](../../plugins/auto-fin/README.md), and
+[Daily Paper](../../plugins/daily_paper/README.md) plugins.
 
 Plugin packages are managed locally and remain separate from per-application activation:
 
 ```bash
 reme plugins list
+reme plugins install reme-dingtalk
 reme plugins install reme-auto-fin
 reme plugins install reme-daily-paper
 reme plugins show daily-paper
 reme plugins validate daily-paper
 reme plugins uninstall daily-paper
 
-reme start plugins='["auto-fin","daily-paper"]'
+reme start config=cookbook
 ```
 
 These management commands use the current Python interpreter's pip and never run through an HTTP or MCP service.
+The built-in `cookbook` configuration composes the three plugins, adds DingTalk delivery to the two report pipelines,
+and starts the DingTalk Agent bridge as a background Job. Enabling Auto Fin or Daily Paper alone keeps it independent
+from DingTalk.
 
 ### 4.3 Component.bind
 

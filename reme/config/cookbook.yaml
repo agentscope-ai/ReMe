@@ -1,0 +1,76 @@
+extends: default
+
+app_name: ReMe Cookbook
+
+# This named application composes three independently installable plugins.
+# Install them before starting with `reme start config=cookbook`.
+plugins:
+  - auto-fin
+  - daily-paper
+  - dingtalk
+
+jobs:
+  dingtalk_send:
+    backend: base
+    enable_serve: false
+    description: "Send one workspace Markdown file to configured DingTalk groups."
+    parameters:
+      type: object
+      properties:
+        markdown_path:
+          type: string
+          description: "Workspace-relative path to the Markdown file to send."
+      required:
+        - markdown_path
+    steps:
+      - &dingtalk_send_defaults
+        backend: dingtalk_markdown_send_step
+        app_key: ${DINGTALK_APP_KEY}
+        app_secret: ${DINGTALK_APP_SECRET}
+        robot_code: ${DINGTALK_ROBOT_CODE}
+        conversation_ids: ${DINGTALK_CONVERSATION_IDS:-}
+        timeout: 15
+
+  auto_fin:
+    steps: &auto_fin_steps
+      - backend: auto_fin_data_step
+      - backend: auto_fin_topic_step
+      - backend: auto_fin_merge_step
+        job_tools: [search, read]
+      - backend: auto_tag_step
+      - <<: *dingtalk_send_defaults
+        title: ReMe Auto Fin
+
+  auto_fin_cron:
+    steps: *auto_fin_steps
+
+  daily_paper:
+    steps: &daily_paper_steps
+      - backend: daily_paper_collect_step
+      - backend: daily_paper_rank_step
+      - backend: daily_paper_select_step
+      - backend: daily_paper_analyze_step
+      - backend: daily_paper_digest_step
+        job_tools: [search, read]
+      - backend: auto_tag_step
+      - <<: *dingtalk_send_defaults
+        input_mapping:
+          daily_paper_digest_path: markdown_path
+        title: ReMe Daily Paper
+
+  daily_paper_cron:
+    steps: *daily_paper_steps
+
+  dingtalk_wait:
+    backend: background
+    supervisor: true
+    close_timeout: 10
+    steps:
+      - backend: dingtalk_wait_step
+        agent_wrapper: default
+        app_key: ${DINGTALK_APP_KEY}
+        app_secret: ${DINGTALK_APP_SECRET}
+        robot_code: ${DINGTALK_ROBOT_CODE}
+        worker_count: 4
+        builtin_tools: false
+        job_tools: [search, read]
