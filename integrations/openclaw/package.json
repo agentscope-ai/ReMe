@@ -1,6 +1,6 @@
 {
   "name": "@agentscope-ai/reme-openclaw-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "ReMe file-native long-term memory plugin for OpenClaw",
   "type": "module",
   "main": "./dist/index.js",
