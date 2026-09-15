@@ -16,10 +16,16 @@ test("declares one installable DeepSeek Harness plugin", async () => {
   assert.equal(manifest.dsh.client.platform, "web");
   assert.equal(manifest.dsh.bundle.patch, "./cordis.patch.yml");
   assert.equal(manifest.dependencies, undefined);
-  assert.equal(
-    manifest.peerDependencies["@deepseek-ai/dsh-llm"],
-    "^0.1.2-rc.1",
-  );
+  for (const dependency of [
+    "@deepseek-ai/dsh-client-ui-primitives",
+    "@deepseek-ai/dsh-llm",
+    "@deepseek-ai/dsh-settings",
+    "@deepseek-ai/dsh-tools",
+    "@deepseek-ai/dsh-typert-protocol",
+  ]) {
+    assert.equal(manifest.peerDependencies[dependency], "^0.1.5-rc.2");
+    assert.equal(manifest.peerDependenciesMeta[dependency]?.optional, true);
+  }
   assert.equal(manifest.peerDependencies.openclaw, undefined);
   assert.match(patch, /remeMemory: true/);
   assert.doesNotMatch(patch, /@agentscope-ai\/reme\/dsh/);
