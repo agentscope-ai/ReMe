@@ -88,6 +88,7 @@ components:
       api_key: ${LLM_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
+      # Keep Claude Code's native tools; the wrapper disables WebSearch by default.
 
   file_store:
     default:
@@ -156,5 +157,5 @@ jobs:
         app_secret: ${DINGTALK_APP_SECRET}
         robot_code: ${DINGTALK_ROBOT_CODE}
         worker_count: 4
-        builtin_tools: false
-        job_tools: [search, read]
+        # Add ReMe memory search alongside Claude Code's native tools.
+        job_tools: [search]

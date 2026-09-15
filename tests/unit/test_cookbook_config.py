@@ -1,10 +1,13 @@
 """Validate the built-in cross-plugin cookbook application."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from reme.components import ApplicationContext
+from reme.components.agent_wrapper import CcAgentWrapper
 from reme.config.config_parser import _load_config, deep_merge_config, expand_env_vars
 from reme.schema import ApplicationConfig
 
@@ -88,6 +91,28 @@ def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
     }
 
 
+def test_cookbook_dingtalk_keeps_claude_tools_and_adds_only_memory_search(monkeypatch, tmp_path):
+    """The final SDK options retain native tools, disable WebSearch, and add only ReMe search."""
+    config = _cookbook(monkeypatch)
+    wrapper_config = dict(config["components"]["agent_wrapper"]["claude_code"])
+    wrapper_config.pop("backend")
+    wrapper = CcAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    search = SimpleNamespace(name="search", description="Search memory", parameters={})
+    monkeypatch.setattr(wrapper, "_resolve_job_tools", lambda _names: [search])
+
+    opts = wrapper._build_options(  # pylint: disable=protected-access
+        "hello",
+        **wrapper_config,
+        job_tools=config["jobs"]["dingtalk_wait"]["steps"][0]["job_tools"],
+    )
+
+    assert opts.tools is None
+    assert opts.disallowed_tools == ["WebSearch"]
+    assert opts.permission_mode == "bypassPermissions"
+    assert opts.allowed_tools == ["search"]
+    assert set(opts.mcp_servers) == {wrapper.MCP_SERVER_NAME}
+
+
 def test_cookbook_appends_dingtalk_to_business_pipelines(monkeypatch):
     """Both manual and cron pipelines deliver their final tagged report."""
     jobs = _cookbook(monkeypatch)["jobs"]
@@ -146,8 +171,7 @@ def test_cookbook_owns_safe_send_and_background_bridge_jobs(monkeypatch):
             "app_secret": "app-secret",
             "robot_code": "robot-code",
             "worker_count": 4,
-            "builtin_tools": False,
-            "job_tools": ["search", "read"],
+            "job_tools": ["search"],
         },
     ]
 
