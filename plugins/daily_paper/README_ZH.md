@@ -12,7 +12,7 @@ Step backend，并在 `application_defaults` 下提供 Job 配置；通过 `plug
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-daily-paper
+reme plugins install plugins/daily_paper
 ```
 
 ### 2. 配置模型环境变量

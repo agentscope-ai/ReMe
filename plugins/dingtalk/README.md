@@ -13,7 +13,7 @@ Install ReMe and the plugin:
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-dingtalk
+reme plugins install plugins/dingtalk
 reme plugins validate dingtalk
 ```
 
@@ -29,8 +29,8 @@ DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 The repository's `cookbook` config composes DingTalk with the independently installed Auto Fin and Daily Paper plugins:
 
 ```bash
-reme plugins install reme-auto-fin
-reme plugins install reme-daily-paper
+reme plugins install plugins/auto-fin
+reme plugins install plugins/daily_paper
 reme start config=cookbook
 ```
 

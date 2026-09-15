@@ -13,7 +13,7 @@
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-dingtalk
+reme plugins install plugins/dingtalk
 reme plugins validate dingtalk
 ```
 
@@ -29,8 +29,8 @@ DINGTALK_CONVERSATION_IDS=cid-group-one,cid-group-two
 仓库内置的 `cookbook` 配置会组合钉钉、Auto Fin 和 Daily Paper 三个独立安装的插件：
 
 ```bash
-reme plugins install reme-auto-fin
-reme plugins install reme-daily-paper
+reme plugins install plugins/auto-fin
+reme plugins install plugins/daily_paper
 reme start config=cookbook
 ```
 

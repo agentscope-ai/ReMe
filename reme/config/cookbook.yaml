@@ -8,9 +8,9 @@ app_name: ReMe Cookbook
 # This configuration composes three independently installable plugins. Install
 # all three packages into the same Python environment as the `reme` command:
 #
-#   reme plugins install reme-dingtalk
-#   reme plugins install reme-auto-fin
-#   reme plugins install reme-daily-paper
+#   reme plugins install plugins/dingtalk
+#   reme plugins install plugins/auto-fin
+#   reme plugins install plugins/daily_paper
 #
 # Create a `.env` file in the directory where `reme start` will run (or export
 # the variables in the shell). These DingTalk application credentials are

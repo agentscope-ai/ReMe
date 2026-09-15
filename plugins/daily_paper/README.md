@@ -14,7 +14,7 @@ their Job configuration under `application_defaults`. Enable the installed plugi
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-daily-paper
+reme plugins install plugins/daily_paper
 ```
 
 ### 2. Configure the model environment

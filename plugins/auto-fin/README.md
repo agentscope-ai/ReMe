@@ -18,7 +18,7 @@ through `plugins=["auto-fin"]`.
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-auto-fin
+reme plugins install plugins/auto-fin
 ```
 
 ### 2. Configure the model environment

@@ -15,7 +15,7 @@ distribution：单个 `reme.plugins` entry point 暴露 `plugin.yaml`，其中�
 
 ```bash
 python -m pip install "reme-ai[core]>=0.4.1.12"
-reme plugins install reme-auto-fin
+reme plugins install plugins/auto-fin
 ```
 
 ### 2. 配置模型环境变量

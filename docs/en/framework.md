@@ -250,9 +250,9 @@ Plugin packages are managed locally and remain separate from per-application act
 
 ```bash
 reme plugins list
-reme plugins install reme-dingtalk
-reme plugins install reme-auto-fin
-reme plugins install reme-daily-paper
+reme plugins install plugins/dingtalk
+reme plugins install plugins/auto-fin
+reme plugins install plugins/daily_paper
 reme plugins show daily-paper
 reme plugins validate daily-paper
 reme plugins uninstall daily-paper

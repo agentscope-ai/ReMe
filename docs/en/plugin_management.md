@@ -72,17 +72,17 @@ by another running process is not a global enable state.
 
 ## Install a plugin package
 
-Install a published distribution:
+Install a published distribution by its package name:
 
 ```bash
-reme plugins install reme-auto-fin
+reme plugins install your-plugin-package
 ```
 
 Install or upgrade a pinned version:
 
 ```bash
-reme plugins install 'reme-auto-fin==X.Y.Z'
-reme plugins install reme-auto-fin --upgrade
+reme plugins install 'your-plugin-package==X.Y.Z'
+reme plugins install your-plugin-package --upgrade
 ```
 
 Install a local plugin project:
