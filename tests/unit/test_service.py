@@ -195,10 +195,16 @@ def test_service_lifespan_closes_app_after_error():
     asyncio.run(run())
 
 
-def test_network_services_bind_all_interfaces_by_default():
-    """HTTP and network MCP services are reachable beyond loopback by default."""
-    assert HttpService().host == "0.0.0.0"
-    assert MCPService().host == "0.0.0.0"
+def test_network_services_bind_loopback_by_default():
+    """HTTP and network MCP services stay local unless remote access is explicit."""
+    assert HttpService().host == "127.0.0.1"
+    assert MCPService().host == "127.0.0.1"
+
+
+def test_network_services_accept_explicit_wildcard_bind():
+    """Remote access remains available through explicit service configuration."""
+    assert HttpService(host="0.0.0.0").host == "0.0.0.0"
+    assert MCPService(host="0.0.0.0").host == "0.0.0.0"
 
 
 def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):

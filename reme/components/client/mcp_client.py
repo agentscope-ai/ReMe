@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, Any
 from .base_client import BaseClient
 from ..component_registry import R
 from ...constants import (
-    REME_DEFAULT_BIND_HOST,
     REME_DEFAULT_CONNECT_HOST,
     REME_DEFAULT_PORT,
     REME_SERVICE_INFO,
+    REME_WILDCARD_BIND_HOST,
 )
 
 if TYPE_CHECKING:
@@ -67,7 +67,7 @@ class MCPClient(BaseClient):
                         host, port = REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
                 else:
                     host, port = REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
-            if host == REME_DEFAULT_BIND_HOST:
+            if host == REME_WILDCARD_BIND_HOST:
                 host = REME_DEFAULT_CONNECT_HOST
             self.host = host
             self.port = port

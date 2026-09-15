@@ -2,8 +2,12 @@
 
 REME_SERVICE_INFO = "REME_SERVICE_INFO"
 
-# Wildcard address used by services to listen on every IPv4 interface.
-REME_DEFAULT_BIND_HOST = "0.0.0.0"
+# Loopback address used by services unless remote access is explicitly enabled.
+REME_DEFAULT_BIND_HOST = "127.0.0.1"
+
+# Wildcard address accepted when a service is explicitly configured to listen
+# on every IPv4 interface.
+REME_WILDCARD_BIND_HOST = "0.0.0.0"
 
 # Loopback address used by clients when no remote service is configured.
 REME_DEFAULT_CONNECT_HOST = "127.0.0.1"

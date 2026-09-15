@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from ..base_component import BaseComponent
 from ..job.base_job import BaseJob
-from ...constants import REME_DEFAULT_BIND_HOST, REME_DEFAULT_CONNECT_HOST, REME_SERVICE_INFO
+from ...constants import REME_DEFAULT_CONNECT_HOST, REME_SERVICE_INFO, REME_WILDCARD_BIND_HOST
 from ...enumeration import ComponentEnum
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ class BaseService(BaseComponent):
         async def lifespan(_):
             await app.start()
             try:
-                advertised_host = REME_DEFAULT_CONNECT_HOST if host == REME_DEFAULT_BIND_HOST else host
+                advertised_host = REME_DEFAULT_CONNECT_HOST if host == REME_WILDCARD_BIND_HOST else host
                 service_info = json.dumps({"host": advertised_host, "port": port})
                 os.environ[REME_SERVICE_INFO] = service_info
                 self.logger.info(f"{self.name} started: {REME_SERVICE_INFO}={service_info}")

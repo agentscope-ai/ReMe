@@ -7,7 +7,7 @@ from reme.constants import REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
 
 
 def test_default_client_uses_loopback_address():
-    """Clients connect to loopback even though servers bind every interface."""
+    """Clients connect to loopback when no service address is configured."""
     client = HttpClient()
 
     assert client.base_url == f"http://{REME_DEFAULT_CONNECT_HOST}:{REME_DEFAULT_PORT}"

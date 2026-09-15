@@ -6,12 +6,17 @@ import sys
 
 import psutil
 
-from ..constants import REME_DEFAULT_BIND_HOST, REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
+from ..constants import (
+    REME_DEFAULT_BIND_HOST,
+    REME_DEFAULT_CONNECT_HOST,
+    REME_DEFAULT_PORT,
+    REME_WILDCARD_BIND_HOST,
+)
 
 
 def _connect_host(host: str) -> str:
     """Translate a wildcard bind address into a usable local destination."""
-    return REME_DEFAULT_CONNECT_HOST if host == REME_DEFAULT_BIND_HOST else host
+    return REME_DEFAULT_CONNECT_HOST if host == REME_WILDCARD_BIND_HOST else host
 
 
 async def find_reme(host: str, port: int) -> str:

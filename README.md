@@ -129,8 +129,7 @@ Basic file operations, BM25 search, wikilink traversal, and reading proactive to
 reme start
 ```
 
-The service listens on all IPv4 interfaces by default (`0.0.0.0:2333`); connect locally at `127.0.0.1:2333`.
-If the port is occupied, specify another port:
+The default service address is `127.0.0.1:2333`. If the port is occupied, specify another port:
 
 ```bash
 reme start service.port=8181
