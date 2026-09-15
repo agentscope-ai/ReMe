@@ -5,7 +5,9 @@ description: Run ReMe through HTTP, SSE, MCP, the CLI, and ReMe Studio while res
 
 # Services and Deployment
 
-ReMe can run as a local HTTP service, a standalone MCP server, or a one-shot CLI Job. The default starts HTTP on `127.0.0.1:2333` and serves JSON, SSE, streamable HTTP MCP, and optional ReMe Studio from one process.
+ReMe can run as a local HTTP service, a standalone MCP server, or a one-shot CLI Job. By default HTTP binds to
+`0.0.0.0:2333` and is available locally at `127.0.0.1:2333`; one process serves JSON, SSE, streamable HTTP MCP, and
+optional ReMe Studio.
 
 ## HTTP API
 
@@ -103,7 +105,7 @@ Ordinary `reme <action>` commands prefer the running service's actual backend, h
 
 ReMe is local-first:
 
-- the default binds to `127.0.0.1`;
+- the default binds to `0.0.0.0`; use `service.host=127.0.0.1` to restrict access to the local machine;
 - HTTP CORS allows any origin;
 - Jobs may write, move, or delete files;
 - the service layer has no general-purpose user authentication.

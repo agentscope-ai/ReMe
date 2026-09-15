@@ -2,7 +2,15 @@
 
 REME_SERVICE_INFO = "REME_SERVICE_INFO"
 
-REME_DEFAULT_HOST = "127.0.0.1"
+# Wildcard address used by services to listen on every IPv4 interface.
+REME_DEFAULT_BIND_HOST = "0.0.0.0"
+
+# Loopback address used by clients when no remote service is configured.
+REME_DEFAULT_CONNECT_HOST = "127.0.0.1"
+
+# Backward-compatible alias for callers that historically used the single
+# default host as a client destination.
+REME_DEFAULT_HOST = REME_DEFAULT_CONNECT_HOST
 
 REME_DEFAULT_PORT = 2333
 

@@ -6,7 +6,12 @@ import sys
 
 import psutil
 
-from ..constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ..constants import REME_DEFAULT_BIND_HOST, REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
+
+
+def _connect_host(host: str) -> str:
+    """Translate a wildcard bind address into a usable local destination."""
+    return REME_DEFAULT_CONNECT_HOST if host == REME_DEFAULT_BIND_HOST else host
 
 
 async def find_reme(host: str, port: int) -> str:
@@ -14,7 +19,7 @@ async def find_reme(host: str, port: int) -> str:
     from ..components.client.http_client import HttpClient
 
     try:
-        async with HttpClient(host=host, port=port, timeout=2.0) as client:
+        async with HttpClient(host=_connect_host(host), port=port, timeout=2.0) as client:
             async for _ in client(action="health_check"):
                 break
         return "reme"
@@ -58,7 +63,7 @@ def _scan_reme_procs() -> list[tuple[int, str, int]]:
         # Match a `reme ... start` invocation (mirrors the old `pgrep -af`).
         if "start" not in cmdline or not any("reme" in tok for tok in cmdline):
             continue
-        host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+        host, port = REME_DEFAULT_BIND_HOST, REME_DEFAULT_PORT
         for t in cmdline:
             if t.startswith("service.host="):
                 host = t.split("=", 1)[1]
@@ -120,22 +125,22 @@ def running_service_config() -> dict | None:
 
 async def locate_reme() -> tuple[str, int, int | None] | None:
     """Find a running reme: try default port, then scanned processes."""
-    if await find_reme(REME_DEFAULT_HOST, REME_DEFAULT_PORT) == "reme":
-        return REME_DEFAULT_HOST, REME_DEFAULT_PORT, _pid_on_port(REME_DEFAULT_PORT)
+    if await find_reme(REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT) == "reme":
+        return REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT, _pid_on_port(REME_DEFAULT_PORT)
     for pid, host, port in _scan_reme_procs():
         if await find_reme(host, port) == "reme":
-            return host, port, pid
+            return _connect_host(host), port, pid
     return None
 
 
 def precheck_start(svc_config: dict | None) -> bool:
     """Pre-flight check for `start`: False if reme is up, exits 1 on port conflict."""
-    host = (svc_config or {}).get("host") or REME_DEFAULT_HOST
+    host = (svc_config or {}).get("host") or REME_DEFAULT_BIND_HOST
     port = (svc_config or {}).get("port") or REME_DEFAULT_PORT
     port = int(port)
     status = asyncio.run(find_reme(host, port))
     if status == "reme":
-        print(f"reme already running at {host}:{port}")
+        print(f"reme already running at {_connect_host(host)}:{port}")
         return False
     if status == "occupied":
         print(

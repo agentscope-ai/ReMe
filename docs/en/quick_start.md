@@ -55,7 +55,8 @@ You can initially omit the LLM configuration if you only need basic file operati
 reme start
 ```
 
-The default service address is `127.0.0.1:2333`. If the port is already in use:
+The service listens on all IPv4 interfaces by default (`0.0.0.0:2333`); connect locally at `127.0.0.1:2333`.
+If the port is already in use:
 
 ```bash
 reme start service.port=8181

@@ -8,7 +8,12 @@ import httpx
 
 from .base_client import BaseClient
 from ..component_registry import R
-from ...constants import REME_SERVICE_INFO, REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from ...constants import (
+    REME_DEFAULT_BIND_HOST,
+    REME_DEFAULT_CONNECT_HOST,
+    REME_DEFAULT_PORT,
+    REME_SERVICE_INFO,
+)
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 
@@ -36,9 +41,12 @@ class HttpClient(BaseClient):
                     port = data["port"]
                 except Exception:
                     self.logger.warning(f"Invalid service info: {service_info}")
-                    host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+                    host, port = REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
             else:
-                host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+                host, port = REME_DEFAULT_CONNECT_HOST, REME_DEFAULT_PORT
+
+        if host == REME_DEFAULT_BIND_HOST:
+            host = REME_DEFAULT_CONNECT_HOST
 
         self.base_url = f"http://{host}:{port}"
         self.timeout = timeout

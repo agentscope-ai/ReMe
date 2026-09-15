@@ -23,6 +23,7 @@ export default defineConfig(({ mode }) => {
         env.VITE_REME_WORKSPACE_EXTENSIONS ?? "",
       ),
     },
+    preview: { host: "0.0.0.0" },
     build: {
       outDir: "dist-static",
       emptyOutDir: true,
