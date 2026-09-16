@@ -72,6 +72,8 @@ def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
     assert components["embedding_store"]["default"] == {
         "backend": "local",
         "as_embedding": "default",
+        "max_retries": 3,
+        "quota_retry_delay": 60,
     }
     assert components["file_store"]["default"]["embedding_store"] == "default"
 
