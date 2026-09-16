@@ -16,7 +16,7 @@ from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep
 
-from .auto_resource_test_support import FakeVisionModel, caption_json, image_bytes
+from .auto_resource_test_support import FakeImageAgentWrapper, caption_fields, image_bytes
 
 pytest_plugins = ("unit.auto_resource_test_plugin",)
 pytestmark = pytest.mark.asyncio
@@ -88,8 +88,8 @@ def _assert_history_reads(calls, count=1) -> None:
         assert calls[("parse", day)] == count
 
 
-def _model() -> FakeVisionModel:
-    return FakeVisionModel(caption_json("caption", "A sample image", "A red square."))
+def _model() -> FakeImageAgentWrapper:
+    return FakeImageAgentWrapper(caption_fields("caption", "A sample image", "A red square."))
 
 
 @pytest.mark.parametrize("routed", [False, True], ids=["image", "unified-router"])
@@ -188,13 +188,13 @@ async def test_new_image_uses_live_post_write_resolution(dated, auto_resource_en
     prefix = "resource/2026-01-01" if dated else "resource"
     source = env.write_binary(f"{prefix}/caption.png", image_bytes())
     calls = _observe_history(env, monkeypatch)
-    plain_call = FakeVisionModel.__call__
+    plain_call = FakeImageAgentWrapper.reply
 
     async def observe_pre_write(model, messages, **kwargs):
         assert calls[("daily_list", "2026-01-01")] == (1 if dated else 0)
         return await plain_call(model, messages, **kwargs)
 
-    monkeypatch.setattr(FakeVisionModel, "__call__", observe_pre_write)
+    monkeypatch.setattr(FakeImageAgentWrapper, "reply", observe_pre_write)
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-01"):
         response = await env.run(
             env.processor(_model(), routed=True),
@@ -516,12 +516,11 @@ async def test_cancelled_invocation_restores_context_and_rebuilds(routed, auto_r
     before = original.read_bytes()
     entered = asyncio.Event()
 
-    # The inherited structured method deliberately raises to exercise plain-call fallback.
-    class WaitingModel(FakeVisionModel):  # pylint: disable=abstract-method
+    class WaitingModel(FakeImageAgentWrapper):  # pylint: disable=abstract-method
         """Keep the image request pending until the invocation is cancelled."""
 
-        async def __call__(self, messages, **kwargs):
-            del messages, kwargs
+        async def reply(self, inputs, **kwargs):
+            del inputs, kwargs
             entered.set()
             await asyncio.Event().wait()
 

@@ -1,18 +1,19 @@
 """Shared test harness for auto-resource processor and router tests."""
 
 import io
-import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest_asyncio
-from agentscope.model import ChatModelBase
+from agentscope.formatter import OpenAIChatFormatter
+from agentscope.message import Msg
 from PIL import Image
 
 from reme.components import R
-from reme.components.agent_wrapper import BaseAgentWrapper
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
 from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
@@ -49,63 +50,62 @@ class FlakyAgentWrapper(BaseAgentWrapper):
         return {"result": "recovered"}
 
 
-class FakeVisionModel(ChatModelBase):
-    """Capture VLM calls and return canned plain text."""
+class FakeImageAgentWrapper(AsAgentWrapper):
+    """Fake only the agent reply; write through the actual scoped ReMe job tool."""
 
-    def __init__(self, text: str):
-        self.text = text
-        self.calls: list = []
-
-    async def generate_structured_output(self, messages, structured_model, **kwargs):  # pylint: disable=unused-argument
-        """Force callers through the plain fallback."""
-        raise NotImplementedError("structured path not faked")
-
-    async def __call__(self, messages, **kwargs):
-        """Record a call and return the canned plain text."""
-        self.calls.append(messages)
-        return SimpleNamespace(content=[{"type": "text", "text": self.text}])
-
-
-class FlakyVisionModel(ChatModelBase):
-    """Fail the first plain call, then succeed."""
-
-    def __init__(self, text: str):
-        self.text = text
-        self.calls = 0
-
-    async def generate_structured_output(self, messages, structured_model, **kwargs):  # pylint: disable=unused-argument
-        """Force callers through the plain fallback."""
-        raise NotImplementedError("structured path not faked")
-
-    async def __call__(self, messages, **kwargs):
-        """Fail once, then return the canned plain text."""
-        self.calls += 1
-        if self.calls == 1:
-            raise RuntimeError("vision backend unavailable")
-        return SimpleNamespace(content=[{"type": "text", "text": self.text}])
-
-
-class StructuredVisionModel(ChatModelBase):
-    """Serve structured output and count fallback plain calls."""
-
-    def __init__(self, content: dict | None = None, error: Exception | None = None, plain_text: str = "plain"):
+    def __init__(self, content: dict | str = "", *, error: Exception | None = None, perform_write: bool = True):
+        super().__init__(as_llm="", session_retention_days=0)
         self.content = content
         self.error = error
-        self.plain_text = plain_text
-        self.structured_calls: list = []
-        self.plain_calls: list = []
+        self.perform_write = perform_write
+        self.calls: list[tuple[Msg, dict]] = []
+        self.after_write_error: BaseException | None = None
+        self.note_metadata: dict = {}
+        self.as_llm = SimpleNamespace(model=SimpleNamespace(formatter=OpenAIChatFormatter()))
 
-    async def generate_structured_output(self, messages, structured_model, **kwargs):  # pylint: disable=unused-argument
-        """Return or fail with the configured structured response."""
-        self.structured_calls.append(messages)
+    async def reply(self, inputs, **kwargs) -> dict:
+        """Emulate a tool-writing agent, never a schema or provider response."""
+        self.calls.append((inputs, kwargs))
         if self.error is not None:
             raise self.error
-        return SimpleNamespace(content=dict(self.content or {}))
+        if not self.perform_write:
+            return {"result": str(self.content)}
+        assert isinstance(inputs, Msg)
+        assert kwargs.get("output_schema") is None
+        target = kwargs["injected_job_kwargs"]["_allowed_paths"]
+        assert len(target) == 1
+        assert "write" in kwargs["job_tools"]
+        prompt = inputs.get_text_content()
+        source = re.search(r"resource/[^\s\]\n]+\.(?:png|jpg|jpeg|gif|webp|bmp|tiff|heic)", prompt, re.IGNORECASE)
+        assert source is not None, prompt
+        fields = self.content if isinstance(self.content, dict) else {"caption": self.content}
+        caption = fields.get("caption", "")
+        content = f"![[{source.group()}]]\n\n## Caption\n\n{caption}\n"
+        tool = self._make_tool(
+            self.app_context.jobs["write"],
+            injected_job_kwargs=kwargs["injected_job_kwargs"],
+        )
+        response = await tool.call(
+            path=target[0],
+            name=fields.get("name") or Path(target[0]).stem,
+            description=fields.get("description") or str(caption)[:120],
+            content=content,
+            metadata=self.note_metadata,
+        )
+        if self.after_write_error is not None:
+            raise self.after_write_error
+        return {"result": "Saved image note", "tool_result": response}
 
-    async def __call__(self, messages, **kwargs):  # pylint: disable=unused-argument
-        """Record and return the configured plain fallback."""
-        self.plain_calls.append(messages)
-        return SimpleNamespace(content=[{"type": "text", "text": self.plain_text}])
+
+class FlakyImageAgentWrapper(FakeImageAgentWrapper):
+    """Fail one agent reply, then use the real scoped write job."""
+
+    async def reply(self, inputs, **kwargs) -> dict:
+        """Fail once without writing, then recover for the next resource."""
+        if not self.calls:
+            self.calls.append((inputs, kwargs))
+            raise RuntimeError("image agent unavailable")
+        return await super().reply(inputs, **kwargs)
 
 
 class FakeAudioResourceStep(BaseAutoResourceStep):
@@ -141,6 +141,16 @@ class _StepJob:
         self.step_cls = step_cls
         self.app_context = app_context
         self.file_store = file_store
+        self.name = "write"
+        self.description = "Write an isolated test note"
+        self.parameters = {
+            "type": "object",
+            "properties": {
+                **{key: {"type": "string"} for key in ("path", "name", "description", "content")},
+                "metadata": {"type": "object"},
+            },
+            "required": ["path", "content"],
+        }
 
     async def __call__(self, **kwargs):
         step = self.step_cls(app_context=self.app_context, file_store=self.file_store)
@@ -205,21 +215,22 @@ def write_note(path: Path, source_resource: str, body: str = "old caption") -> P
     return path
 
 
-def caption_json(name: str, description: str, caption: str) -> str:
-    """Build a plain-call caption payload."""
-    return json.dumps({"name": name, "description": description, "caption": caption})
+def caption_fields(name: str, description: str, caption: str) -> dict:
+    """Build the fake agent's intended note content; not a model JSON response."""
+    return {"name": name, "description": description, "caption": caption}
 
 
 def image_processor(app_context, file_store, model, *, routed: bool, **kwargs):
     """Build either the image processor or the public unified-router path."""
+    model.app_context = app_context
     if not routed:
-        return AutoImageResourceStep(app_context=app_context, file_store=file_store, as_llm=model, **kwargs)
+        return AutoImageResourceStep(app_context=app_context, file_store=file_store, agent_wrapper=model, **kwargs)
     app_context.registry = R
     return AutoResourceStep(
         app_context=app_context,
         **kwargs,
         dispatch_steps=[
-            {"backend": "auto_image_resource_step", "file_store": file_store, "as_llm": model},
+            {"backend": "auto_image_resource_step", "file_store": file_store, "agent_wrapper": model},
             {
                 "backend": "auto_text_resource_step",
                 "file_store": file_store,

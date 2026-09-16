@@ -13,9 +13,8 @@ from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep
 
 from .auto_resource_test_support import (
     FakeAgentWrapper,
-    FakeVisionModel,
-    StructuredVisionModel,
-    caption_json,
+    FakeImageAgentWrapper,
+    caption_fields,
     image_bytes,
     write_binary,
     write_note,
@@ -42,7 +41,7 @@ async def test_image_rejects_paths_outside_the_resource_tree(routed, auto_resour
     outside = write_binary(tmp_path / "outside.png", image_bytes())
     nonresource = env.write_binary("private.png", image_bytes())
 
-    model = FakeVisionModel(caption_json("unsafe", "Unsafe", "Must not be read."))
+    model = FakeImageAgentWrapper(caption_fields("unsafe", "Unsafe", "Must not be read."))
     response = await env.run(
         env.processor(model, routed=routed),
         [
@@ -76,7 +75,7 @@ async def test_image_rejects_resource_symlink_outside_workspace(routed, auto_res
     except OSError as exc:
         pytest.skip(f"symlinks unavailable: {exc}")
 
-    model = FakeVisionModel(caption_json("unsafe", "Unsafe", "Must not be read."))
+    model = FakeImageAgentWrapper(caption_fields("unsafe", "Unsafe", "Must not be read."))
     response = await env.run(
         env.processor(model, routed=routed),
         [{"change": "added", "path": str(external_link)}],
@@ -102,7 +101,7 @@ async def test_image_internal_symlink_keeps_logical_provenance(routed, auto_reso
     except OSError as exc:
         pytest.skip(f"symlinks unavailable: {exc}")
 
-    model = FakeVisionModel(caption_json("linked-image", "Linked", "An internal linked image."))
+    model = FakeImageAgentWrapper(caption_fields("linked-image", "Linked", "An internal linked image."))
     step = env.processor(model, routed=routed)
     response = await env.run(step, [{"change": "added", "path": str(link)}])
 
@@ -141,7 +140,7 @@ async def test_image_preserves_unowned_same_stem_note(routed, existing_owner, ch
         )
     before = same_stem.read_bytes()
 
-    model = FakeVisionModel(caption_json("generated-caption", "Generated", "Generated caption."))
+    model = FakeImageAgentWrapper(caption_fields("generated-caption", "Generated", "Generated caption."))
     response = await env.run(env.processor(model, routed=routed), [{"change": change, "path": str(source)}])
 
     assert response.success is True
@@ -159,9 +158,13 @@ async def test_image_preserves_unowned_same_stem_note(routed, existing_owner, ch
 
 
 @pytest.mark.parametrize("routed", [False, True], ids=["image", "unified-router"])
-@pytest.mark.parametrize("plain_text", ["   ", "```json\n\n```"], ids=["whitespace", "empty-json-fence"])
-async def test_blank_plain_caption_does_not_create_or_overwrite_note(routed, plain_text, auto_resource_env):
-    """An empty structured result plus blank plain fallback leaves notes untouched."""
+@pytest.mark.parametrize("plain_text", ["   ", "Done without writing"], ids=["whitespace", "no-write"])
+async def test_agent_without_write_cannot_create_but_preserves_valid_existing_note(
+    routed,
+    plain_text,
+    auto_resource_env,
+):
+    """Missing new notes fail, while an unchanged existing caption is a valid no-op."""
     env = auto_resource_env
     new_source = env.write_binary("resource/2026-01-01/blank-new.png", image_bytes())
     old_source = env.write_binary("resource/2026-01-01/blank-old.png", image_bytes())
@@ -171,21 +174,22 @@ async def test_blank_plain_caption_does_not_create_or_overwrite_note(routed, pla
         body="caption that must survive",
     )
     before = old_note.read_bytes()
-    model = StructuredVisionModel(content={}, plain_text=plain_text)
+    model = FakeImageAgentWrapper(plain_text, perform_write=False)
     step = env.processor(model, routed=routed)
 
     added = await env.run(step, [{"change": "added", "path": str(new_source)}])
     modified = await env.run(step, [{"change": "modified", "path": str(old_source)}])
 
-    for response in (added, modified):
-        result = response.metadata["results"][0]["metadata"]
-        assert response.success is False
-        assert result["action"] == "failed"
-        assert result["modified"] is False
-        assert "no usable caption" in result["error"]
+    result = added.metadata["results"][0]["metadata"]
+    assert added.success is False
+    assert result["action"] == "failed"
+    assert result["modified"] is False
+    assert "did not write a note" in result["error"]
+    assert modified.success is True
+    assert modified.metadata["results"][0]["metadata"]["modified"] is False
     assert not (env.workspace / "daily/2026-01-01/blank-new.md").exists()
     assert old_note.read_bytes() == before
-    assert len(model.structured_calls) == len(model.plain_calls) == 2
+    assert len(model.calls) == 2
 
 
 @pytest.mark.parametrize("routed", [False, True], ids=["image", "unified-router"])
@@ -198,7 +202,7 @@ async def test_loose_root_image_keeps_original_daily_card_across_days(routed, li
         archive.mkdir()
         _link_daily_directory(env.workspace, "2026-01-01", archive)
     source = env.write_binary("resource/photo.png", image_bytes(color=(200, 30, 30)))
-    initial_model = FakeVisionModel(caption_json("original-card", "Original", "first-day caption"))
+    initial_model = FakeImageAgentWrapper(caption_fields("original-card", "Original", "first-day caption"))
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-01"):
         added = await env.run(
             env.processor(initial_model, routed=routed),
@@ -220,7 +224,7 @@ async def test_loose_root_image_keeps_original_daily_card_across_days(routed, li
     )
     unrelated_before = unrelated_note.read_bytes()
 
-    first_model = FakeVisionModel(caption_json("renamed-on-day-two", "Updated", "second-day caption"))
+    first_model = FakeImageAgentWrapper(caption_fields("renamed-on-day-two", "Updated", "second-day caption"))
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-02"):
         first_update = await env.run(
             env.processor(first_model, routed=routed),
@@ -239,7 +243,7 @@ async def test_loose_root_image_keeps_original_daily_card_across_days(routed, li
     assert not (env.workspace / "daily/2026-01-02.md").exists()
 
     source.write_bytes(image_bytes(color=(20, 90, 200)))
-    second_model = FakeVisionModel(caption_json("renamed-on-day-three", "Updated again", "third-day caption"))
+    second_model = FakeImageAgentWrapper(caption_fields("renamed-on-day-three", "Updated again", "third-day caption"))
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-03"):
         second_update = await env.run(
             env.processor(second_model, routed=routed),
@@ -258,7 +262,7 @@ async def test_loose_root_image_keeps_original_daily_card_across_days(routed, li
     assert not (env.workspace / "daily/2026-01-03.md").exists()
 
     source.unlink()
-    delete_model = FakeVisionModel(caption_json("unused", "Unused", "Must not be requested."))
+    delete_model = FakeImageAgentWrapper(caption_fields("unused", "Unused", "Must not be requested."))
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-04"):
         deleted = await env.run(
             env.processor(delete_model, routed=routed),
@@ -293,7 +297,7 @@ async def test_loose_root_image_duplicate_daily_owners_fail_closed(routed, linke
     first_note = env.write_note("daily/2026-01-01/first.md", "[[resource/duplicate.png]]", body="first owner")
     second_note = env.write_note("daily/2026-01-02/second.md", "[[resource/duplicate.png]]", body="second owner")
     before = {first_note: first_note.read_bytes(), second_note: second_note.read_bytes()}
-    model = FakeVisionModel(caption_json("replacement", "Replacement", "Must not be generated."))
+    model = FakeImageAgentWrapper(caption_fields("replacement", "Replacement", "Must not be generated."))
 
     with patch.object(BaseAutoResourceStep, "_today", return_value="2026-01-03"):
         response = await env.run(
@@ -326,7 +330,7 @@ async def test_loose_root_lookup_ignores_unsafe_daily_links(routed, auto_resourc
     _link_daily_directory(env.workspace, "2025-12-03", env.workspace / "daily/2025-12-03")
     source = env.write_binary("resource/photo.png", image_bytes())
     owned_note = env.write_note("daily/2026-01-01/original.md", "[[resource/photo.png]]")
-    model = FakeVisionModel(caption_json("original", "Updated", "Updated inside workspace."))
+    model = FakeImageAgentWrapper(caption_fields("original", "Updated", "Updated inside workspace."))
     original_read_text = Path.read_text
     outside_reads = []
 
