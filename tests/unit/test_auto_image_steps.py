@@ -70,19 +70,23 @@ def _png_bytes_with_header_size(width: int, height: int) -> bytes:
         ("WEBP", ".webp", "image/webp", "image/webp"),
         ("BMP", ".bmp", "image/bmp", "image/jpeg"),
         ("TIFF", ".tiff", "image/tiff", "image/jpeg"),
+        ("JPEG", ".png", "image/jpeg", "image/jpeg"),
+        ("PNG", ".jpg", "image/png", "image/png"),
+        ("BMP", ".png", "image/bmp", "image/jpeg"),
     ],
 )
 @pytest.mark.asyncio
-async def test_auto_image_supports_core_formats(
+async def test_auto_image_uses_decoded_format_for_request_and_note(
     image_format,
     suffix,
     source_mime,
     request_mime,
     auto_resource_env,
 ):
-    """Core formats preserve source metadata and use a provider-safe request payload."""
+    """Normal or misleading suffixes preserve source bytes and use the actual decoded MIME."""
     env = auto_resource_env
     source = env.write_binary(f"resource/2026-01-01/image{suffix}", _img_bytes(image_format))
+    stored_bytes = source.read_bytes()
     model = _FakeImageAgentWrapper(
         content={"name": "visible-subject", "description": "Visible", "caption": "Visible caption."},
     )
@@ -97,7 +101,11 @@ async def test_auto_image_supports_core_formats(
     assert post.metadata["name"] == "visible-subject"
     assert f"![[resource/2026-01-01/image{suffix}]]" in post.content
     assert "Visible caption." in post.content
-    assert model.calls[0][0].content[1].source.media_type == request_mime
+    data_block = model.calls[0][0].content[1]
+    assert data_block.source.media_type == request_mime
+    with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
+        assert sent.get_format_mimetype() == request_mime
+    assert source.read_bytes() == stored_bytes
     assert (env.workspace / "daily/2026-01-01.md").is_file()
 
 
@@ -287,42 +295,6 @@ async def test_auto_image_applies_exif_orientation_before_resizing(source_size, 
         assert bottom[2] > 240 and bottom[0] < 15
     assert source.read_bytes() == stored_bytes
     assert (env.workspace / "daily/2026-01-01/upright-phone-photo.md").is_file()
-
-
-@pytest.mark.parametrize(
-    ("image_format", "suffix", "source_mime", "request_mime"),
-    [
-        ("JPEG", ".png", "image/jpeg", "image/jpeg"),
-        ("PNG", ".jpg", "image/png", "image/png"),
-        ("BMP", ".png", "image/bmp", "image/jpeg"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_auto_image_uses_decoded_format_when_suffix_is_misleading(
-    image_format,
-    suffix,
-    source_mime,
-    request_mime,
-    auto_resource_env,
-):
-    """Request and note MIME values come from decoded bytes, with conversion when needed."""
-    env = auto_resource_env
-    source = env.write_binary(f"resource/2026-01-01/mislabeled{suffix}", _img_bytes(image_format))
-    stored_bytes = source.read_bytes()
-    model = _FakeImageAgentWrapper(
-        content={"name": "actual-format", "description": "Decoded", "caption": "Decoded image content."},
-    )
-
-    response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
-
-    assert response.success is True
-    data_block = model.calls[0][0].content[1]
-    assert data_block.source.media_type == request_mime
-    with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
-        assert sent.get_format_mimetype() == request_mime
-    note = frontmatter.load(env.workspace / "daily/2026-01-01/actual-format.md")
-    assert note.metadata["media_type"] == source_mime
-    assert source.read_bytes() == stored_bytes
 
 
 @pytest.mark.parametrize("routed", [False, True], ids=["image", "unified-router"])

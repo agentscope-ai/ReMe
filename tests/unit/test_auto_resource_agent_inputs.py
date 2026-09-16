@@ -163,23 +163,18 @@ async def test_disabled_images_keep_mixed_router_results_and_text_processing(aut
     assert not hook_calls
 
 
-@pytest.mark.parametrize("failure", ["before-write", "after-write"])
-async def test_image_agent_exception_is_not_retried_and_reports_actual_modification(failure, auto_resource_env):
-    """An agent may have used a file tool before failing; do not replay it blindly."""
+async def test_image_agent_failure_before_write_is_not_retried(auto_resource_env):
+    """A failed agent call must not create a note or trigger an implicit retry."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("coat", "Coat", "A brown coat."))
-    if failure == "before-write":
-        wrapper.error = RuntimeError("agent failed before writing")
-    else:
-        wrapper.after_write_error = RuntimeError("agent failed after writing")
+    wrapper = FakeImageAgentWrapper(error=RuntimeError("agent failed before writing"))
     response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
     result = response.metadata["results"][0]["metadata"]
     assert not response.success
     assert len(wrapper.calls) == 1
     assert result["action"] == "failed"
-    assert result["modified"] is (failure == "after-write")
-    assert (env.workspace / "daily/2026-01-01/photo.md").exists() is (failure == "after-write")
+    assert result["modified"] is False
+    assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
 
 
 @pytest.mark.parametrize("body", ["", "   "])
@@ -195,40 +190,22 @@ async def test_image_agent_empty_caption_write_is_a_reportable_failure(body, aut
     assert result["action"] == "failed"
 
 
-async def test_machine_image_metadata_is_added_after_agent_writes(auto_resource_env):
-    """The agent only supplies body/name/description; source and decoded format are code-owned."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/not-really-png.png", image_bytes("JPEG"))
-    wrapper = FakeImageAgentWrapper(caption_fields("subject", "Subject", "Visible subject."))
-    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
-    assert response.success
-    note = frontmatter.load(env.workspace / "daily/2026-01-01/subject.md")
-    assert note["source_resource"] == "[[resource/2026-01-01/not-really-png.png]]"
-    assert note["kind"] == "image"
-    assert note["media_type"] == "image/jpeg"
-
-
-async def test_image_input_rejects_zero_image_budget(auto_resource_env):
-    """A successful text-only Agent reply must not masquerade as visual interpretation."""
+@pytest.mark.parametrize("invalid_config", ["non-agentscope-wrapper", "zero-image-budget"])
+async def test_image_rejects_text_only_agent_configuration(invalid_config, auto_resource_env):
+    """Neither an unsupported wrapper nor a zero image budget may yield filename-only memory."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper("must not run")
-    wrapper.kwargs["context_config"] = {"max_image_num": 0}
-    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
-    assert not response.success
-    assert not wrapper.calls
-
-
-async def test_image_rejects_non_agentscope_wrapper_without_text_fallback(auto_resource_env):
-    """Unsupported wrapper backends cannot turn an image into filename-only memory."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeAgentWrapper()
+    wrapper = FakeAgentWrapper() if invalid_config == "non-agentscope-wrapper" else FakeImageAgentWrapper()
+    expected_error = "AgentScope wrapper"
+    if invalid_config == "zero-image-budget":
+        wrapper.kwargs["context_config"] = {"max_image_num": 0}
+        expected_error = "context_config.max_image_num"
     step = AutoImageResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
     response = await env.run(step, [{"change": "added", "path": str(source)}])
     assert not response.success
+    assert expected_error in response.metadata["results"][0]["metadata"]["error"]
     assert response.metadata["results"][0]["metadata"]["modified"] is False
-    assert not wrapper.inputs
+    assert not (wrapper.inputs if isinstance(wrapper, FakeAgentWrapper) else wrapper.calls)
     assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
 
 
@@ -349,9 +326,11 @@ async def test_partial_agent_write_remains_owned_for_retry_and_delete(routed, re
     response = await env.run(step, [{"change": "added", "path": str(source)}])
     assert not response.success
     assert len(wrapper.calls) == 1
-    assert response.metadata["results"][0]["metadata"]["modified"] is True
+    result = response.metadata["results"][0]["metadata"]
+    assert result["action"] == "failed"
+    assert result["modified"] is True
     if failure == "empty-caption":
-        assert "no usable content" in response.metadata["results"][0]["metadata"]["error"]
+        assert "no usable content" in result["error"]
     note_path = env.workspace / "daily/2026-01-01/photo.md"
     post = frontmatter.load(note_path)
     assert post["source_resource"] == "[[resource/2026-01-01/photo.png]]"
