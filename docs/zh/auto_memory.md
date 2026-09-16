@@ -71,6 +71,37 @@ session/
 daily note 会指向对应的对话记录。持久化时会排除 tool-result block 和 base64 data block，避免召回记忆或二进制负载在后续流程中被误当成
 用户提供的证据。
 
+## 对话中的图像
+
+Auto Memory 可以结合上下文理解对话中的图像。默认只处理文本，调用时加上 `include_images=true` 即可开启图像：
+
+```bash
+reme auto_memory session_id=session-a include_images=true messages='[...]'
+```
+
+图像输入需要 AgentScope wrapper（`AsAgentWrapper`），其 `as_llm` 应绑定支持视觉的模型，并使用兼容的 formatter。
+Auto Memory 直接用这个模型理解图文，不先生成 caption。关闭图像或消息中没有图像块时，仍按原有方式处理文本，也不限制
+wrapper 类型。
+
+在 `messages` 中用 AgentScope 顶层 `DataBlock` 传入图像，媒体类型以 `image/` 开头。文本和图像按原顺序交错排列，
+保留说话人和时间信息。Base64 source 与 HTTP(S) URL 原样交给 formatter，Auto Memory 不下载或预处理图像。URL 需要能被模型
+供应商访问；本地文件请先转为 Base64，不使用 `file://` URL，其他 URL scheme 也不支持。
+
+每次调用的图像数量受 wrapper 的 `context_config.max_image_num` 限制，超限会报错，不会自动提高上限。
+AgentScope 默认允许 5 张图像。需要更多时，可以在单次 CLI 调用中指定：
+
+```bash
+reme start job=auto_memory \
+  components.agent_wrapper.default.context_config.max_image_num=20 \
+  session_id=session-a include_images=true messages='[...]'
+```
+
+模型与 formatter 自身的限制仍然适用。图像选项、wrapper 类型、URL scheme 和图像数量会在保存对话前检查。
+之后的 formatter 或 provider 错误直接返回，不转为纯文本重试；与纯文本调用相同，已保存的对话不会因此回滚。
+
+源 JSONL 仍按上文规则保存，包括过滤 Base64 block。因此，再次处理这些图像需要提交原始消息，而不是读取已保存的 JSONL。
+不会另外生成图像文件或 caption 卡片，但 wrapper 保存在 `mem_session/agentscope` 中的内部 Agent 状态可能包含图像输入。
+
 ## 消息时间
 
 Auto Memory 会在 prompt 和对话来源 JSONL 中保留每条已保留消息的 `created_at`。导入历史对话或 benchmark 数据时，建议为每条

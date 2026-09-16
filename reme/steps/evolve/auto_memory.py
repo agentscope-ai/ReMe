@@ -2,11 +2,15 @@
 
 import datetime
 from pathlib import Path
+import re
+from urllib.parse import urlsplit
+from uuid import uuid4
 import zoneinfo
 
 import aiofiles
 import frontmatter
-from agentscope.message import Msg
+from agentscope.agent import ContextConfig
+from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
@@ -14,6 +18,7 @@ from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index
 from ..file_io import validate_filename_component, validate_session_id
 from ..index import normalize_posix_path
 from ...components import R
+from ...components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
@@ -273,6 +278,59 @@ class AutoMemoryStep(BaseStep):
         """
         return format_history(messages)
 
+    def _prepare_image_history(
+        self,
+        messages: list[Msg],
+        day: str,
+    ) -> tuple[list[Msg], dict[str, DataBlock], dict | None]:
+        """Validate image inputs before saving, without reading or changing their sources."""
+        include_images = self.context.get("include_images", self.kwargs.get("include_images", False))
+        if not isinstance(include_images, bool):
+            raise ValueError("include_images must be a boolean")
+        if not include_images:
+            return messages, {}, None
+        images = [
+            (message_index, block_index, block)
+            for message_index, message in enumerate(messages)
+            for block_index, block in enumerate(message.content)
+            if isinstance(block, DataBlock) and block.source.media_type.startswith("image/")
+        ]
+        if not images:
+            return messages, {}, None
+        wrapper = self.agent_wrapper
+        if not isinstance(wrapper, AsAgentWrapper):
+            raise NotImplementedError("Auto Memory image inputs require the AgentScope wrapper")
+        for _, _, block in images:
+            if block.source.type == "url" and urlsplit(str(block.source.url)).scheme not in {"http", "https"}:
+                raise ValueError("Image URLs must use HTTP(S); convert local files to Base64Source before calling")
+        reply_kwargs = dict(self._reply_extra_kwargs(day))
+        context_config = reply_kwargs.get("context_config", wrapper.kwargs.get("context_config")) or {}
+        limit = ContextConfig(**context_config).max_image_num
+        if len(images) > limit:
+            raise ValueError(
+                f"Session has {len(images)} images, exceeding context_config.max_image_num={limit}; "
+                "configure the AgentScope wrapper's image limit explicitly",
+            )
+        prepared = [message.model_copy(deep=True) for message in messages]
+        image_blocks = {}
+        prefix = f"__reme_image_{uuid4().hex}_"
+        for number, (message_index, block_index, _) in enumerate(images):
+            marker = f"{prefix}{number}__"
+            image_blocks[marker] = prepared[message_index].content[block_index]
+            prepared[message_index].content[block_index] = TextBlock(text=marker)
+        return prepared, image_blocks, reply_kwargs
+
+    @staticmethod
+    def _image_user_message(prompt: str, images: dict[str, DataBlock]) -> UserMsg:
+        """Restore images after the existing templates and history hooks have rendered."""
+        parts = re.split("(" + "|".join(map(re.escape, images)) + ")", prompt)
+        if [part for part in parts if part in images] != list(images):
+            raise ValueError("Memory prompt must preserve every image once in conversation order")
+        return UserMsg(
+            name="user",
+            content=[images[part] if part in images else TextBlock(text=part) for part in parts if part],
+        )
+
     # pylint: disable=too-many-return-statements
     async def execute(self):
         assert self.context is not None
@@ -311,6 +369,7 @@ class AutoMemoryStep(BaseStep):
             self.logger.warning(f"[{self.name}] invalid date={raw_date!r}")
             return
 
+        history_messages, images, reply_kwargs = self._prepare_image_history(messages, day)
         await self._save_session_messages(session_id, messages)
 
         if not messages:
@@ -345,14 +404,17 @@ class AutoMemoryStep(BaseStep):
             note_path=note_path,
             session_id=session_id,
             session_file=self._session_source_path(session_id),
-            history=self._format_history(messages),
+            history=self._format_history(history_messages),
         )
+        if images:
+            user_message = self._image_user_message(user_message, images)
 
         self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")
         # Existing-note updates are restricted to the resolved note path. New
         # notes retain the upstream ``daily_write`` date behavior, where the
         # model supplies the date from the prompt.
-        reply_kwargs = self._reply_extra_kwargs(day)
+        if reply_kwargs is None:
+            reply_kwargs = self._reply_extra_kwargs(day)
         if not created:
             reply_kwargs["injected_job_kwargs"] = {"_allowed_paths": [note_path]}
         result = await self.agent_wrapper.reply(
