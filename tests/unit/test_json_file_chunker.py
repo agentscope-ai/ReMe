@@ -255,6 +255,35 @@ class TestEdgeCases:
         assert len(chunks) == 1
         assert chunks[0].start_line == 1
 
+    @pytest.mark.parametrize("length", [2000, 2001])
+    def test_large_malformed_fallback_preserves_a_single_long_line(self, make_json, length):
+        text = "{" + "x" * (length - 1)
+        path = make_json(raw=text)
+
+        node, chunks = _run(JsonFileChunker().chunk(path))
+
+        assert "".join(chunk.text for chunk in chunks) == text
+        assert all(chunk.text for chunk in chunks)
+        assert node.chunk_ids == [chunk.id for chunk in chunks]
+        assert [(chunk.start_line, chunk.end_line) for chunk in chunks] == [(1, 1)]
+
+    @pytest.mark.parametrize("ending", ["", "\n", "\r\n"])
+    def test_large_malformed_fallback_preserves_lf_lines_and_endings(self, make_json, ending):
+        text = "first\r\n" + "é\u2028middle\u2029" + "x" * 300 + ending
+        path = make_json(raw="")
+        with open(path, "wb") as file:
+            file.write(text.encode())
+
+        node, chunks = _run(JsonFileChunker(chunk_chars=256).chunk(path))
+
+        with open(path, "rb") as file:
+            assert file.read() == text.encode()
+        with open(path, encoding="utf-8") as file:
+            assert "".join(chunk.text for chunk in chunks) == file.read()
+        assert all(chunk.text for chunk in chunks)
+        assert node.chunk_ids == [chunk.id for chunk in chunks]
+        assert [(chunk.start_line, chunk.end_line) for chunk in chunks] == [(1, 1), (2, 2)]
+
     def test_chunk_chars_floor(self):
         assert JsonFileChunker(chunk_chars=10).chunk_chars == 256
 
