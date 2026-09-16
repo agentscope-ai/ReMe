@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
@@ -137,10 +138,10 @@ class JsonFileChunker(BaseFileChunker):
                     [chunk],
                 )
             else:
-                lines = raw_text.split("\n", keepends=True)
+                lines = StringIO(raw_text)
                 chunked_lines = [{"text": "", "start_line": 1, "end_line": 1}]
                 for idx, line in enumerate(lines):
-                    if len(chunked_lines[-1]["text"]) + len(line) > self.chunk_chars:
+                    if chunked_lines[-1]["text"] and len(chunked_lines[-1]["text"]) + len(line) > self.chunk_chars:
                         chunked_lines.append({"text": "", "start_line": idx + 1, "end_line": idx + 1})
                     chunked_lines[-1]["text"] += line
                     chunked_lines[-1]["end_line"] = idx + 1

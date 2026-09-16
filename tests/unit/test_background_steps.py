@@ -25,7 +25,7 @@ from watchfiles import Change
 
 from reme.components import R
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.file_chunker import DefaultFileChunker
+from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
 from reme.components.runtime_context import RuntimeContext
@@ -878,6 +878,58 @@ def test_update_index_modified_file_reuses_unchanged_embedding():
                 assert response.success is True
                 assert embedding_store.calls == 1
                 delete_mock.assert_not_awaited()
+            finally:
+                await chunker.close()
+                await fs.close()
+
+    asyncio.run(run())
+
+
+def test_update_index_replaces_large_malformed_json_without_changing_source():
+    """Malformed JSON uses the fallback and replaces its old chunks."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = cwd / "daily" / "broken.json"
+            sibling = cwd / "daily" / "healthy.json"
+            original = ("{" + "x" * 2000).encode()
+            replacement = ("{" + "y" * 2000).encode()
+            source.parent.mkdir(parents=True)
+            source.write_bytes(original)
+            sibling.write_text('{"healthy": true}', encoding="utf-8")
+            fs = LocalFileStore(name="default", embedding_store="")
+            chunker = JsonFileChunker(supported_extensions=["json"], chunk_chars=256)
+            await fs.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"json": chunker}}
+                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+                response = await step(
+                    RuntimeContext(
+                        changes=[
+                            {"change": "added", "path": str(source)},
+                            {"change": "added", "path": str(sibling)},
+                        ],
+                    ),
+                )
+
+                assert response.success is True
+                assert source.read_bytes() == original
+                nodes = {node.path: node for node in await fs.get_nodes()}
+                old_chunk_ids = nodes["daily/broken.json"].chunk_ids
+                assert nodes["daily/healthy.json"].chunk_ids
+
+                source.write_bytes(replacement)
+                response = await step(RuntimeContext(changes=[{"change": "modified", "path": str(source)}]))
+
+                assert response.success is True
+                assert source.read_bytes() == replacement
+                nodes = {node.path: node for node in await fs.get_nodes()}
+                assert nodes["daily/broken.json"].chunk_ids != old_chunk_ids
+                assert all(chunk_id not in fs.file_chunks for chunk_id in old_chunk_ids)
+                assert nodes["daily/healthy.json"].chunk_ids
             finally:
                 await chunker.close()
                 await fs.close()
