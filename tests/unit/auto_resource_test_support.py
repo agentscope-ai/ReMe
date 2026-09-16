@@ -19,7 +19,7 @@ from reme.components.runtime_context import RuntimeContext
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.base_auto_resource import BaseAutoResourceStep
-from reme.steps.file_io import DailyListStep, FrontmatterUpdateStep, MoveStep, SaveStep, WriteStep
+from reme.steps.file_io import DailyListStep, FrontmatterUpdateStep, MoveStep, WriteStep
 
 
 class FakeAgentWrapper(BaseAgentWrapper):
@@ -176,7 +176,6 @@ def _install_file_jobs(app_context, file_store) -> None:
         "frontmatter_update": _StepJob(FrontmatterUpdateStep, app_context, file_store),
         "move": _StepJob(MoveStep, app_context, file_store),
         "write": _StepJob(WriteStep, app_context, file_store),
-        "save": _StepJob(SaveStep, app_context, file_store),
     }
 
 

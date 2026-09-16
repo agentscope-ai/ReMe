@@ -1,16 +1,14 @@
 """Shared lifecycle and helpers for automatic resource processors."""
 
-import asyncio
 import hashlib
 import re
+import uuid
 from abc import abstractmethod
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
-import uuid
 
 import frontmatter
 from agentscope.message import DataBlock, TextBlock, UserMsg
@@ -73,6 +71,11 @@ class _ResourceNoteState:
 def _compute_note_stem(filename: str) -> str:
     """Return the daily note stem for a resource filename."""
     return PurePosixPath(filename).stem
+
+
+def _compute_agent_session_id(path: str) -> str:
+    """Return a stable UUID session id for agent backends."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, path))
 
 
 def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
@@ -145,6 +148,11 @@ class BaseAutoResourceStep(BaseStep):
     resource_fallback = False
     resource_suffixes: frozenset[str] = frozenset()
     router_inherit_keys = frozenset({"file_store", "language"})
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.create_tools: list[str] = ["write"]
+        self.update_tools: list[str] = ["read", "edit", "frontmatter_update", "write"]
 
     @classmethod
     def matches_change(cls, change: Mapping[str, Any]) -> bool:
@@ -362,8 +370,7 @@ class BaseAutoResourceStep(BaseStep):
         *,
         input_blocks: list[TextBlock | DataBlock] | None = None,
         note_metadata: dict | None = None,
-        required_prefix: str = "",
-    ) -> None:
+    ) -> str | None:
         """Run the same note-writing agent for text and native multimodal inputs."""
         state = await self._prepare_resource_note(day, file_path, note_stem)
         prompt = self.prompt_format(
@@ -377,65 +384,44 @@ class BaseAutoResourceStep(BaseStep):
             date=day,
         )
         inputs = UserMsg(name="user", content=[*input_blocks, TextBlock(text=prompt)]) if input_blocks else prompt
-        session_id = str(uuid.uuid5(uuid.NAMESPACE_URL, file_path))
+        session_id = _compute_agent_session_id(file_path)
         self.logger.info(f"[{self.name}] agent start file_path={file_path} note_path={state.path}")
-        note_path = state.path
-        agent_finished = False
-        try:
-            result = await self.agent_wrapper.reply(
-                inputs,
-                system_prompt=self.prompt_format("system_prompt"),
-                job_tools=["write"] if state.created else ["read", "edit", "frontmatter_update", "write"],
-                injected_job_kwargs={"file_store": self.file_store.name, "_allowed_paths": [state.path]},
-                session_id=session_id,
-                resume=None,
-                builtin_tools=[],
-                skills=[],
-                toolkit=None,
-                output_schema=None,
-            )
-            agent_finished = True
-            note_path = await self._finalize_resource_note(
-                state,
-                day,
-                file_path,
-                note_stem,
-                added,
-                metadata=note_metadata,
-                required_prefix=required_prefix,
-            )
-            if required_prefix and note_path is None:
-                raise RuntimeError("Resource agent did not write a note")
-            self.context.response.success = True
-            self.context.response.answer = agent_reply_result_text(result)
-            self.context.response.metadata["agent_session_id"] = session_id
-        except (Exception, asyncio.CancelledError):
-            # A tool can write successfully before the agent fails. Keep such
-            # partial notes source-linked so later retries/deletes can find them.
-            surviving_bytes = self._note_bytes(state.path)
-            if not agent_finished and surviving_bytes is not None and surviving_bytes != state.before_bytes:
-                try:
-                    written_path = await self._resolve_written_note(state, day, file_path)
-                    if written_path is not None:
-                        await self._ensure_resource_frontmatter(written_path, file_path, note_metadata)
-                except Exception as exc:  # pylint: disable=broad-except
-                    self.logger.warning(f"[{self.name}] partial note provenance repair failed: {type(exc).__name__}")
-            raise
-        finally:
-            # Tools may have changed the note before the agent or finalization
-            # failed. Report the disk state without retrying a partially run agent.
-            current_path = self.context.response.metadata.get("path") or note_path or state.path
-            exists = self._note_bytes(current_path) is not None
-            self.context.response.metadata.update(
-                {
-                    "path": current_path if exists else None,
-                    "created": state.created and exists,
-                    "modified": self._note_modified(state.path, state.before_bytes, current_path),
-                },
-            )
+        agent_kwargs = {}
+        if input_blocks:
+            # Scope multimodal note writing without overriding existing text-wrapper defaults.
+            agent_kwargs = {
+                "injected_job_kwargs": {"file_store": self.file_store.name, "_allowed_paths": [state.path]},
+                "resume": None,
+                "builtin_tools": [],
+                "skills": [],
+                "toolkit": None,
+                "output_schema": None,
+            }
+        result = await self.agent_wrapper.reply(
+            inputs,
+            system_prompt=self.prompt_format("system_prompt"),
+            job_tools=self.create_tools if state.created else self.update_tools,
+            session_id=session_id,
+            **agent_kwargs,
+        )
+        note_path = await self._finalize_resource_note(
+            state,
+            day,
+            file_path,
+            note_stem,
+            added,
+            metadata=note_metadata,
+        )
+        self.context.response.success = True
+        self.context.response.answer = agent_reply_result_text(result)
+        if note_path is None:
+            self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
+            return None
+        self.context.response.metadata["agent_session_id"] = session_id
         self.logger.info(
             f"[{self.name}] agent done file_path={file_path} modified={self.context.response.metadata['modified']}",
         )
+        return note_path
 
     async def _resolve_written_note(
         self,
@@ -552,7 +538,6 @@ class BaseAutoResourceStep(BaseStep):
         added: bool,
         *,
         metadata: dict | None = None,
-        required_prefix: str = "",
     ) -> str | None:
         """Resolve, source-link, rename, index, and report one processor write."""
         staged_bytes = self._note_bytes(state.path)
@@ -567,33 +552,6 @@ class BaseAutoResourceStep(BaseStep):
         if note_path is None:
             self.context.response.metadata.update({"path": None, "created": False, "modified": False})
             return None
-
-        if required_prefix:
-            target = self.workspace_path / note_path
-            before_stat = target.stat()
-            written_bytes = self._note_bytes(note_path)
-            after_stat = target.stat()
-            if (before_stat.st_mtime_ns, before_stat.st_size) != (after_stat.st_mtime_ns, after_stat.st_size):
-                raise RuntimeError("Resource note changed during content validation")
-            body = frontmatter.loads(written_bytes.decode("utf-8")).content.strip()
-            content = re.sub(r"!\[\[.*?\]\]|^\s*#+.*$", "", body, flags=re.MULTILINE).strip()
-            if not body.startswith(required_prefix) or not content:
-                if state.created:
-                    # Keep invalid new writes discoverable for retry/deletion.
-                    await self._ensure_resource_frontmatter(note_path, file_path, metadata)
-                elif state.before_bytes is not None and note_path == state.path:
-                    restored = await self.run_job(
-                        "save",
-                        path=note_path,
-                        content=state.before_bytes.decode("utf-8"),
-                        expected_mtime=datetime.fromtimestamp(after_stat.st_mtime).isoformat(),
-                        _allowed_paths=[note_path],
-                    )
-                    if not restored.success:
-                        raise RuntimeError(
-                            f"Invalid resource note; restoring the previous note failed: {restored.answer}",
-                        )
-                raise RuntimeError("Resource agent wrote no usable content or omitted the source embed")
 
         modified = self._note_modified(state.path, state.before_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": state.created, "modified": modified})

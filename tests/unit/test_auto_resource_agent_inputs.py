@@ -3,8 +3,8 @@
 # pylint: disable=protected-access
 
 import asyncio
-import os
-from unittest.mock import patch
+import uuid
+from unittest.mock import AsyncMock, patch
 
 import frontmatter
 import pytest
@@ -15,11 +15,42 @@ from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.job import BaseJob
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep
+from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
 
 from .auto_resource_test_support import FakeAgentWrapper, FakeImageAgentWrapper, caption_fields, image_bytes
 
 pytest_plugins = ("unit.auto_resource_test_plugin",)
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
+async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existing, auto_resource_env):
+    """Sharing interpretation must not override the text wrapper's optional settings."""
+    env = auto_resource_env
+    source_path = "resource/2026-01-01/notes.txt"
+    source = env.write_binary(source_path, "中文文本".encode())
+    if existing:
+        env.write_note("daily/2026-01-01/notes.md", f"[[{source_path}]]")
+    wrapper = FakeAgentWrapper()
+    step = AutoTextResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
+    with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
+        response = await env.run(step, [{"change": "modified" if existing else "added", "path": str(source)}])
+    assert response.success
+    assert response.answer == "ok"
+    assert isinstance(wrapper.inputs, str)
+    assert "中文文本" in wrapper.inputs
+    reply.assert_awaited_once()
+    assert reply.call_args.kwargs == {
+        "system_prompt": step.prompt_format("system_prompt"),
+        "job_tools": ["read", "edit", "frontmatter_update", "write"] if existing else ["write"],
+        "session_id": str(uuid.uuid5(uuid.NAMESPACE_URL, source_path)),
+    }
+    tools = step.update_tools if existing else step.create_tools
+    tools.append("custom_note_tool")
+    with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
+        await env.run(step, [{"change": "modified", "path": str(source)}])
+    assert reply.call_args.kwargs["job_tools"] == tools
+    assert reply.call_args.kwargs["session_id"] == str(uuid.uuid5(uuid.NAMESPACE_URL, source_path))
 
 
 async def test_native_image_input_preserves_context_formatter_and_scoped_tools(auto_resource_env):
@@ -177,17 +208,21 @@ async def test_image_agent_failure_before_write_is_not_retried(auto_resource_env
     assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
 
 
-@pytest.mark.parametrize("body", ["", "   "])
-async def test_image_agent_empty_caption_write_is_a_reportable_failure(body, auto_resource_env):
-    """An embed/header alone does not constitute a caption; already-written bytes remain observable."""
+async def test_image_agent_body_is_not_postvalidated_or_rewritten(auto_resource_env):
+    """Image body instructions belong to the agent prompt, as with text notes."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("photo", "", body))
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "", ""))
     response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
     result = response.metadata["results"][0]["metadata"]
-    assert not response.success
+    assert response.success
     assert result["modified"] is True
-    assert result["action"] == "failed"
+    assert result["action"] == "added"
+    note = frontmatter.load(env.workspace / result["path"])
+    assert note.content == "![[resource/2026-01-01/photo.png]]\n\n## Caption"
+    assert note["source_resource"] == "[[resource/2026-01-01/photo.png]]"
+    assert note["kind"] == "image"
+    assert note["media_type"] == "image/png"
 
 
 @pytest.mark.parametrize("invalid_config", ["non-agentscope-wrapper", "zero-image-budget"])
@@ -263,101 +298,8 @@ async def test_include_images_job_and_call_precedence(
         assert response.metadata["results"][0]["metadata"]["reason"] == "include_images=false"
 
 
-@pytest.mark.parametrize("routed", [False, True])
-@pytest.mark.parametrize("source_format", ["PNG", "JPEG"], ids=["same-mime", "changed-source-mime"])
-async def test_empty_agent_write_restores_existing_valid_image_note(routed, source_format, auto_resource_env):
-    """A blank agent-generated replacement must not destroy a prior valid caption."""
-    env = auto_resource_env
-    source = env.write_binary("resource/photo.png", image_bytes(source_format))
-    note = env.write_note("daily/2026-01-01/original.md", "[[resource/photo.png]]", "Original visual facts.")
-    before = note.read_bytes()
-    wrapper = FakeImageAgentWrapper(caption_fields("empty-replacement", "", "   "))
-    response = await env.run(env.processor(wrapper, routed=routed), [{"change": "modified", "path": str(source)}])
-    assert not response.success
-    assert len(wrapper.calls) == 1
-    assert note.read_bytes() == before
-    assert response.metadata["results"][0]["metadata"]["modified"] is False
-    assert not (env.workspace / "daily/2026-01-01/empty-replacement.md").exists()
-
-
-async def test_invalid_image_note_restore_preserves_intervening_editor_changes(auto_resource_env):
-    """An optimistic save conflict cannot force an old snapshot over a newer user edit."""
-    env = auto_resource_env
-    source = env.write_binary("resource/photo.png", image_bytes())
-    note = env.write_note("daily/2026-01-01/original.md", "[[resource/photo.png]]", "Original visual facts.")
-    real_save = env.app_context.jobs["save"]
-    intervening_content = b"A concurrent editor update that must survive.\n"
-    save_results = []
-
-    async def edit_before_restore(**kwargs):
-        assert kwargs["path"] == "daily/2026-01-01/original.md"
-        assert kwargs["_allowed_paths"] == [kwargs["path"]]
-        assert kwargs["expected_mtime"]
-        modified_stat = note.stat()
-        note.write_bytes(intervening_content)
-        os.utime(note, (modified_stat.st_atime, modified_stat.st_mtime + 2))
-        result = await real_save(**kwargs)
-        save_results.append(result)
-        return result
-
-    env.app_context.jobs["save"] = edit_before_restore
-    wrapper = FakeImageAgentWrapper(caption_fields("empty", "", "   "))
-    response = await env.run(env.processor(wrapper), [{"change": "modified", "path": str(source)}])
-    assert len(save_results) == 1
-    assert not save_results[0].success
-    assert save_results[0].metadata["code"] == "file_conflict"
-    assert not response.success
-    assert response.metadata["results"][0]["metadata"]["modified"] is True
-    assert note.read_bytes() == intervening_content
-
-
-@pytest.mark.parametrize("routed", [False, True])
-@pytest.mark.parametrize("retry_first", [False, True], ids=["delete-partial-note", "retry-then-delete"])
-@pytest.mark.parametrize("failure", ["agent-error", "empty-caption"])
-async def test_partial_agent_write_remains_owned_for_retry_and_delete(routed, retry_first, failure, auto_resource_env):
-    """Agent and content-validation failures retain ownership for subsequent retry/delete."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes("JPEG"))
-    caption = "Visible photo content." if failure == "agent-error" else ""
-    wrapper = FakeImageAgentWrapper(caption_fields("suggested-name", "Photo", caption))
-    if failure == "agent-error":
-        wrapper.after_write_error = RuntimeError("agent failed after writing")
-    step = env.processor(wrapper, routed=routed)
-    response = await env.run(step, [{"change": "added", "path": str(source)}])
-    assert not response.success
-    assert len(wrapper.calls) == 1
-    result = response.metadata["results"][0]["metadata"]
-    assert result["action"] == "failed"
-    assert result["modified"] is True
-    if failure == "empty-caption":
-        assert "no usable content" in result["error"]
-    note_path = env.workspace / "daily/2026-01-01/photo.md"
-    post = frontmatter.load(note_path)
-    assert post["source_resource"] == "[[resource/2026-01-01/photo.png]]"
-    assert post["kind"] == "image"
-    assert post["media_type"] == "image/jpeg"
-
-    if retry_first:
-        wrapper.after_write_error = None
-        wrapper.content = caption_fields("another-name", "Updated photo", "Updated visual facts.")
-        retried = await env.run(step, [{"change": "modified", "path": str(source)}])
-        assert retried.success
-        metadata = retried.metadata["results"][0]["metadata"]
-        assert metadata["created"] is False
-        assert metadata["path"] == "daily/2026-01-01/photo.md"
-        assert "Updated visual facts." in note_path.read_text(encoding="utf-8")
-        assert list(note_path.parent.glob("*.md")) == [note_path]
-
-    source.unlink()
-    deleted = await env.run(step, [{"change": "deleted", "path": str(source)}])
-    assert deleted.success
-    assert deleted.metadata["results"][0]["metadata"]["action"] == "deleted"
-    assert not note_path.exists()
-    assert len(wrapper.calls) == (2 if retry_first else 1)
-
-
 async def test_partial_agent_write_cannot_claim_an_explicit_foreign_owner(auto_resource_env):
-    """Best-effort failure cleanup must not retag another resource's explicit ownership."""
+    """A failed agent write cannot make deletion claim an explicitly foreign-owned note."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("foreign", "Foreign", "A foreign-owned note."))
@@ -375,8 +317,8 @@ async def test_partial_agent_write_cannot_claim_an_explicit_foreign_owner(auto_r
     assert note.read_bytes() == before
 
 
-async def test_cancelled_agent_partial_note_retains_provenance_without_swallowing_cancellation(auto_resource_env):
-    """Cancellation propagates, but an already written image note still supports later deletion."""
+async def test_agent_cancellation_propagates_without_retrying(auto_resource_env):
+    """Keep the text workflow's cancellation behavior instead of adding local recovery."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     written = asyncio.Event()
@@ -402,9 +344,5 @@ async def test_cancelled_agent_partial_note_retains_provenance_without_swallowin
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     note = env.workspace / "daily/2026-01-01/photo.md"
-    assert frontmatter.load(note)["source_resource"] == "[[resource/2026-01-01/photo.png]]"
-    assert step.context.response.metadata["modified"] is True
-    deleted = await env.run(step, [{"change": "deleted", "path": str(source)}])
-    assert deleted.success
-    assert not note.exists()
+    assert "Partial but valid caption." in note.read_text(encoding="utf-8")
     assert len(wrapper.calls) == 1

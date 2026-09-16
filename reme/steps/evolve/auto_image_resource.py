@@ -345,7 +345,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
                 name="image",
             ),
         ]
-        await self._interpret_resource(
+        note_path = await self._interpret_resource(
             file_path,
             date_str,
             note_stem,
@@ -353,6 +353,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
             "The resource is the image attached above. Follow its interpretation and note-format instructions.",
             input_blocks=blocks,
             note_metadata={"kind": "image", "media_type": payload["source_mime"]},
-            required_prefix=f"![[{file_path}]]",
         )
+        if note_path is None:
+            raise RuntimeError("Resource agent did not write a note")
         self.context.response.metadata["media_type"] = payload["source_mime"]
