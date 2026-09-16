@@ -22,6 +22,10 @@ from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import ApplicationConfig, Response
 
+# A fresh bridge imports ReMe before replying to initialize; keep this separate
+# from the 10-second budget for requests to an already initialized server.
+STDIO_INIT_TIMEOUT = 30
+
 
 class _Job:
     def __init__(self, name="search"):
@@ -234,10 +238,11 @@ async def test_stdio_bridge_starts_and_lists_selected_job(tmp_path):
             "empty",
         ],
         cwd=str(Path(__file__).resolve().parents[2]),
+        keep_alive=False,
     )
 
-    async with Client(transport, timeout=10) as client:
-        tools = await client.list_tools()
+    async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
+        tools = await asyncio.wait_for(client.list_tools(), timeout=10)
 
     assert [tool.name for tool in tools] == ["empty"]
 
@@ -287,15 +292,22 @@ async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
             "clientInfo": {"name": "test", "version": "1"},
         },
     }
-    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
-    proc.stdin.write((json.dumps(request) + "\n").encode())
-    await proc.stdin.drain()
-    first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=10)
-    message = json.loads(first_line)
-    assert message["jsonrpc"] == "2.0"
-    assert message["id"] == 1
-    proc.terminate()
-    await asyncio.wait_for(proc.wait(), timeout=10)
+    try:
+        assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
+        proc.stdin.write((json.dumps(request) + "\n").encode())
+        await proc.stdin.drain()
+        first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=STDIO_INIT_TIMEOUT)
+        message = json.loads(first_line)
+        assert message["jsonrpc"] == "2.0"
+        assert message["id"] == 1
+    finally:
+        if proc.returncode is None:
+            proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
     stdout = first_line + await proc.stdout.read()
     stderr = (await proc.stderr.read()).decode()
     assert b"Loading config" not in stdout
@@ -597,18 +609,21 @@ async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
         command=server_config["command"],
         args=server_config["args"],
         cwd=server_config["cwd"],
+        keep_alive=False,
     )
 
     await wrapper.start()
-    async with Client(transport, timeout=10) as client:
-        tools = await client.list_tools()
-        snapshot = Path(server_config["args"][server_config["args"].index("--config") + 1])
-        assert snapshot.exists()
-        assert set(json.loads(snapshot.read_text(encoding="utf-8"))["jobs"]) == {
-            "only_custom",
-            "referenced_helper",
-        }
-    await wrapper.close()
+    try:
+        async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
+            tools = await asyncio.wait_for(client.list_tools(), timeout=10)
+            snapshot = Path(server_config["args"][server_config["args"].index("--config") + 1])
+            assert snapshot.exists()
+            assert set(json.loads(snapshot.read_text(encoding="utf-8"))["jobs"]) == {
+                "only_custom",
+                "referenced_helper",
+            }
+    finally:
+        await wrapper.close()
 
     assert [tool.name for tool in tools] == ["only_custom"]
     assert not snapshot.exists()
