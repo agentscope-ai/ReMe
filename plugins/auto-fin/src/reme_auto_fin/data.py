@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from .base import AutoFinStep, _plain_text
+from .base import AutoFinStep, plain_text
 
 API_URL = "https://www.cls.cn/v1/roll/get_roll_list"
 HEADERS = {
@@ -126,8 +126,8 @@ class AutoFinDataStep(AutoFinStep):
             return None
         if not start <= published_at <= end:
             return None
-        content = _plain_text(str(row.get("content") or row.get("brief") or ""))
-        title = _plain_text(str(row.get("title") or row.get("brief") or content))
+        content = plain_text(str(row.get("content") or row.get("brief") or ""))
+        title = plain_text(str(row.get("title") or row.get("brief") or content))
         if not title and not content:
             return None
         return {

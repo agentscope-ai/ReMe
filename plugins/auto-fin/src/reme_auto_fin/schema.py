@@ -18,14 +18,18 @@ class AutoFinAgentModel(AutoFinModel):
 
 
 class AutoFinReportOutput(AutoFinAgentModel):
-    """Final Markdown returned by the agentic news-research Agent."""
+    """One Chinese Markdown report returned by an Auto Fin Agent."""
 
     title: str
     description: str
     body: str
 
 
-class AutoFinTopicOutput(AutoFinAgentModel):
-    """CLS news identifiers that are semantically related to configured topics."""
+class AutoFinNote(AutoFinModel):
+    """One topic note the research step hands to the digest step."""
 
-    news_ids: list[str]
+    topic: str
+    title: str
+    description: str
+    body: str
+    path: str

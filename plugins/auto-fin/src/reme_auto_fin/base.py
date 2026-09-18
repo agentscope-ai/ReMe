@@ -1,24 +1,42 @@
-"""Shared helpers for the Auto Fin workflow."""
+"""Shared Markdown, context, and Agent helpers for the Auto Fin workflow."""
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
+import re
 from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
+import aiofiles
+import frontmatter
 from pydantic import BaseModel
 
 from reme.steps import BaseStep
+from reme.steps.file_io import get_path_lock, validate_filename_component
+
+from .schema import AutoFinReportOutput
 
 AGENT_INPUT_LOG_LIMIT = 2000
 AGENT_OUTPUT_LOG_LIMIT = 4000
+NOTE_CHAR_LIMIT = 30_000
+
+_WIKILINK = re.compile(r"\[\[([^\[\]\n]+)\]\]")
+_HYBRID_WIKILINK = re.compile(r"(?P<wikilink>\[\[(?P<inner>[^\[\]\n]+)\]\])\((?P<destination>[^()\n]+)\)")
+_HEADING = re.compile(r"^#+\s*")
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+FIRST_RUN_NOTICE = "今日暂无更早时段的推荐，本次为当日首次生成。"
+DISCLAIMER = "> 未接入可靠行情数据；本文只提供新闻研究和回顾线索，不提供收益、目标价或买卖建议。"
 
 
 class _TextExtractor(HTMLParser):
+    """Flatten HTML into whitespace-separated text."""
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
@@ -41,25 +59,144 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
-def _plain_text(value: str) -> str:
+def plain_text(value: str) -> str:
+    """Return one HTML fragment as collapsed plain text."""
     parser = _TextExtractor()
     parser.feed(value)
     parser.close()
     return " ".join("".join(parser.parts).split())
 
 
-def _write(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+def utc_now_iso() -> str:
+    """Return the current UTC time as ISO-8601 for note frontmatter."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_title(raw: str, fallback: str) -> str:
+    """Return an Agent title as a safe Markdown filename stem."""
+    title = _UNSAFE_FILENAME.sub("-", _HEADING.sub("", str(raw or "").strip()))
+    title = re.sub(r"\s+", " ", title).strip(" .-")
+    if title.lower().endswith(".md"):
+        title = title[:-3].strip(" .-")
+    title = title or fallback
+    if error := validate_filename_component(title, kind="title"):
+        raise ValueError(f"Unable to produce a safe Auto Fin title from {raw!r}: {error}")
+    return title
+
+
+def normalize_report(output: AutoFinReportOutput) -> AutoFinReportOutput:
+    """Strip a duplicated H1 and fill in the fallbacks for one Agent report."""
+    body = output.body.strip()
+    if body.startswith("# "):
+        body = body.partition("\n")[2].strip()
+    return output.model_copy(
+        update={
+            "title": _HEADING.sub("", output.title.strip()) or "主题新闻观察",
+            "description": output.description.strip() or "基于当前新闻与历史记忆的主题研究。",
+            "body": body or "## 结论\n\n暂无可用结论。",
+        },
+    )
+
+
+def normalize_hybrid_wikilinks(body: str) -> str:
+    """Drop a redundant Markdown destination from an unambiguous wikilink hybrid."""
+
+    def replace(match: re.Match[str]) -> str:
+        inner = match.group("inner").strip()
+        raw_target = inner.partition("|")[0].strip()
+        destination = match.group("destination").strip().removeprefix("<").removesuffix(">").strip()
+        return (
+            match.group("wikilink")
+            if destination in {raw_target, raw_target.partition("#")[0].strip()}
+            else match.group(0)
+        )
+
+    return _HYBRID_WIKILINK.sub(replace, body)
+
+
+def _valid_source_path(path: str) -> bool:
+    """Return whether one wikilink target could be a workspace-relative Markdown path."""
+    return bool(
+        path
+        and not path.startswith("/")
+        and "\\" not in path
+        and path.endswith(".md")
+        and "." not in Path(path).parts
+        and ".." not in Path(path).parts
+        and not any(character in path for character in "[]|"),
+    )
+
+
+def validate_wikilinks(body: str, workspace: Path, exclude: Path) -> tuple[str, list[str]]:
+    """Keep real in-workspace Markdown links and downgrade invalid links to plain text."""
+    workspace = workspace.resolve()
+    exclude = exclude.resolve()
+    sources: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        raw_target, separator, raw_alias = match.group(1).strip().partition("|")
+        path = raw_target.strip().partition("#")[0].strip()
+        alias = (raw_alias.strip() if separator else "") or Path(path).stem.replace("_", " ")
+        if not _valid_source_path(path):
+            return alias
+        resolved = (workspace / path).resolve()
+        if not resolved.is_relative_to(workspace) or not resolved.is_file() or resolved == exclude:
+            return alias
+        if path not in sources:
+            sources.append(path)
+        return match.group(0)
+
+    return _WIKILINK.sub(replace, body), sources
+
+
+def resolve_note_path(day_dir: Path, title: str, *, existing: Path | None) -> tuple[str, Path]:
+    """Return a title and path that neither reuse nor overwrite an unrelated note."""
+    path = day_dir / f"{title}.md"
+    index = 2
+    while path != existing and path.exists():
+        path = day_dir / f"{title}（{index}）.md"
+        index += 1
+    return path.stem, path
+
+
+def find_note(day_dir: Path, *, kind: str, **matches: Any) -> Path | None:
+    """Return this workflow's note in one day directory whose frontmatter matches."""
+    for path in sorted(day_dir.glob("*.md")) if day_dir.is_dir() else ():
+        try:
+            metadata = frontmatter.load(path).metadata
+        except (OSError, UnicodeError, ValueError):
+            continue
+        if metadata.get("kind") == kind and all(metadata.get(key) == value for key, value in matches.items()):
+            return path
+    return None
+
+
+def read_note(path: Path | None) -> str:
+    """Return an earlier note's body for intra-day refinement, or the first-run notice."""
+    if path is None:
+        return FIRST_RUN_NOTICE
     try:
-        temporary.write_text(text, encoding="utf-8")
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+        return frontmatter.load(path).content.strip()[:NOTE_CHAR_LIMIT] or FIRST_RUN_NOTICE
+    except (OSError, UnicodeError, ValueError):
+        return FIRST_RUN_NOTICE
+
+
+async def write_markdown(path: Path, body: str, metadata: dict[str, Any]) -> None:
+    """Serialize one frontmatter Markdown document atomically under its path lock."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rendered = frontmatter.dumps(frontmatter.Post(body.strip(), **metadata))
+    async with await get_path_lock(path):
+        temporary = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            async with aiofiles.open(temporary, "w", encoding="utf-8") as stream:
+                await stream.write(rendered if rendered.endswith("\n") else f"{rendered}\n")
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
 
 class AutoFinStep(BaseStep):
-    """Shared Auto Fin helpers."""
+    """Shared helpers for the steps in one Auto Fin RuntimeContext."""
 
     def _value(self, key: str, default: Any = None) -> Any:
         assert self.context is not None
@@ -71,6 +208,59 @@ class AutoFinStep(BaseStep):
             raise RuntimeError(f"Auto Fin data is missing: {key}")
         return value
 
+    @property
+    def day_dir(self) -> Path:
+        """Return the dated directory that holds this run's notes."""
+        return self.workspace_path / str(self.config_value("daily_dir")) / str(self._required("auto_fin_date"))
+
+    def _track(self, path: Path, existing: Path | None) -> None:
+        """Record this write, and any note it replaced, for the auto_tag step."""
+        assert self.context is not None
+        changes = list(self.context.get("changes") or [])
+        if existing is not None and existing != path:
+            existing.unlink(missing_ok=True)
+            changes.append({"change": "deleted", "path": existing.relative_to(self.workspace_path).as_posix()})
+        changes.append(
+            {
+                "change": "modified" if existing == path else "added",
+                "path": path.relative_to(self.workspace_path).as_posix(),
+            },
+        )
+        self.context["changes"] = changes
+
+    async def _write_report(
+        self,
+        title: str,
+        description: str,
+        body: str,
+        *,
+        kind: str,
+        existing: Path | None = None,
+        trailer: str = "",
+        **metadata: Any,
+    ) -> tuple[str, str, list[str]]:
+        """Write one report note, returning its title, relative path, and valid sources."""
+        title, path = resolve_note_path(self.day_dir, title, existing=existing)
+        body, sources = validate_wikilinks(normalize_hybrid_wikilinks(body), self.workspace_path, path)
+        await write_markdown(
+            path,
+            "\n\n".join(section for section in (body, trailer, DISCLAIMER) if section),
+            {
+                "name": title,
+                "title": title,
+                "description": description,
+                "kind": kind,
+                "generated_at": utc_now_iso(),
+                **metadata,
+            },
+        )
+        self._track(path, existing)
+        self.logger.info(
+            f"[{self.name}] wrote kind={kind} path={path.relative_to(self.workspace_path).as_posix()} "
+            f"chars={len(body)} sources={len(sources)}",
+        )
+        return title, path.relative_to(self.workspace_path).as_posix(), sources
+
     async def _reply(
         self,
         prompt_name: str,
@@ -78,8 +268,9 @@ class AutoFinStep(BaseStep):
         job_tools: list[str] | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
         tool_context_id: str | None = None,
-        **values: str,
+        **values: Any,
     ) -> BaseModel:
+        """Ask the Agent for one structured report and validate it against ``model``."""
         if self.agent_wrapper is None:
             raise RuntimeError("Auto Fin analysis requires an agent_wrapper")
         prompt = self.prompt_format(prompt_name, **values)
@@ -93,9 +284,8 @@ class AutoFinStep(BaseStep):
             "builtin_tools": [],
             "use_builtin_tools": False,
             "skills": [],
+            "job_tools": list(self.kwargs.get("job_tools") or []) if job_tools is None else job_tools,
         }
-        if job_tools:
-            kwargs["job_tools"] = job_tools
         if injected_job_kwargs:
             kwargs["injected_job_kwargs"] = injected_job_kwargs
         if tool_context_id:
@@ -105,10 +295,10 @@ class AutoFinStep(BaseStep):
             raise ValueError(f"Auto Fin Agent returned no structured output: {self._preview(result)}")
         value = result["structured_output"]
         output = value if isinstance(value, model) else model.model_validate(value)
-        output_preview = self._preview(output.model_dump(), AGENT_OUTPUT_LOG_LIMIT)
+        rendered = self._preview(output.model_dump(), AGENT_OUTPUT_LOG_LIMIT)
         self.logger.info(
             f"[{self.name}] agent output prompt={prompt_name} schema={model.__name__} "
-            f"elapsed={perf_counter() - started_at:.2f}s output={output_preview}",
+            f"elapsed={perf_counter() - started_at:.2f}s output={rendered}",
         )
         return output
 

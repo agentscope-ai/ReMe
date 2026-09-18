@@ -122,10 +122,13 @@ jobs:
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
       - backend: auto_fin_topic_step
-      - backend: auto_fin_merge_step
-        job_tools: [search, read]
+      - backend: auto_fin_research_step
+        job_tools: [search]
+      - backend: auto_fin_digest_step
       - backend: auto_tag_step
       - <<: *dingtalk_send_defaults
+        input_mapping:
+          auto_fin_digest_path: markdown_path
         title: ReMe Auto Fin
 
   auto_fin_cron:
