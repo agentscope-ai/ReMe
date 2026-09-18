@@ -86,7 +86,7 @@ def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
     assert components["agent_wrapper"]["default"]["backend"] == "agentscope"
     assert components["agent_wrapper"]["claude_code"] == {
         "backend": "claude_code",
-        "model": "qwen3.8-max",
+        "model": "qwen3.7-plus",
         "api_key": "llm-api-key",
         "base_url": "https://dashscope.aliyuncs.com/apps/anthropic",
         "permission_mode": "bypassPermissions",

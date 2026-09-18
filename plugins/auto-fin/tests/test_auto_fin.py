@@ -373,7 +373,7 @@ async def test_research_skips_topics_without_news_and_honours_the_skip_flag(tmp_
 
     response = await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
 
-    assert agent.calls == []
+    assert not agent.calls
     assert context["auto_fin_notes"] == []
     assert response.metadata["note_paths"] == []
     assert not (tmp_path / "daily").exists()
@@ -426,11 +426,11 @@ async def test_digest_skips_when_the_run_was_already_skipped(tmp_path: Path):
 
     await AutoFinDigestStep(app_context=app_context, agent_wrapper=agent)(context)
 
-    assert agent.calls == []
+    assert not agent.calls
     assert not (tmp_path / "daily").exists()
 
 
-def test_normalize_hybrid_wikilinks_is_conservative(tmp_path: Path):
+def test_normalize_hybrid_wikilinks_is_conservative():
     body = (
         "[[digest/wiki/gold.md]](digest/wiki/gold.md) "
         "[[digest/wiki/gold.md|黄金]](<digest/wiki/gold.md>) "
