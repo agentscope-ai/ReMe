@@ -196,7 +196,7 @@ def test_cookbook_overrides_merge_with_pure_plugin_defaults(monkeypatch):
     assert config.jobs["auto_fin"].backend == "base"
     assert config.jobs["auto_fin"].parameters["properties"]["topics"]["default"] == "黄金,机器人,半导体"
     assert config.jobs["auto_fin_cron"].backend == "cron"
-    assert config.jobs["auto_fin_cron"].model_extra["cron"] == "0 18 * * *"
+    assert config.jobs["auto_fin_cron"].model_extra["cron"] == "0 9 * * *"
     assert config.jobs["daily_paper"].backend == "base"
     assert config.jobs["daily_paper_cron"].backend == "cron"
     assert config.jobs["daily_paper_cron"].model_extra["cron"] == "0 8 * * *"

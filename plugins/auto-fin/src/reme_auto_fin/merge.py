@@ -7,6 +7,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 from reme.steps.file_io import refresh_day_index
 
@@ -29,7 +30,7 @@ class AutoFinMergeStep(AutoFinStep):
         """Return today's existing report so intra-day reruns refine it, not replace it."""
         path = self._report_path(run_date)
         if path.is_file():
-            return path.read_text(encoding="utf-8")
+            return path.read_text(encoding="utf-8")[:30_000]
         return "今日暂无更早时段的推荐，本次为当日首次生成。"
 
     def _normalize_hybrid_wikilinks(self, body: str) -> str:
@@ -113,27 +114,61 @@ class AutoFinMergeStep(AutoFinStep):
             "min_score": 0.0,
             "start_date": None,
             "end_date": (run_date - timedelta(days=1)).isoformat(),
+            "max_search_calls": 3,
         }
-        output = await self._reply(
-            "merge_user",
-            AutoFinReportOutput,
-            job_tools=list(self.kwargs.get("job_tools") or []),
-            injected_job_kwargs=historical_search,
-            decision_at=str(self._required("auto_fin_decision_at")),
-            window_start=str(self._required("auto_fin_window_start")),
-            topics=json.dumps(self._required("auto_fin_topics"), ensure_ascii=False),
-            news=json.dumps(self._required("auto_fin_selected_news"), ensure_ascii=False),
-            current_report=self._current_report(run_date),
-        )
-        output = self._normalize(output)
-        output = output.model_copy(update={"body": self._normalize_hybrid_wikilinks(output.body)})
-        body, source_paths = self._validate_wikilinks(output.body, run_date)
-        output = output.model_copy(update={"body": body})
-        markdown = f"# {output.title}\n\n> {output.description}\n\n{output.body}\n\n"
+        by_topic = self._required("auto_fin_news_by_topic")
+        sections: list[str] = []
+        source_paths: list[str] = []
+        researched_topics: list[str] = []
+        earlier_report = self._current_report(run_date)
+        for topic in self._required("auto_fin_topics"):
+            related = by_topic[topic]
+            if not related:
+                self.logger.info(f"[{self.name}] skipping topic={topic} reason=no_related_news")
+                continue
+            recent = sorted(related, key=lambda row: (row["event_time"], row["news_id"]), reverse=True)[:20]
+            tool_context_id = f"auto_fin:{uuid4().hex}"
+            self.logger.info(
+                f"[{self.name}] researching topic={topic} related_news={len(related)} "
+                f"sent_news={len(recent)} omitted_news={len(related) - len(recent)} search_limit=3",
+            )
+            try:
+                output = await self._reply(
+                    "merge_user",
+                    AutoFinReportOutput,
+                    job_tools=["search"],
+                    injected_job_kwargs=historical_search,
+                    tool_context_id=tool_context_id,
+                    decision_at=str(self._required("auto_fin_decision_at")),
+                    window_start=str(self._required("auto_fin_window_start")),
+                    topic=topic,
+                    news=json.dumps(recent, ensure_ascii=False),
+                    omitted_news_count=str(len(related) - len(recent)),
+                    current_report=earlier_report,
+                )
+            finally:
+                if self.app_context is not None:
+                    self.app_context.metadata.get("__search_call_budgets", {}).pop(tool_context_id, None)
+            output = self._normalize(output)
+            body, paths = self._validate_wikilinks(self._normalize_hybrid_wikilinks(output.body), run_date)
+            source_paths.extend(path for path in paths if path not in source_paths)
+            sections.append(f"## {topic}：{output.title}\n\n> {output.description}\n\n{body}")
+            researched_topics.append(topic)
+            self.logger.info(
+                f"[{self.name}] researched topic={topic} body_chars={len(body)} valid_sources={len(paths)}",
+            )
+        title = f"主题新闻观察（{run_date}）"
+        description = f"截至 {self._required('auto_fin_decision_at')}，关注 {', '.join(researched_topics)}。"
+        body = "\n\n".join(sections)
+        markdown = f"# {title}\n\n> {description}\n\n{body}\n\n"
         markdown += "> 未接入可靠行情数据；本文只提供新闻研究和回顾线索，不提供收益、目标价或买卖建议。\n"
         report = self._report_path(run_date)
         change = "modified" if report.is_file() else "added"
         _write(report, markdown)
+        self.logger.info(
+            f"[{self.name}] wrote report path={report.relative_to(self.workspace_path)} "
+            f"change={change} topics={len(researched_topics)} sources={len(source_paths)} chars={len(markdown)}",
+        )
         await refresh_day_index(
             SimpleNamespace(workspace_path=self.workspace_path),
             str(run_date),
@@ -143,7 +178,7 @@ class AutoFinMergeStep(AutoFinStep):
         self.context["changes"] = [{"change": change, "path": relative}]
         self.context["markdown_path"] = relative
         self.context["auto_fin_digest_path"] = relative
-        self.context.response.answer = output.body
+        self.context.response.answer = body
         self.context.response.metadata.update(
             {
                 "markdown_path": relative,
