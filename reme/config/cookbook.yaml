@@ -86,7 +86,7 @@ components:
   agent_wrapper:
     claude_code:
       backend: claude_code
-      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
       api_key: ${LLM_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
