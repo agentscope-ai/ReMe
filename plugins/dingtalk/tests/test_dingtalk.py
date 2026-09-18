@@ -98,6 +98,57 @@ async def test_markdown_send_without_conversations_is_a_noop(tmp_path):
     }
 
 
+@pytest.mark.asyncio
+async def test_markdown_send_surfaces_dingtalk_rejection_detail(tmp_path, monkeypatch):
+    report = tmp_path / "daily" / "report.md"
+    report.parent.mkdir()
+    report.write_text(frontmatter.dumps(frontmatter.Post("# Report\n\nBody")), encoding="utf-8")
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            400,
+            json={
+                "code": "InvalidmsgParam",
+                "requestid": "01A0B51A-96E1-735D-A1A9-F043A281EC5B",
+                "message": "Specified parameter msgParam is not valid.",
+            },
+        )
+
+    dingtalk_stream = importlib.import_module("dingtalk_stream")
+    monkeypatch.setattr(
+        dingtalk_stream.DingTalkStreamClient,
+        "get_access_token",
+        lambda _client: "access-token",
+    )
+    monkeypatch.setattr(
+        dingtalk_send.httpx,
+        "AsyncHTTPTransport",
+        lambda **kwargs: httpx.MockTransport(handler),
+    )
+    step = DingTalkMarkdownSendStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        app_key="app-key",
+        app_secret="app-secret",
+        robot_code="robot-code",
+        conversation_ids="group-one",
+    )
+    step.logger = MagicMock()
+
+    detail = (
+        "HTTP 400 code=InvalidmsgParam"
+        " message=Specified parameter msgParam is not valid."
+        " requestid=01A0B51A-96E1-735D-A1A9-F043A281EC5B"
+    )
+    with pytest.raises(RuntimeError, match="code=InvalidmsgParam"):
+        await step(RuntimeContext(markdown_path="daily/report.md"))
+
+    assert step.context.response.metadata["dingtalk_sent_count"] == 0
+    assert step.context.response.metadata["dingtalk_delivery_errors"] == [f"recipient 1: {detail}"]
+    warnings = "\n".join(call.args[0] for call in step.logger.warning.call_args_list)
+    assert f"recipient=1/1 {detail}" in warnings
+    assert all(value not in warnings for value in ("app-key", "app-secret", "robot-code", "group-one"))
+
+
 class _AgentWrapper(BaseAgentWrapper):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
