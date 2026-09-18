@@ -2,6 +2,7 @@
 
 # pylint: disable=missing-function-docstring,protected-access
 
+import json
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -25,7 +26,12 @@ PLUGIN_MANIFEST = yaml.safe_load(
 
 
 def _row(news_id: int, value: datetime, title: str = "新闻", content: str = "正文") -> dict:
-    return {"id": news_id, "ctime": int(value.timestamp()), "title": title, "content": content}
+    return {
+        "id": news_id,
+        "ctime": int(value.timestamp()),
+        "title": title,
+        "content": content,
+    }
 
 
 def test_atomic_write_preserves_existing_file_on_failure(tmp_path: Path, monkeypatch):
@@ -101,7 +107,7 @@ class _TopicAgent(BaseAgentWrapper):
 
     async def reply(self, inputs, **kwargs):
         self.calls.append((str(inputs), kwargs))
-        return {"structured_output": AutoFinTopicOutput(news_ids=self.news_ids)}
+        return {"result": f"筛选结果：\n```json\n{json.dumps(self.news_ids)}\n```\n以上是相关 ID。"}
 
 
 @pytest.mark.asyncio
@@ -110,8 +116,18 @@ async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
     agent = _TopicAgent(["2", "missing", "2"], app_context=app_context)
     context = RuntimeContext(
         auto_fin_news=[
-            {"news_id": "1", "event_time": "2026-08-10T08:00:00+08:00", "title": "甲", "content": "甲"},
-            {"news_id": "2", "event_time": "2026-08-10T09:00:00+08:00", "title": "乙", "content": "乙"},
+            {
+                "news_id": "1",
+                "event_time": "2026-08-10T08:00:00+08:00",
+                "title": "甲",
+                "content": "甲",
+            },
+            {
+                "news_id": "2",
+                "event_time": "2026-08-10T09:00:00+08:00",
+                "title": "乙",
+                "content": "乙",
+            },
         ],
         auto_fin_topics=["黄金"],
     )
@@ -119,7 +135,8 @@ async def test_topic_step_keeps_real_ids_in_memory_only(tmp_path: Path):
     response = await AutoFinTopicStep(app_context=app_context, agent_wrapper=agent)(context)
 
     assert [row["news_id"] for row in context["auto_fin_selected_news"]] == ["2"]
-    assert agent.calls[0][1] == {"output_schema": AutoFinTopicOutput}
+    assert agent.calls[0][1] == {}
+    assert '```json\n[\n"123",\n"456"\n]\n```' in agent.calls[0][0]
     assert response.metadata["relevant_news_count"] == 1
     assert not list(tmp_path.rglob("*.*"))
 
@@ -130,7 +147,12 @@ async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Pat
     agent = _TopicAgent([], app_context=app_context)
     context = RuntimeContext(
         auto_fin_news=[
-            {"news_id": "1", "event_time": "2026-08-10T08:00:00+08:00", "title": "甲", "content": "甲"},
+            {
+                "news_id": "1",
+                "event_time": "2026-08-10T08:00:00+08:00",
+                "title": "甲",
+                "content": "甲",
+            },
         ],
         auto_fin_topics=["黄金"],
         auto_fin_window_hours=12,
@@ -146,6 +168,44 @@ async def test_topic_step_marks_empty_selection_as_successful_skip(tmp_path: Pat
     assert response.answer == "最近12小时没有与 黄金 相关的财联社新闻。"
     assert "最近12小时" in agent.calls[0][0]
     assert not list(tmp_path.rglob("*.md"))
+
+
+@pytest.mark.asyncio
+async def test_topic_step_retries_invalid_json_once(tmp_path: Path):
+    class RetryAgent(_TopicAgent):
+        """Return one malformed response before a fenced JSON array."""
+
+        async def reply(self, inputs, **kwargs):
+            self.calls.append((str(inputs), kwargs))
+            return {"result": ('{"new_ids": "[\\"1\\"]"}' if len(self.calls) == 1 else '```json\n["1"]\n```')}
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = RetryAgent([], app_context=app_context)
+    context = RuntimeContext(
+        auto_fin_news=[
+            {
+                "news_id": "1",
+                "event_time": "2026-08-10T08:00:00+08:00",
+                "title": "甲",
+                "content": "甲",
+            },
+        ],
+        auto_fin_topics=["黄金"],
+    )
+
+    await AutoFinTopicStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    assert len(agent.calls) == 2
+    assert [row["news_id"] for row in context["auto_fin_selected_news"]] == ["1"]
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['{"new_ids": ["1"]}', "```json\n[1]\n```", "not json", ""],
+)
+def test_topic_step_rejects_non_array_or_non_string_ids(value: str):
+    with pytest.raises(ValueError):
+        AutoFinTopicStep._parse_news_ids(value)
 
 
 class _ResearchAgent(BaseAgentWrapper):
@@ -171,7 +231,9 @@ class _ResearchAgent(BaseAgentWrapper):
 
 
 @pytest.mark.asyncio
-async def test_merge_writes_only_final_report_and_validates_historical_links(tmp_path: Path):
+async def test_merge_writes_only_final_report_and_validates_historical_links(
+    tmp_path: Path,
+):
     historical = tmp_path / "daily" / "2026-08-01" / "auto_fin.md"
     historical.parent.mkdir(parents=True)
     historical.write_text("# 历史黄金观察\n", encoding="utf-8")
