@@ -32,17 +32,15 @@ class AutoFinDigestStep(AutoFinStep):
                 earlier_brief=read_note(earlier),
             ),
         )
-        title, path, sources = await self._write_report(
-            normalize_title(output.title, f"主题新闻观察（{run_date}）"),
-            output.description,
-            output.body,
+        path, sources = await self._write_report(
+            normalize_title(f"主题新闻观察（{run_date}）", "主题新闻观察"),
+            output,
             kind="auto-fin-digest",
             existing=earlier,
             trailer="## 主题详解\n\n" + "\n".join(f"- [[{note.path}]]" for note in notes),
             date=run_date,
             source_notes=[note.path for note in notes],
         )
-        self.logger.info(f"[{self.name}] digest title={title!r} path={path}")
         await refresh_day_index(
             SimpleNamespace(workspace_path=self.workspace_path),
             run_date,

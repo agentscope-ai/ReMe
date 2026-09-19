@@ -56,17 +56,16 @@ class AutoFinResearchStep(AutoFinStep):
         finally:
             if self.app_context is not None:
                 self.app_context.metadata.get("__search_call_budgets", {}).pop(context_id, None)
-        title, path, _ = await self._write_report(
-            normalize_title(output.title, f"{topic}观察"),
-            output.description,
-            output.body,
+        path, _ = await self._write_report(
+            normalize_title(topic, "主题观察"),
+            output,
             kind="auto-fin-topic",
             existing=earlier,
             date=run_date,
             topic=topic,
             source_news_ids=[row["news_id"] for row in recent],
         )
-        return AutoFinNote(topic=topic, title=title, description=output.description, body=output.body, path=path)
+        return AutoFinNote(topic=topic, title=output.title, description=output.description, body=output.body, path=path)
 
     async def execute(self):
         """Write one note per topic that had relevant news."""

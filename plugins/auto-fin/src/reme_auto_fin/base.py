@@ -24,6 +24,7 @@ from .schema import AutoFinReportOutput
 AGENT_INPUT_LOG_LIMIT = 2000
 AGENT_OUTPUT_LOG_LIMIT = 4000
 NOTE_CHAR_LIMIT = 30_000
+TITLE_BYTE_LIMIT = 180
 
 _WIKILINK = re.compile(r"\[\[([^\[\]\n]+)\]\]")
 _HYBRID_WIKILINK = re.compile(r"(?P<wikilink>\[\[(?P<inner>[^\[\]\n]+)\]\])\((?P<destination>[^()\n]+)\)")
@@ -73,15 +74,27 @@ def utc_now_iso() -> str:
 
 
 def normalize_title(raw: str, fallback: str) -> str:
-    """Return an Agent title as a safe Markdown filename stem."""
+    """Return a topic or Agent label as a safe, filesystem-sized Markdown filename stem."""
     title = _UNSAFE_FILENAME.sub("-", _HEADING.sub("", str(raw or "").strip()))
     title = re.sub(r"\s+", " ", title).strip(" .-")
     if title.lower().endswith(".md"):
         title = title[:-3].strip(" .-")
-    title = title or fallback
+    title = _truncate(title or fallback).strip(" .-") or fallback
     if error := validate_filename_component(title, kind="title"):
         raise ValueError(f"Unable to produce a safe Auto Fin title from {raw!r}: {error}")
     return title
+
+
+def _truncate(title: str) -> str:
+    """Fit a title into the byte budget one filename component accepts, without splitting a character."""
+    kept: list[str] = []
+    size = 0
+    for character in title:
+        size += len(character.encode())
+        if size > TITLE_BYTE_LIMIT:
+            break
+        kept.append(character)
+    return "".join(kept)
 
 
 def normalize_report(output: AutoFinReportOutput) -> AutoFinReportOutput:
@@ -230,36 +243,33 @@ class AutoFinStep(BaseStep):
 
     async def _write_report(
         self,
-        title: str,
-        description: str,
-        body: str,
+        filename: str,
+        output: AutoFinReportOutput,
         *,
         kind: str,
         existing: Path | None = None,
         trailer: str = "",
         **metadata: Any,
-    ) -> tuple[str, str, list[str]]:
-        """Write one report note, returning its title, relative path, and valid sources."""
-        title, path = resolve_note_path(self.day_dir, title, existing=existing)
-        body, sources = validate_wikilinks(normalize_hybrid_wikilinks(body), self.workspace_path, path)
+    ) -> tuple[str, list[str]]:
+        """Write one report note, returning its workspace-relative path and valid sources."""
+        title, path = resolve_note_path(self.day_dir, filename, existing=existing)
+        body, sources = validate_wikilinks(normalize_hybrid_wikilinks(output.body), self.workspace_path, path)
         await write_markdown(
             path,
             "\n\n".join(section for section in (body, trailer, DISCLAIMER) if section),
             {
                 "name": title,
-                "title": title,
-                "description": description,
+                "title": output.title,
+                "description": output.description,
                 "kind": kind,
                 "generated_at": utc_now_iso(),
                 **metadata,
             },
         )
         self._track(path, existing)
-        self.logger.info(
-            f"[{self.name}] wrote kind={kind} path={path.relative_to(self.workspace_path).as_posix()} "
-            f"chars={len(body)} sources={len(sources)}",
-        )
-        return title, path.relative_to(self.workspace_path).as_posix(), sources
+        relative = path.relative_to(self.workspace_path).as_posix()
+        self.logger.info(f"[{self.name}] wrote kind={kind} path={relative} chars={len(body)} sources={len(sources)}")
+        return relative, sources
 
     async def _reply(
         self,

@@ -108,12 +108,13 @@ workspace 的 Markdown 目标。不存在、绝对路径、越界、带反斜杠
 ## 产物
 
 ```text
-.reme/daily/YYYY-MM-DD/<主题笔记标题>.md   # 每个有相关新闻的主题一份
-.reme/daily/YYYY-MM-DD/<当日总览标题>.md   # 合并总览，回链到每一份主题笔记
+.reme/daily/YYYY-MM-DD/<主题>.md                    # 每个有相关新闻的主题一份
+.reme/daily/YYYY-MM-DD/主题新闻观察（YYYY-MM-DD）.md  # 合并总览，回链到每一份主题笔记
 ```
 
-文件名取自 Agent 生成的中文标题，并经过非法字符净化和重名消歧。每份文件都带 `kind` frontmatter（`auto-fin-topic` 或
-`auto-fin-digest`），因此同日重跑会找回并覆盖自己产出的笔记，而不是重复生成。文件包含标题、说明、当前 CLS 证据、历史分析、上下文
+文件名取自配置的主题（`topics`）和运行日期，而不是 Agent 生成的标题——Agent 标题是自由文本，可能长到超出文件名长度上限。文件名经过
+非法字符净化、字节数截断和重名消歧；Agent 标题保留在 frontmatter 的 `title` 中。每份文件都带 `kind` frontmatter（`auto-fin-topic`
+或 `auto-fin-digest`），因此同日重跑会找回并覆盖自己产出的笔记，而不是重复生成。文件包含标题、说明、当前 CLS 证据、历史分析、上下文
 wikilink 和固定非投资建议声明；总览末尾另有一个 `## 主题详解` 列表，链接到各主题笔记。网络错误与无效 Agent 输出
 会明确失败；没有相关当前新闻则成功跳过。
 

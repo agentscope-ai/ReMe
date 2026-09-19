@@ -325,9 +325,10 @@ async def test_research_writes_one_note_per_topic_with_latest_twenty_news(tmp_pa
     }
 
     day = tmp_path / "daily" / "2026-08-10"
-    assert sorted(path.name for path in day.glob("*.md")) == ["机器人观察.md", "黄金观察.md"]
-    note = (day / "黄金观察.md").read_text(encoding="utf-8")
+    assert sorted(path.name for path in day.glob("*.md")) == ["机器人.md", "黄金.md"]
+    note = (day / "黄金.md").read_text(encoding="utf-8")
     assert "kind: auto-fin-topic" in note and "topic: 黄金" in note
+    assert "title: 黄金观察" in note
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in note
     assert "](daily/2026-08-01/auto_fin.md)" not in note
     assert "缺失文章" in note and "越界文章" in note
@@ -335,15 +336,42 @@ async def test_research_writes_one_note_per_topic_with_latest_twenty_news(tmp_pa
     assert "不提供收益、目标价或买卖建议" in note
 
     assert [item.path for item in context["auto_fin_notes"]] == [
-        "daily/2026-08-10/黄金观察.md",
-        "daily/2026-08-10/机器人观察.md",
+        "daily/2026-08-10/黄金.md",
+        "daily/2026-08-10/机器人.md",
     ]
+    assert [item.title for item in context["auto_fin_notes"]] == ["黄金观察", "机器人观察"]
     assert context["changes"] == [
-        {"change": "added", "path": "daily/2026-08-10/黄金观察.md"},
-        {"change": "added", "path": "daily/2026-08-10/机器人观察.md"},
+        {"change": "added", "path": "daily/2026-08-10/黄金.md"},
+        {"change": "added", "path": "daily/2026-08-10/机器人.md"},
     ]
     assert response.metadata["selected_news_count"] == 26
     assert response.metadata["note_paths"] == [item.path for item in context["auto_fin_notes"]]
+
+
+@pytest.mark.asyncio
+async def test_research_names_the_note_after_the_topic_not_the_agent_title(tmp_path: Path):
+    """A whole-paragraph Agent title used to become a filename and fail with ENAMETOOLONG."""
+
+    class _VerboseAgent(BaseAgentWrapper):
+        async def reply(self, _prompt, **_kwargs):
+            return {
+                "structured_output": AutoFinReportOutput(
+                    title="机器人主题 9-18 研究：" + "量产与政策" * 60,
+                    description="关注政策变化。",
+                    body=LINKED_BODY,
+                ),
+            }
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    context = _context(
+        auto_fin_news_by_topic={"黄金": [], "机器人": [_news("1", "2026-08-10T09:00:00+08:00")], "半导体": []},
+    )
+
+    await AutoFinResearchStep(app_context=app_context, agent_wrapper=_VerboseAgent(app_context=app_context))(context)
+
+    day = tmp_path / "daily" / "2026-08-10"
+    assert [path.name for path in day.glob("*.md")] == ["机器人.md"]
+    assert "title: 机器人主题 9-18 研究：量产与政策" in (day / "机器人.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -361,8 +389,8 @@ async def test_research_rerun_replaces_the_same_note_for_a_topic(tmp_path: Path)
     assert len(agent.calls) == 2
     assert "本次为当日首次生成。" in agent.calls[0][0]
     assert "## 今日判断" in agent.calls[1][0]
-    assert second["changes"] == [{"change": "modified", "path": "daily/2026-08-10/黄金观察.md"}]
-    assert [path.name for path in (tmp_path / "daily" / "2026-08-10").glob("*.md")] == ["黄金观察.md"]
+    assert second["changes"] == [{"change": "modified", "path": "daily/2026-08-10/黄金.md"}]
+    assert [path.name for path in (tmp_path / "daily" / "2026-08-10").glob("*.md")] == ["黄金.md"]
 
 
 @pytest.mark.asyncio
@@ -403,16 +431,18 @@ async def test_digest_merges_notes_and_links_back_to_each_of_them(tmp_path: Path
     assert "当前主题：" not in prompt
     assert "本次为当日首次生成。" in prompt
 
-    digest = (tmp_path / "daily" / "2026-08-10" / "主题新闻观察.md").read_text(encoding="utf-8")
+    digest_path = "daily/2026-08-10/主题新闻观察（2026-08-10）.md"
+    digest = (tmp_path / digest_path).read_text(encoding="utf-8")
     assert "kind: auto-fin-digest" in digest
+    assert "title: 主题新闻观察" in digest
     assert "## 主题详解" in digest
     assert f"- [[{note_path}]]" in digest
     assert "[[daily/2026-08-01/auto_fin.md|历史黄金观察]]" in digest
     assert "缺失文章" in digest and "missing.md" not in digest
     assert digest.rstrip().endswith("不提供收益、目标价或买卖建议。")
 
-    assert context["markdown_path"] == "daily/2026-08-10/主题新闻观察.md"
-    assert context["changes"][-1] == {"change": "added", "path": "daily/2026-08-10/主题新闻观察.md"}
+    assert context["markdown_path"] == digest_path
+    assert context["changes"][-1] == {"change": "added", "path": digest_path}
     assert response.metadata["digest_path"] == context["markdown_path"]
     assert response.metadata["source_paths"] == ["daily/2026-08-01/auto_fin.md"]
     assert response.metadata["note_paths"] == [note_path]
@@ -451,6 +481,13 @@ def test_normalize_title_sanitizes_agent_titles_and_keeps_notes_importable():
     assert normalize_title("  ", "黄金观察") == "黄金观察"
     assert normalize_title("解读.md", "黄金观察") == "解读"
     assert AutoFinNote(topic="黄金", title="标题", description="说明", body="正文", path="a.md").topic == "黄金"
+
+
+def test_normalize_title_fits_the_filename_component_byte_budget():
+    """A whole-paragraph title used to reach os.stat and fail with ENAMETOOLONG."""
+    assert normalize_title("长" * 200, "黄金观察") == "长" * 60
+    assert len(normalize_title("long" * 100, "黄金观察").encode()) <= 180
+    assert normalize_title("  /  ", "黄金观察") == "黄金观察"
 
 
 def test_plugin_config_has_default_topics_and_two_report_steps():

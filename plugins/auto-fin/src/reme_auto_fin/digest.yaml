@@ -17,4 +17,4 @@ digest_user: |
   - 做提炼而不是摘抄，不要整段复制笔记原文，也不要给投资建议。
   - 不要输出 wikilink，代码会在正文末尾自动附上各主题笔记的链接。
 
-  按结构化输出契约返回 title、description 和完整中文 Markdown body。
+  title 用不超过 20 字的短标题，description 用一句话概括；按结构化输出契约返回 title、description 和完整中文 Markdown body。

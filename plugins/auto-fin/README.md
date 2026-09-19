@@ -119,11 +119,14 @@ The plugin cron Job starts with the application and runs daily at 09:00 in the a
 ## Output
 
 ```text
-.reme/daily/YYYY-MM-DD/<topic-note-title>.md   # one per topic that had relevant news
-.reme/daily/YYYY-MM-DD/<brief-title>.md        # today's merged brief, linking back to every note
+.reme/daily/YYYY-MM-DD/<topic>.md                # one per topic that had relevant news
+.reme/daily/YYYY-MM-DD/主题新闻观察（YYYY-MM-DD）.md  # today's merged brief, linking back to every note
 ```
 
-Every file carries `kind` frontmatter (`auto-fin-topic` or `auto-fin-digest`), so a rerun finds and replaces the notes
+File names come from the configured topics and the run date rather than the Agent's title: an Agent title is free text
+and can outgrow the filesystem limit for one name component. Names are sanitized, byte-truncated, and disambiguated;
+the Agent title is kept in the `title` frontmatter field. Every file carries `kind` frontmatter (`auto-fin-topic` or
+`auto-fin-digest`), so a rerun finds and replaces the notes
 it produced instead of duplicating them. Each file includes a title, description, current CLS evidence, historical
 analysis, contextual wikilinks, and a fixed non-investment disclaimer; the brief ends with a `## 主题详解` list linking
 to the topic notes. Network errors and invalid Agent output fail explicitly; no relevant current news is a successful

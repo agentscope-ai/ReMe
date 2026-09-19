@@ -22,4 +22,4 @@ research_user: |
   相关句子，例如：这与[[daily/2026-08-01/auto_fin.md|此前的供给判断]]相似，但本次政策范围不同。
   不得写裸链接行或虚构路径。代码会把不存在、越界或指向本文的链接降级为普通文本。
 
-  按结构化输出契约返回 title、description 和完整中文 Markdown body。
+  title 用不超过 20 字的短标题，description 用一句话概括；按结构化输出契约返回 title、description 和完整中文 Markdown body。
