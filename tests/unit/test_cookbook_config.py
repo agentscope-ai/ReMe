@@ -86,7 +86,7 @@ def test_cookbook_enables_embedding_and_separate_agent_backends(monkeypatch):
     assert components["agent_wrapper"]["default"]["backend"] == "agentscope"
     assert components["agent_wrapper"]["claude_code"] == {
         "backend": "claude_code",
-        "model": "qwen3.8-max",
+        "model": "qwen3.7-plus",
         "api_key": "llm-api-key",
         "base_url": "https://dashscope.aliyuncs.com/apps/anthropic",
         "permission_mode": "bypassPermissions",
@@ -124,11 +124,15 @@ def test_cookbook_appends_dingtalk_to_business_pipelines(monkeypatch):
     assert [step["backend"] for step in auto_fin_steps] == [
         "auto_fin_data_step",
         "auto_fin_topic_step",
-        "auto_fin_merge_step",
+        "auto_fin_research_step",
+        "auto_fin_digest_step",
         "auto_tag_step",
         "dingtalk_markdown_send_step",
     ]
     assert jobs["auto_fin_cron"]["steps"] == auto_fin_steps
+    assert auto_fin_steps[-1]["input_mapping"] == {
+        "auto_fin_digest_path": "markdown_path",
+    }
     assert auto_fin_steps[-1]["title"] == "ReMe Auto Fin"
 
     assert [step["backend"] for step in daily_paper_steps] == [
@@ -196,7 +200,7 @@ def test_cookbook_overrides_merge_with_pure_plugin_defaults(monkeypatch):
     assert config.jobs["auto_fin"].backend == "base"
     assert config.jobs["auto_fin"].parameters["properties"]["topics"]["default"] == "黄金,机器人,半导体"
     assert config.jobs["auto_fin_cron"].backend == "cron"
-    assert config.jobs["auto_fin_cron"].model_extra["cron"] == "0 18 * * *"
+    assert config.jobs["auto_fin_cron"].model_extra["cron"] == "0 9 * * *"
     assert config.jobs["daily_paper"].backend == "base"
     assert config.jobs["daily_paper_cron"].backend == "cron"
     assert config.jobs["daily_paper_cron"].model_extra["cron"] == "0 8 * * *"

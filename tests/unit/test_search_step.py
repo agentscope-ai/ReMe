@@ -93,6 +93,32 @@ class FakeSearchStore(BaseFileStore):
         return self.keyword_results[:limit]
 
 
+def test_search_call_budget_is_scoped_to_tool_context(tmp_path):
+    """An injected budget rejects a fourth call before touching the store."""
+    store = FakeSearchStore()
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+
+    async def run():
+        for _ in range(3):
+            response = await SearchStep(app_context=app_context, file_store=store, expand_links=False)(
+                RuntimeContext(query="gold", tool_context_id="topic-a", max_search_calls=3),
+            )
+            assert response.success
+        calls = len(store.calls)
+        rejected = await SearchStep(app_context=app_context, file_store=store, expand_links=False)(
+            RuntimeContext(query="gold", tool_context_id="topic-a", max_search_calls=3),
+        )
+        assert not rejected.success
+        assert "limit of 3" in rejected.answer
+        assert len(store.calls) == calls
+        other = await SearchStep(app_context=app_context, file_store=store, expand_links=False)(
+            RuntimeContext(query="gold", tool_context_id="topic-b", max_search_calls=3),
+        )
+        assert other.success
+
+    asyncio.run(run())
+
+
 class TaggedFakeSearchStore(FakeSearchStore):
     """Fake store with a tag index and ordinary file-store filtering."""
 

@@ -1,7 +1,8 @@
 backends:
   auto_fin_data_step: reme_auto_fin.data:AutoFinDataStep
   auto_fin_topic_step: reme_auto_fin.topic:AutoFinTopicStep
-  auto_fin_merge_step: reme_auto_fin.merge:AutoFinMergeStep
+  auto_fin_research_step: reme_auto_fin.research:AutoFinResearchStep
+  auto_fin_digest_step: reme_auto_fin.digest:AutoFinDigestStep
 
 application_defaults:
   jobs:
@@ -41,11 +42,12 @@ application_defaults:
       steps: &auto_fin_steps
         - backend: auto_fin_data_step
         - backend: auto_fin_topic_step
-        - backend: auto_fin_merge_step
-          job_tools: [search, read]
+        - backend: auto_fin_research_step
+          job_tools: [search]
+        - backend: auto_fin_digest_step
         - backend: auto_tag_step
 
     auto_fin_cron:
       backend: cron
-      cron: "0 18 * * *"
+      cron: "0 9 * * *"
       steps: *auto_fin_steps

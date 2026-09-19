@@ -86,7 +86,7 @@ components:
   agent_wrapper:
     claude_code:
       backend: claude_code
-      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      model: ${LLM_MODEL_NAME:-qwen3.7-plus}
       api_key: ${LLM_API_KEY:-}
       base_url: ${CLAUDE_CODE_BASE_URL:-https://dashscope.aliyuncs.com/apps/anthropic}
       permission_mode: bypassPermissions
@@ -122,10 +122,13 @@ jobs:
     steps: &auto_fin_steps
       - backend: auto_fin_data_step
       - backend: auto_fin_topic_step
-      - backend: auto_fin_merge_step
-        job_tools: [search, read]
+      - backend: auto_fin_research_step
+        job_tools: [search]
+      - backend: auto_fin_digest_step
       - backend: auto_tag_step
       - <<: *dingtalk_send_defaults
+        input_mapping:
+          auto_fin_digest_path: markdown_path
         title: ReMe Auto Fin
 
   auto_fin_cron:

@@ -13,7 +13,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
-from ._path import display_path, gate_md, resolve_path
+from ._path import _check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 
@@ -41,6 +41,14 @@ class FrontmatterReadStep(BaseStep):
         if target != original_target:
             resolved["resolved_path"] = display_path(workspace_dir, target)
         probed = resolved.get("resolved_path", path)
+        if not _check_path_permission(workspace_dir, target, self.context.get("_allowed_paths")):
+            self.context.response.success = False
+            self.context.response.answer = "Error: no permission to access this file"
+            self.context.response.metadata.update(
+                {"path": path, "error": "no permission to access this file", **resolved},
+            )
+            self.logger.info(f"[{self.name}] path={path} error=no_permission")
+            return
         if not target.is_file():
             self.context.response.success = False
             self.context.response.answer = f"Error: {probed} not found"

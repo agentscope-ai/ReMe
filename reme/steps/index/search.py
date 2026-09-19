@@ -225,6 +225,7 @@ class SearchStep(BaseStep):
         expand_links_enabled: bool = bool(self.kwargs.get("expand_links", True))
         max_links_per_direction: int = int(self.kwargs.get("max_links_per_direction", 10))
         tool_context_id: str = (self.context.get("tool_context_id", "") or "").strip()
+        max_search_calls = self.context.get("max_search_calls")
         strict_date_filter: bool = bool(
             self.context.get("strict_date_filter") or self.kwargs.get("strict_date_filter", False),
         )
@@ -234,6 +235,27 @@ class SearchStep(BaseStep):
             self.context.response.answer = "Error: query cannot be empty"
             return self.context.response
         assert limit > 0, f"limit must be positive, got {limit}"
+
+        if max_search_calls is not None:
+            if not tool_context_id or self.app_context is None:
+                raise ValueError("max_search_calls requires an application and tool_context_id")
+            maximum = int(max_search_calls)
+            if maximum < 1:
+                raise ValueError("max_search_calls must be positive")
+            budgets = self.app_context.metadata.setdefault("__search_call_budgets", {})
+            budget = budgets.setdefault(tool_context_id, {"count": 0, "lock": asyncio.Lock()})
+            async with budget["lock"]:
+                if budget["count"] >= maximum:
+                    self.logger.warning(
+                        f"[{self.name}] search budget exhausted context={tool_context_id} limit={maximum}",
+                    )
+                    self.context.response.success = False
+                    self.context.response.answer = f"Error: search call limit of {maximum} reached"
+                    return self.context.response
+                budget["count"] += 1
+                self.logger.info(
+                    f"[{self.name}] search budget context={tool_context_id} " f"call={budget['count']}/{maximum}",
+                )
 
         candidates = min(_MAX_CANDIDATES, max(1, int(limit * candidate_multiplier)))
         search_filter: dict = dict(self.context.get("search_filter", {}) or {})

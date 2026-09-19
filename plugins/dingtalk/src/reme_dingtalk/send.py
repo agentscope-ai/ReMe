@@ -12,9 +12,36 @@ from reme.steps.file_io._path import gate_md, resolve_path
 
 _GROUP_SEND_URL = "https://api.dingtalk.com/v1.0/robot/groupMessages/send"
 
+_MAX_ERROR_DETAIL = 200
+_ERROR_BODY_KEYS = ("code", "message", "requestid")
+
 
 def _conversation_ids(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _failure_detail(exc: Exception) -> str:
+    """Summarize a delivery failure for logs and response metadata.
+
+    DingTalk reports rejections (an oversized ``msgParam``, say) as an HTTP error whose
+    body carries a machine-readable ``code``; without it the operator only sees
+    ``HTTPStatusError`` and has to reproduce the request by hand. Only that whitelist of
+    keys is reported -- the request body holds the message content and credentials, so a
+    DingTalk error that echoes it back must not reach the log.
+    """
+    if not isinstance(exc, httpx.HTTPStatusError):
+        return f"{type(exc).__name__}: {exc}"[:_MAX_ERROR_DETAIL]
+    response = exc.response
+    detail = f"HTTP {response.status_code}"
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        for key in _ERROR_BODY_KEYS:
+            if body.get(key):
+                detail += f" {key}={body[key]}"
+    return detail[:_MAX_ERROR_DETAIL]
 
 
 class DingTalkMarkdownSendStep(BaseStep):
@@ -105,10 +132,10 @@ class DingTalkMarkdownSendStep(BaseStep):
                     if not isinstance(result, dict) or not result.get("processQueryKey"):
                         raise ValueError("missing processQueryKey")
                 except (httpx.HTTPError, ValueError) as exc:
-                    failures.append(f"recipient {index}: {type(exc).__name__}")
+                    detail = _failure_detail(exc)
+                    failures.append(f"recipient {index}: {detail}")
                     self.logger.warning(
-                        f"[{self.name}] DingTalk delivery failed recipient={index}/{len(recipients)} "
-                        f"error_type={type(exc).__name__}",
+                        f"[{self.name}] DingTalk delivery failed recipient={index}/{len(recipients)} {detail}",
                     )
                     continue
                 self.context.response.metadata["dingtalk_sent_count"] += 1
@@ -117,6 +144,9 @@ class DingTalkMarkdownSendStep(BaseStep):
         sent_count = self.context.response.metadata["dingtalk_sent_count"]
         if failures:
             self.context.response.metadata["dingtalk_delivery_errors"] = failures
-            raise RuntimeError(f"DingTalk Markdown delivery failed for {len(failures)} of {len(recipients)} recipients")
+            raise RuntimeError(
+                f"DingTalk Markdown delivery failed for {len(failures)} of {len(recipients)} recipients: "
+                f"{'; '.join(failures)}",
+            )
         self.logger.info(f"[{self.name}] DingTalk Markdown delivery complete sent={sent_count} total={len(recipients)}")
         return self.context.response

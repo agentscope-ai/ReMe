@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from .base import AutoFinStep, _plain_text
+from .base import AutoFinStep, plain_text
 
 API_URL = "https://www.cls.cn/v1/roll/get_roll_list"
 HEADERS = {
@@ -72,6 +72,11 @@ class AutoFinDataStep(AutoFinStep):
         interval = max(0.0, float(self._value("request_interval", 10)))
         max_retries = max(1, int(self._value("max_retries", 3)))
         records: dict[str, dict[str, str]] = {}
+        page_count = 0
+        self.logger.info(
+            f"[{self.name}] fetching CLS news window_start={cutoff.isoformat()} "
+            f"window_end={decision_at.isoformat()} request_interval={interval}s",
+        )
         async with httpx.AsyncClient(headers=HEADERS, timeout=httpx.Timeout(20, connect=5)) as client:
             while True:
                 for attempt in range(max_retries):
@@ -81,12 +86,17 @@ class AutoFinDataStep(AutoFinStep):
                     except (httpx.HTTPError, ValueError, RuntimeError) as exc:
                         if attempt + 1 == max_retries:
                             raise RuntimeError(f"CLS request failed after {max_retries} attempts: {exc}") from exc
+                        self.logger.warning(
+                            f"[{self.name}] CLS page request failed cursor={cursor} "
+                            f"attempt={attempt + 1}/{max_retries}: {exc}",
+                        )
                         await asyncio.sleep(2**attempt)
                     finally:
                         if interval:
                             await asyncio.sleep(interval)
                 if not rows:
                     raise RuntimeError("CLS API returned no news before the 24-hour window was covered")
+                page_count += 1
                 timestamps = [int(row["ctime"]) for row in rows if str(row.get("ctime", "")).isdigit()]
                 if not timestamps:
                     raise RuntimeError("CLS API page contained no valid timestamps")
@@ -97,9 +107,14 @@ class AutoFinDataStep(AutoFinStep):
                     normalized = self._normalize(row, cutoff, decision_at)
                     if normalized is not None:
                         records.setdefault(normalized["news_id"], normalized)
+                self.logger.info(
+                    f"[{self.name}] CLS page={page_count} rows={len(rows)} oldest={oldest} "
+                    f"unique_in_window={len(records)}",
+                )
                 if oldest <= int(cutoff.timestamp()):
                     break
                 cursor = oldest
+        self.logger.info(f"[{self.name}] completed CLS fetch pages={page_count} news={len(records)}")
         return sorted(records.values(), key=lambda row: (row["event_time"], row["news_id"]))
 
     @staticmethod
@@ -111,8 +126,8 @@ class AutoFinDataStep(AutoFinStep):
             return None
         if not start <= published_at <= end:
             return None
-        content = _plain_text(str(row.get("content") or row.get("brief") or ""))
-        title = _plain_text(str(row.get("title") or row.get("brief") or content))
+        content = plain_text(str(row.get("content") or row.get("brief") or ""))
+        title = plain_text(str(row.get("title") or row.get("brief") or content))
         if not title and not content:
             return None
         return {

@@ -77,6 +77,23 @@ async def test_read_no_suffix_autoappends_md():
 
 
 @pytest.mark.asyncio
+async def test_read_honors_injected_path_scope():
+    """An injected allowed-path scope denies frontmatter reads outside of it."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, BODY)
+        store = await _make_store()
+
+        allowed = await _run(FrontmatterReadStep, store, path=NOTE, _allowed_paths=[NOTE])
+        assert allowed.success is True
+        assert allowed.metadata["frontmatter"] == {"name": "n", "tags": ["a"]}
+
+        denied = await _run(FrontmatterReadStep, store, path=NOTE, _allowed_paths=["notes/other.md"])
+        assert denied.success is False
+        assert denied.metadata["error"] == "no permission to access this file"
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_update_no_suffix_autoappends_md():
     """frontmatter_update on a suffix-less path resolves to the ``.md`` file."""
     with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
