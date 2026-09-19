@@ -68,7 +68,7 @@ class AutoFinResearchStep(AutoFinStep):
         return AutoFinNote(topic=topic, title=output.title, description=output.description, body=output.body, path=path)
 
     async def execute(self):
-        """Write one note per topic that had relevant news."""
+        """Write one note per topic that had relevant news, isolating per-topic failures."""
         assert self.context is not None
         self.context["changes"] = []
         if self.context.get("auto_fin_skipped"):
@@ -76,16 +76,24 @@ class AutoFinResearchStep(AutoFinStep):
         run_date = str(self._required("auto_fin_date"))
         by_topic = self._required("auto_fin_news_by_topic")
         notes: list[AutoFinNote] = []
+        failures: list[dict[str, str]] = []
         for topic in self._required("auto_fin_topics"):
             if not by_topic[topic]:
                 self.logger.info(f"[{self.name}] skipping topic={topic} reason=no_related_news")
                 continue
-            notes.append(await self._research(topic, by_topic[topic], run_date))
+            try:
+                notes.append(await self._research(topic, by_topic[topic], run_date))
+            except Exception as exc:
+                failures.append({"topic": topic, "error": str(exc)})
+                self.logger.warning(f"[{self.name}] topic={topic} failed; continuing with the rest: {exc}")
+        if failures and not notes:
+            raise RuntimeError(f"Auto Fin research failed for every topic: {failures}")
         self.context["auto_fin_notes"] = notes
         self.context.response.answer = f"Researched {len(notes)} topic(s): {', '.join(note.path for note in notes)}"
         self.context.response.metadata.update(
             {
                 "note_paths": [note.path for note in notes],
+                "failed_topics": failures,
                 "selected_news_count": len(self._required("auto_fin_selected_news")),
             },
         )

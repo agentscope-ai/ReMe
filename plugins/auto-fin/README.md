@@ -129,7 +129,8 @@ the Agent title is kept in the `title` frontmatter field. Every file carries `ki
 `auto-fin-digest`), so a rerun finds and replaces the notes
 it produced instead of duplicating them. Each file includes a title, description, current CLS evidence, historical
 analysis, contextual wikilinks, and a fixed non-investment disclaimer; the brief ends with a `## 主题详解` list linking
-to the topic notes. Network errors and invalid Agent output fail explicitly; no relevant current news is a successful
+to the topic notes. A fetch failure fails the run explicitly, and so does a run in which every topic fails; a single
+failing topic only logs a warning and the remaining topics continue. No relevant current news is a successful
 skip.
 
 ## Validation

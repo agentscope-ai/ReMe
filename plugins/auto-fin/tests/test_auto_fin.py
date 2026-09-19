@@ -412,6 +412,51 @@ async def test_research_skips_topics_without_news_and_honours_the_skip_flag(tmp_
 
 
 @pytest.mark.asyncio
+async def test_research_keeps_the_other_topics_when_one_fails(tmp_path: Path):
+    """One broken topic must not discard the notes the other topics already produced."""
+
+    class _FlakyAgent(_ReportAgent):
+        async def reply(self, inputs, **kwargs):
+            if "当前主题：机器人" in str(inputs):
+                raise RuntimeError("agent exploded")
+            return await super().reply(inputs, **kwargs)
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _FlakyAgent(app_context=app_context)
+    context = _context(
+        auto_fin_news_by_topic={
+            "黄金": [_news("1", "2026-08-10T09:00:00+08:00")],
+            "机器人": [_news("2", "2026-08-10T09:05:00+08:00")],
+            "半导体": [],
+        },
+    )
+
+    response = await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    assert [item.path for item in context["auto_fin_notes"]] == ["daily/2026-08-10/黄金.md"]
+    assert response.success is True
+    assert response.metadata["failed_topics"] == [{"topic": "机器人", "error": "agent exploded"}]
+    assert [path.name for path in (tmp_path / "daily" / "2026-08-10").glob("*.md")] == ["黄金.md"]
+
+
+@pytest.mark.asyncio
+async def test_research_fails_the_run_when_every_topic_fails(tmp_path: Path):
+    """A run that produced no note at all must fail instead of sending an empty brief."""
+
+    class _DeadAgent(BaseAgentWrapper):
+        async def reply(self, *_args, **_kwargs):
+            raise RuntimeError("agent exploded")
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    context = _context(
+        auto_fin_news_by_topic={"黄金": [_news("1", "2026-08-10T09:00:00+08:00")], "机器人": [], "半导体": []},
+    )
+
+    with pytest.raises(RuntimeError, match="failed for every topic"):
+        await AutoFinResearchStep(app_context=app_context, agent_wrapper=_DeadAgent(app_context=app_context))(context)
+
+
+@pytest.mark.asyncio
 async def test_digest_merges_notes_and_links_back_to_each_of_them(tmp_path: Path):
     _history(tmp_path)
     app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
