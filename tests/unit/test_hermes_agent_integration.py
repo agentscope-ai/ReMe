@@ -1,14 +1,17 @@
 """Focused tests for the external Hermes memory-provider plugin."""
 
 # pylint: disable=missing-class-docstring,missing-function-docstring
-# pylint: disable=protected-access,wrong-import-position,unused-import
+# pylint: disable=protected-access,redefined-outer-name,wrong-import-position,unused-import
 
 from __future__ import annotations
 
 import sys
 import types
 import asyncio
+import contextvars
+import http.server
 import importlib
+import json
 import threading
 import time
 
@@ -47,6 +50,7 @@ PLUGIN_MODULE = importlib.import_module("hermes_agent")
 BACKEND_MODULE = importlib.import_module("hermes_agent.backend")
 CONFIG_MODULE = importlib.import_module("hermes_agent.config")
 EMBEDDED_MODULE = importlib.import_module("hermes_agent.embedded_backend")
+HTTP_BACKEND_MODULE = importlib.import_module("hermes_agent.http_backend")
 CLIENT_MODULE = importlib.import_module("hermes_agent.client")
 
 ReMeMemoryProvider = PLUGIN_MODULE.ReMeMemoryProvider
@@ -58,8 +62,69 @@ load_config = CONFIG_MODULE.load_config
 parse_config = CONFIG_MODULE.parse_config
 save_config = CONFIG_MODULE.save_config
 EmbeddedReMeBackend = EMBEDDED_MODULE.EmbeddedReMeBackend
+HttpReMeBackend = HTTP_BACKEND_MODULE.HttpReMeBackend
 ReMeHttpClient = CLIENT_MODULE.ReMeHttpClient
+ReMeServiceError = CLIENT_MODULE.ReMeServiceError
 scoped_session_id = PLUGIN_MODULE._scoped_session_id
+
+
+@pytest.fixture
+def reme_http_server():
+    requests = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            requests.append((self.path, json.loads(body)))
+            action = self.path.rsplit("/", 1)[-1]
+
+            if action == "slow":
+                time.sleep(0.3)
+            if action == "server_error":
+                self.send_response(503)
+                self.end_headers()
+                self.wfile.write(b"temporarily unavailable")
+                return
+            if action == "invalid_json":
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"not-json")
+                return
+
+            responses = {
+                "health_check": {"success": True, "metadata": {"health": {"healthy": True}}},
+                "unhealthy": {"success": True, "metadata": {"health": {"healthy": False}}},
+                "failed": {"success": False, "answer": "search failed"},
+                "list": [],
+                "search": {"success": True, "answer": "remembered", "metadata": {}},
+                "slow": {"success": True, "answer": "late", "metadata": {}},
+            }
+            payload = json.dumps(responses[action]).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            try:
+                self.wfile.write(payload)
+            except BrokenPipeError:
+                pass
+
+        def log_message(self, _format, *_args):
+            return
+
+    class Server(http.server.ThreadingHTTPServer):
+        daemon_threads = True
+
+    server = Server(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
 
 
 def test_config_defaults_to_http(tmp_path):
@@ -150,6 +215,53 @@ def test_config_and_client_reject_unsafe_endpoint_shapes(tmp_path, endpoint):
         parse_config({"endpoint": endpoint}, hermes_home=tmp_path)
     with pytest.raises(ValueError, match="absolute http"):
         ReMeHttpClient(endpoint, timeout=1)
+
+
+def test_http_client_round_trip_sends_json_payload(reme_http_server):
+    endpoint, requests = reme_http_server
+
+    result = ReMeHttpClient(endpoint, timeout=1).call(
+        "search",
+        {"query": "project decision", "limit": 3},
+    )
+
+    assert result["answer"] == "remembered"
+    assert requests == [("/search", {"query": "project decision", "limit": 3})]
+
+
+@pytest.mark.parametrize(
+    ("action", "message"),
+    [
+        ("server_error", "HTTP 503"),
+        ("invalid_json", "invalid JSON"),
+        ("failed", "search failed"),
+        ("list", "non-object"),
+    ],
+)
+def test_http_client_rejects_invalid_service_responses(reme_http_server, action, message):
+    endpoint, _ = reme_http_server
+
+    with pytest.raises(ReMeServiceError, match=message):
+        ReMeHttpClient(endpoint, timeout=1).call(action)
+
+
+def test_http_client_enforces_request_timeout(reme_http_server):
+    endpoint, _ = reme_http_server
+
+    with pytest.raises(ReMeServiceError):
+        ReMeHttpClient(endpoint, timeout=1).call("slow", timeout=0.1)
+
+
+def test_http_backend_requires_semantically_healthy_response(reme_http_server):
+    endpoint, _ = reme_http_server
+    backend = HttpReMeBackend(endpoint, request_timeout=1)
+    backend._client.call = lambda *args, **kwargs: {
+        "success": True,
+        "metadata": {"health": {"healthy": False}},
+    }
+
+    with pytest.raises(ReMeBackendError, match="healthy component snapshot"):
+        backend.health(timeout=1)
 
 
 def test_save_config_uses_dashboard_layout_and_private_permissions(tmp_path):
@@ -306,6 +418,35 @@ def test_reinitialize_closes_previous_backend(monkeypatch, tmp_path):
     provider.shutdown()
 
 
+def test_invalid_reinitialize_closes_previous_backend_and_disables_writes(monkeypatch, tmp_path):
+    backend = _FakeBackend()
+    outcomes = iter([ReMeConfig(), ReMeConfigError("broken profile config")])
+
+    def load(_home=None):
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(PLUGIN_MODULE, "load_config", load)
+    monkeypatch.setattr(PLUGIN_MODULE, "_backend_for", lambda config: backend)
+    provider = ReMeMemoryProvider()
+    provider.initialize("first", hermes_home=tmp_path, agent_identity="first-profile")
+
+    provider.initialize("second", hermes_home=tmp_path, agent_identity="second-profile")
+    provider.sync_turn("user", "assistant")
+
+    assert backend.closed is True
+    assert provider._backend is None
+    assert provider._config is None
+    assert provider._session_id == "second"
+    assert provider._profile_id == "second-profile"
+    assert provider._accept_writes is False
+    assert provider.unavailable_reason() == "broken profile config"
+    assert provider.prefetch("query") == ""
+    assert provider._write_thread is None
+
+
 def test_provider_failure_does_not_escape_model_path(monkeypatch, tmp_path):
     backend = _FakeBackend()
     backend.search = lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -428,6 +569,33 @@ def test_shutdown_drains_all_accepted_writes_before_closing_backend():
     assert shutdown.is_alive() is False
     assert len(backend.writes) == 3
     assert backend.closed is True
+
+
+def test_writer_inherits_hermes_profile_context():
+    profile = contextvars.ContextVar("test_hermes_profile", default="default")
+
+    class ContextBackend(_FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.profile = None
+
+        def auto_memory(self, session_id, messages, *, timeout):
+            super().auto_memory(session_id, messages, timeout=timeout)
+            self.profile = profile.get()
+
+    backend = ContextBackend()
+    provider = ReMeMemoryProvider()
+    provider._config = ReMeConfig()
+    provider._backend = backend
+    provider._backend_available = True
+    token = profile.set("work")
+    try:
+        provider.sync_turn("user", "assistant", session_id="session")
+    finally:
+        profile.reset(token)
+    provider.shutdown()
+
+    assert backend.profile == "work"
 
 
 def test_recall_timeout_includes_waiting_for_background_write():

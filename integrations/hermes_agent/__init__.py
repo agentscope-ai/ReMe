@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import atexit
-import contextvars
 import hashlib
 import importlib.util
 import logging
@@ -17,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from agent.memory_provider import MemoryProvider, RecallStatus
 
-from .backend import ReMeBackend, ReMeBackendError
+from .backend import ReMeBackend, ReMeBackendError, spawn_profile_thread
 from .config import ReMeConfig, ReMeConfigError, load_config, save_config
 from .embedded_backend import EmbeddedReMeBackend
 from .http_backend import HttpReMeBackend
@@ -116,12 +115,22 @@ class ReMeMemoryProvider(MemoryProvider):
         try:
             config = load_config(hermes_home)
         except ReMeConfigError as exc:
+            with self._backend_lock:
+                self._close_backend_locked()
+            self._config = None
+            self._backend_label = "invalid configuration"
+            self._session_id = str(session_id or "")
+            self._profile_id = str(kwargs.get("agent_identity") or "default")
+            self._accept_writes = False
+            self._recall_status = None
+            self._unavailable_reason = str(exc)
             logger.warning("ReMe provider configuration is invalid: %s", exc)
             return
 
         with self._backend_lock:
             self._close_backend_locked()
         self._config = config
+        self._unavailable_reason = ""
         self._backend_label = config.endpoint if config.mode == "http" else f"embedded:{config.workspace_dir}"
         self._recall_timeout = config.recall_timeout
         self._health_timeout = config.health_timeout
@@ -448,11 +457,9 @@ class ReMeMemoryProvider(MemoryProvider):
             if not self._accept_writes:
                 return False
             if self._write_thread is None or not self._write_thread.is_alive():
-                context = contextvars.copy_context()
-                self._write_thread = threading.Thread(
-                    target=context.run,
-                    args=(self._write_loop, self._write_queue),
-                    daemon=True,
+                self._write_thread = spawn_profile_thread(
+                    self._write_loop,
+                    args=(self._write_queue,),
                     name="reme-memory-writer",
                 )
                 self._write_thread.start()
