@@ -11,7 +11,14 @@ from zoneinfo import ZoneInfo
 import pytest
 import yaml
 
-from reme_auto_fin.base import normalize_hybrid_wikilinks, normalize_title, plain_text, write_markdown
+from reme_auto_fin.base import (
+    FIRST_RUN_NOTICE,
+    normalize_hybrid_wikilinks,
+    normalize_title,
+    plain_text,
+    read_note,
+    write_markdown,
+)
 from reme_auto_fin.data import AutoFinDataStep
 from reme_auto_fin.digest import AutoFinDigestStep
 from reme_auto_fin.research import AutoFinResearchStep
@@ -20,6 +27,7 @@ from reme_auto_fin.topic import AutoFinTopicStep
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
 from reme.components.runtime_context import RuntimeContext
+from reme.utils.wikilink_handler import WikilinkHandler
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 PLUGIN_MANIFEST = yaml.safe_load(
@@ -440,6 +448,38 @@ async def test_research_keeps_the_other_topics_when_one_fails(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+async def test_research_ignores_notes_with_unparsable_frontmatter(tmp_path: Path):
+    """A note the user is editing by hand must not abort every topic in the run."""
+
+    day = tmp_path / "daily" / "2026-08-10"
+    day.mkdir(parents=True)
+    hand_edited = "---\ntags: [unfinished\n---\n\n正在编辑的笔记。\n"
+    (day / "手记.md").write_text(hand_edited, encoding="utf-8")
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    context = _context(
+        auto_fin_news_by_topic={"黄金": [_news("1", "2026-08-10T09:00:00+08:00")], "机器人": [], "半导体": []},
+    )
+
+    response = await AutoFinResearchStep(app_context=app_context, agent_wrapper=_ReportAgent(app_context=app_context))(
+        context,
+    )
+
+    assert response.success is True
+    assert response.metadata["failed_topics"] == []
+    assert [item.path for item in context["auto_fin_notes"]] == ["daily/2026-08-10/黄金.md"]
+    assert (day / "手记.md").read_text(encoding="utf-8") == hand_edited
+
+
+def test_read_note_falls_back_when_the_frontmatter_is_unparsable(tmp_path: Path):
+    broken = tmp_path / "手记.md"
+    broken.write_text("---\ntags: [unfinished\n---\n\n正文\n", encoding="utf-8")
+
+    assert read_note(broken) == FIRST_RUN_NOTICE
+    assert read_note(tmp_path / "missing.md") == FIRST_RUN_NOTICE
+    assert read_note(None) == FIRST_RUN_NOTICE
+
+
+@pytest.mark.asyncio
 async def test_research_fails_the_run_when_every_topic_fails(tmp_path: Path):
     """A run that produced no note at all must fail instead of sending an empty brief."""
 
@@ -493,6 +533,49 @@ async def test_digest_merges_notes_and_links_back_to_each_of_them(tmp_path: Path
     assert response.metadata["note_paths"] == [note_path]
 
 
+@pytest.mark.parametrize("topic", ["黄金", "AI[算力]", "C#", "新能源/储能", "#热点", "a|b"])
+@pytest.mark.asyncio
+async def test_digest_trailer_resolves_to_each_topic_note(tmp_path: Path, topic: str):
+    """A topic name must not smuggle a wikilink delimiter into the trailer it lands in."""
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _ReportAgent(app_context=app_context)
+    context = _context(
+        auto_fin_topics=[topic],
+        auto_fin_news_by_topic={topic: [_news("1", "2026-08-10T09:00:00+08:00")]},
+    )
+    await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
+    note_path = context["auto_fin_notes"][0].path
+
+    response = await AutoFinDigestStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    digest = (tmp_path / response.metadata["digest_path"]).read_text(encoding="utf-8")
+    targets = [match.target for match in WikilinkHandler.iter_matches(digest)]
+    assert (tmp_path / note_path).is_file()
+    assert note_path in targets
+    # Every ``[[`` the digest emits opens a link the workspace parser can read.
+    assert digest.count("[[") == len(targets)
+
+
+@pytest.mark.asyncio
+async def test_digest_returns_the_validated_body_to_the_caller(tmp_path: Path):
+    """The API answer must not carry a link that the note itself downgraded to plain text."""
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
+    agent = _ReportAgent(app_context=app_context)
+    context = _context(
+        auto_fin_news_by_topic={"黄金": [_news("1", "2026-08-10T09:00:00+08:00")], "机器人": [], "半导体": []},
+    )
+    await AutoFinResearchStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    response = await AutoFinDigestStep(app_context=app_context, agent_wrapper=agent)(context)
+
+    digest = (tmp_path / response.metadata["digest_path"]).read_text(encoding="utf-8")
+    assert "缺失文章" in response.answer
+    assert "missing.md" not in response.answer
+    assert response.answer in digest
+
+
 @pytest.mark.asyncio
 async def test_digest_skips_when_the_run_was_already_skipped(tmp_path: Path):
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
@@ -526,6 +609,16 @@ def test_normalize_title_sanitizes_agent_titles_and_keeps_notes_importable():
     assert normalize_title("  ", "黄金观察") == "黄金观察"
     assert normalize_title("解读.md", "黄金观察") == "解读"
     assert AutoFinNote(topic="黄金", title="标题", description="说明", body="正文", path="a.md").topic == "黄金"
+
+
+def test_normalize_title_keeps_wikilink_delimiters_out_of_the_stem():
+    """`AI[算力]` used to produce a stem the wikilink parser could not read at all."""
+
+    assert normalize_title("AI[算力]", "主题观察") == "AI-算力"
+    assert normalize_title("C#", "主题观察") == "C"
+    assert normalize_title("# 热点", "主题观察") == "热点"
+    for raw in ("AI[算力]", "C#", "# 热点", "a|b"):
+        assert not set("[]#|") & set(normalize_title(raw, "主题观察"))
 
 
 def test_normalize_title_fits_the_filename_component_byte_budget():

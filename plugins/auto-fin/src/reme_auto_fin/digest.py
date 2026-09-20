@@ -32,7 +32,7 @@ class AutoFinDigestStep(AutoFinStep):
                 earlier_brief=read_note(earlier),
             ),
         )
-        path, sources = await self._write_report(
+        written = await self._write_report(
             normalize_title(f"主题新闻观察（{run_date}）", "主题新闻观察"),
             output,
             kind="auto-fin-digest",
@@ -46,13 +46,15 @@ class AutoFinDigestStep(AutoFinStep):
             run_date,
             str(self.config_value("daily_dir")),
         )
-        self.context["markdown_path"] = self.context["auto_fin_digest_path"] = path
-        self.context.response.answer = output.body
+        self.context["markdown_path"] = self.context["auto_fin_digest_path"] = written.path
+        # The caller gets the validated body, not the Agent's raw reply: a link the
+        # note dropped must not reappear in the API response.
+        self.context.response.answer = written.body
         self.context.response.metadata.update(
             {
-                "markdown_path": path,
-                "digest_path": path,
-                "source_paths": sources,
+                "markdown_path": written.path,
+                "digest_path": written.path,
+                "source_paths": written.sources,
                 "note_paths": [note.path for note in notes],
                 "selected_news_count": len(self._required("auto_fin_selected_news")),
             },

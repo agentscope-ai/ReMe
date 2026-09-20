@@ -9,11 +9,12 @@ import os
 from pathlib import Path
 import re
 from time import perf_counter
-from typing import Any
+from typing import Any, NamedTuple
 from uuid import uuid4
 
 import aiofiles
 import frontmatter
+import yaml
 from pydantic import BaseModel
 
 from reme.steps import BaseStep
@@ -29,10 +30,28 @@ TITLE_BYTE_LIMIT = 180
 _WIKILINK = re.compile(r"\[\[([^\[\]\n]+)\]\]")
 _HYBRID_WIKILINK = re.compile(r"(?P<wikilink>\[\[(?P<inner>[^\[\]\n]+)\]\])\((?P<destination>[^()\n]+)\)")
 _HEADING = re.compile(r"^#+\s*")
-_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+# A note's stem has to survive two consumers: the filesystem, which rejects
+# `<>:"/\|?*` and control characters, and `WikilinkHandler`, whose targets stop
+# at `[`, `]` and `#`. Leaving the latter in place turns `- [[<path>]]` into a
+# link that resolves to some other note (a trailing `#` reads as an anchor)
+# or to no link at all.
+_UNSAFE_FILENAME = re.compile(r'[<>:"/\\|?*\[\]#\x00-\x1f]')
 
 FIRST_RUN_NOTICE = "今日暂无更早时段的推荐，本次为当日首次生成。"
 DISCLAIMER = "> 未接入可靠行情数据；本文只提供新闻研究和回顾线索，不提供收益、目标价或买卖建议。"
+
+
+class WrittenReport(NamedTuple):
+    """One persisted note, described by what actually reached the file."""
+
+    path: str
+    """Workspace-relative POSIX path of the note."""
+
+    sources: list[str]
+    """Workspace-relative paths of the links that survived validation."""
+
+    body: str
+    """The validated body as written, with dangling wikilinks downgraded to plain text."""
 
 
 class _TextExtractor(HTMLParser):
@@ -74,7 +93,7 @@ def utc_now_iso() -> str:
 
 
 def normalize_title(raw: str, fallback: str) -> str:
-    """Return a topic or Agent label as a safe, filesystem-sized Markdown filename stem."""
+    """Return a topic or Agent label as a safe, filesystem- and wikilink-safe filename stem."""
     title = _UNSAFE_FILENAME.sub("-", _HEADING.sub("", str(raw or "").strip()))
     title = re.sub(r"\s+", " ", title).strip(" .-")
     if title.lower().endswith(".md"):
@@ -173,11 +192,16 @@ def resolve_note_path(day_dir: Path, title: str, *, existing: Path | None) -> tu
 
 
 def find_note(day_dir: Path, *, kind: str, **matches: Any) -> Path | None:
-    """Return this workflow's note in one day directory whose frontmatter matches."""
+    """Return this workflow's note in one day directory whose frontmatter matches.
+
+    Every Markdown file in the directory is a candidate, including notes the user
+    is editing by hand, so an unreadable or malformed one is skipped rather than
+    allowed to abort the run.
+    """
     for path in sorted(day_dir.glob("*.md")) if day_dir.is_dir() else ():
         try:
             metadata = frontmatter.load(path).metadata
-        except (OSError, UnicodeError, ValueError):
+        except (OSError, UnicodeError, ValueError, yaml.YAMLError):
             continue
         if metadata.get("kind") == kind and all(metadata.get(key) == value for key, value in matches.items()):
             return path
@@ -190,7 +214,7 @@ def read_note(path: Path | None) -> str:
         return FIRST_RUN_NOTICE
     try:
         return frontmatter.load(path).content.strip()[:NOTE_CHAR_LIMIT] or FIRST_RUN_NOTICE
-    except (OSError, UnicodeError, ValueError):
+    except (OSError, UnicodeError, ValueError, yaml.YAMLError):
         return FIRST_RUN_NOTICE
 
 
@@ -250,8 +274,8 @@ class AutoFinStep(BaseStep):
         existing: Path | None = None,
         trailer: str = "",
         **metadata: Any,
-    ) -> tuple[str, list[str]]:
-        """Write one report note, returning its workspace-relative path and valid sources."""
+    ) -> WrittenReport:
+        """Write one report note, returning its path, valid sources, and validated body."""
         title, path = resolve_note_path(self.day_dir, filename, existing=existing)
         body, sources = validate_wikilinks(normalize_hybrid_wikilinks(output.body), self.workspace_path, path)
         await write_markdown(
@@ -269,7 +293,7 @@ class AutoFinStep(BaseStep):
         self._track(path, existing)
         relative = path.relative_to(self.workspace_path).as_posix()
         self.logger.info(f"[{self.name}] wrote kind={kind} path={relative} chars={len(body)} sources={len(sources)}")
-        return relative, sources
+        return WrittenReport(path=relative, sources=sources, body=body)
 
     async def _reply(
         self,
