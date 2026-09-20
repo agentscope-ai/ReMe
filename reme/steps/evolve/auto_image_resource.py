@@ -12,7 +12,6 @@ from agentscope.message import Base64Source, DataBlock, TextBlock
 from ..file_io._path import IMAGE_SUFFIXES
 from .base_auto_resource import BaseAutoResourceStep
 from ...components import R
-from ...components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 
 DEFAULT_MAX_IMAGE_INPUT_BYTES = 50 * 1024 * 1024
 DEFAULT_MAX_IMAGE_PIXELS = 40_000_000
@@ -210,7 +209,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
 
     resource_suffixes = IMAGE_SUFFIXES
     router_inherit_keys = BaseAutoResourceStep.router_inherit_keys | frozenset(
-        {"agent_wrapper", "include_images", "max_image_bytes", "max_image_pixels", "prompt_dict"},
+        {"agent_wrapper", "max_image_bytes", "max_image_pixels", "prompt_dict"},
     )
 
     def _max_image_bytes(self) -> int:
@@ -233,10 +232,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
 
     def _skip_resource_change(self, file_path: str) -> bool:
         """Disabling image inputs skips the whole image lifecycle, including deletes."""
-        include_images = self.context.get("include_images", self.kwargs.get("include_images", True))
-        if not isinstance(include_images, bool):
-            raise ValueError("include_images must be a boolean")
-        if include_images:
+        if self.context.get("include_images", True) is not False:
             return False
         self.context.response.success = True
         self.context.response.answer = f"Skipped image resource: {file_path} (include_images=false)"
@@ -322,7 +318,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
     ) -> None:
         """Prepare a bounded image message, then use the common note-writing agent."""
         wrapper = self.agent_wrapper
-        if not isinstance(wrapper, AsAgentWrapper):
+        if wrapper is None or wrapper.backend != "agentscope":
             raise NotImplementedError("Image resources require the AgentScope wrapper")
         config = ContextConfig(**(wrapper.kwargs.get("context_config") or {}))
         if config.max_image_num < 1:

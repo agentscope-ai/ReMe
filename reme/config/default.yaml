@@ -32,8 +32,7 @@ jobs:
             file_catalog: resource
           - backend: auto_resource_step
             dispatch_steps:
-              - backend: auto_image_resource_step
-                include_images: true
+              - auto_image_resource_step
               - auto_text_resource_step
       - backend: watch_changes_step
         dispatch_steps:
@@ -41,8 +40,7 @@ jobs:
             file_catalog: resource
           - backend: auto_resource_step
             dispatch_steps:
-              - backend: auto_image_resource_step
-                include_images: true
+              - auto_image_resource_step
               - auto_text_resource_step
 
   digest_watch_loop:
@@ -240,8 +238,7 @@ jobs:
     steps:
       - backend: auto_resource_step
         dispatch_steps:
-          - backend: auto_image_resource_step
-            include_images: true
+          - auto_image_resource_step
           - auto_text_resource_step
 
   proactive_read:

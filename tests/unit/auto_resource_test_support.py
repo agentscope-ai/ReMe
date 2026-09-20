@@ -54,7 +54,7 @@ class FakeImageAgentWrapper(AsAgentWrapper):
     """Fake only the agent reply; write through the actual scoped ReMe job tool."""
 
     def __init__(self, content: dict | str = "", *, error: Exception | None = None, perform_write: bool = True):
-        super().__init__(as_llm="", session_retention_days=0)
+        super().__init__(backend="agentscope", as_llm="", session_retention_days=0)
         self.content = content
         self.error = error
         self.perform_write = perform_write

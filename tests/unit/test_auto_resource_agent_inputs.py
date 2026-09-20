@@ -4,15 +4,18 @@
 
 import asyncio
 import uuid
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import frontmatter
 import pytest
+import yaml
 from agentscope.message import DataBlock, Msg
 
+from reme.application import Application
 from reme.components import ApplicationContext, R
 from reme.components.agent_wrapper import AsAgentWrapper
-from reme.components.job import BaseJob
+from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep
 from reme.steps.evolve.auto_text_resource import AutoTextResourceStep
@@ -24,7 +27,11 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
-async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existing, auto_resource_env):
+@pytest.mark.parametrize(
+    "options",
+    [{}, {"include_images": True}, {"include_images": False}, {"include_images": "false"}, {"include_images": None}],
+)
+async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existing, options, auto_resource_env):
     """Sharing interpretation must not override the text wrapper's optional settings."""
     env = auto_resource_env
     source_path = "resource/2026-01-01/notes.txt"
@@ -34,7 +41,11 @@ async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existi
     wrapper = FakeAgentWrapper()
     step = AutoTextResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
     with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
-        response = await env.run(step, [{"change": "modified" if existing else "added", "path": str(source)}])
+        response = await env.run(
+            step,
+            [{"change": "modified" if existing else "added", "path": str(source)}],
+            **options,
+        )
     assert response.success
     assert response.answer == "ok"
     assert isinstance(wrapper.inputs, str)
@@ -48,7 +59,7 @@ async def test_text_agent_keeps_main_reply_arguments_and_wrapper_defaults(existi
     tools = step.update_tools if existing else step.create_tools
     tools.append("custom_note_tool")
     with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
-        await env.run(step, [{"change": "modified", "path": str(source)}])
+        await env.run(step, [{"change": "modified", "path": str(source)}], **options)
     assert reply.call_args.kwargs["job_tools"] == tools
     assert reply.call_args.kwargs["session_id"] == str(uuid.uuid5(uuid.NAMESPACE_URL, source_path))
 
@@ -116,9 +127,9 @@ async def test_include_images_false_skips_every_event_without_read_or_mutation(r
     old_note = env.write_note("daily/2026-01-01/old.md", "[[resource/photo.png]]")
     before = old_note.read_bytes()
     wrapper = FakeImageAgentWrapper("must not run")
-    step = env.processor(wrapper, routed=routed, include_images=False)
+    step = env.processor(wrapper, routed=routed)
     with patch.object(AutoImageResourceStep, "_read_image", side_effect=AssertionError("must not read")):
-        response = await env.run(step, [{"change": change, "path": str(source)}])
+        response = await env.run(step, [{"change": change, "path": str(source)}], include_images=False)
     result = response.metadata["results"][0]
     assert response.success
     assert result["metadata"]["action"] == "skipped"
@@ -129,29 +140,15 @@ async def test_include_images_false_skips_every_event_without_read_or_mutation(r
     assert not (env.workspace / "daily/2026-01-01.md").exists()
 
 
-@pytest.mark.parametrize("value", ["false", 0, None])
-async def test_include_images_requires_a_real_boolean(value, auto_resource_env):
-    """Configuration values must not accidentally enable image interpretation by truthiness."""
-    env = auto_resource_env
-    source = env.write_binary("resource/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper("must not run")
-    response = await env.run(
-        env.processor(wrapper, include_images=value),
-        [{"change": "added", "path": str(source)}],
-    )
-    assert not response.success
-    assert "include_images must be a boolean" in response.metadata["results"][0]["metadata"]["error"]
-    assert not wrapper.calls
-
-
 @pytest.mark.parametrize("routed", [False, True])
 async def test_image_opt_out_does_not_bypass_resource_path_validation(routed, auto_resource_env):
     """Disabled image processing still rejects malformed external source paths."""
     env = auto_resource_env
     wrapper = FakeImageAgentWrapper("must not run")
     response = await env.run(
-        env.processor(wrapper, routed=routed, include_images=False),
+        env.processor(wrapper, routed=routed),
         [{"change": "added", "path": "resource/../private.png"}],
+        include_images=False,
     )
     assert not response.success
     assert response.metadata["results"][0]["metadata"]["action"] == "failed"
@@ -172,7 +169,6 @@ async def test_disabled_images_keep_mixed_router_results_and_text_processing(aut
     step = AutoResourceStep(
         app_context=env.app_context,
         file_store=env.file_store,
-        include_images=False,
         dispatch_steps=[
             {"backend": "auto_image_resource_step", "agent_wrapper": wrapper},
             {"backend": "auto_text_resource_step", "agent_wrapper": text_wrapper},
@@ -184,6 +180,7 @@ async def test_disabled_images_keep_mixed_router_results_and_text_processing(aut
             {"change": "added", "path": str(image)},
             {"change": "added", "path": str(text)},
         ],
+        include_images=False,
     )
     assert response.success
     assert len(response.metadata["results"]) == 2
@@ -225,77 +222,100 @@ async def test_image_agent_body_is_not_postvalidated_or_rewritten(auto_resource_
     assert note["media_type"] == "image/png"
 
 
-@pytest.mark.parametrize("invalid_config", ["non-agentscope-wrapper", "zero-image-budget"])
-async def test_image_rejects_text_only_agent_configuration(invalid_config, auto_resource_env):
-    """Neither an unsupported wrapper nor a zero image budget may yield filename-only memory."""
+async def test_image_rejects_zero_image_budget(auto_resource_env):
+    """A zero image budget must not yield filename-only memory."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeAgentWrapper() if invalid_config == "non-agentscope-wrapper" else FakeImageAgentWrapper()
-    expected_error = "AgentScope wrapper"
-    if invalid_config == "zero-image-budget":
-        wrapper.kwargs["context_config"] = {"max_image_num": 0}
-        expected_error = "context_config.max_image_num"
+    wrapper = FakeImageAgentWrapper()
+    wrapper.kwargs["context_config"] = {"max_image_num": 0}
     step = AutoImageResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
     response = await env.run(step, [{"change": "added", "path": str(source)}])
     assert not response.success
-    assert expected_error in response.metadata["results"][0]["metadata"]["error"]
+    assert "context_config.max_image_num" in response.metadata["results"][0]["metadata"]["error"]
     assert response.metadata["results"][0]["metadata"]["modified"] is False
-    assert not (wrapper.inputs if isinstance(wrapper, FakeAgentWrapper) else wrapper.calls)
+    assert not wrapper.calls
     assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
 
 
 @pytest.mark.parametrize(
-    ("job_value", "step_value", "call_value", "expected_enabled"),
+    ("backend", "suffix", "job_options", "call_options", "expected_action"),
     [
-        (None, None, None, True),
-        (None, False, None, False),
-        (False, True, None, False),
-        (True, False, None, True),
-        (True, True, False, False),
-        (False, False, True, True),
+        ("agentscope", "png", {}, {}, "added"),
+        ("agentscope", "png", {"include_images": False}, {}, "skipped"),
+        ("agentscope", "png", {"include_images": True}, {"include_images": False}, "skipped"),
+        ("agentscope", "png", {"include_images": False}, {"include_images": True}, "added"),
+        ("claude_code", "png", {}, {}, "failed"),
+        ("claude_code", "png", {}, {"include_images": False}, "skipped"),
+        ("claude_code", "txt", {}, {"include_images": True}, None),
     ],
-    ids=["default", "step", "job-disables", "job-enables", "call-disables", "call-enables"],
+    ids=["default", "job-disables", "call-disables", "call-enables", "other-backend", "disabled", "text"],
 )
-async def test_include_images_job_and_call_precedence(
-    job_value,
-    step_value,
-    call_value,
-    expected_enabled,
-    auto_resource_env,
+async def test_configured_wrapper_and_job_image_options(
+    backend,
+    suffix,
+    job_options,
+    call_options,
+    expected_action,
+    tmp_path,
 ):
-    """A real public Job resolves call context > Job defaults > image Step > true."""
-    env = auto_resource_env
-    env.app_context.registry = R.copy()
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Photo", "An image."))
-    wrapper.app_context = env.app_context
-    image_spec = {"backend": "auto_image_resource_step", "agent_wrapper": wrapper}
-    if step_value is not None:
-        image_spec["include_images"] = step_value
-    job_options = {} if job_value is None else {"include_images": job_value}
-    job = BaseJob(
-        name="auto_resource",
-        app_context=env.app_context,
-        steps=[
-            {
-                "backend": "auto_resource_step",
-                "file_store": env.file_store,
-                "dispatch_steps": [image_spec, "auto_text_resource_step"],
-            },
-        ],
-        **job_options,
+    """Use registry-built wrappers and real jobs; fake only the external agent reply."""
+    root = Path(__file__).resolve().parents[2]
+    defaults = yaml.safe_load((root / "reme/config/default.yaml").read_text(encoding="utf-8"))
+    jobs = {
+        name: defaults["jobs"][name] for name in ("auto_resource", "write", "move", "frontmatter_update", "daily_list")
+    }
+    jobs["auto_resource"].update(job_options)
+    jobs["auto_resource"]["steps"][0]["agent_wrapper"] = "resource_agent"
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+        components={
+            "agent_wrapper": {"resource_agent": {"backend": backend, "as_llm": ""}},
+            "file_store": {"default": {"backend": "local", "embedding_store": ""}},
+            "file_graph": {"default": {"backend": "local"}},
+            "keyword_index": {"default": {"backend": "bm25"}},
+            "tokenizer": {"default": {"backend": "regex"}},
+        },
+        jobs=jobs,
     )
-    await job.start()
+    source = tmp_path / f"resource/2026-01-01/photo.{suffix}"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(image_bytes() if suffix == "png" else "中文文本".encode())
+    wrapper = app.context.components[ComponentEnum.AGENT_WRAPPER]["resource_agent"]
+    assert wrapper.backend == backend
+    assert type(wrapper) is app.context.registry.get(ComponentEnum.AGENT_WRAPPER, backend)
+    fake = (
+        FakeImageAgentWrapper(caption_fields("photo", "Photo", "An image.")) if suffix == "png" else FakeAgentWrapper()
+    )
+    fake.app_context = app.context
+    await app.start()
     try:
-        call_options = {} if call_value is None else {"include_images": call_value}
-        response = await job(changes=[{"change": "added", "path": str(source)}], **call_options)
+        with patch.object(wrapper, "reply", new=AsyncMock(side_effect=fake.reply)) as reply:
+            response = await app.run_job(
+                "auto_resource",
+                changes=[{"change": "added", "path": str(source)}],
+                **call_options,
+            )
     finally:
-        await job.close()
-    assert response.success
-    assert bool(wrapper.calls) is expected_enabled
-    assert response.metadata["modified"] is expected_enabled
-    if not expected_enabled:
-        assert response.metadata["results"][0]["metadata"]["reason"] == "include_images=false"
+        await app.close()
+    result = response.metadata["results"][0]["metadata"]
+    assert response.success is (expected_action != "failed")
+    assert result.get("action") == expected_action
+    assert reply.await_count == int(expected_action == "added" or suffix == "txt")
+    if suffix == "txt":
+        assert response.answer == "ok"
+        assert isinstance(reply.call_args.args[0], str)
+        assert set(reply.call_args.kwargs) == {"system_prompt", "job_tools", "session_id"}
+    elif expected_action == "added":
+        note = frontmatter.load(tmp_path / result["path"])
+        assert note["source_resource"] == f"[[resource/2026-01-01/photo.{suffix}]]"
+    elif expected_action == "skipped":
+        assert result["reason"] == "include_images=false"
+    else:
+        assert "AgentScope wrapper" in result["error"]
 
 
 async def test_partial_agent_write_cannot_claim_an_explicit_foreign_owner(auto_resource_env):

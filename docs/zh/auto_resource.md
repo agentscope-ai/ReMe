@@ -65,11 +65,23 @@ Agent 写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/
 不再单独调用 caption 模型或执行额外的 schema 提取；Agent 失败后也不以纯文本重跑。
 这是一次 Agent 工作流，工具调用可能带来多轮模型请求。
 
-在 `auto_resource` 调用、Job 默认值或图片子 Step 上设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
-调用参数优先于 Job 默认值，Job 默认值优先于 Step 配置。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，
+在 `auto_resource` 调用或 Job 默认值中设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
+调用参数优先于 Job 默认值，两者都未设置时默认开启。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，
 手动任务默认值可设置 `jobs.auto_resource.include_images=false`。图片子类通过现有逐资源结果和 warning 日志说明跳过原因，
 不影响文本处理。已有图片卡片保持不变，即使原图被删除也不清理。重新开启不会自动补处理旧事件，需要显式把相关路径再次提交给
 `auto_resource`。尊重 wrapper 配置的图片数量上限，每次资源调用至少需要容纳一张图片，不会自动提高上限。
+
+在启动常驻服务时配置 wrapper，例如将每个 Agent 上下文的图片上限设为一张：
+
+```bash
+reme start components.agent_wrapper.default.context_config.max_image_num=1
+```
+
+监听任务会自动处理资源变更。如需显式重新处理已存在的 `resource/photo.png`，在另一个终端使用同一 workspace 调用客户端：
+
+```bash
+reme auto_resource include_images=true changes='[{"path":"resource/photo.png","change":"modified"}]'
+```
 
 宽或高超过 2048px 的图像会降采样，格式不被模型接受的图像会转码；这些处理只发生在请求前的内存副本中，
 `resource/` 下的原图文件不会被修改。图像处理开启时，图像变更会原地更新卡片，图像删除会清理关联卡片。

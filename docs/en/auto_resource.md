@@ -72,13 +72,26 @@ model and formatter. Configure the model through `components.agent_wrapper.<name
 are replaced by that binding. There is no separate caption model, schema-extraction call, or text-only retry after an
 agent failure. An agent workflow can make multiple model requests while using its tools.
 
-Set `include_images=false` on an `auto_resource` call, as a Job default, or on the image processor to skip **all** image
-events, including deletions. Call-time values override Job defaults, which override Step settings. For the watcher, use
+Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
+deletions. Call-time values override Job defaults; when neither is set, image processing is enabled. For the watcher, use
 `jobs.resource_watch_loop.include_images=false`; for manual calls, use `jobs.auto_resource.include_images=false`.
 The image processor reports each skip in the existing result and warning log; text processing is unchanged. Existing
 image cards are left untouched, even if their source image is deleted. Re-enabling images does not replay skipped
 events; explicitly submit the affected paths to `auto_resource` when compensation is needed. The wrapper's configured
 image-count limit is respected and must allow at least one image per resource call; it is not increased automatically.
+
+Configure the wrapper when starting the persistent service. For example, to allow one image per agent context:
+
+```bash
+reme start components.agent_wrapper.default.context_config.max_image_num=1
+```
+
+The watcher processes resource changes automatically. To explicitly reprocess an existing `resource/photo.png`, run
+the client in another terminal using the same workspace:
+
+```bash
+reme auto_resource include_images=true changes='[{"path":"resource/photo.png","change":"modified"}]'
+```
 
 Images wider or taller than 2048px are downscaled,
 and provider-unfriendly formats are re-encoded, in memory for the request only; the original file under

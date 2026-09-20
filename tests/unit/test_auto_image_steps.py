@@ -556,7 +556,6 @@ def test_auto_resource_router_inherits_declared_options_with_child_override():
         "backend": "auto_image_resource_step",
         "file_store": file_store,
         "agent_wrapper": agent_wrapper,
-        "include_images": False,
         "language": "zh",
         "prompt_dict": prompt_dict,
         "max_image_bytes": 32,
@@ -853,7 +852,7 @@ def test_default_resource_watcher_dispatches_only_the_unified_router():
     config = yaml.safe_load((root / "reme" / "config" / "default.yaml").read_text(encoding="utf-8"))
     steps = config["jobs"]["resource_watch_loop"]["steps"]
     expected_processors = [
-        {"backend": "auto_image_resource_step", "include_images": True},
+        "auto_image_resource_step",
         "auto_text_resource_step",
     ]
 
