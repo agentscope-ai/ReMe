@@ -47,6 +47,10 @@ const requiredFiles = [
   "en/traffic.html",
   "zh/configuration.html",
   "en/configuration.html",
+  "zh/reme-blog.html",
+  "en/reme-blog.html",
+  "zh/blog_20260920.html",
+  "en/blog_20260920.html",
   "zh/services.html",
   "en/services.html",
   "zh/workspace/studio.html",
@@ -89,6 +93,15 @@ const ChineseConfiguration = await readFile(path.join(outputDir, "zh/configurati
 assert.match(ChineseConfiguration, /搜索文档/);
 assert.match(ChineseConfiguration, /复制 Markdown/);
 assert.match(ChineseConfiguration, /在 GitHub 查看源文件/);
+
+const ChineseBlog = await readFile(path.join(outputDir, "zh/blog_20260920.html"), "utf8");
+assert.match(ChineseBlog, /<h1[^>]*>给记忆加上“线索”——ReMe 记忆标签/);
+assert.match(ChineseBlog, />记忆标签<\/p>/, "the Chinese sidebar must use the localized article name");
+assert.match(
+  ChineseBlog,
+  /<a class="VPLink link link" href="\/zh\/reme-blog"[^>]*>.*?<h2 class="text"[^>]*>ReMe 博客<\/h2>/,
+  "the blog sidebar heading must link to the blog landing page",
+);
 
 const jobReference = await readFile(path.join(outputDir, "en/reference/jobs.html"), "utf8");
 assert.match(jobReference, /Job API Reference/);

@@ -219,10 +219,11 @@ function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): Default
   if (page === "blog") {
     return [{
       text: zh ? "ReMe 博客" : "ReMe Blog",
+      link: `/${language}/reme-blog`,
       collapsed: false,
       items: [
-        { text: zh ? "产品故事" : "Product Story", link: `/${language}/reme-blog` },
-        { text: "Memory Tags", link: `/${language}/blog_20260920` },
+        { text: zh ? "ReMe介绍" : "About ReMe", link: `/${language}/reme-blog` },
+        { text: zh ? "记忆标签" : "Memory Tags", link: `/${language}/blog_20260920` },
       ],
     }];
   }
