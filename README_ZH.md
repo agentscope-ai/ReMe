@@ -47,6 +47,8 @@
 
 ## 📰 最新动态
 
+- [2026.09] - **[Memory Tags 博客](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
+  可重建 Tag Index 与标签过滤检索。
 - [2026.09] - **[Hermes Agent 记忆 Provider](integrations/hermes_agent/README_ZH.md) 已可使用**：支持 HTTP 和 Embedded
   两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 - [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过

@@ -216,12 +216,22 @@ function benchmarksSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
 
 function singlePageSidebar(language: "zh" | "en", page: "blog" | "faq"): DefaultTheme.SidebarItem[] {
   const zh = language === "zh";
+  if (page === "blog") {
+    return [{
+      text: zh ? "ReMe 博客" : "ReMe Blog",
+      collapsed: false,
+      items: [
+        { text: zh ? "产品故事" : "Product Story", link: `/${language}/reme-blog` },
+        { text: "Memory Tags", link: `/${language}/blog_20260920` },
+      ],
+    }];
+  }
   return [{
-    text: page === "blog" ? (zh ? "ReMe 博客" : "ReMe Blog") : (zh ? "帮助" : "Help"),
+    text: zh ? "帮助" : "Help",
     collapsed: false,
     items: [{
-      text: page === "blog" ? (zh ? "产品故事" : "Product Story") : (zh ? "常见问题" : "Frequently Asked Questions"),
-      link: `/${language}/${page === "blog" ? "reme-blog" : "faq"}`,
+      text: zh ? "常见问题" : "Frequently Asked Questions",
+      link: `/${language}/faq`,
     }],
   }];
 }
@@ -235,6 +245,7 @@ function sidebars(language: "zh" | "en"): DefaultTheme.SidebarMulti {
     [`/${language}/plugin_development`]: pluginsSidebar(language),
     [`/${language}/benchmarks/`]: benchmarksSidebar(language),
     [`/${language}/reme-blog`]: singlePageSidebar(language, "blog"),
+    [`/${language}/blog_20260920`]: singlePageSidebar(language, "blog"),
     [`/${language}/faq`]: singlePageSidebar(language, "faq"),
     [`/${language}/`]: docsSidebar(language),
   };
