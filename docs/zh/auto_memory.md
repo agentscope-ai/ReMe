@@ -96,8 +96,7 @@ reme start components.agent_wrapper.default.context_config.max_image_num=20
 reme auto_memory session_id=session-a include_images=true messages='[...]'
 ```
 
-模型与 formatter 自身的限制仍然适用。开启图像且消息中包含图像时，才会在保存对话前检查图像选项、wrapper backend、
-URL scheme 和图像数量。
+模型与 formatter 自身的限制仍然适用。开启图像且消息中包含图像时，才会在保存对话前检查 wrapper backend、URL scheme 和图像数量。
 之后的 formatter 或 provider 错误直接返回，不转为纯文本重试；与纯文本调用相同，已保存的对话不会因此回滚。
 
 源 JSONL 仍按上文规则保存，包括过滤 Base64 block。因此，再次处理这些图像需要提交原始消息，而不是读取已保存的 JSONL。

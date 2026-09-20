@@ -294,8 +294,6 @@ class AutoMemoryStep(BaseStep):
         ]
         if not images:
             return messages, {}, None
-        if not isinstance(include_images, bool):
-            raise ValueError("include_images must be a boolean")
         wrapper = self.agent_wrapper
         if wrapper is None or wrapper.backend != "agentscope":
             raise NotImplementedError("Auto Memory image inputs require the AgentScope wrapper")

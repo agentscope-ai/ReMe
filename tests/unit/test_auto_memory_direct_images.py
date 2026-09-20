@@ -206,7 +206,7 @@ async def test_sources_interleave_unchanged_through_native_formatters(setup, mon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing", [False, True])
-@pytest.mark.parametrize("failure", ["bool", "zero", "null", "backend", "file", "ftp", "default-limit"])
+@pytest.mark.parametrize("failure", ["backend", "file", "ftp", "default-limit"])
 async def test_static_errors_precede_any_source_session_write(setup, existing, failure):
     step, wrapper, path = setup
     old = _message("old", images=False, timestamp=f"{_DAY}T09:00:00")
@@ -215,10 +215,8 @@ async def test_static_errors_precede_any_source_session_write(setup, existing, f
         path.parent.mkdir(parents=True)
         path.write_bytes(before)
     message, options = _message(), {"include_images": True}
-    error, match = ValueError, "include_images"
-    if failure in ("bool", "zero", "null"):
-        options["include_images"] = {"bool": "true", "zero": 0, "null": None}[failure]
-    elif failure == "backend":
+    error, match = ValueError, "max_image_num"
+    if failure == "backend":
         step.kwargs["agent_wrapper"] = CcAgentWrapper(backend="claude_code")
         error, match = NotImplementedError, "AgentScope"
     elif failure in ("file", "ftp"):
@@ -226,7 +224,6 @@ async def test_static_errors_precede_any_source_session_write(setup, existing, f
         match = "Base64|base64|HTTP|http"
     else:
         message.content = [_image() for _ in range(6)]
-        match = "max_image_num"
 
     with pytest.raises(error, match=match):
         await _run(step, [message], **options)
@@ -354,7 +351,6 @@ async def test_provider_error_is_not_retried_and_keeps_main_saved_source(setup, 
         ("claude_code", True, {}, True, "AgentScope"),
         ("claude_code", False, {}, True, str),
         ("claude_code", True, {}, False, str),
-        ("agentscope", False, {"include_images": "true"}, True, "boolean"),
         ("claude_code", False, {"include_images": "true"}, False, str),
     ],
 )

@@ -105,8 +105,8 @@ Then call the running service from another terminal, using the same workspace:
 reme auto_memory session_id=session-a include_images=true messages='[...]'
 ```
 
-Model and formatter limits still apply. When image input is enabled and images are present, Auto Memory checks the option,
-wrapper backend, URL schemes and image count before saving the conversation. Later formatter or provider errors are returned
+Model and formatter limits still apply. When image input is enabled and images are present, Auto Memory checks the wrapper
+backend, URL schemes and image count before saving the conversation. Later formatter or provider errors are returned
 without retrying as text-only. As with text-only calls, those errors do not roll back an already saved conversation.
 
 Source JSONL saving follows the filtering rules above, including the omission of Base64 blocks. To process those images
