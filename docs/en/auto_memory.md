@@ -81,13 +81,9 @@ blocks, preventing recalled memory and binary payloads from being mistaken for u
 ## Images in Conversations
 
 Auto Memory can read images together with the surrounding conversation. Images are disabled by default; enable them for a
-call with `include_images=true`:
+call with `include_images=true`.
 
-```bash
-reme auto_memory session_id=session-a include_images=true messages='[...]'
-```
-
-Image input requires an AgentScope wrapper (`AsAgentWrapper`) with a vision-capable `as_llm` model and compatible formatter.
+Image input requires an `agentscope` wrapper with a vision-capable `as_llm` model and compatible formatter.
 Auto Memory uses that model to read the conversation, without generating captions first. When images are disabled or no
 image blocks are present, the existing text-only behavior is unchanged, including support for other wrappers.
 
@@ -97,17 +93,21 @@ the formatter; Auto Memory does not download or preprocess the images. URLs must
 files, submit Base64 instead of a `file://` URL; other URL schemes are also unsupported.
 
 The wrapper's `context_config.max_image_num` limits the number of images per call; Auto Memory rejects excess images rather
-than increasing the limit. The AgentScope default is 5. To use a higher limit in a one-shot CLI call:
+than increasing the limit. The AgentScope default is 5. To use a higher limit, set it when starting the service:
 
 ```bash
-reme start job=auto_memory \
-  components.agent_wrapper.default.context_config.max_image_num=20 \
-  session_id=session-a include_images=true messages='[...]'
+reme start components.agent_wrapper.default.context_config.max_image_num=20
 ```
 
-Model and formatter limits still apply. Options, wrapper type, URL schemes and image count are checked before saving the
-conversation. Later formatter or provider errors are returned without retrying as text-only. As with text-only calls,
-those errors do not roll back an already saved conversation.
+Then call the running service from another terminal, using the same workspace:
+
+```bash
+reme auto_memory session_id=session-a include_images=true messages='[...]'
+```
+
+Model and formatter limits still apply. When image input is enabled and images are present, Auto Memory checks the option,
+wrapper backend, URL schemes and image count before saving the conversation. Later formatter or provider errors are returned
+without retrying as text-only. As with text-only calls, those errors do not roll back an already saved conversation.
 
 Source JSONL saving follows the filtering rules above, including the omission of Base64 blocks. To process those images
 again, resubmit the original messages rather than the saved JSONL. No separate image files or caption cards are created,

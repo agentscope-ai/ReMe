@@ -73,13 +73,9 @@ daily note 会指向对应的对话记录。持久化时会排除 tool-result bl
 
 ## 对话中的图像
 
-Auto Memory 可以结合上下文理解对话中的图像。默认只处理文本，调用时加上 `include_images=true` 即可开启图像：
+Auto Memory 可以结合上下文理解对话中的图像。默认只处理文本，调用时加上 `include_images=true` 即可开启图像。
 
-```bash
-reme auto_memory session_id=session-a include_images=true messages='[...]'
-```
-
-图像输入需要 AgentScope wrapper（`AsAgentWrapper`），其 `as_llm` 应绑定支持视觉的模型，并使用兼容的 formatter。
+图像输入需要 `agentscope` wrapper，其 `as_llm` 应绑定支持视觉的模型，并使用兼容的 formatter。
 Auto Memory 直接用这个模型理解图文，不先生成 caption。关闭图像或消息中没有图像块时，仍按原有方式处理文本，也不限制
 wrapper 类型。
 
@@ -88,15 +84,20 @@ wrapper 类型。
 供应商访问；本地文件请先转为 Base64，不使用 `file://` URL，其他 URL scheme 也不支持。
 
 每次调用的图像数量受 wrapper 的 `context_config.max_image_num` 限制，超限会报错，不会自动提高上限。
-AgentScope 默认允许 5 张图像。需要更多时，可以在单次 CLI 调用中指定：
+AgentScope 默认允许 5 张图像。需要更多时，在启动服务时设置：
 
 ```bash
-reme start job=auto_memory \
-  components.agent_wrapper.default.context_config.max_image_num=20 \
-  session_id=session-a include_images=true messages='[...]'
+reme start components.agent_wrapper.default.context_config.max_image_num=20
 ```
 
-模型与 formatter 自身的限制仍然适用。图像选项、wrapper 类型、URL scheme 和图像数量会在保存对话前检查。
+然后在另一个终端中，使用同一 workspace 调用已启动的服务：
+
+```bash
+reme auto_memory session_id=session-a include_images=true messages='[...]'
+```
+
+模型与 formatter 自身的限制仍然适用。开启图像且消息中包含图像时，才会在保存对话前检查图像选项、wrapper backend、
+URL scheme 和图像数量。
 之后的 formatter 或 provider 错误直接返回，不转为纯文本重试；与纯文本调用相同，已保存的对话不会因此回滚。
 
 源 JSONL 仍按上文规则保存，包括过滤 Base64 block。因此，再次处理这些图像需要提交原始消息，而不是读取已保存的 JSONL。

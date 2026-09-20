@@ -194,7 +194,6 @@ jobs:
         - messages
     steps:
       - backend: auto_memory_step
-        include_images: false
       - backend: auto_tag_step
 
   auto_memory_cc:

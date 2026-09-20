@@ -18,7 +18,6 @@ from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index
 from ..file_io import validate_filename_component, validate_session_id
 from ..index import normalize_posix_path
 from ...components import R
-from ...components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"
@@ -284,10 +283,8 @@ class AutoMemoryStep(BaseStep):
         day: str,
     ) -> tuple[list[Msg], dict[str, DataBlock], dict | None]:
         """Validate image inputs before saving, without reading or changing their sources."""
-        include_images = self.context.get("include_images", self.kwargs.get("include_images", False))
-        if not isinstance(include_images, bool):
-            raise ValueError("include_images must be a boolean")
-        if not include_images:
+        include_images = self.context.get("include_images", False)
+        if include_images is False:
             return messages, {}, None
         images = [
             (message_index, block_index, block)
@@ -297,8 +294,10 @@ class AutoMemoryStep(BaseStep):
         ]
         if not images:
             return messages, {}, None
+        if not isinstance(include_images, bool):
+            raise ValueError("include_images must be a boolean")
         wrapper = self.agent_wrapper
-        if not isinstance(wrapper, AsAgentWrapper):
+        if wrapper is None or wrapper.backend != "agentscope":
             raise NotImplementedError("Auto Memory image inputs require the AgentScope wrapper")
         for _, _, block in images:
             if block.source.type == "url" and urlsplit(str(block.source.url)).scheme not in {"http", "https"}:

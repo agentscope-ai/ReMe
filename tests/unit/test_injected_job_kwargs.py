@@ -260,7 +260,7 @@ def test_configs_define_original_jobs_without_daily_variants():
 
     default = resolve_app_config(config="default", log_config=False)
     assert default["jobs"]["auto_memory"]["steps"] == [
-        {"backend": "auto_memory_step", "include_images": False},
+        {"backend": "auto_memory_step"},
         {"backend": "auto_tag_step"},
     ]
     assert default["jobs"]["auto_memory_cc"]["steps"] == [

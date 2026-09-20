@@ -14,9 +14,10 @@ import httpx
 import pytest
 import yaml
 
+from reme.application import Application
 from reme.components import R
-from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
+from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.file_store import LocalFileStore
 from reme.components.job import BaseJob
 from reme.components.tag_index import LocalTagIndex
@@ -61,13 +62,6 @@ def _saved_line(message):
     return (message.model_copy(update={"content": content}).model_dump_json() + "\n").encode("utf-8")
 
 
-class _OtherWrapper(BaseAgentWrapper):
-    """Text-only backend; a matching label must not bypass the type check."""
-
-    async def reply(self, _inputs, **_kwargs):
-        return {"result": "ok"}
-
-
 @pytest.fixture(name="setup")
 def memory_setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -96,17 +90,25 @@ def test_only_include_images_is_exposed_and_disabled_by_default():
     job = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]["auto_memory"]
     assert job["parameters"]["properties"]["include_images"]["default"] is False
     assert {"supports_vision", "image_mode"}.isdisjoint(job["parameters"]["properties"])
-    assert job["steps"] == [{"backend": "auto_memory_step", "include_images": False}, {"backend": "auto_tag_step"}]
+    assert job["steps"] == [{"backend": "auto_memory_step"}, {"backend": "auto_tag_step"}]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "options,images",
-    [({}, True), ({"include_images": False}, True), ({"include_images": True}, False)],
+    [
+        ({}, True),
+        ({"include_images": False}, True),
+        ({"include_images": False}, False),
+        ({"include_images": True}, False),
+        ({"include_images": "false"}, False),
+        ({"include_images": 0}, False),
+        ({"include_images": None}, False),
+    ],
 )
 async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monkeypatch, options, images):
     step, _, path = setup
-    wrapper = _OtherWrapper(backend="not-agentscope")
+    wrapper = CcAgentWrapper(backend="claude_code")
     wrapper.reply = AsyncMock(return_value={"result": "ok"})
     wrapper.kwargs["context_config"] = {"max_image_num": 0}
     step.kwargs["agent_wrapper"] = wrapper
@@ -114,7 +116,6 @@ async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monke
     message.content.append(DataBlock(source=URLSource(media_type="application/pdf", url="file:///not-read.pdf")))
     before = message.model_dump()
     extra = {"model_config": {"max_retries": 2}}
-    monkeypatch.setattr(step, "_reply_extra_kwargs", Mock(return_value=extra))
     expected = step.prompt_format(
         "user_message_create",
         today=_DAY,
@@ -124,6 +125,24 @@ async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monke
         session_file=f"session/dialog/{_SESSION}.jsonl",
         history=step._format_history([message]),
     )
+    events = []
+    save, history = step._save_session_messages, step._format_history
+
+    async def save_source(*args):
+        await save(*args)
+        events.append("save")
+
+    def format_history(messages):
+        events.append("history")
+        return history(messages)
+
+    def reply_kwargs(_day):
+        events.append("reply_kwargs")
+        return extra
+
+    monkeypatch.setattr(step, "_save_session_messages", save_source)
+    monkeypatch.setattr(step, "_format_history", format_history)
+    monkeypatch.setattr(step, "_reply_extra_kwargs", reply_kwargs)
 
     response = await _run(step, [message], **options)
 
@@ -139,6 +158,7 @@ async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monke
     assert path.read_bytes() == _saved_line(message)
     assert message.model_dump() == before
     assert wrapper.kwargs["context_config"] == {"max_image_num": 0}
+    assert events == ["save", "history", "reply_kwargs"]
 
 
 @pytest.mark.asyncio
@@ -186,7 +206,7 @@ async def test_sources_interleave_unchanged_through_native_formatters(setup, mon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing", [False, True])
-@pytest.mark.parametrize("failure", ["bool", "backend", "file", "ftp", "default-limit"])
+@pytest.mark.parametrize("failure", ["bool", "zero", "null", "backend", "file", "ftp", "default-limit"])
 async def test_static_errors_precede_any_source_session_write(setup, existing, failure):
     step, wrapper, path = setup
     old = _message("old", images=False, timestamp=f"{_DAY}T09:00:00")
@@ -196,10 +216,10 @@ async def test_static_errors_precede_any_source_session_write(setup, existing, f
         path.write_bytes(before)
     message, options = _message(), {"include_images": True}
     error, match = ValueError, "include_images"
-    if failure == "bool":
-        options["include_images"] = "true"
+    if failure in ("bool", "zero", "null"):
+        options["include_images"] = {"bool": "true", "zero": 0, "null": None}[failure]
     elif failure == "backend":
-        step.kwargs["agent_wrapper"] = _OtherWrapper(backend="agentscope")
+        step.kwargs["agent_wrapper"] = CcAgentWrapper(backend="claude_code")
         error, match = NotImplementedError, "AgentScope"
     elif failure in ("file", "ftp"):
         message.content[1].source = URLSource(media_type="image/png", url=f"{failure}:///private/image.png")
@@ -217,10 +237,11 @@ async def test_static_errors_precede_any_source_session_write(setup, existing, f
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("value", [None, 1, [], "false"])
-async def test_include_images_requires_a_boolean_even_without_messages(setup, value):
+async def test_empty_messages_ignore_image_option_and_keep_main_skip_behavior(setup, value):
     step, wrapper, path = setup
-    with pytest.raises(ValueError, match="include_images"):
-        await _run(step, [], include_images=value)
+    response = await _run(step, [], include_images=value)
+    assert response.success is True and response.answer == "Skipped: no messages"
+    assert response.metadata == {"date": _DAY, "modified": False, "n_messages": 0}
     assert not path.exists()
     wrapper.reply.assert_not_called()
 
@@ -324,22 +345,53 @@ async def test_provider_error_is_not_retried_and_keeps_main_saved_source(setup, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "configured,options,enabled",
+    "backend,configured,options,images,expected",
     [
-        (True, {}, True),
-        (False, {}, False),
-        (True, {"include_images": False}, False),
-        (False, {"include_images": True}, True),
+        ("agentscope", True, {}, True, Msg),
+        ("agentscope", False, {}, True, str),
+        ("agentscope", True, {"include_images": False}, True, str),
+        ("agentscope", False, {"include_images": True}, True, Msg),
+        ("claude_code", True, {}, True, "AgentScope"),
+        ("claude_code", False, {}, True, str),
+        ("claude_code", True, {}, False, str),
+        ("agentscope", False, {"include_images": "true"}, True, "boolean"),
+        ("claude_code", False, {"include_images": "true"}, False, str),
     ],
 )
-async def test_runtime_switch_overrides_step_config(setup, configured, options, enabled):
-    step, wrapper, _ = setup
-    step.kwargs["include_images"] = configured
-
-    response = await _run(step, [_message()], **options)
-
-    assert response.success is True
-    assert isinstance(wrapper.reply.call_args.args[0], Msg if enabled else str)
+async def test_configured_backend_and_job_switch(tmp_path, monkeypatch, backend, configured, options, images, expected):
+    config = Path(__file__).resolve().parents[2] / "reme/config/default.yaml"
+    job_config = yaml.safe_load(config.read_text(encoding="utf-8"))["jobs"]["auto_memory"]
+    job_config.update(include_images=configured, steps=[{"backend": "auto_memory_step"}])
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+        components={
+            "agent_wrapper": {"default": {"backend": backend, "as_llm": ""}},
+            "file_store": {"default": {"backend": "local", "embedding_store": ""}},
+        },
+        jobs={"auto_memory": job_config},
+    )
+    wrapper = app.context.components["agent_wrapper"]["default"]
+    assert isinstance(wrapper, AsAgentWrapper if backend == "agentscope" else CcAgentWrapper)
+    assert wrapper.backend == backend
+    wrapper.reply = AsyncMock(return_value={"result": "ok"})
+    monkeypatch.setattr(AutoMemoryStep, "_list_session_note", AsyncMock(return_value=None))
+    job = app.context.jobs["auto_memory"]
+    await job.start()
+    try:
+        response = await job(session_id=_SESSION, date=_DAY, messages=[_message(images=images)], **options)
+    finally:
+        await job.close()
+    if isinstance(expected, str):
+        assert response.success is False and expected in response.answer
+        assert not (tmp_path / "session/dialog" / f"{_SESSION}.jsonl").exists()
+        wrapper.reply.assert_not_called()
+    else:
+        assert response.success is True
+        assert isinstance(wrapper.reply.call_args.args[0], expected)
 
 
 @pytest.mark.asyncio
