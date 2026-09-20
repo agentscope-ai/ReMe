@@ -39,6 +39,9 @@ hermes plugins install agentscope-ai/ReMe/integrations/hermes_agent
 hermes memory setup
 ```
 
+在已经把 ReMe 收录进插件目录的 Hermes 版本中，也可以使用更短的
+`hermes plugins install reme`。
+
 本地同时开发 ReMe 和 Hermes 时，可以复制当前 checkout，也可以把它链接为 project-local plugin。软链接会让 Hermes 始终
 运行当前正在编辑的 ReMe 源码：
 
@@ -172,8 +175,10 @@ ReMe 搜索覆盖整个 workspace。多个 Hermes profile 指向同一个 worksp
 
 ## 真实端到端验证
 
-以下截图使用 Computer Use 从真实英文 Hermes 0.21.1 与 ReMe Studio 0.4.1.11 界面取得，模型通过
-OpenAI-compatible 接口调用。HTTP 与 Embedded 分别使用隔离的临时 Hermes profile 和 ReMe workspace：第一个会话通过
+以下截图使用 Computer Use 从真实英文 Hermes 0.21.1 与 ReMe Studio 0.4.1.11 界面取得。开发期间还曾针对最低支持的
+Hermes 0.21.0 与当时的 `main` 分支运行聚焦兼容性检查，使用真实 provider contract 和插件 loader，并针对该 `main`
+运行插件 validator。这些检查不属于 ReMe CI。
+模型通过 OpenAI-compatible 接口调用。HTTP 与 Embedded 分别使用隔离的临时 Hermes profile 和 ReMe workspace：第一个会话通过
 `auto_memory` 写入合成事实，第二个全新会话通过自动 `prefetch` 召回。图片不包含 API Key、`.env` 内容、浏览器外框或
 真实个人记忆。
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+import contextvars
+import threading
+
+from typing import Any, Callable, Protocol
 
 
 class ReMeBackendError(RuntimeError):
@@ -34,6 +37,25 @@ class ReMeBackend(Protocol):
 
     def close(self, *, timeout: float) -> None:
         """Release resources within a bounded interval."""
+
+
+def spawn_profile_thread(
+    target: Callable[..., Any],
+    *,
+    name: str,
+    args: tuple[Any, ...] = (),
+) -> threading.Thread:
+    """Create a profile-aware daemon thread across supported Hermes versions."""
+    try:
+        from agent.memory_provider import spawn_context_thread
+    except ImportError:
+        context = contextvars.copy_context()
+
+        def run() -> None:
+            context.run(target, *args)
+
+        return threading.Thread(target=run, name=name, daemon=True)
+    return spawn_context_thread(target, name=name, args=args)
 
 
 def require_healthy(response: dict[str, Any]) -> dict[str, Any]:

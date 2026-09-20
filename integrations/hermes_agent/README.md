@@ -48,6 +48,9 @@ hermes plugins install agentscope-ai/ReMe/integrations/hermes_agent
 hermes memory setup
 ```
 
+Hermes releases whose plugin catalog includes ReMe also accept the shorter
+`hermes plugins install reme` form.
+
 For development from local ReMe and Hermes checkouts, either copy the integration
 into the active profile or link it as a project-local plugin. The link keeps
 Hermes on the exact ReMe source being edited:
@@ -209,8 +212,11 @@ Run `hermes memory status` after installation, then start a new Hermes session.
 ## Verified end-to-end behavior
 
 The screenshots below were captured with Computer Use from real English Hermes
-0.21.1 and ReMe Studio 0.4.1.11 interfaces. The conversations used an
-OpenAI-compatible model endpoint. Each mode used an isolated temporary Hermes
+0.21.1 and ReMe Studio 0.4.1.11 interfaces. During development, focused
+compatibility checks were run with Hermes 0.21.0 and the then-current `main`
+using the real provider contract and plugin loader; the plugin validator was
+also run against that `main`. These checks are not part of ReMe CI. The
+conversations used an OpenAI-compatible model endpoint. Each mode used an isolated temporary Hermes
 profile and ReMe workspace. The first session recorded a synthetic fact through
 `auto_memory`; a fresh session then recovered it through automatic `prefetch`.
 No API keys, `.env` contents, browser chrome, or personal memories appear in the

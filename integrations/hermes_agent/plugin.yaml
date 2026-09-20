@@ -2,7 +2,6 @@ name: reme
 version: 0.1.0
 description: "ReMe local-first, file-native long-term memory for Hermes Agent (HTTP or embedded)."
 kind: exclusive
-manifest_version: 2
 requires_hermes: ">=0.21"
 author: agentscope-ai
 homepage: https://github.com/agentscope-ai/ReMe

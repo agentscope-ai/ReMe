@@ -10,7 +10,7 @@ import time
 from enum import Enum
 from typing import Any, Coroutine
 
-from .backend import ReMeBackendError, require_healthy
+from .backend import ReMeBackendError, require_healthy, spawn_profile_thread
 
 
 class _State(Enum):
@@ -66,9 +66,8 @@ class EmbeddedReMeBackend:
                     f"Embedded ReMe cannot start from state {self._state.value}{detail}",
                 )
             self._state = _State.STARTING
-            self._thread = threading.Thread(
-                target=self._run_loop,
-                daemon=True,
+            self._thread = spawn_profile_thread(
+                self._run_loop,
                 name="reme-embedded-loop",
             )
             self._thread.start()

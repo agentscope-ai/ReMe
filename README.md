@@ -49,6 +49,9 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
+- [2026.09] - **[Hermes Agent memory provider](integrations/hermes_agent/README.md) available**: choose HTTP or embedded
+  mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration
+  supports Hermes Agent 0.21+ and includes profile-aware background work.
 - [2026.09] - **[OpenClaw plugin](https://reme.agentscope.io/en/integrations/openclaw) released**: install it from
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) or
   [npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin) to add native memory recall, automatic
