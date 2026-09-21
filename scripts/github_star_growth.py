@@ -44,7 +44,7 @@ def parse_period(period: str) -> tuple[int, str]:
     match = PERIOD_PATTERN.fullmatch(period.strip().lower())
     if match is None:
         raise ValueError(
-            f"invalid period {period!r}: use a number with an optional d/w/m/y suffix, e.g. 90, 30d, 8w, 3m, 1y"
+            f"invalid period {period!r}: use a number with an optional d/w/m/y suffix, e.g. 90, 30d, 8w, 3m, 1y",
         )
     amount = int(match["amount"])
     if amount < 1:
