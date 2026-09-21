@@ -104,7 +104,7 @@ assert.match(
 );
 
 const EnglishBlog = await readFile(path.join(outputDir, "en/blog_20260920.html"), "utf8");
-assert.match(EnglishBlog, /<h1[^>]*>Add Tags to Memory/);
+assert.match(EnglishBlog, /<h1[^>]*>ReMe Memory Tags/);
 assert.match(EnglishBlog, /How Does the Tag Index Work\?/);
 assert.doesNotMatch(EnglishBlog, /full article is currently available in Chinese/);
 
