@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Report daily new GitHub stars for a repository using the GitHub CLI."""
+"""Report daily new GitHub stars and the cumulative growth curve for a repository."""
 
 from __future__ import annotations
 
 import argparse
+import calendar
 import csv
 import json
 import math
+import re
 import subprocess
 import sys
 from collections import Counter
@@ -16,6 +18,8 @@ from typing import Any, TextIO
 from xml.sax.saxutils import escape
 
 DEFAULT_REPOSITORY = "agentscope-ai/ReMe"
+DEFAULT_PERIOD = "90d"
+PERIOD_PATTERN = re.compile(r"(?P<amount>\d+)\s*(?P<unit>[dwmy])?")
 QUERY = """
 query($owner: String!, $name: String!, $before: String) {
   repository(owner: $owner, name: $name) {
@@ -35,10 +39,40 @@ query($owner: String!, $name: String!, $before: String) {
 """
 
 
+def parse_period(period: str) -> tuple[int, str]:
+    """Split a period such as ``3m`` into its amount and its unit (default ``d``)."""
+    match = PERIOD_PATTERN.fullmatch(period.strip().lower())
+    if match is None:
+        raise ValueError(
+            f"invalid period {period!r}: use a number with an optional d/w/m/y suffix, e.g. 90, 30d, 8w, 3m, 1y"
+        )
+    amount = int(match["amount"])
+    if amount < 1:
+        raise ValueError(f"invalid period {period!r}: the amount must be at least 1")
+    return amount, match["unit"] or "d"
+
+
+def period_start(period: str, end_date: date) -> date:
+    """Return the inclusive first day of ``period``, counting back from ``end_date``.
+
+    ``d``/``w`` are exact day counts; ``m``/``y`` are calendar months, so ``3m`` ending on
+    the 21st starts on the 21st of the month three months earlier.
+    """
+    amount, unit = parse_period(period)
+    if unit == "d":
+        return end_date - timedelta(days=amount - 1)
+    if unit == "w":
+        return end_date - timedelta(days=amount * 7 - 1)
+    months = amount if unit == "m" else amount * 12
+    month_index = end_date.month - 1 - months
+    year, month = end_date.year + month_index // 12, month_index % 12 + 1
+    return date(year, month, min(end_date.day, calendar.monthrange(year, month)[1]))
+
+
 def parse_args() -> argparse.Namespace:
     """Parse and validate command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Print daily new-star counts for the latest N UTC calendar days.",
+        description="Print daily new-star counts and the cumulative star-growth chart for a time window.",
     )
     parser.add_argument(
         "--repo",
@@ -47,10 +81,18 @@ def parse_args() -> argparse.Namespace:
         help=f"GitHub repository (default: {DEFAULT_REPOSITORY})",
     )
     parser.add_argument(
+        "--period",
+        metavar="PERIOD",
+        help=(
+            "time window to plot, counted back from today UTC: a number with an optional "
+            f"d/w/m/y suffix, e.g. 90, 30d, 8w, 3m, 1y (default: {DEFAULT_PERIOD})"
+        ),
+    )
+    parser.add_argument(
         "--days",
         type=int,
-        default=365,
-        help="number of UTC calendar days to include (default: 365)",
+        metavar="N",
+        help="alias for --period N, i.e. the last N days including today",
     )
     parser.add_argument(
         "--output",
@@ -66,8 +108,14 @@ def parse_args() -> argparse.Namespace:
     )
     args = parser.parse_args()
 
-    if args.days < 1:
-        parser.error("--days must be at least 1")
+    if args.period and args.days is not None:
+        parser.error("--period and --days are mutually exclusive")
+    period = args.period or (f"{args.days}d" if args.days is not None else DEFAULT_PERIOD)
+    try:
+        parse_period(period)
+    except ValueError as exc:
+        parser.error(str(exc))
+    args.period = period
     if args.repo.count("/") != 1 or any(not part for part in args.repo.split("/")):
         parser.error("--repo must have the form OWNER/REPO")
     return args
@@ -166,18 +214,56 @@ def nice_tick_step(maximum: int, tick_count: int = 5) -> int:
     return max(1, multiplier * magnitude)
 
 
-def write_svg_chart(path: Path, repository: str, dates: list[date], values: list[int]) -> None:
-    """Render daily star increments as a dependency-free SVG bar chart."""
+def cumulative_stars(values: list[int], total_stars: int) -> list[int]:
+    """Rebuild the running star total per day from the latest total and daily increments."""
+    totals = [0] * len(values)
+    running = total_stars
+    for index in range(len(values) - 1, -1, -1):
+        totals[index] = running
+        running -= values[index]
+    return totals
+
+
+def point_x(index: int, count: int, plot_width: float, margin_left: float) -> float:
+    """Return the horizontal position of the ``index``-th point on the plot."""
+    if count <= 1:
+        return margin_left + plot_width / 2
+    return margin_left + index * plot_width / (count - 1)
+
+
+def write_svg_chart(path: Path, repository: str, dates: list[date], totals: list[int]) -> None:
+    """Render the cumulative star count as a dependency-free SVG line chart.
+
+    The vertical axis is cropped to the neighbourhood of the data instead of starting at
+    zero, so a few hundred new stars stay readable next to a few thousand existing ones.
+    """
     width, height = 1280, 640
     margin_left, margin_right = 75, 30
     margin_top, margin_bottom = 70, 85
     plot_width = width - margin_left - margin_right
     plot_height = height - margin_top - margin_bottom
+    baseline = margin_top + plot_height
 
-    tick_step = nice_tick_step(max(values, default=0))
-    axis_max = max(tick_step, math.ceil(max(values, default=0) / tick_step) * tick_step)
-    bar_slot = plot_width / len(values)
-    bar_width = max(0.8, bar_slot * 0.82)
+    peak = max(totals, default=0)
+    lowest = min(totals, default=0)
+    tick_step = nice_tick_step(peak - lowest)
+    axis_min = (lowest // tick_step) * tick_step
+    if axis_min >= lowest:
+        axis_min = max(0, axis_min - tick_step)
+    axis_max = max(tick_step, math.ceil(peak / tick_step) * tick_step)
+    if axis_max <= peak:
+        axis_max += tick_step
+    axis_max = max(axis_max, axis_min + tick_step)
+    span = axis_max - axis_min
+
+    def value_y(value: int) -> float:
+        """Map a star total onto its vertical position inside the plot."""
+        return baseline - (value - axis_min) / span * plot_height
+
+    points = [
+        (point_x(index, len(totals), plot_width, margin_left), value_y(total)) for index, total in enumerate(totals)
+    ]
+    slot = plot_width / max(len(totals) - 1, 1)
 
     svg = [
         '<?xml version="1.0" encoding="UTF-8"?>',
@@ -185,39 +271,57 @@ def write_svg_chart(path: Path, repository: str, dates: list[date], values: list
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
             f'viewBox="0 0 {width} {height}" role="img">'
         ),
-        f"<title>{escape(repository)} daily new GitHub stars</title>",
+        f"<title>{escape(repository)} GitHub star growth</title>",
         '<rect width="100%" height="100%" fill="#ffffff"/>',
         (
             f'<text x="{width / 2}" y="34" text-anchor="middle" font-family="sans-serif" '
-            f'font-size="22" font-weight="600" fill="#24292f">{escape(repository)} daily new stars</text>'
+            f'font-size="22" font-weight="600" fill="#24292f">{escape(repository)} star growth</text>'
+        ),
+        (
+            f'<text x="{width / 2}" y="54" text-anchor="middle" font-family="sans-serif" '
+            f'font-size="13" fill="#57606a">{dates[0].isoformat()} to {dates[-1].isoformat()} '
+            f"({len(dates)} days)</text>"
         ),
     ]
 
-    for tick in range(0, axis_max + 1, tick_step):
-        y = margin_top + plot_height - (tick / axis_max * plot_height)
+    for tick in range(axis_min, axis_max + 1, tick_step):
+        y = value_y(tick)
         svg.append(
             f'<line x1="{margin_left}" y1="{y:.2f}" x2="{width - margin_right}" y2="{y:.2f}" '
             'stroke="#d8dee4" stroke-width="1"/>',
         )
         svg.append(
             f'<text x="{margin_left - 10}" y="{y + 4:.2f}" text-anchor="end" font-family="sans-serif" '
-            f'font-size="12" fill="#57606a">{tick}</text>',
+            f'font-size="12" fill="#57606a">{tick:,}</text>',
         )
 
-    for index, (current_date, value) in enumerate(zip(dates, values, strict=True)):
-        bar_height = value / axis_max * plot_height
-        x = margin_left + index * bar_slot + (bar_slot - bar_width) / 2
-        y = margin_top + plot_height - bar_height
+    if points:
+        area = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
         svg.append(
-            f'<rect x="{x:.2f}" y="{y:.2f}" width="{bar_width:.2f}" height="{bar_height:.2f}" '
-            f'fill="#2f81f7"><title>{current_date.isoformat()}: {value} new stars</title></rect>',
+            f'<polygon points="{margin_left:.2f},{baseline:.2f} {area} '
+            f'{points[-1][0]:.2f},{baseline:.2f}" fill="#2f81f7" fill-opacity="0.14"/>',
+        )
+        curve = " ".join(f"{x:.2f},{y:.2f}" for x, y in points)
+        svg.append(
+            f'<polyline points="{curve}" fill="none" stroke="#2f81f7" stroke-width="2.5" '
+            'stroke-linejoin="round" stroke-linecap="round"/>',
+        )
+        svg.append(
+            f'<circle cx="{points[-1][0]:.2f}" cy="{points[-1][1]:.2f}" r="4" fill="#2f81f7"/>',
+        )
+
+    for index, (current_date, total) in enumerate(zip(dates, totals, strict=True)):
+        x = points[index][0]
+        svg.append(
+            f'<rect x="{x - slot / 2:.2f}" y="{margin_top}" width="{max(slot, 1):.2f}" '
+            f'height="{plot_height:.2f}" fill="transparent">'
+            f"<title>{current_date.isoformat()}: {total:,} stars</title></rect>",
         )
 
     label_count = min(12, len(dates))
     label_indexes = sorted({round(index * (len(dates) - 1) / max(label_count - 1, 1)) for index in range(label_count)})
-    baseline = margin_top + plot_height
     for index in label_indexes:
-        x = margin_left + (index + 0.5) * bar_slot
+        x = points[index][0]
         svg.append(
             f'<line x1="{x:.2f}" y1="{baseline}" x2="{x:.2f}" y2="{baseline + 5}" stroke="#57606a"/>',
         )
@@ -236,11 +340,18 @@ def write_svg_chart(path: Path, repository: str, dates: list[date], values: list
             (
                 f'<text x="18" y="{margin_top + plot_height / 2}" text-anchor="middle" '
                 f'transform="rotate(-90 18 {margin_top + plot_height / 2})" font-family="sans-serif" '
-                'font-size="13" fill="#24292f">New stars</text>'
+                'font-size="13" fill="#24292f">Stars</text>'
             ),
-            "</svg>",
         ],
     )
+    if points:
+        svg.append(
+            f'<text x="{points[-1][0] - 8:.2f}" y="{points[-1][1] - 10:.2f}" text-anchor="end" '
+            f'font-family="sans-serif" font-size="13" font-weight="600" fill="#24292f">'
+            f"{totals[-1]:,}</text>",
+        )
+    svg.append("</svg>")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(svg) + "\n", encoding="utf-8")
 
@@ -249,20 +360,22 @@ def main() -> int:
     """Run the report and return a process exit code."""
     args = parse_args()
     end_date = datetime.now(UTC).date()
-    start_date = end_date - timedelta(days=args.days - 1)
+    start_date = period_start(args.period, end_date)
+    days = (end_date - start_date).days + 1
 
     try:
         counts, total_stars = fetch_daily_stars(args.repo, start_date)
-        dates = [start_date + timedelta(days=offset) for offset in range(args.days)]
+        dates = [start_date + timedelta(days=offset) for offset in range(days)]
         values = [counts[current_date] for current_date in dates]
+        totals = cumulative_stars(values, total_stars)
         if args.output:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             with args.output.open("w", encoding="utf-8", newline="") as stream:
-                write_csv(stream, start_date, args.days, counts)
+                write_csv(stream, start_date, days, counts)
         else:
-            write_csv(sys.stdout, start_date, args.days, counts)
+            write_csv(sys.stdout, start_date, days, counts)
         chart_path = args.chart or (args.output.with_suffix(".svg") if args.output else Path("star_growth.svg"))
-        write_svg_chart(chart_path, args.repo, dates, values)
+        write_svg_chart(chart_path, args.repo, dates, totals)
     except (OSError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -270,8 +383,10 @@ def main() -> int:
     destination = str(args.output) if args.output else "stdout"
     period_stars = sum(counts.values())
     print(
-        f"Fetched {period_stars} current stargazers in {start_date}..{end_date}; "
-        f"repository currently has {total_stars} stars. CSV: {destination}; chart: {chart_path}",
+        f"Fetched {period_stars} current stargazers in {start_date}..{end_date} ({days} days); "
+        f"repository currently has {total_stars} stars "
+        f"(grew from {totals[0] if totals else total_stars} on {start_date}). "
+        f"CSV: {destination}; chart: {chart_path}",
         file=sys.stderr,
     )
     return 0
