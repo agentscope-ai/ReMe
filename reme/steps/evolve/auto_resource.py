@@ -1,5 +1,6 @@
 """Unified processor router for automatic resource interpretation."""
 
+import asyncio
 import copy
 import inspect
 
@@ -80,8 +81,17 @@ class AutoResourceStep(BaseStep):
         """Dispatch one routed sub-batch and snapshot its shared Response immediately."""
         if not indexed_changes:
             return
+        assert self.context is not None
         changes = [item for _, item in indexed_changes]
-        responses = await self.dispatch_steps([spec], changes=changes)
+        # A cancelled processor must not inherit the previous processor's results.
+        self.context.response.metadata = {}
+        try:
+            responses = await self.dispatch_steps([spec], changes=changes)
+        except asyncio.CancelledError:
+            processor_results = copy.deepcopy(self.context.response.metadata.get("results") or [])
+            for (index, _), result in zip(indexed_changes, processor_results):
+                result_slots[index] = result
+            raise
         processor_response = responses[-1]
         processor_results = copy.deepcopy(processor_response.metadata.get("results") or [])
         if len(processor_results) != len(indexed_changes):
@@ -91,6 +101,41 @@ class AutoResourceStep(BaseStep):
             )
         for (index, _), result in zip(indexed_changes, processor_results):
             result_slots[index] = result
+
+    def _publish_results(
+        self,
+        changes: list[dict],
+        result_slots: list[dict | None],
+        *,
+        cancelled: bool = False,
+    ) -> tuple[list[dict], int]:
+        """Publish completed items in input order, distinguishing unstarted cancellation work."""
+        assert self.context is not None
+        results = [item for item in result_slots if item is not None]
+        success_count = sum(1 for item in results if item.get("success"))
+        self.context.response.success = not cancelled and len(results) == len(changes) and success_count == len(changes)
+        processed_answer = f"Processed {success_count}/{len(changes)} resource change(s)"
+        if cancelled:
+            processed_answer = f"Cancelled after processing {len(results)}/{len(changes)} resource change(s)"
+        self.context.response.answer = _results_answer(results, processed_answer)
+        self.context.response.metadata = {
+            "processed": len(results),
+            "results": results,
+            "modified": any(bool((item.get("metadata") or {}).get("modified")) for item in results),
+        }
+        if cancelled:
+            self.context.response.metadata.update(
+                {
+                    "cancelled": True,
+                    "unprocessed": [item for item, result in zip(changes, result_slots) if result is None],
+                },
+            )
+            self.logger.warning(
+                f"[{self.name}] cancelled processed={len(results)}/{len(changes)} "
+                f"unprocessed={len(self.context.response.metadata['unprocessed'])} "
+                f"modified={self.context.response.metadata['modified']}",
+            )
+        return results, success_count
 
     @staticmethod
     def _unsupported_result(item: dict, file_path: str) -> dict:
@@ -173,22 +218,30 @@ class AutoResourceStep(BaseStep):
             with _resource_lookup_scope(self.context):
                 for spec, _, indexed_changes in routes:
                     await self._dispatch_processor(spec, indexed_changes, result_slots)
+        except asyncio.CancelledError:
+            self.context["changes"] = changes
+            results, _ = self._publish_results(changes, result_slots, cancelled=True)
+            task = asyncio.current_task()
+            if task is None or task.cancelling() <= 1:
+                try:
+                    async with asyncio.timeout(5):
+                        await self._emit_result_hook(changes=changes, results=results)
+                except (TimeoutError, asyncio.CancelledError):
+                    self.logger.warning(f"[{self.name}] cancelled resource result hook did not finish")
+            else:
+                self.logger.warning(f"[{self.name}] repeated cancellation; result hook skipped")
+            raise
         finally:
             # dispatch_steps merges the sub-batch into the shared context.
             # Downstream steps and the result hook must see the original batch.
             self.context["changes"] = changes
 
-        results = [item for item in result_slots if item is not None]
-        success_count = sum(1 for item in results if item.get("success"))
-        self.context.response.success = len(results) == len(changes) and success_count == len(changes)
-        processed_answer = f"Processed {success_count}/{len(changes)} resource change(s)"
-        self.context.response.answer = _results_answer(results, processed_answer)
-        self.context.response.metadata = {
-            "processed": len(results),
-            "results": results,
-            "modified": any(bool((item.get("metadata") or {}).get("modified")) for item in results),
-        }
-        await self._emit_result_hook(changes=changes, results=results)
+        results, success_count = self._publish_results(changes, result_slots)
+        try:
+            await self._emit_result_hook(changes=changes, results=results)
+        except asyncio.CancelledError:
+            self._publish_results(changes, result_slots, cancelled=True)
+            raise
         self.logger.info(
             f"[{self.name}] done success={success_count}/{len(changes)} "
             f"processed={len(results)} modified={self.context.response.metadata['modified']}",

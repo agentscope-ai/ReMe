@@ -2,10 +2,12 @@
 
 import base64
 import io
+import json
 import warnings
 from pathlib import Path, PurePosixPath
 
 import aiofiles
+import frontmatter
 from agentscope.agent import ContextConfig
 from agentscope.message import Base64Source, DataBlock, TextBlock
 
@@ -208,6 +210,7 @@ class AutoImageResourceStep(BaseAutoResourceStep):
     """Prepare native image inputs for the shared note-writing agent."""
 
     resource_suffixes = IMAGE_SUFFIXES
+    finalize_failed_resource = True
     router_inherit_keys = BaseAutoResourceStep.router_inherit_keys | frozenset(
         {"agent_wrapper", "max_image_bytes", "max_image_pixels", "prompt_dict"},
     )
@@ -349,7 +352,41 @@ class AutoImageResourceStep(BaseAutoResourceStep):
             "The resource is the image attached above. Follow its interpretation and note-format instructions.",
             input_blocks=blocks,
             note_metadata={"kind": "image", "media_type": payload["source_mime"]},
+            reply_kwargs={
+                "session_id": None,
+                "resume": None,
+                "builtin_tools": [],
+                "skills": [],
+                "toolkit": None,
+                "output_schema": None,
+            },
+            scope_note_tools=True,
         )
         if note_path is None:
             raise RuntimeError("Resource agent did not write a note")
         self.context.response.metadata["media_type"] = payload["source_mime"]
+
+    def _validate_resource_note(self, path: str, file_path: str, before_bytes: bytes | None) -> None:
+        """Accept the written caption, without rewriting it or changing downstream status."""
+        post = frontmatter.loads((self._note_bytes(path) or b"").decode("utf-8"))
+        lines = [line.strip() for line in post.content.splitlines() if line.strip()]
+        if lines[:2] != [f"![[{file_path}]]", "## Caption"]:
+            raise ValueError("Image note must begin with the source image embed followed by '## Caption'")
+        caption = "\n".join(lines[2:])
+        if not caption:
+            raise ValueError("Image note caption must not be empty")
+        # A complete JSON payload is not a caption; prose containing OCR code blocks is valid.
+        if len(lines) >= 4 and lines[2].lower() in {"```", "```json", "~~~", "~~~json"}:
+            if lines[-1] == lines[2][:3]:
+                caption = "\n".join(lines[3:-1])
+                if not caption:
+                    raise ValueError("Image note caption must not be empty")
+        try:
+            payload = json.loads(caption)
+        except ValueError:
+            payload = None
+        if isinstance(payload, (dict, list)):
+            raise ValueError("Image note caption must be a description or transcription, not a JSON payload")
+        before = frontmatter.loads((before_bytes or b"").decode("utf-8"))
+        if ("status" in before) != ("status" in post) or before.get("status") != post.get("status"):
+            raise ValueError("Image agent must preserve existing 'status' and must not add, change, or remove it")

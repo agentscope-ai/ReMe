@@ -1,5 +1,6 @@
 """Shared lifecycle and helpers for automatic resource processors."""
 
+import asyncio
 import hashlib
 import re
 import uuid
@@ -24,6 +25,7 @@ _SOURCE_RESOURCE_KEY = "source_resource"
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
 _LOOKUP_TABLE_KEY = "_auto_resource_lookup_table"
+_RESOURCE_CLEANUP_TIMEOUT = 5.0
 
 
 @dataclass
@@ -146,6 +148,7 @@ class BaseAutoResourceStep(BaseStep):
 
     _resource_lookup: _ResourceLookupTable | None = None
     resource_fallback = False
+    finalize_failed_resource = False
     resource_suffixes: frozenset[str] = frozenset()
     router_inherit_keys = frozenset({"file_store", "language"})
 
@@ -245,11 +248,16 @@ class BaseAutoResourceStep(BaseStep):
         return f"[[{file_path}]]"
 
     def _frontmatter(self, path: str) -> dict:
-        post = frontmatter.loads((self.file_store.workspace_path / path).read_text(encoding="utf-8"))
+        data = self._note_bytes(path)
+        if data is None:
+            raise FileNotFoundError(path)
+        post = frontmatter.loads(data.decode("utf-8"))
         return dict(post.metadata or {})
 
     def _note_bytes(self, path: str) -> bytes | None:
-        note_path = self.file_store.workspace_path / path
+        note_path, error = resolve_path(self.file_store.workspace_path, path)
+        if error or note_path is None:
+            raise ValueError(f"invalid resource note path {path!r}: {error}")
         if not note_path.is_file():
             return None
         return note_path.read_bytes()
@@ -370,6 +378,8 @@ class BaseAutoResourceStep(BaseStep):
         *,
         input_blocks: list[TextBlock | DataBlock] | None = None,
         note_metadata: dict | None = None,
+        reply_kwargs: dict | None = None,
+        scope_note_tools: bool = False,
     ) -> str | None:
         """Run the same note-writing agent for text and native multimodal inputs."""
         state = await self._prepare_resource_note(day, file_path, note_stem)
@@ -384,75 +394,139 @@ class BaseAutoResourceStep(BaseStep):
             date=day,
         )
         inputs = UserMsg(name="user", content=[*input_blocks, TextBlock(text=prompt)]) if input_blocks else prompt
-        session_id = _compute_agent_session_id(file_path)
         self.logger.info(f"[{self.name}] agent start file_path={file_path} note_path={state.path}")
-        agent_kwargs = {}
-        if input_blocks:
-            # Scope multimodal note writing without overriding existing text-wrapper defaults.
-            agent_kwargs = {
-                "injected_job_kwargs": {"file_store": self.file_store.name, "_allowed_paths": [state.path]},
-                "resume": None,
-                "builtin_tools": [],
-                "skills": [],
-                "toolkit": None,
-                "output_schema": None,
+        agent_kwargs = {
+            "system_prompt": self.prompt_format("system_prompt"),
+            "job_tools": self.create_tools if state.created else self.update_tools,
+            **(reply_kwargs or {}),
+        }
+        if "session_id" not in agent_kwargs:
+            agent_kwargs["session_id"] = _compute_agent_session_id(file_path)
+        if scope_note_tools:
+            # Bind the final allocated path last, never a path supplied by the agent.
+            agent_kwargs["injected_job_kwargs"] = {
+                **(agent_kwargs.get("injected_job_kwargs") or {}),
+                "file_store": self.file_store.name,
+                "_allowed_paths": [state.path],
             }
+        finalizing = False
         try:
-            result = await self.agent_wrapper.reply(
-                inputs,
-                system_prompt=self.prompt_format("system_prompt"),
-                job_tools=self.create_tools if state.created else self.update_tools,
-                session_id=session_id,
-                **agent_kwargs,
+            try:
+                result = await self.agent_wrapper.reply(inputs, **agent_kwargs)
+            except Exception:
+                if self.finalize_failed_resource:
+                    try:
+                        finalizing = True
+                        await self._recover_resource_note(state, day, file_path, note_stem, added, note_metadata)
+                    except Exception:
+                        self.logger.exception(
+                            f"[{self.name}] failed to finalize resource after agent error: {file_path}",
+                        )
+                raise
+            finalizing = True
+            note_path = await self._finalize_resource_note(
+                state,
+                day,
+                file_path,
+                note_stem,
+                added,
+                metadata=note_metadata,
             )
-        except Exception:
-            if input_blocks:
+        except asyncio.CancelledError:
+            task = asyncio.current_task()
+            if self.finalize_failed_resource and (task is None or task.cancelling() <= 1):
                 try:
-                    # A tool write can succeed before the agent's later work fails.
-                    after_bytes = self._note_bytes(state.path)
-                    modified = after_bytes != state.before_bytes
-                    self.context.response.metadata.update(
-                        {
-                            "path": state.path,
-                            "created": state.created and after_bytes is not None,
-                            "modified": modified,
-                        },
-                    )
-                    if (
-                        modified
-                        and after_bytes is not None
-                        and str(self._frontmatter(state.path).get(_SOURCE_RESOURCE_KEY, "")).strip()
-                        == self._source_resource_link(file_path)
-                    ):
-                        await self._finalize_resource_note(
+                    # Stay in the invocation's task; another cancellation may interrupt cleanup.
+                    async with asyncio.timeout(_RESOURCE_CLEANUP_TIMEOUT):
+                        await self._recover_resource_note(
                             state,
                             day,
                             file_path,
                             note_stem,
                             added,
-                            metadata=note_metadata,
+                            note_metadata,
+                            rename=not finalizing,
                         )
-                except Exception:
-                    self.logger.exception(f"[{self.name}] failed to finalize resource after agent error: {file_path}")
+                except (Exception, asyncio.CancelledError):
+                    self.logger.exception(f"[{self.name}] resource cancellation cleanup interrupted: {file_path}")
             raise
-        note_path = await self._finalize_resource_note(
-            state,
-            day,
-            file_path,
-            note_stem,
-            added,
-            metadata=note_metadata,
-        )
         self.context.response.success = True
         self.context.response.answer = agent_reply_result_text(result)
         if note_path is None:
             self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
             return None
-        self.context.response.metadata["agent_session_id"] = session_id
+        session_id = agent_kwargs.get("session_id")
+        if session_id is None and isinstance(result, Mapping):
+            session_id = result.get("session_id")
+        if session_id:
+            self.context.response.metadata["agent_session_id"] = session_id
         self.logger.info(
             f"[{self.name}] agent done file_path={file_path} modified={self.context.response.metadata['modified']}",
         )
         return note_path
+
+    async def _recover_resource_note(
+        self,
+        state: _ResourceNoteState,
+        day: str,
+        file_path: str,
+        note_stem: str,
+        added: bool,
+        metadata: dict | None,
+        *,
+        rename: bool = True,
+    ) -> None:
+        """Finalize only a changed, explicitly owned note, without claiming another file."""
+        path = self.context.response.metadata.get("path") or state.path
+        after_bytes = self._note_bytes(path)
+        modified = bool(self.context.response.metadata.get("modified")) or self._note_modified(
+            state.path,
+            state.before_bytes,
+            path,
+        )
+        self.context.response.metadata.update(
+            {
+                "path": path,
+                "created": state.created and after_bytes is not None,
+                "modified": modified,
+            },
+        )
+        if not modified:
+            return
+        if after_bytes is None:
+            # Cancellation can arrive after move succeeded but before its new path was returned.
+            move = self.context.response.metadata.get("interrupted_move") or {}
+            moved_path = move.get("dst_path")
+            if moved_path and self._note_bytes(moved_path) is not None:
+                path = moved_path
+            else:
+                note = await self._list_resource_note(day, file_path)
+                if note is not None:
+                    path = str(note["path"])
+            after_bytes = self._note_bytes(path)
+        modified = modified or self._note_modified(state.path, state.before_bytes, path)
+        self.context.response.metadata.update(
+            {"path": path, "created": state.created and after_bytes is not None, "modified": modified},
+        )
+        if (
+            modified
+            and after_bytes is not None
+            and str(self._frontmatter(path).get(_SOURCE_RESOURCE_KEY, "")).strip()
+            == self._source_resource_link(file_path)
+        ):
+            await self._finalize_resource_note(
+                state,
+                day,
+                file_path,
+                note_stem,
+                added,
+                metadata=metadata,
+                written_path=path,
+                rename=rename,
+            )
+
+    def _validate_resource_note(self, path: str, file_path: str, before_bytes: bytes | None) -> None:
+        """Optional modality-specific acceptance check; text keeps its existing behavior."""
 
     async def _resolve_written_note(
         self,
@@ -549,13 +623,18 @@ class BaseAutoResourceStep(BaseStep):
         if target_path == path:
             return path
 
-        move_response = await self.run_job(
-            "move",
-            src_path=path,
-            dst_path=target_path,
-            overwrite=False,
-            retarget=True,
-        )
+        try:
+            move_response = await self.run_job(
+                "move",
+                src_path=path,
+                dst_path=target_path,
+                overwrite=False,
+                retarget=True,
+            )
+        except asyncio.CancelledError:
+            self.context.response.metadata["interrupted_move"] = {"src_path": path, "dst_path": target_path}
+            self.logger.warning(f"[{self.name}] resource move interrupted: {path} -> {target_path}")
+            raise
         if not move_response.success:
             raise RuntimeError(f"move failed: {move_response.answer}")
         return target_path
@@ -569,17 +648,20 @@ class BaseAutoResourceStep(BaseStep):
         added: bool,
         *,
         metadata: dict | None = None,
+        written_path: str | None = None,
+        rename: bool = True,
     ) -> str | None:
         """Resolve, source-link, rename, index, and report one processor write."""
-        staged_bytes = self._note_bytes(state.path)
+        staged_path = written_path or state.path
+        staged_bytes = self._note_bytes(staged_path)
         self.context.response.metadata.update(
             {
-                "path": state.path if staged_bytes is not None else None,
+                "path": staged_path if staged_bytes is not None else None,
                 "created": state.created and staged_bytes is not None,
-                "modified": self._note_modified(state.path, state.before_bytes, state.path),
+                "modified": self._note_modified(state.path, state.before_bytes, staged_path),
             },
         )
-        note_path = await self._resolve_written_note(state, day, file_path)
+        note_path = written_path or await self._resolve_written_note(state, day, file_path)
         if note_path is None:
             self.context.response.metadata.update({"path": None, "created": False, "modified": False})
             return None
@@ -587,13 +669,14 @@ class BaseAutoResourceStep(BaseStep):
         modified = self._note_modified(state.path, state.before_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": state.created, "modified": modified})
         await self._ensure_resource_frontmatter(note_path, file_path, metadata)
-        note_path = await self._rename_from_frontmatter_name(
-            note_path,
-            day,
-            file_path,
-            note_stem,
-            allow_rename=state.created,
-        )
+        if rename:
+            note_path = await self._rename_from_frontmatter_name(
+                note_path,
+                day,
+                file_path,
+                note_stem,
+                allow_rename=state.created,
+            )
         modified = self._note_modified(state.path, state.before_bytes, note_path)
         self.context.response.metadata.update({"path": note_path, "created": state.created, "modified": modified})
         index_payload = await self._refresh_day_index(day)
@@ -608,6 +691,7 @@ class BaseAutoResourceStep(BaseStep):
                 "index": index_payload,
             },
         )
+        self._validate_resource_note(note_path, file_path, state.before_bytes)
         return note_path
 
     async def _handle_delete(self, file_path: str, date_str: str, note_stem: str) -> None:
@@ -751,7 +835,7 @@ class BaseAutoResourceStep(BaseStep):
             "metadata": dict(self.context.response.metadata),
         }
 
-    def _failed_change_result(self, file_path: str, raw_change, exc: Exception) -> dict:
+    def _failed_change_result(self, file_path: str, raw_change, exc: BaseException) -> dict:
         """Convert one unexpected processor error into an item-scoped result."""
         assert self.context is not None
         file_path = str(file_path or "")
@@ -759,11 +843,15 @@ class BaseAutoResourceStep(BaseStep):
             file_path = self.to_workspace_relative(file_path)
         change = self._normalize_change(raw_change)
         change_name = change.name if change is not None else str(raw_change)
-        answer = f"Failed to process resource: {file_path}: {exc}"
+        cancelled = isinstance(exc, asyncio.CancelledError)
+        error = str(exc) or ("Resource processing cancelled" if cancelled else "")
+        answer = f"Failed to process resource: {file_path}: {error}"
         metadata = dict(self.context.response.metadata)
         metadata.setdefault("path", file_path)
         metadata.setdefault("modified", False)
-        metadata.update({"action": "failed", "error": str(exc)})
+        metadata.update({"action": "failed", "error": error})
+        if cancelled:
+            metadata["reason"] = "cancelled"
         self.context.response.success = False
         self.context.response.answer = answer
         self.context.response.metadata = metadata
@@ -803,6 +891,18 @@ class BaseAutoResourceStep(BaseStep):
             self.context.response.metadata = {}
             try:
                 result = await self._handle_change(file_path, raw_change)
+            except asyncio.CancelledError as exc:
+                results.append(self._failed_change_result(file_path, raw_change, exc))
+                self.context.response.metadata.update(
+                    {
+                        "processed": len(results),
+                        "results": results,
+                        "modified": any(bool((item.get("metadata") or {}).get("modified")) for item in results),
+                        "cancelled": True,
+                        "unprocessed": changes[index:],
+                    },
+                )
+                raise
             except Exception as exc:  # pylint: disable=broad-except
                 result = self._failed_change_result(file_path, raw_change, exc)
             results.append(result)

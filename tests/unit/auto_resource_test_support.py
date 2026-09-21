@@ -53,7 +53,13 @@ class FlakyAgentWrapper(BaseAgentWrapper):
 class FakeImageAgentWrapper(AsAgentWrapper):
     """Fake only the agent reply; write through the actual scoped ReMe job tool."""
 
-    def __init__(self, content: dict | str = "", *, error: Exception | None = None, perform_write: bool = True):
+    def __init__(
+        self,
+        content: dict | str = "A resource image.",
+        *,
+        error: Exception | None = None,
+        perform_write: bool = True,
+    ):
         super().__init__(backend="agentscope", as_llm="", session_retention_days=0)
         self.content = content
         self.error = error
@@ -61,6 +67,7 @@ class FakeImageAgentWrapper(AsAgentWrapper):
         self.calls: list[tuple[Msg, dict]] = []
         self.after_write_error: BaseException | None = None
         self.note_metadata: dict = {}
+        self.note_body: str | None = None
         self.as_llm = SimpleNamespace(model=SimpleNamespace(formatter=OpenAIChatFormatter()))
 
     async def reply(self, inputs, **kwargs) -> dict:
@@ -80,7 +87,9 @@ class FakeImageAgentWrapper(AsAgentWrapper):
         assert source is not None, prompt
         fields = self.content if isinstance(self.content, dict) else {"caption": self.content}
         caption = fields.get("caption", "")
-        content = f"![[{source.group()}]]\n\n## Caption\n\n{caption}\n"
+        content = (
+            self.note_body if self.note_body is not None else f"![[{source.group()}]]\n\n## Caption\n\n{caption}\n"
+        )
         tool = self._make_tool(
             self.app_context.jobs["write"],
             injected_job_kwargs=kwargs["injected_job_kwargs"],

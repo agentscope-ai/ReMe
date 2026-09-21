@@ -65,6 +65,15 @@ Agent 写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/
 不再单独调用 caption 模型或执行额外的 schema 提取；Agent 失败后也不以纯文本重跑。
 这是一次 Agent 工作流，工具调用可能带来多轮模型请求。
 
+每次图片理解使用独立的 AgentScope 会话，结果中的 `agent_session_id` 对应本次实际会话；资源卡片仍通过
+`source_resource` 关联和更新。图片笔记写入后会检查原图嵌入链接、`## Caption` 和非空 caption，拒绝将 JSON
+响应直接当作 caption。Agent 不得新增、修改或删除下游保留的 `status`；已有值必须原样保留。
+
+如果 Agent 写入后报错或笔记校验失败，任务仍报告失败，`modified` 反映实际文件变化；系统会尝试为明确关联的笔记完成
+图片元数据和日索引收尾。已写文件保留，不自动回滚或重试。取消会停止后续资源处理，并在有限时间内尝试收尾和结果通知，
+随后继续传播取消；已处理结果和未处理项保留在上下文、日志及可完成的结果通知中。
+改名被中断时，`interrupted_move` 会记录两端路径；文件工具已有的中间文件保留，收尾不会再次改名或删除这些副本。
+
 在 `auto_resource` 调用或 Job 默认值中设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
 调用参数优先于 Job 默认值，两者都未设置时默认开启。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，
 手动任务默认值可设置 `jobs.auto_resource.include_images=false`。图片子类通过现有逐资源结果和 warning 日志说明跳过原因，

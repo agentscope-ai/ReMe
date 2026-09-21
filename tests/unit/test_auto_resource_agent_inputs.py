@@ -10,11 +10,12 @@ from unittest.mock import AsyncMock, patch
 import frontmatter
 import pytest
 import yaml
-from agentscope.message import DataBlock, Msg
+from agentscope.message import DataBlock, Msg, TextBlock
 
 from reme.application import Application
 from reme.components import ApplicationContext, R
 from reme.components.agent_wrapper import AsAgentWrapper
+from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
 from reme.steps.evolve.auto_image_resource import AutoImageResourceStep
 from reme.steps.evolve.auto_resource import AutoResourceStep
@@ -69,8 +70,19 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/brown-coat.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("coat", "Brown coat", "A brown coat."))
-    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
+    step = env.processor(wrapper)
+    with patch.object(step, "_interpret_resource", new=AsyncMock(wraps=step._interpret_resource)) as interpret:
+        response = await env.run(step, [{"change": "added", "path": str(source)}])
     assert response.success
+    assert interpret.call_args.kwargs["scope_note_tools"] is True
+    assert interpret.call_args.kwargs["reply_kwargs"] == {
+        "session_id": None,
+        "resume": None,
+        "builtin_tools": [],
+        "skills": [],
+        "toolkit": None,
+        "output_schema": None,
+    }
     message, options = wrapper.calls[0]
     assert isinstance(message, Msg)
     assert sum(isinstance(block, DataBlock) for block in message.content) == 1
@@ -80,17 +92,22 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     assert options["toolkit"] is None
     assert options["output_schema"] is None
     assert options["resume"] is None
+    assert options["session_id"] is None
     assert options["injected_job_kwargs"]["_allowed_paths"] == ["daily/2026-01-01/brown-coat.md"]
 
     native = AsAgentWrapper(
         app_context=ApplicationContext(workspace_dir=str(env.workspace)),
         as_llm="",
         session_retention_days=0,
+        session_id=str(uuid.uuid5(uuid.NAMESPACE_URL, "component-default-session")),
+        resume=str(uuid.uuid5(uuid.NAMESPACE_URL, "component-default-resume")),
     )
     native.as_llm = wrapper.as_llm
     # Reuse actual file-job adapters; only model inference is intentionally absent.
     native.app_context.jobs = env.app_context.jobs
-    agent, forwarded = await native._build_agent(message, **options)
+    merged_options = native._merged_kwargs(options)
+    assert merged_options["session_id"] is merged_options["resume"] is None
+    agent, forwarded = await native._build_agent(message, **merged_options)
     assert forwarded is message
     assert agent.model is wrapper.as_llm.model
     await agent.observe(forwarded)
@@ -103,7 +120,12 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     )
     restored = Msg.model_validate_json(agent.state.context[0].model_dump_json())
     assert next(block for block in restored.content if isinstance(block, DataBlock)) == original_image
-    new_agent, _ = await native._build_agent(message, **options)
+    new_agent, _ = await native._build_agent(message, **merged_options)
+    assert agent.state.session_id != new_agent.state.session_id
+    assert str(uuid.UUID(agent.state.session_id)) == agent.state.session_id
+    assert str(uuid.UUID(new_agent.state.session_id)) == new_agent.state.session_id
+    assert agent.state.session_id != native.kwargs["session_id"]
+    assert new_agent.state.session_id != native.kwargs["session_id"]
     assert not new_agent.state.context
     assert not (env.workspace / "mem_session").exists()
 
@@ -116,6 +138,32 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     result = await tool.call(path="unrelated.md", content="must not overwrite")
     assert "error" in str(result.state).lower()
     assert outside.read_text(encoding="utf-8") == "preserve"
+
+
+async def test_message_blocks_do_not_implicitly_enable_image_policies(auto_resource_env):
+    """Input shape alone must not select image tool scoping, recovery, or session policy."""
+    env = auto_resource_env
+    source_path = "resource/2026-01-01/notes.txt"
+    wrapper = FakeAgentWrapper()
+    step = AutoTextResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
+    step.context = RuntimeContext()
+    assert step.finalize_failed_resource is False
+    assert AutoImageResourceStep.finalize_failed_resource is True
+    with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
+        await step._interpret_resource(
+            source_path,
+            "2026-01-01",
+            "notes",
+            True,
+            "中文文本",
+            input_blocks=[TextBlock(text="Additional context")],
+        )
+    assert isinstance(wrapper.inputs, Msg)
+    assert reply.call_args.kwargs == {
+        "system_prompt": step.prompt_format("system_prompt"),
+        "job_tools": ["write"],
+        "session_id": str(uuid.uuid5(uuid.NAMESPACE_URL, source_path)),
+    }
 
 
 @pytest.mark.parametrize("routed", [False, True])
@@ -323,21 +371,98 @@ async def test_unchanged_image_write_does_not_trigger_failure_recovery(auto_reso
     assert not (env.workspace / "daily/2026-01-01.md").exists()
 
 
-async def test_image_agent_body_is_not_postvalidated_or_rewritten(auto_resource_env):
-    """Image body instructions belong to the agent prompt, as with text notes."""
+@pytest.mark.parametrize(
+    ("body", "valid"),
+    [
+        ("![[{source}]]\n\n## Caption\n\n一件棕色外衣。", True),
+        ('![[{source}]]\n\n## Caption\n\nScreenshot of JSON:\n```json\n{{"count": 2}}\n```', True),
+        ("![[{source}]]\n\n## Caption\n\n42", True),
+        ("## Caption\n\nA coat.", False),
+        ("![[resource/other.png]]\n\n## Caption\n\nA coat.", False),
+        ("![[{source}]]\n\nA coat.", False),
+        ("![[{source}]]\n\n## Caption\n\n  ", False),
+        ('![[{source}]]\n\n## Caption\n\n{{"caption": "A coat."}}', False),
+        ('![[{source}]]\n\n## Caption\n\n["A coat."]', False),
+        ('![[{source}]]\n\n## Caption\n\n```json\n{{"caption": "A coat."}}\n```', False),
+    ],
+    ids=["text", "json-ocr", "number", "no-embed", "wrong-embed", "no-heading", "empty", "object", "array", "fence"],
+)
+async def test_image_note_body_is_validated_without_rolling_back_the_write(body, valid, auto_resource_env):
+    """Validate actual Markdown, retaining already-written files and reporting their side effects."""
     env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("photo", "", ""))
-    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
+    source_path = "resource/2026-01-01/photo.png"
+    source = env.write_binary(source_path, image_bytes())
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Photo", "ignored by body override"))
+    wrapper.note_body = body.format(source=source_path)
+    wrapper.note_metadata = {"source_resource": f"[[{source_path}]]"}
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
     result = response.metadata["results"][0]["metadata"]
-    assert response.success
+    assert response.success is valid
     assert result["modified"] is True
-    assert result["action"] == "added"
+    assert result["action"] == ("added" if valid else "failed")
+    assert len(wrapper.calls) == len(hooks) == 1
     note = frontmatter.load(env.workspace / result["path"])
-    assert note.content == "![[resource/2026-01-01/photo.png]]\n\n## Caption"
-    assert note["source_resource"] == "[[resource/2026-01-01/photo.png]]"
+    assert note.content == wrapper.note_body.strip()
+    assert note["source_resource"] == f"[[{source_path}]]"
     assert note["kind"] == "image"
     assert note["media_type"] == "image/png"
+    assert (env.workspace / "daily/2026-01-01.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "valid"),
+    [
+        ({}, {}, True),
+        ({}, {"status": "done"}, False),
+        ({"status": "queued"}, {"status": "queued"}, True),
+        ({"status": "queued"}, {"status": "done"}, False),
+        ({"status": "queued"}, {}, False),
+        ({"status": None}, {}, False),
+    ],
+    ids=["absent", "added", "preserved", "changed", "removed", "null-removed"],
+)
+async def test_image_agent_must_preserve_downstream_status(before, after, valid, auto_resource_env):
+    """Presence and value matter; an unchanged downstream status is not an agent violation."""
+    env = auto_resource_env
+    source_path = "resource/2026-01-01/photo.png"
+    source = env.write_binary(source_path, image_bytes())
+    note_path = "daily/2026-01-01/photo.md"
+    env.write_note(note_path, f"[[{source_path}]]")
+    if before:
+        await env.app_context.jobs["frontmatter_update"](path=note_path, metadata=before)
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Updated photo", "A brown coat."))
+    wrapper.note_metadata = {"source_resource": f"[[{source_path}]]", **after}
+    response = await env.run(env.processor(wrapper), [{"change": "modified", "path": str(source)}])
+    result = response.metadata["results"][0]["metadata"]
+    assert response.success is valid
+    assert result["modified"] is True
+    if not valid:
+        assert "status" in result["error"].lower()
+    post = frontmatter.load(env.workspace / note_path)
+    assert ("status" in post) is ("status" in after)
+    assert post.get("status") == after.get("status")
+    assert (env.workspace / "daily/2026-01-01.md").exists()
+
+
+async def test_agent_error_takes_priority_over_invalid_caption(auto_resource_env):
+    """A failed agent's invalid output stays visible without replacing its original error."""
+    env = auto_resource_env
+    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Photo", ""))
+    wrapper.note_metadata = {"source_resource": "[[resource/2026-01-01/photo.png]]"}
+    wrapper.after_write_error = RuntimeError("original agent error")
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
+    result = response.metadata["results"][0]["metadata"]
+    assert not response.success
+    assert result["error"] == "original agent error"
+    assert result["modified"] is True
+    assert len(wrapper.calls) == len(hooks) == 1
+    assert (env.workspace / result["path"]).exists()
+    assert (env.workspace / "daily/2026-01-01.md").exists()
 
 
 async def test_image_rejects_zero_image_budget(auto_resource_env):
@@ -463,8 +588,9 @@ async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, auto_reso
     assert note.read_bytes() == before
 
 
-async def test_agent_cancellation_propagates_without_retrying(auto_resource_env):
-    """Keep the text workflow's cancellation behavior instead of adding local recovery."""
+@pytest.mark.parametrize("owner", [None, "[[resource/other.png]]"], ids=["missing-owner", "foreign-owner"])
+async def test_image_cancellation_does_not_claim_a_partial_write_without_an_owner(owner, auto_resource_env):
+    """Cancellation reports a partial write without claiming missing or foreign source provenance."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     written = asyncio.Event()
@@ -478,7 +604,10 @@ async def test_agent_cancellation_propagates_without_retrying(auto_resource_env)
             await asyncio.Event().wait()
 
     wrapper = WaitingAfterWrite(caption_fields("photo", "Photo", "Partial but valid caption."))
-    step = env.processor(wrapper)
+    wrapper.note_metadata = {"source_resource": owner} if owner else {}
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    step = env.processor(wrapper, routed=True)
     task = asyncio.create_task(env.run(step, [{"change": "added", "path": str(source)}]))
     try:
         await asyncio.wait_for(written.wait(), timeout=5)
@@ -492,3 +621,11 @@ async def test_agent_cancellation_propagates_without_retrying(auto_resource_env)
     note = env.workspace / "daily/2026-01-01/photo.md"
     assert "Partial but valid caption." in note.read_text(encoding="utf-8")
     assert len(wrapper.calls) == 1
+    assert step.context.response.metadata["modified"] is True
+    assert step.context.response.metadata["cancelled"] is True
+    assert len(hooks) == 1
+    post = frontmatter.load(note)
+    assert post.get("source_resource") == owner
+    assert "kind" not in post and "media_type" not in post
+    assert not (env.workspace / "daily/2026-01-01.md").exists()
+    assert "_auto_resource_lookup_table" not in step.context

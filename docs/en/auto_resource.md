@@ -72,6 +72,19 @@ model and formatter. Configure the model through `components.agent_wrapper.<name
 are replaced by that binding. There is no separate caption model, schema-extraction call, or text-only retry after an
 agent failure. An agent workflow can make multiple model requests while using its tools.
 
+Each image interpretation uses an independent AgentScope session; `agent_session_id` identifies the actual session.
+The card is still linked and updated through `source_resource`. Written image notes are checked for the correct image
+embed, `## Caption`, and a nonempty caption rather than a JSON response payload. The agent must preserve any existing
+downstream `status` without adding, changing, or removing it.
+
+An agent error after writing, or a failed note check, remains a failure with `modified` reflecting actual file changes.
+The system attempts image-metadata and day-index finalization for explicitly linked notes. Written files are retained
+without automatic rollback or retry. Cancellation stops subsequent resources, attempts bounded cleanup and result notification, then
+propagates. Processed results and unprocessed items remain available in the context, logs, and notifications that can
+complete during cleanup.
+An interrupted rename records both paths in `interrupted_move`; intermediate files left by the file tool are retained
+without starting another rename or deleting those copies during cleanup.
+
 Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
 deletions. Call-time values override Job defaults; when neither is set, image processing is enabled. For the watcher, use
 `jobs.resource_watch_loop.include_images=false`; for manual calls, use `jobs.auto_resource.include_images=false`.
