@@ -397,13 +397,44 @@ class BaseAutoResourceStep(BaseStep):
                 "toolkit": None,
                 "output_schema": None,
             }
-        result = await self.agent_wrapper.reply(
-            inputs,
-            system_prompt=self.prompt_format("system_prompt"),
-            job_tools=self.create_tools if state.created else self.update_tools,
-            session_id=session_id,
-            **agent_kwargs,
-        )
+        try:
+            result = await self.agent_wrapper.reply(
+                inputs,
+                system_prompt=self.prompt_format("system_prompt"),
+                job_tools=self.create_tools if state.created else self.update_tools,
+                session_id=session_id,
+                **agent_kwargs,
+            )
+        except Exception:
+            if input_blocks:
+                try:
+                    # A tool write can succeed before the agent's later work fails.
+                    after_bytes = self._note_bytes(state.path)
+                    modified = after_bytes != state.before_bytes
+                    self.context.response.metadata.update(
+                        {
+                            "path": state.path,
+                            "created": state.created and after_bytes is not None,
+                            "modified": modified,
+                        },
+                    )
+                    if (
+                        modified
+                        and after_bytes is not None
+                        and str(self._frontmatter(state.path).get(_SOURCE_RESOURCE_KEY, "")).strip()
+                        == self._source_resource_link(file_path)
+                    ):
+                        await self._finalize_resource_note(
+                            state,
+                            day,
+                            file_path,
+                            note_stem,
+                            added,
+                            metadata=note_metadata,
+                        )
+                except Exception:
+                    self.logger.exception(f"[{self.name}] failed to finalize resource after agent error: {file_path}")
+            raise
         note_path = await self._finalize_resource_note(
             state,
             day,

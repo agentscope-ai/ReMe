@@ -191,18 +191,136 @@ async def test_disabled_images_keep_mixed_router_results_and_text_processing(aut
     assert not hook_calls
 
 
-async def test_image_agent_failure_before_write_is_not_retried(auto_resource_env):
-    """A failed agent call must not create a note or trigger an implicit retry."""
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
+async def test_image_agent_failure_before_write_is_not_retried(existing, auto_resource_env):
+    """A failure before writing must not create, repair, index, or retry a note."""
     env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
+    source_path = "resource/2026-01-01/photo.png"
+    source = env.write_binary(source_path, image_bytes())
+    note = env.workspace / "daily/2026-01-01/photo.md"
+    if existing:
+        env.write_note("daily/2026-01-01/photo.md", f"[[{source_path}]]")
+    before = note.read_bytes() if existing else None
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
     wrapper = FakeImageAgentWrapper(error=RuntimeError("agent failed before writing"))
-    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
+    response = await env.run(
+        env.processor(wrapper, routed=True),
+        [{"change": "modified" if existing else "added", "path": str(source)}],
+    )
     result = response.metadata["results"][0]["metadata"]
     assert not response.success
     assert len(wrapper.calls) == 1
     assert result["action"] == "failed"
     assert result["modified"] is False
+    assert (note.read_bytes() if note.exists() else None) == before
+    assert not hooks
+    assert not (env.workspace / "daily/2026-01-01.md").exists()
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
+async def test_owned_image_write_is_finalized_when_agent_reply_fails(existing, auto_resource_env):
+    """Report and finalize an actual owned write without hiding the original agent error."""
+    env = auto_resource_env
+    source_path = "resource/2026-01-01/photo.png"
+    source = env.write_binary(source_path, image_bytes())
+    note_path = "daily/2026-01-01/existing-card.md" if existing else "daily/2026-01-01/new-caption.md"
+    before = None
+    if existing:
+        note = env.write_note(note_path, f"[[{source_path}]]")
+        await env.app_context.jobs["frontmatter_update"](
+            path=note_path,
+            metadata={"kind": "image", "media_type": "image/png"},
+        )
+        before = note.read_bytes()
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    wrapper = FakeImageAgentWrapper(caption_fields("new-caption", "New description", "New caption."))
+    wrapper.note_metadata = {"source_resource": f"[[{source_path}]]"}
+    wrapper.after_write_error = RuntimeError("agent failed after writing")
+    response = await env.run(
+        env.processor(wrapper, routed=True),
+        [{"change": "modified" if existing else "added", "path": str(source)}],
+    )
+    result = response.metadata["results"][0]["metadata"]
+    assert not response.success
+    assert result["action"] == "failed"
+    assert result["error"] == "agent failed after writing"
+    assert result["path"] == note_path
+    assert response.metadata["modified"] is result["modified"] is True
+    assert len(wrapper.calls) == len(hooks) == 1
+    assert hooks[0]["metadata"]["results"] == response.metadata["results"]
+    note = env.workspace / note_path
+    assert note.read_bytes() != before
+    post = frontmatter.load(note)
+    assert post["source_resource"] == f"[[{source_path}]]"
+    assert post["kind"] == "image"
+    assert post["media_type"] == "image/png"
+    assert post["name"] == Path(note_path).stem
+    assert post["description"] == "New description"
+    assert "New caption." in post.content
     assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
+    if existing:
+        assert not (env.workspace / "daily/2026-01-01/new-caption.md").exists()
+    index = (env.workspace / "daily/2026-01-01.md").read_text(encoding="utf-8")
+    assert note_path in index and "New description" in index
+
+
+async def test_agent_error_survives_failed_post_write_finalization(auto_resource_env):
+    """A secondary index failure must not replace the agent error or erase the write delta."""
+    env = auto_resource_env
+    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "New description", "New caption."))
+    wrapper.note_metadata = {"source_resource": "[[resource/2026-01-01/photo.png]]"}
+    wrapper.after_write_error = RuntimeError("agent failed after writing")
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    with patch(
+        "reme.steps.evolve.base_auto_resource.refresh_day_index",
+        new=AsyncMock(side_effect=RuntimeError("index refresh failed")),
+    ) as refresh:
+        response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
+    result = response.metadata["results"][0]["metadata"]
+    assert not response.success
+    assert result["action"] == "failed"
+    assert result["error"] == "agent failed after writing"
+    assert "agent failed after writing" in response.answer
+    assert response.metadata["modified"] is result["modified"] is True
+    assert result["path"] == "daily/2026-01-01/photo.md"
+    assert len(wrapper.calls) == len(hooks) == 1
+    refresh.assert_awaited_once()
+    note = frontmatter.load(env.workspace / result["path"])
+    assert note["kind"] == "image" and note["media_type"] == "image/png"
+    assert not (env.workspace / "daily/2026-01-01.md").exists()
+
+
+async def test_unchanged_image_write_does_not_trigger_failure_recovery(auto_resource_env):
+    """An identical rewrite is not grounds to repair an existing note or emit a hook."""
+    env = auto_resource_env
+    source_path = "resource/2026-01-01/photo.png"
+    source = env.write_binary(source_path, image_bytes())
+    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Same description", "Same caption."))
+    wrapper.note_metadata = {"source_resource": f"[[{source_path}]]"}
+    note_path = "daily/2026-01-01/photo.md"
+    await env.app_context.jobs["write"](
+        path=note_path,
+        name="photo",
+        description="Same description",
+        content=f"![[{source_path}]]\n\n## Caption\n\nSame caption.\n",
+        metadata=wrapper.note_metadata,
+    )
+    note = env.workspace / note_path
+    before = note.read_bytes()
+    hooks = []
+    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
+    wrapper.after_write_error = RuntimeError("agent failed after identical write")
+    response = await env.run(env.processor(wrapper, routed=True), [{"change": "modified", "path": str(source)}])
+    assert not response.success
+    assert response.metadata["modified"] is False
+    assert note.read_bytes() == before
+    assert not hooks
+    assert len(wrapper.calls) == 1
+    assert not (env.workspace / "daily/2026-01-01.md").exists()
 
 
 async def test_image_agent_body_is_not_postvalidated_or_rewritten(auto_resource_env):
@@ -318,19 +436,27 @@ async def test_configured_wrapper_and_job_image_options(
         assert "AgentScope wrapper" in result["error"]
 
 
-async def test_partial_agent_write_cannot_claim_an_explicit_foreign_owner(auto_resource_env):
-    """A failed agent write cannot make deletion claim an explicitly foreign-owned note."""
+@pytest.mark.parametrize("owner", [None, "[[resource/other.png]]"], ids=["missing-owner", "foreign-owner"])
+async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, auto_resource_env):
+    """Report actual writes without repairing, renaming, or deleting an unowned note."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("foreign", "Foreign", "A foreign-owned note."))
-    wrapper.note_metadata = {"source_resource": "[[resource/other.png]]"}
+    wrapper.note_metadata = {"source_resource": owner} if owner else {}
     wrapper.after_write_error = RuntimeError("agent failed after writing")
     step = env.processor(wrapper)
     response = await env.run(step, [{"change": "added", "path": str(source)}])
     assert not response.success
+    result = response.metadata["results"][0]["metadata"]
+    assert result["modified"] is response.metadata["modified"] is True
+    assert result["error"] == "agent failed after writing"
     note = env.workspace / "daily/2026-01-01/photo.md"
     before = note.read_bytes()
-    assert frontmatter.load(note)["source_resource"] == "[[resource/other.png]]"
+    post = frontmatter.load(note)
+    assert post.get("source_resource") == owner
+    assert "kind" not in post and "media_type" not in post
+    assert not (env.workspace / "daily/2026-01-01/foreign.md").exists()
+    assert not (env.workspace / "daily/2026-01-01.md").exists()
     deleted = await env.run(step, [{"change": "deleted", "path": str(source)}])
     assert deleted.success
     assert deleted.metadata["results"][0]["metadata"]["reason"] == "resource_note_not_found"
