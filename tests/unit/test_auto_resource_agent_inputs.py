@@ -82,6 +82,7 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     assert options["output_schema"] is None
     assert options["resume"] is None
     assert options["session_id"] is None
+    assert "scope_note_tools" not in options
     assert options["injected_job_kwargs"]["_allowed_paths"] == ["daily/2026-01-01/brown-coat.md"]
 
     native = AsAgentWrapper(

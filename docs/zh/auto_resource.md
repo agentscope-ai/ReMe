@@ -69,8 +69,9 @@ Agent 写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/
 卡片正文应包含原图引用和 `## Caption` 下的描述或文字转录，不能留空或直接写入 JSON。
 `status` 留给后续流程填写，更新卡片时保留原值。
 
-自定义图片提示词使用 `prompt_dict.resource_instructions`，中文使用 `resource_instructions_zh`，替代原来的
-`user_message` / `user_message_zh`。如果同时覆盖公共创建或更新模板，需保留 `{resource_instructions}` 占位符。
+自定义图片提示词使用 `prompt_dict.resource_instructions`，中文使用 `resource_instructions_zh`；旧配置中的
+`user_message` / `user_message_zh` 仍可使用，同一语言同时配置新旧名称时以新名称为准。公共创建或更新模板通过
+`{resource_instructions}` 插入图片要求；旧模板没有该占位符时，图片要求会追加到末尾。
 
 在 `auto_resource` 调用或 Job 默认值中设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
 调用参数优先于 Job 默认值，两者都未设置时默认开启。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，

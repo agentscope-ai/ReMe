@@ -378,12 +378,12 @@ class BaseAutoResourceStep(BaseStep):
         resource_instructions: str = "",
         note_metadata: dict | None = None,
         reply_kwargs: dict | None = None,
-        scope_note_tools: bool = False,
     ) -> str | None:
         """Run the same note-writing agent for text and native multimodal inputs."""
         state = await self._prepare_resource_note(day, file_path, note_stem)
+        prompt_name = "user_message_create" if state.created else "user_message_update"
         prompt = self.prompt_format(
-            "user_message_create" if state.created else "user_message_update",
+            prompt_name,
             workspace_dir=str(self.workspace_path),
             note_path=state.path,
             note_stem=note_stem,
@@ -393,6 +393,8 @@ class BaseAutoResourceStep(BaseStep):
             resource_instructions=f"\n\n{resource_instructions}" if resource_instructions else "",
             date=day,
         )
+        if resource_instructions and "{resource_instructions}" not in self.get_prompt(prompt_name):
+            prompt = f"{prompt}\n\n{resource_instructions}"
         inputs = UserMsg(name="user", content=[*input_blocks, TextBlock(text=prompt)]) if input_blocks else prompt
         self.logger.info(f"[{self.name}] agent start file_path={file_path} note_path={state.path}")
         agent_kwargs = {
@@ -402,7 +404,8 @@ class BaseAutoResourceStep(BaseStep):
         }
         if "session_id" not in agent_kwargs:
             agent_kwargs["session_id"] = _compute_agent_session_id(file_path)
-        if scope_note_tools:
+        # Consume the resource-only option before forwarding kwargs to the wrapper.
+        if agent_kwargs.pop("scope_note_tools", False):
             # Bind the final allocated path last, never a path supplied by the agent.
             agent_kwargs["injected_job_kwargs"] = {
                 **(agent_kwargs.get("injected_job_kwargs") or {}),
