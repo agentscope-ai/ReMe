@@ -49,7 +49,7 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
-- [2026.09] - **[Memory Tags blog](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
+- [2026.09] - **[Add Tags to Memory](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 - [2026.09] - **[Hermes Agent memory provider](integrations/hermes_agent/README.md) available**: choose HTTP or embedded
   mode for automatic recall before model calls and asynchronous `auto_memory` after completed turns. The integration

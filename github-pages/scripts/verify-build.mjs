@@ -95,13 +95,18 @@ assert.match(ChineseConfiguration, /复制 Markdown/);
 assert.match(ChineseConfiguration, /在 GitHub 查看源文件/);
 
 const ChineseBlog = await readFile(path.join(outputDir, "zh/blog_20260920.html"), "utf8");
-assert.match(ChineseBlog, /<h1[^>]*>给记忆加上“线索”——ReMe 记忆标签/);
+assert.match(ChineseBlog, /<h1[^>]*>给记忆加上“标签”/);
 assert.match(ChineseBlog, />记忆标签<\/p>/, "the Chinese sidebar must use the localized article name");
 assert.match(
   ChineseBlog,
   /<a class="VPLink link link" href="\/zh\/reme-blog"[^>]*>.*?<h2 class="text"[^>]*>ReMe 博客<\/h2>/,
   "the blog sidebar heading must link to the blog landing page",
 );
+
+const EnglishBlog = await readFile(path.join(outputDir, "en/blog_20260920.html"), "utf8");
+assert.match(EnglishBlog, /<h1[^>]*>Add Tags to Memory/);
+assert.match(EnglishBlog, /How Does the Tag Index Work\?/);
+assert.doesNotMatch(EnglishBlog, /full article is currently available in Chinese/);
 
 const jobReference = await readFile(path.join(outputDir, "en/reference/jobs.html"), "utf8");
 assert.match(jobReference, /Job API Reference/);
