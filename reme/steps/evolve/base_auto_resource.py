@@ -375,6 +375,7 @@ class BaseAutoResourceStep(BaseStep):
         file_content: str,
         *,
         input_blocks: list[TextBlock | DataBlock] | None = None,
+        resource_instructions: str = "",
         note_metadata: dict | None = None,
         reply_kwargs: dict | None = None,
         scope_note_tools: bool = False,
@@ -389,6 +390,7 @@ class BaseAutoResourceStep(BaseStep):
             file_path=file_path,
             source_resource=self._source_resource_link(file_path),
             file_content=file_content,
+            resource_instructions=f"\n\n{resource_instructions}" if resource_instructions else "",
             date=day,
         )
         inputs = UserMsg(name="user", content=[*input_blocks, TextBlock(text=prompt)]) if input_blocks else prompt

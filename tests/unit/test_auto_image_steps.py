@@ -22,6 +22,7 @@ from unittest.mock import patch
 import frontmatter
 import pytest
 import yaml
+from agentscope.message import DataBlock, TextBlock
 from PIL import Image, JpegImagePlugin
 
 from reme.components import R
@@ -101,7 +102,7 @@ async def test_auto_image_uses_decoded_format_for_request_and_note(
     assert post.metadata["name"] == "visible-subject"
     assert f"![[resource/2026-01-01/image{suffix}]]" in post.content
     assert "Visible caption." in post.content
-    data_block = model.calls[0][0].content[1]
+    data_block = next(block for block in model.calls[0][0].content if isinstance(block, DataBlock))
     assert data_block.source.media_type == request_mime
     with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
         assert sent.get_format_mimetype() == request_mime
@@ -146,7 +147,7 @@ async def test_auto_image_downscales_oversized_image_for_request_only(auto_resou
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
-    data_block = model.calls[0][0].content[1]
+    data_block = next(block for block in model.calls[0][0].content if isinstance(block, DataBlock))
     assert data_block.source.media_type == "image/jpeg"
     with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
         assert max(sent.size) <= 2048
@@ -174,7 +175,7 @@ async def test_auto_image_uses_jpeg_decoder_downsampling_before_load(auto_resour
     assert response.success is True
     assert decoded_sizes
     assert decoded_sizes[0] == (2048, 1024)
-    data_block = model.calls[0][0].content[1]
+    data_block = next(block for block in model.calls[0][0].content if isinstance(block, DataBlock))
     with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
         assert max(sent.size) <= 2048
     assert source.read_bytes() == stored_bytes
@@ -284,7 +285,7 @@ async def test_auto_image_applies_exif_orientation_before_resizing(source_size, 
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
-    data_block = model.calls[0][0].content[1]
+    data_block = next(block for block in model.calls[0][0].content if isinstance(block, DataBlock))
     assert data_block.source.media_type == "image/jpeg"
     with Image.open(io.BytesIO(base64.b64decode(data_block.source.data))) as sent:
         assert sent.size == request_size
@@ -688,8 +689,8 @@ def test_resource_processors_have_canonical_registrations_and_isolated_prompts()
     image_step = AutoImageResourceStep()
     assert text_step.prompt.has_prompt("system_prompt")
     assert text_step.prompt.has_prompt("user_message_create")
-    assert not text_step.prompt.has_prompt("user_message")
-    assert image_step.prompt.has_prompt("user_message")
+    assert not text_step.prompt.has_prompt("resource_instructions")
+    assert image_step.prompt.has_prompt("resource_instructions")
     assert image_step.prompt.has_prompt("system_prompt")
     assert image_step.prompt.has_prompt("user_message_create")
 
@@ -809,20 +810,36 @@ import reme.steps.evolve.auto_image_resource
     assert completed.returncode == 0, completed.stderr
 
 
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
 @pytest.mark.asyncio
-async def test_auto_image_prompt_treats_filename_as_a_weak_hint(auto_resource_env):
-    """The VLM prompt separates filename hints from visible image evidence."""
+async def test_auto_image_prompt_merges_resource_instructions(language, existing, auto_resource_env):
+    """Shared create/update prompts include localized image requirements exactly once."""
     env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/cat-at-beach.png", _png_bytes())
+    source_path = "resource/2026-01-01/cat-at-beach.png"
+    source = env.write_binary(source_path, _png_bytes())
+    if existing:
+        env.write_note("daily/2026-01-01/cat-at-beach.md", f"[[{source_path}]]")
     model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
-    response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
+    step = env.processor(model, language=language)
+    response = await env.run(step, [{"change": "modified" if existing else "added", "path": str(source)}])
 
     assert response.success is True
-    prompt = model.calls[0][0].content[0].text
-    assert "Filename: cat-at-beach.png" in prompt
-    assert "Filename stem: cat-at-beach" in prompt
-    assert "weak hints" in prompt
-    assert "trust the visible image content" in prompt
+    message, options = model.calls[0]
+    assert [type(block) for block in message.content] == [DataBlock, TextBlock]
+    prompt = message.get_text_content()
+    instructions = step.prompt_format(
+        "resource_instructions",
+        file_path=source_path,
+        filename="cat-at-beach.png",
+        stem="cat-at-beach",
+        date="2026-01-01",
+    )
+    assert prompt.count(instructions) == 1
+    assert ("weak hints" if language == "en" else "弱提示") in prompt
+    assert ("trust the visible image content" if language == "en" else "以图像中的可见内容为准") in prompt
+    assert options["injected_job_kwargs"]["_allowed_paths"][0] in prompt
+    assert ("read path=" in prompt) is existing
 
 
 @pytest.mark.asyncio
@@ -945,7 +962,8 @@ async def test_auto_image_converts_heic_request_when_extra_is_installed(auto_res
     response = await env.run(env.processor(model), [{"change": "added", "path": str(source)}])
 
     assert response.success is True
-    assert model.calls[0][0].content[1].source.media_type in {"image/png", "image/jpeg"}
+    data_block = next(block for block in model.calls[0][0].content if isinstance(block, DataBlock))
+    assert data_block.source.media_type in {"image/png", "image/jpeg"}
     note = frontmatter.loads((env.workspace / "daily/2026-01-01/phone.md").read_text(encoding="utf-8"))
     assert note.metadata["media_type"] == "image/heic"
     assert "converted caption" in note.content

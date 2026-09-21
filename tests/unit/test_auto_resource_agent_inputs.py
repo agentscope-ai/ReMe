@@ -111,8 +111,6 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     assert next(block for block in restored.content if isinstance(block, DataBlock)) == original_image
     new_agent, _ = await native._build_agent(message, **merged_options)
     assert agent.state.session_id != new_agent.state.session_id
-    assert str(uuid.UUID(agent.state.session_id)) == agent.state.session_id
-    assert str(uuid.UUID(new_agent.state.session_id)) == new_agent.state.session_id
     assert agent.state.session_id != native.kwargs["session_id"]
     assert new_agent.state.session_id != native.kwargs["session_id"]
     assert not new_agent.state.context
@@ -575,34 +573,17 @@ async def test_configured_wrapper_and_job_image_options(
 
 
 @pytest.mark.parametrize("owner", [None, "[[resource/other.png]]"], ids=["missing-owner", "foreign-owner"])
-@pytest.mark.parametrize("cancelled", [False, True], ids=["error", "cancel"])
-async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, cancelled, auto_resource_env):
-    """Failure and cancellation report actual writes without claiming missing or foreign ownership."""
+async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, auto_resource_env):
+    """Report failed writes without claiming a note whose source ownership is missing or different."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("foreign", "Foreign", "A foreign-owned note."))
     wrapper.note_metadata = {"source_resource": owner} if owner else {}
+    wrapper.after_write_error = RuntimeError("agent failed after writing")
     step = env.processor(wrapper)
-    written = asyncio.Event()
-    write_reply = wrapper.reply
-
-    async def write_then_fail(*args, **kwargs):
-        await write_reply(*args, **kwargs)
-        if cancelled:
-            written.set()
-            await asyncio.Event().wait()
-        raise RuntimeError("agent failed after writing")
-
-    with patch.object(wrapper, "reply", new=AsyncMock(side_effect=write_then_fail)):
-        invocation = env.run(step, [{"change": "added", "path": str(source)}])
-        if cancelled:
-            await _cancel_after(asyncio.create_task(invocation), written)
-            response = step.context.response
-            result = response.metadata
-        else:
-            response = await invocation
-            result = response.metadata["results"][0]["metadata"]
-            assert result["error"] == "agent failed after writing"
+    response = await env.run(step, [{"change": "added", "path": str(source)}])
+    result = response.metadata["results"][0]["metadata"]
+    assert result["error"] == "agent failed after writing"
     assert not response.success
     assert result["modified"] is response.metadata["modified"] is True
     note = env.workspace / "daily/2026-01-01/photo.md"

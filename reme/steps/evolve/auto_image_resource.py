@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 import aiofiles
 import frontmatter
 from agentscope.agent import ContextConfig
-from agentscope.message import Base64Source, DataBlock, TextBlock
+from agentscope.message import Base64Source, DataBlock
 
 from ..file_io._path import IMAGE_SUFFIXES
 from .base_auto_resource import BaseAutoResourceStep
@@ -329,15 +329,6 @@ class AutoImageResourceStep(BaseAutoResourceStep):
         if payload is None:
             return
         blocks = [
-            TextBlock(
-                text=self.prompt_format(
-                    "user_message",
-                    file_path=file_path,
-                    filename=PurePosixPath(file_path).name,
-                    stem=note_stem,
-                    date=date_str,
-                ),
-            ),
             DataBlock(
                 source=Base64Source(data=payload["data_b64"], media_type=payload["mime"]),
                 name="image",
@@ -348,8 +339,15 @@ class AutoImageResourceStep(BaseAutoResourceStep):
             date_str,
             note_stem,
             added,
-            "The resource is the image attached above. Follow its interpretation and note-format instructions.",
+            "The resource is the image attached above.",
             input_blocks=blocks,
+            resource_instructions=self.prompt_format(
+                "resource_instructions",
+                file_path=file_path,
+                filename=PurePosixPath(file_path).name,
+                stem=note_stem,
+                date=date_str,
+            ),
             note_metadata={"kind": "image", "media_type": payload["source_mime"]},
             reply_kwargs={
                 "session_id": None,

@@ -72,10 +72,14 @@ model and formatter. Configure the model through `components.agent_wrapper.<name
 are replaced by that binding. There is no separate caption model, schema-extraction call, or text-only retry after an
 agent failure. An agent workflow can make multiple model requests while using its tools.
 
-Each image interpretation uses an independent AgentScope session; `agent_session_id` identifies the actual session.
-The card is still linked and updated through `source_resource`. Written image notes are checked for the correct image
-embed, `## Caption`, and a nonempty caption rather than a JSON response payload. The agent must preserve any existing
-downstream `status` without adding, changing, or removing it.
+Each image interpretation starts a new session. Use the returned `agent_session_id` to find its processing record;
+reprocessing the same image still updates the original card. The body should contain the image embed followed by a
+description or transcription under `## Caption`, not an empty caption or a JSON response. Leave `status` to later
+processing steps and keep its existing value when updating the card.
+
+Customize image instructions with `prompt_dict.resource_instructions` (`resource_instructions_zh` for Chinese), replacing
+`user_message` / `user_message_zh`. If you also override the shared create or update template, keep its
+`{resource_instructions}` placeholder.
 
 Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
 deletions. Call-time values override Job defaults; when neither is set, image processing is enabled. For the watcher, use
@@ -133,10 +137,10 @@ When a resource changes, Auto Resource finds and updates the corresponding card 
 match. When an enabled resource is deleted, only the explicitly linked daily note is removed. A same-stem note without that
 provenance marker is treated as user-owned and left untouched; new resource cards use a collision-free path instead.
 
-For both text and images, if the agent call fails or is cancelled after writing, Auto Resource records actual changes
-in `modified` and attempts metadata and day-index finalization for the resource's explicitly linked card. The original
-error or cancellation is preserved. Failed image-note checks also report actual changes; written files are retained
-without automatic rollback or retry.
+A failed call may still have changed a card; `modified` records whether the file changed. If the agent writes the card
+and then fails or is cancelled, the written content stays on disk. ReMe tries to complete metadata and update the day's
+index for the card linked through `source_resource`, while preserving the original error or cancellation. A failed
+image-note format check also leaves the written content in place. Failed calls are not retried automatically.
 
 ## Daily Index
 

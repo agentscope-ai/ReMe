@@ -65,9 +65,12 @@ Agent 写入一张 caption 卡片并链接原图。卡片正文以 `![[resource/
 不再单独调用 caption 模型或执行额外的 schema 提取；Agent 失败后也不以纯文本重跑。
 这是一次 Agent 工作流，工具调用可能带来多轮模型请求。
 
-每次图片理解使用独立的 AgentScope 会话，结果中的 `agent_session_id` 对应本次实际会话；资源卡片仍通过
-`source_resource` 关联和更新。图片笔记写入后会检查原图嵌入链接、`## Caption` 和非空 caption，拒绝将 JSON
-响应直接当作 caption。Agent 不得新增、修改或删除下游保留的 `status`；已有值必须原样保留。
+每次解读图片都会新建会话，处理记录可通过返回的 `agent_session_id` 查找。更新同一张图片时，仍然修改原来的卡片。
+卡片正文应包含原图引用和 `## Caption` 下的描述或文字转录，不能留空或直接写入 JSON。
+`status` 留给后续流程填写，更新卡片时保留原值。
+
+自定义图片提示词使用 `prompt_dict.resource_instructions`，中文使用 `resource_instructions_zh`，替代原来的
+`user_message` / `user_message_zh`。如果同时覆盖公共创建或更新模板，需保留 `{resource_instructions}` 占位符。
 
 在 `auto_resource` 调用或 Job 默认值中设置 `include_images=false`，会跳过图片的**全部事件，包括删除**。
 调用参数优先于 Job 默认值，两者都未设置时默认开启。监听任务可设置 `jobs.resource_watch_loop.include_images=false`，
@@ -119,9 +122,9 @@ source_resource: "[[resource/2026-06-20/market-report.md]]"
 对于已启用处理的资源，文件更新时 Auto Resource 只会通过精确匹配的 `source_resource` 找到对应卡片并更新；文件删除时也只会清理显式关联的
 daily note。缺少该来源标记的同 stem 笔记会被视为用户笔记并保留，新资源卡片则会使用无冲突路径。
 
-文本和图像共用写后异常收尾：如果 Agent 调用在写入后报错或被取消，Auto Resource 会用 `modified` 记录实际文件变化，
-并尝试为明确关联当前资源的卡片完成元数据和日索引收尾，随后保留原错误或取消状态。图片笔记校验失败也会如实记录修改；
-已写文件保留，不自动回滚或重试。
+处理失败时，`modified` 会标明卡片文件有没有变化。Agent 写完文件后再报错或被取消，已写内容仍然保留；
+系统会尝试补齐通过 `source_resource` 关联的卡片元数据，并更新当天索引，调用仍按原来的错误或取消结束。
+图片笔记未通过格式检查时也会报错，已写内容同样保留。失败的调用不会自动重试。
 
 ## 当天索引
 

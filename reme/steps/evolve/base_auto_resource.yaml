@@ -59,7 +59,7 @@ user_message_create: |
 
   # Your Task
 
-  Interpret the resource file above and write a structured summary into the target note.
+  Interpret the resource file above and write a structured summary into the target note.{resource_instructions}
 
   ## Step 1 — Skip Check
 
@@ -99,7 +99,7 @@ user_message_create_zh: |
 
   # 你的任务
 
-  解读上述资源文件，将结构化摘要写入目标笔记。
+  解读上述资源文件，将结构化摘要写入目标笔记。{resource_instructions}
 
   ## 步骤 1 — 跳过检查
 
@@ -140,7 +140,7 @@ user_message_update: |
 
   # Your Task
 
-  The resource file has been updated. Re-interpret it and update the existing note at the target path.
+  The resource file has been updated. Re-interpret it and update the existing note at the target path.{resource_instructions}
 
   ## Step 1 — Read Existing Content
 
@@ -196,7 +196,7 @@ user_message_update_zh: |
 
   # 你的任务
 
-  资源文件已更新。重新解读并更新目标路径的已有笔记。
+  资源文件已更新。重新解读并更新目标路径的已有笔记。{resource_instructions}
 
   ## 步骤 1 — 读取现有内容
 
