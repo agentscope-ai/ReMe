@@ -77,14 +77,6 @@ The card is still linked and updated through `source_resource`. Written image no
 embed, `## Caption`, and a nonempty caption rather than a JSON response payload. The agent must preserve any existing
 downstream `status` without adding, changing, or removing it.
 
-An agent error after writing, or a failed note check, remains a failure with `modified` reflecting actual file changes.
-The system attempts image-metadata and day-index finalization for explicitly linked notes. Written files are retained
-without automatic rollback or retry. Cancellation stops subsequent resources, attempts bounded cleanup and result notification, then
-propagates. Processed results and unprocessed items remain available in the context, logs, and notifications that can
-complete during cleanup.
-An interrupted rename records both paths in `interrupted_move`; intermediate files left by the file tool are retained
-without starting another rename or deleting those copies during cleanup.
-
 Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
 deletions. Call-time values override Job defaults; when neither is set, image processing is enabled. For the watcher, use
 `jobs.resource_watch_loop.include_images=false`; for manual calls, use `jobs.auto_resource.include_images=false`.
@@ -140,6 +132,11 @@ source_resource: "[[resource/2026-06-20/market-report.md]]"
 When a resource changes, Auto Resource finds and updates the corresponding card through an exact `source_resource`
 match. When an enabled resource is deleted, only the explicitly linked daily note is removed. A same-stem note without that
 provenance marker is treated as user-owned and left untouched; new resource cards use a collision-free path instead.
+
+For both text and images, if the agent call fails or is cancelled after writing, Auto Resource records actual changes
+in `modified` and attempts metadata and day-index finalization for the resource's explicitly linked card. The original
+error or cancellation is preserved. Failed image-note checks also report actual changes; written files are retained
+without automatic rollback or retry.
 
 ## Daily Index
 

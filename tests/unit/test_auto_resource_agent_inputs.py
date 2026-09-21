@@ -70,19 +70,8 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/brown-coat.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("coat", "Brown coat", "A brown coat."))
-    step = env.processor(wrapper)
-    with patch.object(step, "_interpret_resource", new=AsyncMock(wraps=step._interpret_resource)) as interpret:
-        response = await env.run(step, [{"change": "added", "path": str(source)}])
+    response = await env.run(env.processor(wrapper), [{"change": "added", "path": str(source)}])
     assert response.success
-    assert interpret.call_args.kwargs["scope_note_tools"] is True
-    assert interpret.call_args.kwargs["reply_kwargs"] == {
-        "session_id": None,
-        "resume": None,
-        "builtin_tools": [],
-        "skills": [],
-        "toolkit": None,
-        "output_schema": None,
-    }
     message, options = wrapper.calls[0]
     assert isinstance(message, Msg)
     assert sum(isinstance(block, DataBlock) for block in message.content) == 1
@@ -141,14 +130,12 @@ async def test_native_image_input_preserves_context_formatter_and_scoped_tools(a
 
 
 async def test_message_blocks_do_not_implicitly_enable_image_policies(auto_resource_env):
-    """Input shape alone must not select image tool scoping, recovery, or session policy."""
+    """Input shape alone must not select image tool scoping or session policy."""
     env = auto_resource_env
     source_path = "resource/2026-01-01/notes.txt"
     wrapper = FakeAgentWrapper()
     step = AutoTextResourceStep(app_context=env.app_context, file_store=env.file_store, agent_wrapper=wrapper)
     step.context = RuntimeContext()
-    assert step.finalize_failed_resource is False
-    assert AutoImageResourceStep.finalize_failed_resource is True
     with patch.object(wrapper, "reply", new=AsyncMock(wraps=wrapper.reply)) as reply:
         await step._interpret_resource(
             source_path,
@@ -266,68 +253,114 @@ async def test_image_agent_failure_before_write_is_not_retried(existing, auto_re
     assert not (env.workspace / "daily/2026-01-01.md").exists()
 
 
+async def _cancel_after(task, ready):
+    """Cancel the real invocation at an observed side-effect boundary and always join it."""
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("suffix", ["png", "txt"], ids=["image", "text"])
 @pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
-async def test_owned_image_write_is_finalized_when_agent_reply_fails(existing, auto_resource_env):
-    """Report and finalize an actual owned write without hiding the original agent error."""
+@pytest.mark.parametrize("cancelled", [False, True], ids=["error", "cancel"])
+async def test_written_resource_is_finalized_after_reply_failure(suffix, existing, cancelled, auto_resource_env):
+    """Both processors finalize real writes while preserving the reply failure or task cancellation."""
     env = auto_resource_env
-    source_path = "resource/2026-01-01/photo.png"
-    source = env.write_binary(source_path, image_bytes())
+    source_path = f"resource/2026-01-01/photo.{suffix}"
+    source = env.write_binary(source_path, image_bytes() if suffix == "png" else "中文文本".encode())
     note_path = "daily/2026-01-01/existing-card.md" if existing else "daily/2026-01-01/new-caption.md"
+    target = note_path if existing else "daily/2026-01-01/photo.md"
     before = None
     if existing:
-        note = env.write_note(note_path, f"[[{source_path}]]")
-        await env.app_context.jobs["frontmatter_update"](
-            path=note_path,
-            metadata={"kind": "image", "media_type": "image/png"},
-        )
-        before = note.read_bytes()
+        before = env.write_note(note_path, f"[[{source_path}]]").read_bytes()
     hooks = []
     env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
-    wrapper = FakeImageAgentWrapper(caption_fields("new-caption", "New description", "New caption."))
-    wrapper.note_metadata = {"source_resource": f"[[{source_path}]]"}
-    wrapper.after_write_error = RuntimeError("agent failed after writing")
-    response = await env.run(
-        env.processor(wrapper, routed=True),
-        [{"change": "modified" if existing else "added", "path": str(source)}],
+    wrapper = FakeImageAgentWrapper()
+    wrapper.app_context = env.app_context
+    env.app_context.registry = R
+    step = AutoResourceStep(
+        app_context=env.app_context,
+        dispatch_steps=[
+            {
+                "backend": "auto_image_resource_step" if suffix == "png" else "auto_text_resource_step",
+                "file_store": env.file_store,
+                "agent_wrapper": wrapper,
+            },
+        ],
     )
-    result = response.metadata["results"][0]["metadata"]
+    written = asyncio.Event()
+
+    async def write_then_fail(_inputs, **kwargs):
+        tool = wrapper._make_tool(
+            env.app_context.jobs["write"],
+            injected_job_kwargs=kwargs.get("injected_job_kwargs"),
+        )
+        await tool.call(
+            path=target,
+            name="new-caption",
+            description="New description",
+            content=f"![[{source_path}]]\n\n## Caption\n\nNew caption." if suffix == "png" else "New text.",
+            metadata={"source_resource": f"[[{source_path}]]"},
+        )
+        if cancelled:
+            written.set()
+            await asyncio.Event().wait()
+        raise RuntimeError("agent failed after writing")
+
+    with patch.object(wrapper, "reply", new=AsyncMock(side_effect=write_then_fail)) as reply:
+        invocation = env.run(step, [{"change": "modified" if existing else "added", "path": str(source)}])
+        if cancelled:
+            await _cancel_after(asyncio.create_task(invocation), written)
+            response = step.context.response
+            result = response.metadata
+        else:
+            response = await invocation
+            result = response.metadata["results"][0]["metadata"]
+            assert result["action"] == "failed"
+            assert result["error"] == "agent failed after writing"
+            assert len(hooks) == 1
+        reply.assert_awaited_once()
     assert not response.success
-    assert result["action"] == "failed"
-    assert result["error"] == "agent failed after writing"
     assert result["path"] == note_path
     assert response.metadata["modified"] is result["modified"] is True
-    assert len(wrapper.calls) == len(hooks) == 1
-    assert hooks[0]["metadata"]["results"] == response.metadata["results"]
     note = env.workspace / note_path
     assert note.read_bytes() != before
     post = frontmatter.load(note)
     assert post["source_resource"] == f"[[{source_path}]]"
-    assert post["kind"] == "image"
-    assert post["media_type"] == "image/png"
+    if suffix == "png":
+        assert post["kind"] == "image" and post["media_type"] == "image/png"
     assert post["name"] == Path(note_path).stem
     assert post["description"] == "New description"
-    assert "New caption." in post.content
+    assert post.content.endswith("New caption." if suffix == "png" else "New text.")
     assert not (env.workspace / "daily/2026-01-01/photo.md").exists()
-    if existing:
-        assert not (env.workspace / "daily/2026-01-01/new-caption.md").exists()
     index = (env.workspace / "daily/2026-01-01.md").read_text(encoding="utf-8")
     assert note_path in index and "New description" in index
 
 
-async def test_agent_error_survives_failed_post_write_finalization(auto_resource_env):
-    """A secondary index failure must not replace the agent error or erase the write delta."""
+@pytest.mark.parametrize("failure", ["index", "caption"])
+async def test_agent_error_survives_failed_post_write_finalization(failure, auto_resource_env, monkeypatch):
+    """Neither an index error nor invalid output may replace the original reply error."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("photo", "New description", "New caption."))
+    wrapper = FakeImageAgentWrapper(
+        caption_fields("photo", "New description", "New caption." if failure == "index" else ""),
+    )
     wrapper.note_metadata = {"source_resource": "[[resource/2026-01-01/photo.png]]"}
     wrapper.after_write_error = RuntimeError("agent failed after writing")
     hooks = []
     env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
-    with patch(
-        "reme.steps.evolve.base_auto_resource.refresh_day_index",
-        new=AsyncMock(side_effect=RuntimeError("index refresh failed")),
-    ) as refresh:
-        response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
+    if failure == "index":
+        monkeypatch.setattr(
+            "reme.steps.evolve.base_auto_resource.refresh_day_index",
+            AsyncMock(side_effect=RuntimeError("index refresh failed")),
+        )
+    response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
     result = response.metadata["results"][0]["metadata"]
     assert not response.success
     assert result["action"] == "failed"
@@ -336,10 +369,9 @@ async def test_agent_error_survives_failed_post_write_finalization(auto_resource
     assert response.metadata["modified"] is result["modified"] is True
     assert result["path"] == "daily/2026-01-01/photo.md"
     assert len(wrapper.calls) == len(hooks) == 1
-    refresh.assert_awaited_once()
     note = frontmatter.load(env.workspace / result["path"])
     assert note["kind"] == "image" and note["media_type"] == "image/png"
-    assert not (env.workspace / "daily/2026-01-01.md").exists()
+    assert (env.workspace / "daily/2026-01-01.md").exists() is (failure != "index")
 
 
 async def test_unchanged_image_write_does_not_trigger_failure_recovery(auto_resource_env):
@@ -446,25 +478,6 @@ async def test_image_agent_must_preserve_downstream_status(before, after, valid,
     assert (env.workspace / "daily/2026-01-01.md").exists()
 
 
-async def test_agent_error_takes_priority_over_invalid_caption(auto_resource_env):
-    """A failed agent's invalid output stays visible without replacing its original error."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    wrapper = FakeImageAgentWrapper(caption_fields("photo", "Photo", ""))
-    wrapper.note_metadata = {"source_resource": "[[resource/2026-01-01/photo.png]]"}
-    wrapper.after_write_error = RuntimeError("original agent error")
-    hooks = []
-    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
-    response = await env.run(env.processor(wrapper, routed=True), [{"change": "added", "path": str(source)}])
-    result = response.metadata["results"][0]["metadata"]
-    assert not response.success
-    assert result["error"] == "original agent error"
-    assert result["modified"] is True
-    assert len(wrapper.calls) == len(hooks) == 1
-    assert (env.workspace / result["path"]).exists()
-    assert (env.workspace / "daily/2026-01-01.md").exists()
-
-
 async def test_image_rejects_zero_image_budget(auto_resource_env):
     """A zero image budget must not yield filename-only memory."""
     env = auto_resource_env
@@ -562,19 +575,36 @@ async def test_configured_wrapper_and_job_image_options(
 
 
 @pytest.mark.parametrize("owner", [None, "[[resource/other.png]]"], ids=["missing-owner", "foreign-owner"])
-async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, auto_resource_env):
-    """Report actual writes without repairing, renaming, or deleting an unowned note."""
+@pytest.mark.parametrize("cancelled", [False, True], ids=["error", "cancel"])
+async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, cancelled, auto_resource_env):
+    """Failure and cancellation report actual writes without claiming missing or foreign ownership."""
     env = auto_resource_env
     source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
     wrapper = FakeImageAgentWrapper(caption_fields("foreign", "Foreign", "A foreign-owned note."))
     wrapper.note_metadata = {"source_resource": owner} if owner else {}
-    wrapper.after_write_error = RuntimeError("agent failed after writing")
     step = env.processor(wrapper)
-    response = await env.run(step, [{"change": "added", "path": str(source)}])
+    written = asyncio.Event()
+    write_reply = wrapper.reply
+
+    async def write_then_fail(*args, **kwargs):
+        await write_reply(*args, **kwargs)
+        if cancelled:
+            written.set()
+            await asyncio.Event().wait()
+        raise RuntimeError("agent failed after writing")
+
+    with patch.object(wrapper, "reply", new=AsyncMock(side_effect=write_then_fail)):
+        invocation = env.run(step, [{"change": "added", "path": str(source)}])
+        if cancelled:
+            await _cancel_after(asyncio.create_task(invocation), written)
+            response = step.context.response
+            result = response.metadata
+        else:
+            response = await invocation
+            result = response.metadata["results"][0]["metadata"]
+            assert result["error"] == "agent failed after writing"
     assert not response.success
-    result = response.metadata["results"][0]["metadata"]
     assert result["modified"] is response.metadata["modified"] is True
-    assert result["error"] == "agent failed after writing"
     note = env.workspace / "daily/2026-01-01/photo.md"
     before = note.read_bytes()
     post = frontmatter.load(note)
@@ -586,46 +616,3 @@ async def test_partial_agent_write_cannot_claim_an_unowned_note(owner, auto_reso
     assert deleted.success
     assert deleted.metadata["results"][0]["metadata"]["reason"] == "resource_note_not_found"
     assert note.read_bytes() == before
-
-
-@pytest.mark.parametrize("owner", [None, "[[resource/other.png]]"], ids=["missing-owner", "foreign-owner"])
-async def test_image_cancellation_does_not_claim_a_partial_write_without_an_owner(owner, auto_resource_env):
-    """Cancellation reports a partial write without claiming missing or foreign source provenance."""
-    env = auto_resource_env
-    source = env.write_binary("resource/2026-01-01/photo.png", image_bytes())
-    written = asyncio.Event()
-
-    class WaitingAfterWrite(FakeImageAgentWrapper):
-        """Pause after the actual file job so cancellation occurs after its side effect."""
-
-        async def reply(self, inputs, **kwargs):
-            await super().reply(inputs, **kwargs)
-            written.set()
-            await asyncio.Event().wait()
-
-    wrapper = WaitingAfterWrite(caption_fields("photo", "Photo", "Partial but valid caption."))
-    wrapper.note_metadata = {"source_resource": owner} if owner else {}
-    hooks = []
-    env.app_context.metadata = {"qwenpaw_memory_result_hook": lambda **kwargs: hooks.append(kwargs)}
-    step = env.processor(wrapper, routed=True)
-    task = asyncio.create_task(env.run(step, [{"change": "added", "path": str(source)}]))
-    try:
-        await asyncio.wait_for(written.wait(), timeout=5)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-    finally:
-        if not task.done():
-            task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-    note = env.workspace / "daily/2026-01-01/photo.md"
-    assert "Partial but valid caption." in note.read_text(encoding="utf-8")
-    assert len(wrapper.calls) == 1
-    assert step.context.response.metadata["modified"] is True
-    assert step.context.response.metadata["cancelled"] is True
-    assert len(hooks) == 1
-    post = frontmatter.load(note)
-    assert post.get("source_resource") == owner
-    assert "kind" not in post and "media_type" not in post
-    assert not (env.workspace / "daily/2026-01-01.md").exists()
-    assert "_auto_resource_lookup_table" not in step.context

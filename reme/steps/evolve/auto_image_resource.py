@@ -210,7 +210,6 @@ class AutoImageResourceStep(BaseAutoResourceStep):
     """Prepare native image inputs for the shared note-writing agent."""
 
     resource_suffixes = IMAGE_SUFFIXES
-    finalize_failed_resource = True
     router_inherit_keys = BaseAutoResourceStep.router_inherit_keys | frozenset(
         {"agent_wrapper", "max_image_bytes", "max_image_pixels", "prompt_dict"},
     )
