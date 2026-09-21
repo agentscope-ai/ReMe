@@ -812,9 +812,9 @@ import reme.steps.evolve.auto_image_resource
 
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("existing", [False, True], ids=["create", "update"])
-@pytest.mark.parametrize("legacy_prompts", [False, True], ids=["default-prompts", "legacy-prompts"])
+@pytest.mark.parametrize("legacy_template", [False, True], ids=["default-template", "legacy-template"])
 @pytest.mark.asyncio
-async def test_auto_image_prompt_merges_resource_instructions(language, existing, legacy_prompts, auto_resource_env):
+async def test_auto_image_prompt_merges_resource_instructions(language, existing, legacy_template, auto_resource_env):
     """Shared create/update prompts include localized image requirements exactly once."""
     env = auto_resource_env
     source_path = "resource/2026-01-01/cat-at-beach.png"
@@ -823,14 +823,14 @@ async def test_auto_image_prompt_merges_resource_instructions(language, existing
         env.write_note("daily/2026-01-01/cat-at-beach.md", f"[[{source_path}]]")
     model = _FakeImageAgentWrapper(_caption_fields("red-square", "Red", "A red square."))
     step = env.processor(model, language=language)
-    if legacy_prompts:
+    if legacy_template:
         suffix = "_zh" if language == "zh" else ""
         prompt_name = "user_message_update" if existing else "user_message_create"
         step = env.processor(
             model,
             language=language,
             prompt_dict={
-                f"user_message{suffix}": "Legacy image instructions: {filename}",
+                f"resource_instructions{suffix}": "Custom image instructions: {filename}",
                 f"{prompt_name}{suffix}": step.get_prompt(prompt_name).replace("{resource_instructions}", ""),
             },
         )
@@ -848,28 +848,14 @@ async def test_auto_image_prompt_merges_resource_instructions(language, existing
         date="2026-01-01",
     )
     assert prompt.count(instructions) == 1
-    if legacy_prompts:
-        assert instructions == "Legacy image instructions: cat-at-beach.png"
+    if legacy_template:
+        assert instructions == "Custom image instructions: cat-at-beach.png"
         assert prompt.endswith(instructions)
     else:
         assert ("weak hints" if language == "en" else "弱提示") in prompt
         assert ("trust the visible image content" if language == "en" else "以图像中的可见内容为准") in prompt
     assert options["injected_job_kwargs"]["_allowed_paths"][0] in prompt
     assert ("read path=" in prompt) is existing
-
-
-@pytest.mark.parametrize("language,suffix", [("en", ""), ("en", "_en"), ("zh", "_zh")])
-def test_image_prompt_aliases_preserve_explicit_new_keys_and_caller_config(language, suffix):
-    """Normalize only legacy image keys, leaving shared templates and the input dict intact."""
-    prompts = {f"user_message{suffix}": "legacy", f"user_message_create{suffix}": "custom create"}
-    original = dict(prompts)
-    step = AutoImageResourceStep(language=language, prompt_dict=prompts)
-    assert step.get_prompt("resource_instructions") == "legacy"
-    assert step.get_prompt("user_message_create") == "custom create"
-    assert prompts == original
-    prompts[f"resource_instructions{suffix}"] = "new"
-    step = AutoImageResourceStep(language=language, prompt_dict=prompts)
-    assert step.get_prompt("resource_instructions") == "new"
 
 
 @pytest.mark.asyncio

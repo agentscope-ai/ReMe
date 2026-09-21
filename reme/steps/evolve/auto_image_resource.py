@@ -214,18 +214,6 @@ class AutoImageResourceStep(BaseAutoResourceStep):
         {"agent_wrapper", "max_image_bytes", "max_image_pixels", "prompt_dict"},
     )
 
-    def __init__(self, *args, **kwargs):
-        prompt_dict = kwargs.get("prompt_dict")
-        if prompt_dict:
-            prompts = dict(prompt_dict)
-            for name, value in prompt_dict.items():
-                if (name == "user_message" or name.startswith("user_message_")) and not name.startswith(
-                    ("user_message_create", "user_message_update"),
-                ):
-                    prompts.setdefault(name.replace("user_message", "resource_instructions", 1), value)
-            kwargs["prompt_dict"] = prompts
-        super().__init__(*args, **kwargs)
-
     def _max_image_bytes(self) -> int:
         """Return the image read limit from Step or Job context."""
         value = self.kwargs.get("max_image_bytes")

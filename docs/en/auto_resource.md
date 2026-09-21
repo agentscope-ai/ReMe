@@ -78,8 +78,8 @@ description or transcription under `## Caption`, not an empty caption or a JSON 
 processing steps and keep its existing value when updating the card.
 
 Customize image instructions with `prompt_dict.resource_instructions` (`resource_instructions_zh` for Chinese).
-Existing `user_message` / `user_message_zh` settings still work; the new name takes precedence when both are set for the
-same language. Shared create/update templates insert these instructions at `{resource_instructions}`; older templates
+Rename existing `user_message` / `user_message_zh` settings accordingly.
+Shared create/update templates insert these instructions at `{resource_instructions}`; older templates
 without the placeholder receive them at the end.
 
 Set `include_images=false` on an `auto_resource` call or as a Job default to skip **all** image events, including
