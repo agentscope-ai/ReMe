@@ -49,7 +49,7 @@
 
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
-- [2026.09] - **[Hermes Agent 记忆 Provider](integrations/hermes_agent/README_ZH.md) 已可使用**：支持 HTTP 和 Embedded
+- [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
   两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
 - [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 或
@@ -61,7 +61,7 @@
   自进化工作流、混合检索、主动发现与评测结果。
 - [2026.08] - **新增 ReMe 生态插件**：[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper) 可自动发现、解析论文并生成文件化简报；
   [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin) 可研究最近 24 小时的主题相关财联社新闻，并结合本地记忆构建可追溯报告。欢迎体验。
-- [2026.08] - **插件开发能力上线**：参考 [插件开发](docs/zh/plugin_development.md) 与 [插件管理](docs/zh/plugin_management.md)，
+- [2026.08] - **插件开发能力上线**：参考 [插件开发](https://reme.agentscope.io/zh/plugin_development) 与 [插件管理](https://reme.agentscope.io/zh/plugin_management)，
   为 ReMe 扩展 Component、Step 和 Job；欢迎开发并分享你的插件。
 - [2026.08] - 基于 ReMe 的智能体工具使用
   [经验驱动增强方法](https://reme.agentscope.io/zh/benchmarks/toolmemory) 已发布，见
@@ -119,7 +119,7 @@ EOF
 > 如需启用基于 embedding 的语义检索，请取消 [`reme/config/default.yaml`](reme/config/default.yaml) 中
 > `components.as_embedding` 和 `components.embedding_store` 的注释，并将
 > `components.file_store.default.embedding_store` 从 `""` 改为 `default`。完整说明见
-> [记忆检索文档](docs/zh/memory_search.md)。
+> [记忆检索文档](https://reme.agentscope.io/zh/memory_search)。
 
 ### 启动服务
 
@@ -188,11 +188,11 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 
 | Agent                      | 推荐接入方式                                                                                                                              | 接入后能力                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](integrations/dsh/README_ZH.md)。 | 可配置记忆指引、`reme_search`、自动对话捕获、定时 Auto Dream 和 ReMe Status。 |
-| **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](integrations/openclaw/README_ZH.md)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
+| **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](https://reme.agentscope.io/zh/integrations/dsh)。 | 可配置记忆指引、`reme_search`、自动对话捕获、定时 Auto Dream 和 ReMe Status。 |
+| **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](https://reme.agentscope.io/zh/integrations/openclaw)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
-| **Claude Code**            | 启动共享的 streamable HTTP MCP service，并安装 [ReMe 插件](integrations/claude_code/README.md)。                                        | 通过 MCP 进行语义、图关系和状态召回，并由 Stop Hook 异步捕获会话。 |
-| **Hermes**                 | 安装 [ReMe provider](integrations/hermes_agent)，并选择 HTTP 或 Embedded 模式。                                                           | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
+| **Claude Code**            | 启动共享的 streamable HTTP MCP service，并安装 [ReMe 插件](https://reme.agentscope.io/zh/integrations/claude-code)。                      | 通过 MCP 进行语义、图关系和状态召回，并由 Stop Hook 异步捕获会话。 |
+| **Hermes**                 | 安装 [ReMe provider](https://reme.agentscope.io/zh/integrations/hermes)，并选择 HTTP 或 Embedded 模式。                                  | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
 | **Codex 及其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。                                                                             | 通过 CLI 搜索、读取和写入记忆；自动捕获需要显式接入宿主生命周期。     |
 
 <p align="center"><b>集成演示</b></p>
@@ -272,11 +272,11 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。workspace �
 
 | 能力                                        | 入口                                      | 作用                                                                                         | 输出                                                         |
 | ------------------------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`auto_memory`](docs/zh/auto_memory.md)     | Agent hook 或 `reme auto_memory`          | 提炼有长期价值的对话事实，同时保留过滤后的对话来源记录。                                     | `session/dialog/*.jsonl`、`daily/<date>/<generated-name>.md` |
-| [`auto_resource`](docs/zh/auto_resource.md) | 资源监听或 `reme auto_resource`           | 将 `resource/` 下的文件转为带来源链接、按内容命名的 daily 卡片。                             | `daily/<date>/<resource-card>.md`                            |
-| [`auto_index`](docs/zh/memory_search.md)    | 后台监听或 `reme reindex`                 | watcher 摄取 `daily/` 和 `digest/` 中的 Markdown；`reindex` 只基于已摄取的 chunks 重建 BM25 和 Embedding。 | 可检索的 chunks、BM25、wikilink 图谱和可选向量               |
-| [`auto_dream`](docs/zh/auto_dream.md)       | `dream_cron` 或 `reme auto_dream`         | 默认从最近两天内变化的文件中最多提取 5 个可复用 unit，再创建、印证、补充或修正 digest 节点。 | `digest/**`                                                  |
-| [`proactive_read`](docs/zh/proactive.md)         | Agent 决定主动行动前调用 `reme proactive_read` | 读取独立 proactive refresh 流程生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。       | 来自 `daily/<date>/interests.yaml` 的结构化 topics           |
+| [`auto_memory`](https://reme.agentscope.io/zh/auto_memory)     | Agent hook 或 `reme auto_memory`          | 提炼有长期价值的对话事实，同时保留过滤后的对话来源记录。                                     | `session/dialog/*.jsonl`、`daily/<date>/<generated-name>.md` |
+| [`auto_resource`](https://reme.agentscope.io/zh/auto_resource) | 资源监听或 `reme auto_resource`           | 将 `resource/` 下的文件转为带来源链接、按内容命名的 daily 卡片。                             | `daily/<date>/<resource-card>.md`                            |
+| [`auto_index`](https://reme.agentscope.io/zh/memory_search)    | 后台监听或 `reme reindex`                 | watcher 摄取 `daily/` 和 `digest/` 中的 Markdown；`reindex` 只基于已摄取的 chunks 重建 BM25 和 Embedding。 | 可检索的 chunks、BM25、wikilink 图谱和可选向量               |
+| [`auto_dream`](https://reme.agentscope.io/zh/auto_dream)       | `dream_cron` 或 `reme auto_dream`         | 默认从最近两天内变化的文件中最多提取 5 个可复用 unit，再创建、印证、补充或修正 digest 节点。 | `digest/**`                                                  |
+| [`proactive_read`](https://reme.agentscope.io/zh/proactive)    | Agent 决定主动行动前调用 `reme proactive_read` | 读取独立 proactive refresh 流程生成的 topics；是否以及如何提醒用户由宿主 Agent 决定。       | 来自 `daily/<date>/interests.yaml` 的结构化 topics           |
 
 <table>
   <tr>
@@ -320,15 +320,15 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 ## 🧩 扩展与插件
 
 插件是可选的独立 Python distribution，可以贡献 Component、Step、Job backend 和配置，并通过配置显式启用。每日论文与 Auto Fin
-均已独立打包，源码 distribution 及说明分别见[每日论文](plugins/daily_paper/README_ZH.md)和
-[Auto Fin](plugins/auto-fin/README_ZH.md)。
+均已独立打包，使用说明分别见[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper)和
+[Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin)。
 
 | 插件                                                       | 能力                                                                           |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | [每日论文](https://reme.agentscope.io/zh/plugins/daily-paper) | 发现并排序论文，使用 Agent 解读 PDF，生成文件化论文笔记和五分钟简报。          |
 | [Auto Fin](https://reme.agentscope.io/zh/plugins/auto-fin)    | 拉取主题相关财联社新闻，搜索 ReMe 历史材料并生成带 wikilink 的 Markdown 报告。 |
 
-安装、查看、校验、启用和卸载 ReMe 插件的方法见[插件管理](docs/zh/plugin_management.md)。
+安装、查看、校验、启用和卸载 ReMe 插件的方法见[插件管理](https://reme.agentscope.io/zh/plugin_management)。
 
 ## 📚 文档
 
@@ -336,21 +336,21 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 | 文档                                                                     | 主要内容                                                               |
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| [快速开始](docs/zh/quick_start.md)                                       | 安装 ReMe、启动服务，并执行首次文件和记忆操作。                        |
-| [基础配置](docs/zh/configuration.md)                                     | 配置 workspace、模型、Service、Job、Component、插件和命令行覆盖。      |
-| [服务与部署](docs/zh/services.md)                                        | 使用 HTTP、SSE、MCP 和 Studio，并理解默认安全边界。                    |
-| [Memory as File](docs/zh/memory_as_file.md)                              | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
-| [Auto Memory](docs/zh/auto_memory.md)                                    | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。              |
-| [Auto Resource](docs/zh/auto_resource.md)                                | 导入支持的文本与图像资料，转换为可追溯来源的 daily 卡片。              |
-| [Auto Dream](docs/zh/auto_dream.md) 与 [Auto Link](docs/zh/auto_link.md) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
-| [记忆检索](docs/zh/memory_search.md)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
-| [Proactive](docs/zh/proactive.md)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
-| [应用场景](docs/zh/reme_scene.md)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
-| [框架说明](docs/zh/framework.md)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
-| [Agent 集成](docs/zh/integrations.md)                                      | 选择接口，并将 DSH、Claude Code、OpenClaw、Hermes、Codex 或其他 Agent 接入 ReMe。 |
-| [DSH 插件](integrations/dsh/README_ZH.md) 与 [Claude Code 插件](integrations/claude_code/README.md) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
-| [CLI 与 Job API](docs/zh/reference/cli.md)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
-| [运维与恢复](docs/zh/operations.md)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
+| [快速开始](https://reme.agentscope.io/zh/quick_start)                                       | 安装 ReMe、启动服务，并执行首次文件和记忆操作。                        |
+| [基础配置](https://reme.agentscope.io/zh/configuration)                                     | 配置 workspace、模型、Service、Job、Component、插件和命令行覆盖。      |
+| [服务与部署](https://reme.agentscope.io/zh/services)                                        | 使用 HTTP、SSE、MCP 和 Studio，并理解默认安全边界。                    |
+| [Memory as File](https://reme.agentscope.io/zh/memory_as_file)                              | 理解 workspace 分层、frontmatter、wikilink、chunk 和文件事实来源模型。 |
+| [Auto Memory](https://reme.agentscope.io/zh/auto_memory)                                    | 保留过滤后的对话来源记录，并提炼可复用的 daily 记忆卡片。              |
+| [Auto Resource](https://reme.agentscope.io/zh/auto_resource)                                | 导入支持的文本与图像资料，转换为可追溯来源的 daily 卡片。              |
+| [Auto Dream](https://reme.agentscope.io/zh/auto_dream) 与 [Auto Link](https://reme.agentscope.io/zh/auto_link) | 将 daily 记忆整理为持续演化的 digest 节点和可读 wikilink 关系。        |
+| [记忆检索](https://reme.agentscope.io/zh/memory_search)                                     | 使用 BM25、可选向量、RRF 融合、行号范围召回和渐进式链接扩展。          |
+| [Proactive](https://reme.agentscope.io/zh/proactive)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
+| [应用场景](https://reme.agentscope.io/zh/reme_scene)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
+| [框架说明](https://reme.agentscope.io/zh/framework)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
+| [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、OpenClaw、Hermes、Codex 或其他 Agent 接入 ReMe。 |
+| [DSH 插件](https://reme.agentscope.io/zh/integrations/dsh) 与 [Claude Code 插件](https://reme.agentscope.io/zh/integrations/claude-code) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
+| [CLI 与 Job API](https://reme.agentscope.io/zh/reference/cli)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
+| [运维与恢复](https://reme.agentscope.io/zh/operations)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
 | [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |
 
 ## 🛠️ 常用命令
@@ -360,7 +360,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | 命令                                      | 作用                                                          |
 | ----------------------------------------- | ------------------------------------------------------------- |
 | `reme status`                             | 查看有状态数据组件的内存估算及进程 RSS。                      |
-| [`reme search`](docs/zh/memory_search.md) | 默认使用 BM25 和 wikilink 检索，启用后增加向量检索。          |
+| [`reme search`](https://reme.agentscope.io/zh/memory_search) | 默认使用 BM25 和 wikilink 检索，启用后增加向量检索。          |
 | `reme read` / `reme write` / `reme edit`  | 检查和维护 Markdown 记忆文件。                                |
 | `reme traverse` / `reme graph_snapshot`   | 浏览 wikilink 邻域或按类别组织的 digest 图。                  |
 | `reme chat`                               | 与可感知 workspace 的只读 Agent 进行流式对话；需要 LLM 凭证。 |
@@ -370,7 +370,7 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 
 - **问题反馈、需求与帮助**：请先查看 [Open Issues](https://github.com/agentscope-ai/ReMe/issues)；如无相关讨论，可新建 Issue
   说明背景、目标行为和影响范围。
-- **代码贡献**：改动前建议阅读仓库内的[贡献指南](docs/zh/contributing.md)。架构与扩展方式以源码、schema 和测试为准。
+- **代码贡献**：改动前建议阅读[贡献指南](https://reme.agentscope.io/zh/contributing)。架构与扩展方式以源码、schema 和测试为准。
 - **文档贡献**：请直接更新本仓库 `docs/en/`、`docs/zh/` 或对应 package 目录中的规范源文件；文档站点会从这些文件生成。
 - **提交规范**：建议使用 Conventional Commits，例如 `feat(search): add link expansion option`、
   `docs(zh): update quick start`。

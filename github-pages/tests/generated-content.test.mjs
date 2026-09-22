@@ -63,7 +63,8 @@ test("publishes the root READMEs as localized project overviews", async () => {
   assert.match(english, /\[ReMe Memory Tags\]/);
   assert.match(chinese, /\[给记忆加上“标签”\]/);
   assert.match(english, /src="\.\.\/figure\/design-philosophy\.svg"/);
-  assert.match(chinese, /\(\.\/memory_search\.md\)/);
+  assert.match(english, /\(https:\/\/reme\.agentscope\.io\/en\/memory_search\)/);
+  assert.match(chinese, /\(https:\/\/reme\.agentscope\.io\/zh\/memory_search\)/);
 });
 
 test("publishes portable and accurate DSH instructions", async () => {
