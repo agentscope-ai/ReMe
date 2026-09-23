@@ -18,13 +18,30 @@ const translations = {
     learnMore: "了解 ReMe",
     stars: "GitHub Stars",
     forks: "Forks",
-    mapLabel: "SHARED MEMORY WORKSPACE",
-    mapTitle: "一层记忆，连接所有 Agent",
+    mapLabel: "OPEN ECOSYSTEM",
+    mapTitle: "ReMe 与开源生态",
+    capabilityTitle: "核心能力",
     capabilities: [
-      { icon: "▱", title: "文件即记忆", detail: "用户拥有的文件是持久事实源", href: "/zh/memory_as_file", tone: "mint" },
-      { icon: "✦", title: "自动记忆", detail: "从 daily 到长期 digest 持续演化", href: "/zh/auto_memory", tone: "cyan" },
-      { icon: "⌕", title: "检索与图谱", detail: "关键词、向量与 wikilink 联合召回", href: "/zh/memory_search", tone: "blue" },
-      { icon: "⌁", title: "Agent 集成", detail: "通过 CLI、HTTP、MCP 与宿主适配器接入", href: "/zh/integrations", tone: "amber" },
+      { mark: "▣", title: "文件即记忆", href: "/zh/memory_as_file", tone: "mint" },
+      { mark: "✦", title: "自动记忆", href: "/zh/auto_memory", tone: "cyan" },
+      { mark: "⌕", title: "混合检索", href: "/zh/memory_search", tone: "blue" },
+      { mark: "⌁", title: "图谱关联", href: "/zh/auto_link", tone: "amber" },
+    ],
+    agentTitle: "ReMe 接入 Agent",
+    agentGuide: "接入指南",
+    backendTitle: "检索引擎接入 ReMe",
+    backendGuide: "配置指南",
+    backendNote: "可选向量索引",
+    integrations: [
+      { logo: "/ecosystem/qwenpaw.png", title: "QwenPaw", href: "https://github.com/agentscope-ai/QwenPaw", tone: "blue" },
+      { logo: "/ecosystem/deepseek-harness.svg", title: "DeepSeek Harness", href: "https://github.com/deepseek-ai/deepseek-harness", tone: "mint" },
+      { logo: "/ecosystem/openclaw.svg", title: "OpenClaw", href: "https://github.com/openclaw/openclaw", tone: "cyan" },
+      { logo: "/ecosystem/claude-code.png", title: "Claude Code", href: "https://github.com/anthropics/claude-code", tone: "violet" },
+      { logo: "/ecosystem/hermes.svg", title: "Hermes Agent", href: "https://github.com/NousResearch/hermes-agent", tone: "amber" },
+    ],
+    backends: [
+      { logo: "/ecosystem/zvec.ico", title: "Zvec", href: "https://github.com/alibaba/zvec", tone: "mint" },
+      { logo: "/ecosystem/faiss.png", title: "FAISS", href: "https://github.com/facebookresearch/faiss", tone: "blue" },
     ],
     benchmarkLabel: "02 / BENCHMARKS",
     benchmarkTitle: "用真实评测，\n验证长期记忆",
@@ -61,13 +78,30 @@ const translations = {
     learnMore: "Meet ReMe",
     stars: "GitHub Stars",
     forks: "Forks",
-    mapLabel: "SHARED MEMORY WORKSPACE",
-    mapTitle: "One memory layer for every agent",
+    mapLabel: "OPEN ECOSYSTEM",
+    mapTitle: "ReMe and the open ecosystem",
+    capabilityTitle: "CORE CAPABILITIES",
     capabilities: [
-      { icon: "▱", title: "Memory as files", detail: "User-owned files remain the durable source of truth", href: "/en/memory_as_file", tone: "mint" },
-      { icon: "✦", title: "Memory workflows", detail: "Evolve daily records into durable, connected digests", href: "/en/auto_memory", tone: "cyan" },
-      { icon: "⌕", title: "Search and graph", detail: "Combine keyword, vector, and wikilink retrieval", href: "/en/memory_search", tone: "blue" },
-      { icon: "⌁", title: "Agent integrations", detail: "Connect through CLI, HTTP, MCP, and host adapters", href: "/en/integrations", tone: "amber" },
+      { mark: "▣", title: "Memory as files", href: "/en/memory_as_file", tone: "mint" },
+      { mark: "✦", title: "Auto memory", href: "/en/auto_memory", tone: "cyan" },
+      { mark: "⌕", title: "Hybrid search", href: "/en/memory_search", tone: "blue" },
+      { mark: "⌁", title: "Linked graph", href: "/en/auto_link", tone: "amber" },
+    ],
+    agentTitle: "ReMe for agents",
+    agentGuide: "Integration guide",
+    backendTitle: "Retrieval for ReMe",
+    backendGuide: "Configuration guide",
+    backendNote: "Optional vector indexes",
+    integrations: [
+      { logo: "/ecosystem/qwenpaw.png", title: "QwenPaw", href: "https://github.com/agentscope-ai/QwenPaw", tone: "blue" },
+      { logo: "/ecosystem/deepseek-harness.svg", title: "DeepSeek Harness", href: "https://github.com/deepseek-ai/deepseek-harness", tone: "mint" },
+      { logo: "/ecosystem/openclaw.svg", title: "OpenClaw", href: "https://github.com/openclaw/openclaw", tone: "cyan" },
+      { logo: "/ecosystem/claude-code.png", title: "Claude Code", href: "https://github.com/anthropics/claude-code", tone: "violet" },
+      { logo: "/ecosystem/hermes.svg", title: "Hermes Agent", href: "https://github.com/NousResearch/hermes-agent", tone: "amber" },
+    ],
+    backends: [
+      { logo: "/ecosystem/zvec.ico", title: "Zvec", href: "https://github.com/alibaba/zvec", tone: "mint" },
+      { logo: "/ecosystem/faiss.png", title: "FAISS", href: "https://github.com/facebookresearch/faiss", tone: "blue" },
     ],
     benchmarkLabel: "02 / BENCHMARKS",
     benchmarkTitle: "Memory that holds up\nunder pressure",
@@ -120,7 +154,6 @@ onMounted(async () => {
   if (forks.status === "fulfilled" && forks.value) stats.forks = forks.value;
 });
 </script>
-
 <template>
   <div class="reme-home" :class="{ 'is-zh': lang === 'zh' }">
     <section class="home-stage">
@@ -146,30 +179,64 @@ onMounted(async () => {
         </div>
       </div>
 
-      <div class="capability-map">
+      <div class="ecosystem-map">
         <div class="map-heading">
           <div>
             <span>{{ text.mapLabel }}</span>
             <strong>{{ text.mapTitle }}</strong>
           </div>
-          <img :src="localLink('/reme-icon.svg')" alt="" aria-hidden="true" />
         </div>
-        <div class="map-grid">
-          <a
-            v-for="(capability, index) in text.capabilities"
-            :key="capability.title"
-            class="capability-card"
-            :class="capability.tone"
-            :href="localLink(capability.href)"
-          >
-            <span class="capability-index">0{{ index + 1 }}</span>
-            <span class="capability-icon" aria-hidden="true">{{ capability.icon }}</span>
-            <div class="capability-copy">
-              <strong>{{ capability.title }}</strong>
-              <small>{{ capability.detail }}</small>
+        <div class="ecosystem-network">
+          <div class="network-brands">
+            <div class="network-group-label">
+              <strong>{{ text.agentTitle }}</strong>
+              <a :href="localLink(`/${lang}/integrations`)">{{ text.agentGuide }} ↗</a>
             </div>
-            <span class="card-arrow">↗</span>
-          </a>
+            <div class="brand-viewport">
+              <div class="brand-reel">
+                <a
+                  v-for="integration in text.integrations"
+                  :key="integration.title"
+                  class="brand-link"
+                  :class="integration.tone"
+                  :href="integration.href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :aria-label="`${integration.title} GitHub`"
+                >
+                  <span class="brand-mark" aria-hidden="true"><img :src="localLink(integration.logo)" alt="" /></span>
+                  <strong>{{ integration.title }}</strong>
+                </a>
+                <div v-for="integration in text.integrations" :key="`${integration.title}-clone`" class="brand-link reel-clone" :class="integration.tone" aria-hidden="true">
+                  <span class="brand-mark"><img :src="localLink(integration.logo)" alt="" /></span>
+                  <strong>{{ integration.title }}</strong>
+                </div>
+              </div>
+            </div>
+            <div class="network-group-label backend-label">
+              <strong>{{ text.backendTitle }}</strong>
+              <a :href="localLink(`/${lang}/memory_search#${lang === 'zh' ? '向量索引后端' : 'vector-index-backends'}`)">{{ text.backendGuide }} ↗</a>
+            </div>
+            <div class="backend-links">
+              <a v-for="backend in text.backends" :key="backend.title" class="brand-link" :class="backend.tone" :href="backend.href" target="_blank" rel="noopener noreferrer" :aria-label="`${backend.title} GitHub`">
+                <span class="brand-mark" aria-hidden="true"><img :src="localLink(backend.logo)" alt="" /></span>
+                <strong>{{ backend.title }}</strong>
+              </a>
+            </div>
+          </div>
+          <div class="network-center" aria-hidden="true">
+            <span class="network-ring"></span>
+            <span class="network-core"><img :src="localLink('/reme-icon.svg')" alt="" /></span>
+            <strong>ReMe</strong>
+          </div>
+          <div class="network-capabilities">
+            <strong class="capability-label">{{ text.capabilityTitle }}</strong>
+            <a v-for="capability in text.capabilities" :key="capability.title" class="capability-link" :class="capability.tone" :href="localLink(capability.href)">
+              <span aria-hidden="true">{{ capability.mark }}</span>
+              <strong>{{ capability.title }}</strong>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
         </div>
       </div>
     </section>
@@ -276,8 +343,8 @@ onMounted(async () => {
 .home-stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(460px, 1fr);
-  gap: clamp(42px, 4.5vw, 78px);
+  grid-template-columns: minmax(0, 1fr) minmax(650px, 1.1fr);
+  gap: clamp(42px, 4vw, 68px);
   align-items: center;
   min-height: calc(100vh - 64px);
   padding: 72px 0 82px;
@@ -306,22 +373,52 @@ onMounted(async () => {
 .fork-icon { transform: rotate(90deg); }
 .repo-stats strong { display: block; font: 740 28px/1 var(--vp-font-family-mono); letter-spacing: -0.04em; }
 .repo-stats small { display: block; margin-top: 8px; color: var(--home-muted); font-size: 13px; }
-.capability-map { position: relative; padding: 21px; border: 1px solid var(--home-line); border-radius: 26px; background: var(--home-glass); box-shadow: 0 30px 70px var(--home-shadow); backdrop-filter: blur(18px); }
-.map-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+.ecosystem-map { position: relative; min-width: 0; }
+.map-heading { margin-bottom: 25px; }
 .map-heading > div { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
 .map-heading span { color: var(--home-accent); font: 700 10px/1.4 var(--vp-font-family-mono); letter-spacing: 0.12em; }
 .map-heading strong { font-size: 18px; line-height: 1.3; white-space: nowrap; }
-.map-heading img { width: 42px; height: 42px; flex: none; margin: 0; padding: 6px; border: 1px solid var(--home-line); border-radius: 13px; background: var(--home-tile); box-shadow: 0 8px 18px color-mix(in srgb, var(--home-shadow) 75%, transparent); }
-.map-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.capability-card { position: relative; display: grid; grid-template-columns: 25px 34px minmax(0, 1fr) 16px; gap: 11px; align-items: center; min-height: 96px; padding: 17px 18px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--card-accent) 32%, var(--home-line)); border-radius: 15px; color: var(--home-ink); background: radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--card-accent) 15%, transparent), transparent 42%), var(--home-tile); text-decoration: none; transition: transform 170ms ease, box-shadow 170ms ease; }
-.capability-card:hover { transform: translateY(-3px); box-shadow: 0 16px 30px color-mix(in srgb, var(--card-accent) 13%, transparent); }
+.ecosystem-network { position: relative; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(100px, 0.62fr) minmax(0, 1fr); gap: 12px; align-items: center; min-height: 370px; }
+.ecosystem-network::before, .ecosystem-network::after { position: absolute; z-index: 0; top: 50%; width: 19%; border-top: 1px dashed color-mix(in srgb, var(--home-accent) 58%, var(--home-line)); content: ""; }
+.ecosystem-network::before { left: 30%; }.ecosystem-network::after { right: 27%; }
+.network-brands, .network-center, .network-capabilities { position: relative; z-index: 1; min-width: 0; }
+.network-group-label { display: flex; align-items: baseline; justify-content: space-between; gap: 5px; margin-bottom: 7px; }
+.network-group-label strong, .capability-label { color: var(--home-muted); font: 750 10px/1.3 var(--vp-font-family-mono); letter-spacing: 0.04em; }
+.network-group-label a { flex: none; color: var(--home-accent); font-size: 10px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.network-group-label a:hover { text-decoration: underline; }
+.brand-viewport { height: 184px; overflow: hidden; mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent); }
+.brand-reel { display: grid; grid-auto-rows: 46px; gap: 6px; animation: brand-scroll 19s linear infinite; }
+.brand-viewport:hover .brand-reel { animation-play-state: paused; }
+.brand-viewport:focus-within { overflow-y: auto; mask-image: none; }
+.brand-viewport:focus-within .brand-reel { animation: none; }
+.brand-link { display: flex; min-width: 0; height: 46px; align-items: center; gap: 7px; padding: 5px; border: 1px solid color-mix(in srgb, var(--card-accent) 26%, var(--home-line)); border-radius: 9px; color: var(--home-ink); background: var(--home-tile); text-decoration: none; transition: border-color 160ms ease, transform 160ms ease; }
+.brand-link:hover { border-color: var(--card-accent); transform: translateX(2px); }
+.brand-mark { display: grid; width: 32px; height: 32px; flex: none; place-items: center; overflow: hidden; border: 1px solid var(--home-line); border-radius: 7px; background: #fff; }
+.brand-mark img { width: 27px; height: 27px; margin: 0; object-fit: contain; }
+.brand-link strong { min-width: 0; font-size: 13px; line-height: 1.15; overflow-wrap: anywhere; }
+.reel-clone { pointer-events: none; }
+.backend-label { margin-top: 13px; }
+.backend-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.backend-links .brand-link { height: 42px; gap: 5px; }
+.backend-links .brand-mark { width: 28px; height: 28px; }
+.backend-links .brand-mark img { width: 23px; height: 23px; }
+.network-center { display: flex; min-height: 164px; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+.network-ring { position: absolute; top: 50%; left: 50%; width: 108px; height: 108px; border: 1px solid color-mix(in srgb, var(--home-accent) 30%, var(--home-line)); border-radius: 50%; transform: translate(-50%, -64%); animation: hub-pulse 3.6s ease-in-out infinite; }
+.network-ring::after { position: absolute; inset: 10px; border: 1px solid var(--home-line); border-radius: 50%; content: ""; }
+.network-core { z-index: 1; display: grid; width: 64px; height: 64px; place-items: center; border: 1px solid var(--home-line); border-radius: 50%; background: var(--home-surface); box-shadow: 0 10px 28px var(--home-shadow); }
+.network-core img { width: 42px; height: 42px; margin: 0; }
+.network-center strong { z-index: 1; color: var(--home-accent); font: 750 12px/1 var(--vp-font-family-mono); }
+.network-capabilities { display: grid; gap: 8px; }
+.capability-label { display: block; margin-bottom: 2px; }
+.capability-link { display: flex; min-height: 53px; align-items: center; gap: 7px; padding: 7px; border: 1px solid color-mix(in srgb, var(--card-accent) 30%, var(--home-line)); border-radius: 10px; color: var(--home-ink); background: radial-gradient(circle at 100% 0, color-mix(in srgb, var(--card-accent) 11%, transparent), transparent 70%), var(--home-tile); text-decoration: none; transition: transform 160ms ease, border-color 160ms ease; }
+.capability-link:hover { border-color: var(--card-accent); transform: translateX(2px); }
+.capability-link span:first-child { display: grid; width: 27px; height: 27px; flex: none; place-items: center; border-radius: 7px; color: var(--card-accent); background: color-mix(in srgb, var(--card-accent) 12%, var(--home-surface)); font-size: 16px; }
+.capability-link strong { min-width: 0; font-size: 13px; line-height: 1.2; }
+.capability-link span:last-child { margin-left: auto; color: var(--card-accent); font-size: 13px; }
+.brand-link:focus-visible, .capability-link:focus-visible, .network-group-label a:focus-visible { outline: 2px solid var(--home-accent); outline-offset: 2px; }
 .mint { --card-accent: #059b7f; }.cyan { --card-accent: #169cc4; }.blue { --card-accent: #536bd8; }.amber { --card-accent: #c48324; }.violet { --card-accent: #7654c2; }
-.capability-index { color: var(--home-muted); font: 650 10px/1 var(--vp-font-family-mono); letter-spacing: 0.12em; }
-.capability-copy { min-width: 0; }
-.capability-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border-radius: 9px; color: var(--card-accent); background: color-mix(in srgb, var(--card-accent) 13%, var(--home-surface)); font: 600 21px/1 var(--vp-font-family-mono); }
-.capability-card strong { display: block; overflow: hidden; font-size: 17px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
-.capability-card small { display: block; overflow: hidden; margin-top: 6px; color: var(--home-muted); font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-.card-arrow { color: var(--card-accent); font-size: 16px; }
+@keyframes brand-scroll { to { transform: translateY(-260px); } }
+@keyframes hub-pulse { 50% { transform: translate(-50%, -64%) scale(1.12); opacity: 0.55; } }
 .page-panel { position: relative; min-height: calc(100vh - 64px); }
 .benchmark-section { display: grid; grid-template-columns: minmax(310px, 0.72fr) minmax(560px, 1.28fr); gap: clamp(54px, 7vw, 110px); align-items: center; padding: 112px 0 120px; color: var(--home-ink); }
 .benchmark-section::before { position: absolute; z-index: -1; inset: 0 calc(50% - 50vw); border-top: 1px solid var(--home-line); background: var(--section-tint); content: ""; }
@@ -378,8 +475,7 @@ onMounted(async () => {
   .home-stage { grid-template-columns: 1fr; min-height: auto; }
   .hero-copy { max-width: 800px; padding-top: 26px; }
   .hero-copy h1 { white-space: normal; }
-  .capability-map { max-width: 850px; }
-  .map-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ecosystem-map { max-width: 850px; }
   .benchmark-section, .traffic-section { grid-template-columns: 1fr; min-height: auto; }
   .benchmark-intro, .traffic-heading { max-width: 720px; }
   .traffic-window { width: 100%; max-width: 1000px; }
@@ -393,8 +489,6 @@ onMounted(async () => {
   .hero-copy h1 { font-size: clamp(43px, 13vw, 62px); }
   .hero-lead { font-size: 16px; }
   .map-heading strong { white-space: normal; }
-  .map-grid { grid-template-columns: 1fr; }
-  .capability-card { min-height: 96px; }
   .section-heading { grid-template-columns: 1fr; gap: 18px; }
   .product-grid { grid-template-columns: 1fr; }
   .product-card { min-height: 280px; }
@@ -406,5 +500,21 @@ onMounted(async () => {
   .pi-symbol { width: 48px; height: 48px; }
   .pi-score b { grid-column: 2; }
   .traffic-window { height: 660px; min-height: 0; border-radius: 17px; }
+}
+@media (max-width: 520px) {
+  .ecosystem-network { grid-template-columns: minmax(0, 1.1fr) 62px minmax(0, 1fr); gap: 4px; }
+  .network-group-label { flex-wrap: wrap; }
+  .brand-link strong, .capability-link strong { font-size: 10px; }
+  .network-ring { width: 78px; height: 78px; }
+  .network-core { width: 52px; height: 52px; }
+  .network-core img { width: 34px; height: 34px; }
+  .capability-link { gap: 3px; padding: 5px; }
+  .capability-link span:first-child { width: 22px; height: 22px; font-size: 13px; }
+  .backend-links { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-viewport { height: auto; mask-image: none; }
+  .brand-reel, .network-ring { animation: none; }
+  .reel-clone { display: none; }
 }
 </style>

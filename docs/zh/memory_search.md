@@ -102,8 +102,7 @@ file_store:
 | `file_graph.default`    | 启用     | 保存 `FileNode` 和 wikilink 边                    |
 | `embedding_store`       | 默认关闭 | 开启后为 chunk 生成 embedding，并支持向量召回     |
 
-所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。此时若将
-`file_store` 的 `backend` 从 `local` 改为 `faiss`，向量检索会从线性扫描升级为 FAISS HNSW 索引，在大规模 chunk 场景下召回效率更高。
+所以开箱搜索主要是 BM25 + 链接展开。把 `embedding_store: default` 打开后，`SearchStep` 会同时跑向量召回和关键词召回。
 
 Embedding store 可通过 `health_check_timeout` 配置启动探测。临时失败只会跳过本次向量回填，BM25 仍可使用；
 后续真实请求成功后会自动恢复缺失向量的回填。
@@ -113,6 +112,16 @@ Embedding store 可通过 `health_check_timeout` 配置启动探测。临时失�
 `scope: bm25` 只重建关键词索引；`scope: tag` 从当前文件图重建可选的标签索引；`scope: all` 依次重建
 BM25、Embedding 和标签索引。BM25 和 Embedding 使用当前的 `file_chunks` 快照，标签索引使用文件图中
 `FileNode` 的 frontmatter。
+
+## 向量索引后端
+
+启用 Embedding 后，`file_store.default.backend` 可选择 `local`、`zvec` 或 `faiss`。`local` 线性扫描向量；
+`zvec` 使用进程内 HNSW 索引，并原生更新、删除向量；`faiss` 使用 FAISS HNSW 索引。后两者都保存可重建的
+向量索引，记忆文件和 ReMe 的 chunk 数据仍是事实来源。
+
+要使用 Zvec 或 FAISS，在[基础配置](./configuration.md#embedding-配置)中先配置 `as_embedding` 和
+`embedding_store`，再将 `file_store.default.embedding_store` 设为 `default`，并把
+`file_store.default.backend` 设为 `zvec` 或 `faiss`。`core` 安装包含相应依赖；默认配置仍使用 `local`，且不启用 Embedding。
 
 ## 怎么搜索
 

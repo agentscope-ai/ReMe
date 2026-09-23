@@ -35,6 +35,9 @@ test("generates every required bilingual guide", async () => {
   await access(path.join(generatedDir, "en/integrations/openclaw.md"));
   await access(path.join(generatedDir, "public/figures/dsh/reme-status-overview.png"));
   await access(path.join(generatedDir, "public/figures/studio/studio-overview.png"));
+  for (const name of ["qwenpaw.png", "deepseek-harness.svg", "openclaw.svg", "claude-code.png", "hermes.svg", "zvec.ico", "faiss.png"]) {
+    await access(path.join(generatedDir, "public/ecosystem", name));
+  }
 });
 
 test("maps mirrored pages back to their canonical repository sources", async () => {

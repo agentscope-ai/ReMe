@@ -111,8 +111,7 @@ It combines three kinds of capability:
 | `embedding_store`       | Disabled      | When enabled, generate embeddings for chunks and support vector recall. |
 
 Out of the box, search therefore uses primarily BM25 plus link expansion. After setting `embedding_store: default`,
-`SearchStep` runs vector and keyword recall together. Additionally, switching the `file_store` `backend` from `local` to
-`faiss` upgrades vector retrieval from a linear scan to a FAISS HNSW index, offering faster recall at scale.
+`SearchStep` runs vector and keyword recall together.
 
 The embedding store accepts `health_check_timeout` for its startup probe. A temporary failure skips the current vector
 backfill while keeping BM25 available; a later successful provider request resumes the missing-vector backfill
@@ -124,6 +123,17 @@ missing vectors in the same vector space. Vector-space changes must use the expl
 Use `scope: bm25` to rebuild only keyword search, or `scope: tag` to rebuild the optional tag index from the current
 file graph. `scope: all` rebuilds BM25 first, then embeddings, and finally tags. BM25 and embedding rebuilds use the
 current `file_chunks` snapshot; the tag rebuild uses `FileNode` frontmatter from the file graph.
+
+## Vector Index Backends
+
+With embeddings enabled, `file_store.default.backend` can be `local`, `zvec`, or `faiss`. `local` scans vectors linearly;
+`zvec` uses an in-process HNSW index with native vector updates and deletes; `faiss` uses a FAISS HNSW index. The latter
+two store rebuildable vector indexes. Memory files and ReMe's chunk data remain the source of truth.
+
+To use Zvec or FAISS, first configure `as_embedding` and `embedding_store` as shown in
+[Configuration](./configuration.md#embeddings). Then set `file_store.default.embedding_store` to `default` and
+`file_store.default.backend` to `zvec` or `faiss`. The `core` installation includes both dependencies; the default
+configuration still uses `local` with embeddings disabled.
 
 ## How to Search
 
