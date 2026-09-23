@@ -343,7 +343,7 @@ onMounted(async () => {
 .home-stage {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(650px, 1.1fr);
+  grid-template-columns: minmax(0, 1fr) 650px;
   gap: clamp(42px, 4vw, 68px);
   align-items: center;
   min-height: calc(100vh - 64px);
@@ -360,7 +360,7 @@ onMounted(async () => {
   content: "";
 }
 .eyebrow, .section-label { margin: 0; color: var(--home-accent); font: 750 13px/1.4 var(--vp-font-family-mono); letter-spacing: 0.16em; }
-.hero-copy h1 { max-width: 100%; margin: 23px 0 0; color: var(--home-ink); font: 760 clamp(52px, 4.2vw, 78px)/1.04 Georgia, "Times New Roman", serif; white-space: pre; letter-spacing: -0.052em; }
+.hero-copy h1 { max-width: 100%; margin: 23px 0 0; color: var(--home-ink); font: 760 clamp(52px, 4.2vw, 76px)/1.04 Georgia, "Times New Roman", serif; white-space: pre-wrap; letter-spacing: -0.052em; }
 .is-zh .hero-copy h1 { max-width: 760px; font-size: clamp(52px, 3.6vw, 64px); white-space: pre-line; word-break: keep-all; }
 .hero-lead { max-width: 650px; margin: 28px 0 0; color: var(--home-muted); font-size: clamp(17px, 1.3vw, 20px); line-height: 1.75; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
@@ -471,11 +471,13 @@ onMounted(async () => {
 :global(html.dark .reme-home) { --home-ink: #edf7f3; --home-muted: #a8bbb3; --home-line: #2d4038; --home-accent: #57dfc3; --home-surface: #14201b; --home-surface-soft: #101a16; --home-glass: rgba(17, 28, 23, 0.78); --home-tile: rgba(20, 32, 27, 0.92); --home-primary-bg: #57dfc3; --home-primary-text: #07120e; --home-shadow: rgba(0, 0, 0, 0.3); --section-light: #0d1512; --section-tint: #14201b; color-scheme: dark; }
 :global(html.dark .home-stage::before) { background: radial-gradient(ellipse 70% 105% at -8% 18%, rgba(24, 169, 143, 0.13), transparent 72%), radial-gradient(ellipse 68% 105% at 108% 10%, rgba(74, 100, 218, 0.15), transparent 73%), linear-gradient(115deg, #0d1713 0%, #101713 49%, #10131c 100%); }
 :global(html.dark .benchmark-board) { background: #0b1712; box-shadow: 0 28px 64px rgba(0, 0, 0, 0.32); }
-@media (max-width: 1320px) {
+@media (max-width: 1680px) {
   .home-stage { grid-template-columns: 1fr; min-height: auto; }
   .hero-copy { max-width: 800px; padding-top: 26px; }
-  .hero-copy h1 { white-space: normal; }
+  .hero-copy h1 { white-space: pre-wrap; }
   .ecosystem-map { max-width: 850px; }
+}
+@media (max-width: 1320px) {
   .benchmark-section, .traffic-section { grid-template-columns: 1fr; min-height: auto; }
   .benchmark-intro, .traffic-heading { max-width: 720px; }
   .traffic-window { width: 100%; max-width: 1000px; }
