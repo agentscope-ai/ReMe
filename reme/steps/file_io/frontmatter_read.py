@@ -8,6 +8,7 @@ doesn't exist; otherwise ``{exists: true, frontmatter: {...}}``.
 ``path`` is a path relative to the workspace.
 """
 
+import json
 from pathlib import Path
 
 import frontmatter
@@ -16,6 +17,28 @@ import yaml
 from ._path import _check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
+
+
+def _render_value(value) -> str:
+    """Flatten one frontmatter value onto a single answer line."""
+    if isinstance(value, (list, tuple)):
+        rendered = ", ".join(str(item) for item in value)
+    elif isinstance(value, dict):
+        rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    else:
+        rendered = str(value)
+    return " ".join(rendered.split())
+
+
+def _render_frontmatter(meta: dict) -> list[str]:
+    """Render each frontmatter key on its own ``- key: value`` line.
+
+    ``frontmatter_read`` is served straight to the LLM, so the answer has to
+    carry the frontmatter itself; a key count alone leaves the caller with
+    nothing to act on. Values are flattened to one line each so a multi-line
+    description cannot break the line-per-key layout.
+    """
+    return [f"- {key}: {_render_value(value)}" for key, value in meta.items()]
 
 
 @R.register("frontmatter_read_step")
@@ -71,6 +94,8 @@ class FrontmatterReadStep(BaseStep):
             self.logger.info(f"[{self.name}] path={path} parse_error={exc!r}")
             return
         self.context.response.success = True
-        self.context.response.answer = f"Read frontmatter from {path} ({len(meta)} key(s))"
+        header = f"Read frontmatter from {probed} ({len(meta)} key(s))"
+        rendered = _render_frontmatter(meta)
+        self.context.response.answer = f"{header}:\n" + "\n".join(rendered) if rendered else f"{header}: (no keys)"
         self.context.response.metadata.update({"path": path, "exists": True, "frontmatter": meta, **resolved})
         self.logger.info(f"[{self.name}] path={path} keys={len(meta)}")
