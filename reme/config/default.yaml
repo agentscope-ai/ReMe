@@ -358,7 +358,8 @@ jobs:
   traverse:
     backend: base
     description: >-
-      Return a bounded wikilink graph with frontend-ready nodes and directed edges.
+      Walk the [[wikilink]] graph from a path; returns reached nodes with their hop
+      depth and the directed edges between them.
     parameters:
       type: object
       properties:

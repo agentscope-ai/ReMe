@@ -150,6 +150,10 @@ Use `traverse` when wikilink neighbors may matter:
 reme traverse path="<workspace-relative-path>" depth=1 direction=both
 ```
 
+It answers with a readable summary: one line per reached node with its hop depth, then one line per directed
+edge as `source -> target#anchor (depth=N)`. A target marked `(unindexed)` is not in the wikilink graph index
+yet, so traverse has no frontmatter for it — it may still exist on disk, so `read` it to find out.
+
 Cite the workspace-relative paths used. If retrieval returns nothing useful, say so plainly instead of inventing prior
 context.
 
