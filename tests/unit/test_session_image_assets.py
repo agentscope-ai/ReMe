@@ -19,26 +19,13 @@ from reme.steps.file_io.write import WriteStep
 
 
 def _prepared(*sources, message_id="message-a"):
-    original = Msg(
-        id=message_id,
-        name="Alice",
-        role="user",
-        content=[
-            TextBlock(text="before"),
-            *[
-                DataBlock(
-                    id="same-block-id",
-                    source=(
-                        source
-                        if isinstance(source, URLSource)
-                        else Base64Source(media_type="image/png", data=base64.b64encode(source).decode())
-                    ),
-                )
-                for source in sources
-            ],
-            TextBlock(text="after"),
-        ],
-    )
+    content = [TextBlock(text="before")]
+    for source in sources:
+        if not isinstance(source, URLSource):
+            source = Base64Source(media_type="image/png", data=base64.b64encode(source).decode())
+        content.append(DataBlock(id="same-block-id", source=source))
+    content.append(TextBlock(text="after"))
+    original = Msg(id=message_id, name="Alice", role="user", content=content)
     prepared = original.model_copy(deep=True)
     images = {}
     for index, block in enumerate(prepared.content):
@@ -66,6 +53,28 @@ async def test_bytes_positions_repeated_ids_and_reuse(tmp_path):
     _, replay, replay_images = _prepared(b"first image", b"second image")
     assert await save_session_images(tmp_path, "sessions", "chat", replay, replay_images) == sources
     assert [path.stat().st_mtime_ns for path in paths] == mtimes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "media_type,suffix",
+    [
+        ("image/png", ".png"),
+        ("image/jpeg", ".jpg"),
+        ("image/webp", ".webp"),
+        ("image/gif", ".gif"),
+        ("image/bmp", ".bmp"),
+        ("image/tiff", ".tiff"),
+        ("image/heic", ".heic"),
+        ("image/avif", ".bin"),
+    ],
+)
+async def test_image_suffixes_preserve_bytes_including_unknown_types(tmp_path, media_type, suffix):
+    _, messages, images = _prepared(b"unchanged bytes")
+    images["__image_1__"].source.media_type = media_type
+    sources = await save_session_images(tmp_path, "session", "chat", messages, images)
+    path = tmp_path / sources[0][2:-2]
+    assert path.suffix == suffix and path.read_bytes() == b"unchanged bytes"
 
 
 @pytest.mark.asyncio
@@ -149,24 +158,17 @@ async def test_source_links_preserve_body_unknown_links_and_noop_mtime(tmp_path)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("metadata", ["source_images: manual", "source_images: null", "source_images: [3]"])
-async def test_invalid_existing_source_field_is_not_replaced(tmp_path, metadata):
+@pytest.mark.parametrize(
+    "existing,value",
+    [(True, "manual"), (True, None), (True, [3]), (False, "[[image.png]]"), (False, [None])],
+)
+async def test_invalid_sources_do_not_rewrite_note(tmp_path, existing, value):
     path = tmp_path / "note.md"
-    path.write_text(f"---\n{metadata}\n---\n\nUser body.")
+    path.write_text(frontmatter.dumps(frontmatter.Post("User body.", **({"source_images": value} if existing else {}))))
     before = path.read_bytes()
     with pytest.raises(ValueError, match="list of strings"):
-        await merge_image_sources(tmp_path, "note.md", ["[[new.png]]"])
+        await merge_image_sources(tmp_path, "note.md", ["[[new.png]]"] if existing else value)
     assert path.read_bytes() == before
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("sources", ["[[image.png]]", [None]])
-async def test_invalid_incoming_sources_do_not_write(tmp_path, sources):
-    path = tmp_path / "note.md"
-    path.write_text("User body.")
-    with pytest.raises(ValueError, match="list of strings"):
-        await merge_image_sources(tmp_path, "note.md", sources)
-    assert path.read_text() == "User body."
 
 
 @pytest.mark.asyncio

@@ -472,16 +472,13 @@ async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, m
     writer = WriteStep(app_context=step.app_context, file_store=step.file_store)
     await writer(path=note_path, name="image-memory", content="Existing fact.", metadata={"source_images": [old_link]})
 
-    async def find_note(*_args):
-        return {"path": note_path}
-
     async def file_job(name, **kwargs):
         assert name == "frontmatter_update"
         updater = FrontmatterUpdateStep(app_context=step.app_context, file_store=step.file_store)
         await updater(**kwargs)
         return updater.context.response
 
-    monkeypatch.setattr(step, "_list_session_note", find_note)
+    monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
     monkeypatch.setattr(step, "run_job", file_job)
     monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
     first, second = _message(), _message("second", timestamp=f"{_DAY}T11:00:00")
@@ -555,11 +552,48 @@ async def test_invalid_note_sources_only_block_image_writes(setup, monkeypatch, 
         with pytest.raises(ValueError, match="source_images"):
             await _run(step, [message], include_images=enabled)
         wrapper.reply.assert_not_called()
-        assert not session_path.exists()
     else:
         response = await _run(step, [message], include_images=enabled)
         assert response.success
         assert isinstance(wrapper.reply.call_args.args[0], str)
-        assert session_path.read_bytes() == _saved_line(message)
+    assert session_path.read_bytes() == _saved_line(message)
     assert not (step.file_store.workspace_path / "session/images").exists()
     assert target.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("lookup_fails", [False, True])
+async def test_source_save_precedes_single_note_lookup_and_image_writes(setup, monkeypatch, enabled, lookup_fails):
+    step, wrapper, session_path = setup
+    note_path = f"daily/{_DAY}/existing.md"
+    _write_note(step.file_store.workspace_path / note_path)
+    message = _message()
+    image_dir = step.file_store.workspace_path / "session/images"
+
+    async def find_note(*_args):
+        assert session_path.read_bytes() == _saved_line(message)
+        assert not image_dir.exists()
+        wrapper.reply.assert_not_called()
+        if lookup_fails:
+            raise RuntimeError("daily_list failed: unavailable")
+        return {"path": note_path}
+
+    lookup = AsyncMock(side_effect=find_note)
+    monkeypatch.setattr(step, "_list_session_note", lookup)
+    monkeypatch.setattr(step, "_ensure_session_frontmatter", AsyncMock())
+    monkeypatch.setattr(step, "_rename_from_frontmatter_name", AsyncMock(return_value=note_path))
+    monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
+    response = await _run(step, [message], include_images=enabled)
+
+    lookup.assert_awaited_once_with(_DAY, _SESSION)
+    assert response.success is not lookup_fails
+    assert session_path.read_bytes() == _saved_line(message)
+    assert image_dir.exists() is (enabled and not lookup_fails)
+    if lookup_fails:
+        assert response.answer == "daily_list failed: unavailable"
+        assert response.metadata == {"date": _DAY, "modified": False, "n_messages": 1}
+        wrapper.reply.assert_not_called()
+    else:
+        wrapper.reply.assert_awaited_once()
+        assert isinstance(wrapper.reply.call_args.args[0], Msg if enabled else str)
