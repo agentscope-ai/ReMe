@@ -369,7 +369,15 @@ class AutoMemoryStep(BaseStep):
 
         history_messages, images, reply_kwargs = self._prepare_image_history(messages, day)
         image_sources = []
+        note = None
         if images:
+            note = await self._list_session_note(day, session_id)
+            if note:
+                previous_sources = self._frontmatter(str(note["path"])).get("source_images", [])
+                if not isinstance(previous_sources, list) or any(
+                    not isinstance(source, str) for source in previous_sources
+                ):
+                    raise ValueError("Existing source_images must be a list of strings")
             image_sources = await save_session_images(
                 self.file_store.workspace_path,
                 self._session_dir(),
@@ -388,7 +396,8 @@ class AutoMemoryStep(BaseStep):
             return
 
         try:
-            note = await self._list_session_note(day, session_id)
+            if not images:
+                note = await self._list_session_note(day, session_id)
         except RuntimeError as exc:
             self.context.response.success = False
             self.context.response.answer = str(exc)
@@ -404,11 +413,8 @@ class AutoMemoryStep(BaseStep):
         # or this call updates an image-backed note with images disabled.
         if before_note_bytes is not None:
             previous_sources = frontmatter.loads(before_note_bytes.decode("utf-8")).get("source_images", [])
-            if not isinstance(previous_sources, list) or any(
-                not isinstance(source, str) for source in previous_sources
-            ):
-                raise ValueError("Existing source_images must be a list of strings")
-            image_sources = previous_sources + image_sources
+            if isinstance(previous_sources, list) and all(isinstance(source, str) for source in previous_sources):
+                image_sources = previous_sources + image_sources
         self.logger.info(
             f"[{self.name}] note lookup session_id={session_id!r} path={note_path!r} "
             f"created={created} msgs={len(messages)} hint={bool(memory_hint)}",

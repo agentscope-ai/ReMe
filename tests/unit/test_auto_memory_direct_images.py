@@ -535,9 +535,10 @@ async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, m
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("value", ["manual", [7]])
-async def test_invalid_note_sources_are_not_lost_to_agent_rewrite(setup, monkeypatch, value):
-    step, wrapper, _ = setup
+@pytest.mark.parametrize("value", ["manual", None, [7]])
+@pytest.mark.parametrize("enabled,images", [(True, True), (False, True), (True, False)])
+async def test_invalid_note_sources_only_block_image_writes(setup, monkeypatch, value, enabled, images):
+    step, wrapper, session_path = setup
     note_path = f"daily/{_DAY}/existing.md"
     target = step.file_store.workspace_path / note_path
     _write_note(target)
@@ -546,7 +547,19 @@ async def test_invalid_note_sources_are_not_lost_to_agent_rewrite(setup, monkeyp
     target.write_text(frontmatter.dumps(post))
     before = target.read_bytes()
     monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
-    with pytest.raises(ValueError, match="source_images"):
-        await _run(step, [_message()], include_images=True)
-    wrapper.reply.assert_not_called()
+    monkeypatch.setattr(step, "_ensure_session_frontmatter", AsyncMock())
+    monkeypatch.setattr(step, "_rename_from_frontmatter_name", AsyncMock(return_value=note_path))
+    monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
+    message = _message(images=images)
+    if enabled and images:
+        with pytest.raises(ValueError, match="source_images"):
+            await _run(step, [message], include_images=enabled)
+        wrapper.reply.assert_not_called()
+        assert not session_path.exists()
+    else:
+        response = await _run(step, [message], include_images=enabled)
+        assert response.success
+        assert isinstance(wrapper.reply.call_args.args[0], str)
+        assert session_path.read_bytes() == _saved_line(message)
+    assert not (step.file_store.workspace_path / "session/images").exists()
     assert target.read_bytes() == before
