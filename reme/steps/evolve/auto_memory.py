@@ -13,6 +13,7 @@ from agentscope.agent import ContextConfig
 from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 
 from ._evolve import agent_reply_result_text, format_history, now
+from ._session_image_assets import merge_image_sources, save_session_images
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index
 from ..file_io import validate_filename_component, validate_session_id
@@ -367,6 +368,16 @@ class AutoMemoryStep(BaseStep):
             return
 
         history_messages, images, reply_kwargs = self._prepare_image_history(messages, day)
+        image_sources = []
+        if images:
+            image_sources = await save_session_images(
+                self.file_store.workspace_path,
+                self._session_dir(),
+                session_id,
+                history_messages,
+                images,
+                self.context.get("_allowed_paths"),
+            )
         await self._save_session_messages(session_id, messages)
 
         if not messages:
@@ -389,6 +400,15 @@ class AutoMemoryStep(BaseStep):
         created = note is None
         before_note_path = note_path
         before_note_bytes = self._note_bytes(note_path) if note_path else None
+        # Keep attachment provenance even when the Agent uses a full rewrite,
+        # or this call updates an image-backed note with images disabled.
+        if before_note_bytes is not None:
+            previous_sources = frontmatter.loads(before_note_bytes.decode("utf-8")).get("source_images", [])
+            if not isinstance(previous_sources, list) or any(
+                not isinstance(source, str) for source in previous_sources
+            ):
+                raise ValueError("Existing source_images must be a list of strings")
+            image_sources = previous_sources + image_sources
         self.logger.info(
             f"[{self.name}] note lookup session_id={session_id!r} path={note_path!r} "
             f"created={created} msgs={len(messages)} hint={bool(memory_hint)}",
@@ -404,6 +424,7 @@ class AutoMemoryStep(BaseStep):
             history=self._format_history(history_messages),
         )
         if images:
+            user_message += "\n\n" + self.prompt_format("image_sources_instructions")
             user_message = self._image_user_message(user_message, images)
 
         self.logger.info(f"[{self.name}] agent start path={note_path} template={template_key}")
@@ -461,6 +482,13 @@ class AutoMemoryStep(BaseStep):
                 self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
                 return
 
+        if image_sources:
+            await merge_image_sources(
+                self.file_store.workspace_path,
+                note_path,
+                image_sources,
+                self.context.get("_allowed_paths"),
+            )
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         if modified:
             self.context["changes"] = [{"change": "added" if created else "modified", "path": note_path}]

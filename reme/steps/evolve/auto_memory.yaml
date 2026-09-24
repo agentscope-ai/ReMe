@@ -45,6 +45,19 @@ system_prompt_zh: |
   - `description` = 详细总结；模糊的描述如 "notes" / "misc" 不可接受。
   - **永远不要设置 `status`**——它是下游处理保留的字段。
 
+image_sources_instructions: |
+  ## Image References
+
+  Each image has an `Image source:` immediately before it. Read it together with the surrounding conversation, keeping the speaker, time and text-image order.
+  When recording a visual fact, cite that image's exact source in the same sentence or bullet. Use the supplied wikilink for a saved attachment, or a Markdown link for an HTTP(S) source. When a fact compares several images, cite each relevant source.
+  Keep existing image citations when updating a fact that is still retained. A list of image links at the end, or the `source_images` frontmatter, does not replace these contextual citations. ReMe maintains `source_images`; do not edit that field.
+image_sources_instructions_zh: |
+  ## 图像引用
+
+  每张图片前紧邻的 `Image source:` 是它的来源。结合前后对话理解图片，保留说话人、时间和图文顺序。
+  记录视觉事实时，在对应句子或条目中引用该图的准确来源。保存的附件使用提供的双括号链接，HTTP(S) 来源使用 Markdown 链接；涉及多张图的比较时引用各自的来源。
+  更新时保留仍有效事实对应的图像引用。文末的图片列表或 `source_images` frontmatter 不能替代正文中的对应引用。`source_images` 由 ReMe 维护，不要修改这个字段。
+
 user_message_create: |
   Today: {today}
   Extra hint: {note}
