@@ -1,13 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  Config,
-  mergeSettings,
-  resolveConfig,
-  SettingsConfig,
-  settingsFrom,
-  validateSettings,
-} from "../dist/config.js";
+import { Config, resolveConfig } from "../dist/config.js";
 
 test("resolves the established ReMe host and port environment", () => {
   const config = resolveConfig(
@@ -27,8 +20,9 @@ test("exports a Cordis schema that rejects invalid configuration", async () => {
 
   const valid = await Config["~standard"].validate({ language: "zh" });
   assert.equal(valid.issues, undefined);
-  assert.equal(valid.value.autoMemoryInterval, 5);
-  assert.equal(valid.value.shutdownTimeoutMs, 5000);
+  assert.equal(valid.value.autoMemoryInterval.get(), 5);
+  assert.equal(valid.value.shutdownTimeoutMs.get(), 5000);
+  assert.equal(resolveConfig(valid.value).language, "zh");
 });
 
 test("rejects unknown options and invalid IANA timezones", () => {
@@ -64,27 +58,13 @@ test("normalizes bounded plugin configuration", () => {
   assert.equal(config.rootAgentsOnly, false);
 });
 
-test("projects editable DSH settings without test-only intervals", async () => {
-  const base = resolveConfig({ dreamIntervalMs: 5000 }, {});
-  const settings = settingsFrom(base);
-  assert.equal("dreamIntervalMs" in settings, false);
-  const validated = await SettingsConfig["~standard"].validate({
-    ...settings,
-    searchLimit: 8,
-  });
-  assert.equal(validated.issues, undefined);
-  const merged = mergeSettings(base, validated.value);
-  assert.equal(merged.searchLimit, 8);
-});
-
 test("rejects settings that cannot be scheduled or reached", () => {
-  const settings = settingsFrom(resolveConfig({}, {}));
   assert.throws(
-    () => validateSettings({ ...settings, endpoint: "file:///tmp/reme" }),
+    () => resolveConfig({ endpoint: "file:///tmp/reme" }),
     /absolute http/,
   );
   assert.throws(
-    () => validateSettings({ ...settings, dreamCron: "every night" }),
+    () => resolveConfig({ dreamCron: "every night" }),
     /daily form/,
   );
 });
