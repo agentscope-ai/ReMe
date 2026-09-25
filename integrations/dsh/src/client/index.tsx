@@ -12,7 +12,7 @@ import { styles } from "./styles.js";
 
 const NS = "reme.settings";
 const STATUS_NS = "reme.status";
-const SETTINGS_NS = "reme-memory";
+const SETTINGS_NS = "reme-memory-runtime";
 const FIELDS = [
   "endpoint",
   "requestTimeoutMs",
@@ -62,9 +62,12 @@ interface ClientContext {
       },
     ): () => void;
   };
-  settingsScope: { bind<T>(spec: { namespace: string }): SettingsScope<T> };
+  configForms: {
+    get<T>(namespace: string): SettingsScope<T>;
+    whileServed(namespaces: string[], register: () => () => void): () => void;
+  };
   slots: {
-    inject(name: string, factory: () => unknown): void;
+    inject(name: string, factory: () => unknown): () => void;
     register<Props>(
       options: Record<string, unknown>,
       component: (props: Props) => JSX.Element | null,
@@ -91,6 +94,7 @@ interface Draft {
 interface ReMeCardProps {
   scope: SettingsScope<ReMeSettings>;
   t: Translator;
+  view?: "summary" | "page";
 }
 
 const en = {
@@ -244,7 +248,7 @@ const zh: typeof en = {
   unhealthy: "异常",
 };
 
-export const inject = ["slots", "locale", "settingsScope", "connection"];
+export const inject = ["slots", "locale", "configForms", "connection"];
 
 export function apply(ctx: ClientContext): void {
   const t = ctx.locale.bind(NS);
@@ -257,19 +261,23 @@ export function apply(ctx: ClientContext): void {
     "remeMemory.statusLocale()",
   );
   ctx.effect(() => installStyles(), "remeMemory.settingsStyles()");
-  const scope = ctx.settingsScope.bind<ReMeSettings>({
-    namespace: SETTINGS_NS,
-  });
-  ctx.slots.inject("settings.plugin.item", () =>
-    ctx.slots.register(
-      {
-        name: "settings.plugin.item",
-        key: SETTINGS_NS,
-        locale: NS,
-        inject: () => ({ scope, t }),
-      },
-      ReMeSettingsCard,
-    ),
+  const scope = ctx.configForms.get<ReMeSettings>(SETTINGS_NS);
+  ctx.effect(
+    () =>
+      ctx.configForms.whileServed([SETTINGS_NS], () =>
+        ctx.slots.inject("plugins.item", () =>
+          ctx.slots.register(
+            {
+              name: "plugins.item",
+              id: SETTINGS_NS,
+              locale: NS,
+              inject: () => ({ scope, t }),
+            },
+            ReMeSettingsCard,
+          ),
+        ),
+      ),
+    "remeMemory.settingsCard()",
   );
   const statusT = ctx.locale.bind(STATUS_NS);
   const { rpc } = ctx.get("connection");
@@ -289,7 +297,11 @@ export function apply(ctx: ClientContext): void {
   );
 }
 
-function ReMeSettingsCard({ scope, t }: ReMeCardProps): JSX.Element | null {
+function ReMeSettingsCard({
+  scope,
+  t,
+  view,
+}: ReMeCardProps): JSX.Element | null {
   const snapshot = useSyncExternalStore(
     (listener) => scope.subscribe(listener),
     () => scope.getSnapshot(),
@@ -303,6 +315,7 @@ function ReMeSettingsCard({ scope, t }: ReMeCardProps): JSX.Element | null {
   const draft =
     draftOverride ?? (value === undefined ? undefined : draftFrom(value));
 
+  if (view === "summary") return <>{t("description")}</>;
   if (snapshot.status === "unavailable") return null;
   const dirty =
     resetAll ||
@@ -361,7 +374,7 @@ function ReMeSettingsCard({ scope, t }: ReMeCardProps): JSX.Element | null {
   };
 
   return (
-    <li className={`reme-settings-card${open ? " open" : ""}`}>
+    <div className={`reme-settings-card${open ? " open" : ""}`}>
       <button
         type="button"
         className="reme-settings-header"
@@ -456,7 +469,7 @@ function ReMeSettingsCard({ scope, t }: ReMeCardProps): JSX.Element | null {
           )}
         </div>
       ) : null}
-    </li>
+    </div>
   );
 }
 

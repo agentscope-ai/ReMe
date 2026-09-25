@@ -25,6 +25,12 @@ export function memoryGuidance(language: "en" | "zh" = "en"): string {
 
 export const REME_PLUGIN_SOURCE = "reme-memory";
 
+declare module "@deepseek-ai/dsh-llm" {
+  interface MessageSourceMap {
+    "reme-memory": { kind: "reme-memory"; form: "instructions" };
+  }
+}
+
 export function hasGuidance(
   session: DshSession,
   pendingMessages: readonly unknown[] = [],
@@ -40,8 +46,7 @@ function isGuidance(value: unknown): boolean {
   const source = isRecord(value) ? value.source : undefined;
   return (
     isRecord(source) &&
-    source.kind === "plugin" &&
-    source.plugin === REME_PLUGIN_SOURCE &&
+    source.kind === REME_PLUGIN_SOURCE &&
     source.form === "instructions"
   );
 }

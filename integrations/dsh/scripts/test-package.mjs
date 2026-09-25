@@ -42,12 +42,12 @@ try {
     '{"name":"reme-dsh-package-consumer","private":true}\n',
   );
   const hostDependencies = [
+    "@deepseek-ai/dsh-agent",
     "@deepseek-ai/dsh-client-ui-primitives",
     "@deepseek-ai/dsh-llm",
-    "@deepseek-ai/dsh-settings",
     "@deepseek-ai/dsh-tools",
     "@deepseek-ai/dsh-typert-protocol",
-  ].map((dependency) => `${dependency}@0.1.5-rc.2`);
+  ].map((dependency) => `${dependency}@0.1.7-rc.2`);
   await execFileAsync(
     "npm",
     [

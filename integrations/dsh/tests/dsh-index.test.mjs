@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { apply } from "../dist/index.js";
+import { apply, Config } from "../dist/index.js";
 
 test("composes root-agent guidance and reme_search on supported DSH releases", async () => {
   const handlers = new Map();
@@ -59,13 +59,12 @@ test("composes root-agent guidance and reme_search on supported DSH releases", a
       },
     },
   };
-  handlers.get("agent/session-start")({ agent, source: "startup" });
+  handlers.get("agent/created")({ agent, source: "startup" });
   assert.equal(injected.length, 1);
-  assert.equal(injected[0].source.kind, "plugin");
-  assert.equal(injected[0].source.plugin, "reme-memory");
+  assert.equal(injected[0].source.kind, "reme-memory");
   assert.match(injected[0].content[0].text, /长期记忆/);
 
-  handlers.get("agent/session-start")({ agent, source: "resume" });
+  handlers.get("agent/created")({ agent, source: "resume" });
   assert.equal(injected.length, 1);
 
   await Promise.all(agentCleanups.map((cleanup) => cleanup()));
@@ -95,7 +94,7 @@ test("keeps prompt injection and capture out of subagents by default", async () 
   };
   apply(ctx, { autoDreamEnabled: false });
   let injected = false;
-  handlers.get("agent/session-start")({
+  handlers.get("agent/created")({
     agent: {
       status: "idle",
       session: { id: "child", header: { origin: "subagent" }, events: [] },
@@ -113,10 +112,8 @@ test("keeps prompt injection and capture out of subagents by default", async () 
   assert.equal(injected, false);
 });
 
-test("registers a ReMe settings namespace and reads changed values for new sessions", () => {
+test("reads live DSH configuration for new sessions", async () => {
   const handlers = new Map();
-  let section;
-  let notify;
   const ctx = {
     fiber: { state: 0 },
     logger: { debug() {}, warn() {}, log() {} },
@@ -135,31 +132,16 @@ test("registers a ReMe settings namespace and reads changed values for new sessi
     on(name, handler) {
       handlers.set(name, handler);
     },
-    inject(names, callback) {
-      if (!names.includes("settings")) return;
-      const settingsCtx = {
-        settings: {
-          installSection(owner, ns, _schema, base, hooks) {
-            assert.equal(owner, ctx);
-            section = base;
-            assert.equal(String(ns), "reme-memory");
-            hooks.setSource(() => section);
-            notify = hooks.onChange;
-          },
-        },
-      };
-      callback(settingsCtx);
-    },
   };
-  apply(ctx, {
+  const config = await Config["~standard"].validate({
     autoMemoryEnabled: false,
     autoDreamEnabled: false,
-    language: "en",
+    language: "zh",
   });
-  section = { ...section, language: "zh" };
-  notify();
+  assert.equal(config.issues, undefined);
+  apply(ctx, config.value);
   const injected = [];
-  handlers.get("agent/session-start")({
+  handlers.get("agent/created")({
     agent: {
       status: "idle",
       session: { id: "settings-session", header: {}, events: [] },
@@ -175,4 +157,23 @@ test("registers a ReMe settings namespace and reads changed values for new sessi
     },
   });
   assert.match(injected[0].content[0].text, /长期记忆/);
+
+  config.value.language[Symbol.for("cosmokit.volatile.write")]("en");
+  handlers.get("loader/volatile-update")([["language"]]);
+  handlers.get("agent/created")({
+    agent: {
+      status: "idle",
+      session: { id: "updated-session", header: {}, events: [] },
+      inbox: { nextStep: [] },
+      inject(message) {
+        injected.push(message);
+      },
+      ctx: {
+        effect() {
+          return () => {};
+        },
+      },
+    },
+  });
+  assert.match(injected[1].content[0].text, /Long-term Memory/);
 });

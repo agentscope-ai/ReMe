@@ -19,11 +19,10 @@ test("declares one installable DeepSeek Harness plugin", async () => {
   for (const dependency of [
     "@deepseek-ai/dsh-client-ui-primitives",
     "@deepseek-ai/dsh-llm",
-    "@deepseek-ai/dsh-settings",
     "@deepseek-ai/dsh-tools",
     "@deepseek-ai/dsh-typert-protocol",
   ]) {
-    assert.equal(manifest.peerDependencies[dependency], "^0.1.5-rc.2");
+    assert.equal(manifest.peerDependencies[dependency], "0.1.7-rc.2");
     assert.equal(manifest.peerDependenciesMeta[dependency]?.optional, true);
   }
   assert.equal(manifest.peerDependencies.openclaw, undefined);
@@ -44,7 +43,7 @@ test("builds a lazy DSH browser module for the ReMe settings card", async () => 
   );
   assert.match(bundle, /window\.__ModuleLoader__\.load/);
   assert.match(bundle, /id: "@agentscope-ai\/reme-dsh-plugin"/);
-  assert.match(bundle, /settings\.plugin\.item/);
+  assert.match(bundle, /plugins\.item/);
   assert.match(bundle, /reme-status/);
   assert.match(bundle, /Personal Knowledge Base/);
   assert.match(statusPage, /个人知识库/);

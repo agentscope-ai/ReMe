@@ -1,47 +1,23 @@
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
 import type { Context } from "@deepseek-ai/cordis";
-import type {} from "@deepseek-ai/dsh-settings";
+import type {} from "@deepseek-ai/cordis-plugin-loader";
 import { ReMeClient } from "./reme/client.js";
 
-import {
-  mergeSettings,
-  REME_SETTINGS_NAMESPACE,
-  resolveConfig,
-  SettingsConfig,
-  settingsFrom,
-  validateSettings,
-} from "./config.js";
+import { resolveConfig } from "./config.js";
 import { hasGuidance, memoryGuidance, REME_PLUGIN_SOURCE } from "./guidance.js";
 import { ReMeRuntime } from "./runtime.js";
 import { ReMeStatusGateway } from "./status-gateway.js";
 import { registerReMeTools } from "./tools.js";
-import type { ReMeConfigInput, ReMeSettings } from "./types.js";
+import type { ReMeConfigInput } from "./types.js";
 
 export const name = "reme-memory";
 export const inject = ["agents", "sessions", "tools"];
 
 export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
-  const base = resolveConfig(input);
-  const defaultSettings = settingsFrom(base);
-  let settingsSource: () => ReMeSettings = () => defaultSettings;
-  const current = () => mergeSettings(base, settingsSource());
+  resolveConfig(input);
+  const current = () => resolveConfig(input);
   const client = new ReMeClient(current);
   const runtime = new ReMeRuntime(client, current, ctx.logger);
-  ctx.inject(["settings"], (settingsCtx) => {
-    settingsCtx.settings.installSection(
-      ctx,
-      REME_SETTINGS_NAMESPACE,
-      SettingsConfig,
-      defaultSettings,
-      {
-        setSource(source) {
-          settingsSource = source;
-        },
-        onChange: () => runtime.reconfigure(),
-        validate: validateSettings,
-      },
-    );
-  });
   ctx.provide("remeMemory", runtime);
   void ctx.plugin(ReMeStatusGateway);
   ctx.effect(
@@ -54,7 +30,11 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
     return () => runtime.disposeAll();
   }, "remeMemory.lifecycle()");
 
-  ctx.on("agent/session-start", ({ agent }) => {
+  ctx.on("loader/volatile-update", () => {
+    runtime.reconfigure();
+  });
+
+  ctx.on("agent/created", ({ agent }): undefined => {
     const config = current();
     if (config.rootAgentsOnly && agent.session.header?.origin === "subagent")
       return;
@@ -71,8 +51,7 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
       createUserMessage({
         content: [{ type: "text", text: memoryGuidance(config.language) }],
         source: {
-          kind: "plugin",
-          plugin: REME_PLUGIN_SOURCE,
+          kind: REME_PLUGIN_SOURCE,
           form: "instructions",
         },
       }),
@@ -92,4 +71,4 @@ export type {
   ReMeRuntimeTask,
   ReMeRuntimeTaskPhase,
 } from "./runtime-status.js";
-export { Config, REME_SETTINGS_NAMESPACE, SettingsConfig } from "./config.js";
+export { Config } from "./config.js";

@@ -51,7 +51,7 @@ test("does not launder plugin context into memory", () => {
         data: {
           role: "user",
           content: [{ type: "text", text: "recalled content" }],
-          source: { kind: "plugin", plugin: "reme-memory" },
+          source: { kind: "reme-memory", form: "instructions" },
         },
       },
       "session-a",
