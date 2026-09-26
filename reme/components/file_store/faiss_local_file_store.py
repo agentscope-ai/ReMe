@@ -83,8 +83,6 @@ class FaissLocalFileStore(LocalFileStore):
         self.hnsw_m = hnsw_m
         self.hnsw_ef_construction = hnsw_ef_construction
         self.async_reindex = async_reindex
-        self.faiss_path = self.component_metadata_path / f"faiss_index_{self.name}_{self.store_version}.bin"
-        self.faiss_idmap_path = self.component_metadata_path / f"faiss_idmap_{self.name}_{self.store_version}.json"
         self._faiss_index = None  # faiss.Index | None
         self._id_map: list[str] = []  # row -> chunk_id
         self._id_to_row: dict[str, int] = {}  # chunk_id -> row (live entries only)
@@ -99,6 +97,14 @@ class FaissLocalFileStore(LocalFileStore):
         self._reindex_busy = False  # True while a build is in flight (single worker)
         self._index_writes = 0  # bumped on every index mutation; used to re-arm the flag
         self._closing = False  # set during _close() to stop spawning background reindexes
+
+    @property
+    def faiss_path(self):
+        return self.component_metadata_path / f"faiss_index_{self.name}_{self._store_version_suffix()}.bin"
+
+    @property
+    def faiss_idmap_path(self):
+        return self.component_metadata_path / f"faiss_idmap_{self.name}_{self._store_version_suffix()}.json"
 
     @staticmethod
     def _import_faiss():

@@ -123,6 +123,20 @@ class MarkdownFileChunker(DefaultFileChunker):
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
         self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
+    def _config_fingerprint_payload(self) -> dict:
+        payload = super()._config_fingerprint_payload()
+        payload.update(
+            {
+                "encoding": self.encoding,
+                "chunk_byte_size": self.chunk_byte_size,
+                "embed_toc": self.embed_toc,
+                "max_ast_sections": self.max_ast_sections,
+                "include_frontmatter_in_metadata": self.include_frontmatter_in_metadata,
+                "include_frontmatter_keys_in_metadata": list(self.include_frontmatter_keys_in_metadata),
+            },
+        )
+        return payload
+
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         rel_path = self.to_workspace_relative(path)

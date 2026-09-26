@@ -3,11 +3,13 @@
 import asyncio
 import base64
 import datetime
+import hashlib
 import heapq
 import json
 import time
 from collections.abc import Iterable
 from contextlib import suppress
+from pathlib import Path
 
 import numpy as np
 
@@ -17,7 +19,7 @@ from ..embedding_store import BaseEmbeddingStore
 from ..file_graph import BaseFileGraph
 from ..keyword_index import BaseKeywordIndex
 from ..tag_index import BaseTagIndex
-from ...enumeration import LinkScopeEnum
+from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
 from ...utils import batch_cosine_similarity
 from ...utils.async_utils import complete_in_thread
@@ -76,7 +78,6 @@ class LocalFileStore(BaseFileStore):
         self.encoding = encoding
         self.store_version = store_version
         self.file_chunks: dict[str, FileChunk] = {}
-        self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
         self._embedding_backfill_task: asyncio.Task | None = None
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
@@ -85,6 +86,32 @@ class LocalFileStore(BaseFileStore):
         self._tag_index_rebuild_required = False
         self._tag_indexed_file_count = 0
         self._closing = False
+
+    def _store_version_suffix(self) -> str:
+        """Return the on-disk version suffix for the active chunker configuration."""
+        fingerprint = self._chunker_fingerprint()
+        return f"{self.store_version}_{fingerprint}" if fingerprint else self.store_version
+
+    def _chunker_fingerprint(self) -> str:
+        """Fingerprint the bound chunker configuration so derived chunks rotate on change."""
+        if self.app_context is None:
+            return ""
+        chunkers = self.app_context.components.get(ComponentEnum.FILE_CHUNKER, {})
+        if not chunkers:
+            return ""
+        payload = {
+            name: chunker.config_fingerprint()
+            for name, chunker in sorted(chunkers.items())
+            if hasattr(chunker, "config_fingerprint")
+        }
+        if not payload:
+            return ""
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
+
+    @property
+    def chunks_path(self) -> Path:
+        return self.component_metadata_path / f"file_chunks_{self.name}_{self._store_version_suffix()}.jsonl.zst"
 
     @property
     def embedding_dimensions(self) -> int:
