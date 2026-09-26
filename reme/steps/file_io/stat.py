@@ -1,9 +1,9 @@
 """``file_stat`` — peek at file metadata under the workspace without copying it.
 
 Cheap inspection alternative to ``file_download``: the agent gets
-size, mtime, mime type, and (for markdown files) the parsed
-frontmatter — enough to decide whether to download / parse / skip
-without paying the copy cost.
+size and mtime in the answer, with mime type and (for markdown files)
+the parsed frontmatter alongside in metadata — enough to decide whether
+to download / parse / skip without paying the copy cost.
 
 Returns a uniform envelope:
 
@@ -68,12 +68,13 @@ class StatStep(BaseStep):
             return
 
         st = target.stat()
+        mtime = datetime.fromtimestamp(st.st_mtime).isoformat()
         payload: dict = {
             "path": path,
             "absolute_path": str(target),
             "exists": True,
             "type": "dir" if target.is_dir() else "file",
-            "mtime": datetime.fromtimestamp(st.st_mtime).isoformat(),
+            "mtime": mtime,
             "ctime": datetime.fromtimestamp(st.st_ctime).isoformat(),
         }
         if target != original_target:
@@ -90,9 +91,9 @@ class StatStep(BaseStep):
                 except Exception:
                     meta = {}
                 payload["frontmatter"] = meta
-            answer = f"stat: {path} (file, {st.st_size} bytes)"
+            answer = f"stat: {path} (file, {st.st_size} bytes, mtime {mtime})"
         else:
-            answer = f"stat: {path} (dir)"
+            answer = f"stat: {path} (dir, mtime {mtime})"
 
         self.context.response.success = True
         self.context.response.answer = answer
