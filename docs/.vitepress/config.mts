@@ -177,6 +177,7 @@ function integrationsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] 
     items: [
       { text: zh ? "集成总览" : "Overview", link: `/${language}/integrations` },
       { text: "Claude Code", link: `/${language}/integrations/claude-code` },
+      { text: "Codex", link: `/${language}/integrations/codex` },
       { text: "Hermes Agent", link: `/${language}/integrations/hermes` },
       { text: "DeepSeek Harness", link: `/${language}/integrations/dsh` },
       { text: "OpenClaw", link: `/${language}/integrations/openclaw` },

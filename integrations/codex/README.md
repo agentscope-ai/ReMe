@@ -1,10 +1,10 @@
-# ReMe memory for Claude Code
+# ReMe memory for Codex
 
 [中文说明](./README_ZH.md)
 
-This repository-local plugin gives Claude Code automatic recall before user prompts, background
+This repository-local plugin gives Codex automatic recall before user prompts, automatic
 recording of completed turns, and explicit ReMe MCP tools. Durable memory stays in a user-owned
-ReMe workspace. Its plugin files and installation guide are maintained under `integrations/claude_code/` and can be
+ReMe workspace. Its plugin files and installation guide are maintained under `integrations/codex/` and can be
 installed directly from this checkout.
 
 ```text
@@ -15,7 +15,7 @@ Stop → completed user/assistant text → local retry queue → auto_memory →
 ## Requirements
 
 - Python 3.11+ available as `python3` in the host's environment; the plugin uses only the standard library.
-- A current Claude Code version supporting plugin command hooks, `async`, and Stop `last_assistant_message`.
+- Codex CLI 0.145.0 or a compatible client supporting local plugins, command hooks, and hook trust review.
 - A running ReMe HTTP service exposing `search`, `auto_memory`, and `health_check`, with MCP enabled.
 - A working model configuration on the ReMe server for memory extraction. Default BM25 recall does not need embeddings.
 
@@ -32,26 +32,28 @@ scopes; sharing one workspace between hosts is intentional cross-agent recall.
 
 ## Install the plugin
 
-In Claude Code, using an absolute path to this checkout:
+Register this repository-local marketplace, then install its plugin:
 
-```text
-/plugin marketplace add /absolute/path/to/ReMe/integrations/claude_code
-/plugin install reme@reme-marketplace
+```bash
+codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
+codex plugin add reme@reme-codex
 ```
 
-For a single development session, use `claude --plugin-dir /absolute/path/to/ReMe/integrations/claude_code/reme`.
-Restart or reload the plugin after source changes. Open `/mcp` to verify the `reme` connection.
+In the Codex app, the same local marketplace can be selected in the plugin directory. Start a new
+thread after installing. Open `/hooks` in the CLI to review and trust the bundled hooks; enabling
+a plugin alone does not trust its hooks. Open `/mcp` to verify ReMe. For updates, refresh the local
+marketplace and reinstall the plugin, then review any changed hook definitions.
 
 Automatic recording sends completed user/assistant text to the configured ReMe service.
 Set `auto_memory` to `false` for recall-only use.
 
 ## Configuration
 
-Optional settings live at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`. Start from the bundled example:
+Optional settings live at `${CODEX_HOME:-$HOME/.codex}/reme/config.json`. Start from the bundled example:
 
 ```bash
-mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme"
-cp integrations/claude_code/reme/config.example.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json"
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/reme"
+cp integrations/codex/plugins/reme/config.example.json "${CODEX_HOME:-$HOME/.codex}/reme/config.json"
 ```
 
 | Option | Default | Meaning |
@@ -61,7 +63,7 @@ cp integrations/claude_code/reme/config.example.json "${CLAUDE_CONFIG_DIR:-$HOME
 | `recall_limit` | `5` | Search result limit |
 | `recall_min_score` | `0` | Minimum recall score |
 | `recall_timeout` | `5` | Foreground HTTP timeout in seconds, at most 10 |
-| `request_timeout` | `600` | Background HTTP timeout in seconds, at most 600 |
+| `request_timeout` | `600` | Memory-write HTTP timeout in seconds, at most 600 |
 | `memory_interval` | `5` | Completed turns per batch; use 1 for immediate per-turn writes |
 | `shutdown_timeout` | `2` | Total best-effort exit drain budget in seconds, at most 2 |
 | `context_max_chars` | `8000` | Maximum recalled payload characters |
@@ -77,7 +79,7 @@ There is no separate `REME_HOST`/`REME_PORT` hook override.
 
 - `UserPromptSubmit` calls `search` synchronously with a short timeout. Results are bounded and
   wrapped in `<reme-context>` as untrusted historical evidence. A failure does not reject the prompt.
-- Native asynchronous `Stop` hooks extract only the completed user/final-assistant text from the
+- Synchronous `Stop` hooks extract only the completed user/final-assistant text from the
   hook's local transcript, then submit `auto_memory` batches through the JSON Job API. Tool output,
   reasoning, and injected ReMe context are excluded. The server does not need access to host files.
 - Session and message IDs are stable and host-scoped. Repeated Stops are deduplicated. Per-session
@@ -85,7 +87,10 @@ There is no separate `REME_HOST`/`REME_PORT` hook override.
   are excluded. No extra background daemon, package download, or ReMe process is started.
 - Queues and acknowledgement receipts live under the host's `reme/queue/`, separate from the
   plugin cache and namespaced by endpoint. A failed or timed-out write stays queued. `SessionStart`
-  retries pending work in the background; `SessionEnd` attempts a short, synchronous drain.
+  retries pending work synchronously; `SessionEnd` attempts a short drain.
+- Codex 0.145.0 skips hooks marked `async`, so this adapter deliberately uses synchronous hooks.
+  A due memory batch or a startup retry can delay completion by up to `request_timeout`.
+  Claude Code uses its own native asynchronous adapter.
 - Shutdown and delivery are best-effort. A host killed before the Stop hook captures a turn can
   lose that turn. A lost HTTP acknowledgement can cause a retry; stable message IDs prevent duplicate
   source messages, but memory extraction is **at least once**, not exactly once. Short residual
@@ -97,7 +102,7 @@ There is no separate `REME_HOST`/`REME_PORT` hook override.
 
 ## Verify and troubleshoot
 
-1. Call `reme health_check` against the configured service and check `/mcp` in Claude Code.
+1. Call `reme health_check` against the configured service and check `/mcp` in Codex.
 2. For a quick test, set `memory_interval` to `1`, then start a new conversation and ask the agent to
    remember a synthetic fact, such as “Project Juniper reviews are on Thursday.”
 3. Wait for the write and inspect `reme/hooks.log` for `memory_saved` and the ReMe workspace's `daily/`.
@@ -107,26 +112,17 @@ The `reme-memory` skill supports explicit search/read and health checks. Missing
 mean a disabled plugin or restricted `service.jobs`; it does not prove the server is stopped.
 If hooks are unavailable in the installed host version, MCP and the skill remain the manual fallback.
 
-Capture currently reads Claude JSONL user/assistant records with UUIDs. The hook requires
+Capture currently reads Codex rollout JSONL `event_msg` records (`user_message` and final `agent_message`). The hook requires
 `transcript_path` and `last_assistant_message`. Missing or unsupported transcripts are skipped rather
-than guessed. Check `capture_skipped` or
+than guessed. Codex transcript formats are not a stable public interface. Check `capture_skipped` or
 `hook_failed` events when recall works but recording does not.
 
-## Migration from the previous Claude Code plugin
-
-Version 0.2 replaces the detached Stop-only `auto_memory_cc` client with automatic recall and
-client-side completed-turn capture via `auto_memory`. The existing server job `auto_memory_cc`
-remains available. Existing `session/claude_code/` transcripts and notes are preserved; new source
-messages use ReMe's standard `{session_dir}/dialog/claude-code-<hash>.jsonl` files and namespaced IDs.
-The plugin does not replay older conversations. Remove any manually installed duplicate Stop hook.
-Logs move from the plugin's `logs/` directory to the host's `reme/hooks.log`.
-
-For end-to-end checks, keep the session open until `memory_saved` appears. A short `claude -p`
-process can exit before its asynchronous hook receives the write acknowledgement; the next session
-retries captured work. A Markdown note alone does not prove that the queue was acknowledged.
+In Codex 0.145.0, an unattended `codex exec` MCP call can return `user cancelled MCP tool call`
+when approval cannot be collected. Verify explicit tools in an interactive session and approve the
+specific call. Automatic hooks use the Job API and do not depend on MCP tool approval.
 
 ## Source and validation
 
 Run `pytest tests/unit/test_coding_agent_plugins.py -v` from the ReMe checkout. Tests isolate host
-state and mock service calls. Native hook behavior is described in the [Claude Code hook reference](https://code.claude.com/docs/en/hooks).
+state and mock service calls. Native hook behavior is described in the [Codex hook reference](https://learn.chatgpt.com/docs/hooks).
 ReMe is developed at [agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe) under Apache-2.0.

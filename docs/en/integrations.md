@@ -16,9 +16,10 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Tool-protocol host | MCP |
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
-| Claude Code | [Shared HTTP MCP + Skill + Stop Hook](./integrations/claude-code.md) |
+| Claude Code | [Repository-local plugin](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
-| Codex or another coding agent | `reme_memory` Skill or MCP |
+| Codex | [Repository-local plugin](./integrations/codex.md) |
+| Other coding agents | `reme_memory` Skill or MCP |
 
 ## General memory loop
 
@@ -77,14 +78,11 @@ ReMe HTTP boundary and release lifecycle.
 
 ## Claude Code
 
-The [Claude Code plugin](./integrations/claude-code.md) connects every Claude Code window to one ReMe HTTP process at
-`http://127.0.0.1:2333/mcp` by default. The `reme-memory` Skill selects among semantic `search`, topological `traverse`,
-and state-oriented `daily_list` / `frontmatter_read`, then reads and cites the relevant workspace paths.
+[Claude Code](./integrations/claude-code.md) has its own repository-local plugin with automatic pre-prompt recall, batched completed-turn recording through `auto_memory`, MCP tools, and a `reme-memory` skill.
 
-On Stop, the hook passes only the Claude Code `session_id` to the server-side `auto_memory_cc` job. On POSIX systems it
-detaches the potentially long model call so Claude Code can stop immediately; unreachable-service and other best-effort
-failures are written to the plugin log instead of blocking the host. ReMe resolves the local transcript, and repeated
-Stop events with no new messages do not create duplicate memory.
+## Codex
+
+[Codex](./integrations/codex.md) has a separate repository-local marketplace and plugin. Native hooks provide automatic recall and recording after review in `/hooks`; MCP and the skill also support explicit queries. Both integrations keep retry state in their own host directories and leave consolidation to the ReMe service.
 
 ## Hermes Agent
 

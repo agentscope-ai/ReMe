@@ -1,6 +1,6 @@
 ---
 name: reme-memory
-description: Recall past conversations, preferences, project history, and decisions from ReMe in Claude Code, or check the ReMe connection.
+description: Recall past conversations, preferences, project history, and decisions from ReMe in Codex, or check the ReMe connection.
 ---
 
 # ReMe memory
@@ -30,7 +30,7 @@ started with `reme start workspace_dir=/absolute/path/to/workspace service.backe
 The plugin's `.mcp.json` is the endpoint source for both MCP and automatic hooks. Hook settings and
 content-free logs live in the host's `reme/` directory. Hooks batch five completed turns by default;
 short batches flush at session boundaries, subject to a bounded shutdown budget. Failed batches
-remain for a later attempt. Do not manually submit the same conversation just because a background
+remain for a later attempt. Do not manually submit the same conversation just because a queued
 write has not finished. For an explicit user request to store a fact, use `auto_memory` with only
 the source user/assistant text and a stable session ID; do not copy search results or tool output
 into the conversation source.

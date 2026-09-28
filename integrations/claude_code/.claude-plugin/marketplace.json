@@ -5,13 +5,13 @@
     "url": "https://github.com/agentscope-ai/ReMe"
   },
   "metadata": {
-    "description": "ReMe — file-native long-term memory for AI agents. Claude Code plugin."
+    "description": "ReMe \u2014 file-native long-term memory for AI agents. Claude Code plugin."
   },
   "plugins": [
     {
       "name": "reme",
       "source": "./reme",
-      "description": "Connect Claude Code to a running ReMe MCP server for file-native long-term memory: recall (digest) on demand, plus automatic background recording of each session via a Stop hook."
+      "description": "ReMe automatic recall, completed-turn recording, and MCP memory tools for Claude Code."
     }
   ]
 }

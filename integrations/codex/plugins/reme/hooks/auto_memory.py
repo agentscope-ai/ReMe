@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code lifecycle adapter. Requires only Python's standard library."""
+"""Codex lifecycle adapter. Requires only Python's standard library."""
 
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-HOST = "claude-code"
-HOME_ENV = "CLAUDE_CONFIG_DIR"
-HOME_DEFAULT = "~/.claude"
+HOST = "codex"
+HOME_ENV = "CODEX_HOME"
+HOME_DEFAULT = "~/.codex"
 DEFAULTS = {
     "auto_recall": True,
     "auto_memory": True,
@@ -169,29 +169,32 @@ def clean_text(value: str) -> str:
 
 
 def transcript_messages(path: Path):
-    """Read Claude user/assistant text, excluding tools, thinking, and sidechains."""
+    """Read Codex rollout user/agent events, excluding reasoning and response-item duplicates."""
     with path.open(encoding="utf-8") as handle:
         for index, line in enumerate(handle):
             if not line.endswith("\n"):
-                break  # A partially appended JSONL row is not a completed message.
+                break
             record = json.loads(line)
-            if not isinstance(record, dict) or record.get("isSidechain") or record.get("isMeta"):
+            if not isinstance(record, dict):
                 continue
-            role, message = record.get("type"), record.get("message")
-            if role not in {"user", "assistant"} or not isinstance(message, dict):
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
                 continue
-            content = message.get("content", "")
-            if isinstance(content, list):
-                content = "\n".join(
-                    block["text"]
-                    for block in content
-                    if isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)
-                )
+            if record.get("type") == "session_meta":
+                source = payload.get("source")
+                if source == "subagent" or isinstance(source, dict) and "subagent" in source:
+                    return
+            if record.get("type") != "event_msg":
+                continue
+            role = {"user_message": "user", "agent_message": "assistant"}.get(payload.get("type"))
+            if role is None or role == "assistant" and payload.get("phase") not in {None, "final_answer"}:
+                continue
+            content = payload.get("message")
+            if role == "user" and isinstance(content, str) and "## My request for Codex:" in content:
+                content = content.split("## My request for Codex:", 1)[1]
             if not isinstance(content, str) or not (text := clean_text(content)):
                 continue
-            if text.startswith(("<local-command-", "<command-name>", "<command-message>")):
-                continue
-            yield {"role": role, "text": text, "id": str(record.get("uuid") or index), "time": record.get("timestamp")}
+            yield {"role": role, "text": text, "id": str(index), "time": record.get("timestamp")}
 
 
 def completed_turn(payload: dict, session: str) -> list[dict]:
@@ -315,7 +318,7 @@ def recall(config: dict, payload: dict) -> dict:
 
 
 def handle_event(payload: dict) -> dict:
-    """Dispatch root-conversation events; long work stays in host-managed async hooks."""
+    """Dispatch root-conversation events through synchronous, host-managed hooks."""
     if not isinstance(payload, dict) or payload.get("agent_id") or payload.get("agent_transcript_path"):
         return {}
     event = payload.get("hook_event_name")

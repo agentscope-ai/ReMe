@@ -1,0 +1,20 @@
+{
+  "name": "reme-codex",
+  "interface": {
+    "displayName": "ReMe for Codex"
+  },
+  "plugins": [
+    {
+      "name": "reme",
+      "source": {
+        "source": "local",
+        "path": "./plugins/reme"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

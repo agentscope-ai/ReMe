@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
             "timeout": 15
           }
         ]
@@ -17,9 +17,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
-            "timeout": 610,
-            "async": true
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 610
           }
         ]
       }
@@ -29,9 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
-            "timeout": 610,
-            "async": true
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 610
           }
         ]
       }
@@ -41,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
             "timeout": 3
           }
         ]
