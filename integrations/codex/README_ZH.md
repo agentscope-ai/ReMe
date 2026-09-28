@@ -2,13 +2,14 @@
 
 [English](./README.md)
 
-本插件在用户提交消息前自动召回记忆，在完成对话后分批记录，同时提供显式 MCP 查询工具。
-长期记忆保存在用户拥有的 ReMe workspace。插件与安装文档独立维护在
-`integrations/codex/`，可直接从仓库安装。
+先启动 ReMe 服务，再在 Codex 中安装 ReMe 插件，即可使用长期记忆。这是本宿主支持的集成方式。
+插件统一安装自动召回、完成轮次记录、MCP 工具和内置 `reme-memory` Skill；ReMe 服务负责工作区中的记忆存储与整理。
+
+插件与本地 marketplace 维护在 `integrations/codex/`，从仓库安装。
+使用插件期间，保持 ReMe 服务运行。
 
 ```text
-UserPromptSubmit → search → 不可信历史上下文 → 助手回答
-Stop → 完成的用户/助手文本 → 本地重试队列 → auto_memory → daily Markdown
+启动 ReMe 服务 → 安装 ReMe 插件 → 在 Codex 中使用记忆
 ```
 
 ## 环境要求
@@ -18,7 +19,7 @@ Stop → 完成的用户/助手文本 → 本地重试队列 → auto_memory →
 - 已启动 ReMe HTTP 服务，开放 `search`、`auto_memory`、`health_check`，并启用 MCP。
 - ReMe 服务端有可用于自动记忆提取的模型配置。默认 BM25 召回不要求 Embedding。
 
-## 启动 ReMe
+## 1. 启动 ReMe 服务
 
 ```bash
 pip install "reme-ai[core]"
@@ -28,7 +29,7 @@ reme start workspace_dir=/absolute/path/to/workspace service.backend=http
 默认地址为 `http://127.0.0.1:2333`，MCP 路径为 `/mcp`。HTTP 服务没有内建 API Key 鉴权，
 应保持 loopback 监听或部署受保护的代理。不同 workspace 隔离记忆；不同宿主使用同一 workspace 时会共享召回。
 
-## 安装插件
+## 2. 安装 ReMe 插件
 
 添加仓库内的本地 marketplace，再安装插件：
 
@@ -37,13 +38,20 @@ codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
 codex plugin add reme@reme-codex
 ```
 
-Codex App 也可在插件目录中选择该本地 marketplace。安装后新建线程。
-在 CLI 的 `/hooks` 中检查并信任插件 Hook；仅启用插件不会自动信任 Hook。通过 `/mcp` 确认 ReMe 连接。
-修改源码后刷新本地 marketplace 并重新安装，新建线程，重新审核有变化的 Hook。
+启动 Codex，在 `/hooks` 中检查并信任已安装插件的 Hook，然后新建会话。
+插件安装会一并加载 Hook、MCP 连接和内置 Skill。更新后重新安装插件，并审核有变化的 Hook。
+
+## 3. 在 Codex 中使用记忆
+
+在新会话中询问“检查 ReMe 是否可用”，由已安装插件的工具检查服务连接；也可通过 `/mcp` 查看插件连接状态。
+之后正常使用 Codex：插件在消息提交前自动召回相关记忆，每完成五轮对话分批记录一次。
+需要主动查询时，可以询问“之前关于 Juniper 项目做了什么决定？请附上记忆来源”。
 
 自动记录会把完成的用户/助手文本发送到配置的 ReMe 服务；仅需召回时，将 `auto_memory` 设为 `false`。
 
-## 配置
+## 可选配置
+
+使用默认服务地址时，安装插件后即可使用。需要调整下列默认行为时，再创建配置文件。
 
 可选配置位于 `${CODEX_HOME:-$HOME/.codex}/reme/config.json`。从仓库根目录复制示例：
 
@@ -84,13 +92,14 @@ Codex 0.145.0 会跳过设置了 `async` 的 hook，因此本适配器使用同�
 
 ## 验证与排查
 
-1. 对配置的服务运行 `reme health_check`，通过 Codex `/mcp` 确认连接。
+1. 在 Codex 中让已安装的 ReMe 插件检查连接，通过 `/mcp` 确认插件连接状态。
 2. 快速验证时把 `memory_interval` 设为 `1`，新建会话，要求记住一条合成事实，例如“Juniper 项目每周四评审”。
 3. 等待写入，检查 `reme/hooks.log` 的 `memory_saved`，以及 ReMe workspace 的 `daily/` 笔记。
 4. 再新建一个独立会话，询问该事实，并确认回答附有 ReMe 来源路径。
 
-`reme-memory` Skill 支持显式检索、阅读和健康检查。MCP 工具缺失也可能源于插件未启用或
-`service.jobs` 限制，不能直接判断服务未启动。旧宿主不支持 Hook 时，可继续使用 MCP 和 Skill 手动查询。
+自动记忆和显式检索、阅读、健康检查均由已安装的插件提供。工具缺失时，检查插件是否已安装并启用、
+ReMe 服务是否运行，以及 `service.jobs` 是否开放所需 Job。Hook 无法加载时，请使用满足插件要求的宿主版本，
+再重新安装或加载插件。
 
 记录要求 Hook 提供 `transcript_path` 和 `last_assistant_message`，读取 rollout 的 `event_msg`
 （`user_message` 与最终 `agent_message`），不读取私有推理。

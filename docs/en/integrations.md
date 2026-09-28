@@ -16,9 +16,9 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Tool-protocol host | MCP |
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
-| Claude Code | [Repository-local plugin](./integrations/claude-code.md) |
+| Claude Code | [Start ReMe, then install the plugin](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
-| Codex | [Repository-local plugin](./integrations/codex.md) |
+| Codex | [Start ReMe, then install the plugin](./integrations/codex.md) |
 | Other coding agents | `reme_memory` Skill or MCP |
 
 ## General memory loop
@@ -78,11 +78,16 @@ ReMe HTTP boundary and release lifecycle.
 
 ## Claude Code
 
-[Claude Code](./integrations/claude-code.md) has its own repository-local plugin with automatic pre-prompt recall, batched completed-turn recording through `auto_memory`, MCP tools, and a `reme-memory` skill.
+Start the ReMe HTTP service, then install the [ReMe plugin in Claude Code](./integrations/claude-code.md).
+The installed plugin supplies automatic recall, completed-turn recording, and memory queries through its
+bundled hooks, MCP tools, and skill. This host uses the plugin installation flow.
 
 ## Codex
 
-[Codex](./integrations/codex.md) has a separate repository-local marketplace and plugin. Native hooks provide automatic recall and recording after review in `/hooks`; MCP and the skill also support explicit queries. Both integrations keep retry state in their own host directories and leave consolidation to the ReMe service.
+Start the ReMe HTTP service, install the [ReMe plugin in Codex](./integrations/codex.md), and trust its
+hooks in `/hooks`. Open a new conversation to use automatic recall, recording, and the plugin's memory tools.
+This host also uses the plugin installation flow. Each host keeps its own plugin configuration and retry
+queue; the ReMe service owns memory storage and consolidation.
 
 ## Hermes Agent
 

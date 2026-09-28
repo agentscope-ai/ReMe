@@ -16,9 +16,9 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 | 支持工具协议的 Agent | MCP |
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
-| Claude Code | [仓库内独立插件](./integrations/claude-code.md) |
+| Claude Code | [启动 ReMe 后安装插件](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
-| Codex | [仓库内独立插件](./integrations/codex.md) |
+| Codex | [启动 ReMe 后安装插件](./integrations/codex.md) |
 | 其他 coding agent | `reme_memory` Skill 或 MCP |
 
 ## 通用接入循环
@@ -88,11 +88,15 @@ openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin
 
 ## Claude Code
 
-[Claude Code 插件](./integrations/claude-code.md) 独立位于 `integrations/claude_code/`，提供消息提交前自动召回、通过 `auto_memory` 分批记录完成轮次、MCP 工具和 `reme-memory` Skill。
+先启动 ReMe HTTP 服务，再[安装 Claude Code 的 ReMe 插件](./integrations/claude-code.md)。
+插件统一提供自动召回、完成轮次记录和记忆查询，所需 Hook、MCP 工具与 Skill 随插件安装。
+本宿主使用插件安装流程接入。
 
 ## Codex
 
-[Codex 插件](./integrations/codex.md) 独立位于 `integrations/codex/`，附带本地 marketplace。原生 Hook 在 `/hooks` 审核后提供自动召回与记录；MCP 和 Skill 支持显式查询。两端各自保存配置与重试队列，记忆整理仍由 ReMe 服务负责。
+先启动 ReMe HTTP 服务，再[安装 Codex 的 ReMe 插件](./integrations/codex.md)，在 `/hooks` 中信任插件 Hook。
+新建会话后即可使用自动召回、记录和插件提供的记忆工具。本宿主同样使用插件安装流程接入。
+两端各自保存插件配置与重试队列，记忆存储和整理由 ReMe 服务负责。
 
 ## Hermes Agent
 

@@ -2,14 +2,15 @@
 
 [中文说明](./README_ZH.md)
 
-This repository-local plugin gives Claude Code automatic recall before user prompts, background
-recording of completed turns, and explicit ReMe MCP tools. Durable memory stays in a user-owned
-ReMe workspace. Its plugin files and installation guide are maintained under `integrations/claude_code/` and can be
-installed directly from this checkout.
+Start a ReMe service, then install the ReMe plugin in Claude Code. This is the supported integration
+for this host. The plugin bundles automatic recall, completed-turn recording, MCP tools, and the
+`reme-memory` skill in one installation. ReMe manages durable memory and consolidation in your workspace.
+
+The plugin and its marketplace are maintained in `integrations/claude_code/` and installed from
+this checkout. Keep the ReMe service running while using the plugin.
 
 ```text
-UserPromptSubmit → search → untrusted memory context → agent reply
-Stop → completed user/assistant text → local retry queue → auto_memory → daily Markdown
+Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 ```
 
 ## Requirements
@@ -19,7 +20,7 @@ Stop → completed user/assistant text → local retry queue → auto_memory →
 - A running ReMe HTTP service exposing `search`, `auto_memory`, and `health_check`, with MCP enabled.
 - A working model configuration on the ReMe server for memory extraction. Default BM25 recall does not need embeddings.
 
-## Start ReMe
+## 1. Start ReMe
 
 ```bash
 pip install "reme-ai[core]"
@@ -30,7 +31,7 @@ The default endpoint is `http://127.0.0.1:2333`, with MCP at `/mcp`. Keep the un
 service on loopback or behind a protected proxy. Different workspaces isolate different memory
 scopes; sharing one workspace between hosts is intentional cross-agent recall.
 
-## Install the plugin
+## 2. Install the plugin
 
 In Claude Code, using an absolute path to this checkout:
 
@@ -39,13 +40,23 @@ In Claude Code, using an absolute path to this checkout:
 /plugin install reme@reme-marketplace
 ```
 
-For a single development session, use `claude --plugin-dir /absolute/path/to/ReMe/integrations/claude_code/reme`.
-Restart or reload the plugin after source changes. Open `/mcp` to verify the `reme` connection.
+Restart Claude Code or reload the installed plugin, then open a new conversation. The installation
+loads the bundled hooks, MCP connection, and skill together. Reinstall or reload the plugin after updates.
+
+## 3. Use memory in Claude Code
+
+In a new conversation, ask “Check whether ReMe is available.” The installed plugin's tools check
+the running service; `/mcp` shows the plugin's connection status. Then use Claude Code normally:
+the plugin recalls relevant memory before prompts and records completed turns in batches of five.
+For an explicit query, ask “What did we decide about Project Juniper? Cite the memory sources.”
 
 Automatic recording sends completed user/assistant text to the configured ReMe service.
 Set `auto_memory` to `false` for recall-only use.
 
-## Configuration
+## Optional configuration
+
+The default service address works immediately after plugin installation. Create a configuration
+file only when you want to change the defaults below.
 
 Optional settings live at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`. Start from the bundled example:
 
@@ -97,15 +108,16 @@ There is no separate `REME_HOST`/`REME_PORT` hook override.
 
 ## Verify and troubleshoot
 
-1. Call `reme health_check` against the configured service and check `/mcp` in Claude Code.
+1. In Claude Code, ask the installed ReMe plugin to check the connection; confirm its status in `/mcp`.
 2. For a quick test, set `memory_interval` to `1`, then start a new conversation and ask the agent to
    remember a synthetic fact, such as “Project Juniper reviews are on Thursday.”
 3. Wait for the write and inspect `reme/hooks.log` for `memory_saved` and the ReMe workspace's `daily/`.
 4. Start a separate conversation and ask for that fact. Confirm recall is from ReMe, with source paths.
 
-The `reme-memory` skill supports explicit search/read and health checks. Missing MCP tools can also
-mean a disabled plugin or restricted `service.jobs`; it does not prove the server is stopped.
-If hooks are unavailable in the installed host version, MCP and the skill remain the manual fallback.
+The installed plugin provides both automatic memory and explicit search/read and health checks.
+If its tools are missing, check that the plugin is installed and enabled, the service is running,
+and `service.jobs` exposes the required jobs. If its hooks do not load, use a host version supporting
+the plugin requirements and reinstall or reload the plugin.
 
 Capture currently reads Claude JSONL user/assistant records with UUIDs. The hook requires
 `transcript_path` and `last_assistant_message`. Missing or unsupported transcripts are skipped rather
