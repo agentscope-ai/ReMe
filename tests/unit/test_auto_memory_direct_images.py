@@ -25,7 +25,7 @@ from reme.components.job import BaseJob
 from reme.components.tag_index import LocalTagIndex
 from reme.schema import ApplicationConfig
 from reme.steps.evolve.auto_memory import AutoMemoryStep
-from reme.steps.file_io import FrontmatterUpdateStep, WriteStep
+from reme.steps.file_io import WriteStep
 
 from .test_auto_tag import _TaggingWrapper, _write_note
 
@@ -472,14 +472,7 @@ async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, m
     writer = WriteStep(app_context=step.app_context, file_store=step.file_store)
     await writer(path=note_path, name="image-memory", content="Existing fact.", metadata={"source_images": [old_link]})
 
-    async def file_job(name, **kwargs):
-        assert name == "frontmatter_update"
-        updater = FrontmatterUpdateStep(app_context=step.app_context, file_store=step.file_store)
-        await updater(**kwargs)
-        return updater.context.response
-
     monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
-    monkeypatch.setattr(step, "run_job", file_job)
     monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
     first, second = _message(), _message("second", timestamp=f"{_DAY}T11:00:00")
     first.content[0].text = "Alice's picture follows."

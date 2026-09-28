@@ -1,11 +1,13 @@
 """Session attachments preserve bytes, identity, file boundaries and user links."""
 
-# pylint: disable=missing-function-docstring
+# pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
 import base64
 import importlib
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, URLSource
 import frontmatter
@@ -13,7 +15,7 @@ import httpx
 import pytest
 
 from reme.components.runtime_context import RuntimeContext
-from reme.steps.evolve.auto_memory import _merge_image_sources as merge_image_sources
+from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.auto_memory import _save_session_images as save_session_images
 from reme.steps.file_io.write import WriteStep
 
@@ -36,8 +38,16 @@ def _prepared(*sources, message_id="message-a"):
     return original, [prepared], images
 
 
+@pytest.fixture(name="memory_step")
+def session_memory_step(tmp_path):
+    step = AutoMemoryStep()
+    step.file_store = SimpleNamespace(workspace_path=tmp_path)
+    step.context = RuntimeContext()
+    return step
+
+
 @pytest.mark.asyncio
-async def test_bytes_positions_repeated_ids_and_reuse(tmp_path):
+async def test_bytes_positions_and_existing_images_are_reused_without_reading(tmp_path, monkeypatch):
     original, messages, images = _prepared(b"first image", b"second image")
     snapshot = original.model_dump()
     sources = await save_session_images(tmp_path, "sessions", "chat", messages, images)
@@ -50,8 +60,25 @@ async def test_bytes_positions_repeated_ids_and_reuse(tmp_path):
     assert original.model_dump() == snapshot
     assert [block.model_dump() for block in images.values()] == snapshot["content"][1:3]
     mtimes = [path.stat().st_mtime_ns for path in paths]
-    _, replay, replay_images = _prepared(b"first image", b"second image")
-    assert await save_session_images(tmp_path, "sessions", "chat", replay, replay_images) == sources
+    _, replay, replay_images = _prepared(b"different first image", b"different second image")
+    forbidden = Mock(side_effect=AssertionError("Existing attachments must not be decoded or read"))
+    with monkeypatch.context() as patch:
+        patch.setattr(base64, "b64decode", forbidden)
+        patch.setattr(Path, "read_bytes", forbidden)
+        assert await save_session_images(tmp_path, "sessions", "chat", replay, replay_images) == sources
+    forbidden.assert_not_called()
+    assert [path.read_bytes() for path in paths] == [b"first image", b"second image"]
+    assert [path.stat().st_mtime_ns for path in paths] == mtimes
+
+    _, extended, extended_images = _prepared(b"different first image", b"different second image", b"third image")
+    decoder = Mock(wraps=base64.b64decode)
+    with monkeypatch.context() as patch:
+        patch.setattr(base64, "b64decode", decoder)
+        patch.setattr(Path, "read_bytes", forbidden)
+        extended_sources = await save_session_images(tmp_path, "sessions", "chat", extended, extended_images)
+    decoder.assert_called_once_with(extended_images["__image_3__"].source.data, validate=True)
+    assert extended_sources[:2] == sources and len(extended_sources) == 3
+    assert (tmp_path / extended_sources[2][2:-2]).read_bytes() == b"third image"
     assert [path.stat().st_mtime_ns for path in paths] == mtimes
 
 
@@ -101,7 +128,7 @@ async def test_unlinkable_attachment_paths_fail_before_writing(tmp_path, session
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["base64", "denied", "directory", "conflict", "symlink", "traversal"])
+@pytest.mark.parametrize("failure", ["base64", "denied", "directory", "symlink", "traversal"])
 async def test_invalid_inputs_are_checked_before_any_image_write(tmp_path, failure):
     _, messages, images = _prepared(b"first", b"second")
     session_dir = "session"
@@ -111,12 +138,8 @@ async def test_invalid_inputs_are_checked_before_any_image_write(tmp_path, failu
         images["__image_2__"].source.data = "invalid base64!"
     elif failure == "denied":
         allowed_paths = ["unrelated"]
-    elif failure in {"directory", "conflict"}:
-        second.parent.mkdir(parents=True)
-        if failure == "directory":
-            second.mkdir()
-        else:
-            second.write_bytes(b"user-owned")
+    elif failure == "directory":
+        second.mkdir(parents=True)
     elif failure == "symlink":
         (tmp_path / "session").symlink_to(tmp_path.parent, target_is_directory=True)
     else:
@@ -125,8 +148,6 @@ async def test_invalid_inputs_are_checked_before_any_image_write(tmp_path, failu
         await save_session_images(tmp_path, session_dir, "chat", messages, images, allowed_paths)
     assert messages[0].content[1].text == "__image_1__"
     assert not list(tmp_path.glob("session/images/chat/*-image-1.png"))
-    if failure == "conflict":
-        assert second.read_bytes() == b"user-owned"
 
 
 @pytest.mark.asyncio
@@ -144,16 +165,21 @@ async def test_http_sources_remain_urls_without_local_io(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_source_links_preserve_body_unknown_links_and_noop_mtime(tmp_path):
+async def test_source_links_preserve_body_unknown_links_and_noop_mtime(tmp_path, memory_step):
     path = tmp_path / "note.md"
     path.write_text("---\nsource_images: ['[[manual.md]]']\nuser_owned: keep\n---\n\n# Body\n\nKeep this text.")
     before = frontmatter.loads(path.read_text())
-    await merge_image_sources(tmp_path, "note.md", ["[[new.png]]", "[[new.png]]", "[[manual.md]]"])
+    await memory_step._ensure_session_frontmatter("note.md", "chat", ["[[new.png]]", "[[new.png]]", "[[manual.md]]"])
     after = frontmatter.loads(path.read_text())
     assert after.content == before.content
-    assert after.metadata == {"source_images": ["[[manual.md]]", "[[new.png]]"], "user_owned": "keep"}
+    assert after.metadata == {
+        "source_images": ["[[manual.md]]", "[[new.png]]"],
+        "user_owned": "keep",
+        "session_id": "chat",
+        "source_conversation": "[[session/dialog/chat.jsonl]]",
+    }
     mtime = path.stat().st_mtime_ns
-    await merge_image_sources(tmp_path, "note.md", ["[[new.png]]"])
+    await memory_step._ensure_session_frontmatter("note.md", "chat", ["[[new.png]]"])
     assert path.stat().st_mtime_ns == mtime
 
 
@@ -162,17 +188,17 @@ async def test_source_links_preserve_body_unknown_links_and_noop_mtime(tmp_path)
     "existing,value",
     [(True, "manual"), (True, None), (True, [3]), (False, "[[image.png]]"), (False, [None])],
 )
-async def test_invalid_sources_do_not_rewrite_note(tmp_path, existing, value):
+async def test_invalid_sources_do_not_rewrite_note(tmp_path, memory_step, existing, value):
     path = tmp_path / "note.md"
     path.write_text(frontmatter.dumps(frontmatter.Post("User body.", **({"source_images": value} if existing else {}))))
     before = path.read_bytes()
     with pytest.raises(ValueError, match="list of strings"):
-        await merge_image_sources(tmp_path, "note.md", ["[[new.png]]"] if existing else value)
+        await memory_step._ensure_session_frontmatter("note.md", "chat", ["[[new.png]]"] if existing else value)
     assert path.read_bytes() == before
 
 
 @pytest.mark.asyncio
-async def test_merge_rereads_after_concurrent_native_write(tmp_path, monkeypatch):
+async def test_source_frontmatter_rereads_after_concurrent_native_write(tmp_path, monkeypatch, memory_step):
     monkeypatch.chdir(tmp_path)
     write_module = importlib.import_module("reme.steps.file_io.write")
     native_write = write_module.write_file_safe
@@ -194,7 +220,7 @@ async def test_merge_rereads_after_concurrent_native_write(tmp_path, monkeypatch
     )
     writing = asyncio.create_task(writer(context))
     await asyncio.wait_for(entered.wait(), timeout=5)
-    merging = asyncio.create_task(merge_image_sources(tmp_path, "note.md", ["[[image.png]]"]))
+    merging = asyncio.create_task(memory_step._ensure_session_frontmatter("note.md", "chat", ["[[image.png]]"]))
     await asyncio.sleep(0)
     assert not merging.done()
     release.set()
@@ -202,4 +228,9 @@ async def test_merge_rereads_after_concurrent_native_write(tmp_path, monkeypatch
     assert context.response.success
     post = frontmatter.loads(path.read_text())
     assert post.content == "New user content"
-    assert post.metadata == {"source_images": ["[[manual.md]]", "[[image.png]]"], "user_owned": 7}
+    assert post.metadata == {
+        "source_images": ["[[manual.md]]", "[[image.png]]"],
+        "user_owned": 7,
+        "session_id": "chat",
+        "source_conversation": "[[session/dialog/chat.jsonl]]",
+    }

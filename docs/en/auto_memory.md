@@ -98,9 +98,10 @@ With images enabled, Auto Memory saves each Base64 image's original bytes under 
 session/images/<session_id>/msg-<encoded-message-id>-image-<block-index>.<ext>
 ```
 
-The filename uses the message's `id` and the image's position among all content blocks, starting at zero. Keep message IDs
-stable when resubmitting a conversation: identical bytes at the same path are reused, while different bytes are rejected
-rather than replacing an existing attachment. Calls with images disabled or no images do not save attachments.
+The filename uses the message's `id` and the image's position among all content blocks, starting at zero; the extension
+comes from its media type. Keep session IDs, message IDs and block positions stable when resubmitting a conversation:
+an existing file at that path is reused without comparing its contents. Use a new message ID when replacing an image.
+Calls with images disabled or no images do not save attachments.
 
 Each image is accompanied by its exact source link in the model input. The memory prompt asks the Agent to cite that source
 beside the corresponding visual facts, for example:

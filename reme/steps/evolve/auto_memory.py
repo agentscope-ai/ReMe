@@ -38,12 +38,12 @@ def _checked_write_path(workspace: Path, relative: str, allowed_paths) -> Path:
     return target
 
 
-def _check_existing_image(target: Path, payload: bytes) -> bool:
-    if not target.exists():
-        return False
-    if not target.is_file() or target.read_bytes() != payload:
-        raise ValueError(f"Image attachment already exists with different content: {target.name}")
-    return True
+def _check_existing_image(target: Path) -> bool:
+    if target.is_file():
+        return True
+    if target.exists():
+        raise ValueError(f"Image attachment path is not a file: {target.name}")
+    return False
 
 
 async def _save_session_images(
@@ -61,7 +61,8 @@ async def _save_session_images(
     the message ID and block position, not the image block's optional identity.
     """
     workspace = workspace.resolve()
-    if error := validate_filename_component(session_id, kind="session_id"):
+    error = validate_filename_component(session_id, kind="session_id")
+    if error:
         raise ValueError(error)
     if Path(session_dir).is_absolute():
         raise ValueError("session_dir must be workspace-relative")
@@ -76,15 +77,7 @@ async def _save_session_images(
             source = image.source
             if source.type == "url":
                 reference = str(source.url)
-                if urlsplit(reference).scheme not in {"http", "https"}:
-                    raise ValueError("Image URLs must use HTTP(S)")
             else:
-                try:
-                    payload = base64.b64decode(source.data, validate=True)
-                except (ValueError, binascii.Error) as exc:
-                    raise ValueError("Image source contains invalid Base64") from exc
-                if not payload:
-                    raise ValueError("Image source contains empty Base64 data")
                 # A reversible encoding, not a hash: also distinguish IDs on
                 # case-insensitive filesystems without trusting IDs as paths.
                 encoded_id = message.id.encode("utf-8").hex()
@@ -96,13 +89,24 @@ async def _save_session_images(
                 if len(filename) > 255:
                     raise ValueError("Message ID is too long for an image attachment filename")
                 relative = (Path(session_dir) / "images" / session_id / filename).as_posix()
-                if error := WikilinkHandler.validate_src_dst(relative, relative):
+                error = WikilinkHandler.validate_src_dst(relative, relative)
+                if error:
                     raise ValueError(f"Image attachment path cannot be linked: {error}")
                 target = _checked_write_path(workspace, relative, allowed_paths)
-                if target in pending and pending[target][1] != payload:
-                    raise ValueError("Conflicting images share the same message ID and block position")
-                _check_existing_image(target, payload)
-                pending[target] = (relative, payload)
+                # Wait for any in-process writer before reusing the attachment.
+                # Stable message IDs and block positions identify an image.
+                async with await get_path_lock(target):
+                    target = _checked_write_path(workspace, relative, allowed_paths)
+                    if not _check_existing_image(target):
+                        try:
+                            payload = base64.b64decode(source.data, validate=True)
+                        except (ValueError, binascii.Error) as exc:
+                            raise ValueError("Image source contains invalid Base64") from exc
+                        if not payload:
+                            raise ValueError("Image source contains empty Base64 data")
+                        if target in pending and pending[target][1] != payload:
+                            raise ValueError("Conflicting images share the same message ID and block position")
+                        pending[target] = (relative, payload)
                 reference = f"[[{relative}]]"
             replacements.append((message, index, block, reference))
             if reference not in sources:
@@ -114,39 +118,11 @@ async def _save_session_images(
         target = _checked_write_path(workspace, relative, allowed_paths)
         async with await get_path_lock(target):
             target = _checked_write_path(workspace, relative, allowed_paths)
-            if not _check_existing_image(target, payload):
+            if not _check_existing_image(target):
                 await write_file_safe(target, payload)
     for message, index, block, reference in replacements:
         message.content[index] = block.model_copy(update={"text": f"Image source: {reference}\n{block.text}"})
     return sources
-
-
-async def _merge_image_sources(
-    workspace: Path,
-    note_path: str,
-    sources: list[str],
-    allowed_paths=None,
-) -> None:
-    """Merge source links with the latest frontmatter inside the file's lock."""
-    if not isinstance(sources, list) or any(not isinstance(source, str) for source in sources):
-        raise ValueError("source_images must be a list of strings")
-    if not sources:
-        return
-    workspace = workspace.resolve()
-    target = _checked_write_path(workspace, note_path, allowed_paths)
-    async with await get_path_lock(target):
-        target = _checked_write_path(workspace, note_path, allowed_paths)
-        if not target.is_file():
-            raise ValueError(f"Memory note not found: {note_path}")
-        post = frontmatter.loads(target.read_text(encoding="utf-8"))
-        current = post.metadata.get("source_images", [])
-        if not isinstance(current, list) or any(not isinstance(source, str) for source in current):
-            raise ValueError("Existing source_images must be a list of strings")
-        merged = list(dict.fromkeys([*current, *sources]))
-        if current == merged:
-            return
-        post.metadata["source_images"] = merged
-        await write_file_safe(target, frontmatter.dumps(post))
 
 
 def _sanitize_msg_for_save(msg: Msg) -> Msg:
@@ -247,11 +223,39 @@ class AutoMemoryStep(BaseStep):
         notes = list_response.metadata.get("notes") or []
         return self._find_session_note(notes, session_id)
 
-    async def _ensure_session_frontmatter(self, path: str, session_id: str) -> None:
+    async def _ensure_session_frontmatter(
+        self,
+        path: str,
+        session_id: str,
+        image_sources: list[str] | None = None,
+    ) -> None:
         metadata = {
             _SESSION_ID_KEY: session_id,
             _SOURCE_CONVERSATION_KEY: self._session_link(session_id),
         }
+        if image_sources is not None and (
+            not isinstance(image_sources, list) or any(not isinstance(source, str) for source in image_sources)
+        ):
+            raise ValueError("source_images must be a list of strings")
+        if image_sources:
+            workspace = self.file_store.workspace_path.resolve()
+            allowed_paths = self.context.get("_allowed_paths")
+            target = _checked_write_path(workspace, path, allowed_paths)
+            # Read and merge under the same lock as native file Jobs so a
+            # concurrent write cannot lose its source links to a stale list.
+            async with await get_path_lock(target):
+                target = _checked_write_path(workspace, path, allowed_paths)
+                if not target.is_file():
+                    raise ValueError(f"Memory note not found: {path}")
+                post = frontmatter.loads(target.read_text(encoding="utf-8"))
+                current_sources = post.metadata.get("source_images", [])
+                if not isinstance(current_sources, list) or any(not isinstance(s, str) for s in current_sources):
+                    raise ValueError("Existing source_images must be a list of strings")
+                metadata["source_images"] = list(dict.fromkeys([*current_sources, *image_sources]))
+                if not all(post.metadata.get(key) == value for key, value in metadata.items()):
+                    post.metadata.update(metadata)
+                    await write_file_safe(target, frontmatter.dumps(post))
+            return
         current = self._frontmatter(path)
         if all(current.get(key) == value for key, value in metadata.items()):
             return
@@ -585,9 +589,11 @@ class AutoMemoryStep(BaseStep):
                 self.logger.info(f"[{self.name}] done without note session_id={session_id!r} modified=False")
                 return
             note_path = str(note["path"])
+            if image_sources:
+                await self._ensure_session_frontmatter(note_path, session_id, image_sources)
         else:
             try:
-                await self._ensure_session_frontmatter(note_path, session_id)
+                await self._ensure_session_frontmatter(note_path, session_id, image_sources)
                 note_path = await self._rename_from_frontmatter_name(note_path, day)
             except RuntimeError as exc:
                 self.context.response.success = False
@@ -604,13 +610,6 @@ class AutoMemoryStep(BaseStep):
                 self.logger.info(f"[{self.name}] post-update failed path={note_path} answer={str(exc)!r}")
                 return
 
-        if image_sources:
-            await _merge_image_sources(
-                self.file_store.workspace_path,
-                note_path,
-                image_sources,
-                self.context.get("_allowed_paths"),
-            )
         modified = self._note_modified(before_note_path, before_note_bytes, note_path)
         if modified:
             self.context["changes"] = [{"change": "added" if created else "modified", "path": note_path}]
