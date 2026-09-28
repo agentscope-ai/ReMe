@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
+from reme.components.application_context import ApplicationContext
 from reme.components.job import BackgroundJob
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.config import resolve_app_config
@@ -59,7 +60,9 @@ def _wrapper(tmp_path, **kwargs):
             "components": {},
         },
     )
-    context = SimpleNamespace(app_config=config, components={}, jobs={job.name: job})
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    context.app_config = config
+    context.jobs[job.name] = job
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
@@ -602,7 +605,8 @@ async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
         },
     )
     job = _Job("only_custom")
-    context = SimpleNamespace(app_config=app_config, components={}, jobs={"only_custom": job})
+    context = ApplicationContext(**app_config.model_dump())
+    context.jobs["only_custom"] = job
     wrapper = CodexAgentWrapper(app_context=context)
     server_config = wrapper._mcp_server_config({"job_tools": ["only_custom"]})  # pylint: disable=protected-access
     transport = StdioTransport(

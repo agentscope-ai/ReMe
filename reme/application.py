@@ -90,8 +90,10 @@ class Application(BaseComponent):
                 )
 
     def _init_jobs(self) -> None:
-        """Instantiate every job declared under config.jobs."""
+        """Instantiate enabled jobs without resolving disabled backends or steps."""
         for name, cfg in self.config.jobs.items():
+            if name in self.context.disabled_jobs:
+                continue
             self.context.jobs[name] = self._instantiate(
                 ComponentEnum.JOB,
                 cfg,
@@ -124,6 +126,9 @@ class Application(BaseComponent):
             raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
 
         params = cfg.model_dump()
+        if ctype == ComponentEnum.JOB:
+            # Assembly metadata must not become job/step invocation kwargs.
+            params.pop("enabled", None)
         params["app_context"] = self.context
         if name is not None:
             params.setdefault("name", name)
@@ -369,12 +374,14 @@ class Application(BaseComponent):
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
         """Execute a registered job by name and return its final Response."""
+        self.context.check_job_enabled(name)
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         return await self.context.jobs[name](**kwargs)
 
     async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job, yielding chunks as they are produced."""
+        self.context.check_job_enabled(name)
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
         stream_queue: asyncio.Queue = asyncio.Queue()

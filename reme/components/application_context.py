@@ -24,6 +24,10 @@ class ApplicationContext:
         # Parse raw kwargs into a typed, validated config object.
         self.app_config: ApplicationConfig = ApplicationConfig(**kwargs)
         self.registry = registry or create_application_registry()
+        # Activation is fixed at construction; changing config requires a new Application.
+        self.disabled_jobs: frozenset[str] = frozenset(
+            name for name, config in self.app_config.jobs.items() if not config.enabled
+        )
 
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None
@@ -36,3 +40,8 @@ class ApplicationContext:
         # This is in-memory state, not durable storage; use workspace files or a store when state
         # must survive an Application restart.
         self.metadata: dict[str, Any] = {}
+
+    def check_job_enabled(self, name: str) -> None:
+        """Reject explicitly disabled jobs without changing unknown-name handling."""
+        if name in self.disabled_jobs:
+            raise ValueError(f"Job '{name}' is disabled")

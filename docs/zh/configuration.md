@@ -160,6 +160,38 @@ jobs:
 
 设置 `enable_serve: false` 可以保留内部 Job、禁止 Service 暴露。后台和 Cron Job始终不会作为请求端点暴露。
 
+### 禁用 Job
+
+所有 Job backend 均支持 `enabled`，默认值为 `true`。可以通过 CLI 禁用默认作业：
+
+```bash
+reme start jobs.dream_cron.enabled=false
+```
+
+也可以在该 Job 的 YAML 定义中设置 `enabled: false`。禁用后不构造作业、不解析其 backend 和 Step、
+不启动、不注册服务入口；配置仍保留并接受 schema 校验。直接调用、其他 Step 调用和 Agent 工具选择
+都会报告包含作业名的禁用错误。单次 CLI 调用在应用启动前以状态码 1 退出。
+HTTP/MCP 不公开该作业，强行调用时沿用协议的不可用路由或工具错误。
+`service.jobs` 白名单显式包含禁用作业时，报告配置错误。
+
+`enable_serve: false` 仅隐藏启用作业的 HTTP/MCP 入口，不影响自动运行和本地调用。
+启停状态在 Application 构造时固定；修改后需要重新创建应用。配置使用深合并，因此 `jobs: {}`
+不能删除默认作业。禁用作业不会停止共享 Component、卸载插件或禁用使用相同 Step 的其他作业。
+
+禁用内置后台及定时作业前，应了解其影响：
+
+| 作业 | 工作与状态 | 禁用影响 |
+|---|---|---|
+| `index_update_loop` | 初始扫描及持续更新本地文件、关键词、向量、图和标签索引；状态驻留内存并保存派生检查点 | 本地查询可能缺失或过期，其他进程刷新自己的索引不能代替它 |
+| `resource_watch_loop` | 更新资源目录状态，将资源自动解析为 daily 笔记 | 新增或变更的资源不再自动处理 |
+| `digest_watch_loop` | 刷新 daily/digest 目录状态并记录变化 | 对应目录状态和变更日志停止刷新；该循环本身不执行 dream 整合 |
+| `dream_cron` | 定时提取、整合 digest 文件，更新 dream 检查点并打标签 | 定时 dream 停止；单独启用的 `auto_dream` 仍可调用 |
+| `optimize_index_cron` | 执行索引 backend 的派生索引维护 | 定时优化停止 |
+| `proactive_refresh_cron` | 生成主动兴趣及议程文件，更新 proactive 目录状态 | 定时刷新停止；单独启用的 `proactive_refresh` 仍可调用 |
+
+文件可以位于共享文件系统，但本地索引和目录状态仍属于各进程。每个进程都需要保留自身必需的刷新作业。
+只让一个进程运行写入作业是运维约定，不是自动选主、恰好一次执行或副本一致性保证；此开关不提供集群部署支持。
+
 ## 查看生效配置
 
 服务启动后运行：

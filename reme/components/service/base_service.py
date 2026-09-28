@@ -73,6 +73,9 @@ class BaseService(BaseComponent):
     def add_jobs(self, app: "Application") -> None:
         """Register service-enabled jobs, optionally restricted by the configured whitelist."""
         if self.jobs is not None:
+            inactive = sorted(self.jobs.intersection(app.context.disabled_jobs))
+            if inactive:
+                raise ValueError(f"Service jobs are disabled: {', '.join(inactive)}")
             missing = sorted(self.jobs.difference(app.context.jobs))
             if missing:
                 raise KeyError(f"Service jobs not found: {', '.join(missing)}")

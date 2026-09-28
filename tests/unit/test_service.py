@@ -33,7 +33,7 @@ def _dummy_app():
 
 def _app_with_jobs(**jobs):
     """Minimal object needed by BaseService.add_jobs."""
-    return SimpleNamespace(context=SimpleNamespace(jobs=jobs))
+    return SimpleNamespace(context=SimpleNamespace(jobs=jobs, disabled_jobs=frozenset()))
 
 
 def test_service_registers_all_enabled_jobs_by_default():

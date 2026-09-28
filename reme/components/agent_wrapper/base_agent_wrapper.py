@@ -205,6 +205,7 @@ class BaseAgentWrapper(BaseComponent):
             raise RuntimeError("Cannot resolve job_tools without an app_context")
         resolved: list["BaseJob"] = []
         for name in job_tools:
+            self.app_context.check_job_enabled(name)
             if (job := self.app_context.jobs.get(name)) is None:
                 raise KeyError(f"Job '{name}' not found in app_context.jobs")
             resolved.append(job)

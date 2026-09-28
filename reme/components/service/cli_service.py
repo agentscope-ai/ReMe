@@ -96,6 +96,11 @@ class CliService(BaseService):
         if not self.job:
             raise ValueError("cli service requires service.job")
 
+        try:
+            app.context.check_job_enabled(self.job)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(1) from None
         await app.start()
         try:
             response = await app.run_job(self.job, **self.job_args)

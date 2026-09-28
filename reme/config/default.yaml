@@ -5,6 +5,8 @@ service:
   mcp_path: /mcp
 
 jobs:
+  # Jobs are enabled by default. Set jobs.<name>.enabled=false to disable one
+  # entirely (including local calls); enable_serve only controls service exposure.
   index_update_loop:
     backend: background
     watch_dirs: [daily_dir, digest_dir]

@@ -186,6 +186,7 @@ class BaseStep(ComponentMixin, ABC):
         """Return a job by name."""
         if self.app_context is None:
             raise RuntimeError("Cannot get job without an app context")
+        self.app_context.check_job_enabled(name)
         return self.app_context.jobs.get(name)
 
     async def run_job(self, name: str, /, **kwargs) -> Response:

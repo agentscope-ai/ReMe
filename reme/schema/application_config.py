@@ -23,6 +23,7 @@ class JobConfig(ComponentConfig):
     description: str = Field(default="", description="Human-readable description")
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
+    enabled: bool = Field(default=True, description="Whether this job participates in the application")
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
 
 

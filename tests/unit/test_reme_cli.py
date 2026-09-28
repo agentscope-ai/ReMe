@@ -190,6 +190,8 @@ def test_cli_service_runs_configured_job_and_closes_app(capsys):
     class FakeApp:
         """Minimal app stub for exercising CliService lifecycle."""
 
+        context = SimpleNamespace(check_job_enabled=lambda _name: None)
+
         async def start(self):
             """Record app startup."""
             events.append("start")
@@ -221,6 +223,8 @@ def test_cli_service_can_print_metadata_from_service_config(capsys):
     class FakeApp:
         """Minimal app stub for exercising metadata output."""
 
+        context = SimpleNamespace(check_job_enabled=lambda _name: None)
+
         async def start(self):
             """No-op app startup."""
 
@@ -244,6 +248,8 @@ def test_cli_service_exits_nonzero_on_failed_response(capsys):
 
     class FakeApp:
         """Minimal app stub for exercising failure handling."""
+
+        context = SimpleNamespace(check_job_enabled=lambda _name: None)
 
         async def start(self):
             """Record app startup."""

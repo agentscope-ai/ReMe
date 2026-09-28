@@ -155,6 +155,40 @@ jobs:
 
 Set `enable_serve: false` to keep a Job internal. Background and cron Jobs are never service-exposed.
 
+### Disable a Job
+
+Every Job backend supports `enabled`, which defaults to `true`. To disable a default Job, use a CLI override:
+
+```bash
+reme start jobs.dream_cron.enabled=false
+```
+
+Or set `enabled: false` in that Job's YAML definition. Disabling a Job skips its construction, Step/backend resolution,
+startup, and service registration. Its configuration remains visible and schema-validated. Local calls, including
+calls from other Steps and agent tool selection, fail with a named disabled-Job error. One-shot CLI execution exits
+with status 1 before application startup. HTTP/MCP do not advertise the Job and reject calls through their normal
+unavailable-route/tool behavior. An explicit `service.jobs` allowlist containing a disabled Job is a configuration error.
+
+`enable_serve: false` only hides an enabled Job from HTTP/MCP; it does not disable automatic or local execution.
+Activation is fixed when the Application is constructed: create a new Application after changing this setting.
+An empty `jobs: {}` override does not remove default Jobs because configuration is deep-merged. Disabling a Job
+does not disable its shared Components, unload its plugin, or disable other Jobs that use the same Steps.
+
+Review the effects before disabling the built-in background and cron Jobs:
+
+| Job | Work and state | Effect of disabling |
+|---|---|---|
+| `index_update_loop` | Initial scan and ongoing updates of local file, keyword, vector, graph, and tag indexes; in-memory state with derived checkpoints | Local search can be missing or stale, even if another process updates its own index |
+| `resource_watch_loop` | Resource catalog updates and automatic resource interpretation into daily notes | New/changed resources are not processed automatically |
+| `digest_watch_loop` | Daily/digest catalog refresh and change logging | That catalog and its change log stop refreshing; this loop does not itself run dream consolidation |
+| `dream_cron` | Scheduled extraction/integration into digest files, dream catalog checkpoints, and tagging | Scheduled dream work stops; separately enabled `auto_dream` remains callable |
+| `optimize_index_cron` | Backend-specific maintenance of the local derived index | Scheduled index optimization stops |
+| `proactive_refresh_cron` | Generates proactive interests/agenda files and updates the proactive catalog | Scheduled refresh stops; separately enabled `proactive_refresh` remains callable |
+
+Files may be on a shared filesystem, but local indexes and catalogs retain process-local state. Keep each process's
+required refresh Jobs enabled. Selecting one process to run a writer is an operator convention, not leader election,
+exactly-once execution, or evidence of replica consistency. This switch does not provide cluster deployment support.
+
 ## Inspect the effective configuration
 
 ```bash
