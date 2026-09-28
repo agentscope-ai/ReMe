@@ -15,7 +15,7 @@ Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 
 ## Requirements
 
-- Python 3.11+ available as `python3` in the host's environment; the plugin uses only the standard library.
+- Python 3.11+ available as `python3` in the host's environment, with FastMCP >= 3.1 (included with ReMe).
 - A current Claude Code version supporting plugin command hooks, `async`, and Stop `last_assistant_message`.
 - A running ReMe HTTP service exposing `search`, `auto_memory`, and `health_check`, with MCP enabled.
 - A working model configuration on the ReMe server for memory extraction. Default BM25 recall does not need embeddings.
@@ -58,7 +58,10 @@ Set `auto_memory` to `false` for recall-only use.
 The default service address works immediately after plugin installation. Create a configuration
 file only when you want to change the defaults below.
 
-Optional settings live at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`. Start from the bundled example:
+Edit the user configuration file directly to change addresses and behavior. Plugin upgrades preserve
+this file, and only overrides need to be saved.
+
+Settings live at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`. For a new file, copy the bundled example; edit an existing file in place:
 
 ```bash
 mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme"
@@ -67,22 +70,44 @@ cp integrations/claude_code/reme/config.example.json "${CLAUDE_CONFIG_DIR:-$HOME
 
 | Option | Default | Meaning |
 | --- | --- | --- |
+| `mcp_url` | `http://127.0.0.1:2333/mcp` | MCP address; removing the trailing `/mcp` gives the default HTTP base for hooks |
+| `api_url` | Empty string | Optional HTTP Job API base; required for custom MCP paths |
 | `auto_recall` | `true` | Search before a user prompt |
 | `auto_memory` | `true` | Queue and submit completed turns; false also disables retries |
 | `recall_limit` | `5` | Search result limit |
 | `recall_min_score` | `0` | Minimum recall score |
 | `recall_timeout` | `5` | Foreground HTTP timeout in seconds, at most 10 |
-| `request_timeout` | `600` | Background HTTP timeout in seconds, at most 600 |
+| `request_timeout` | `600` | Memory-write and MCP request timeout in seconds, at most 600 |
 | `memory_interval` | `5` | Completed turns per batch; use 1 for immediate per-turn writes |
 | `shutdown_timeout` | `2` | Total best-effort exit drain budget in seconds, at most 2 |
 | `context_max_chars` | `8000` | Maximum recalled payload characters |
 | `timezone` | `Asia/Shanghai` | Daily batch timezone; match the ReMe workspace |
 
-Unknown fields and invalid values fail validation. Changes apply on the next hook invocation.
-The plugin's `.mcp.json` is the single endpoint setting: both MCP and hooks use its `reme.url`,
-which must end in `/mcp`. For a different port or protected proxy, edit that source file **before
-installation**, then refresh/reinstall the plugin. Do not edit a versioned installation cache.
-There is no separate `REME_HOST`/`REME_PORT` hook override.
+For example, use another port and disable automatic recording:
+
+```json
+{
+  "mcp_url": "http://127.0.0.1:2444/mcp",
+  "auto_memory": false,
+  "auto_recall": true,
+  "memory_interval": 1
+}
+```
+
+Both MCP and hooks read addresses from this user configuration. Hooks pick up edits on their next
+invocation. After changing an address or the MCP timeout, reconnect MCP or restart the host so the
+existing MCP process also reads the new settings. No source edits, cache edits, or reinstall are needed.
+For a custom MCP path such as `https://memory.example.com/tools`, also set `api_url` to the HTTP Job
+API base, for example `https://memory.example.com/reme`.
+
+Unknown fields and invalid values fail validation; hooks skip work and log `hook_failed` instead of
+falling back to another service. Disabling `auto_memory` stops automatic capture and retries while
+preserving pending batches; explicit MCP tools remain available. Changing the service address never
+sends old pending conversations to the new service. Remove a field to restore its default.
+
+The plugin uses a host-managed stdio process to forward MCP. Start the host with a `python3`
+environment containing FastMCP. If ReMe runs on another machine or in another Python environment,
+run `python3 -m pip install "fastmcp>=3.1"` in the host environment. Hooks use only the standard library.
 
 ## Lifecycle and failure behavior
 

@@ -70,6 +70,15 @@ def test_native_manifests_resolve_within_their_own_plugin():
         assert manifest["name"] == root.name == "reme"
         assert (root / ".mcp.json").is_file()
         assert (root / "skills/reme-memory/SKILL.md").is_file()
+        mcp = json.loads((root / ".mcp.json").read_text())["mcpServers"]["reme"]
+        assert mcp["command"] == "python3"
+        if host == "claude-code":
+            assert mcp["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
+        else:
+            assert mcp["args"] == ["hooks/mcp_bridge.py"]
+            assert mcp["cwd"] == "."
+            assert "CODEX_HOME" in mcp["env_vars"]
+        assert (root / "hooks/mcp_bridge.py").is_file()
         hooks = json.loads((root / "hooks/hooks.json").read_text())["hooks"]
         assert "SubagentStop" not in hooks
         for event, groups in hooks.items():
@@ -100,6 +109,18 @@ def test_defaults_and_mcp_endpoint_agree(adapter):
         {"recall_limit": True},
         {"memory_interval": 1.5},
         {"shutdown_timeout": 3},
+        {"timezone": False},
+        {"timezone": "Unknown/Timezone"},
+        {"mcp_url": False},
+        {"mcp_url": "file:///tmp/mcp"},
+        {"mcp_url": "http://name:secret@example.com/mcp"},
+        {"mcp_url": "http://example.com/mcp?token=secret"},
+        {"mcp_url": "http://example.com/mcp#fragment"},
+        {"mcp_url": "http://example.com:invalid/mcp"},
+        {"mcp_url": "http://example.com/other"},
+        {"mcp_url": "http://example.com/\nmcp"},
+        {"api_url": 12},
+        {"api_url": "relative/path"},
     ],
 )
 def test_invalid_config_fails_explicitly(adapter, values):
@@ -108,12 +129,60 @@ def test_invalid_config_fails_explicitly(adapter, values):
         adapter.load_config()
 
 
-def test_custom_endpoint_has_one_source(adapter, tmp_path, monkeypatch):
-    root = tmp_path / "plugin"
-    root.mkdir()
-    (root / ".mcp.json").write_text(json.dumps({"mcpServers": {"reme": {"url": "https://example.com/reme/mcp"}}}))
-    monkeypatch.setattr(adapter, "__file__", str(root / "hooks/auto_memory.py"))
-    assert adapter.load_config()["endpoint"] == "https://example.com/reme"
+def test_custom_endpoint_has_one_source(adapter):
+    adapter.write_json(adapter.data_dir() / "config.json", {"mcp_url": "https://example.com/reme/mcp/"})
+    config = adapter.load_config()
+    assert config["mcp_url"] == "https://example.com/reme/mcp"
+    assert config["endpoint"] == "https://example.com/reme"
+
+
+def test_custom_mcp_path_and_http_prefix(adapter):
+    adapter.write_json(
+        adapter.data_dir() / "config.json",
+        {
+            "mcp_url": "https://example.com/tools/reme",
+            "api_url": "https://example.com/jobs/reme/",
+        },
+    )
+    assert adapter.load_config()["endpoint"] == "https://example.com/jobs/reme"
+
+
+def test_config_edit_takes_effect_on_next_hook(adapter, monkeypatch):
+    call = Mock(return_value={"success": True, "answer": "daily/fact.md"})
+    monkeypatch.setattr(adapter, "call", call)
+    adapter.write_json(adapter.data_dir() / "config.json", {"auto_recall": False, "auto_memory": False})
+    assert adapter.handle_event({"hook_event_name": "UserPromptSubmit", "prompt": "fact"}) == {}
+    adapter.handle_event({"hook_event_name": "SessionStart"})
+    call.assert_not_called()
+    adapter.write_json(
+        adapter.data_dir() / "config.json",
+        {"auto_recall": True, "mcp_url": "http://127.0.0.1:2444/mcp"},
+    )
+    assert adapter.handle_event({"hook_event_name": "UserPromptSubmit", "prompt": "fact"})
+    assert call.call_args.args[0]["endpoint"] == "http://127.0.0.1:2444"
+
+
+def test_mcp_bridge_uses_persistent_configuration(adapter, monkeypatch):
+    import fastmcp.server
+    import fastmcp.server.providers.proxy
+
+    adapter.write_json(
+        adapter.data_dir() / "config.json",
+        {
+            "mcp_url": "http://127.0.0.1:2444/mcp",
+            "request_timeout": 42,
+        },
+    )
+    monkeypatch.setitem(sys.modules, "auto_memory", adapter)
+    spec = importlib.util.spec_from_file_location("reme_test_bridge", Path(adapter.__file__).with_name("mcp_bridge.py"))
+    bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bridge)
+    client, proxy = Mock(), Mock()
+    monkeypatch.setattr(fastmcp.server.providers.proxy, "ProxyClient", client)
+    monkeypatch.setattr(fastmcp.server, "create_proxy", proxy)
+    bridge.main()
+    client.assert_called_once_with("http://127.0.0.1:2444/mcp", timeout=42)
+    proxy.return_value.run.assert_called_once_with(transport="stdio", show_banner=False)
 
 
 def test_recall_is_bounded_and_cannot_close_evidence_wrapper(adapter, monkeypatch):

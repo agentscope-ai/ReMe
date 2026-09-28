@@ -27,8 +27,10 @@ mean the plugin is disabled, the MCP connection failed, or the server's job allo
 Check the plugin and `/mcp` status before concluding the service is stopped. The default service is
 started with `reme start workspace_dir=/absolute/path/to/workspace service.backend=http`.
 
-The plugin's `.mcp.json` is the endpoint source for both MCP and automatic hooks. Hook settings and
-content-free logs live in the host's `reme/` directory. Hooks batch five completed turns by default;
+The host's `reme/config.json` supplies `mcp_url` and hook settings to both the MCP bridge and
+automatic hooks. Users can edit this file directly. Reconnect MCP after changing its address;
+hook changes apply on the next invocation. Content-free logs live in the host's `reme/` directory.
+Hooks batch five completed turns by default;
 short batches flush at session boundaries, subject to a bounded shutdown budget. Failed batches
 remain for a later attempt. Do not manually submit the same conversation just because a background
 write has not finished. For an explicit user request to store a fact, use `auto_memory` with only

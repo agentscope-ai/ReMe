@@ -1,4 +1,6 @@
 {
+  "mcp_url": "http://127.0.0.1:2333/mcp",
+  "api_url": "",
   "auto_recall": true,
   "auto_memory": true,
   "recall_limit": 5,

@@ -1,6 +1,6 @@
 {
   "name": "reme",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260928104620",
   "description": "Automatic recall, batched conversation recording, and explicit MCP memory tools for Codex.",
   "author": {
     "name": "EconML team of Alibaba Tongyi Lab",

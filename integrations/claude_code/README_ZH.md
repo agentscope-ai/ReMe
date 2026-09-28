@@ -14,7 +14,7 @@
 
 ## 环境要求
 
-- 宿主环境中有 Python 3.11+，可通过 `python3` 执行；插件仅使用标准库。
+- 宿主环境中有 Python 3.11+，可通过 `python3` 执行，并已安装 FastMCP >= 3.1（ReMe 自带此依赖）。
 - 当前 Claude Code 版本支持插件、`UserPromptSubmit`、`Stop`、原生异步命令 Hook 和 `last_assistant_message`。
 - 已启动 ReMe HTTP 服务，开放 `search`、`auto_memory`、`health_check`，并启用 MCP。
 - ReMe 服务端有可用于自动记忆提取的模型配置。默认 BM25 召回不要求 Embedding。
@@ -53,7 +53,9 @@ reme start workspace_dir=/absolute/path/to/workspace service.backend=http
 
 使用默认服务地址时，安装插件后即可使用。需要调整下列默认行为时，再创建配置文件。
 
-可选配置位于 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`。从仓库根目录复制示例：
+直接编辑用户配置文件即可调整地址和行为，升级插件会保留配置。文件中只需写入要覆盖的选项。
+
+配置位于 `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`。首次创建时，可从仓库根目录复制示例；已有文件请直接编辑：
 
 ```bash
 mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme"
@@ -62,21 +64,42 @@ cp integrations/claude_code/reme/config.example.json "${CLAUDE_CONFIG_DIR:-$HOME
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
+| `mcp_url` | `http://127.0.0.1:2333/mcp` | ReMe MCP 地址；默认去掉末尾 `/mcp` 得到 Hook 的 HTTP 地址 |
+| `api_url` | 空字符串 | 可选 HTTP Job API 基址；MCP 使用自定义路径时需显式填写 |
 | `auto_recall` | `true` | 用户提交消息时自动检索 |
 | `auto_memory` | `true` | 自动捕获与提交；关闭后也不重试已有队列 |
 | `recall_limit` | `5` | 检索结果上限 |
 | `recall_min_score` | `0` | 自动召回最低分数 |
 | `recall_timeout` | `5` | 前台 HTTP 超时秒数，最大 10 |
-| `request_timeout` | `600` | 后台 HTTP 超时秒数，最大 600 |
+| `request_timeout` | `600` | 写入与 MCP 请求超时秒数，最大 600 |
 | `memory_interval` | `5` | 每批完成的对话轮数；设为 1 则逐轮提交 |
 | `shutdown_timeout` | `2` | 退出时尽力刷新队列的总秒数，最大 2 |
 | `context_max_chars` | `8000` | 召回正文字符上限 |
 | `timezone` | `Asia/Shanghai` | 批次按此时区分日，应与 ReMe workspace 一致 |
 
-未知字段或无效值会使配置校验失败；配置修改在下一次 Hook 调用生效。
-插件 `.mcp.json` 中的 `reme.url` 是 MCP 和 Hook 共用的唯一服务地址，必须以 `/mcp` 结尾。
-自定义端口或代理时，在安装前修改源码中的此文件，再刷新或重新安装插件，不要修改版本化安装缓存。
-不再提供单独的 `REME_HOST` / `REME_PORT` Hook 地址覆盖。
+例如，改用另一个端口并关闭自动记录：
+
+```json
+{
+  "mcp_url": "http://127.0.0.1:2444/mcp",
+  "auto_memory": false,
+  "auto_recall": true,
+  "memory_interval": 1
+}
+```
+
+MCP 和 Hook 从同一份用户配置读取地址。Hook 在下一次调用时读取修改；更改地址或 MCP 超时后，
+请重新连接 MCP 或重启宿主，确保现有 MCP 进程也使用新配置。无需修改插件源码、安装缓存或重装插件。
+使用自定义 MCP 路径时，例如 `https://memory.example.com/tools`，同时设置
+`api_url` 为 HTTP Job API 基址，例如 `https://memory.example.com/reme`。
+
+未知字段或无效值会使配置校验失败，Hook 会跳过并记录 `hook_failed`，不会回退到其他服务。
+关闭 `auto_memory` 会停止自动捕获和重试，保留已有队列；显式 MCP 工具仍可使用。
+修改服务地址不会把旧地址下的待提交对话发送到新服务。移除配置项即可恢复该项默认值。
+
+插件通过宿主管理的 stdio 连接进程转发 MCP，请确保启动宿主时的 `python3` 环境包含 FastMCP。
+如果 ReMe 服务运行在另一台机器或另一个 Python 环境，在宿主环境执行
+`python3 -m pip install "fastmcp>=3.1"`。Hook 本身仅使用标准库。
 
 ## 生命周期与失败行为
 

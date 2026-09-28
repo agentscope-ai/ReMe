@@ -22,6 +22,8 @@ HOST = "codex"
 HOME_ENV = "CODEX_HOME"
 HOME_DEFAULT = "~/.codex"
 DEFAULTS = {
+    "mcp_url": "http://127.0.0.1:2333/mcp",
+    "api_url": "",
     "auto_recall": True,
     "auto_memory": True,
     "recall_limit": 5,
@@ -41,9 +43,14 @@ def data_dir() -> Path:
 
 
 def load_config() -> dict:
-    """Read host-local settings; resolve HTTP from the bundled MCP URL."""
+    """Read the same persistent settings used by the MCP bridge and lifecycle hooks."""
     path = data_dir() / "config.json"
     values = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    return validate_config(values)
+
+
+def validate_config(values: dict) -> dict:
+    """Validate user overrides before either transport can use them."""
     if not isinstance(values, dict) or values.keys() - DEFAULTS.keys():
         raise ValueError("Unknown ReMe configuration fields")
     config = {**DEFAULTS, **values}
@@ -52,6 +59,9 @@ def load_config() -> dict:
         if isinstance(default, bool):
             if not isinstance(value, bool):
                 raise ValueError(f"{key} must be a boolean")
+        elif isinstance(default, str):
+            if not isinstance(value, str):
+                raise ValueError(f"{key} must be a string")
         elif isinstance(default, (int, float)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{key} must be a finite number")
@@ -61,20 +71,33 @@ def load_config() -> dict:
                 raise ValueError(f"{key} must be an integer")
     if config["recall_timeout"] > 10 or config["request_timeout"] > 600 or config["shutdown_timeout"] > 2:
         raise ValueError("Timeout exceeds the lifecycle hook budget")
-    ZoneInfo(config["timezone"])
-    mcp = json.loads((Path(__file__).resolve().parents[1] / ".mcp.json").read_text(encoding="utf-8"))
-    url = mcp["mcpServers"]["reme"]["url"].rstrip("/")
+    try:
+        ZoneInfo(config["timezone"])
+    except (KeyError, ValueError) as exc:
+        raise ValueError("timezone must be an IANA timezone") from exc
+    config["mcp_url"] = validate_url(config["mcp_url"])
+    if config["api_url"]:
+        config["endpoint"] = validate_url(config["api_url"])
+    elif config["mcp_url"].endswith("/mcp"):
+        config["endpoint"] = config["mcp_url"][:-4]
+    else:
+        raise ValueError("Set api_url explicitly when mcp_url does not end in /mcp")
+    return config
+
+
+def validate_url(url: str) -> str:
+    """Accept HTTP endpoints without embedded credentials or ambiguous URL suffixes."""
+    url = url.rstrip("/")
     parsed = urlsplit(url)
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.hostname
         or any((parsed.username is not None, parsed.password is not None, parsed.query, parsed.fragment))
-        or not parsed.path.endswith("/mcp")
+        or any(character.isspace() for character in url)
     ):
-        raise ValueError("MCP URL must be an absolute HTTP(S) URL ending in /mcp")
+        raise ValueError("ReMe URLs must be absolute HTTP(S) URLs without credentials, query, or fragment")
     _ = parsed.port
-    config["endpoint"] = url[:-4]
-    return config
+    return url
 
 
 def call(config: dict, action: str, payload: dict, timeout: float) -> dict:

@@ -1,8 +1,12 @@
 {
   "mcpServers": {
     "reme": {
-      "type": "http",
-      "url": "http://127.0.0.1:2333/mcp"
+      "command": "python3",
+      "args": [
+        "hooks/mcp_bridge.py"
+      ],
+      "cwd": ".",
+      "env_vars": ["CODEX_HOME"]
     }
   }
 }
