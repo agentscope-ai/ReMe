@@ -42,7 +42,7 @@ dependencies = [
 
 [project.optional-dependencies]
 as = [
-    "agentscope[model-ollama]==2.0.8",
+    "agentscope[model-ollama]==2.0.9",
 ]
 web = [
     "reme_studio",
