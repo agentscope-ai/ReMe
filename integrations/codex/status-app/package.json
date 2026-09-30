@@ -1,0 +1,13 @@
+{
+  "name": "reme-codex-status",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@openai/mcp-extensions": "0.1.0",
+    "esbuild": "0.28.2"
+  }
+}

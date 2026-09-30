@@ -96,10 +96,10 @@ codex plugin add reme@reme-codex
 | Capture batch size（`autoMemoryInterval`） | `1` |
 | Memory guidance language（`language`） | `zh` 或 `en` |
 
-先保存，再点击 **Check connection**。结果会出现在按钮旁的状态或浮层中，包含 ReMe 版本及
-`healthy`。这说明服务可访问；记录和召回还需要通过下一步的对话验证。
+先保存，再点击 **ReMe status** 打开状态面板。顶部的服务连接区域会检查已保存的地址，
+服务可达时显示 ReMe 版本及 `healthy`。这说明服务可访问；记录和召回还需要通过下一步的对话验证。
 
-> **截图槽位 — `mcp-settings.png`：** 真实原生表单，保留服务地址、自动开关、批次大小及连接成功浮层。
+> **截图槽位 — `mcp-settings.png`：** 真实原生表单，保留服务地址、自动开关、批次大小及唯一的 ReMe status 入口。
 
 <!--
 ![ReMe MCP 设置与连接结果](./figures/mcp-settings.png)
@@ -115,7 +115,7 @@ codex plugin add reme@reme-codex
 不要调用工具或自己写文件，只需确认这些事实。
 ```
 
-保持会话打开，等待自动记录完成。在 MCP 设置中点击 **View status**，应看到 `memory_saved`，
+保持会话打开，等待自动记录完成。在 MCP 设置中点击 **ReMe status**，应看到 `memory_saved`，
 待提交轮数为零；同时检查 ReMe 工作区的 `daily/` Markdown 文件中出现了这条事实。
 Codex 的确认回复本身不能证明记忆已写入。
 
@@ -133,7 +133,7 @@ ReMe-Example-7319 的评审时间和校验词是什么？
 如果没有提供相关记忆，就说不知道。
 ```
 
-预期答复包含正确时间、校验词及 `daily/...md` 等来源路径；**View status** 中应有 `recall_found`。
+预期答复包含正确时间、校验词及 `daily/...md` 等来源路径；**ReMe status** 中应有 `recall_found`。
 这样可以单独确认自动召回生效。日常使用时，也可以让 Codex 通过 `reme_search` 主动检索过去的决策。
 
 > **截图槽位 — `memory-recalled.png`：** 独立会话 B 中的正确事实和 ReMe 来源路径。
@@ -153,7 +153,7 @@ ReMe-Example-7319 的评审时间和校验词是什么？
 `Asia/Shanghai`，即每天上海时间 23:00。仅支持 `分钟 小时 * * *` 的每日计划，例如每天 02:30 为
 `30 2 * * *`。Hint 用于指导 ReMe 将现有日常记录整理为长期记忆。
 
-**View status** 会展示计划、时区、下次运行时间和最近结果。只有 Codex 保持 ReMe MCP 连接时，
+**ReMe status** 会展示计划、时区、下次运行时间和最近结果。只有 Codex 保持 ReMe MCP 连接时，
 定时任务才会触发；关闭 Codex 后停止计时，重启时不补跑错过的时点。同一 `CODEX_HOME` 下的多个会话
 共用一个调度器；不同配置目录或机器需自行协调，同一个 ReMe 工作区仅启用一处定时整理。
 
@@ -163,11 +163,17 @@ ReMe-Example-7319 的评审时间和校验词是什么？
 
 ## 6. 查看状态和调整配置
 
-点击 **View status**，或让 Codex 调用 `reme_status`，在对话里查看较完整的结果：
-服务健康、待提交轮数、最近召回/写入活动、定时和手动整理情况。服务不可达时仍可查看本地队列与活动。
+点击 **ReMe status**，从 MCP 设置打开独立状态面板。连接检查和记忆状态共用这一个入口，
+面板分为 **总览、自动记忆、记忆整理、组件** 四个页签，分别展示连接健康与记忆流程，
+记录开关、批次和队列、召回及最近活动，Dream 计划和结果，以及组件内存估算与进程 RSS。
+点击 **刷新** 可重新检查，组件页的服务详情默认折叠。首次展示直接使用打开时返回的结果，不重复请求；面板适配宿主主题及保存的 `language`。
+
+也可以在对话中让 Codex 调用 `reme_status`；不展示 App 的宿主仍会收到文字结果。
+打开或刷新面板不会记录或整理记忆。服务不可达时仍可查看本地队列与活动。
+当前 ReMe MCP 响应不包含组件级健康和索引文档数量，面板仅展示可获取的内存估算，不用其他计数替代。
 Hook 是否可信，需另到 Codex 的 Hooks 设置中检查。
 
-> **截图槽位 — `plugin-status.png`：** 真实 View status 结果或 `reme_status` 输出，保留待提交轮数、最近活动和下次 Dream 时间。
+> **截图槽位 — `plugin-status.png`：** 真实 ReMe status 面板或 `reme_status` 输出，保留连接健康、待提交轮数、最近活动和下次 Dream 时间。
 
 <!--
 ![Codex 中的 ReMe 写入和整理状态](./figures/plugin-status.png)

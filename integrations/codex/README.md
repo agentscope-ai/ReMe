@@ -99,11 +99,11 @@ For a first test, save these values:
 | Capture batch size (`autoMemoryInterval`) | `1` |
 | Memory guidance language (`language`) | `en` or `zh` |
 
-Save before using an action. Click **Check connection**: the result appears beside the action as a
-status or tooltip, including the ReMe version and `healthy`. This verifies service access; recording
-and recall still need the conversation test below.
+Save before using an action. Click **ReMe status** to open the status panel. Its Connection section checks the saved service
+address and shows the ReMe version and `healthy` when reachable. This verifies service access;
+recording and recall still need the conversation test below.
 
-> **Screenshot placeholder — `mcp-settings.png`:** Actual native form with the address, capture switches, batch size, and successful Check connection tooltip.
+> **Screenshot placeholder — `mcp-settings.png`:** Actual native form with the address, capture switches, batch size, and the single ReMe status entry.
 
 <!--
 ![ReMe MCP settings and connection result](./figures/mcp-settings.png)
@@ -119,7 +119,7 @@ at 16:45 UTC. The verification phrase is amber-lynx-7319.
 Do not use tools or write files yourself; just acknowledge the facts.
 ```
 
-Keep the conversation open while recording finishes. In MCP settings, **View status** should show
+Keep the conversation open while recording finishes. In MCP settings, **ReMe status** should show
 `memory_saved` and zero queued turns. In your ReMe workspace, confirm a `daily/` Markdown note
 contains the fact. An acknowledgement by Codex alone is not evidence of a successful write.
 
@@ -137,7 +137,7 @@ Use supplied ReMe memory and cite its source path. Do not call tools;
 if no memory was supplied, say you do not know.
 ```
 
-Expect the correct time, phrase, and a ReMe source path such as `daily/...md`. **View status** should
+Expect the correct time, phrase, and a ReMe source path such as `daily/...md`. **ReMe status** should
 include `recall_found`. This tests automatic recall independently of explicit search tools.
 For everyday use, you can also ask Codex to search past decisions with `reme_search`.
 
@@ -159,7 +159,7 @@ and optionally **Auto Dream hint**, then save. Defaults are `0 23 * * *` and `As
 Only the daily form `minute hour * * *` is supported; for 02:30 use `30 2 * * *`.
 The hint guides how ReMe consolidates existing daily notes into durable memory.
 
-**View status** shows the active schedule, timezone, next run, and latest result. The schedule runs
+**ReMe status** shows the active schedule, timezone, next run, and latest result. The schedule runs
 while Codex keeps the ReMe MCP connection alive. Closing Codex stops the timer; missed occurrences
 are not replayed on startup. Multiple sessions sharing one `CODEX_HOME` use one scheduler. Separate
 profiles or machines need their own coordination: enable only one scheduler for the same ReMe workspace.
@@ -171,12 +171,22 @@ already sent to ReMe; a timeout also does not prove that server-side processing 
 
 ## 6. Inspect status and adjust settings
 
-Click **View status**, or ask Codex to call `reme_status` for a larger result in the conversation.
-It reports service health, queued turns, recent recall/write events, and scheduled/manual consolidation.
+Click **ReMe status** to open a dedicated panel from MCP settings. Connection checks and memory
+status share this one entry. Four tabs organize the panel: **Overview**, **Auto Memory**,
+**Memory Consolidation**, and **Components**. They show service health and the memory flow;
+capture settings, queued turns/sessions, recall and recent activity; Dream scheduling and results;
+and component memory estimates plus process RSS. Click **Refresh** to check again;
+service details are collapsed in Components until needed. The initial view uses the opening call's result without
+a second request. The panel follows the host theme and the saved `language` setting.
+
+You can also ask Codex to call `reme_status` in a conversation. Hosts without an App view receive
+the same status as text. Opening or refreshing the panel does not record or consolidate memory.
+Component health and indexed-document counts are not exposed by the current ReMe MCP response;
+the panel shows the available memory estimates without substituting other counts.
 Queue and activity information remain available when the service is unreachable. Hook trust is
 checked separately in Codex's Hooks settings.
 
-> **Screenshot placeholder — `plugin-status.png`:** Real View status result or `reme_status` output with queued turns, recent activity, and the next Dream run.
+> **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel or `reme_status` output with connection health, queued turns, recent activity, and the next Dream run.
 
 <!--
 ![ReMe delivery and consolidation status in Codex](./figures/plugin-status.png)

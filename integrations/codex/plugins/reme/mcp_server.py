@@ -13,14 +13,12 @@ from fastmcp.tools import FunctionTool, ToolResult
 from mcp.types import ToolAnnotations
 
 from reme_config import DEFAULTS, load_config, settings_values, update_settings
-from reme_mcp import call_async
 from reme_runtime import ReMeRuntime
 from reme_tools import LOCAL_TOOLS, RUN_DREAM, STATUS, register_tools
 
 SETTINGS_READ = "reme_settings_read"
 SETTINGS_UPDATE = "reme_settings_update"
-CHECK_CONNECTION = "reme_check_connection"
-RESERVED_TOOLS = LOCAL_TOOLS | {SETTINGS_READ, SETTINGS_UPDATE, CHECK_CONNECTION}
+RESERVED_TOOLS = LOCAL_TOOLS | {SETTINGS_READ, SETTINGS_UPDATE}
 
 # OpenAI MCP Extensions node-v0.1.0, docs/spec.md#structured-settings.
 # Use its legacy capability advertisement with ReMe's existing FastMCP runtime.
@@ -70,8 +68,12 @@ LAYOUT = [
         "title": "Connection",
         "items": [
             {"kind": "property", "property": "mcpUrl"},
-            {"kind": "tool", "tool": CHECK_CONNECTION, "title": "Check connection"},
-            {"kind": "tool", "tool": STATUS, "title": "View status"},
+            {
+                "kind": "tool",
+                "tool": STATUS,
+                "title": "ReMe status",
+                "description": "Check the connection and inspect memory activity and the Dream schedule.",
+            },
         ],
     },
     {
@@ -221,13 +223,6 @@ def create_server() -> FastMCP:
             ),
         ),
     )
-
-    @server.tool(name=CHECK_CONNECTION, title="Check ReMe connection", annotations={"readOnlyHint": True})
-    async def check_connection() -> str:
-        """Check the saved MCP endpoint without sending conversation content."""
-        config = load_config()
-        result = await call_async(config, "health_check", {}, config["requestTimeoutMs"] / 1000)
-        return str(result["answer"])
 
     assert FIELDS.keys() == DEFAULTS.keys()
     return server

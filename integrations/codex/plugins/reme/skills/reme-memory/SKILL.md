@@ -21,9 +21,10 @@ relevant is found, say so; do not present inference as recalled memory.
 
 ## Status and recording
 
-Use `reme_check_connection` for a quick health check. Use `reme_status` for queued turns, recent
+Use `reme_status` for connection health, queued turns, recent
 recall/write activity, the daily schedule, next run, and last consolidation result. Local queue
-information remains available when ReMe is offline. Health does not establish Hook trust or prove
+information remains available when ReMe is offline. The native **ReMe status** action opens a
+read-only panel with Refresh; the same tool also returns text for conversation/CLI use. Health does not establish Hook trust or prove
 memory was saved. Direct the user to Codex's Hooks settings to review every ReMe entry.
 
 Users configure the connection and memory options in the ReMe MCP server's native settings form.

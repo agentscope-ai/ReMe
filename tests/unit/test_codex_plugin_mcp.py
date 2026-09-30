@@ -62,12 +62,14 @@ async def test_settings_remain_editable_offline(plugin, monkeypatch):
         capability = client.initialize_result.capabilities.experimental["openai/settings"]
         assert capability == {"readTool": module.SETTINGS_READ, "updateTool": module.SETTINGS_UPDATE}
         tools = {tool.name: tool for tool in await client.list_tools()}
-        assert {module.SETTINGS_READ, module.SETTINGS_UPDATE, module.CHECK_CONNECTION} <= tools.keys()
+        assert {module.SETTINGS_READ, module.SETTINGS_UPDATE, module.STATUS} <= tools.keys()
+        assert "reme_check_connection" not in tools
         read = await client.call_tool(capability["readTool"], {})
         settings = read.structured_content
         assert settings["values"] == config.DEFAULTS
         assert settings["schema"]["properties"].keys() == config.DEFAULTS.keys()
-        assert settings["layout"][0]["items"][1]["tool"] == module.CHECK_CONNECTION
+        assert settings["layout"][0]["items"][1]["tool"] == module.STATUS
+        assert len(settings["layout"][0]["items"]) == 2
         assert tools[module.SETTINGS_READ].annotations.readOnlyHint
         assert tools[module.SETTINGS_READ].outputSchema
         assert not (config.data_dir() / "config.json").exists()
@@ -171,21 +173,51 @@ async def test_hooks_call_mcp_and_preserve_structured_answers(plugin, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_connection_action_uses_current_endpoint_and_propagates_failure(plugin, upstreams, monkeypatch):
+async def test_status_checks_current_connection_and_reports_failure_without_hiding_local_state(
+    plugin,
+    upstreams,
+    monkeypatch,
+):
     config, module, _ = plugin
     call = AsyncMock(return_value={"success": True, "answer": "healthy"})
-    monkeypatch.setattr(module, "call_async", call)
+    monkeypatch.setattr(importlib.import_module("reme_tools"), "call_async", call)
     async with Client(module.create_server()) as client:
         await client.call_tool(
             module.SETTINGS_UPDATE,
             {"set": {"mcpUrl": "http://second.test/mcp", "requestTimeoutMs": 3000}},
         )
-        assert (await client.call_tool(module.CHECK_CONNECTION, {})).data == "healthy"
-        assert call.call_args.args == (config.load_config(), "health_check", {}, 3)
+        result = await client.call_tool(module.STATUS, {})
+        assert result.structured_content["service"]["health_check"] == {"reachable": True, "answer": "healthy"}
+        assert {args.args[1] for args in call.call_args_list} == {"health_check", "status"}
+        assert all(args.args[0] == config.load_config() and args.args[2:] == ({}, 3) for args in call.call_args_list)
+        assert result.structured_content["checked_at"] > 0
+        assert result.structured_content["language"] == "en"
         call.side_effect = ConnectionError("offline")
-        with pytest.raises(ToolError, match="offline"):
-            await client.call_tool(module.CHECK_CONNECTION, {})
+        offline = (await client.call_tool(module.STATUS, {})).structured_content
+        assert offline["service"]["health_check"] == {"reachable": False, "error": "ConnectionError"}
+        assert offline["auto_memory"]["queued_turns"] == 0
     assert not upstreams
+
+
+@pytest.mark.asyncio
+async def test_status_opens_a_self_contained_fullscreen_app_resource(plugin):
+    _, module, _ = plugin
+    async with Client(module.create_server()) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        ui = tools["reme_status"].meta["ui"]
+        assert ui["visibility"] == ["app", "model"]
+        content = (await client.read_resource(ui["resourceUri"]))[0]
+        assert content.mimeType == "text/html;profile=mcp-app"
+        assert content.meta["openai/ui"] == {
+            "preferredDisplayMode": "fullscreen",
+            "availableDisplayModes": ["fullscreen"],
+        }
+        assert content.meta["ui"]["csp"] == {"connectDomains": [], "resourceDomains": []}
+        assert 'id="refresh"' in content.text
+        assert "ui/initialize" in content.text
+        assert "ui/notifications/tool-result" in content.text
+        assert "/* STATUS_APP */" not in content.text
+        assert "<script src=" not in content.text
 
 
 @pytest.mark.asyncio

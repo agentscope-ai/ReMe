@@ -7,10 +7,10 @@ Use real Codex screenshots only. The English and Chinese guides share these PNG 
 | --- | --- |
 | `plugin-installed.png` | Installed ReMe plugin detail: name, enabled state, and `reme` MCP card. / 已安装的 ReMe 插件详情：名称、启用状态及 MCP 卡片。 |
 | `hooks-trusted.png` | All seven ReMe handlers across five events enabled and trusted, in desktop settings or CLI `/hooks`. / 五类事件下的七个 ReMe Hook 条目均已启用、已信任，可使用桌面设置或 CLI。 |
-| `mcp-settings.png` | Native MCP form: URL, auto switches, batch size, and successful Check connection tooltip. / 原生 MCP 表单：地址、自动开关、批次大小及连接健康浮层。 |
+| `mcp-settings.png` | Native MCP form: URL, auto switches, batch size, and the single ReMe status entry. / 原生 MCP 表单：地址、自动开关、批次大小及唯一的 ReMe status 入口。 |
 | `memory-recorded.png` | Conversation A: the test fact and final acknowledgement, without explicit tool calls. / 会话 A：测试事实及最终确认，不显式调用工具。 |
 | `memory-recalled.png` | Separate conversation B: recall question, correct fact, and ReMe source path. / 独立会话 B：召回问题、正确事实和 ReMe 来源路径。 |
-| `plugin-status.png` | View status result in native settings, or a real `reme_status` call in Codex: queued turns, recent activity, and the next Dream run. / 原生设置的状态结果或真实 Codex 对话中的 `reme_status` 调用，保留待提交轮数、最近活动和下次 Dream 时间。 |
+| `plugin-status.png` | ReMe status panel opened from native settings, or a real `reme_status` call in Codex: queued turns, recent activity, and the next Dream run. / 从原生设置打开的 ReMe status 面板或真实 Codex 对话中的 `reme_status` 调用，保留待提交轮数、最近活动和下次 Dream 时间。 |
 
 ## Add the screenshots / 补图步骤
 

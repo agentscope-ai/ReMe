@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Annotated
 
 from fastmcp import FastMCP
+from fastmcp.resources import ResourceContent, ResourceResult
 from fastmcp.tools import ToolResult
 from pydantic import Field
 
@@ -20,6 +22,11 @@ SEARCH = "reme_search"
 STATUS = "reme_status"
 RUN_DREAM = "reme_run_dream"
 LOCAL_TOOLS = {SEARCH, STATUS, RUN_DREAM}
+STATUS_URI = "ui://reme/status.html"
+STATUS_META = {
+    "ui": {"csp": {"connectDomains": [], "resourceDomains": []}},
+    "openai/ui": {"preferredDisplayMode": "fullscreen", "availableDisplayModes": ["fullscreen"]},
+}
 
 
 def answer_text(answer) -> str:
@@ -100,7 +107,18 @@ def register_tools(server: FastMCP) -> None:
         empty = "没有找到相关记忆。" if config["language"] == "zh" else "No relevant memory found."
         return answer_text(answer) if answer else empty
 
-    @server.tool(name=STATUS, title="ReMe status", annotations={"readOnlyHint": True})
+    @server.resource(STATUS_URI, title="ReMe status", mime_type="text/html;profile=mcp-app", meta=STATUS_META)
+    def status_view() -> ResourceResult:
+        """Serve a self-contained read-only view without exposing a local HTTP server."""
+        html = (Path(__file__).parent / "ui/status.html").read_text(encoding="utf-8")
+        return ResourceResult([ResourceContent(html, mime_type="text/html;profile=mcp-app", meta=STATUS_META)])
+
+    @server.tool(
+        name=STATUS,
+        title="ReMe status",
+        annotations={"readOnlyHint": True},
+        app={"resourceUri": STATUS_URI, "visibility": ["app", "model"]},
+    )
     async def status() -> ToolResult:
         """Inspect service health, queued turns, hook activity, and scheduled/manual consolidation."""
         config = load_config()
@@ -110,6 +128,8 @@ def register_tools(server: FastMCP) -> None:
         )
         manifest = Path(__file__).parent / ".codex-plugin/plugin.json"
         snapshot = {
+            "checked_at": time.time(),
+            "language": config["language"],
             "plugin_version": json.loads(manifest.read_text(encoding="utf-8"))["version"],
             "mcpUrl": config["mcpUrl"],
             "service": {"health_check": health, "status": components},
