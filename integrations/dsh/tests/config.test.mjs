@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Context } from "@deepseek-ai/cordis";
 import Loader from "@deepseek-ai/cordis-plugin-loader";
+import z from "@deepseek-ai/schemastery";
 import { Config, resolveConfig } from "../dist/config.js";
 
 test("resolves the established ReMe host and port environment", () => {
@@ -28,11 +29,32 @@ test("exports a Cordis schema that rejects invalid configuration", async () => {
 
   for (const input of [
     { endpoint: "not-a-url" },
+    { endpoint: "http://localhost:bad-port" },
     { dreamCron: "every night" },
     { timezone: "Mars/Olympus" },
   ]) {
-    assert.throws(() => Config["~standard"].validate(input));
+    assert.ok(Config["~standard"].validate(input).issues?.length);
   }
+});
+
+test("volatile settings survive Host projection and browser schema rehydration", () => {
+  const fields = Object.entries(Config.dict).flatMap(([name, schema]) => {
+    if (!schema.meta.volatile) return [];
+    const plain = new z(schema.toJSON());
+    delete plain.meta.volatile;
+    return [[name, plain]];
+  });
+  const hostForm = z.object(Object.fromEntries(fields));
+  const browserForm = new z(JSON.parse(JSON.stringify(hostForm.toJSON())));
+  const defaults = Config["~standard"].validate({}).value;
+  const values = Object.fromEntries(
+    fields.map(([name]) => [name, defaults[name].get()]),
+  );
+  assert.equal(browserForm["~standard"].validate(values).issues, undefined);
+  assert.ok(
+    browserForm["~standard"].validate({ ...values, dreamCron: "bad" }).issues
+      ?.length,
+  );
 });
 
 test("rejects unknown options and invalid IANA timezones", () => {

@@ -103,6 +103,8 @@ dsh web --no-open --port 3090
 
 从旧版 `settings.yaml` 升级时，DSH 会将其中的 `reme-memory` 设置导入 ReMe 运行条目。如果 profile patch 显式指定了原来的 `reme-memory-runtime` 条目，需要将该条目 ID 改为 `reme-memory`；外层 group 现为 `reme-memory-scope`。
 
+如果此前升级已将 `settings.yaml` 改名为 `settings.yaml.imported`，但当时 ReMe 设置导入失败，DSH 不会再次导入这个文件。请打开 DSH home 目录中的 `settings.yaml.imported`，找到 `reme-memory` 段，并与每个受影响 profile 的 **插件 → ReMe Memory** 当前设置逐项比较。只将仍需保留的旧值填入表单并保存，保留更新后的 profile 设置。使用插件前尤其要核对 `endpoint`、`autoMemoryEnabled` 和 `autoDreamEnabled`。不要把备份文件改回 `settings.yaml`，否则其他 section 也会再次导入。
+
 ![ReMe Memory 插件配置](./figures/reme-memory-settings.png)
 
 截图中的测试配置使用 `http://127.0.0.1:3457`、English 指引、默认搜索数量 5、搜索超时 10 秒，并启用了自动记忆和“Exclude subagents”。完整字段如下：

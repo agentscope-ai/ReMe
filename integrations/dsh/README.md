@@ -99,6 +99,8 @@ Open **Plugins → ReMe Memory**. Save changes before starting the next session.
 
 On upgrade from the old `settings.yaml`, DSH imports its `reme-memory` section into the ReMe runtime entry. If a profile patch explicitly targets the former `reme-memory-runtime` entry, change that entry ID to `reme-memory`; the enclosing group is now `reme-memory-scope`.
 
+If an earlier upgrade already renamed `settings.yaml` to `settings.yaml.imported` while ReMe's import failed, DSH will not retry that file. Open `settings.yaml.imported` in the DSH home directory, find its `reme-memory` section, and compare those fields with **Plugins → ReMe Memory** in each affected profile. Copy the old values you still want into the form and save; keep any newer profile values. In particular, check `endpoint`, `autoMemoryEnabled`, and `autoDreamEnabled` before using the plugin. Do not rename the backup back to `settings.yaml`, since that would retry imports for unrelated sections too.
+
 ![ReMe Memory plugin configuration](./figures/reme-memory-settings.png)
 
 | UI meaning             | Configuration key     | Default                 | Description                                                     |

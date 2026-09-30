@@ -3,12 +3,23 @@ import z from "@deepseek-ai/schemastery";
 import { validTimezone, validateDailyCron } from "./scheduling.js";
 import type { ReMeConfig, ReMeConfigInput } from "./types.js";
 
+// DSH sends volatile schemas to the browser as JSON, so these checks must serialize without callbacks.
+const HTTP_ENDPOINT =
+  /^https?:\/\/(?:\[[0-9a-fA-F:.]+\]|[^\s/?#:@]+)(?::\d{1,5})?(?:[/?#][^\s]*)?$/;
+const DAILY_CRON = /^(?:[0-5]?\d)\s+(?:[01]?\d|2[0-3])\s+\*\s+\*\s+\*$/;
+const TIMEZONES = [
+  ...Intl.supportedValuesOf("timeZone"),
+  "UTC",
+  "Etc/UTC",
+  "GMT",
+  "Etc/GMT",
+];
+const TIMEZONE = new RegExp(`^(?:${TIMEZONES.map(escapeRegExp).join("|")})$`);
+
 export const Config = z.object({
   endpoint: z
-    .transform(z.string(), (value) => {
-      assertEndpoint(value);
-      return value;
-    })
+    .string()
+    .pattern(HTTP_ENDPOINT)
     .description("ReMe HTTP service URL")
     .default(
       process.env.REME_URL ||
@@ -29,10 +40,8 @@ export const Config = z.object({
   autoMemoryInterval: z.natural().min(1).max(1000).default(5).volatile(),
   autoDreamEnabled: z.boolean().default(true).volatile(),
   dreamCron: z
-    .transform(z.string(), (value) => {
-      validateDailyCron(value);
-      return value;
-    })
+    .string()
+    .pattern(DAILY_CRON)
     .description("Daily cron in the workspace timezone")
     .default(process.env.REME_DSH_DREAM_CRON || "0 23 * * *")
     .volatile(),
@@ -42,15 +51,16 @@ export const Config = z.object({
   language: z.union(["en", "zh"]).default("en").volatile(),
   searchLimit: z.natural().min(1).max(50).default(5).volatile(),
   timezone: z
-    .transform(z.string(), (value) => {
-      if (!validTimezone(value))
-        throw new TypeError(`Invalid ReMe timezone: ${value}`);
-      return value;
-    })
+    .string()
+    .pattern(TIMEZONE)
     .default("Asia/Shanghai")
     .description("IANA timezone matching the ReMe workspace")
     .volatile(),
 });
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 const DEFAULT_CONFIG: Readonly<ReMeConfig> = Object.freeze({
   endpoint: "http://127.0.0.1:2333",
