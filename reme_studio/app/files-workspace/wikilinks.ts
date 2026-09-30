@@ -114,40 +114,34 @@ export function remarkWikilinks(this: Processor) {
     const visit = (node: MarkdownNode) => {
       if (
         !node.children ||
-        ["link", "image", "code", "inlineCode"].includes(node.type)
+        [
+          "link",
+          "linkReference",
+          "image",
+          "imageReference",
+          "code",
+          "inlineCode",
+        ].includes(node.type)
       ) {
         literalize(node);
         return;
       }
-      node.children = node.children.flatMap((child) => {
-        if (
-          (child.type !== "text" && child.type !== "remeWikilink") ||
-          !child.value
-        ) {
+      node.children = node.children.map((child) => {
+        if (child.type !== "remeWikilink" || !child.value) {
           visit(child);
-          return [child];
+          return child;
         }
-        const parts: MarkdownNode[] = [];
-        let end = 0;
-        for (const match of child.value.matchAll(
-          /\[\[([^[\]|#\n]+?)(?:#[^[\]|\n]+)?(?:\|([^[\]\n]+))?\]\]/g,
-        )) {
-          const target = match[1].trim();
-          if (!target) continue;
-          parts.push({
-            type: "text",
-            value: child.value.slice(end, match.index),
-          });
-          parts.push({
-            type: "link",
-            url: `#reme-file=${encodeURIComponent(target)}`,
-            children: [{ type: "text", value: match[2]?.trim() || target }],
-          });
-          end = match.index + match[0].length;
+        const match = WIKILINK_PATTERN.exec(child.value);
+        if (!match?.[1].trim()) {
+          literalize(child);
+          return child;
         }
-        if (!end) return [child];
-        parts.push({ type: "text", value: child.value.slice(end) });
-        return parts;
+        const target = match[1].trim();
+        return {
+          type: "link",
+          url: `#reme-file=${encodeURIComponent(target)}`,
+          children: [{ type: "text", value: match[2]?.trim() || target }],
+        };
       });
     };
     visit(tree);

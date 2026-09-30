@@ -30,6 +30,16 @@ function parse(content, wikilinks = true) {
   return processor.runSync(processor.parse(content));
 }
 
+function render(content, wikilinks = true) {
+  return renderToStaticMarkup(
+    createElement(
+      ReactMarkdown,
+      { remarkPlugins: wikilinks ? [remarkGfm, remarkWikilinks] : [remarkGfm] },
+      content,
+    ),
+  );
+}
+
 function links(tree) {
   return (
     tree.children?.flatMap((node) =>
@@ -72,17 +82,7 @@ test("code examples and existing Markdown links are not rewritten", () => {
     "`[[sample.md]]` and [See [[sample.md]]](https://example.com)",
     "![See [[sample.md]]](image.png)",
   ].join("\n");
-  const render = (plugins) =>
-    renderToStaticMarkup(
-      createElement(
-        ReactMarkdown,
-        {
-          remarkPlugins: plugins,
-        },
-        content,
-      ),
-    );
-  assert.equal(render([remarkGfm, remarkWikilinks]), render([remarkGfm]));
+  assert.equal(render(content), render(content, false));
 });
 
 test("malformed wikilinks leave normal Markdown parsing unchanged", () => {
@@ -106,4 +106,34 @@ test("wikilinks work beside ordinary emphasis and consecutive links", () => {
   );
   assert.equal(tree.children[0].children[0].type, "strong");
   assert.equal(tree.children[0].children.at(-1).type, "emphasis");
+});
+
+test("reference links and images preserve literal wikilinks in their labels", () => {
+  for (const content of [
+    "[See [[sample.md]]][ref]\n\n[ref]: https://example.com",
+    "[See [[sample.md]]][REF]\n\n[ref]: https://example.com",
+    "![See [[sample.md]]][ref]\n\n[ref]: image.png",
+  ]) {
+    assert.equal(render(content), render(content, false));
+    assert.doesNotMatch(render(content), /#reme-file=/);
+  }
+});
+
+test("escaped brackets and character entities remain literal text", () => {
+  for (const content of [
+    String.raw`\[\[example.md\]\]`,
+    "&#91;&#91;example.md&#93;&#93;",
+    "&#x5b;&#x5b;example.md&#x5d;&#x5d;",
+    String.raw`\[[example.md]]`,
+  ]) {
+    assert.equal(render(content), render(content, false));
+    assert.equal(links(parse(content)).length, 0);
+  }
+  const mixed = String.raw`\[\[literal.md\]\] [[real.md]] &#91;&#91;entity.md&#93;&#93;`;
+  assert.deepEqual(
+    links(parse(mixed)).map((node) => node.url),
+    ["#reme-file=real.md"],
+  );
+  assert.match(render(mixed), /\[\[literal\.md\]\]/);
+  assert.match(render(mixed), /\[\[entity\.md\]\]/);
 });
