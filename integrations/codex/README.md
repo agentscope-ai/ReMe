@@ -173,10 +173,11 @@ already sent to ReMe; a timeout also does not prove that server-side processing 
 
 Click **ReMe status** to open a dedicated panel from MCP settings. Connection checks and memory
 status share this one entry. Four tabs organize the panel: **Overview**, **Auto Memory**,
-**Memory Consolidation**, and **Components**. They show service health and the memory flow;
+**Consolidation**, and **Components**. They show service health and the pending queue;
 capture settings, queued turns/sessions, recall and recent activity; Dream scheduling and results;
 and component memory estimates plus process RSS. Click **Refresh** to check again;
-service details are collapsed in Components until needed. The initial view uses the opening call's result without
+connection details, recent activity, usage notes, and raw service details expand when needed. Narrow cards use a
+single content column and two rows of tabs. The initial view uses the opening call's result without
 a second request. The panel follows the host theme and the saved `language` setting.
 
 You can also ask Codex to call `reme_status` in a conversation. Hosts without an App view receive

@@ -11,31 +11,27 @@
     :root[data-theme="dark"] { color-scheme: dark; --bg: #0b0d12; --surface: #12151d; --panel: #181c26; --ink: #f3f5f7; --muted: #979dab; --line: #292e3b; --blue: #79a8ff; --green: #63d4a3; --green-bg: #25382f; --amber: #f2be5c; --amber-bg: #3c3526; --red: #ff7b86; --red-bg: #40262c; }
     :root[data-theme="light"] { color-scheme: light; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 28px; background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.5 system-ui, -apple-system, sans-serif; }
-    main { max-width: 1100px; margin: auto; }
-    header { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
-    .brand { display: flex; gap: 12px; align-items: center; }
-    .logo { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 44px; border-radius: 13px; background: linear-gradient(145deg, #678ff7, #725de3); color: #fff; font-size: 26px; }
-    .eyebrow { color: var(--blue); font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-    h1 { font-size: 25px; letter-spacing: -.5px; margin: 0; font-weight: 650; }
-    h2 { font-size: 14px; margin: 0 0 12px; font-weight: 600; }
+    body { margin: 0; padding: 24px; background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.6 system-ui, -apple-system, sans-serif; }
+    main { max-width: 920px; margin: auto; overflow-wrap: anywhere; }
+    header { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    header > div { min-width: 0; }
+    h1 { font-size: 22px; letter-spacing: -.4px; margin: 0; font-weight: 650; }
+    h2 { font-size: 15px; margin: 0 0 20px; font-weight: 600; }
     p { margin: 6px 0; }
     .muted, small { color: var(--muted); }
-    .label { font-size: 12px; color: var(--muted); }
+    .label { font-size: 13px; color: var(--muted); }
     .endpoint { overflow-wrap: anywhere; font-size: 12px; font-family: ui-monospace, monospace; }
-    .actions { display: flex; gap: 10px; align-items: center; }
     button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; white-space: nowrap; }
     button:hover:not(:disabled) { border-color: var(--blue); }
     button:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
     button:disabled { opacity: .55; cursor: wait; }
-    .tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
-    .tabs button { color: var(--muted); background: transparent; border: 0; border-radius: 0; border-bottom: 2px solid transparent; padding: 11px 14px; font-weight: 600; }
-    .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--blue); }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-    .card { background: linear-gradient(150deg, var(--panel), var(--surface)); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; }
-    .wide { grid-column: span 2; }
+    .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 5px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 24px; }
+    .tabs button { min-width: 0; color: var(--muted); background: transparent; border-color: transparent; padding: 10px 8px; font-weight: 600; white-space: normal; line-height: 1.4; }
+    .tabs button[aria-selected="true"] { color: var(--ink); background: var(--surface); border-color: var(--line); box-shadow: 0 1px 3px #0000000a; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; min-width: 0; }
     .full { grid-column: 1 / -1; }
-    .value { font-size: 25px; line-height: 1.3; font-weight: 700; margin-top: 8px; }
+    .value { font-size: 26px; line-height: 1.35; font-weight: 650; margin-top: 8px; }
     .compact { font-size: 16px; overflow-wrap: anywhere; }
     .pill { display: inline-block; color: var(--green); background: var(--green-bg); border-radius: 99px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
     [data-tone="good"] { color: var(--green); }
@@ -43,32 +39,42 @@
     .pill[data-tone="neutral"] { color: var(--muted); background: var(--bg); }
     .pill[data-tone="warn"] { color: var(--amber); background: var(--amber-bg); }
     .pill[data-tone="bad"] { color: var(--red); background: var(--red-bg); }
-    .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .step { background: var(--surface); border: 1px solid var(--line); padding: 10px; border-radius: 8px; flex: 1 1 100px; }
-    .arrow { color: var(--muted); }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .section-heading h2 { margin: 0; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .properties { margin: 0; }
+    .properties > div { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .properties > div:first-child { padding-top: 0; }
+    .properties > div:last-child { padding-bottom: 0; border: 0; }
+    .properties dt { color: var(--muted); }
+    .properties dd { margin: 0; text-align: right; font-weight: 600; min-width: 0; }
     .rows { padding: 0; margin: 0; list-style: none; }
-    .rows li { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .rows li { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--line); }
     .rows li:last-child { border: 0; padding-bottom: 0; }
     .rows code { display: block; color: var(--muted); font-size: 11px; }
-    time { color: var(--muted); font-size: 12px; white-space: nowrap; }
-    .component-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .component { border: 1px solid var(--line); background: var(--surface); padding: 14px; border-radius: 9px; min-width: 0; }
+    time { color: var(--muted); font-size: 12px; flex-shrink: 0; max-width: 45%; }
+    .component-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .component { border: 1px solid var(--line); background: var(--panel); padding: 18px; border-radius: 9px; min-width: 0; }
     .component strong { display: block; overflow-wrap: anywhere; font-size: 13px; }
-    details { margin-top: 18px; }
+    details { margin-top: 20px; }
+    details.card { margin-top: 0; }
+    details[open] > summary { margin-bottom: 16px; }
+    .card > summary { color: var(--ink); font-weight: 600; font-size: 15px; }
     summary { cursor: pointer; color: var(--muted); }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); padding: 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; max-height: 280px; overflow: auto; }
-    .note { margin: 18px 0 0; font-size: 12px; color: var(--muted); }
+    .note { margin: 20px 0 0; font-size: 13px; color: var(--muted); }
     #error { border: 1px solid var(--red); color: var(--red); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     [hidden] { display: none !important; }
-    @media (max-width: 850px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 540px) { body { padding: 18px; } .grid, .component-grid { grid-template-columns: 1fr; } .wide { grid-column: 1 / -1; } .card { padding: 16px; } header { flex-wrap: wrap; gap: 12px; } h1 { font-size: 23px; } .rows li { flex-direction: column; gap: 2px; } }
+    @media (max-width: 700px) { .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 640px) { body { padding: 16px; } .grid, .component-grid { grid-template-columns: 1fr; } .card { padding: 20px; } header { gap: 12px; } .rows li { flex-direction: column; gap: 6px; } time { max-width: 100%; } }
+    @media (max-width: 380px) { .metrics { grid-template-columns: 1fr; gap: 16px; } .metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; } .metrics .value { margin: 0; } }
   </style>
 </head>
 <body>
 <main aria-busy="true">
   <header>
-    <div class="brand"><div class="logo" aria-hidden="true">◈</div><div><div class="eyebrow">Codex memory</div><h1>ReMe status</h1><p id="checked" class="muted label" aria-live="polite">Waiting for status…</p></div></div>
-    <div class="actions"><span id="connection-state" class="pill" hidden></span><button id="refresh" type="button" disabled>Refresh</button></div>
+    <div><h1>ReMe status</h1><p id="checked" class="muted label" aria-live="polite">Waiting for status…</p></div>
+    <button id="refresh" type="button" disabled>Refresh</button>
   </header>
   <p id="error" role="alert" hidden></p>
   <div id="loading" class="card muted">Opening the connection and memory overview…</div>
@@ -76,49 +82,62 @@
     <nav class="tabs" role="tablist" aria-label="ReMe status">
       <button id="tab-overview" role="tab" aria-controls="panel-overview" aria-selected="true" data-i18n="overview">Overview</button>
       <button id="tab-memory" role="tab" aria-controls="panel-memory" aria-selected="false" tabindex="-1" data-i18n="autoMemory">Auto Memory</button>
-      <button id="tab-dream" role="tab" aria-controls="panel-dream" aria-selected="false" tabindex="-1" data-i18n="consolidation">Memory Consolidation</button>
+      <button id="tab-dream" role="tab" aria-controls="panel-dream" aria-selected="false" tabindex="-1" data-i18n="consolidation">Consolidation</button>
       <button id="tab-components" role="tab" aria-controls="panel-components" aria-selected="false" tabindex="-1" data-i18n="components">Components</button>
     </nav>
     <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
       <div class="grid">
-        <article class="card"><div class="label" data-i18n="service">ReMe service</div><div id="service-health" class="value"></div></article>
-        <article class="card"><div class="label" data-i18n="runtime">Runtime phase</div><div id="runtime" class="value compact"></div></article>
-        <article class="card"><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="overview-queue" class="value"></div></article>
-        <article class="card"><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="overview-sessions" class="value"></div></article>
-        <article class="card wide"><h2 data-i18n="automation">Memory automation</h2><div class="flow"><div class="step"><div class="label" data-i18n="prompt">1 · Prompt</div><span data-i18n="recall">Automatic recall</span></div><span class="arrow">→</span><div class="step"><div class="label" data-i18n="response">2 · Response</div><span data-i18n="capture">Turn capture</span></div><span class="arrow">→</span><div class="step"><div class="label" data-i18n="workspace">3 · Workspace</div><span data-i18n="files">Memory files</span></div></div></article>
-        <article class="card wide"><h2 data-i18n="connection">Connection</h2><p id="health"></p><p id="endpoint" class="endpoint muted"></p><small id="plugin-version"></small></article>
+        <article class="card full">
+          <div class="section-heading"><h2 data-i18n="service">ReMe service</h2><span id="connection-state" class="pill" hidden></span></div>
+          <div id="service-health" class="value"></div><p id="health" class="muted"></p>
+          <details id="connection-details"><summary data-i18n="connectionDetails">Connection details</summary><p id="endpoint" class="endpoint muted"></p><small id="plugin-version"></small></details>
+        </article>
+        <article class="card full"><div class="metrics">
+          <div><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="overview-queue" class="value"></div></div>
+          <div><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="overview-sessions" class="value"></div></div>
+        </div></article>
       </div>
     </section>
     <section id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
       <div class="grid">
-        <article class="card"><div class="label" data-i18n="memory">Automatic memory</div><p><span id="memory-state" class="pill"></span></p></article>
-        <article class="card"><div class="label" data-i18n="interval">Batch interval</div><div id="interval" class="value"></div></article>
-        <article class="card"><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="queue" class="value"></div></article>
-        <article class="card"><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="sessions" class="value"></div></article>
-        <article class="card full"><h2 data-i18n="recall">Automatic recall</h2><span id="recall-state" class="pill"></span><p id="recall-result"></p><p id="recall-time" class="muted label"></p><p id="other-queue" class="muted label" hidden></p></article>
-        <article class="card full"><h2 data-i18n="activity">Recent activity</h2><ul id="activity" class="rows"></ul><p id="no-activity" class="muted" hidden></p></article>
+        <article class="card">
+          <div class="section-heading"><h2 data-i18n="memory">Automatic memory</h2><span id="memory-state" class="pill"></span></div>
+          <dl class="properties">
+            <div><dt data-i18n="interval">Batch interval</dt><dd id="interval"></dd></div>
+            <div><dt data-i18n="queuedTurns">Queued turns</dt><dd id="queue"></dd></div>
+            <div><dt data-i18n="queuedSessions">Queued sessions</dt><dd id="sessions"></dd></div>
+          </dl><p id="other-queue" class="note" hidden></p>
+        </article>
+        <article class="card"><div class="section-heading"><h2 data-i18n="recall">Automatic recall</h2><span id="recall-state" class="pill"></span></div><p id="recall-result"></p><p id="recall-time" class="muted label"></p></article>
+        <details id="activity-details" class="card full"><summary data-i18n="activity">Recent activity</summary><ul id="activity" class="rows"></ul><p id="no-activity" class="muted" hidden></p></details>
       </div>
     </section>
     <section id="panel-dream" role="tabpanel" aria-labelledby="tab-dream" hidden>
       <div class="grid">
-        <article class="card"><div class="label">Auto Dream</div><p><span id="dream-state" class="pill"></span></p></article>
-        <article class="card"><div class="label" data-i18n="schedule">Schedule</div><div id="schedule" class="value compact"></div></article>
-        <article class="card"><div class="label" data-i18n="timezone">Timezone</div><div id="timezone" class="value compact"></div></article>
-        <article class="card"><div class="label" data-i18n="lastResult">Last result</div><div id="last-result" class="value compact"></div></article>
-        <article class="card wide"><h2 data-i18n="next">Next run</h2><div id="next" class="value compact"></div><p class="muted" data-i18n="dreamHelp">The daily schedule runs while the ReMe MCP connection is alive.</p></article>
-        <article class="card wide"><h2 data-i18n="last">Last consolidation</h2><p id="last"></p><p id="scheduler" class="muted"></p></article>
+        <article class="card full">
+          <div class="section-heading"><h2>Auto Dream</h2><span id="dream-state" class="pill"></span></div>
+          <dl class="properties">
+            <div><dt data-i18n="schedule">Schedule</dt><dd id="schedule"></dd></div>
+            <div><dt data-i18n="timezone">Timezone</dt><dd id="timezone"></dd></div>
+            <div><dt data-i18n="lastResult">Last result</dt><dd id="last-result"></dd></div>
+          </dl>
+        </article>
+        <article class="card"><h2 data-i18n="next">Next run</h2><div id="next" class="value compact"></div><p class="note" data-i18n="dreamHelp">The daily schedule runs while the ReMe MCP connection is alive.</p></article>
+        <article class="card"><h2 data-i18n="last">Last consolidation</h2><p id="last"></p><p id="scheduler" class="muted"></p></article>
       </div>
     </section>
     <section id="panel-components" role="tabpanel" aria-labelledby="tab-components" hidden>
       <div class="grid">
-        <article class="card wide"><div class="label" data-i18n="processMemory">Process memory (RSS)</div><div id="rss" class="value"></div></article>
-        <article class="card wide"><div class="label" data-i18n="componentMemory">Estimated component memory</div><div id="component-total" class="value"></div></article>
+        <article class="card"><div class="label" data-i18n="processMemory">Process memory (RSS)</div><div id="rss" class="value"></div></article>
+        <article class="card"><div class="label" data-i18n="componentMemory">Estimated component memory</div><div id="component-total" class="value"></div></article>
         <article class="card full"><h2 data-i18n="components">Components</h2><div id="components" class="component-grid"></div><p id="no-components" class="muted" hidden></p><p class="note" data-i18n="componentHelp">Memory estimates from ReMe status. Component-level health is not included in the MCP response.</p></article>
       </div>
-      <details><summary data-i18n="details">Service details</summary><pre id="details"></pre></details>
+      <details id="service-details"><summary data-i18n="details">Service details</summary><pre id="details"></pre></details>
     </section>
-    <p class="note" data-i18n="trust">Connection health does not establish Hook trust. Review ReMe in Codex Hooks settings.</p>
-    <p class="note" data-i18n="saved">This view uses saved settings. Save changes in MCP settings, then refresh here.</p>
+    <details id="view-help"><summary data-i18n="viewHelp">About this view</summary>
+      <p class="note" data-i18n="trust">Connection health does not establish Hook trust. Review ReMe in Codex Hooks settings.</p>
+      <p class="note" data-i18n="saved">This view uses saved settings. Save changes in MCP settings, then refresh here.</p>
+    </details>
   </div>
 </main>
 <script>(() => {
@@ -233,18 +252,13 @@
     en: {
       overview: "Overview",
       autoMemory: "Auto Memory",
-      consolidation: "Memory Consolidation",
+      consolidation: "Consolidation",
       components: "Components",
       service: "ReMe service",
-      runtime: "Runtime phase",
       queuedTurns: "Queued turns",
       queuedSessions: "Queued sessions",
-      automation: "Memory automation",
-      prompt: "1 \xB7 Prompt",
-      response: "2 \xB7 Response",
-      workspace: "3 \xB7 Workspace",
-      capture: "Turn capture",
-      files: "Memory files",
+      connectionDetails: "Connection details",
+      viewHelp: "About this view",
       interval: "Batch interval",
       timezone: "Timezone",
       lastResult: "Last result",
@@ -324,15 +338,10 @@
       consolidation: "\u8BB0\u5FC6\u6574\u7406",
       components: "\u7EC4\u4EF6",
       service: "ReMe \u670D\u52A1",
-      runtime: "\u8FD0\u884C\u72B6\u6001",
       queuedTurns: "\u5F85\u63D0\u4EA4\u8F6E\u6570",
       queuedSessions: "\u5F85\u63D0\u4EA4\u4F1A\u8BDD",
-      automation: "\u8BB0\u5FC6\u6D41\u7A0B",
-      prompt: "1 \xB7 \u63D0\u95EE",
-      response: "2 \xB7 \u56DE\u590D",
-      workspace: "3 \xB7 \u5DE5\u4F5C\u533A",
-      capture: "\u8BB0\u5F55\u5B8C\u6210\u8F6E\u6B21",
-      files: "\u8BB0\u5FC6\u6587\u4EF6",
+      connectionDetails: "\u8FDE\u63A5\u8BE6\u60C5",
+      viewHelp: "\u4F7F\u7528\u8BF4\u660E",
       interval: "\u6279\u6B21\u8F6E\u6570",
       timezone: "\u65F6\u533A",
       lastResult: "\u6700\u8FD1\u7ED3\u679C",
@@ -467,7 +476,6 @@
     const summary = typeof health.answer === "string" ? health.answer.trim().match(/(?:^|-\s*)(unhealthy|healthy)$/) : null;
     text("service-health", t(!health.reachable ? "offline" : summary?.[1] ?? "unknown"));
     $("service-health").dataset.tone = !health.reachable || summary?.[1] === "unhealthy" ? "bad" : summary ? "good" : "neutral";
-    text("runtime", t(data.auto_dream.phase));
     text("overview-queue", data.auto_memory.queued_turns);
     text("overview-sessions", data.auto_memory.queued_sessions);
     text("health", health.reachable ? typeof health.answer === "string" ? health.answer : JSON.stringify(health.answer) : health.error);
@@ -606,7 +614,7 @@
     }
     const host = await transport.request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "reme-status", version: "0.2.1" },
+      appInfo: { name: "reme-status", version: "0.2.2" },
       appCapabilities: { availableDisplayModes: ["fullscreen"] }
     });
     if (host.protocolVersion !== "2026-01-26") throw new Error("Unsupported UI protocol");

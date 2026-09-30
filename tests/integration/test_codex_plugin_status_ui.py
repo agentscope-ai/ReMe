@@ -22,7 +22,7 @@ def snapshot(language):
     return {
         "checked_at": 1790757300,
         "language": language,
-        "plugin_version": "0.2.1",
+        "plugin_version": "0.2.2",
         "mcpUrl": "http://localhost:2333/mcp",
         "service": {
             "health_check": {"reachable": True, "answer": "ReMe v0.4.1.13 - healthy"},
@@ -105,6 +105,9 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         assert "healthy" in frame.locator("#health").inner_text()
         assert "23:00" in frame.locator("#next").inner_text()
         assert frame.locator("#activity li").count() == 2
+        assert not frame.locator("#connection-details").get_attribute("open")
+        assert not frame.locator("#activity-details").get_attribute("open")
+        assert not frame.locator("#view-help").get_attribute("open")
         assert not page.evaluate(
             "window.calls.some(m => m.method === 'tools/call')",
         )  # Opening reuses the supplied result.
@@ -119,9 +122,18 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         assert frame.locator("#component-total").inner_text() == "1.25 MiB"
         frame.locator("#tab-components").press("Home")
         assert frame.locator("#panel-overview").is_visible()
-        page.set_viewport_size({"width": 420, "height": 1250})
-        page.evaluate("document.querySelector('iframe').style.width = '100%'")
-        assert frame.locator("body").evaluate("node => node.scrollWidth <= window.innerWidth")
+        for width in (320, 480, 640, 940):
+            page.set_viewport_size({"width": width + 16, "height": 1250})
+            page.evaluate("width => document.querySelector('iframe').style.width = `${width}px`", width)
+            for name in ("overview", "memory", "dream", "components"):
+                frame.locator(f"#tab-{name}").click()
+                assert frame.locator("body").evaluate("node => node.scrollWidth <= window.innerWidth")
+                assert frame.locator(f"#tab-{name}").evaluate(
+                    "node => node.scrollWidth <= node.clientWidth && node.scrollHeight <= node.clientHeight",
+                )
+            frame.locator("#tab-overview").click()
+            if width == 480:
+                page.screenshot(path=str(tmp_path / f"status-test-host-{theme}-narrow.png"), full_page=True)
 
         offline = snapshot(language)
         offline["service"]["health_check"] = {"reachable": False, "error": "ConnectionError"}
@@ -131,6 +143,7 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         page.evaluate("value => window.result = {structuredContent:value}", offline)
         frame.locator("#refresh").click()
         playwright.expect(frame.locator("#connection-state")).to_have_attribute("data-tone", "bad")
+        frame.locator("#connection-details summary").click()
         assert frame.locator("#endpoint").inner_text() == offline["mcpUrl"]
         assert frame.locator("#endpoint img").count() == 0
         assert "3" in frame.locator("#queue").inner_text()
@@ -139,17 +152,20 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         assert frame.locator("#error").is_hidden()  # Offline is a useful status result, not a broken panel.
 
         frame.locator("#tab-memory").click()
+        frame.locator("#activity-details summary").click()
+        assert frame.locator("#activity li").first.is_visible()
         page.evaluate("window.failRefresh = true")
         frame.locator("#refresh").click()
         frame.locator("#error").wait_for(state="visible")
         assert "3" in frame.locator("#queue").inner_text()  # Failed refresh keeps the last snapshot.
         assert frame.locator("#refresh").is_enabled()
         assert frame.locator("#panel-memory").is_visible()  # Refresh preserves navigation.
+        assert frame.locator("#activity li").first.is_visible()  # Refresh preserves expanded details.
         frame.locator("#tab-components").click()
         assert frame.locator("#rss").inner_text() == "—"
         assert frame.locator("#components .component").count() == 0
-        assert not frame.locator("details").get_attribute("open")
-        frame.locator("summary").click()
+        assert not frame.locator("#service-details").get_attribute("open")
+        frame.locator("#service-details summary").click()
         assert "ConnectionError" in frame.locator("#details").inner_text()
         unhealthy = snapshot(language)
         unhealthy["service"]["health_check"]["answer"] = "ReMe v0.4.1.13 - unhealthy"

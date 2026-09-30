@@ -10,10 +10,10 @@ let hasSnapshot = false;
 let refreshing = false;
 const words = {
   en: {
-    overview: "Overview", autoMemory: "Auto Memory", consolidation: "Memory Consolidation", components: "Components",
-    service: "ReMe service", runtime: "Runtime phase", queuedTurns: "Queued turns", queuedSessions: "Queued sessions",
-    automation: "Memory automation", prompt: "1 · Prompt", response: "2 · Response", workspace: "3 · Workspace",
-    capture: "Turn capture", files: "Memory files", interval: "Batch interval", timezone: "Timezone", lastResult: "Last result",
+    overview: "Overview", autoMemory: "Auto Memory", consolidation: "Consolidation", components: "Components",
+    service: "ReMe service", queuedTurns: "Queued turns", queuedSessions: "Queued sessions",
+    connectionDetails: "Connection details", viewHelp: "About this view",
+    interval: "Batch interval", timezone: "Timezone", lastResult: "Last result",
     healthy: "Healthy", unhealthy: "Unhealthy", unknown: "Unknown", processMemory: "Process memory (RSS)",
     componentMemory: "Estimated component memory", noComponents: "No component memory details returned.",
     componentHelp: "Memory estimates from ReMe status. Component-level health is not included in the MCP response.",
@@ -41,9 +41,9 @@ const words = {
   },
   zh: {
     overview: "总览", autoMemory: "自动记忆", consolidation: "记忆整理", components: "组件",
-    service: "ReMe 服务", runtime: "运行状态", queuedTurns: "待提交轮数", queuedSessions: "待提交会话",
-    automation: "记忆流程", prompt: "1 · 提问", response: "2 · 回复", workspace: "3 · 工作区",
-    capture: "记录完成轮次", files: "记忆文件", interval: "批次轮数", timezone: "时区", lastResult: "最近结果",
+    service: "ReMe 服务", queuedTurns: "待提交轮数", queuedSessions: "待提交会话",
+    connectionDetails: "连接详情", viewHelp: "使用说明",
+    interval: "批次轮数", timezone: "时区", lastResult: "最近结果",
     healthy: "健康", unhealthy: "异常", unknown: "未知", processMemory: "进程内存（RSS）",
     componentMemory: "组件内存估算", noComponents: "暂无组件内存信息。",
     componentHelp: "内存为 ReMe status 返回的估算值；MCP 响应不包含组件级健康信息。",
@@ -107,7 +107,6 @@ function render(result) {
   const summary = typeof health.answer === "string" ? health.answer.trim().match(/(?:^|-\s*)(unhealthy|healthy)$/) : null;
   text("service-health", t(!health.reachable ? "offline" : summary?.[1] ?? "unknown"));
   $("service-health").dataset.tone = !health.reachable || summary?.[1] === "unhealthy" ? "bad" : summary ? "good" : "neutral";
-  text("runtime", t(data.auto_dream.phase));
   text("overview-queue", data.auto_memory.queued_turns);
   text("overview-sessions", data.auto_memory.queued_sessions);
   text("health", health.reachable ? (typeof health.answer === "string" ? health.answer : JSON.stringify(health.answer)) : health.error);
@@ -212,7 +211,7 @@ $("refresh").addEventListener("click", async () => {
 async function connect() {
   if (window.parent === window) { text("loading", t("noHost")); return; }
   const host = await transport.request("ui/initialize", {
-    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.1" },
+    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.2" },
     appCapabilities: { availableDisplayModes: ["fullscreen"] },
   });
   if (host.protocolVersion !== "2026-01-26") throw new Error("Unsupported UI protocol");
