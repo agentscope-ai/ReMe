@@ -30,10 +30,24 @@ test("exports a Cordis schema that rejects invalid configuration", async () => {
   for (const input of [
     { endpoint: "not-a-url" },
     { endpoint: "http://localhost:bad-port" },
+    { endpoint: "http://localhost:65536" },
+    { endpoint: "http://[:::]" },
+    { endpoint: "http://999.0.0.1" },
     { dreamCron: "every night" },
     { timezone: "Mars/Olympus" },
   ]) {
-    assert.ok(Config["~standard"].validate(input).issues?.length);
+    assert.throws(() => Config["~standard"].validate(input));
+  }
+
+  for (const timezone of [
+    "US/Pacific",
+    "US/Eastern",
+    "Etc/GMT+8",
+    "Etc/GMT-8",
+  ]) {
+    const result = Config["~standard"].validate({ timezone });
+    assert.equal(result.issues, undefined);
+    assert.equal(result.value.timezone.get(), timezone);
   }
 });
 
@@ -51,9 +65,10 @@ test("volatile settings survive Host projection and browser schema rehydration",
     fields.map(([name]) => [name, defaults[name].get()]),
   );
   assert.equal(browserForm["~standard"].validate(values).issues, undefined);
-  assert.ok(
-    browserForm["~standard"].validate({ ...values, dreamCron: "bad" }).issues
-      ?.length,
+  assert.equal(
+    browserForm["~standard"].validate({ ...values, timezone: "US/Pacific" })
+      .issues,
+    undefined,
   );
 });
 
@@ -116,28 +131,43 @@ test("Loader keeps the previous live values when an update fails schema validati
     const id = await ctx.loader.create({
       id: "reme-memory",
       name: "cordis:remeTest",
-      config: { endpoint: "http://valid.test", autoDreamEnabled: false },
+      config: {
+        endpoint: "http://valid.test",
+        autoMemoryEnabled: false,
+        autoDreamEnabled: false,
+        timezone: "US/Pacific",
+      },
     });
     const entry = ctx.loader.resolve(id);
     await entry.fiber.await();
     for (const patch of [
       { endpoint: "not-a-url" },
+      { endpoint: "http://localhost:65536" },
+      { endpoint: "http://999.0.0.1" },
       { dreamCron: "every night" },
       { timezone: "Mars/Olympus" },
     ]) {
       await entry.update({
         config: {
           endpoint: "http://valid.test",
+          autoMemoryEnabled: true,
           autoDreamEnabled: false,
+          timezone: "US/Pacific",
           ...patch,
         },
       });
       assert.equal(live.endpoint.get(), "http://valid.test");
+      assert.equal(live.autoMemoryEnabled.get(), false);
       assert.equal(live.dreamCron.get(), "0 23 * * *");
-      assert.equal(live.timezone.get(), "Asia/Shanghai");
+      assert.equal(live.timezone.get(), "US/Pacific");
     }
     await entry.update({
-      config: { endpoint: "http://updated.test", autoDreamEnabled: false },
+      config: {
+        endpoint: "http://updated.test",
+        autoMemoryEnabled: false,
+        autoDreamEnabled: false,
+        timezone: "US/Pacific",
+      },
     });
     assert.equal(live.endpoint.get(), "http://updated.test");
   } finally {

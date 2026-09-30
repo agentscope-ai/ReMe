@@ -3,31 +3,19 @@ import z from "@deepseek-ai/schemastery";
 import { validTimezone, validateDailyCron } from "./scheduling.js";
 import type { ReMeConfig, ReMeConfigInput } from "./types.js";
 
-// DSH sends volatile schemas to the browser as JSON, so these checks must serialize without callbacks.
-const HTTP_ENDPOINT =
-  /^https?:\/\/(?:\[[0-9a-fA-F:.]+\]|[^\s/?#:@]+)(?::\d{1,5})?(?:[/?#][^\s]*)?$/;
-const DAILY_CRON = /^(?:[0-5]?\d)\s+(?:[01]?\d|2[0-3])\s+\*\s+\*\s+\*$/;
-const TIMEZONES = [
-  ...Intl.supportedValuesOf("timeZone"),
-  "UTC",
-  "Etc/UTC",
-  "GMT",
-  "Etc/GMT",
-];
-const TIMEZONE = new RegExp(`^(?:${TIMEZONES.map(escapeRegExp).join("|")})$`);
+const DEFAULT_ENDPOINT =
+  process.env.REME_URL ||
+  `http://${process.env.REME_HOST || "127.0.0.1"}:${
+    process.env.REME_PORT || "2333"
+  }`;
+const DEFAULT_DREAM_CRON = process.env.REME_DSH_DREAM_CRON || "0 23 * * *";
 
 export const Config = z.object({
-  endpoint: z
-    .string()
-    .pattern(HTTP_ENDPOINT)
-    .description("ReMe HTTP service URL")
-    .default(
-      process.env.REME_URL ||
-        `http://${process.env.REME_HOST || "127.0.0.1"}:${
-          process.env.REME_PORT || "2333"
-        }`,
-    )
-    .volatile(),
+  endpoint: checkedString(
+    DEFAULT_ENDPOINT,
+    "ReMe HTTP service URL",
+    assertEndpoint,
+  ),
   requestTimeoutMs: z.natural().min(1000).max(120000).default(10000).volatile(),
   backgroundTimeoutMs: z
     .natural()
@@ -39,27 +27,47 @@ export const Config = z.object({
   autoMemoryEnabled: z.boolean().default(true).volatile(),
   autoMemoryInterval: z.natural().min(1).max(1000).default(5).volatile(),
   autoDreamEnabled: z.boolean().default(true).volatile(),
-  dreamCron: z
-    .string()
-    .pattern(DAILY_CRON)
-    .description("Daily cron in the workspace timezone")
-    .default(process.env.REME_DSH_DREAM_CRON || "0 23 * * *")
-    .volatile(),
+  dreamCron: checkedString(
+    DEFAULT_DREAM_CRON,
+    "Daily cron in the workspace timezone",
+    validateDailyCron,
+  ),
   dreamHint: z.string().default("").volatile(),
   dreamIntervalMs: z.natural().max(2147483647).default(0),
   rootAgentsOnly: z.boolean().default(true).volatile(),
   language: z.union(["en", "zh"]).default("en").volatile(),
   searchLimit: z.natural().min(1).max(50).default(5).volatile(),
-  timezone: z
-    .string()
-    .pattern(TIMEZONE)
-    .default("Asia/Shanghai")
-    .description("IANA timezone matching the ReMe workspace")
-    .volatile(),
+  timezone: checkedString(
+    "Asia/Shanghai",
+    "IANA timezone matching the ReMe workspace",
+    (value) => {
+      if (!validTimezone(value))
+        throw new TypeError(`Invalid ReMe timezone: ${value}`);
+    },
+  ),
 });
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function checkedString(
+  defaultValue: string,
+  description: string,
+  check: (value: string) => void,
+) {
+  const form = z
+    .string()
+    .description(description)
+    .default(defaultValue)
+    .volatile();
+  const host = z
+    .transform(z.string(), (value) => {
+      check(value);
+      return value;
+    })
+    .description(description)
+    .default(defaultValue)
+    .volatile();
+  // DSH sends Config.toJSON() to the browser; keep Host validation while serializing a plain form field.
+  host.toJSON = () => form.toJSON();
+  return host;
 }
 
 const DEFAULT_CONFIG: Readonly<ReMeConfig> = Object.freeze({
