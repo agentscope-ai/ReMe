@@ -8,7 +8,9 @@ Your memory files stay in your own ReMe workspace.
 
 ## Before you start
 
-- Use the latest Codex, with plugin installation and Hook review. Use the desktop app for native MCP settings.
+- **Codex CLI >= 0.159.2** for installation and CLI use. Run `codex --version` to check.
+- **Codex desktop >= 26.924.22138** for the MCP settings form and status panel. Check the version in **About**.
+  These are the versions validated for this guide; older releases have not been verified.
 - Make Python 3.11+ and `fastmcp>=3.4.2` available as `python3` in the environment that launches Codex,
   even when ReMe runs on another machine. Check with:
 
@@ -213,7 +215,7 @@ with the previous address; switch back to retry them. Changes made during consol
 
 | Symptom | Check |
 | --- | --- |
-| No MCP settings entry | Open the installed ReMe detail and its `reme` MCP card in the latest desktop app; confirm it is enabled and restart. |
+| No MCP settings entry | Confirm your desktop version meets the requirement above, then open the installed ReMe detail and its `reme` MCP card; confirm it is enabled and restart. |
 | Blank status card followed by a plugin feature loading error | Check network access to the Codex sandbox page; see below. |
 | Connection healthy, no recording or recall | Review every ReMe Hook; check the auto switches and recent activity. Health does not prove Hook execution. |
 | Turns stay queued | Keep Codex and ReMe running. Check the ReMe model configuration and service logs, and confirm the startup command includes `service.tool_error_on_failure=true`. |
