@@ -1,6 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { apply, Config } from "../dist/index.js";
+import { hasGuidance } from "../dist/guidance.js";
+
+test("recognizes guidance already stored by the previous DSH plugin", () => {
+  const legacy = {
+    role: "user",
+    source: { kind: "plugin", plugin: "reme-memory", form: "instructions" },
+  };
+  assert.equal(
+    hasGuidance({ events: [{ type: "user/message", data: legacy }] }),
+    true,
+  );
+  assert.equal(hasGuidance({ events: [] }, [legacy]), true);
+  assert.equal(
+    hasGuidance({
+      events: [
+        {
+          type: "user/message",
+          data: {
+            source: { kind: "plugin", plugin: "other", form: "instructions" },
+          },
+        },
+      ],
+    }),
+    false,
+  );
+});
 
 test("composes root-agent guidance and reme_search on supported DSH releases", async () => {
   const handlers = new Map();

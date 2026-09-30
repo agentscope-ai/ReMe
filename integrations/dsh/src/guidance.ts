@@ -46,7 +46,8 @@ function isGuidance(value: unknown): boolean {
   const source = isRecord(value) ? value.source : undefined;
   return (
     isRecord(source) &&
-    source.kind === REME_PLUGIN_SOURCE &&
+    (source.kind === REME_PLUGIN_SOURCE ||
+      (source.kind === "plugin" && source.plugin === REME_PLUGIN_SOURCE)) &&
     source.form === "instructions"
   );
 }
