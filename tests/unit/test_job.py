@@ -384,6 +384,32 @@ def test_application_starts_jobs_base_stream_background_cron():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+def test_application_respects_cron_schedule_switch(enabled):
+    async def run():
+        app = object.__new__(Application)
+        app._started_components = []
+        app.logger = MagicMock()
+        job = CronJob(cron="0 23 * * *", enable_schedule=enabled, enable_serve=True, name="dream_cron")
+        job.start = AsyncMock()
+
+        await app._start_one(job)
+
+        assert job.start.await_count == int(enabled)
+        assert app._started_components == ([job] if enabled else [])
+        assert job.enable_serve is False
+        assert job._task is None
+
+        for cls in (BaseJob, StreamJob, BackgroundJob):
+            other = cls(enable_schedule=False)
+            other.start = AsyncMock()
+            await app._start_one(other)
+            other.start.assert_awaited_once()
+            assert "enable_schedule" not in other.kwargs
+
+    asyncio.run(run())
+
+
 def test_application_start_failure_propagates_and_closes_started_components():
     async def run():
         class GoodComponent(BaseComponent):

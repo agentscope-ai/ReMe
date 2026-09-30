@@ -40,8 +40,12 @@ ReMe HTTP 服务默认监听 `http://127.0.0.1:2333`，不使用 API Key 认证�
 
 ```bash
 reme start workspace_dir=/absolute/path/to/your/reme-workspace \
-  service.host=127.0.0.1 service.port=3457
+  service.host=127.0.0.1 service.port=3457 \
+  jobs.dream_cron.enable_schedule=false
 ```
+
+插件默认负责每日 Dream 调度，因此这里关闭 ReMe 的 `dream_cron`，保留 `auto_dream` 接口。
+若改由 ReMe 调度，省略该覆盖并将插件的 `autoDreamEnabled` 设为 `false`。多个宿主共享服务时，只启用一个调度方。
 
 开发或截图测试时建议使用仓库外的独立目录，例如 `/tmp/reme-dsh-demo`，不要把运行时记忆写入 ReMe 仓库自身的 `.reme/`。
 

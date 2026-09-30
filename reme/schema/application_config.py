@@ -24,6 +24,7 @@ class JobConfig(ComponentConfig):
     parameters: dict = Field(default_factory=dict, description="Job-level parameters")
     steps: list[ComponentConfig] = Field(default_factory=list, description="Ordered step configs")
     enable_serve: bool = Field(default=True, description="Whether to expose this job through the service layer")
+    enable_schedule: bool = Field(default=True, description="Whether to start automatic scheduling for a cron job")
 
 
 class ApplicationConfig(BaseModel):

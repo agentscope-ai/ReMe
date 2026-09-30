@@ -74,6 +74,19 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
+## Cron scheduling
+
+`jobs.<name>.enable_schedule` defaults to `true` and controls automatic startup of cron jobs only.
+Set it to `false` when a host plugin owns the schedule:
+
+```bash
+reme start jobs.dream_cron.enable_schedule=false
+```
+
+Restart the service to apply the override. The `auto_dream` API remains available, and other jobs continue running.
+`enable_serve` separately controls service exposure; it does not disable scheduling. Disabled cron jobs retain their
+configuration but do not start their steps or background tasks. The switch has no effect on other job types.
+
 ## LLM
 
 The default LLM uses an OpenAI-compatible interface:

@@ -40,8 +40,13 @@ pip install "reme-ai[core]"
 reme start \
   workspace_dir=/absolute/path/to/reme-workspace \
   service.host=127.0.0.1 \
-  service.port=3458
+  service.port=3458 \
+  jobs.dream_cron.enable_schedule=false
 ```
+
+The plugin owns the daily Dream schedule by default, so this disables ReMe's `dream_cron` while keeping the
+`auto_dream` API available. To use ReMe scheduling instead, omit this override and set the plugin's
+`autoDreamEnabled` to `false`. Shared services should have only one scheduler.
 
 Verify the service without exposing configuration or credentials:
 

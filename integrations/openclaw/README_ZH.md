@@ -37,8 +37,12 @@ pip install "reme-ai[core]"
 reme start \
   workspace_dir=/absolute/path/to/reme-workspace \
   service.host=127.0.0.1 \
-  service.port=3458
+  service.port=3458 \
+  jobs.dream_cron.enable_schedule=false
 ```
+
+插件默认负责每日 Dream 调度，因此这里关闭 ReMe 的 `dream_cron`，保留 `auto_dream` 接口。
+若改由 ReMe 调度，省略该覆盖并将插件的 `autoDreamEnabled` 设为 `false`。多个宿主共享服务时，只启用一个调度方。
 
 不读取或输出模型配置即可验证服务：
 

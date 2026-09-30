@@ -46,6 +46,7 @@ class BaseJob(BaseComponent):
         enable_serve: bool = True,
         **kwargs,
     ):
+        kwargs.pop("enable_schedule", None)
         super().__init__(**kwargs)
         self.description = description
         self.parameters = parameters or {}

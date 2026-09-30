@@ -206,6 +206,9 @@ class Application(BaseComponent):
 
     async def _start_one(self, c: BaseComponent) -> None:
         """Start one component and record it for ordered shutdown."""
+        if isinstance(c, CronJob) and not c.enable_schedule:
+            self.logger.info(f"Skipping disabled cron job: {c.name}")
+            return
         try:
             if isinstance(c, BackgroundJob):
                 self.logger.info(f"Starting background job: {c.name}")

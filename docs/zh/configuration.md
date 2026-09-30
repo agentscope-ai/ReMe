@@ -79,6 +79,17 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
 
+## Cron 调度
+
+`jobs.<name>.enable_schedule` 默认为 `true`，仅控制 cron Job 是否自动启动。由宿主插件负责调度时，可以关闭服务端对应任务：
+
+```bash
+reme start jobs.dream_cron.enable_schedule=false
+```
+
+重启服务后生效。`auto_dream` 接口仍可调用，其他 Job 继续运行。`enable_serve` 独立控制接口暴露，不控制调度。
+关闭的 cron 保留配置，但不启动 Steps 或后台任务；此开关对其他 Job 类型没有影响。
+
 ## LLM 配置
 
 默认 LLM 使用 OpenAI-compatible 接口：

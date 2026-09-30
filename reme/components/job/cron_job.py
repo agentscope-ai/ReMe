@@ -13,9 +13,10 @@ from ...schema import Response
 class CronJob(BackgroundJob):
     """Run this job's own steps on a cron expression."""
 
-    def __init__(self, cron: str, **kwargs):
+    def __init__(self, cron: str, enable_schedule: bool = True, **kwargs):
         super().__init__(**kwargs)
         self.cron_expr = cron
+        self.enable_schedule = enable_schedule
 
     async def _start(self) -> None:
         from croniter import croniter

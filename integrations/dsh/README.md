@@ -41,8 +41,13 @@ host-specific plugin.
 
 ```bash
 reme start workspace_dir=/absolute/path/to/your/reme-workspace \
-  service.host=127.0.0.1 service.port=3457
+  service.host=127.0.0.1 service.port=3457 \
+  jobs.dream_cron.enable_schedule=false
 ```
+
+The plugin owns the daily Dream schedule by default, so this disables ReMe's `dream_cron` while keeping the
+`auto_dream` API available. To use ReMe scheduling instead, omit this override and set the plugin's
+`autoDreamEnabled` to `false`. Shared services should have only one scheduler.
 
 For development and screenshots, use an isolated directory outside the repository, such as `/tmp/reme-dsh-demo`. Do not write runtime memory into the repository's `.reme/` directory.
 
