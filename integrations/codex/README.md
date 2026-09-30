@@ -2,9 +2,9 @@
 
 [中文说明](./README_ZH.md)
 
-Connect Codex to your ReMe service to remember facts, preferences, and decisions across conversations.
-Relevant memories are recalled before a prompt, completed conversations are recorded automatically,
-and daily notes can be consolidated on a schedule. Your ReMe workspace owns the durable Markdown files.
+Connect Codex to your ReMe service to remember project decisions, preferences, and unfinished work
+across conversations. ReMe can automatically record and recall memories, and organize them each day.
+Your memory files stay in your own ReMe workspace.
 
 ## Before you start
 
@@ -39,13 +39,11 @@ Keep the service running. Its MCP address is `http://127.0.0.1:2333/mcp`; it mus
 **the machine running Codex**. Use your service's actual address when it runs elsewhere.
 `workspace_dir` determines where your memory lives. Keep an unauthenticated service on loopback or behind a protected proxy.
 
-Keep `service.tool_error_on_failure=true`: failed memory jobs must fail their MCP calls so unacknowledged
-writes remain queued for retry. A successful health check does not verify this setting.
+Keep `service.tool_error_on_failure=true` so failed writes can be retried later.
 
-The last two options stop ReMe's built-in Dream timer so Codex can schedule consolidation. They use
-existing service configuration and require no ReMe code changes. If your service already manages
-consolidation and you want to keep that schedule, omit those options and turn off **Daily memory
-consolidation** (`autoDreamEnabled`) in Codex. Choose one scheduler for a shared workspace.
+This example lets Codex manage daily consolidation. If your ReMe service already has a schedule
+you want to keep, omit the last two options and turn off **Daily memory consolidation** in Codex.
+Enable daily consolidation in only one place for the same workspace.
 
 ## 2. Install ReMe and trust its Hooks
 
@@ -64,18 +62,8 @@ Restart the desktop app, or start a new CLI session. Open the installed ReMe ent
 ![ReMe installed and enabled in Codex](./figures/plugin-installed.png)
 -->
 
-In Codex's Hooks settings, review and trust **every ReMe entry**. In the CLI, use `/hooks`.
-There are seven handlers across five events:
-
-| Event | Purpose |
-| --- | --- |
-| `UserPromptSubmit` | Recall relevant memory before the prompt. |
-| `Stop` | Save the completed turn locally, then deliver due batches in the background; two entries. |
-| `SubagentStop` | The same two entries for subagents, used only when `rootAgentsOnly=false`. |
-| `SessionStart` | Retry pending writes in the background. |
-| `SessionEnd` | Attempt a short final delivery; preserve unfinished batches. |
-
-Untrusted Hooks do not run. Installing or connecting the MCP server does not grant Hook trust.
+In Codex's Hooks settings, review and trust **every ReMe entry** (currently seven). In the CLI, use `/hooks`.
+This enables automatic recording and recall. A healthy service connection alone does not enable them.
 After an update, review any changed entries again. See [Codex Hook review and trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
 > **Screenshot placeholder — `hooks-trusted.png`:** All seven ReMe entries enabled and trusted in Codex Hooks settings or `/hooks`.
@@ -87,21 +75,21 @@ After an update, review any changed entries again. See [Codex Hook review and tr
 ## 3. Connect through MCP settings
 
 Open the installed ReMe entry, find its **reme MCP server** card, and choose **Open MCP settings**.
-This is the editable form for the service address and memory options.
+Use this form to change the service address and memory options. You do not need to edit a configuration file.
 
 For a first test, save these values:
 
 | Field | Value |
 | --- | --- |
-| ReMe MCP address (`mcpUrl`) | `http://127.0.0.1:2333/mcp`, or your reachable service address |
-| Automatic recall (`autoRecall`) | On |
-| Automatic memory capture (`autoMemoryEnabled`) | On |
-| Capture batch size (`autoMemoryInterval`) | `1` |
-| Memory guidance language (`language`) | `en` or `zh` |
+| ReMe MCP address | `http://127.0.0.1:2333/mcp`, or your reachable service address |
+| Automatic recall | On |
+| Automatic memory capture | On |
+| Capture batch size | `1` to record after each completed reply |
+| Memory guidance language | `en` or `zh` |
 
-Save before using an action. Click **ReMe status** to open the status panel. Its Connection section checks the saved service
-address and shows the ReMe version and `healthy` when reachable. This verifies service access;
-recording and recall still need the conversation test below.
+Save, then click **ReMe status**. In **Overview**, check that the service is **Healthy** and the ReMe
+version is shown. If it is unavailable, expand **Connection details** to check the address and confirm
+that your service is running. Next, try recording and recalling a memory.
 
 > **Screenshot placeholder — `mcp-settings.png`:** Actual native form with the address, capture switches, batch size, and the single ReMe status entry.
 
@@ -109,21 +97,21 @@ recording and recall still need the conversation test below.
 ![ReMe MCP settings and connection result](./figures/mcp-settings.png)
 -->
 
-## 4. Verify memory across two conversations
+## 4. Try your first memory
 
 Start a fresh conversation A. Use a unique project and phrase, for example:
 
 ```text
-Remember this confirmed project decision: ReMe-Example-7319 reviews happen Friday
-at 16:45 UTC. The verification phrase is amber-lynx-7319.
-Do not use tools or write files yourself; just acknowledge the facts.
+Remember this project decision: ReMe-Example-7319 reviews happen Friday
+at 16:45 UTC. The project keyword is amber-lynx-7319.
 ```
 
-Keep the conversation open while recording finishes. In MCP settings, **ReMe status** should show
-`memory_saved` and zero queued turns. In your ReMe workspace, confirm a `daily/` Markdown note
-contains the fact. An acknowledgement by Codex alone is not evidence of a successful write.
+After Codex replies, keep the conversation open while recording finishes. Open **ReMe status →
+Auto Memory → Recent activity** and look for **Memory saved** (`memory_saved`). **Queued turns**
+should return to zero. You can also read the saved note under `daily/` in your ReMe workspace.
+Wait for the saved status before continuing; Codex's acknowledgement alone does not confirm recording.
 
-> **Screenshot placeholder — `memory-recorded.png`:** Conversation A with the test fact and acknowledgement, without explicit tool calls.
+> **Screenshot placeholder — `memory-recorded.png`:** Conversation A with the project decision and acknowledgement.
 
 <!--
 ![Codex conversation supplying a fact to remember](./figures/memory-recorded.png)
@@ -132,14 +120,13 @@ contains the fact. An acknowledgement by Codex alone is not evidence of a succes
 Start a separate conversation B:
 
 ```text
-For ReMe-Example-7319, when are the reviews and what is the verification phrase?
-Use supplied ReMe memory and cite its source path. Do not call tools;
-if no memory was supplied, say you do not know.
+For ReMe-Example-7319, when are the reviews and what is the project keyword?
+Use ReMe memory and include the source path in your answer.
 ```
 
-Expect the correct time, phrase, and a ReMe source path such as `daily/...md`. **ReMe status** should
-include `recall_found`. This tests automatic recall independently of explicit search tools.
-For everyday use, you can also ask Codex to search past decisions with `reme_search`.
+Expect Friday at 16:45 UTC, `amber-lynx-7319`, and a source path such as `daily/...md`.
+To confirm automatic recall, check **Auto Memory → Recent activity** for **Relevant memory recalled**
+(`recall_found`). A correct answer without that event does not confirm that automatic recall is enabled.
 
 > **Screenshot placeholder — `memory-recalled.png`:** Separate conversation B with the recalled facts and source path.
 
@@ -147,45 +134,40 @@ For everyday use, you can also ask Codex to search past decisions with `reme_sea
 ![Codex recalling memory in a separate conversation](./figures/memory-recalled.png)
 -->
 
-After verification, adjust the batch size for normal use; the default is five completed turns.
-Short batches are also attempted at session boundaries. Failed or interrupted deliveries remain
-queued locally for a later session. A short-lived `codex exec` can exit before background delivery
-finishes; keep a session open when checking automatic writes.
+For everyday use, ask naturally: “What did we decide about this project's release process?” or
+“Find my earlier preferences for code reviews.” You can adjust **Capture batch size** after the first
+check; the default is five completed replies. Use `1` if you want each reply recorded promptly.
+Keep Codex open until queued turns are saved, especially during short CLI sessions.
 
 ## 5. Schedule or run memory consolidation
 
 In **Auto Dream**, set **Daily memory consolidation**, **Auto Dream schedule**, **Workspace timezone**,
 and optionally **Auto Dream hint**, then save. Defaults are `0 23 * * *` and `Asia/Shanghai`: daily at 23:00.
 Only the daily form `minute hour * * *` is supported; for 02:30 use `30 2 * * *`.
-The hint guides how ReMe consolidates existing daily notes into durable memory.
+Use the hint to emphasize what to retain, for example: “Prioritize project decisions and unresolved tasks.”
 
-**ReMe status** shows the active schedule, timezone, next run, and latest result. The schedule runs
-while Codex keeps the ReMe MCP connection alive. Closing Codex stops the timer; missed occurrences
-are not replayed on startup. Multiple sessions sharing one `CODEX_HOME` use one scheduler. Separate
-profiles or machines need their own coordination: enable only one scheduler for the same ReMe workspace.
+Open **ReMe status → Consolidation** to check the next run and latest result. Keep Codex and ReMe
+running at the scheduled time; missed runs are not made up after restarting. If several machines
+use the same ReMe workspace, enable daily consolidation on only one of them.
 
-For an immediate run, wait until pending writes are delivered, then click **Consolidate now (updates
-memory files)** or explicitly ask Codex to use `reme_run_dream`. This updates existing memory files.
-It remains available with the schedule disabled. Turning the schedule off does not cancel a request
-already sent to ReMe; a timeout also does not prove that server-side processing has stopped.
+To organize your memories now, wait for **Queued turns** to reach zero, then click **Consolidate now
+(updates memory files)** in MCP settings. This updates your memory files and also works when the daily
+schedule is off. Check **Consolidation** for the result. Turning off the schedule does not stop an
+already-started run; after a timeout, check its status before trying again.
 
-## 6. Inspect status and adjust settings
+## 6. Check status and customize ReMe
 
-Click **ReMe status** to open a dedicated panel from MCP settings. Connection checks and memory
-status share this one entry. Four tabs organize the panel: **Overview**, **Auto Memory**,
-**Consolidation**, and **Components**. They show service health and the pending queue;
-capture settings, queued turns/sessions, recall and recent activity; Dream scheduling and results;
-and component memory estimates plus process RSS. Click **Refresh** to check again;
-connection details, recent activity, usage notes, and raw service details expand when needed. Narrow cards use a
-single content column and two rows of tabs. The initial view uses the opening call's result without
-a second request. The panel follows the host theme and the saved `language` setting.
+Open **ReMe status** from MCP settings and choose the tab for what you want to check:
 
-You can also ask Codex to call `reme_status` in a conversation. Hosts without an App view receive
-the same status as text. Opening or refreshing the panel does not record or consolidate memory.
-Component health and indexed-document counts are not exposed by the current ReMe MCP response;
-the panel shows the available memory estimates without substituting other counts.
-Queue and activity information remain available when the service is unreachable. Hook trust is
-checked separately in Codex's Hooks settings.
+| Tab | What to check |
+| --- | --- |
+| Overview | Is ReMe healthy? Are any conversation turns waiting to be saved? Expand **Connection details** to see the service address. |
+| Auto Memory | Are recording and recall enabled? Expand **Recent activity** to check the latest saves, recalls, or failures. |
+| Consolidation | When will memories next be organized, and did the last run succeed? |
+| Components | How much memory is ReMe using? Expand **Service details** when troubleshooting. |
+
+Click **Refresh** for an updated view. If you prefer a text answer, ask Codex:
+“Call `reme_status` and summarize my connection, pending memories, and next consolidation.”
 
 > **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel or `reme_status` output with connection health, queued turns, recent activity, and the next Dream run.
 
@@ -193,28 +175,39 @@ checked separately in Codex's Hooks settings.
 ![ReMe delivery and consolidation status in Codex](./figures/plugin-status.png)
 -->
 
-| Setting | Default | Meaning |
-| --- | --- | --- |
-| `mcpUrl` | `http://127.0.0.1:2333/mcp` | Full ReMe MCP URL. |
-| `autoRecall` | `true` | Recall relevant memory before each prompt. |
-| `autoMemoryEnabled` | `true` | Record completed user/assistant turns. |
-| `autoMemoryInterval` | `5` | Completed turns per batch, from 1 to 1000. |
-| `rootAgentsOnly` | `true` | Exclude subagent recall and recording. |
-| `searchLimit` | `5` | Maximum search results, from 1 to 50. |
-| `recallMinScore` | `0` | Minimum search score, nonnegative. |
-| `language` | `en` | `en` or `zh` for memory guidance and local results; form labels stay in English. |
-| `autoDreamEnabled` | `true` | Enable daily consolidation while the MCP connection is alive. |
-| `dreamCron` | `0 23 * * *` | Daily consolidation time. |
-| `dreamHint` | Empty | Guidance for scheduled and manual consolidation. |
-| `timezone` | `Asia/Shanghai` | IANA timezone for memory dates and the daily schedule. |
-| `requestTimeoutMs` | `10000` | Foreground request budget, from 1000 to 120000 ms. |
-| `backgroundTimeoutMs` | `3600000` | Memory extraction and consolidation budget, from 1000 to 3600000 ms. |
-| `shutdownTimeoutMs` | `5000` | Shutdown budget, from 100 to 60000 ms. Codex's `SessionEnd` limit restricts exit delivery to at most 2 seconds. |
+Change options in **Open MCP settings**, then save. New settings apply to subsequent activity; you do
+not need to reinstall. Common adjustments are listed below using the names shown in the form.
 
-Saved settings apply to subsequent calls without reinstalling. They live outside the plugin cache,
-in `${CODEX_HOME:-~/.codex}/reme/config.json`. See [the complete configuration example](plugins/reme/config.example.json).
-Changing `mcpUrl` does not send old queued conversations to the new service; switch back to the old
-address to retry them. Settings changed during consolidation apply to subsequent runs.
+| Field | Default | When to change it |
+| --- | --- | --- |
+| ReMe MCP address | `http://127.0.0.1:2333/mcp` | Connect to a different ReMe service. |
+| Automatic memory capture | On | Turn off to pause automatic recording. |
+| Capture batch size | `5` | Set to `1` to save after each completed reply; increase to group more replies per save. |
+| Automatic recall | On | Turn off to stop adding past memories to new prompts. |
+| Root agents only | On | Turn off if you also want subagent conversations recorded and recalled. |
+| Memory guidance language | `en` | Choose `zh` for Chinese guidance and status text. Settings labels remain English. |
+| Search result limit | `5` | Increase to retrieve more results, up to 50. |
+| Minimum recall score | `0` | Increase to filter out lower-scoring matches. |
+| Daily memory consolidation | On | Turn off if you prefer manual organization or already have a service schedule. |
+| Auto Dream schedule | `0 23 * * *` | Set the daily time, for example `30 2 * * *` for 02:30. |
+| Auto Dream hint | Empty | Describe which information to prioritize when organizing memory. |
+| Workspace timezone | `Asia/Shanghai` | Set your timezone, such as `Europe/London`, for memory dates and the daily schedule. |
+
+<details>
+<summary>Timeout settings</summary>
+
+These values are in milliseconds. Keep the defaults unless requests regularly time out.
+
+| Field | Default | Use |
+| --- | --- | --- |
+| Request timeout (ms) | `10000` | Wait time for searches and status checks; maximum `120000`. |
+| Background timeout (ms) | `3600000` | Wait time for recording and consolidation; maximum `3600000`. |
+| Shutdown timeout (ms) | `5000` | Exit wait setting. Codex limits final memory delivery to at most two seconds, so increasing this cannot extend that wait. |
+
+</details>
+
+Before changing the service address, let pending turns finish saving. Any remaining turns stay associated
+with the previous address; switch back to retry them. Changes made during consolidation apply to the next run.
 
 ## Troubleshooting and updates
 
@@ -223,30 +216,31 @@ address to retry them. Settings changed during consolidation apply to subsequent
 | No MCP settings entry | Open the installed ReMe detail and its `reme` MCP card in the latest desktop app; confirm it is enabled and restart. |
 | Blank status card followed by a plugin feature loading error | Check network access to the Codex sandbox page; see below. |
 | Connection healthy, no recording or recall | Review every ReMe Hook; check the auto switches and recent activity. Health does not prove Hook execution. |
-| Turns stay queued | Check the ReMe model and service logs, keep the session open, and confirm `service.tool_error_on_failure=true`. Retry happens at a later Hook. |
-| Recall is empty | First confirm the fact exists in `daily/`, use its unique identifier, and inspect `searchLimit` and `recallMinScore`. |
+| Turns stay queued | Keep Codex and ReMe running. Check the ReMe model configuration and service logs, and confirm the startup command includes `service.tool_error_on_failure=true`. |
+| Recall is empty | Confirm the fact was saved, mention its project name in your question, and check **Search result limit** and **Minimum recall score**. |
 | Dream did not run | Check the saved timezone, next run, schedule switch, and live MCP connection. Offline times are skipped. |
-| Unknown configuration fields after upgrading | Back up `reme/config.json`, then replace obsolete fields using the current configuration example and reopen MCP settings. Old field names are not supported. |
+| Unknown configuration fields after upgrading | Back up `~/.codex/reme/config.json`, compare it with the [current configuration example](plugins/reme/config.example.json), and update obsolete fields before reopening settings. |
 | Python or FastMCP startup error | Check the `python3` environment inherited by Codex, including the desktop app. |
 
-The panel serves its HTML and status data over local MCP, but Codex desktop also loads its own sandbox page.
-If the card stays blank and the Codex client logs contain `guest_load_failed`, `ERR_UNEXPECTED`, or
-`MCP sandbox RPC timed out`, check access from the machine running Codex:
+<details>
+<summary>The status card is blank or reports a loading error</summary>
+
+Codex needs access to `web-sandbox.oaiusercontent.com` to display the panel. Check access from the
+machine running Codex:
 
 ```bash
 curl -i --max-time 20 https://web-sandbox.oaiusercontent.com/mcp-app.html
 ```
 
 If the response reports a corporate network or security software block, follow its approved process to allow
-`web-sandbox.oaiusercontent.com`, including the page's static assets on that domain. Restart Codex and reopen the panel
-after access is restored. This loading error alone does not establish whether ReMe or its Hooks are healthy and does
-not call for changing `mcpUrl`, clearing memory, or reinstalling the plugin. Meanwhile, ask in a conversation:
-“Call `reme_status` and show the returned status as text” to inspect the connection, queue, and consolidation schedule.
+`web-sandbox.oaiusercontent.com`. Restart Codex and reopen the panel after access is restored.
+Meanwhile, ask in a conversation: “Call `reme_status` and show the returned status as text.”
 
-Content-free diagnostics are in `${CODEX_HOME:-~/.codex}/reme/hooks.log`; they include event names,
-counts, and error classes, not conversation content. Pending conversation data is stored separately
-in that directory until acknowledged. Delivery is best effort: forced termination before local
-capture can lose a turn, and a lost acknowledgement can cause extraction to be retried.
+</details>
+
+For further diagnosis, check `~/.codex/reme/hooks.log`. If you set `CODEX_HOME`, use that directory
+instead of `~/.codex`. Avoid deleting `reme/` while troubleshooting: it also contains your settings
+and conversations still waiting to be saved.
 
 To update, refresh your checkout and reinstall:
 
@@ -255,6 +249,4 @@ codex plugin remove reme@reme-codex
 codex plugin add reme@reme-codex
 ```
 
-Restart Codex and review changed Hooks. Your saved settings and pending writes remain outside the
-installation cache. The [screenshot checklist](./figures/README.md) lists the six real Codex captures
-reserved above; both language guides share the same images.
+Restart Codex and review changed Hooks. Your saved settings and pending memories are preserved.
