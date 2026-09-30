@@ -96,6 +96,18 @@ cd ..
 
 静态构建要求 Node.js 22.13 或更高版本，并让源码安装可以直接使用 Studio。
 
+### Docker
+
+使用 Docker 和 Compose 2.24.0+，构建并启动包含 Studio 的 ReMe：
+
+```bash
+mkdir -p .reme
+docker compose up --build -d
+```
+
+打开 <http://127.0.0.1:2333>，完整工作区保存在宿主机的 `./.reme`。Linux 用户的 UID/GID 不是 1000 时，请设置对应的
+`REME_UID` 和 `REME_GID`。模型凭证、自定义路径、发布镜像和升级方式见 [Docker 部署](https://reme.agentscope.io/zh/docker)。
+
 ### 环境变量配置
 
 如果需要 LLM 驱动的记忆演化或 embedding 检索，请在启动服务前配置环境变量。embedding 默认关闭，因此默认配置不会启动

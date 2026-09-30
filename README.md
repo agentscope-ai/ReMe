@@ -103,6 +103,19 @@ cd ..
 
 The static build requires Node.js 22.13 or newer and makes Studio available from the source tree.
 
+### Docker
+
+With Docker and Compose 2.24.0+, build and start ReMe with the bundled Studio:
+
+```bash
+mkdir -p .reme
+docker compose up --build -d
+```
+
+Open <http://127.0.0.1:2333>. The complete workspace persists in `./.reme`. On Linux, set `REME_UID` and `REME_GID` to your
+user's IDs when they differ from 1000. See [Docker deployment](https://reme.agentscope.io/en/docker) for model credentials,
+custom paths, published images, and upgrades.
+
 ### Environment Variables
 
 Configure environment variables when you want LLM-powered memory evolution or embedding retrieval. Embeddings are

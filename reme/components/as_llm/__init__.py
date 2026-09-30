@@ -21,7 +21,8 @@ from ...enumeration import ComponentEnum
 class BaseAsLLM(BaseComponent):
     """Base wrapper for AgentScope chat models.
 
-    Subclasses set ``credential_cls`` and inherit ``_start`` / ``_close``.
+    Subclasses set ``credential_cls``. Providers are constructed on first use,
+    allowing local file and search jobs to run without model credentials.
     """
 
     component_type = ComponentEnum.AS_LLM
@@ -32,6 +33,10 @@ class BaseAsLLM(BaseComponent):
         self.model: ChatModelBase | None = None
 
     async def _start(self) -> None:
+        """Keep service startup independent of provider credentials."""
+
+    def initialize_model(self) -> None:
+        """Construct the configured provider once, without making a remote request."""
         if self.model is not None:
             return
         kwargs = dict(self.kwargs)

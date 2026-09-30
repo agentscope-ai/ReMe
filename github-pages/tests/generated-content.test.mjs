@@ -15,6 +15,7 @@ test("generates every required bilingual guide", async () => {
     "overview.md",
     "configuration.md",
     "services.md",
+    "docker.md",
     "operations.md",
     "integrations.md",
     "plugin_development.md",

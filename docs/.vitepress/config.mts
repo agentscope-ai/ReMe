@@ -126,6 +126,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "快速开始" : "Quick Start", link: `/${language}/quick_start` },
         { text: zh ? "基础配置" : "Configuration", link: `/${language}/configuration` },
         { text: zh ? "服务与部署" : "Services and Deployment", link: `/${language}/services` },
+        { text: zh ? "Docker 部署" : "Docker Deployment", link: `/${language}/docker` },
       ],
     },
     {
