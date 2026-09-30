@@ -1,6 +1,6 @@
 {
   "name": "reme",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Automatic memory, focused recall, runtime status, and consolidation through ReMe MCP.",
   "author": {
     "name": "EconML team of Alibaba Tongyi Lab",
@@ -21,6 +21,8 @@
   "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "ReMe",
+    "logo": "./assets/reme-icon.svg",
+    "composerIcon": "./assets/reme-icon.svg",
     "shortDescription": "Long-term memory for agents",
     "longDescription": "Recall past decisions and record completed conversations in your own ReMe workspace.",
     "developerName": "AgentScope",
