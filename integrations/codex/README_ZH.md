@@ -14,8 +14,9 @@
 
 ## 环境要求
 
-- 宿主环境中有 Python 3.11+，可通过 `python3` 执行，并已安装 FastMCP >= 3.1（ReMe 自带此依赖）。
+- 宿主环境中有 Python 3.11+，可通过 `python3` 执行，并已安装 FastMCP >= 3.4.2（ReMe 自带此依赖）。
 - Codex CLI 0.145.0 或兼容版本，支持插件、`UserPromptSubmit`、`Stop`、同步命令 Hook 和 `last_assistant_message`。
+- 原生配置界面需要支持 `openai/settings` MCP 扩展的图形宿主；CLI 0.145.0 支持 Hook 和工具，但不渲染该界面。
 - 已启动 ReMe HTTP 服务，开放 `search`、`auto_memory`、`health_check`，并启用 MCP。
 - ReMe 服务端有可用于自动记忆提取的模型配置。默认 BM25 召回不要求 Embedding。
 
@@ -49,65 +50,53 @@ codex plugin add reme@reme-codex
 
 自动记录会把完成的用户/助手文本发送到配置的 ReMe 服务；仅需召回时，将 `auto_memory` 设为 `false`。
 
-## 可选配置
+## 通过 MCP 设置界面配置
 
-使用默认服务地址时，安装插件后即可使用。需要调整下列默认行为时，再创建配置文件。
+在支持 `openai/settings` 的宿主中，打开已安装的 ReMe MCP Server 设置。
+原生表单提供服务地址、自动召回与记录开关、批次大小、召回限制、超时和时区。
+保存后点击 **Check connection**，会在已保存地址调用 `health_check`，不发送对话内容。
+ReMe 服务离线时仍可读取和修改设置，因此可以在此修正错误地址。
 
-直接编辑用户配置文件即可调整地址和行为，升级插件会保留配置。文件中只需写入要覆盖的选项。
-
-配置位于 `${CODEX_HOME:-$HOME/.codex}/reme/config.json`。首次创建时，可从仓库根目录复制示例；已有文件请直接编辑：
-
-```bash
-mkdir -p "${CODEX_HOME:-$HOME/.codex}/reme"
-cp integrations/codex/plugins/reme/config.example.json "${CODEX_HOME:-$HOME/.codex}/reme/config.json"
-```
+配置原子保存到 `${CODEX_HOME:-$HOME/.codex}/reme/config.json`，位于插件缓存之外，升级后保留。
+下一次 MCP 工具调用和 Hook 调用直接使用新配置，无需重新连接或重装。
+正在执行的调用继续使用原来的地址与配置。关闭 `auto_memory` 会暂停自动捕获与队列重试，显式工具仍可使用。
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
-| `mcp_url` | `http://127.0.0.1:2333/mcp` | ReMe MCP 地址；默认去掉末尾 `/mcp` 得到 Hook 的 HTTP 地址 |
-| `api_url` | 空字符串 | 可选 HTTP Job API 基址；MCP 使用自定义路径时需显式填写 |
+| `mcp_url` | `http://127.0.0.1:2333/mcp` | 显式工具和自动 Hook 共用的 MCP 地址，支持自定义路径 |
 | `auto_recall` | `true` | 用户提交消息时自动检索 |
 | `auto_memory` | `true` | 自动捕获与提交；关闭后也不重试已有队列 |
 | `recall_limit` | `5` | 检索结果上限 |
 | `recall_min_score` | `0` | 自动召回最低分数 |
-| `recall_timeout` | `5` | 前台 HTTP 超时秒数，最大 10 |
+| `recall_timeout` | `5` | 前台 MCP 超时秒数，最大 10 |
 | `request_timeout` | `600` | 写入与 MCP 请求超时秒数，最大 600 |
 | `memory_interval` | `5` | 每批完成的对话轮数；设为 1 则逐轮提交 |
 | `shutdown_timeout` | `2` | 退出时尽力刷新队列的总秒数，最大 2 |
 | `context_max_chars` | `8000` | 召回正文字符上限 |
 | `timezone` | `Asia/Shanghai` | 批次按此时区分日，应与 ReMe workspace 一致 |
 
-例如，改用另一个端口并关闭自动记录：
+JSON 配置仍由用户掌控，也可直接编辑，只需写入要覆盖的选项。
+完整示例见 [config.example.json](plugins/reme/config.example.json)；从文件移除某项即可恢复其默认值。
+未知字段和无效值会使校验失败，Hook 跳过并记录 `hook_failed`，不会回退到其他服务。
+界面保存无效值时会返回错误，保留原配置文件。
 
-```json
-{
-  "mcp_url": "http://127.0.0.1:2444/mcp",
-  "auto_memory": false,
-  "auto_recall": true,
-  "memory_interval": 1
-}
-```
+已有配置仍可读取。旧 `api_url` 字段不再参与请求，下次在界面保存时会移除；所有操作统一使用 `mcp_url`。
+标准 `/mcp` 地址继续使用原来的队列和收据标识。自定义旧 `api_url` 下的待提交记录原样保留，
+不会自动迁移目标地址。切换地址不会把旧对话发往新服务；切回原地址可继续重试该地址的队列。
 
-MCP 和 Hook 从同一份用户配置读取地址。Hook 在下一次调用时读取修改；更改地址或 MCP 超时后，
-请重新连接 MCP 或重启宿主，确保现有 MCP 进程也使用新配置。无需修改插件源码、安装缓存或重装插件。
-使用自定义 MCP 路径时，例如 `https://memory.example.com/tools`，同时设置
-`api_url` 为 HTTP Job API 基址，例如 `https://memory.example.com/reme`。
-
-未知字段或无效值会使配置校验失败，Hook 会跳过并记录 `hook_failed`，不会回退到其他服务。
-关闭 `auto_memory` 会停止自动捕获和重试，保留已有队列；显式 MCP 工具仍可使用。
-修改服务地址不会把旧地址下的待提交对话发送到新服务。移除配置项即可恢复该项默认值。
-
-插件通过宿主管理的 stdio 连接进程转发 MCP，请确保启动宿主时的 `python3` 环境包含 FastMCP。
-如果 ReMe 服务运行在另一台机器或另一个 Python 环境，在宿主环境执行
-`python3 -m pip install "fastmcp>=3.1"`。Hook 本身仅使用标准库。
+宿主管理的 MCP Server 和短生命周期 Hook 都依赖宿主 `python3` 环境中的 FastMCP。
+如果 ReMe 运行在其他环境，请执行 `python3 -m pip install "fastmcp>=3.4.2"`。插件不会启动 ReMe 服务。
+原生表单遵循固定版本的
+[OpenAI MCP Extensions 设置协议](https://github.com/openai/mcp-extensions/blob/node-v0.1.0/docs/spec.md#structured-settings)。
+不支持该扩展的宿主仍可使用工具和 Hook，但不会显示原生设置表单。
 
 ## 生命周期与失败行为
 
 - `UserPromptSubmit` 在短超时范围内同步调用 `search`，用 `<reme-context>` 包裹有长度限制的结果，明确其为不可信历史数据。失败不阻止用户消息。
-- 同步 `Stop` Hook 从本地 transcript 提取完成轮次的用户与最终助手文本，通过 JSON Job API 分批调用 `auto_memory`。工具输出、推理内容和注入的 ReMe 上下文不作为对话来源。服务端无需读取宿主文件。
+- 同步 `Stop` Hook 从本地 transcript 提取完成轮次的用户与最终助手文本，通过 MCP 分批调用 `auto_memory`。工具输出、推理内容和注入的 ReMe 上下文不作为对话来源。服务端无需读取宿主文件。
 - 使用带宿主命名空间的稳定会话和消息 ID，重复 Stop 去重；每个会话串行提交，跨日拆分批次。排除子 Agent 事件和 Hook 续写。插件不启动独立守护进程，也不自动下载依赖或启动 ReMe。
 - 队列与确认收据保存在宿主的 `reme/queue/`，按服务地址隔离；失败或超时不会丢弃队列。`SessionStart` 同步重试，`SessionEnd` 在短时间预算内同步尝试刷新。
-- 退出刷新是尽力而为：宿主在捕获前被强制结束时可能丢失该轮。HTTP 确认丢失时可能重复提取；稳定消息 ID 避免重复存储来源，但记忆提取是至少一次语义。未满批次或未及时完成的任务留待下次会话处理。
+- 退出刷新是尽力而为：宿主在捕获前被强制结束时可能丢失该轮。MCP 确认丢失时可能重复提取；稳定消息 ID 避免重复存储来源，但记忆提取是至少一次语义。未满批次或未及时完成的任务留待下次会话处理。
 - 队列包含原始对话文本，请在交付完成前保留。`reme/hooks.log` 仅记录事件及异常类型。关闭 `auto_memory` 保留队列且停止重试。
 - `auto_dream` 整理继续由 ReMe 服务管理。与 OpenClaw 常驻 Gateway 不同，短生命周期 Hook 不另建定时调度器。
 
@@ -129,10 +118,10 @@ ReMe 服务是否运行，以及 `service.jobs` 是否开放所需 Job。Hook �
 Codex transcript 不是稳定公开接口；未知格式或缺失文件会跳过并记录状态，不猜测对话。
 召回正常但未记录时，检查 `capture_skipped`、`hook_failed`。
 
-在 Codex 0.145.0 中，无人值守的 `codex exec` 无法收集工具审批时，MCP 调用可能返回 `user cancelled MCP tool call`。请在交互会话中批准具体调用来验证显式工具。自动 Hook 使用 Job API，不依赖 MCP 工具审批。
+在 Codex 0.145.0 中，无人值守的 `codex exec` 无法收集工具审批时，MCP 调用可能返回 `user cancelled MCP tool call`。请在交互会话中批准具体调用来验证显式工具。已信任的自动 Hook 自身作为 MCP 客户端调用服务，不逐次请求模型工具审批。
 
 ## 源码与验证
 
-在 ReMe 仓库运行 `pytest tests/unit/test_coding_agent_plugins.py -v`。测试使用隔离目录和模拟服务。
+在 ReMe 仓库运行 `pytest tests/unit/test_coding_agent_plugins.py tests/unit/test_codex_plugin_mcp.py -v`。测试使用隔离目录和模拟服务。
 宿主行为以 [Codex Hook 文档](https://learn.chatgpt.com/docs/hooks) 为准。
 ReMe 在 [agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe) 开发，采用 Apache-2.0 许可证。

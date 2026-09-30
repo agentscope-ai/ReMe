@@ -3,10 +3,12 @@
     "reme": {
       "command": "python3",
       "args": [
-        "hooks/mcp_bridge.py"
+        "mcp_server.py"
       ],
       "cwd": ".",
-      "env_vars": ["CODEX_HOME"]
+      "env_vars": [
+        "CODEX_HOME"
+      ]
     }
   }
 }

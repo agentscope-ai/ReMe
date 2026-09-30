@@ -22,14 +22,17 @@ say there is no relevant memory. Do not turn inference into recalled facts.
 
 ## Status and recording
 
-Call `health_check` and `version` when the user asks to check the connection. Missing tools can
+Call `reme_check_connection` when the user asks to check the saved connection.
+Use upstream `health_check` and `version` for additional service details. Missing tools can
 mean the plugin is disabled, the MCP connection failed, or the server's job allowlist excludes them.
 Check the plugin and `/mcp` status before concluding the service is stopped. The default service is
 started with `reme start workspace_dir=/absolute/path/to/workspace service.backend=http`.
 
-The host's `reme/config.json` supplies `mcp_url` and hook settings to both the MCP bridge and
-automatic hooks. Users can edit this file directly. Reconnect MCP after changing its address;
-hook changes apply on the next invocation. Content-free logs live in the host's `reme/` directory.
+Users configure the plugin through the ReMe MCP server's native settings UI, including its address,
+`auto_recall`, and `auto_memory`. The UI saves the host's `reme/config.json`; MCP calls and hooks
+read the same file on each invocation. No reconnect is needed. Use `reme_settings_read` to inspect
+settings for troubleshooting. Only change settings when the user explicitly requests it; never
+turn on recording to resolve an unrelated tool error. Content-free logs live in the host's `reme/` directory.
 Hooks batch five completed turns by default;
 short batches flush at session boundaries, subject to a bounded shutdown budget. Failed batches
 remain for a later attempt. Do not manually submit the same conversation just because a queued

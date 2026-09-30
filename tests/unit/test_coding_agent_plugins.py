@@ -75,10 +75,21 @@ def test_native_manifests_resolve_within_their_own_plugin():
         if host == "claude-code":
             assert mcp["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
         else:
-            assert mcp["args"] == ["hooks/mcp_bridge.py"]
+            assert mcp["args"] == ["mcp_server.py"]
+            assert (root / "mcp_server.py").is_file()
+            portable = json.loads((root / "plugin.json").read_text())
+            assert portable["name"] == manifest["name"]
+            assert portable["version"] == manifest["version"]
+            assert not {"skills", "mcpServers", "interface"} & portable.keys()
+            portable_mcp = json.loads((root / "mcp.json").read_text())["mcpServers"]["reme"]
+            assert portable_mcp["type"] == "stdio"
+            assert portable_mcp["args"] == ["${PLUGIN_ROOT}/mcp_server.py"]
+            assert portable_mcp["cwd"] == "${PLUGIN_ROOT}"
+            assert portable_mcp["command"] == mcp["command"]
             assert mcp["cwd"] == "."
             assert "CODEX_HOME" in mcp["env_vars"]
-        assert (root / "hooks/mcp_bridge.py").is_file()
+        if host == "claude-code":
+            assert (root / "hooks/mcp_bridge.py").is_file()
         hooks = json.loads((root / "hooks/hooks.json").read_text())["hooks"]
         assert "SubagentStop" not in hooks
         for event, groups in hooks.items():
@@ -117,7 +128,6 @@ def test_defaults_and_mcp_endpoint_agree(adapter):
         {"mcp_url": "http://example.com/mcp?token=secret"},
         {"mcp_url": "http://example.com/mcp#fragment"},
         {"mcp_url": "http://example.com:invalid/mcp"},
-        {"mcp_url": "http://example.com/other"},
         {"mcp_url": "http://example.com/\nmcp"},
         {"api_url": 12},
         {"api_url": "relative/path"},
@@ -144,7 +154,17 @@ def test_custom_mcp_path_and_http_prefix(adapter):
             "api_url": "https://example.com/jobs/reme/",
         },
     )
-    assert adapter.load_config()["endpoint"] == "https://example.com/jobs/reme"
+    expected = (
+        "https://example.com/jobs/reme" if adapter.HOST == "claude-code" else "mcp:https://example.com/tools/reme"
+    )
+    assert adapter.load_config()["endpoint"] == expected
+
+
+@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
+def test_claude_custom_mcp_path_still_requires_http_base(adapter):
+    adapter.write_json(adapter.data_dir() / "config.json", {"mcp_url": "https://example.com/tools"})
+    with pytest.raises(ValueError):
+        adapter.load_config()
 
 
 def test_config_edit_takes_effect_on_next_hook(adapter, monkeypatch):
@@ -162,6 +182,7 @@ def test_config_edit_takes_effect_on_next_hook(adapter, monkeypatch):
     assert call.call_args.args[0]["endpoint"] == "http://127.0.0.1:2444"
 
 
+@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 def test_mcp_bridge_uses_persistent_configuration(adapter, monkeypatch):
     import fastmcp.server
     import fastmcp.server.providers.proxy
@@ -286,6 +307,7 @@ def test_disabling_memory_leaves_pending_queue_untouched(adapter, tmp_path, monk
     assert len(list(adapter.queue_root(config).rglob("*.json"))) == 1
 
 
+@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 @pytest.mark.parametrize("response", [{"success": False}, {}, [], {"success": "true"}])
 def test_http_job_failure_is_never_acknowledged(adapter, monkeypatch, response):
     def urlopen(request, timeout):

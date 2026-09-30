@@ -1,7 +1,7 @@
 {
   "name": "reme",
-  "version": "0.1.0+codex.20260928104620",
-  "description": "Automatic recall, batched conversation recording, and explicit MCP memory tools for Codex.",
+  "version": "0.1.0+codex.20260930055341",
+  "description": "MCP-native automatic memory and editable plugin settings for Codex.",
   "author": {
     "name": "EconML team of Alibaba Tongyi Lab",
     "email": "jinli.yl@alibaba-inc.com"
@@ -20,7 +20,7 @@
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "ReMe",
-    "shortDescription": "File-native long-term memory for Codex",
+    "shortDescription": "Long-term memory for agents",
     "longDescription": "Recall past decisions and record completed conversations in your own ReMe workspace.",
     "developerName": "AgentScope",
     "category": "Productivity",

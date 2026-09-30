@@ -1,118 +1,26 @@
 #!/usr/bin/env python3
-"""Codex lifecycle adapter. Requires only Python's standard library."""
+"""Codex lifecycle adapter using the same ReMe MCP connection as explicit tools."""
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import json
-import math
-import os
 import re
 import sys
-import tempfile
 import time
-import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
+# Hook scripts run directly from the installed plugin, independently of its MCP process.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# pylint: disable=wrong-import-position
+import reme_config  # noqa: E402
+from reme_config import data_dir, load_config, lock, write_json  # noqa: E402
+from reme_mcp import call  # noqa: E402
+
+HOME_ENV = reme_config.HOME_ENV
 HOST = "codex"
-HOME_ENV = "CODEX_HOME"
-HOME_DEFAULT = "~/.codex"
-DEFAULTS = {
-    "mcp_url": "http://127.0.0.1:2333/mcp",
-    "api_url": "",
-    "auto_recall": True,
-    "auto_memory": True,
-    "recall_limit": 5,
-    "recall_min_score": 0.0,
-    "recall_timeout": 5.0,
-    "request_timeout": 600.0,
-    "memory_interval": 5,
-    "shutdown_timeout": 2.0,
-    "context_max_chars": 8000,
-    "timezone": "Asia/Shanghai",
-}
-
-
-def data_dir() -> Path:
-    """Keep configuration and retry state outside the versioned plugin cache."""
-    return Path(os.environ.get(HOME_ENV) or HOME_DEFAULT).expanduser() / "reme"
-
-
-def load_config() -> dict:
-    """Read the same persistent settings used by the MCP bridge and lifecycle hooks."""
-    path = data_dir() / "config.json"
-    values = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-    return validate_config(values)
-
-
-def validate_config(values: dict) -> dict:
-    """Validate user overrides before either transport can use them."""
-    if not isinstance(values, dict) or values.keys() - DEFAULTS.keys():
-        raise ValueError("Unknown ReMe configuration fields")
-    config = {**DEFAULTS, **values}
-    for key, default in DEFAULTS.items():
-        value = config[key]
-        if isinstance(default, bool):
-            if not isinstance(value, bool):
-                raise ValueError(f"{key} must be a boolean")
-        elif isinstance(default, str):
-            if not isinstance(value, str):
-                raise ValueError(f"{key} must be a string")
-        elif isinstance(default, (int, float)):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"{key} must be a finite number")
-            if value < 0 or (value == 0 and key != "recall_min_score"):
-                raise ValueError(f"{key} must be positive")
-            if isinstance(default, int) and not isinstance(value, int):
-                raise ValueError(f"{key} must be an integer")
-    if config["recall_timeout"] > 10 or config["request_timeout"] > 600 or config["shutdown_timeout"] > 2:
-        raise ValueError("Timeout exceeds the lifecycle hook budget")
-    try:
-        ZoneInfo(config["timezone"])
-    except (KeyError, ValueError) as exc:
-        raise ValueError("timezone must be an IANA timezone") from exc
-    config["mcp_url"] = validate_url(config["mcp_url"])
-    if config["api_url"]:
-        config["endpoint"] = validate_url(config["api_url"])
-    elif config["mcp_url"].endswith("/mcp"):
-        config["endpoint"] = config["mcp_url"][:-4]
-    else:
-        raise ValueError("Set api_url explicitly when mcp_url does not end in /mcp")
-    return config
-
-
-def validate_url(url: str) -> str:
-    """Accept HTTP endpoints without embedded credentials or ambiguous URL suffixes."""
-    url = url.rstrip("/")
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.hostname
-        or any((parsed.username is not None, parsed.password is not None, parsed.query, parsed.fragment))
-        or any(character.isspace() for character in url)
-    ):
-        raise ValueError("ReMe URLs must be absolute HTTP(S) URLs without credentials, query, or fragment")
-    _ = parsed.port
-    return url
-
-
-def call(config: dict, action: str, payload: dict, timeout: float) -> dict:
-    """Require the Job API's explicit success acknowledgement before committing a batch."""
-    request = urllib.request.Request(
-        f"{config['endpoint']}/{action}",
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        result = json.load(response)
-    if not isinstance(result, dict) or result.get("success") is not True:
-        raise RuntimeError("ReMe did not acknowledge the action")
-    return result
 
 
 def digest(value: str) -> str:
@@ -130,59 +38,6 @@ def log_status(event: str, error: Exception | None = None) -> None:
             handle.write(json.dumps(row) + "\n")
     except OSError:
         pass
-
-
-@contextlib.contextmanager
-def lock(path: Path):
-    """Use a non-blocking OS lock, released automatically if a hook is killed."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with path.open("a+b") as handle:
-        if os.name == "nt":
-            import msvcrt
-
-            handle.write(b"\0")
-            handle.flush()
-            handle.seek(0)
-
-            def acquire():
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-
-            def release():
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-
-        else:
-            import fcntl
-
-            def acquire():
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-
-            def release():
-                fcntl.flock(handle, fcntl.LOCK_UN)
-
-        try:
-            acquire()
-        except OSError:
-            yield False
-            return
-        try:
-            yield True
-        finally:
-            release()
-
-
-def write_json(path: Path, value: dict) -> None:
-    """Atomically persist retry metadata with owner-only file permissions."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".reme-")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
 
 
 def clean_text(value: str) -> str:
