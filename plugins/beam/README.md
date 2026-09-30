@@ -34,5 +34,9 @@ still take precedence. Installing this plugin does not start an evaluation.
 Custom Python callers should import memory, search and answer Steps from `reme_beam`, and install
 `beam-judge` before importing the judge Step from `judge_beam`. After uninstalling,
 Applications and CLI services must omit the plugin until it is installed again.
+`BeamAgenticAnswerStep` now implements the answer behavior directly. The former
+`reme.steps.benchmark.BaseAgenticAnswerStep` import is gone; custom subclasses can
+extend `reme_beam.BeamAgenticAnswerStep` for BEAM behavior, or implement their own
+Step using `reme.steps.base_step.BaseStep`.
 Uninstallation never removes datasets, workspaces or results.
 Restart an existing service after changing plugins.
