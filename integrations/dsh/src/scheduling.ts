@@ -2,22 +2,27 @@ import type { ReMeMessage } from "./reme/types.js";
 
 const DAILY_CRON = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/;
 
+/** Check the daily cron syntax without searching for its next occurrence. */
+export function validateDailyCron(cron: string): void {
+  const match = DAILY_CRON.exec(String(cron || "").trim());
+  if (!match)
+    throw new Error(
+      "dreamCron must use the daily form '<minute> <hour> * * *'",
+    );
+  if (Number(match[1]) > 59 || Number(match[2]) > 23)
+    throw new Error("dreamCron contains an invalid hour or minute");
+}
+
 /** Resolve the next occurrence of ReMe's deliberately narrow daily cron form. */
 export function nextDailyRun(
   cron: string,
   timezone: string,
   now = new Date(),
 ): Date {
+  validateDailyCron(cron);
   const match = DAILY_CRON.exec(String(cron || "").trim());
-  if (!match) {
-    throw new Error(
-      "dreamCron must use the daily form '<minute> <hour> * * *'",
-    );
-  }
-  const minute = Number(match[1]);
-  const hour = Number(match[2]);
-  if (minute > 59 || hour > 23)
-    throw new Error("dreamCron contains an invalid hour or minute");
+  const minute = Number(match![1]);
+  const hour = Number(match![2]);
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
     year: "numeric",

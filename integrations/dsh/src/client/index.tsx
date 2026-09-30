@@ -12,7 +12,7 @@ import { styles } from "./styles.js";
 
 const NS = "reme.settings";
 const STATUS_NS = "reme.status";
-const SETTINGS_NS = "reme-memory-runtime";
+const SETTINGS_NS = "reme-memory";
 const FIELDS = [
   "endpoint",
   "requestTimeoutMs",
@@ -270,6 +270,7 @@ export function apply(ctx: ClientContext): void {
             {
               name: "plugins.item",
               id: SETTINGS_NS,
+              label: () => t("title"),
               locale: NS,
               inject: () => ({ scope, t }),
             },

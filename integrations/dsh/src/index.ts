@@ -14,8 +14,8 @@ export const name = "reme-memory";
 export const inject = ["agents", "sessions", "tools"];
 
 export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
-  resolveConfig(input);
-  const current = () => resolveConfig(input);
+  let config = resolveConfig(input);
+  const current = () => config;
   const client = new ReMeClient(current);
   const runtime = new ReMeRuntime(client, current, ctx.logger);
   ctx.provide("remeMemory", runtime);
@@ -31,6 +31,7 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
   }, "remeMemory.lifecycle()");
 
   ctx.on("loader/volatile-update", () => {
+    config = resolveConfig(input);
     runtime.reconfigure();
   });
 

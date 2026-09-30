@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Context } from "@deepseek-ai/cordis";
+import Loader from "@deepseek-ai/cordis-plugin-loader";
 import { Config, resolveConfig } from "../dist/config.js";
 
 test("resolves the established ReMe host and port environment", () => {
@@ -23,6 +25,14 @@ test("exports a Cordis schema that rejects invalid configuration", async () => {
   assert.equal(valid.value.autoMemoryInterval.get(), 5);
   assert.equal(valid.value.shutdownTimeoutMs.get(), 5000);
   assert.equal(resolveConfig(valid.value).language, "zh");
+
+  for (const input of [
+    { endpoint: "not-a-url" },
+    { dreamCron: "every night" },
+    { timezone: "Mars/Olympus" },
+  ]) {
+    assert.throws(() => Config["~standard"].validate(input));
+  }
 });
 
 test("rejects unknown options and invalid IANA timezones", () => {
@@ -67,4 +77,48 @@ test("rejects settings that cannot be scheduled or reached", () => {
     () => resolveConfig({ dreamCron: "every night" }),
     /daily form/,
   );
+});
+
+test("Loader keeps the previous live values when an update fails schema validation", async () => {
+  const ctx = new Context();
+  let live;
+  try {
+    await ctx.plugin(Loader);
+    ctx.loader.builtins.remeTest = {
+      name: "reme-test",
+      Config,
+      apply(_owner, input) {
+        live = input;
+      },
+    };
+    const id = await ctx.loader.create({
+      id: "reme-memory",
+      name: "cordis:remeTest",
+      config: { endpoint: "http://valid.test", autoDreamEnabled: false },
+    });
+    const entry = ctx.loader.resolve(id);
+    await entry.fiber.await();
+    for (const patch of [
+      { endpoint: "not-a-url" },
+      { dreamCron: "every night" },
+      { timezone: "Mars/Olympus" },
+    ]) {
+      await entry.update({
+        config: {
+          endpoint: "http://valid.test",
+          autoDreamEnabled: false,
+          ...patch,
+        },
+      });
+      assert.equal(live.endpoint.get(), "http://valid.test");
+      assert.equal(live.dreamCron.get(), "0 23 * * *");
+      assert.equal(live.timezone.get(), "Asia/Shanghai");
+    }
+    await entry.update({
+      config: { endpoint: "http://updated.test", autoDreamEnabled: false },
+    });
+    assert.equal(live.endpoint.get(), "http://updated.test");
+  } finally {
+    await ctx.fiber.dispose();
+  }
 });

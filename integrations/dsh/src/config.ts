@@ -1,11 +1,14 @@
 import z from "@deepseek-ai/schemastery";
 
-import { nextDailyRun, validTimezone } from "./scheduling.js";
+import { validTimezone, validateDailyCron } from "./scheduling.js";
 import type { ReMeConfig, ReMeConfigInput } from "./types.js";
 
 export const Config = z.object({
   endpoint: z
-    .string()
+    .transform(z.string(), (value) => {
+      assertEndpoint(value);
+      return value;
+    })
     .description("ReMe HTTP service URL")
     .default(
       process.env.REME_URL ||
@@ -26,7 +29,10 @@ export const Config = z.object({
   autoMemoryInterval: z.natural().min(1).max(1000).default(5).volatile(),
   autoDreamEnabled: z.boolean().default(true).volatile(),
   dreamCron: z
-    .string()
+    .transform(z.string(), (value) => {
+      validateDailyCron(value);
+      return value;
+    })
     .description("Daily cron in the workspace timezone")
     .default(process.env.REME_DSH_DREAM_CRON || "0 23 * * *")
     .volatile(),
@@ -36,7 +42,11 @@ export const Config = z.object({
   language: z.union(["en", "zh"]).default("en").volatile(),
   searchLimit: z.natural().min(1).max(50).default(5).volatile(),
   timezone: z
-    .string()
+    .transform(z.string(), (value) => {
+      if (!validTimezone(value))
+        throw new TypeError(`Invalid ReMe timezone: ${value}`);
+      return value;
+    })
     .default("Asia/Shanghai")
     .description("IANA timezone matching the ReMe workspace")
     .volatile(),
@@ -130,7 +140,7 @@ export function resolveConfig(
   config.language = config.language === "zh" ? "zh" : "en";
   if (!validTimezone(config.timezone))
     throw new TypeError(`Invalid ReMe timezone: ${String(config.timezone)}`);
-  nextDailyRun(config.dreamCron, config.timezone);
+  validateDailyCron(config.dreamCron);
   return config;
 }
 

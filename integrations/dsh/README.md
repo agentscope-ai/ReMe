@@ -97,6 +97,8 @@ Declare the route with `api: openai-completions`, select `LLM_MODEL_NAME` (or an
 
 Open **Plugins → ReMe Memory**. Save changes before starting the next session. Settings are stored in the active DSH profile patch and apply to subsequent requests and captures. A language change affects new sessions; a schedule change immediately reschedules the next consolidation.
 
+On upgrade from the old `settings.yaml`, DSH imports its `reme-memory` section into the ReMe runtime entry. If a profile patch explicitly targets the former `reme-memory-runtime` entry, change that entry ID to `reme-memory`; the enclosing group is now `reme-memory-scope`.
+
 ![ReMe Memory plugin configuration](./figures/reme-memory-settings.png)
 
 | UI meaning             | Configuration key     | Default                 | Description                                                     |

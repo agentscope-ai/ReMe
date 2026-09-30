@@ -1,9 +1,9 @@
 - insert:
-    - id: reme-memory
+    - id: reme-memory-scope
       name: "@deepseek-ai/cordis-plugin-group"
       group: true
       isolate:
         remeMemory: true
       config:
-        - id: reme-memory-runtime
+        - id: reme-memory
           name: "@agentscope-ai/reme-dsh-plugin"

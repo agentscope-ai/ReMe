@@ -177,3 +177,43 @@ test("reads live DSH configuration for new sessions", async () => {
   });
   assert.match(injected[1].content[0].text, /Long-term Memory/);
 });
+
+test("session events read a validated configuration snapshot", () => {
+  const handlers = new Map();
+  const ctx = {
+    logger: { debug() {}, warn() {}, log() {} },
+    provide() {},
+    plugin() {
+      return Promise.resolve();
+    },
+    effect(execute) {
+      return execute();
+    },
+    tools: {
+      register() {
+        return () => {};
+      },
+    },
+    on(name, handler) {
+      handlers.set(name, handler);
+    },
+  };
+  apply(ctx, { autoMemoryEnabled: false, autoDreamEnabled: false });
+  const original = Intl.DateTimeFormat.prototype.formatToParts;
+  let scans = 0;
+  Intl.DateTimeFormat.prototype.formatToParts = function (...args) {
+    scans += 1;
+    return original.apply(this, args);
+  };
+  try {
+    for (let index = 0; index < 100; index += 1) {
+      handlers.get("session/event")(
+        { id: "quiet", header: {}, events: [] },
+        { type: "unrelated" },
+      );
+    }
+    assert.equal(scans, 0);
+  } finally {
+    Intl.DateTimeFormat.prototype.formatToParts = original;
+  }
+});

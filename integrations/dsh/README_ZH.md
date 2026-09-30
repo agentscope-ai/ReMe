@@ -101,6 +101,8 @@ dsh web --no-open --port 3090
 
 进入 **插件 → ReMe Memory**。修改后点击保存；设置存入当前 DSH profile patch，并从后续请求或捕获开始生效。修改 `language` 只影响之后创建的新会话，修改每日计划会重新安排下一次整理。
 
+从旧版 `settings.yaml` 升级时，DSH 会将其中的 `reme-memory` 设置导入 ReMe 运行条目。如果 profile patch 显式指定了原来的 `reme-memory-runtime` 条目，需要将该条目 ID 改为 `reme-memory`；外层 group 现为 `reme-memory-scope`。
+
 ![ReMe Memory 插件配置](./figures/reme-memory-settings.png)
 
 截图中的测试配置使用 `http://127.0.0.1:3457`、English 指引、默认搜索数量 5、搜索超时 10 秒，并启用了自动记忆和“Exclude subagents”。完整字段如下：
