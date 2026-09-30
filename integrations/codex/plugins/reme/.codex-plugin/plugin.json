@@ -1,7 +1,7 @@
 {
   "name": "reme",
-  "version": "0.1.0+codex.20260930070500",
-  "description": "MCP-native automatic memory and editable plugin settings for Codex.",
+  "version": "0.2.0",
+  "description": "Automatic memory, focused recall, runtime status, and consolidation through ReMe MCP.",
   "author": {
     "name": "EconML team of Alibaba Tongyi Lab",
     "email": "jinli.yl@alibaba-inc.com"

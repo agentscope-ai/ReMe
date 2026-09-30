@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_context
 from fastmcp.server.providers import Provider
@@ -12,47 +14,54 @@ from mcp.types import ToolAnnotations
 
 from reme_config import DEFAULTS, load_config, settings_values, update_settings
 from reme_mcp import call_async
+from reme_runtime import ReMeRuntime
+from reme_tools import LOCAL_TOOLS, RUN_DREAM, STATUS, register_tools
 
 SETTINGS_READ = "reme_settings_read"
 SETTINGS_UPDATE = "reme_settings_update"
 CHECK_CONNECTION = "reme_check_connection"
+RESERVED_TOOLS = LOCAL_TOOLS | {SETTINGS_READ, SETTINGS_UPDATE, CHECK_CONNECTION}
 
 # OpenAI MCP Extensions node-v0.1.0, docs/spec.md#structured-settings.
 # Use its legacy capability advertisement with ReMe's existing FastMCP runtime.
 FIELDS = {
-    "mcp_url": {"type": "string", "title": "ReMe MCP address", "description": "URL of your running ReMe MCP service."},
-    "auto_recall": {"type": "boolean", "title": "Automatic recall"},
-    "auto_memory": {
-        "type": "boolean",
-        "title": "Automatic memory",
-        "description": "Send completed user/assistant turns to ReMe. Disabling also pauses queued retries.",
+    "mcpUrl": {
+        "type": "string",
+        "title": "ReMe MCP address",
+        "description": "Full URL of your running ReMe MCP service.",
     },
-    "memory_interval": {"type": "integer", "title": "Turns per memory batch", "minimum": 1},
-    "recall_limit": {"type": "integer", "title": "Recall result limit", "minimum": 1},
-    "recall_min_score": {"type": "number", "title": "Minimum recall score", "minimum": 0},
-    "context_max_chars": {"type": "integer", "title": "Recall character limit", "minimum": 1},
-    "recall_timeout": {
-        "type": "number",
-        "title": "Recall timeout (seconds)",
-        "minimum": 0,
-        "description": "Must be greater than zero.",
-        "maximum": 10,
+    "requestTimeoutMs": {"type": "integer", "title": "Request timeout (ms)", "minimum": 1000, "maximum": 120000},
+    "backgroundTimeoutMs": {"type": "integer", "title": "Background timeout (ms)", "minimum": 1000, "maximum": 3600000},
+    "shutdownTimeoutMs": {
+        "type": "integer",
+        "title": "Shutdown timeout (ms)",
+        "minimum": 100,
+        "maximum": 60000,
+        "description": "Codex limits SessionEnd to 3 seconds; the plugin uses at most 2 seconds for exit delivery.",
     },
-    "request_timeout": {
-        "type": "number",
-        "title": "Memory / tool timeout (seconds)",
-        "minimum": 0,
-        "description": "Must be greater than zero.",
-        "maximum": 600,
+    "autoMemoryEnabled": {"type": "boolean", "title": "Automatic memory capture"},
+    "autoMemoryInterval": {"type": "integer", "title": "Capture batch size", "minimum": 1, "maximum": 1000},
+    "autoDreamEnabled": {"type": "boolean", "title": "Daily memory consolidation"},
+    "dreamCron": {
+        "type": "string",
+        "title": "Auto Dream schedule",
+        "description": "Daily cron: minute hour * * *. Runs while Codex keeps this MCP connection alive.",
     },
-    "shutdown_timeout": {
-        "type": "number",
-        "title": "Exit flush budget (seconds)",
-        "minimum": 0,
-        "description": "Must be greater than zero.",
-        "maximum": 2,
+    "dreamHint": {
+        "type": "string",
+        "title": "Auto Dream hint",
+        "description": "Guidance for scheduled and manual consolidation.",
     },
-    "timezone": {"type": "string", "title": "Memory timezone", "description": "IANA timezone, such as Asia/Shanghai."},
+    "rootAgentsOnly": {"type": "boolean", "title": "Root agents only"},
+    "language": {"type": "string", "title": "Memory guidance language", "enum": ["en", "zh"]},
+    "autoRecall": {"type": "boolean", "title": "Automatic recall"},
+    "searchLimit": {"type": "integer", "title": "Search result limit", "minimum": 1, "maximum": 50},
+    "recallMinScore": {"type": "number", "title": "Minimum recall score", "minimum": 0},
+    "timezone": {
+        "type": "string",
+        "title": "Workspace timezone",
+        "description": "IANA timezone, such as Asia/Shanghai.",
+    },
 }
 SCHEMA = {"type": "object", "properties": FIELDS, "additionalProperties": False}
 LAYOUT = [
@@ -60,8 +69,9 @@ LAYOUT = [
         "kind": "group",
         "title": "Connection",
         "items": [
-            {"kind": "property", "property": "mcp_url"},
+            {"kind": "property", "property": "mcpUrl"},
             {"kind": "tool", "tool": CHECK_CONNECTION, "title": "Check connection"},
+            {"kind": "tool", "tool": STATUS, "title": "View status"},
         ],
     },
     {
@@ -69,21 +79,31 @@ LAYOUT = [
         "title": "Automatic memory",
         "items": [
             {"kind": "property", "property": key}
-            for key in ("auto_recall", "auto_memory", "memory_interval", "timezone")
+            for key in ("autoMemoryEnabled", "autoMemoryInterval", "rootAgentsOnly", "language")
+        ],
+    },
+    {
+        "kind": "group",
+        "title": "Auto Dream",
+        "items": [
+            *[
+                {"kind": "property", "property": key}
+                for key in ("autoDreamEnabled", "dreamCron", "dreamHint", "timezone")
+            ],
+            {"kind": "tool", "tool": RUN_DREAM, "title": "Consolidate now (updates memory files)"},
         ],
     },
     {
         "kind": "group",
         "title": "Recall",
-        "items": [
-            {"kind": "property", "property": key} for key in ("recall_limit", "recall_min_score", "context_max_chars")
-        ],
+        "items": [{"kind": "property", "property": key} for key in ("autoRecall", "searchLimit", "recallMinScore")],
     },
     {
         "kind": "group",
         "title": "Timeouts",
         "items": [
-            {"kind": "property", "property": key} for key in ("recall_timeout", "request_timeout", "shutdown_timeout")
+            {"kind": "property", "property": key}
+            for key in ("requestTimeoutMs", "backgroundTimeoutMs", "shutdownTimeoutMs")
         ],
     },
 ]
@@ -93,30 +113,27 @@ class ReMeProvider(Provider):
     """Resolve tools against one settings snapshot, without caching across endpoints."""
 
     @staticmethod
-    def snapshot() -> ProxyProvider:
+    def snapshot(name: str = "") -> ProxyProvider:
         """Keep an in-flight tool's schema and execution on the same endpoint."""
         config = load_config()
         return ProxyProvider(
             lambda: ProxyClient(
-                config["mcp_url"],
-                timeout=config["request_timeout"],
-                init_timeout=config["recall_timeout"],
+                config["mcpUrl"],
+                timeout=config["backgroundTimeoutMs" if name in {"auto_memory", "auto_dream"} else "requestTimeoutMs"]
+                / 1000,
+                init_timeout=config["requestTimeoutMs"] / 1000,
             ),
             cache_ttl=0,
         )
 
     async def _list_tools(self):
-        return [
-            tool
-            for tool in await self.snapshot().list_tools()
-            if tool.name not in {SETTINGS_READ, SETTINGS_UPDATE, CHECK_CONNECTION}
-        ]
+        return [tool for tool in await self.snapshot().list_tools() if tool.name not in RESERVED_TOOLS]
 
     async def _get_tool(self, name, version=None):
         # Local settings are authoritative and never depend on upstream availability.
-        if name in {SETTINGS_READ, SETTINGS_UPDATE, CHECK_CONNECTION}:
+        if name in RESERVED_TOOLS:
             return None
-        return await self.snapshot().get_tool(name, version)
+        return await self.snapshot(name).get_tool(name, version)
 
     async def get_tasks(self):
         """Proxy tools do not provide background MCP tasks."""
@@ -125,19 +142,32 @@ class ReMeProvider(Provider):
 
 def create_server() -> FastMCP:
     """Keep settings available even when the configured upstream server is offline."""
+    runtime = ReMeRuntime()
+
+    @asynccontextmanager
+    async def lifespan(_server):
+        await runtime.start()
+        try:
+            yield {}
+        finally:
+            await runtime.close()
+
     server = FastMCP(
         "ReMe",
+        lifespan=lifespan,
         experimental_capabilities={"openai/settings": {"readTool": SETTINGS_READ, "updateTool": SETTINGS_UPDATE}},
     )
     server.add_provider(ReMeProvider())
+    register_tools(server)
 
     def read_settings() -> ToolResult:
         """Return editable values and their native settings layout."""
+        values = settings_values(load_config())
         return ToolResult(
             content=[],
             structured_content={
                 "schema": SCHEMA,
-                "values": settings_values(load_config()),
+                "values": values,
                 "layout": LAYOUT,
             },
         )
@@ -145,6 +175,7 @@ def create_server() -> FastMCP:
     async def save_settings(**arguments) -> ToolResult:
         """Persist a partial settings update and refresh upstream discovery."""
         values = update_settings(arguments["set"])
+        runtime.settings_changed()
         await get_context().session.send_tool_list_changed()
         return ToolResult(content=[], structured_content={"values": values})
 
@@ -195,7 +226,7 @@ def create_server() -> FastMCP:
     async def check_connection() -> str:
         """Check the saved MCP endpoint without sending conversation content."""
         config = load_config()
-        result = await call_async(config, "health_check", {}, config["recall_timeout"])
+        result = await call_async(config, "health_check", {}, config["requestTimeoutMs"] / 1000)
         return str(result["answer"])
 
     assert FIELDS.keys() == DEFAULTS.keys()

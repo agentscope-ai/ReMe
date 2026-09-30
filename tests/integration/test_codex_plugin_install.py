@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 MARKETPLACE = Path(__file__).resolve().parents[2] / "integrations/codex"
-EVENTS = {"sessionStart", "sessionEnd", "userPromptSubmit", "stop"}
+EVENTS = {"sessionStart", "sessionEnd", "userPromptSubmit", "stop", "subagentStop"}
 
 
 def test_installed_plugin_exposes_all_hooks_before_trust(tmp_path):
@@ -87,7 +87,7 @@ def test_installed_plugin_exposes_all_hooks_before_trust(tmp_path):
             assert len(entries) == 1
             assert not entries[0]["errors"]
             hooks = [hook for hook in entries[0]["hooks"] if hook.get("pluginId") == "reme@reme-codex"]
-            assert len(hooks) == 4
+            assert len(hooks) == 7
             assert {hook["eventName"] for hook in hooks} == EVENTS
             assert all(hook["enabled"] and hook["trustStatus"] == "untrusted" for hook in hooks)
         finally:

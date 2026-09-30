@@ -6,6 +6,7 @@
         "mcp_server.py"
       ],
       "cwd": ".",
+      "tool_timeout_sec": 3610,
       "env_vars": [
         "CODEX_HOME"
       ]

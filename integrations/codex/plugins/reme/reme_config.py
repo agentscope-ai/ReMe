@@ -14,17 +14,21 @@ from zoneinfo import ZoneInfo
 HOME_ENV = "CODEX_HOME"
 HOME_DEFAULT = "~/.codex"
 DEFAULTS = {
-    "mcp_url": "http://127.0.0.1:2333/mcp",
-    "auto_recall": True,
-    "auto_memory": True,
-    "recall_limit": 5,
-    "recall_min_score": 0.0,
-    "recall_timeout": 5.0,
-    "request_timeout": 600.0,
-    "memory_interval": 5,
-    "shutdown_timeout": 2.0,
-    "context_max_chars": 8000,
+    "mcpUrl": "http://127.0.0.1:2333/mcp",
+    "autoRecall": True,
+    "autoMemoryEnabled": True,
+    "searchLimit": 5,
+    "recallMinScore": 0.0,
+    "requestTimeoutMs": 10000,
+    "backgroundTimeoutMs": 3600000,
+    "autoMemoryInterval": 5,
+    "shutdownTimeoutMs": 5000,
     "timezone": "Asia/Shanghai",
+    "language": "en",
+    "dreamHint": "",
+    "autoDreamEnabled": True,
+    "dreamCron": "0 23 * * *",
+    "rootAgentsOnly": True,
 }
 
 
@@ -42,15 +46,9 @@ def load_config() -> dict:
 
 def validate_config(values: dict) -> dict:
     """Validate user overrides before the MCP server or hooks can use them."""
-    if not isinstance(values, dict) or values.keys() - (DEFAULTS.keys() | {"api_url"}):
+    if not isinstance(values, dict) or values.keys() - DEFAULTS.keys():
         raise ValueError("Unknown ReMe configuration fields")
-    # Accept the former HTTP base only for migration; no request uses it.
-    legacy_api = values.get("api_url", "")
-    if not isinstance(legacy_api, str):
-        raise ValueError("api_url must be a string")
-    if legacy_api:
-        validate_url(legacy_api)
-    config = {**DEFAULTS, **{key: value for key, value in values.items() if key != "api_url"}}
+    config = {**DEFAULTS, **values}
     for key, default in DEFAULTS.items():
         value = config[key]
         if isinstance(default, bool):
@@ -62,20 +60,37 @@ def validate_config(values: dict) -> dict:
         elif isinstance(default, (int, float)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
                 raise ValueError(f"{key} must be a finite number")
-            if value < 0 or (value == 0 and key != "recall_min_score"):
+            if value < 0 or (value == 0 and key != "recallMinScore"):
                 raise ValueError(f"{key} must be positive")
             if isinstance(default, int) and not isinstance(value, int):
                 raise ValueError(f"{key} must be an integer")
-    if config["recall_timeout"] > 10 or config["request_timeout"] > 600 or config["shutdown_timeout"] > 2:
-        raise ValueError("Timeout exceeds the lifecycle hook budget")
+    for key, minimum, maximum in (
+        ("requestTimeoutMs", 1000, 120000),
+        ("backgroundTimeoutMs", 1000, 3600000),
+        ("shutdownTimeoutMs", 100, 60000),
+    ):
+        if not minimum <= config[key] <= maximum:
+            raise ValueError(f"{key} must be between {minimum} and {maximum}")
+    if config["searchLimit"] > 50 or config["autoMemoryInterval"] > 1000:
+        raise ValueError("searchLimit must be at most 50 and autoMemoryInterval at most 1000")
+    if config["language"] not in {"en", "zh"}:
+        raise ValueError("language must be en or zh")
+    parts = config["dreamCron"].split()
+    if (
+        len(parts) != 5
+        or parts[2:] != ["*", "*", "*"]
+        or not all(part.isascii() and part.isdigit() for part in parts[:2])
+        or not 0 <= int(parts[0]) <= 59
+        or not 0 <= int(parts[1]) <= 23
+    ):
+        raise ValueError("dreamCron must use a daily expression: minute hour * * *")
     try:
         ZoneInfo(config["timezone"])
     except (KeyError, ValueError) as exc:
         raise ValueError("timezone must be an IANA timezone") from exc
-    config["mcp_url"] = validate_url(config["mcp_url"])
-    # Preserve standard /mcp retry-directory identities from the HTTP adapter.
-    # Custom legacy api_url queues remain untouched rather than being sent elsewhere.
-    config["endpoint"] = config["mcp_url"][:-4] if config["mcp_url"].endswith("/mcp") else "mcp:" + config["mcp_url"]
+    config["mcpUrl"] = validate_url(config["mcpUrl"])
+    # Queue identities are durable: changing the address never retargets pending conversations.
+    config["endpoint"] = config["mcpUrl"][:-4] if config["mcpUrl"].endswith("/mcp") else "mcp:" + config["mcpUrl"]
     return config
 
 

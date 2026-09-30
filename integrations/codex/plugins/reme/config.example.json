@@ -1,13 +1,17 @@
 {
-  "mcp_url": "http://127.0.0.1:2333/mcp",
-  "auto_recall": true,
-  "auto_memory": true,
-  "recall_limit": 5,
-  "recall_min_score": 0.0,
-  "recall_timeout": 5.0,
-  "request_timeout": 600.0,
-  "memory_interval": 5,
-  "shutdown_timeout": 2.0,
-  "context_max_chars": 8000,
-  "timezone": "Asia/Shanghai"
+  "mcpUrl": "http://127.0.0.1:2333/mcp",
+  "autoRecall": true,
+  "autoMemoryEnabled": true,
+  "searchLimit": 5,
+  "recallMinScore": 0.0,
+  "requestTimeoutMs": 10000,
+  "backgroundTimeoutMs": 3600000,
+  "autoMemoryInterval": 5,
+  "shutdownTimeoutMs": 5000,
+  "timezone": "Asia/Shanghai",
+  "language": "en",
+  "dreamHint": "",
+  "autoDreamEnabled": true,
+  "dreamCron": "0 23 * * *",
+  "rootAgentsOnly": true
 }

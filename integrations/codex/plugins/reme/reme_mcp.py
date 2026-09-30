@@ -10,7 +10,7 @@ async def call_async(config: dict, action: str, payload: dict, timeout: float) -
     from fastmcp import Client
 
     async with asyncio.timeout(timeout):
-        async with Client(config["mcp_url"], timeout=timeout) as client:
+        async with Client(config["mcpUrl"], timeout=timeout) as client:
             result = await client.call_tool(action, payload, raise_on_error=True)
     if result.is_error:
         raise RuntimeError("ReMe MCP did not acknowledge the action")

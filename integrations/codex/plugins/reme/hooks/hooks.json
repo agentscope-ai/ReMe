@@ -1,5 +1,5 @@
 {
-  "description": "Automatic ReMe recall and retryable completed-turn recording.",
+  "description": "ReMe recall, durable capture, background delivery, and bounded exit retry.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -7,7 +7,7 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
-            "timeout": 15
+            "timeout": 125
           }
         ]
       }
@@ -17,8 +17,33 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\" --capture-only",
+            "timeout": 10,
+            "statusMessage": "Queueing ReMe memory"
+          },
+          {
+            "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
-            "timeout": 610
+            "timeout": 3610,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\" --capture-only",
+            "timeout": 10,
+            "statusMessage": "Queueing ReMe memory"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3610,
+            "async": true
           }
         ]
       }
@@ -29,7 +54,8 @@
           {
             "type": "command",
             "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
-            "timeout": 610
+            "timeout": 3610,
+            "async": true
           }
         ]
       }

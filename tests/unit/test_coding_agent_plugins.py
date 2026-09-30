@@ -30,6 +30,39 @@ def adapter(request, tmp_path, monkeypatch):
     return module
 
 
+CODEX_KEYS = {
+    "mcp_url": "mcpUrl",
+    "auto_recall": "autoRecall",
+    "auto_memory": "autoMemoryEnabled",
+    "recall_limit": "searchLimit",
+    "recall_min_score": "recallMinScore",
+    "recall_timeout": "requestTimeoutMs",
+    "request_timeout": "backgroundTimeoutMs",
+    "memory_interval": "autoMemoryInterval",
+    "shutdown_timeout": "shutdownTimeoutMs",
+}
+
+
+def host_settings(adapter, values):
+    """Express shared behavior tests using each host's own public configuration keys."""
+    if adapter.HOST != "codex" or not isinstance(values, dict):
+        return values
+    return {
+        CODEX_KEYS.get(key, key): (
+            value * 1000 if key in {"recall_timeout", "request_timeout", "shutdown_timeout"} else value
+        )
+        for key, value in values.items()
+    }
+
+
+def write_config(adapter, values):
+    adapter.write_json(adapter.data_dir() / "config.json", host_settings(adapter, values))
+
+
+def option(adapter, key):
+    return CODEX_KEYS.get(key, key) if adapter.HOST == "codex" else key
+
+
 def transcript(adapter, path, pairs, *, extra=None):
     rows = []
     for index, (user, assistant) in enumerate(pairs):
@@ -47,9 +80,13 @@ def transcript(adapter, path, pairs, *, extra=None):
                     "type": "event_msg",
                     "timestamp": stamp,
                     "payload": {
-                        "type": "user_message" if role == "user" else "agent_message",
-                        "message": text,
-                        **({"phase": "final_answer"} if role == "assistant" else {}),
+                        "type": "item_completed",
+                        "turn_id": f"turn-{index}",
+                        "item": {
+                            "type": "UserMessage" if role == "user" else "AgentMessage",
+                            "content": [{"type": "text" if role == "user" else "Text", "text": text}],
+                            **({"phase": "final_answer"} if role == "assistant" else {}),
+                        },
                     },
                 }
             rows.append(row)
@@ -60,6 +97,7 @@ def transcript(adapter, path, pairs, *, extra=None):
         "session_id": "session/../one",
         "transcript_path": str(path),
         "last_assistant_message": pairs[-1][1],
+        "turn_id": f"turn-{len(pairs) - 1}",
     }
 
 
@@ -83,11 +121,17 @@ def test_native_manifests_resolve_within_their_own_plugin():
         if host == "claude-code":
             assert (root / "hooks/mcp_bridge.py").is_file()
         hooks = json.loads((root / "hooks/hooks.json").read_text())["hooks"]
-        assert "SubagentStop" not in hooks
+        assert ("SubagentStop" in hooks) is (host == "codex")
         for event, groups in hooks.items():
             hook = groups[0]["hooks"][0]
             assert '"${' in hook["command"]  # Paths with spaces survive native substitution.
-            assert hook.get("async", False) is (host == "claude-code" and event in {"Stop", "SessionStart"})
+            if host == "claude-code":
+                assert hook.get("async", False) is (event in {"Stop", "SessionStart"})
+            elif event in {"Stop", "SubagentStop"}:
+                assert hook["command"].endswith(" --capture-only") and not hook.get("async", False)
+                assert groups[0]["hooks"][1]["async"]
+            else:
+                assert hook.get("async", False) is (event == "SessionStart")
             assert (root / "hooks/auto_memory.py").is_file()
     market = json.loads((ROOT / "integrations/codex/.agents/plugins/marketplace.json").read_text())
     assert (ROOT / "integrations/codex" / market["plugins"][0]["source"]["path"]).resolve() == PLUGINS["codex"]
@@ -96,8 +140,8 @@ def test_native_manifests_resolve_within_their_own_plugin():
 def test_defaults_and_mcp_endpoint_agree(adapter):
     config = adapter.load_config()
     assert config["endpoint"] == "http://127.0.0.1:2333"
-    assert config["memory_interval"] == 5
-    assert config["auto_recall"] and config["auto_memory"]
+    assert config[option(adapter, "memory_interval")] == 5
+    assert config[option(adapter, "auto_recall")] and config[option(adapter, "auto_memory")]
 
 
 @pytest.mark.parametrize(
@@ -108,10 +152,10 @@ def test_defaults_and_mcp_endpoint_agree(adapter):
         {"auto_memory": "false"},
         {"memory_interval": 0},
         {"recall_timeout": float("nan")},
-        {"request_timeout": 601},
+        {"request_timeout": 3601},
         {"recall_limit": True},
         {"memory_interval": 1.5},
-        {"shutdown_timeout": 3},
+        {"shutdown_timeout": 61},
         {"timezone": False},
         {"timezone": "Unknown/Timezone"},
         {"mcp_url": False},
@@ -126,24 +170,24 @@ def test_defaults_and_mcp_endpoint_agree(adapter):
     ],
 )
 def test_invalid_config_fails_explicitly(adapter, values):
-    adapter.write_json(adapter.data_dir() / "config.json", values)
+    write_config(adapter, values)
     with pytest.raises(ValueError):
         adapter.load_config()
 
 
 def test_custom_endpoint_has_one_source(adapter):
-    adapter.write_json(adapter.data_dir() / "config.json", {"mcp_url": "https://example.com/reme/mcp/"})
+    write_config(adapter, {"mcp_url": "https://example.com/reme/mcp/"})
     config = adapter.load_config()
-    assert config["mcp_url"] == "https://example.com/reme/mcp"
+    assert config[option(adapter, "mcp_url")] == "https://example.com/reme/mcp"
     assert config["endpoint"] == "https://example.com/reme"
 
 
 def test_custom_mcp_path_and_http_prefix(adapter):
-    adapter.write_json(
-        adapter.data_dir() / "config.json",
+    write_config(
+        adapter,
         {
             "mcp_url": "https://example.com/tools/reme",
-            "api_url": "https://example.com/jobs/reme/",
+            **({"api_url": "https://example.com/jobs/reme/"} if adapter.HOST == "claude-code" else {}),
         },
     )
     expected = (
@@ -154,7 +198,7 @@ def test_custom_mcp_path_and_http_prefix(adapter):
 
 @pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 def test_claude_custom_mcp_path_still_requires_http_base(adapter):
-    adapter.write_json(adapter.data_dir() / "config.json", {"mcp_url": "https://example.com/tools"})
+    write_config(adapter, {"mcp_url": "https://example.com/tools"})
     with pytest.raises(ValueError):
         adapter.load_config()
 
@@ -162,14 +206,12 @@ def test_claude_custom_mcp_path_still_requires_http_base(adapter):
 def test_config_edit_takes_effect_on_next_hook(adapter, monkeypatch):
     call = Mock(return_value={"success": True, "answer": "daily/fact.md"})
     monkeypatch.setattr(adapter, "call", call)
-    adapter.write_json(adapter.data_dir() / "config.json", {"auto_recall": False, "auto_memory": False})
-    assert adapter.handle_event({"hook_event_name": "UserPromptSubmit", "prompt": "fact"}) == {}
+    write_config(adapter, {"auto_recall": False, "auto_memory": False})
+    result = adapter.handle_event({"hook_event_name": "UserPromptSubmit", "prompt": "fact"})
+    assert "reme-context" not in str(result)
     adapter.handle_event({"hook_event_name": "SessionStart"})
     call.assert_not_called()
-    adapter.write_json(
-        adapter.data_dir() / "config.json",
-        {"auto_recall": True, "mcp_url": "http://127.0.0.1:2444/mcp"},
-    )
+    write_config(adapter, {"auto_recall": True, "mcp_url": "http://127.0.0.1:2444/mcp"})
     assert adapter.handle_event({"hook_event_name": "UserPromptSubmit", "prompt": "fact"})
     assert call.call_args.args[0]["endpoint"] == "http://127.0.0.1:2444"
 
@@ -179,8 +221,8 @@ def test_mcp_bridge_uses_persistent_configuration(adapter, monkeypatch):
     import fastmcp.server
     import fastmcp.server.providers.proxy
 
-    adapter.write_json(
-        adapter.data_dir() / "config.json",
+    write_config(
+        adapter,
         {
             "mcp_url": "http://127.0.0.1:2444/mcp",
             "request_timeout": 42,
@@ -207,7 +249,7 @@ def test_recall_is_bounded_and_cannot_close_evidence_wrapper(adapter, monkeypatc
     assert context.count("</reme-context>") == 1
     assert "&lt;/reme-context&gt;" in context
     assert call.call_args.args[2] == {"query": "previous decision", "limit": 5, "min_score": 0.0}
-    assert call.call_args.args[3] == 5
+    assert call.call_args.args[3] == (10 if adapter.HOST == "codex" else 5)
 
 
 def test_capture_excludes_tools_and_recalled_context(adapter, tmp_path):
@@ -231,7 +273,8 @@ def test_capture_excludes_tools_and_recalled_context(adapter, tmp_path):
 
 
 @pytest.mark.parametrize("adapter", ["codex"], indirect=True)
-def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, tmp_path, monkeypatch):
+@pytest.mark.parametrize("final_phase", [None, "final_answer"])
+def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, tmp_path, monkeypatch, final_phase):
     path = tmp_path / "rollout.jsonl"
 
     def completed(item):
@@ -259,7 +302,7 @@ def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, 
         completed({"type": "AgentMessage", "phase": "commentary", "content": [{"type": "Text", "text": "Working"}]}),
         completed({"type": "Reasoning", "content": [{"type": "Text", "text": "private"}]}),
         completed({"type": "ToolCall", "content": [{"type": "Text", "text": "tool output"}]}),
-        completed({"type": "AgentMessage", "phase": "final_answer", "content": [{"type": "Text", "text": "Saved."}]}),
+        completed({"type": "AgentMessage", "phase": final_phase, "content": [{"type": "Text", "text": "Saved."}]}),
         {
             "type": "response_item",
             "payload": {
@@ -280,12 +323,13 @@ def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, 
         "session_id": "modern-session",
         "transcript_path": str(path),
         "last_assistant_message": "Saved.",
+        "turn_id": "turn-one",
     }
     messages = adapter.completed_turn(payload, "session")
     assert [message["content"][0]["text"] for message in messages] == ["Remember Thursday.", "Saved."]
     call = Mock(return_value={"success": True, "answer": "daily/fact.md"})
     monkeypatch.setattr(adapter, "call", call)
-    adapter.write_json(adapter.data_dir() / "config.json", {"memory_interval": 1})
+    write_config(adapter, {"memory_interval": 1})
     adapter.handle_event(payload)
     adapter.handle_event(payload)
     call.assert_called_once()
@@ -300,6 +344,7 @@ def test_stop_matches_its_reply_when_next_turn_is_already_in_transcript(adapter,
     path = tmp_path / "transcript.jsonl"
     payload = transcript(adapter, path, [("first", "first answer"), ("second", "second answer")])
     payload["last_assistant_message"] = "first answer"
+    payload["turn_id"] = "turn-0"
     pair = adapter.completed_turn(payload, "session")
     assert [m["content"][0]["text"] for m in pair] == ["first", "first answer"]
 
@@ -313,7 +358,7 @@ def test_missing_or_unfinished_reply_is_not_recorded(adapter, tmp_path):
 
 
 def test_recording_batches_and_deduplicates_repeated_stop(adapter, tmp_path, monkeypatch):
-    config = {**adapter.load_config(), "memory_interval": 2}
+    config = {**adapter.load_config(), **host_settings(adapter, {"memory_interval": 2})}
     monkeypatch.setattr(adapter, "load_config", lambda: config)
     call = Mock(return_value={"success": True})
     monkeypatch.setattr(adapter, "call", call)
@@ -336,7 +381,7 @@ def test_recording_batches_and_deduplicates_repeated_stop(adapter, tmp_path, mon
 
 
 def test_failed_batch_survives_restart_and_session_start_flushes_tail(adapter, tmp_path, monkeypatch):
-    config = {**adapter.load_config(), "memory_interval": 1}
+    config = {**adapter.load_config(), **host_settings(adapter, {"memory_interval": 1})}
     monkeypatch.setattr(adapter, "load_config", lambda: config)
     call = Mock(side_effect=RuntimeError("not acknowledged"))
     monkeypatch.setattr(adapter, "call", call)
@@ -356,11 +401,16 @@ def test_disabling_memory_leaves_pending_queue_untouched(adapter, tmp_path, monk
     config = adapter.load_config()
     payload = transcript(adapter, tmp_path / "transcript.jsonl", [("question", "answer")])
     adapter.capture(config, payload)
-    monkeypatch.setattr(adapter, "load_config", lambda: {**config, "auto_memory": False, "auto_recall": False})
+    monkeypatch.setattr(
+        adapter,
+        "load_config",
+        lambda: {**config, **host_settings(adapter, {"auto_memory": False, "auto_recall": False})},
+    )
     call = Mock()
     monkeypatch.setattr(adapter, "call", call)
     for event in ("Stop", "SessionStart", "SessionEnd", "UserPromptSubmit"):
-        assert adapter.handle_event({**payload, "hook_event_name": event, "prompt": "anything"}) == {}
+        result = adapter.handle_event({**payload, "hook_event_name": event, "prompt": "anything"})
+        assert "reme-context" not in str(result)
     call.assert_not_called()
     assert len(list(adapter.queue_root(config).rglob("*.json"))) == 1
 
@@ -391,7 +441,7 @@ def test_shutdown_budget_does_not_drop_pending_work(adapter, tmp_path, monkeypat
 
 
 def test_overlapping_writers_retain_new_turn_and_do_not_duplicate_write(adapter, tmp_path, monkeypatch):
-    config = {**adapter.load_config(), "memory_interval": 1}
+    config = {**adapter.load_config(), **host_settings(adapter, {"memory_interval": 1})}
     first = transcript(adapter, tmp_path / "transcript.jsonl", [("one", "answer one")])
     root = adapter.capture(config, first)
     entered, release = threading.Event(), threading.Event()
@@ -436,7 +486,7 @@ def test_hook_entrypoint_fails_open_for_malformed_input(adapter, tmp_path):
 
 
 def test_cross_day_batches_flush_old_day_separately(adapter, tmp_path, monkeypatch):
-    config = {**adapter.load_config(), "memory_interval": 5}
+    config = {**adapter.load_config(), **host_settings(adapter, {"memory_interval": 5})}
     path = tmp_path / "transcript.jsonl"
     first = transcript(adapter, path, [("yesterday", "answer yesterday")])
     root = adapter.capture(config, first)
@@ -492,3 +542,81 @@ def test_endpoint_changes_never_send_old_queue_to_new_service(adapter, tmp_path,
     adapter.handle_event({"hook_event_name": "SessionStart"})
     call.assert_not_called()
     assert len(list(root.glob("*.json"))) == 1
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+def test_codex_matches_turn_id_even_when_final_replies_are_identical(adapter, tmp_path):
+    payload = transcript(adapter, tmp_path / "rollout.jsonl", [("first", "Saved."), ("second", "Saved.")])
+    payload["turn_id"] = "turn-0"
+    pair = adapter.completed_turn(payload, "session")
+    assert [message["content"][0]["text"] for message in pair] == ["first", "Saved."]
+    payload["turn_id"] = "unknown"
+    assert adapter.completed_turn(payload, "session") == []
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+def test_codex_localized_guidance_survives_disabled_and_failed_recall(adapter, monkeypatch):
+    write_config(adapter, {"language": "zh", "auto_recall": False})
+    call = Mock()
+    monkeypatch.setattr(adapter, "call", call)
+    payload = {"hook_event_name": "UserPromptSubmit", "prompt": "过去的决定"}
+    result = adapter.handle_event(payload)
+    context = result["hookSpecificOutput"]["additionalContext"]
+    assert "长期记忆" in context and "reme_search" in context and "<reme-context" not in context
+    assert adapter.clean_text(context + "\nactual source") == "actual source"
+    call.assert_not_called()
+    write_config(adapter, {"auto_memory": False})
+    call.side_effect = RuntimeError("service offline")
+    result = adapter.handle_event(payload)
+    assert "Automatic recording is disabled" in result["hookSpecificOutput"]["additionalContext"]
+    assert "recall_failed" in (adapter.data_dir() / "hooks.log").read_text()
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+def test_codex_capture_precedes_background_work_and_does_not_log_content(adapter, tmp_path, monkeypatch):
+    write_config(adapter, {"autoMemoryInterval": 1})
+    call = Mock(return_value={"success": True})
+    monkeypatch.setattr(adapter, "call", call)
+    payload = transcript(adapter, tmp_path / "rollout.jsonl", [("private fact", "Saved.")])
+    adapter.handle_event(payload, capture_only=True)
+    call.assert_not_called()
+    assert len(list(adapter.queue_root(adapter.load_config()).rglob("*.json"))) == 1
+    adapter.handle_event(payload)
+    adapter.handle_event(payload, capture_only=True)
+    call.assert_called_once()
+    log = (adapter.data_dir() / "hooks.log").read_text()
+    assert all(event in log for event in ("Stop", "memory_queued", "memory_saved"))
+    assert "private" not in log and "Saved." not in log
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+@pytest.mark.parametrize("source", ["subagent", {"subagent": {"thread_spawn": {"parent_thread_id": "root"}}}])
+def test_codex_subagent_prompts_do_not_trigger_recall(adapter, tmp_path, monkeypatch, source):
+    path = tmp_path / "rollout.jsonl"
+    path.write_text(json.dumps({"type": "session_meta", "payload": {"source": source}}) + "\n")
+    call = Mock()
+    monkeypatch.setattr(adapter, "call", call)
+    assert (
+        adapter.handle_event(
+            {"hook_event_name": "UserPromptSubmit", "prompt": "private child task", "transcript_path": str(path)},
+        )
+        == {}
+    )
+    call.assert_not_called()
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+def test_codex_subagent_recording_is_an_explicit_opt_in(adapter, tmp_path, monkeypatch):
+    path = tmp_path / "child.jsonl"
+    payload = transcript(adapter, path, [("child task", "child result")])
+    payload.update(hook_event_name="SubagentStop", agent_id="child", agent_transcript_path=str(path))
+    call = Mock(return_value={"success": True})
+    monkeypatch.setattr(adapter, "call", call)
+    adapter.handle_event(payload)
+    call.assert_not_called()
+    write_config(adapter, {"rootAgentsOnly": False, "autoMemoryInterval": 1})
+    adapter.handle_event(payload, capture_only=True)
+    call.assert_not_called()
+    adapter.handle_event(payload)
+    call.assert_called_once()
+    assert [m["content"][0]["text"] for m in call.call_args.args[2]["messages"]] == ["child task", "child result"]
