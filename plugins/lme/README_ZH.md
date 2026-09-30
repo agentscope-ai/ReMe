@@ -28,8 +28,7 @@ editable 安装会注册 `lme` entry point，并让源码修改立即生效。ru
 均保持关闭。原有 `auto_memory`、`agentic_answer`、`answer_judge`、`bench`、`judge` 名称及模型环境变量
 保持不变，显式应用参数和 CLI 覆盖仍优先。安装或启用插件不会自动开始评测。
 
-回答基类位于 `reme_lme.base_agentic_answer`。
-原 `reme.steps.benchmark` Python 导入路径已移除。自定义 Python 调用应从 `reme_lme`
-导入记忆、搜索和回答 Step；安装 `lme-judge` 后再从 `judge_lme` 导入评判 Step。
+自定义 Python 调用应从 `reme_lme` 导入记忆、搜索和回答 Step；安装 `lme-judge` 后再从
+`judge_lme` 导入评判 Step。
 卸载插件后，Application 和 CLI 服务必须移除插件选择，直到再次安装。
 卸载不会删除数据集、工作区或结果。修改插件后需重启已有服务。

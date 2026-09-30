@@ -72,7 +72,6 @@ reme/
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
-    benchmark/               # LongMemEval / BEAM 评测步骤
     file_io/                 # read/write/edit/delete/move/frontmatter/daily
     index/                   # watch/init/update/search/traverse
     evolve/                  # auto_memory、auto_resource、auto_dream、proactive
