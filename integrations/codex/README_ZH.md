@@ -207,12 +207,26 @@ Hook 是否可信，需另到 Codex 的 Hooks 设置中检查。
 | 现象 | 检查方式 |
 | --- | --- |
 | 找不到 MCP 设置 | 在最新版桌面端打开已安装的 ReMe 详情及 `reme` MCP 卡片；确认启用后重启。 |
+| 状态卡片空白，随后提示“插件功能未成功加载” | 检查 Codex 沙箱页面的网络访问；见下方说明。 |
 | 连接健康，但没有记录或召回 | 检查全部 ReMe Hook 的信任状态、自动开关及最近活动；连接健康不代表 Hook 已执行。 |
 | 记录一直在队列中 | 检查 ReMe 模型配置和服务日志，保持会话运行，并确认 `service.tool_error_on_failure=true`；后续 Hook 会尝试重试。 |
 | 没有召回结果 | 先确认事实已在 `daily/` 中，使用独立项目名查询，再检查 `searchLimit` 和 `recallMinScore`。 |
 | Dream 未触发 | 查看保存的时区、下次运行时间、开关及 MCP 连接；离线期间错过的时点不会补跑。 |
 | 升级后提示未知配置字段 | 备份 `reme/config.json`，按当前配置示例替换旧字段，再打开 MCP 设置；不支持旧字段名。 |
 | Python 或 FastMCP 启动报错 | 检查 Codex 实际继承的 `python3` 环境，尤其是桌面端的启动环境。 |
+
+状态面板通过本地 MCP 提供 HTML 和状态数据，但 Codex 桌面端还需要加载自己的沙箱页面。
+如果卡片空白，且 Codex 客户端日志出现 `guest_load_failed`、`ERR_UNEXPECTED` 或
+`MCP sandbox RPC timed out`，可在运行 Codex 的机器上检查：
+
+```bash
+curl -i --max-time 20 https://web-sandbox.oaiusercontent.com/mcp-app.html
+```
+
+若响应为公司网络或安全软件的拦截提示，请按其正规流程放行 `web-sandbox.oaiusercontent.com`，
+包括该域名下页面所需的静态资源，然后重启 Codex 并重新打开面板。这个加载错误本身不能说明
+ReMe 服务或 Hook 是否正常，也不需要因此修改 `mcpUrl`、清空记忆或重装插件。
+暂时可以在对话中要求“调用 `reme_status`，用文字展示返回的状态”，查看服务连接、队列和整理计划。
 
 诊断日志位于 `${CODEX_HOME:-~/.codex}/reme/hooks.log`，仅包含事件名、计数和错误类型，不记录对话正文。
 尚未确认写入的对话数据另存于该目录。记录采用尽力交付：本地捕获前强制终止可能丢失轮次，

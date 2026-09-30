@@ -220,12 +220,27 @@ address to retry them. Settings changed during consolidation apply to subsequent
 | Symptom | Check |
 | --- | --- |
 | No MCP settings entry | Open the installed ReMe detail and its `reme` MCP card in the latest desktop app; confirm it is enabled and restart. |
+| Blank status card followed by a plugin feature loading error | Check network access to the Codex sandbox page; see below. |
 | Connection healthy, no recording or recall | Review every ReMe Hook; check the auto switches and recent activity. Health does not prove Hook execution. |
 | Turns stay queued | Check the ReMe model and service logs, keep the session open, and confirm `service.tool_error_on_failure=true`. Retry happens at a later Hook. |
 | Recall is empty | First confirm the fact exists in `daily/`, use its unique identifier, and inspect `searchLimit` and `recallMinScore`. |
 | Dream did not run | Check the saved timezone, next run, schedule switch, and live MCP connection. Offline times are skipped. |
 | Unknown configuration fields after upgrading | Back up `reme/config.json`, then replace obsolete fields using the current configuration example and reopen MCP settings. Old field names are not supported. |
 | Python or FastMCP startup error | Check the `python3` environment inherited by Codex, including the desktop app. |
+
+The panel serves its HTML and status data over local MCP, but Codex desktop also loads its own sandbox page.
+If the card stays blank and the Codex client logs contain `guest_load_failed`, `ERR_UNEXPECTED`, or
+`MCP sandbox RPC timed out`, check access from the machine running Codex:
+
+```bash
+curl -i --max-time 20 https://web-sandbox.oaiusercontent.com/mcp-app.html
+```
+
+If the response reports a corporate network or security software block, follow its approved process to allow
+`web-sandbox.oaiusercontent.com`, including the page's static assets on that domain. Restart Codex and reopen the panel
+after access is restored. This loading error alone does not establish whether ReMe or its Hooks are healthy and does
+not call for changing `mcpUrl`, clearing memory, or reinstalling the plugin. Meanwhile, ask in a conversation:
+“Call `reme_status` and show the returned status as text” to inspect the connection, queue, and consolidation schedule.
 
 Content-free diagnostics are in `${CODEX_HOME:-~/.codex}/reme/hooks.log`; they include event names,
 counts, and error classes, not conversation content. Pending conversation data is stored separately
