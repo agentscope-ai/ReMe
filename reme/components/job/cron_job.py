@@ -13,10 +13,9 @@ from ...schema import Response
 class CronJob(BackgroundJob):
     """Run this job's own steps on a cron expression."""
 
-    def __init__(self, cron: str, enable_schedule: bool = True, **kwargs):
+    def __init__(self, cron: str, **kwargs):
         super().__init__(**kwargs)
         self.cron_expr = cron
-        self.enable_schedule = enable_schedule
 
     async def _start(self) -> None:
         from croniter import croniter
@@ -42,6 +41,7 @@ class CronJob(BackgroundJob):
         return context.response
 
     async def __call__(self, **kwargs) -> Response:
+        self.check_enabled()
         assert self._stop_event is not None
         while not self._stop_event.is_set():
             await self._wait_or_stop(self._next_fire_delay())

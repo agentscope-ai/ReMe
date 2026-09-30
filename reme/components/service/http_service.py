@@ -110,7 +110,10 @@ class HttpService(BaseService):
             conflicts = sorted(
                 job.name
                 for name, job in app.context.jobs.items()
-                if job.enable_serve and (self.jobs is None or name in self.jobs) and f"/{job.name}" == self.mcp_path
+                if job.enabled
+                and job.enable_serve
+                and (self.jobs is None or name in self.jobs)
+                and f"/{job.name}" == self.mcp_path
             )
             if conflicts:
                 names = ", ".join(conflicts)

@@ -41,7 +41,7 @@ reme start \
   workspace_dir=/absolute/path/to/reme-workspace \
   service.host=127.0.0.1 \
   service.port=3458 \
-  jobs.dream_cron.enable_schedule=false
+  jobs.dream_cron.enabled=false
 ```
 
 The plugin owns the daily Dream schedule by default, so this disables ReMe's `dream_cron` while keeping the

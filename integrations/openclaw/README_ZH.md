@@ -38,7 +38,7 @@ reme start \
   workspace_dir=/absolute/path/to/reme-workspace \
   service.host=127.0.0.1 \
   service.port=3458 \
-  jobs.dream_cron.enable_schedule=false
+  jobs.dream_cron.enabled=false
 ```
 
 插件默认负责每日 Dream 调度，因此这里关闭 ReMe 的 `dream_cron`，保留 `auto_dream` 接口。

@@ -206,8 +206,8 @@ class Application(BaseComponent):
 
     async def _start_one(self, c: BaseComponent) -> None:
         """Start one component and record it for ordered shutdown."""
-        if isinstance(c, CronJob) and not c.enable_schedule:
-            self.logger.info(f"Skipping disabled cron job: {c.name}")
+        if isinstance(c, BaseJob) and not c.enabled:
+            self.logger.info(f"Skipping disabled job: {c.name}")
             return
         try:
             if isinstance(c, BackgroundJob):
@@ -370,18 +370,23 @@ class Application(BaseComponent):
 
     # ----- Job execution -------------------------------------------------
 
-    async def run_job(self, name: str, /, **kwargs) -> Response:
-        """Execute a registered job by name and return its final Response."""
+    def _get_enabled_job(self, name: str) -> BaseJob:
+        """Resolve a job and reject execution when disabled."""
         if name not in self.context.jobs:
             raise KeyError(f"Job '{name}' not found")
-        return await self.context.jobs[name](**kwargs)
+        job = self.context.jobs[name]
+        job.check_enabled()
+        return job
+
+    async def run_job(self, name: str, /, **kwargs) -> Response:
+        """Execute a registered job by name and return its final Response."""
+        return await self._get_enabled_job(name)(**kwargs)
 
     async def run_stream_job(self, name: str, /, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute a streaming job, yielding chunks as they are produced."""
-        if name not in self.context.jobs:
-            raise KeyError(f"Job '{name}' not found")
+        job = self._get_enabled_job(name)
         stream_queue: asyncio.Queue = asyncio.Queue()
-        task = asyncio.create_task(self.context.jobs[name](stream_queue=stream_queue, **kwargs))
+        task = asyncio.create_task(job(stream_queue=stream_queue, **kwargs))
         async for chunk in execute_stream_task(
             stream_queue=stream_queue,
             task=task,

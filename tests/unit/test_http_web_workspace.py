@@ -222,6 +222,15 @@ def test_http_service_fails_startup_preflight_for_mcp_job_conflict() -> None:
         service.add_jobs(app)
 
 
+def test_http_service_ignores_disabled_mcp_job_conflict() -> None:
+    """A disabled job does not reserve a service route."""
+    service = HttpService(web_enabled=False)
+    service.build_service(_FakeApplication())  # type: ignore[arg-type]
+    app = SimpleNamespace(context=SimpleNamespace(jobs={"mcp": BaseJob(name="mcp", enabled=False)}))
+
+    service.add_jobs(app)
+
+
 def test_http_service_does_not_serve_symlinks_outside_static_dir(
     tmp_path: Path,
 ) -> None:

@@ -31,7 +31,7 @@ class HelpStep(BaseStep):
         lines = []
         if self.app_context is not None:
             for name, job in self.app_context.jobs.items():
-                if name == "help" or not getattr(job, "enable_serve", True):
+                if name == "help" or not getattr(job, "enabled", True) or not getattr(job, "enable_serve", True):
                     continue
                 lines.append(f"🛠️ `{name}` — {job.description} 📥 {_format_params(job.parameters)}")
 

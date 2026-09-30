@@ -44,13 +44,14 @@ class BaseJob(BaseComponent):
         parameters: dict | None = None,
         steps: list[ComponentConfig | dict] | None = None,
         enable_serve: bool = True,
+        enabled: bool = True,
         **kwargs,
     ):
-        kwargs.pop("enable_schedule", None)
         super().__init__(**kwargs)
         self.description = description
         self.parameters = parameters or {}
         self.step_configs = steps or []
+        self.enabled = enabled
         self.enable_serve = enable_serve
         self.step_specs: list[tuple[type["BaseStep"], dict]] = []
 
@@ -84,8 +85,14 @@ class BaseJob(BaseComponent):
         if isinstance(metadata, dict):
             global_counter_inc(metadata, ["__job_counter", self.name])
 
+    def check_enabled(self) -> None:
+        """Reject execution of a disabled job."""
+        if not self.enabled:
+            raise ValueError(f"Job '{self.name}' is disabled")
+
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
+        self.check_enabled()
         self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(**merged)

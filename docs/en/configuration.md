@@ -74,18 +74,19 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
-## Cron scheduling
+## Enabling jobs
 
-`jobs.<name>.enable_schedule` defaults to `true` and controls automatic startup of cron jobs only.
-Set it to `false` when a host plugin owns the schedule:
+`jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not
+start, expose service interfaces, or accept calls through `Application.run_job()` / `run_stream_job()`.
+For example, disable ReMe's Dream cron when a host plugin owns the schedule:
 
 ```bash
-reme start jobs.dream_cron.enable_schedule=false
+reme start jobs.dream_cron.enabled=false
 ```
 
-Restart the service to apply the override. The `auto_dream` API remains available, and other jobs continue running.
-`enable_serve` separately controls service exposure; it does not disable scheduling. Disabled cron jobs retain their
-configuration but do not start their steps or background tasks. The switch has no effect on other job types.
+Restart the service to apply the override. The separate `auto_dream` API remains available, and other jobs continue running.
+`enable_serve` independently controls service exposure: `enabled=true, enable_serve=false` keeps a Job available for
+local calls. Background and cron jobs are never service-exposed.
 
 ## LLM
 

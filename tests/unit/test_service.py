@@ -36,12 +36,13 @@ def _app_with_jobs(**jobs):
     return SimpleNamespace(context=SimpleNamespace(jobs=jobs))
 
 
-def test_service_registers_all_enabled_jobs_by_default():
+@pytest.mark.parametrize("options", [{"enable_serve": False}, {"enabled": False}])
+def test_service_registers_all_enabled_jobs_by_default(options):
     """Omitting service.jobs preserves registration of every service-enabled job."""
     service = MCPService()
     service.add_job = Mock(return_value=True)
     enabled = BaseJob(name="enabled")
-    disabled = BaseJob(name="disabled", enable_serve=False)
+    disabled = BaseJob(name="disabled", **options)
 
     service.add_jobs(_app_with_jobs(enabled=enabled, disabled=disabled))
 
@@ -73,7 +74,8 @@ def test_empty_service_jobs_disables_job_registration():
     service.add_job.assert_not_called()
 
 
-def test_explicit_service_jobs_reject_missing_disabled_and_unsupported_jobs():
+@pytest.mark.parametrize("options", [{"enable_serve": False}, {"enabled": False}])
+def test_explicit_service_jobs_reject_missing_disabled_and_unsupported_jobs(options):
     """An explicit service.jobs list fails instead of starting an incomplete service."""
     missing_service = MCPService(jobs=["missing"])
     with pytest.raises(KeyError, match="missing"):
@@ -81,7 +83,7 @@ def test_explicit_service_jobs_reject_missing_disabled_and_unsupported_jobs():
 
     disabled_service = MCPService(jobs=["disabled"])
     with pytest.raises(ValueError, match="disabled"):
-        disabled_service.add_jobs(_app_with_jobs(disabled=BaseJob(name="disabled", enable_serve=False)))
+        disabled_service.add_jobs(_app_with_jobs(disabled=BaseJob(name="disabled", **options)))
 
     stream_service = MCPService(jobs=["stream"])
     stream_service.add_job = Mock(return_value=False)

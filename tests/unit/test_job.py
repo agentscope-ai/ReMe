@@ -384,28 +384,69 @@ def test_application_starts_jobs_base_stream_background_cron():
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("cls", [BaseJob, StreamJob, BackgroundJob, CronJob])
 @pytest.mark.parametrize("enabled", [True, False])
-def test_application_respects_cron_schedule_switch(enabled):
+def test_application_respects_job_enabled_switch(cls, enabled):
     async def run():
         app = object.__new__(Application)
         app._started_components = []
         app.logger = MagicMock()
-        job = CronJob(cron="0 23 * * *", enable_schedule=enabled, enable_serve=True, name="dream_cron")
-        job.start = AsyncMock()
+        app.context = SimpleNamespace(thread_pool=None)
+        context = SimpleNamespace(registry=ComponentRegistry(), metadata={})
+        options = {"cron": "0 23 * * *"} if cls is CronJob else {}
+        job = cls(
+            enabled=enabled,
+            app_context=context,
+            steps=[] if enabled else [{"backend": "missing_step"}],
+            **options,
+        )
 
-        await app._start_one(job)
+        try:
+            await app._start_one(job)
+            assert job.is_started is enabled
+            assert app._started_components == ([job] if enabled else [])
+            assert "enabled" not in job.kwargs
+            if isinstance(job, BackgroundJob):
+                assert (job._task is not None) is enabled
+                assert job.enable_serve is False
+            if not enabled:
+                assert job.step_specs == []
+        finally:
+            await app._close_started_components()
 
-        assert job.start.await_count == int(enabled)
-        assert app._started_components == ([job] if enabled else [])
-        assert job.enable_serve is False
-        assert job._task is None
+        assert not job.is_started
+        if isinstance(job, BackgroundJob):
+            assert job._task is None
 
-        for cls in (BaseJob, StreamJob, BackgroundJob):
-            other = cls(enable_schedule=False)
-            other.start = AsyncMock()
-            await app._start_one(other)
-            other.start.assert_awaited_once()
-            assert "enable_schedule" not in other.kwargs
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("cls", [BaseJob, StreamJob, BackgroundJob, CronJob])
+def test_application_rejects_disabled_job_calls(cls):
+    async def run():
+        app = object.__new__(Application)
+        options = {"cron": "0 23 * * *"} if cls is CronJob else {}
+        job = cls(name="disabled", enabled=False, **options)
+        app.context = SimpleNamespace(jobs={"disabled": job})
+
+        with pytest.raises(ValueError, match="Job 'disabled' is disabled"):
+            await job()
+        with pytest.raises(ValueError, match="Job 'disabled' is disabled"):
+            await app.run_job("disabled")
+        with pytest.raises(ValueError, match="Job 'disabled' is disabled"):
+            async for _ in app.run_stream_job("disabled"):
+                pytest.fail("Disabled job emitted a chunk")
+
+    asyncio.run(run())
+
+
+def test_application_can_call_non_servable_job():
+    async def run():
+        app = object.__new__(Application)
+        job = BaseJob(name="manual", enable_serve=False)
+        app.context = SimpleNamespace(jobs={"manual": job})
+        response = await app.run_job("manual")
+        assert response.success is True
 
     asyncio.run(run())
 
