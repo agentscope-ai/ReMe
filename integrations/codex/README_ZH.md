@@ -39,8 +39,14 @@ codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
 codex plugin add reme@reme-codex
 ```
 
-启动 Codex，在 `/hooks` 中检查并信任已安装插件的 Hook，然后新建会话。
+启动 Codex，在 `/hooks` 中检查并信任 ReMe 的四个 Hook（`SessionStart`、`SessionEnd`、
+`UserPromptSubmit`、`Stop`），然后新建会话。
 插件安装会一并加载 Hook、MCP 连接和内置 Skill。更新后重新安装插件，并审核有变化的 Hook。
+
+本插件使用受支持的 `.codex-plugin/plugin.json` 与 `.mcp.json` 布局。
+在 Codex 0.159.2 和桌面运行时 0.158.0-alpha.2.1 中，根目录 `plugin.json` 会选择 portable
+加载器，导致本插件的 Hook 被遗漏，显式声明 Hook 路径也不能解决。确认 portable 加载器能通过
+原生 Hook 发现验证前，保留 Codex 布局。
 
 ## 3. 在 Codex 中使用记忆
 
@@ -104,17 +110,20 @@ Codex 0.145.0 会跳过设置了 `async` 的 hook，因此本适配器使用同�
 
 ## 验证与排查
 
-1. 在 Codex 中让已安装的 ReMe 插件检查连接，通过 `/mcp` 确认插件连接状态。
+1. 在 `/hooks` 中确认 ReMe 的四个 Hook 均已加载、启用且信任，再在 MCP 设置中点击
+   **Check connection**。健康结果只验证服务连接，不代表 Hook 已加载或执行。
 2. 快速验证时把 `memory_interval` 设为 `1`，新建会话，要求记住一条合成事实，例如“Juniper 项目每周四评审”。
 3. 等待写入，检查 `reme/hooks.log` 的 `memory_saved`，以及 ReMe workspace 的 `daily/` 笔记。
 4. 再新建一个独立会话，询问该事实，并确认回答附有 ReMe 来源路径。
 
 自动记忆和显式检索、阅读、健康检查均由已安装的插件提供。工具缺失时，检查插件是否已安装并启用、
-ReMe 服务是否运行，以及 `service.jobs` 是否开放所需 Job。Hook 无法加载时，请使用满足插件要求的宿主版本，
-再重新安装或加载插件。
+ReMe 服务是否运行，以及 `service.jobs` 是否开放所需 Job。`/hooks` 中没有 ReMe 时，重新安装当前插件并
+重启宿主；已列出但待审核时，信任当前 Hook 定义。已信任的 Hook 执行失败时，检查 Hook 环境中的
+`python3` 是否为 Python 3.11+，并已安装 FastMCP。
 
-记录要求 Hook 提供 `transcript_path` 和 `last_assistant_message`，读取 rollout 的 `event_msg`
-（`user_message` 与最终 `agent_message`），不读取私有推理。
+记录要求 Hook 提供 `transcript_path` 和 `last_assistant_message`，读取 rollout 的 `event_msg`：
+旧版 `user_message` / 最终 `agent_message`，以及新版 `item_completed` 中的
+`UserMessage` / 最终 `AgentMessage` 文本块。排除 `response_item` 中的注入上下文和重复消息，不读取私有推理。
 Codex transcript 不是稳定公开接口；未知格式或缺失文件会跳过并记录状态，不猜测对话。
 召回正常但未记录时，检查 `capture_skipped`、`hook_failed`。
 
@@ -123,5 +132,8 @@ Codex transcript 不是稳定公开接口；未知格式或缺失文件会跳过
 ## 源码与验证
 
 在 ReMe 仓库运行 `pytest tests/unit/test_coding_agent_plugins.py tests/unit/test_codex_plugin_mcp.py -v`。测试使用隔离目录和模拟服务。
+使用支持 `hooks/list` 的运行时，执行
+`REME_CODEX_BIN=/path/to/codex pytest tests/integration/test_codex_plugin_install.py -v`，
+可在隔离配置目录安装插件，验证信任前的 Hook 发现行为，不调用模型或执行 Hook。
 宿主行为以 [Codex Hook 文档](https://learn.chatgpt.com/docs/hooks) 为准。
 ReMe 在 [agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe) 开发，采用 Apache-2.0 许可证。

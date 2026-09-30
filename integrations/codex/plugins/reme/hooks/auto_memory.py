@@ -47,7 +47,7 @@ def clean_text(value: str) -> str:
 
 
 def transcript_messages(path: Path):
-    """Read Codex rollout user/agent events, excluding reasoning and response-item duplicates."""
+    """Read legacy and completed-item events, excluding reasoning and response-item duplicates."""
     with path.open(encoding="utf-8") as handle:
         for index, line in enumerate(handle):
             if not line.endswith("\n"):
@@ -64,10 +64,23 @@ def transcript_messages(path: Path):
                     return
             if record.get("type") != "event_msg":
                 continue
-            role = {"user_message": "user", "agent_message": "assistant"}.get(payload.get("type"))
-            if role is None or role == "assistant" and payload.get("phase") not in {None, "final_answer"}:
+            if payload.get("type") == "item_completed":
+                item = payload.get("item")
+                if not isinstance(item, dict) or not isinstance(item.get("content"), list):
+                    continue
+                role = {"UserMessage": "user", "AgentMessage": "assistant"}.get(item.get("type"))
+                phase = item.get("phase")
+                text_type = "text" if role == "user" else "Text"
+                content = "\n".join(
+                    block["text"]
+                    for block in item["content"]
+                    if isinstance(block, dict) and block.get("type") == text_type and isinstance(block.get("text"), str)
+                )
+            else:
+                role = {"user_message": "user", "agent_message": "assistant"}.get(payload.get("type"))
+                phase, content = payload.get("phase"), payload.get("message")
+            if role is None or role == "assistant" and phase not in {None, "final_answer"}:
                 continue
-            content = payload.get("message")
             if role == "user" and isinstance(content, str) and "## My request for Codex:" in content:
                 content = content.split("## My request for Codex:", 1)[1]
             if not isinstance(content, str) or not (text := clean_text(content)):

@@ -41,9 +41,15 @@ codex plugin marketplace add /absolute/path/to/ReMe/integrations/codex
 codex plugin add reme@reme-codex
 ```
 
-Start Codex and review and trust the installed plugin's hooks in `/hooks`, then open a new conversation.
+Start Codex and review and trust the four ReMe hooks (`SessionStart`, `SessionEnd`,
+`UserPromptSubmit`, and `Stop`) in `/hooks`, then open a new conversation.
 The installation loads the bundled hooks, MCP connection, and skill together. After plugin updates,
 reinstall it and review any changed hook definitions.
+
+This package uses the supported `.codex-plugin/plugin.json` and `.mcp.json` layout.
+Codex 0.159.2 and desktop runtime 0.158.0-alpha.2.1 omit this plugin's hooks when a root
+`plugin.json` selects the portable loader, even with an explicit hook declaration. Keep the
+Codex layout until native hook discovery is verified with the portable loader.
 
 ## 3. Use memory in Codex
 
@@ -127,7 +133,9 @@ Clients without that extension can still use tools and hooks, but have no native
 
 ## Verify and troubleshoot
 
-1. In Codex, ask the installed ReMe plugin to check the connection; confirm its status in `/mcp`.
+1. Check that `/hooks` lists all four ReMe hooks and that each is enabled and trusted. Then use
+   **Check connection** in the MCP settings. A healthy result verifies the service connection;
+   it does not verify hook loading or execution.
 2. For a quick test, set `memory_interval` to `1`, then start a new conversation and ask the agent to
    remember a synthetic fact, such as “Project Juniper reviews are on Thursday.”
 3. Wait for the write and inspect `reme/hooks.log` for `memory_saved` and the ReMe workspace's `daily/`.
@@ -135,10 +143,13 @@ Clients without that extension can still use tools and hooks, but have no native
 
 The installed plugin provides both automatic memory and explicit search/read and health checks.
 If its tools are missing, check that the plugin is installed and enabled, the service is running,
-and `service.jobs` exposes the required jobs. If its hooks do not load, use a host version supporting
-the plugin requirements and reinstall or reload the plugin.
+and `service.jobs` exposes the required jobs. If ReMe is missing from `/hooks`, reinstall the current
+plugin and restart the host. If listed but awaiting review, trust its current definitions.
+If trusted hooks fail, check that the hook environment's `python3` is Python 3.11+ with FastMCP installed.
 
-Capture currently reads Codex rollout JSONL `event_msg` records (`user_message` and final `agent_message`). The hook requires
+Capture reads Codex rollout JSONL `event_msg` records: legacy `user_message` / final `agent_message`,
+and newer `item_completed` events containing `UserMessage` / final `AgentMessage` text blocks.
+`response_item` records are excluded, including injected context and duplicate messages. The hook requires
 `transcript_path` and `last_assistant_message`. Missing or unsupported transcripts are skipped rather
 than guessed. Codex transcript formats are not a stable public interface. Check `capture_skipped` or
 `hook_failed` events when recall works but recording does not.
@@ -150,5 +161,8 @@ specific call. Trusted automatic hooks act as MCP clients themselves; they do no
 ## Source and validation
 
 Run `pytest tests/unit/test_coding_agent_plugins.py tests/unit/test_codex_plugin_mcp.py -v` from the ReMe checkout. Tests isolate host
-state and mock service calls. Native hook behavior is described in the [Codex hook reference](https://learn.chatgpt.com/docs/hooks).
+state and mock service calls. With a runtime supporting `hooks/list`, run
+`REME_CODEX_BIN=/path/to/codex pytest tests/integration/test_codex_plugin_install.py -v`
+to install into an isolated profile and verify hook discovery before trust, without model calls or hook execution.
+Native hook behavior is described in the [Codex hook reference](https://learn.chatgpt.com/docs/hooks).
 ReMe is developed at [agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe) under Apache-2.0.

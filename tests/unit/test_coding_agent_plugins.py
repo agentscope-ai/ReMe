@@ -77,15 +77,7 @@ def test_native_manifests_resolve_within_their_own_plugin():
         else:
             assert mcp["args"] == ["mcp_server.py"]
             assert (root / "mcp_server.py").is_file()
-            portable = json.loads((root / "plugin.json").read_text())
-            assert portable["name"] == manifest["name"]
-            assert portable["version"] == manifest["version"]
-            assert not {"skills", "mcpServers", "interface"} & portable.keys()
-            portable_mcp = json.loads((root / "mcp.json").read_text())["mcpServers"]["reme"]
-            assert portable_mcp["type"] == "stdio"
-            assert portable_mcp["args"] == ["${PLUGIN_ROOT}/mcp_server.py"]
-            assert portable_mcp["cwd"] == "${PLUGIN_ROOT}"
-            assert portable_mcp["command"] == mcp["command"]
+            assert (root / manifest["hooks"]).is_file()
             assert mcp["cwd"] == "."
             assert "CODEX_HOME" in mcp["env_vars"]
         if host == "claude-code":
@@ -236,6 +228,72 @@ def test_capture_excludes_tools_and_recalled_context(adapter, tmp_path):
     assert [message["content"][0]["text"] for message in pair] == ["Remember Thursday.", "Saved."]
     assert pair == adapter.completed_turn(payload, "session")
     assert all(message["id"].startswith(adapter.HOST + "-") for message in pair)
+
+
+@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
+def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, tmp_path, monkeypatch):
+    path = tmp_path / "rollout.jsonl"
+
+    def completed(item):
+        return {
+            "timestamp": "2026-09-30T07:00:11.665Z",
+            "type": "event_msg",
+            "payload": {"type": "item_completed", "turn_id": "turn-one", "item": item},
+        }
+
+    rows = [
+        {"type": "session_meta", "payload": {"source": "cli"}},
+        {
+            "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "injected"}]},
+        },
+        completed(
+            {
+                "type": "UserMessage",
+                "content": [
+                    {"type": "text", "text": "Remember Thursday.<reme-context>old</reme-context>", "text_elements": []},
+                    {"type": "image", "text": "image payload"},
+                ],
+            },
+        ),
+        completed({"type": "AgentMessage", "phase": "commentary", "content": [{"type": "Text", "text": "Working"}]}),
+        completed({"type": "Reasoning", "content": [{"type": "Text", "text": "private"}]}),
+        completed({"type": "ToolCall", "content": [{"type": "Text", "text": "tool output"}]}),
+        completed({"type": "AgentMessage", "phase": "final_answer", "content": [{"type": "Text", "text": "Saved."}]}),
+        {
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "Saved."}],
+            },
+        },
+        completed({"type": "UserMessage", "content": [{"type": "text", "text": "next turn"}]}),
+        completed({"type": "AgentMessage", "phase": "commentary", "content": [{"type": "Text", "text": "Saved."}]}),
+        completed(None),
+        completed({"type": "AgentMessage", "content": "unsupported"}),
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    payload = {
+        "hook_event_name": "Stop",
+        "session_id": "modern-session",
+        "transcript_path": str(path),
+        "last_assistant_message": "Saved.",
+    }
+    messages = adapter.completed_turn(payload, "session")
+    assert [message["content"][0]["text"] for message in messages] == ["Remember Thursday.", "Saved."]
+    call = Mock(return_value={"success": True, "answer": "daily/fact.md"})
+    monkeypatch.setattr(adapter, "call", call)
+    adapter.write_json(adapter.data_dir() / "config.json", {"memory_interval": 1})
+    adapter.handle_event(payload)
+    adapter.handle_event(payload)
+    call.assert_called_once()
+    assert [message["content"][0]["text"] for message in call.call_args.args[2]["messages"]] == [
+        "Remember Thursday.",
+        "Saved.",
+    ]
+    assert len(list((adapter.data_dir() / "queue").rglob("*.done"))) == 1
 
 
 def test_stop_matches_its_reply_when_next_turn_is_already_in_transcript(adapter, tmp_path):
