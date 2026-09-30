@@ -54,6 +54,18 @@ const externalDocumentRewrites = {
     ['src="docs/figure/', 'src="../figure/'],
     ["(docs/zh/", "(./"],
   ],
+  "integrations/codex/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/codex)"],
+    ["(../../docs/en/configuration.md)", "(/en/configuration)"],
+    ["(./figures/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/integrations/codex/figures/README.md)"],
+    ["(./figures/", "(/figures/codex/"],
+  ],
+  "integrations/codex/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/codex)"],
+    ["(../../docs/zh/configuration.md)", "(/zh/configuration)"],
+    ["(./figures/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/integrations/codex/figures/README.md)"],
+    ["(./figures/", "(/figures/codex/"],
+  ],
   "integrations/dsh/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/dsh)"],
     ["(./figures/", "(/figures/dsh/"],
@@ -235,6 +247,10 @@ for (const [destination, source] of externalDocuments) {
   sourceMap[destination] = source;
 }
 
+await cp(path.join(repoDir, "integrations/codex/figures"), path.join(outputDir, "public/figures/codex"), {
+  recursive: true,
+  filter: (source) => !source.endsWith(".md"),
+});
 await cp(path.join(repoDir, "integrations/dsh/figures"), path.join(outputDir, "public/figures/dsh"), {
   recursive: true,
 });

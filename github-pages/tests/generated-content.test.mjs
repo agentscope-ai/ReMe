@@ -148,6 +148,7 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "integrations/claude_code/README_ZH.md",
     "integrations/codex/README.md",
     "integrations/codex/README_ZH.md",
+    "integrations/codex/figures/**",
     "integrations/hermes_agent/README.md",
     "integrations/dsh/README*.md",
     "integrations/dsh/figures/**",

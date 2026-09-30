@@ -16,6 +16,7 @@ on:
       - 'integrations/claude_code/README_ZH.md'
       - 'integrations/codex/README.md'
       - 'integrations/codex/README_ZH.md'
+      - 'integrations/codex/figures/**'
       - 'integrations/hermes_agent/README.md'
       - 'reme_studio/README*.md'
       - 'reme_studio/figures/**'
