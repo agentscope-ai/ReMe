@@ -3,6 +3,7 @@
 .vinext/
 dist/
 dist-static/
+dist-demo/
 out/
 src/reme_studio/static/
 

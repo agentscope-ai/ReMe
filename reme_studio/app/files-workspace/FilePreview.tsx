@@ -1,6 +1,10 @@
 import { useMemo } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import dynamic from "next/dynamic";
+import { IS_DEMO } from "../studio-mode";
+import WorkspaceMarkdown from "./WorkspaceMarkdown";
+const DemoTags = IS_DEMO
+  ? dynamic(() => import("../../demo/DemoTags"), { ssr: false })
+  : null;
 import { parseMarkdownFrontmatter } from "./markdown";
 import styles from "./files-workspace.module.css";
 
@@ -50,12 +54,18 @@ function MarkdownPreview({ content }: { content: string }) {
           {entries.map(({ key, value }, index) => (
             <div className={styles.frontmatterRow} key={`${key}:${index}`}>
               <dt>{key}</dt>
-              <dd>{value}</dd>
+              <dd>
+                {key === "memory_tags" && DemoTags ? (
+                  <DemoTags content={content} />
+                ) : (
+                  value
+                )}
+              </dd>
             </div>
           ))}
         </dl>
       )}
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown>
+      <WorkspaceMarkdown content={body} />
     </article>
   );
 }

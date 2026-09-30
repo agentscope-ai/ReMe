@@ -14,6 +14,21 @@ indexes, catalogs, graphs, caches, and runtime metadata stay derived and rebuild
 > All screenshots in this README were captured from a real local ReMe service with the Studio UI set to English. The
 > isolated `Project Aurora` workspace is fictional and contains no user data, credentials, or private endpoints.
 
+## Try in your browser
+
+Open [Try Studio](https://reme.agentscope.io/studio/?lang=en) without installing or starting a backend. It reuses the
+local Studio UI with 21 connected, fictional Aurora documents: resources, daily notes, durable knowledge, personal
+preferences, and procedures.
+
+Edit, save, and download files, explore wikilink graphs, and filter across directories with keywords and `memory_tags`.
+Tag file counts and graphs are derived from current example files and update after saves. Multiple selected tags match
+any selected tag. Changes and drafts stay in this browser, separately for each language. Reset demo restores the
+starting content; clearing site data also removes changes, so download anything you want to keep.
+
+Agent conversations are labeled scripts. Tool blocks read the current example files; answers do not regenerate after
+edits. The demo runs no model, vector retrieval, automatic memory extraction, or background tasks and does not connect
+to a local ReMe service. Follow the installation instructions below to use your real workspace.
+
 ## What Studio provides
 
 | Area            | Capabilities                                                                                                                      |
@@ -368,6 +383,17 @@ intended edit, and save again. This conflict is deliberate protection against si
 
 File features can work while chat is unavailable. Verify the configured Agent wrapper, model, API key, and provider
 endpoint in the ReMe backend, then check Settings → Status. Do not place credentials in frontend environment variables.
+
+## Develop the browser demo
+
+```bash
+npm run dev:demo
+npm run build:demo
+```
+
+The demo builds to `dist-demo/` for static hosting. The GitHub Pages build includes it at `/studio/`. Example sources
+live in `demo/content/{zh,en}/`; `demo/api.ts` derives files, tags, and graphs from those Markdown documents. Service
+builds continue to use the HTTP API.
 
 ## Validation
 

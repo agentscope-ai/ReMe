@@ -1,17 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Editor from "@monaco-editor/react";
+import dynamic from "next/dynamic";
 import { Check, Code2, Download, Eye, LoaderCircle, Save } from "lucide-react";
 import { saveWorkspaceFile } from "../api";
 import { useI18n } from "../i18n";
-import "../monaco-setup";
 import { useWorkspaceStore } from "../store";
-import { useThemeStore } from "../theme";
 import type { WorkspaceTab } from "../types";
 import FilePreview from "./FilePreview";
-import { getLanguage } from "./get-language";
 import styles from "./files-workspace.module.css";
+
+const MarkdownEditor = dynamic(() => import("./MarkdownEditor"), {
+  ssr: false,
+});
 
 type FileTab = Extract<WorkspaceTab, { type: "markdown" }>;
 
@@ -24,7 +25,6 @@ export default function TabbedEditor({ tab }: { tab: FileTab }) {
   const update = useWorkspaceStore((state) => state.updateMarkdown);
   const markSaved = useWorkspaceStore((state) => state.markSaved);
   const dirty = tab.content !== tab.savedContent;
-  const theme = useThemeStore((state) => state.resolved);
 
   const save = useCallback(async () => {
     if (!dirty || saving) return;
@@ -137,19 +137,10 @@ export default function TabbedEditor({ tab }: { tab: FileTab }) {
         {preview ? (
           <FilePreview filePath={tab.path} content={tab.content} />
         ) : (
-          <Editor
+          <MarkdownEditor
             path={tab.path}
-            language={getLanguage(tab.path)}
-            value={tab.content}
-            theme={theme === "dark" ? "vs-dark" : "vs"}
-            onChange={(value) => update(tab.id, value ?? "")}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 13,
-              wordWrap: "on",
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-            }}
+            content={tab.content}
+            onChange={(content) => update(tab.id, content)}
           />
         )}
       </div>

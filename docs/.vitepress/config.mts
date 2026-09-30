@@ -106,7 +106,7 @@ function nav(language: "zh" | "en"): DefaultTheme.NavItem[] {
   return [
     { text: zh ? "首页" : "Home", link: `/${language}/` },
     { text: zh ? "文档" : "Docs", link: `/${language}/quick_start` },
-    { text: "Studio", link: `/${language}/workspace/studio` },
+    { text: zh ? "体验Studio" : "Try Studio", link: `/studio/?lang=${language}`, target: "_self" },
     { text: zh ? "集成" : "Integrations", link: `/${language}/integrations` },
     { text: zh ? "插件" : "Plugins", link: `/${language}/plugin_management` },
     { text: zh ? "评测" : "Benchmarks", link: `/${language}/benchmarks/longmemeval` },
@@ -126,6 +126,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: zh ? "快速开始" : "Quick Start", link: `/${language}/quick_start` },
         { text: zh ? "基础配置" : "Configuration", link: `/${language}/configuration` },
         { text: zh ? "服务与部署" : "Services and Deployment", link: `/${language}/services` },
+        { text: "ReMe Studio", link: `/${language}/workspace/studio` },
       ],
     },
     {

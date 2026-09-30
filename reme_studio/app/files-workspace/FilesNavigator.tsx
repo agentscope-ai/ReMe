@@ -18,13 +18,10 @@ import {
   MessageSquarePlus,
   Network,
 } from "lucide-react";
-import {
-  getAppConfig,
-  listWorkspaceFiles,
-  readWorkspaceFile,
-  REME_API_ENDPOINT,
-} from "../api";
+import { getAppConfig, listWorkspaceFiles, REME_API_ENDPOINT } from "../api";
 import { useI18n } from "../i18n";
+import { WORKSPACE_CHANGED } from "../studio-mode";
+import { openWorkspaceFile } from "../open-file";
 import { useWorkspaceStore } from "../store";
 import type {
   AppConfig,
@@ -73,14 +70,7 @@ function DirectoryNode({
 }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(depth === 0);
-  const {
-    tabs,
-    activeTabId,
-    openMarkdown,
-    openGraph,
-    hydrateMarkdown,
-    failMarkdown,
-  } = useWorkspaceStore();
+  const { tabs, activeTabId, openGraph } = useWorkspaceStore();
   const active = tabs.find((tab) => tab.id === activeTabId);
   const selected = active?.type === "markdown" && active.path === node.path;
   if (node.type === "directory") {
@@ -136,20 +126,7 @@ function DirectoryNode({
   }
   const open = async () => {
     if (!isEditable(node.name)) return;
-    const existing = tabs.some(
-      (tab) => tab.type === "markdown" && tab.path === node.path,
-    );
-    const id = openMarkdown(node.path);
-    if (existing) return;
-    try {
-      const file = await readWorkspaceFile(node.path);
-      hydrateMarkdown(id, file.content, file.stat.mtime);
-    } catch (error) {
-      failMarkdown(
-        id,
-        error instanceof Error ? error.message : t("fileReadFailed"),
-      );
-    }
+    await openWorkspaceFile(node.path);
   };
   const absolutePath = workspaceDir
     ? absoluteWorkspacePath(workspaceDir, node.path)
@@ -227,10 +204,14 @@ export default function FilesNavigator({
       if (!document.hidden) void refresh();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener(WORKSPACE_CHANGED, onVisibilityChange);
+    window.addEventListener("storage", onVisibilityChange);
     return () => {
       mounted = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener(WORKSPACE_CHANGED, onVisibilityChange);
+      window.removeEventListener("storage", onVisibilityChange);
     };
   }, []);
   const visiblePaths = useMemo(

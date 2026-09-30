@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import WorkspaceMarkdown from "./files-workspace/WorkspaceMarkdown";
+import { IS_DEMO } from "./studio-mode";
+import { openWorkspaceFile } from "./open-file";
 import { SparkMenuExpandLine, SparkMenuFoldLine } from "@agentscope-ai/icons";
 import {
   BookOpenText,
@@ -40,9 +41,15 @@ import {
   appendWorkspaceFileReference,
   WORKSPACE_FILE_DRAG_TYPE,
 } from "./workspace-drag";
-import SettingsCenter from "./settings-center";
+const SettingsCenter = IS_DEMO
+  ? null
+  : dynamic(() => import("./settings-center"), { ssr: false });
+const DemoBar = IS_DEMO
+  ? dynamic(() => import("../demo/DemoBar"), { ssr: false })
+  : null;
 import { hasUnsavedChanges, unsavedTabsClosedBy } from "./tab-close";
 import packageJson from "../package.json";
+import { scenarios } from "../demo/scenarios";
 
 const TabbedEditor = dynamic(() => import("./files-workspace/TabbedEditor"), {
   ssr: false,
@@ -239,7 +246,7 @@ function Tabs() {
 function MarkdownView({ content }: { content: string }) {
   return (
     <article className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <WorkspaceMarkdown content={content} />
     </article>
   );
 }
@@ -356,7 +363,7 @@ function ChatBlockView({
 }
 
 function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [input, setInput] = useState("");
   const [fileDragOver, setFileDragOver] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -368,6 +375,19 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [tab.messages]);
   useEffect(() => () => controller.current?.abort(), []);
+
+  const suggestions = (
+    <div className="suggestions">
+      {(IS_DEMO
+        ? scenarios[language].map((scenario) => scenario.question)
+        : [t("promptRecent"), t("promptTasks"), t("promptIdeas")]
+      ).map((question) => (
+        <button key={question} onClick={() => setInput(question)}>
+          {question}
+        </button>
+      ))}
+    </div>
+  );
 
   const send = async () => {
     const query = input.trim();
@@ -406,16 +426,8 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
           <div className="chat-empty">
             <div className="agent-logo" aria-hidden="true" />
             <h1>{t("chatTitle")}</h1>
-            <p>{t("chatDescription")}</p>
-            <div className="suggestions">
-              {[t("promptRecent"), t("promptTasks"), t("promptIdeas")].map(
-                (text) => (
-                  <button key={text} onClick={() => setInput(text)}>
-                    {text}
-                  </button>
-                ),
-              )}
-            </div>
+            <p>{t(IS_DEMO ? "demoChatDescription" : "chatDescription")}</p>
+            {suggestions}
           </div>
         )}
         {tab.messages.map((message) => (
@@ -451,6 +463,7 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
             </div>
           </div>
         ))}
+        {IS_DEMO && tab.messages.length > 0 && suggestions}
         <div ref={endRef} />
       </div>
       <div
@@ -495,7 +508,7 @@ function Chat({ tab }: { tab: Extract<WorkspaceTab, { type: "agent" }> }) {
             <Send size={17} />
           </button>
         </div>
-        <span>{t("composerHint")}</span>
+        <span>{t(IS_DEMO ? "demoChatHint" : "composerHint")}</span>
       </div>
     </div>
   );
@@ -516,6 +529,9 @@ function Workspace() {
     let mounted = true;
     void Promise.resolve(useWorkspaceStore.persist.rehydrate()).then(
       async () => {
+        if (IS_DEMO && !useWorkspaceStore.getState().tabs.length && mounted) {
+          await openWorkspaceFile("START_HERE.md");
+        }
         const restoredFiles = useWorkspaceStore
           .getState()
           .tabs.filter(
@@ -648,14 +664,14 @@ function Workspace() {
             : active?.title || t("workspace")}
         </span>
         <div className="topbar-actions">
-          <nav className="resource-links" aria-label={t("documentation")}>
+          <nav className="resource-links" aria-label={t("officialWebsite")}>
             <a
               href="https://reme.agentscope.io"
               target="_blank"
               rel="noreferrer"
             >
               <BookOpenText size={17} />
-              <span>{t("documentation")}</span>
+              <span>{t("officialWebsite")}</span>
             </a>
             <i aria-hidden="true" />
             <a
@@ -687,16 +703,19 @@ function Workspace() {
             </button>
           </div>
           <ThemeMenu />
-          <button
-            className="settings-trigger"
-            onClick={() => setSettingsOpen(true)}
-            aria-label={t("settings")}
-            title={t("settings")}
-          >
-            <Settings size={18} />
-          </button>
+          {SettingsCenter && (
+            <button
+              className="settings-trigger"
+              onClick={() => setSettingsOpen(true)}
+              aria-label={t("settings")}
+              title={t("settings")}
+            >
+              <Settings size={18} />
+            </button>
+          )}
         </div>
       </header>
+      {DemoBar && <DemoBar />}
       <div className="surface">
         <FilesNavigator
           open={navOpen}
@@ -736,10 +755,12 @@ function Workspace() {
           </div>
         </section>
       </div>
-      <SettingsCenter
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
+      {SettingsCenter && (
+        <SettingsCenter
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </main>
   );
 }
