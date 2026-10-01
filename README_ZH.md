@@ -7,8 +7,6 @@
   <a href="https://pypi.org/project/reme-ai/"><img src="https://img.shields.io/pypi/v/reme-ai.svg?logo=pypi" alt="PyPI Version"></a>
   <a href="https://pepy.tech/project/reme-ai/"><img src="https://img.shields.io/pypi/dm/reme-ai" alt="PyPI Downloads"></a>
   <a href="https://github.com/agentscope-ai/ReMe"><img src="https://img.shields.io/github/commit-activity/m/agentscope-ai/ReMe?style=flat-square" alt="GitHub commit activity"></a>
-  <a href="https://github.com/agentscope-ai/ReMe/commits/main/"><img src="https://img.shields.io/github/last-commit/agentscope-ai/ReMe/main?display_timestamp=committer&amp;label=%E6%9C%80%E8%BF%91%E6%9B%B4%E6%96%B0" alt="main 分支最近更新时间"></a>
-  <a href="https://github.com/agentscope-ai/ReMe/actions?query=branch%3Amain"><img src="https://img.shields.io/github/checks-status/agentscope-ai/ReMe/main?label=CI&amp;logo=githubactions" alt="main 最新提交的 CI 状态"></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-black" alt="License"></a>
   <a href="https://reme.agentscope.io"><img src="https://img.shields.io/badge/docs-ReMe-blue" alt="文档"></a>
   <a href="./README.md"><img src="https://img.shields.io/badge/English-Click-yellow" alt="English"></a>
