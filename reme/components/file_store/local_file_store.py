@@ -6,7 +6,7 @@ import datetime
 import heapq
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 
 import numpy as np
@@ -941,6 +941,7 @@ class LocalFileStore(BaseFileStore):
         if query_embedding is None:
             return []
 
+        matches = self._prepare_search_filter(search_filter)
         top: list[tuple[float, int, FileChunk]] = []
         candidates: list[FileChunk] = []
         embeddings: list[np.ndarray] = []
@@ -964,10 +965,7 @@ class LocalFileStore(BaseFileStore):
             embeddings.clear()
 
         for candidate in self.file_chunks.values():
-            if not self._embedding_dim_matches(candidate.embedding) or not self._matches_search_filter(
-                candidate,
-                search_filter,
-            ):
+            if not self._embedding_dim_matches(candidate.embedding) or not matches(candidate):
                 continue
             candidates.append(candidate)
             embeddings.append(candidate.embedding)
@@ -989,10 +987,9 @@ class LocalFileStore(BaseFileStore):
         if not query:
             return []
 
+        matches = self._prepare_search_filter(search_filter)
         if search_filter:
-            eligible_ids = {
-                chunk.id for chunk in self.file_chunks.values() if self._matches_search_filter(chunk, search_filter)
-            }
+            eligible_ids = {chunk.id for chunk in self.file_chunks.values() if matches(chunk)}
             if not eligible_ids:
                 return []
             try:
@@ -1011,7 +1008,7 @@ class LocalFileStore(BaseFileStore):
         results = []
         for doc_id, score in doc_id_score_dict.items():
             chunk = self.file_chunks.get(doc_id)
-            if chunk and self._matches_search_filter(chunk, search_filter):
+            if chunk and matches(chunk):
                 results.append(chunk.model_copy(update={"scores": {"keyword": score, "score": score}}))
                 if len(results) >= limit:
                     break
@@ -1019,6 +1016,78 @@ class LocalFileStore(BaseFileStore):
         return results
 
     # -- extensions -----------------------------------------------------------
+
+    @classmethod
+    def _prepare_search_filter(cls, search_filter: dict | None) -> Callable[[FileChunk], bool]:
+        """Prepare query-local membership tests; retain the dict-based compatibility path."""
+
+        def legacy(chunk):
+            return cls._matches_search_filter(chunk, search_filter)
+
+        # Subclasses may customize matching without implementing this new helper.
+        if (
+            cls._matches_search_filter.__func__ is not LocalFileStore._matches_search_filter.__func__
+            or cls._value_matches.__func__ is not LocalFileStore._value_matches.__func__
+        ):
+            return legacy
+        if not search_filter:
+            return lambda chunk: True
+        try:
+            exact_paths = set()
+            has_exact_paths = False
+            for key in ("path", "paths"):
+                if key in search_filter:
+                    has_exact_paths = True
+                    exact_paths.update(cls._as_filter_values(search_filter[key]))
+            prefixes = tuple(
+                str(value)
+                for key in ("path_prefix", "path_prefixes", "prefix", "prefixes")
+                if key in search_filter
+                for value in cls._as_filter_values(search_filter[key])
+            )
+            start_date = search_filter.get("start_date")
+            end_date = search_filter.get("end_date")
+            strict_date = bool(search_filter.get("strict_date_filter", False))
+            metadata = dict(search_filter.get("metadata") or {})
+            reserved = {
+                "path",
+                "paths",
+                "path_prefix",
+                "path_prefixes",
+                "prefix",
+                "prefixes",
+                "metadata",
+                "start_date",
+                "end_date",
+                "strict_date_filter",
+            }
+            metadata.update((key, value) for key, value in search_filter.items() if key not in reserved)
+            conditions = []
+            for key, value in metadata.items():
+                collection = isinstance(value, (list, tuple, set, frozenset))
+                conditions.append((key, frozenset(value) if collection else value, collection))
+        except (TypeError, ValueError):
+            # Malformed late-stage conditions must still short-circuit as before.
+            return legacy
+
+        def matches(chunk: FileChunk) -> bool:
+            if has_exact_paths and chunk.path not in exact_paths:
+                return False
+            if prefixes and not chunk.path.startswith(prefixes):
+                return False
+            if start_date or end_date:
+                path_date = cls._extract_date_from_path(chunk.path)
+                if not path_date:
+                    if strict_date:
+                        return False
+                elif (start_date and path_date < start_date) or (end_date and path_date > end_date):
+                    return False
+            return all(
+                chunk.metadata.get(key) in expected if collection else chunk.metadata.get(key) == expected
+                for key, expected, collection in conditions
+            )
+
+        return matches
 
     @staticmethod
     def _as_filter_values(value) -> set:

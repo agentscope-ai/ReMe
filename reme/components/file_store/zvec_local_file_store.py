@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import time
+from collections.abc import Callable
 from uuid import uuid4
 
 import aiofiles
@@ -455,18 +456,19 @@ class ZvecLocalFileStore(LocalFileStore):
             return []
 
         vector = np.asarray(query_embedding, dtype=np.float32).tolist()
+        matches = self._prepare_search_filter(search_filter)
         ntotal = len(self._indexed_ids)
 
         if not search_filter:
             hits = self._query_collection(collection, vector, min(limit, ntotal))
-            return self._collect_hits(hits, limit, search_filter)
+            return self._collect_hits(hits, limit, search_filter, matches=matches)
 
         # With a post-filter: progressively increase k until we collect enough
         # results or exhaust the reachable index.
         k = min(ntotal, 3 * limit)
         while True:
             hits = self._query_collection(collection, vector, k)
-            results = self._collect_hits(hits, limit, search_filter)
+            results = self._collect_hits(hits, limit, search_filter, matches=matches)
             if len(results) >= limit or k >= ntotal:
                 return results
             k = min(ntotal, k * 2)
@@ -484,12 +486,16 @@ class ZvecLocalFileStore(LocalFileStore):
         hits: list[tuple[str, float]],
         limit: int,
         search_filter: dict | None = None,
+        *,
+        matches: Callable[[FileChunk], bool] | None = None,
     ) -> list[FileChunk]:
         """Map zvec hits back to chunks, skipping stale ids and filtered-out chunks."""
+        if matches is None:
+            matches = self._prepare_search_filter(search_filter)
         results: list[FileChunk] = []
         for chunk_id, score in hits:
             chunk = self.file_chunks.get(chunk_id)
-            if chunk is None or not self._matches_search_filter(chunk, search_filter):
+            if chunk is None or not matches(chunk):
                 continue
             results.append(chunk.model_copy(update={"scores": {"vector": score, "score": score}}))
             if len(results) >= limit:
