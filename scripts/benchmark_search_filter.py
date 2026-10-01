@@ -12,7 +12,6 @@ import json
 import platform
 import statistics
 import time
-from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -24,14 +23,14 @@ from reme.components.tokenizer import RegexTokenizer
 from reme.schema import FileChunk
 
 
-async def measure(operation, repeats):
+async def measure(operation, config, repeats):
     """Warm up and report per-call latency in milliseconds."""
     for _ in range(2):
-        await operation()
+        await operation(config)
     samples = []
     for _ in range(repeats):
         start = time.perf_counter()
-        await operation()
+        await operation(config)
         samples.append((time.perf_counter() - start) * 1000)
     return {"median_ms": statistics.median(samples), "p95_ms": float(np.percentile(samples, 95))}
 
@@ -70,12 +69,11 @@ async def benchmark(size, repeats):
     for path_count in (1, 100, 1000):
         config = {"paths": [f"daily/{i}.md" for i in range(path_count)]}
         for name, operation in (("predicate", predicate), ("keyword_search", keyword), ("vector_search", vector)):
-            operation = partial(operation, config)
-            expected = await operation()
-            prepared = await measure(operation, repeats)
+            expected = await operation(config)
+            prepared = await measure(operation, config, repeats)
             with patch.object(store, "_prepare_search_filter", side_effect=legacy):
-                assert await operation() == expected
-                baseline = await measure(operation, repeats)
+                assert await operation(config) == expected
+                baseline = await measure(operation, config, repeats)
             results.append(
                 {
                     "chunks": size,
