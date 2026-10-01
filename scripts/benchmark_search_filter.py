@@ -12,6 +12,7 @@ import json
 import platform
 import statistics
 import time
+from functools import partial
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -51,24 +52,25 @@ async def benchmark(size, repeats):
             embedding=np.array([1.0, 0.0]),
         )
     await index.add_docs({key: chunk.text for key, chunk in store.file_chunks.items()})
+
+    async def predicate(config):
+        matches = store._prepare_search_filter(config)
+        return [chunk.id for chunk in store.file_chunks.values() if matches(chunk)]
+
+    async def keyword(config):
+        return [(c.id, c.scores) for c in await store.keyword_search("alpha", 10, config)]
+
+    async def vector(config):
+        return [(c.id, c.scores) for c in await store.vector_search("alpha", 10, config)]
+
+    def legacy(search_filter):
+        return lambda chunk: store._matches_search_filter(chunk, search_filter)
+
     results = []
     for path_count in (1, 100, 1000):
         config = {"paths": [f"daily/{i}.md" for i in range(path_count)]}
-
-        async def predicate(config=config):
-            matches = store._prepare_search_filter(config)
-            return [chunk.id for chunk in store.file_chunks.values() if matches(chunk)]
-
-        async def keyword(config=config):
-            return [(c.id, c.scores) for c in await store.keyword_search("alpha", 10, config)]
-
-        async def vector(config=config):
-            return [(c.id, c.scores) for c in await store.vector_search("alpha", 10, config)]
-
-        def legacy(search_filter):
-            return lambda chunk: store._matches_search_filter(chunk, search_filter)
-
         for name, operation in (("predicate", predicate), ("keyword_search", keyword), ("vector_search", vector)):
+            operation = partial(operation, config)
             expected = await operation()
             prepared = await measure(operation, repeats)
             with patch.object(store, "_prepare_search_filter", side_effect=legacy):
