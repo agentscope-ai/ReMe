@@ -16,10 +16,10 @@
 </p>
 
 <p align="center">
-  <a href="https://aclanthology.org/2026.findings-acl.829/"><kbd>📄 Paper · ACL 2026 Findings</kbd></a>
-  <a href="https://reme.agentscope.io/en/memory_as_file"><kbd>🧠 Memory · Local-first</kbd></a>
-  <a href="https://reme.agentscope.io/en/services#mcp"><kbd>🔌 MCP · Supported</kbd></a>
-  <a href="https://github.com/agentscope-ai/ReMe/graphs/contributors"><kbd>👥 Contributors</kbd></a>
+  <a href="https://aclanthology.org/2026.findings-acl.829/"><kbd>ACL 2026 Findings</kbd></a>
+  <a href="https://reme.agentscope.io/en/memory_as_file"><kbd>Memory as Files</kbd></a>
+  <a href="https://reme.agentscope.io/en/services#mcp"><kbd>MCP</kbd></a>
+  <a href="https://github.com/agentscope-ai/ReMe/graphs/contributors"><kbd>Contributors</kbd></a>
 </p>
 
 <p align="center">
