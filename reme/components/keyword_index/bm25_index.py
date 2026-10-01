@@ -47,6 +47,7 @@ class BM25Index(BaseKeywordIndex):
         self._doc_ids: list[str] = []
         self._doc_id_to_idx: dict[str, int] = {}
         self._doc_lens: np.ndarray = np.zeros(0, dtype=np.int32)
+        self._total_len = 0
         self._deleted: np.ndarray = np.zeros(0, dtype=bool)
         self._doc_token_ids: list[np.ndarray] = []
 
@@ -106,7 +107,7 @@ class BM25Index(BaseKeywordIndex):
     @property
     def total_len(self) -> int:
         """Sum of token counts across live documents."""
-        return 0 if self._deleted.size == 0 else int(self._doc_lens[~self._deleted].sum())
+        return self._total_len
 
     @property
     def avg_len(self) -> float:
@@ -165,6 +166,7 @@ class BM25Index(BaseKeywordIndex):
         if idx is None or self._deleted[idx]:
             return
         self._deleted[idx] = True
+        self._total_len -= int(self._doc_lens[idx])
         self._doc_id_to_idx.pop(doc_id, None)
         self._idf_cache = {}
 
@@ -210,6 +212,7 @@ class BM25Index(BaseKeywordIndex):
         self._doc_token_ids.extend(new_doc_token_ids)
         self._doc_lens = np.concatenate([self._doc_lens, np.array(new_doc_lens, dtype=np.int32)])
         self._deleted = np.concatenate([self._deleted, np.zeros(len(new_doc_ids), dtype=bool)])
+        self._total_len += int(self._doc_lens[-len(new_doc_ids) :].sum())
 
     def _extend_postings(self, pending: dict[int, list[tuple[int, int]]]) -> None:
         """Append pending (doc_idx, tf) pairs to each token's posting list."""
@@ -409,6 +412,8 @@ class BM25Index(BaseKeywordIndex):
         self._doc_id_to_idx = data["doc_id_to_idx"]
         self._doc_lens = data["doc_lens"]
         self._deleted = data["deleted"]
+        # Derived state: old snapshots remain valid without a format change.
+        self._total_len = int(self._doc_lens[~self._deleted].sum())
         self._doc_token_ids = data["doc_token_ids"]
         self._posting_doc_idxs = data["posting_doc_idxs"]
         self._posting_tfs = data["posting_tfs"]
@@ -467,6 +472,7 @@ class BM25Index(BaseKeywordIndex):
             self._doc_ids = []
             self._doc_id_to_idx = {}
             self._doc_lens = np.zeros(0, dtype=np.int32)
+            self._total_len = 0
             self._deleted = np.zeros(0, dtype=bool)
             self._doc_token_ids = []
             self._posting_doc_idxs = {}
@@ -553,6 +559,7 @@ class BM25Index(BaseKeywordIndex):
         self._doc_ids = new_doc_ids
         self._doc_id_to_idx = {doc_id: i for i, doc_id in enumerate(new_doc_ids)}
         self._doc_lens = self._doc_lens[active_mask].astype(np.int32, copy=True)
+        self._total_len = int(self._doc_lens.sum())
         self._deleted = np.zeros(n_active, dtype=bool)
         self._doc_token_ids = new_doc_token_ids
         self._posting_doc_idxs = new_posting_idxs
