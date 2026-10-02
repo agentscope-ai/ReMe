@@ -88,6 +88,40 @@ test("publishes Studio screenshots with site-safe links", async () => {
   assert.match(chinese, /\(\/en\/workspace\/studio\)/);
 });
 
+test("publishes OpenClaw and Hermes integration figures with site-safe links", async () => {
+  const openclawEnglish = await readFile(path.join(generatedDir, "en/integrations/openclaw.md"), "utf8");
+  const openclawChinese = await readFile(path.join(generatedDir, "zh/integrations/openclaw.md"), "utf8");
+  for (const page of [openclawEnglish, openclawChinese]) {
+    assert.match(page, /\(\/figures\/openclaw\/status-overview\.png\)/);
+    assert.doesNotMatch(page, /\]\(\.\/figures\//);
+  }
+  for (const name of [
+    "status-overview.png",
+    "plugin-installed.png",
+    "plugin-configuration.png",
+    "memory-search.png",
+    "auto-dream.png",
+    "automatic-recall.png",
+    "conversation-memory.png",
+  ]) {
+    await access(path.join(generatedDir, "public/figures/openclaw", name));
+  }
+
+  const hermesEnglish = await readFile(path.join(generatedDir, "en/integrations/hermes.md"), "utf8");
+  assert.match(hermesEnglish, /\(\/figures\/hermes\/hermes-provider-settings\.png\)/);
+  assert.match(hermesEnglish, /\(\/zh\/integrations\/hermes\)/);
+  assert.doesNotMatch(hermesEnglish, /\]\(figures\//);
+  for (const name of [
+    "hermes-provider-settings.png",
+    "hermes-http-sessions.png",
+    "hermes-http-recall.png",
+    "hermes-reme-daily-note.png",
+    "hermes-embedded-recall.png",
+  ]) {
+    await access(path.join(generatedDir, "public/figures/hermes", name));
+  }
+});
+
 test("keeps Studio source READMEs portable for package registries", async () => {
   for (const name of ["README.md", "README_ZH.md"]) {
     const source = await readFile(path.join(repoDir, "reme_studio", name), "utf8");
