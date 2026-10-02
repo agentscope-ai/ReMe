@@ -30,7 +30,10 @@ lives under `digest/`, daily notes under `daily/`, external materials under `res
 1. **Semantic** (default — "what do we know about X?"): `search` with `query="<question/keywords>"`,
    `limit=5` (optional `min_score`). Hybrid vector + BM25 with one-hop wikilink expansion.
 2. **Topological** ("what links to this node?"): `traverse` with `path="<node>"`, `depth=1`
-   (raise to 2 only when needed), `direction=both` to walk the `[[wikilink]]` graph.
+   (raise to 2 only when needed), `direction=both` to walk the `[[wikilink]]` graph. It answers with a
+   readable summary: one line per reached node with its hop depth, then one line per directed edge as
+   `source -> target#anchor (depth=N)`. A target marked `(unindexed)` is not in the wikilink graph index
+   yet, so traverse has no frontmatter for it — it may still exist on disk, so `read` it to find out.
 3. **State** ("what exists / what was recorded on <date>?"): `daily_list` with `date="YYYY-MM-DD"`
    (empty = today) to list a day's notes, or `frontmatter_read` with a `path` to inspect one file's
    frontmatter — structural lookup, no semantic matching.
