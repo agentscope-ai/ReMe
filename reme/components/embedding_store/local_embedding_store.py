@@ -215,9 +215,32 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                     continue
                 self.logger.exception("Embedding request failed")
                 self.is_healthy = False
+                if len(texts) > 1:
+                    return await self._embed_individually(texts, **kwargs)
                 return None
         self.is_healthy = False
         return None
+
+    async def _embed_individually(self, texts: list[str], **kwargs) -> list[list[float] | None]:
+        """Retry a rejected batch one item at a time so one bad item cannot drop the rest.
+
+        Provider-side request errors, such as a per-item context-length limit, reject the
+        whole batch and would otherwise cost every vector in it. Isolating each item bounds
+        the damage to the item that actually failed and keeps the remaining vectors usable.
+        """
+        results: list[list[float] | None] = []
+        for text in texts:
+            try:
+                result = await self.as_embedding([text], **kwargs)
+            except Exception as error:
+                self.logger.error(
+                    f"Embedding request failed for a single item (chars={len(text)}): "
+                    f"{type(error).__name__}: {error}",
+                )
+                results.append(None)
+                continue
+            results.append(result[0] if result and len(result) == 1 else None)
+        return results
 
     @staticmethod
     def _is_rate_limited(error: Exception) -> bool:

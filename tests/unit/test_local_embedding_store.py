@@ -126,6 +126,38 @@ class QuotaThenSuccessAsEmbedding:
         return [[1.0, 0.0] for _ in texts]
 
 
+class ContextLengthError(Exception):
+    """OpenAI-compatible 400 raised when one item exceeds the provider's per-item window."""
+
+    status_code = 400
+    body = {"error": {"message": "the input length exceeds the context length"}}
+
+
+class PerItemLimitAsEmbedding:
+    """Reject a whole request when any single text is over the provider's per-item limit.
+
+    Mirrors an OpenAI-compatible gateway: one over-limit item makes the provider answer
+    HTTP 400 for the entire batch, so a client that gives up on the batch loses every
+    vector in it.
+    """
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+    max_chars = 32
+
+    def __init__(self):
+        self.batch_sizes: list[int] = []
+
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        if any(len(text) > self.max_chars for text in texts):
+            raise ContextLengthError("the input length exceeds the context length")
+        return [[1.0, 0.0] for _ in texts]
+
+
 class BadNodeEmbeddingStore(BaseEmbeddingStore):
     """Embedding store that returns wrong-dimensional vectors."""
 
@@ -728,5 +760,71 @@ def test_start_ignores_cache_file_without_vector_space_tag(monkeypatch, tmp_path
 
         assert untagged.exists()
         assert not store._cache
+
+    run(go())
+
+
+def test_batch_failure_falls_back_to_per_item_embedding():
+    """One over-limit item must cost one vector, not its whole batch."""
+
+    async def go():
+        provider = PerItemLimitAsEmbedding()
+        store = LocalEmbeddingStore(name="t_local_embedding_poison_batch", enable_cache=False)
+        store.as_embedding = provider
+
+        results = await store._call_with_retry(["ok", "x" * 64, "also ok"])
+
+        assert results == [[1.0, 0.0], None, [1.0, 0.0]]
+        assert provider.batch_sizes == [3, 1, 1, 1]
+
+    run(go())
+
+
+def test_poison_chunk_keeps_its_batch_mates():
+    """A rejected chunk must not clear the vectors of the chunks beside it."""
+
+    async def go():
+        store = LocalEmbeddingStore(name="t_local_embedding_poison_nodes", enable_cache=False)
+        store.as_embedding = PerItemLimitAsEmbedding()
+        nodes = [EmbNode(text="first"), EmbNode(text="y" * 64), EmbNode(text="third")]
+
+        await store.get_node_embeddings(nodes)
+
+        assert nodes[0].embedding is not None
+        assert nodes[1].embedding is None
+        assert nodes[2].embedding is not None
+
+    run(go())
+
+
+def test_single_item_failure_still_reports_a_failed_batch():
+    """A one-item request has nothing to isolate, so the existing contract stands."""
+
+    async def go():
+        store = LocalEmbeddingStore(name="t_local_embedding_single_poison", enable_cache=False)
+        store.as_embedding = PerItemLimitAsEmbedding()
+
+        assert await store._call_with_retry(["x" * 64]) is None
+
+    run(go())
+
+
+def test_rate_limited_batch_is_not_split_into_per_item_requests(monkeypatch):
+    """A 429 is a provider-level failure; splitting it would multiply the load."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(name="t_local_embedding_rate_limit_batch", max_retries=2)
+        embedding = AlwaysRateLimitedAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry(["a", "b"]) is None
+        assert embedding.calls == 2
+        assert sleeps == [1.0]
 
     run(go())
