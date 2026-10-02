@@ -5,12 +5,14 @@
 import base64
 import copy
 from pathlib import Path
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
 from agentscope.message import Base64Source, DataBlock, Msg, TextBlock, URLSource
 import httpx
+import frontmatter
 import pytest
 import yaml
 
@@ -23,6 +25,7 @@ from reme.components.job import BaseJob
 from reme.components.tag_index import LocalTagIndex
 from reme.schema import ApplicationConfig
 from reme.steps.evolve.auto_memory import AutoMemoryStep
+from reme.steps.file_io import WriteStep
 
 from .test_auto_tag import _TaggingWrapper, _write_note
 
@@ -31,10 +34,10 @@ _SESSION = "image-input"
 
 
 def _image(source=None):
-    # Source validation/decoding belongs to the formatter/provider, not this Step.
+    # Attachment storage decodes Base64; pixel decoding still belongs to the provider.
     return DataBlock(
         id="duplicate-image-id",
-        source=source or Base64Source(media_type="image/png", data="not-decoded-by-ReMe"),
+        source=source or Base64Source(media_type="image/png", data=base64.b64encode(b"original image bytes").decode()),
     )
 
 
@@ -171,8 +174,7 @@ async def test_sources_interleave_unchanged_through_native_formatters(setup, mon
     message.content.extend([TextBlock(text="Between images."), _image(URLSource(media_type="image/png", url=url))])
     message.content.append(TextBlock(text="After both images."))
     original = copy.deepcopy(message.model_dump())
-    forbidden = Mock(side_effect=AssertionError("Auto Memory must not download or decode image sources"))
-    monkeypatch.setattr(base64, "b64decode", forbidden)
+    forbidden = Mock(side_effect=AssertionError("Auto Memory must not download image sources"))
     monkeypatch.setattr(httpx.AsyncClient, "send", forbidden)
     monkeypatch.setattr(httpx.Client, "send", forbidden)
 
@@ -185,7 +187,11 @@ async def test_sources_interleave_unchanged_through_native_formatters(setup, mon
     assert "Remember this observation." in inputs.content[0].text
     assert inputs.get_text_content().count("[Image 1]") == 1
     assert "__reme_image_" not in inputs.get_text_content()
-    assert inputs.content[2].text.strip() == "Between images."
+    assert inputs.content[2].text.lstrip().startswith("Between images.")
+    assert "Image source: [[session/images/image-input/" in inputs.content[0].text
+    assert f"Image source: {url}" in inputs.content[2].text
+    assets = list((path.parents[1] / "images" / _SESSION).glob("*.png"))
+    assert len(assets) == 1 and assets[0].read_bytes() == b"original image bytes"
     assert inputs.content[-1].text.index("After both images.") < inputs.content[-1].text.index("# Your Task")
     assert [inputs.content[index].model_dump() for index in (1, 3)] == [
         message.content[index].model_dump() for index in (1, 3)
@@ -292,6 +298,7 @@ async def test_full_history_hook_image_only_turn_and_update_boundaries(setup, mo
     step.prompt.language = language
     note_path = f"daily/{_DAY}/existing.md"
     if existing:
+        _write_note(step.file_store.workspace_path / note_path)
         monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
         monkeypatch.setattr(step, "_ensure_session_frontmatter", AsyncMock())
         monkeypatch.setattr(step, "_rename_from_frontmatter_name", AsyncMock(return_value=note_path))
@@ -452,3 +459,134 @@ async def test_default_job_still_passes_memory_changes_to_auto_tag(setup, monkey
     assert "auto_memory_images" not in response.metadata
     assert isinstance(wrapper.reply.call_args.args[0], Msg)
     assert len(tagger.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled_update", [False, True])
+async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, monkeypatch, enabled_update):
+    step, wrapper, session_path = setup
+    workspace = step.file_store.workspace_path
+    note_path = f"daily/{_DAY}/image-memory.md"
+    target = workspace / note_path
+    old_link = "[[user-owned/manual.png]]"
+    writer = WriteStep(app_context=step.app_context, file_store=step.file_store)
+    await writer(path=note_path, name="image-memory", content="Existing fact.", metadata={"source_images": [old_link]})
+
+    monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
+    monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
+    first, second = _message(), _message("second", timestamp=f"{_DAY}T11:00:00")
+    first.content[0].text = "Alice's picture follows."
+    second.name = "Bob"
+    second.content[0].text = "Bob's picture follows."
+    second.content[1].source.data = base64.b64encode(b"Bob's different image").decode()
+    before = [message.model_dump() for message in (first, second)]
+    written_bodies = []
+
+    async def full_rewrite(inputs, **kwargs):
+        assert kwargs["injected_job_kwargs"] == {"_allowed_paths": [note_path]}
+        if isinstance(inputs, Msg):
+            blocks = inputs.content
+            assert [block.type for block in blocks] == ["text", "data", "text", "data", "text"]
+            citations = []
+            for text_index, owner, image in ((0, "Alice", first.content[1]), (2, "Bob", second.content[1])):
+                assert f"{owner}'s picture follows." in blocks[text_index].text
+                assert blocks[text_index + 1].model_dump() == image.model_dump()
+                link = re.search(r"Image source: (\[\[.*?\]\])", blocks[text_index].text).group(1)
+                assert (workspace / link[2:-2]).read_bytes() == base64.b64decode(image.source.data)
+                citations.append(f"{owner}'s visual fact: {link}")
+            assert "same sentence or bullet" in blocks[-1].text
+            body = "\n".join(citations)
+        else:
+            body = written_bodies[0] + "\nUpdated text-only fact."
+        written_bodies.append(body)
+        # Native write replaces frontmatter as well as the body. Auto Memory
+        # must restore previous image sources without rewriting this body.
+        await writer(path=note_path, name="image-memory", description="Images", content=body)
+        return {"result": "Updated."}
+
+    wrapper.reply.side_effect = full_rewrite
+    await _run(step, [first, second], include_images=True)
+    initial = frontmatter.loads(target.read_text())
+    sources = initial["source_images"]
+    assert sources[0] == old_link and len(sources) == 3
+    assert initial.content == written_bodies[0]
+    attachments = {path: path.stat().st_mtime_ns for path in (workspace / "session/images").rglob("*.png")}
+    assert len(attachments) == 2
+
+    await _run(step, [first, second], include_images=enabled_update)
+
+    updated = frontmatter.loads(target.read_text())
+    assert updated["source_images"] == sources
+    assert updated.content == written_bodies[-1]
+    assert {path: path.stat().st_mtime_ns for path in attachments} == attachments
+    assert session_path.read_bytes() == _saved_line(first) + _saved_line(second)
+    assert [message.model_dump() for message in (first, second)] == before
+    assert step.context["changes"] == ([] if enabled_update else [{"change": "modified", "path": note_path}])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["manual", None, [7]])
+@pytest.mark.parametrize("enabled,images", [(True, True), (False, True), (True, False)])
+async def test_invalid_note_sources_only_block_image_writes(setup, monkeypatch, value, enabled, images):
+    step, wrapper, session_path = setup
+    note_path = f"daily/{_DAY}/existing.md"
+    target = step.file_store.workspace_path / note_path
+    _write_note(target)
+    post = frontmatter.loads(target.read_text())
+    post["source_images"] = value
+    target.write_text(frontmatter.dumps(post))
+    before = target.read_bytes()
+    monkeypatch.setattr(step, "_list_session_note", AsyncMock(return_value={"path": note_path}))
+    monkeypatch.setattr(step, "_ensure_session_frontmatter", AsyncMock())
+    monkeypatch.setattr(step, "_rename_from_frontmatter_name", AsyncMock(return_value=note_path))
+    monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
+    message = _message(images=images)
+    if enabled and images:
+        with pytest.raises(ValueError, match="source_images"):
+            await _run(step, [message], include_images=enabled)
+        wrapper.reply.assert_not_called()
+    else:
+        response = await _run(step, [message], include_images=enabled)
+        assert response.success
+        assert isinstance(wrapper.reply.call_args.args[0], str)
+    assert session_path.read_bytes() == _saved_line(message)
+    assert not (step.file_store.workspace_path / "session/images").exists()
+    assert target.read_bytes() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("lookup_fails", [False, True])
+async def test_source_save_precedes_single_note_lookup_and_image_writes(setup, monkeypatch, enabled, lookup_fails):
+    step, wrapper, session_path = setup
+    note_path = f"daily/{_DAY}/existing.md"
+    _write_note(step.file_store.workspace_path / note_path)
+    message = _message()
+    image_dir = step.file_store.workspace_path / "session/images"
+
+    async def find_note(*_args):
+        assert session_path.read_bytes() == _saved_line(message)
+        assert not image_dir.exists()
+        wrapper.reply.assert_not_called()
+        if lookup_fails:
+            raise RuntimeError("daily_list failed: unavailable")
+        return {"path": note_path}
+
+    lookup = AsyncMock(side_effect=find_note)
+    monkeypatch.setattr(step, "_list_session_note", lookup)
+    monkeypatch.setattr(step, "_ensure_session_frontmatter", AsyncMock())
+    monkeypatch.setattr(step, "_rename_from_frontmatter_name", AsyncMock(return_value=note_path))
+    monkeypatch.setattr("reme.steps.evolve.auto_memory.refresh_day_index", AsyncMock(return_value={}))
+    response = await _run(step, [message], include_images=enabled)
+
+    lookup.assert_awaited_once_with(_DAY, _SESSION)
+    assert response.success is not lookup_fails
+    assert session_path.read_bytes() == _saved_line(message)
+    assert image_dir.exists() is (enabled and not lookup_fails)
+    if lookup_fails:
+        assert response.answer == "daily_list failed: unavailable"
+        assert response.metadata == {"date": _DAY, "modified": False, "n_messages": 1}
+        wrapper.reply.assert_not_called()
+    else:
+        wrapper.reply.assert_awaited_once()
+        assert isinstance(wrapper.reply.call_args.args[0], Msg if enabled else str)
