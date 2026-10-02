@@ -262,3 +262,48 @@ async def test_explicit_md_path_has_no_resolved_path():
         assert resp.success is True
         assert "resolved_path" not in resp.metadata
         await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_answer_carries_the_frontmatter_itself():
+    """The answer must contain the frontmatter, not just a key count.
+
+    ``frontmatter_read`` is served straight to the LLM and MCP returns only
+    ``response.answer``, so a count alone leaves the caller with nothing to
+    act on. The suffix-less substitution is disclosed in the answer too.
+    """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, BODY)
+        store = await _make_store()
+        resp = await _run(FrontmatterReadStep, store, path="notes/post")
+        assert resp.success is True
+        assert resp.answer == "Read frontmatter from notes/post.md (2 key(s)):\n- name: n\n- tags: a"
+        assert resp.metadata["frontmatter"] == {"name": "n", "tags": ["a"]}
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_read_answer_flattens_values_and_reports_empty():
+    """Multi-line, list and nested values stay on one line each; empty says so."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(
+            Path(tmp),
+            "notes/rich.md",
+            "---\nname: Cobalt\ndescription: line one\n  line two\ntags:\n- a\n- b\nnested:\n  x: 1\n---\nbody\n",
+        )
+        _seed(Path(tmp), "notes/empty.md", "---\n---\nbody\n")
+        store = await _make_store()
+
+        resp = await _run(FrontmatterReadStep, store, path="notes/rich.md")
+        assert resp.answer == (
+            "Read frontmatter from notes/rich.md (4 key(s)):\n"
+            "- name: Cobalt\n"
+            "- description: line one line two\n"
+            "- tags: a, b\n"
+            '- nested: {"x": 1}'
+        )
+
+        resp = await _run(FrontmatterReadStep, store, path="notes/empty.md")
+        assert resp.answer == "Read frontmatter from notes/empty.md (0 key(s)): (no keys)"
+        assert resp.metadata["frontmatter"] == {}
+        await store.close()
