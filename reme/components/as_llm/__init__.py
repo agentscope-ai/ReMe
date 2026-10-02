@@ -1,5 +1,7 @@
 """LLM model wrappers for AgentScope."""
 
+from typing import Literal
+
 from agentscope.credential import (
     AnthropicCredential,
     CredentialBase,
@@ -12,6 +14,7 @@ from agentscope.credential import (
     XAICredential,
 )
 from agentscope.model import ChatModelBase
+from pydantic import ConfigDict, Field, field_validator
 
 from ..base_component import BaseComponent
 from ..component_registry import R
@@ -47,6 +50,46 @@ class OpenAIAsLLM(BaseAsLLM):
     """OpenAI chat model wrapper."""
 
     credential_cls = OpenAICredential
+
+
+_ORCAROUTER_BASE_URL = "https://api.orcarouter.ai/v1"
+
+
+class OrcaRouterCredential(OpenAICredential):
+    """OpenAI-compatible credential for the OrcaRouter gateway.
+
+    OrcaRouter exposes an OpenAI-compatible ``chat/completions`` endpoint at
+    ``https://api.orcarouter.ai/v1``. The shared LLM config passes
+    ``base_url: ${LLM_BASE_URL:-}``, so an unset ``LLM_BASE_URL`` yields an
+    empty string; this credential falls back to the hosted gateway in that
+    case while still allowing a custom/self-hosted endpoint.
+    """
+
+    model_config = ConfigDict(
+        title="OrcaRouter API",
+    )
+
+    type: Literal["orcarouter_credential"] = "orcarouter_credential"
+    """The credential type."""
+
+    base_url: str = Field(
+        default=_ORCAROUTER_BASE_URL,
+        description="The base URL for the OrcaRouter API.",
+    )
+    """The base URL for the OrcaRouter API."""
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def _default_base_url(cls, value: str | None) -> str:
+        """Fall back to the hosted gateway when the shared config leaves the field empty."""
+        return value or _ORCAROUTER_BASE_URL
+
+
+@R.register("orcarouter")
+class OrcaRouterAsLLM(BaseAsLLM):
+    """OrcaRouter chat model wrapper (OpenAI-compatible gateway)."""
+
+    credential_cls = OrcaRouterCredential
 
 
 @R.register("anthropic")
@@ -101,6 +144,7 @@ class XAIAsLLM(BaseAsLLM):
 __all__ = [
     "BaseAsLLM",
     "OpenAIAsLLM",
+    "OrcaRouterAsLLM",
     "AnthropicAsLLM",
     "DashScopeAsLLM",
     "DeepSeekAsLLM",
