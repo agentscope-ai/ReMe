@@ -65,7 +65,9 @@ class AsStateHandler:
     async def load(self) -> AgentState:
         """Read an AgentState back from ``self.path``."""
         async with aiofiles.open(self.path, encoding="utf-8") as f:
-            lines = (await f.read()).splitlines()
+            # Unicode line separators are valid JSON string content, not JSONL delimiters.
+            content = await f.read()
+            lines = content.split("\n") if content else []
         if not lines:
             return AgentState()
 
