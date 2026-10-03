@@ -99,22 +99,30 @@ def test_qwenpaw_style_config_keeps_in_process_application_api(tmp_path):
     asyncio.run(exercise_api())
 
 
-def test_update_component_validates_all_fields_before_mutation(tmp_path):
-    """A rejected field update does not leave earlier attributes changed."""
+@pytest.mark.parametrize("injected", [False, True], ids=["uninitialized", "injected"])
+def test_update_component_validates_all_fields_before_mutation(tmp_path, injected):
+    """Rejected updates preserve model state without constructing a provider."""
     app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
     component = app.context.components[ComponentEnum.AS_LLM]["default"]
-    original_model = component.model
+    original_model = object() if injected else None
+    if injected:
+        component.model = original_model
+    credential_cls = Mock(side_effect=AssertionError("provider must not be constructed"))
 
     async def exercise_api() -> None:
-        with pytest.raises(AttributeError, match="does_not_exist"):
-            await app.update_component(
-                "as_llm",
-                "default",
-                model=object(),
-                does_not_exist=True,
-            )
+        with patch("reme.components.as_llm.OpenAIAsLLM.credential_cls", credential_cls):
+            with pytest.raises(AttributeError, match="does_not_exist"):
+                await app.update_component(
+                    "as_llm",
+                    "default",
+                    model=object(),
+                    does_not_exist=True,
+                )
 
-        assert component.model is original_model
+            assert component._model is original_model
+            if injected:
+                assert component.model is original_model
+            credential_cls.assert_not_called()
 
     asyncio.run(exercise_api())
 
