@@ -37,10 +37,25 @@ jobs:
         with:
           node-version: '22.22.3'
           cache: npm
-          cache-dependency-path: github-pages/package-lock.json
+          cache-dependency-path: |
+            github-pages/package-lock.json
+            reme_studio/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install Studio dependencies
+        run: npm ci --prefix ../reme_studio
+
+      - name: Check Studio types and lint
+        if: inputs.run_tests
+        working-directory: reme_studio
+        run: npm run format:check && npm run lint
+
+      - name: Test browser demo behavior
+        if: inputs.run_tests
+        working-directory: reme_studio
+        run: node --test tests/demo-workspace.test.mjs tests/wikilinks.test.mjs
 
       - name: Run tests
         if: inputs.run_tests
@@ -48,6 +63,11 @@ jobs:
 
       - name: Build documentation
         run: npm run build
+
+      - name: Verify browser demo bundle
+        if: inputs.run_tests
+        working-directory: reme_studio
+        run: node --test tests/demo-build.test.mjs
 
       - name: Configure Pages
         if: inputs.upload_pages_artifact

@@ -28,19 +28,21 @@
     "build": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext build",
     "build:static": "vite build --config vite.static.config.ts",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && npm run build:static && node --test tests/*.test.mjs",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-static --ignore-pattern .next",
+    "test": "npm run build && npm run build:static && npm run build:demo && node --test tests/*.test.mjs",
+    "lint": "eslint . --ignore-pattern dist --ignore-pattern dist-static --ignore-pattern dist-demo --ignore-pattern .next",
     "format": "tsc --noEmit && prettier --write .",
     "format:check": "tsc --noEmit && prettier --check .",
     "db:generate": "drizzle-kit generate",
-    "prepack": "npm run build:static"
+    "prepack": "npm run build:static",
+    "build:demo": "vite build --config vite.static.config.ts --mode demo",
+    "dev:demo": "vite --config vite.static.config.ts --mode demo"
   },
   "devDependencies": {
     "@agentscope-ai/icons": "^1.0.67",
-    "@monaco-editor/react": "^4.7.0",
     "@cloudflare/vite-plugin": "1.51.3",
     "@cloudflare/workers-types": "^5.20260804.1",
     "@eslint/js": "9.39.4",
+    "@monaco-editor/react": "^4.7.0",
     "@next/eslint-plugin-next": "16.2.6",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
@@ -48,8 +50,8 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.2",
     "@vitejs/plugin-rsc": "0.5.26",
-    "drizzle-orm": "0.45.2",
     "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2",
     "eslint": "9.39.4",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.5",
@@ -69,6 +71,7 @@
     "vinext": "1.0.0-beta.2",
     "vite": "8.2.1",
     "wrangler": "4.121.0",
+    "yaml": "2.9.0",
     "zustand": "^5.0.14"
   },
   "overrides": {

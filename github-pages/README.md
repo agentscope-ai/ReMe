@@ -14,6 +14,7 @@ the build. Do not edit `.generated/` or `dist/`.
 ```bash
 cd github-pages
 npm ci
+npm ci --prefix ../reme_studio
 npm run dev
 ```
 
@@ -29,13 +30,16 @@ npm run preview
 ```
 
 The test suite verifies bilingual core pages, canonical-source mappings, generated Job coverage, and disposable output.
-The production build is written to `github-pages/dist/` for the existing GitHub Pages workflow.
+The production build is written to `github-pages/dist/` for the existing GitHub Pages workflow. Development and build
+commands also compile the shared Studio UI in browser-demo mode and include it at `/studio/`; install both packages'
+dependencies before running them. The demo needs no ReMe service or model credentials.
 
 ## Sources
 
 - `docs/`: canonical guides, VitePress configuration, theme, and brand assets
 - `reme/config/default.yaml`: generated callable Job reference
-- `reme_studio/README*.md`: ReMe Studio
+- `reme_studio/README*.md`: ReMe Studio documentation
+- `reme_studio/demo/`: browser data adapter, bilingual Markdown examples, tags, and scripted conversations
 - `integrations/{dsh,openclaw}/README*.md`: TypeScript host plugins
 - `plugins/*/README*.md`: plugin guides
 - `benchmark/*/README*.md`: benchmark guides

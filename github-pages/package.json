@@ -8,8 +8,8 @@
   },
   "scripts": {
     "content": "node scripts/generate-content.mjs",
-    "dev": "npm run content && vitepress dev .generated/site",
-    "build": "npm run content && vitepress build .generated/site --outDir dist && node scripts/verify-build.mjs",
+    "dev": "npm run content && node scripts/build-studio.mjs && vitepress dev .generated/site",
+    "build": "npm run content && node scripts/build-studio.mjs && vitepress build .generated/site --outDir dist && node scripts/verify-build.mjs",
     "preview": "vitepress preview .generated/site --outDir dist",
     "test": "npm run content && node --test tests/*.test.mjs"
   },

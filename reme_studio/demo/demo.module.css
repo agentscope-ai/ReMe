@@ -1,0 +1,176 @@
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--subtle);
+  flex: none;
+}
+.description {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+  font-size: 12px;
+}
+.description strong {
+  color: var(--accent-strong);
+}
+.description span {
+  color: var(--muted);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.bar button,
+.dialog header button,
+.tagHeading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 12px;
+}
+.dialog {
+  width: min(800px, calc(100vw - 32px));
+  max-height: 85vh;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: 0 20px 80px var(--shadow-strong);
+}
+.dialog::backdrop {
+  background: var(--overlay);
+}
+.dialog header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.dialog h2 {
+  margin: 0;
+  font-size: 19px;
+}
+.dialog header p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.search input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  outline: none;
+}
+.search:focus-within {
+  outline: 2px solid var(--accent);
+}
+.tagHeading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 18px 0 10px;
+  font-size: 12px;
+}
+.tagHeading span {
+  color: var(--muted);
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.tag {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 5px 10px;
+  background: var(--subtle);
+  color: var(--ink);
+  font: 11px var(--mono);
+  cursor: pointer;
+}
+.tag[aria-pressed="true"],
+.tag:hover {
+  border-color: var(--accent);
+  background: var(--soft);
+  color: var(--accent-strong);
+}
+.tag span {
+  color: var(--muted);
+}
+.count {
+  margin: 16px 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.results {
+  display: grid;
+  gap: 8px;
+}
+.result {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+}
+.result:hover {
+  border-color: var(--accent);
+  background: var(--hover);
+}
+.result code {
+  font-size: 11px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.result p {
+  margin: 3px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.result > span {
+  font: 11px var(--mono);
+  color: var(--accent-strong);
+}
+@media (max-width: 640px) {
+  .bar {
+    padding: 8px 10px;
+  }
+  .dialog {
+    padding: 16px;
+  }
+}

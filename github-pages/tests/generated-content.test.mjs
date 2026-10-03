@@ -145,8 +145,7 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "integrations/dsh/README*.md",
     "integrations/dsh/figures/**",
     "integrations/openclaw/README*.md",
-    "reme_studio/README*.md",
-    "reme_studio/figures/**",
+    "reme_studio/**",
     "benchmark/toolmemory/gitcha.png",
   ];
   for (const workflow of ["ci-docs.yml", "deploy-docs.yml"]) {

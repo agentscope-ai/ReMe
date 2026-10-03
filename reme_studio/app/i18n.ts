@@ -1,11 +1,29 @@
 "use client";
 
 import { create } from "zustand";
+import { IS_DEMO } from "./studio-mode.ts";
 
 export type Language = "zh" | "en";
 
 const messages = {
   zh: {
+    demoCloseSearch: "关闭搜索",
+    demoTitle: "浏览器演示",
+    demoDescription: "示例文件 · 修改保存在此浏览器 · 无需服务",
+    demoGuide: "体验指南",
+    demoSearch: "搜索 / 标签",
+    demoReset: "重置示例",
+    demoResetConfirm:
+      "重置当前语言的示例？此浏览器中的示例修改、草稿和对话将被清除。",
+    demoSearchDescription:
+      "关键词与 memory tags 跨目录筛选；演示使用浏览器关键词匹配。",
+    demoSearchPlaceholder: "搜索内容或路径，例如：离线",
+    demoTagHint: "文件数 · 多标签匹配任意一个",
+    demoClearTags: "清除标签",
+    demoMatches: "{count} 篇文档",
+    demoNoResults: "没有匹配的文档，试试其他关键词或标签。",
+    demoChatDescription: "预设对话展示标签检索、文件读取与引用。未运行模型。",
+    demoChatHint: "示例回答不会随文档编辑重新生成。",
     memoryWorkspace: "记忆工作区",
     newAgentChat: "新建 Agent 对话",
     newConversation: "新对话",
@@ -80,7 +98,7 @@ const messages = {
     lightTheme: "浅色",
     darkTheme: "深色",
     systemTheme: "跟随系统",
-    documentation: "文档资料",
+    officialWebsite: "ReMe 官网",
     github: "GitHub",
     settings: "设置",
     settingsTitle: "ReMe 设置",
@@ -138,6 +156,25 @@ const messages = {
     agentUnavailable: "无法连接 Agent（HTTP {status}）",
   },
   en: {
+    demoCloseSearch: "Close search",
+    demoTitle: "Browser demo",
+    demoDescription:
+      "Example files · Changes stay in this browser · No server needed",
+    demoGuide: "Start here",
+    demoSearch: "Search / Tags",
+    demoReset: "Reset demo",
+    demoResetConfirm:
+      "Reset this language’s demo? Edited example files, drafts, and chats in this browser will be cleared.",
+    demoSearchDescription:
+      "Filter across directories by keywords and memory tags. This demo uses browser keyword matching.",
+    demoSearchPlaceholder: "Search content or paths, e.g. offline",
+    demoTagHint: "File counts · Match any selected tag",
+    demoClearTags: "Clear tags",
+    demoMatches: "{count} documents",
+    demoNoResults: "No matches. Try another keyword or tag.",
+    demoChatDescription:
+      "Scripted conversations show tag searches, file reads, and citations. No model is running.",
+    demoChatHint: "Scripted answers do not regenerate after edits.",
     memoryWorkspace: "Memory workspace",
     newAgentChat: "New Agent chat",
     newConversation: "New chat",
@@ -215,7 +252,7 @@ const messages = {
     lightTheme: "Light",
     darkTheme: "Dark",
     systemTheme: "System",
-    documentation: "Documentation",
+    officialWebsite: "ReMe Website",
     github: "GitHub",
     settings: "Settings",
     settingsTitle: "ReMe Settings",
@@ -300,21 +337,44 @@ const applyLanguage = (language: Language) => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
 };
 
+function initialLanguage(): Language {
+  if (typeof window === "undefined") return "zh";
+  const requested = IS_DEMO
+    ? new URLSearchParams(window.location.search).get("lang")
+    : null;
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem("reme-language");
+  } catch {
+    /* Use the browser language. */
+  }
+  const preferred = requested || saved;
+  return preferred === "zh" || preferred === "en"
+    ? preferred
+    : navigator.language.startsWith("zh")
+    ? "zh"
+    : "en";
+}
+
 export const useLanguageStore = create<LanguageState>((set) => ({
-  language: "zh",
+  language: IS_DEMO ? initialLanguage() : "zh",
   hydrate: () => {
-    const saved = localStorage.getItem("reme-language");
-    const language: Language =
-      saved === "zh" || saved === "en"
-        ? saved
-        : navigator.language.startsWith("zh")
-        ? "zh"
-        : "en";
+    const language = initialLanguage();
     applyLanguage(language);
     set({ language });
   },
   setLanguage: (language) => {
-    localStorage.setItem("reme-language", language);
+    try {
+      localStorage.setItem("reme-language", language);
+    } catch {
+      /* Keep the preference in memory. */
+    }
+    if (IS_DEMO) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("lang", language);
+      window.location.assign(url.href);
+      return;
+    }
     applyLanguage(language);
     set({ language });
   },

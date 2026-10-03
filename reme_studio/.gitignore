@@ -38,6 +38,9 @@ yarn-error.log*
 
 /dist/
 /dist-static/
+/dist-demo/
+!demo/content/*/daily/
+!demo/content/*/daily/**
 /.wrangler/
 /outputs/
 /work/

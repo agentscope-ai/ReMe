@@ -10,6 +10,18 @@ Studio 遵循 ReMe 的本地优先理念：Markdown 和其他工作区文件始�
 
 > 本 README 中的所有截图均来自真实运行的本地 ReMe 服务，Studio 界面统一设置为英文。截图使用隔离的虚构 `Project Aurora` 工作区，不包含用户数据、凭证或私有服务地址。
 
+## 浏览器体验
+
+打开 [体验Studio](https://reme.agentscope.io/studio/?lang=zh)，无需安装或启动后端。它复用本地 Studio 的界面，
+提供 21 篇相互关联的虚构 Aurora 项目文档：原始资料、日记、长期知识、个人偏好和操作流程。
+
+可以编辑、保存、下载文件，探索 wikilink 图谱，并用关键词和 `memory_tags` 跨目录筛选。标签文件数和图谱
+从当前示例文件计算，保存后更新；多标签筛选匹配任意一个所选标签。修改与草稿按语言保存在当前浏览器，
+「重置示例」恢复初始内容。清除网站数据也会清除修改，请下载需要保留的文件。
+
+Agent 对话是明确标注的预设演示，工具块读取当前示例文件；回答不会随编辑重新生成。演示不运行模型、
+向量检索、自动记忆提炼或后台任务，也不连接本机 ReMe 服务。要使用自己的真实工作区，请按下面的安装说明启动 ReMe。
+
 ## Studio 提供什么
 
 | 区域       | 能力                                                                                                  |
@@ -327,6 +339,16 @@ VITE_REME_API_URL=http://127.0.0.1:2333 npm run dev:static
 ### Chat 无法启动
 
 文件功能可在 Chat 不可用时正常工作。请检查 ReMe 后端配置的 Agent wrapper、模型、API key 和提供商地址，再查看 Settings → Status。不要把凭证放进前端环境变量。
+
+## 开发浏览器演示
+
+```bash
+npm run dev:demo
+npm run build:demo
+```
+
+演示构建输出到 `dist-demo/`，可作为静态目录托管；GitHub Pages 构建会将其放在 `/studio/`。示例源文件位于
+`demo/content/{zh,en}/`，演示数据层位于 `demo/api.ts`，其文件、标签和图谱来自这些 Markdown。真实服务构建仍使用 HTTP API。
 
 ## 验证
 

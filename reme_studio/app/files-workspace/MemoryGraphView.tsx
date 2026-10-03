@@ -16,9 +16,10 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { getGraphSnapshot, readWorkspaceFile } from "../api";
+import { getGraphSnapshot } from "../api";
 import { useI18n } from "../i18n";
-import { useWorkspaceStore } from "../store";
+import { WORKSPACE_CHANGED } from "../studio-mode";
+import { openWorkspaceFile } from "../open-file";
 import type { GraphSnapshot, MemoryGraphRoot } from "../types";
 import {
   edgePath,
@@ -75,10 +76,6 @@ export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
   const [draggingId, setDraggingId] = useState("");
   const dragSession = useRef<DragSession | undefined>(undefined);
   const didDrag = useRef(false);
-  const tabs = useWorkspaceStore((state) => state.tabs);
-  const openMarkdown = useWorkspaceStore((state) => state.openMarkdown);
-  const hydrateMarkdown = useWorkspaceStore((state) => state.hydrateMarkdown);
-  const failMarkdown = useWorkspaceStore((state) => state.failMarkdown);
 
   useEffect(() => {
     let mounted = true;
@@ -109,10 +106,14 @@ export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
       if (!document.hidden) void load();
     };
     document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener(WORKSPACE_CHANGED, onVisibilityChange);
+    window.addEventListener("storage", onVisibilityChange);
     return () => {
       mounted = false;
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener(WORKSPACE_CHANGED, onVisibilityChange);
+      window.removeEventListener("storage", onVisibilityChange);
     };
   }, []);
 
@@ -170,20 +171,7 @@ export default function MemoryGraphView({ root }: { root: MemoryGraphRoot }) {
 
   const openFile = async (node: PositionedGraphNode) => {
     if (!node.indexed || node.virtual) return;
-    const existing = tabs.some(
-      (tab) => tab.type === "markdown" && tab.path === node.path,
-    );
-    const id = openMarkdown(node.path);
-    if (existing) return;
-    try {
-      const file = await readWorkspaceFile(node.path);
-      hydrateMarkdown(id, file.content, file.stat.mtime);
-    } catch (openError) {
-      failMarkdown(
-        id,
-        openError instanceof Error ? openError.message : t("fileReadFailed"),
-      );
-    }
+    await openWorkspaceFile(node.path);
   };
 
   const startDrag = (event: ReactPointerEvent<SVGGElement>, nodeId: string) => {

@@ -1,6 +1,8 @@
 "use client";
 
 import { create } from "zustand";
+import { IS_DEMO } from "./studio-mode";
+import { useLanguageStore } from "./i18n";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {
   applyStreamChunk,
@@ -54,7 +56,9 @@ interface WorkspaceState {
 
 const fileTitle = (path: string) => path.split("/").pop() || path;
 // Preserve the original key so existing tabs, chats, and unsaved drafts survive the Studio rename.
-const WORKSPACE_STORAGE_KEY = "reme-workspace";
+const WORKSPACE_STORAGE_KEY = IS_DEMO
+  ? `reme-demo-tabs-v1-${useLanguageStore.getState().language}`
+  : "reme-workspace";
 
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(

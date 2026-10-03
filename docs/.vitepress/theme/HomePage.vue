@@ -60,7 +60,7 @@ const translations = {
     sectionTitle: "从记忆工作区，到自动研究",
     sectionLead: "三个完整入口，把 ReMe 用到真实工作流中。",
     products: [
-      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "在本地 Web 工作区中浏览、编辑、搜索记忆，并探索 wikilink 图谱。", href: "/zh/workspace/studio", tone: "mint" },
+      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "在本地 Web 工作区中浏览、编辑、搜索记忆，并探索 wikilink 图谱。", href: "/studio/?lang=zh", tone: "mint" },
       { mark: "◌", label: "DISCOVER", title: "Daily Paper", detail: "筛选值得阅读的论文，分析 PDF，并生成文件化笔记与五分钟简报。", href: "/zh/plugins/daily-paper", tone: "cyan" },
       { mark: "↗", label: "RESEARCH", title: "Auto Fin", detail: "连接最新财联社新闻与本地历史记忆，生成带 wikilink 的研究报告。", href: "/zh/plugins/auto-fin", tone: "amber" },
     ],
@@ -120,7 +120,7 @@ const translations = {
     sectionTitle: "From memory workspace to automated research",
     sectionLead: "Three complete paths for putting ReMe into real workflows.",
     products: [
-      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "Browse, edit, and search memory in a local web workspace, then explore its wikilink graph.", href: "/en/workspace/studio", tone: "mint" },
+      { mark: "▣", label: "WORKSPACE", title: "ReMe Studio", detail: "Browse, edit, and search memory in a local web workspace, then explore its wikilink graph.", href: "/studio/?lang=en", tone: "mint" },
       { mark: "◌", label: "DISCOVER", title: "Daily Paper", detail: "Select useful papers, analyze PDFs, and create file-native notes plus a five-minute brief.", href: "/en/plugins/daily-paper", tone: "cyan" },
       { mark: "↗", label: "RESEARCH", title: "Auto Fin", detail: "Connect recent CLS news with local memory to create traceable, wikilink-backed reports.", href: "/en/plugins/auto-fin", tone: "amber" },
     ],
@@ -293,6 +293,7 @@ onMounted(async () => {
           class="product-card"
           :class="product.tone"
           :href="localLink(product.href)"
+          :target="product.href.startsWith('/studio/') ? '_self' : undefined"
         >
           <span class="product-mark">{{ product.mark }}</span>
           <span class="product-label">{{ product.label }}</span>
