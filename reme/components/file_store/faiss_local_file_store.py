@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+from collections.abc import Callable
 from contextlib import suppress
 from uuid import uuid4
 
@@ -664,6 +665,7 @@ class FaissLocalFileStore(LocalFileStore):
             return []
 
         q = self._prepare(query_embedding)
+        matches = self._prepare_search_filter(search_filter)
         ntotal = index.ntotal
 
         # Small-index shortcut: when ntotal is below the brute-force threshold,
@@ -683,14 +685,14 @@ class FaissLocalFileStore(LocalFileStore):
         if ntotal < max(1, (max(limit, ef_search)) ** 0.5) * self.hnsw_m:
             k = ntotal if search_filter else min(ntotal, limit + len(self._tombstones))
             scores, rows = index.storage.search(q, k)
-            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter, matches=matches)
 
         if not search_filter:
             # No filter: simple over-fetch to cover tombstones.
             k = min(ntotal, limit + len(self._tombstones))
             self._set_ef_search(index, limit)
             scores, rows = index.search(q, k)
-            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+            return self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter, matches=matches)
 
         # With filter: progressively increase k until we collect enough results
         # or exhaust the entire index.
@@ -698,7 +700,7 @@ class FaissLocalFileStore(LocalFileStore):
         while True:
             self._set_ef_search(index, limit)
             scores, rows = index.search(q, k)
-            results = self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter)
+            results = self._collect_hits(rows[0].tolist(), scores[0].tolist(), limit, search_filter, matches=matches)
             if len(results) >= limit or k >= ntotal:
                 return results
             k = min(ntotal, k * 2)
@@ -709,15 +711,19 @@ class FaissLocalFileStore(LocalFileStore):
         scores: list[float],
         limit: int,
         search_filter: dict | None = None,
+        *,
+        matches: Callable[[FileChunk], bool] | None = None,
     ) -> list[FileChunk]:
         """Map raw FAISS rows back to chunks, skipping tombstones and stale ids."""
+        if matches is None:
+            matches = self._prepare_search_filter(search_filter)
         results: list[FileChunk] = []
         for raw_row, score in zip(rows, scores):
             row = int(raw_row)
             if row < 0 or row in self._tombstones or row >= len(self._id_map):
                 continue
             chunk = self.file_chunks.get(self._id_map[row])
-            if chunk is None or not self._matches_search_filter(chunk, search_filter):
+            if chunk is None or not matches(chunk):
                 continue
             results.append(chunk.model_copy(update={"scores": {"vector": float(score), "score": float(score)}}))
             if len(results) >= limit:
