@@ -6,13 +6,14 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import frontmatter
 import pytest
 import yaml
 
 from reme.components.application_context import ApplicationContext
+from reme.components.as_llm import BaseAsLLM
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
@@ -20,6 +21,7 @@ from reme.components.job import BaseJob
 from reme.components.runtime_context import RuntimeContext
 from reme.components.tag_index import LocalTagIndex
 from reme.config import resolve_app_config
+from reme.enumeration import ComponentEnum
 from reme.schema import DreamState, FileNode
 from reme.steps.evolve.auto_tag import AutoTagStep
 from reme.steps.evolve.dream.extract import DreamExtractStep
@@ -789,5 +791,56 @@ def test_finish_keeps_skipped_agent_output_successful(tmp_path):
         assert response.answer.startswith("AutoDream completed with warnings\n\n")
         assert "- Integrated: 0 ok, 1 skipped, 0 failed" in response.answer
         assert response.metadata["dream"]["checkpoint_paths"] == [rel_path]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("stage", ["extract", "integrate"])
+def test_dream_initializes_started_provider_before_availability_check(tmp_path, stage):
+    """Dream's real availability check must initialize a started lazy provider."""
+
+    async def run():
+        context = ApplicationContext(workspace_dir=str(tmp_path))
+        credential_cls = Mock()
+        llm = BaseAsLLM(app_context=context, model="test")
+        llm.credential_cls = credential_cls
+        source = "daily/2026-05-28/session.md"
+        _touch(tmp_path / source, "memory source")
+        unit = {"name": "memory", "bucket": "wiki", "summary": "memory summary", "paths": [source]}
+        target = "digest/wiki/memory.md"
+        if stage == "extract":
+            agent = _ReplyAgent({"result": json.dumps({"units": [unit]})})
+            step = DreamExtractStep(app_context=context, scan_days=1)
+            inputs = {"date": "2026-05-28"}
+        else:
+            agent = _ReplyAgent(
+                {"result": json.dumps({"action": "CREATE", "target_path": target, "note": "created"})},
+                on_reply=lambda: _touch(tmp_path / target, "# Memory\n\nmemory summary\n"),
+            )
+            step = DreamIntegrateStep(app_context=context)
+            inputs = {"dream": {"units": [unit], "workspace": str(tmp_path)}}
+        context.components[ComponentEnum.AS_LLM] = {"default": llm}
+        context.components[ComponentEnum.AGENT_WRAPPER] = {"default": agent}
+        await llm.start()
+        await agent.start()
+        try:
+            credential_cls.assert_not_called()
+            with patch("reme.steps.evolve.dream.extract.refresh_day_index", return_value={}):
+                response = await step(
+                    RuntimeContext(file_catalog=_Catalog(), file_store=_FileStore(tmp_path), **inputs),
+                )
+            assert response.success, response.answer
+            assert agent.calls == 1
+            credential_cls.assert_called_once_with()
+            dream = response.metadata["dream"]
+            assert dream["errors"] == []
+            assert dream["failed_paths"] == []
+            if stage == "extract":
+                assert dream["units"][0]["name"] == "memory"
+            else:
+                assert dream["integrate_results"][0]["target_path"] == target
+        finally:
+            await agent.close()
+            await llm.close()
 
     asyncio.run(run())

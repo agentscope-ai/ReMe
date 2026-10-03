@@ -4,6 +4,7 @@ import asyncio
 import heapq
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
+from inspect import getattr_static
 from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
 
@@ -18,6 +19,7 @@ from .utils import execute_stream_task, print_logo, get_logger
 
 T = TypeVar("T", bound=BaseComponent)
 _NodeKey = tuple[str, str]
+_UNSET = object()
 
 
 class Application(BaseComponent):
@@ -244,8 +246,9 @@ class Application(BaseComponent):
                 raise KeyError(f"Component '{name}' not found in {component_type}")
 
             component = group[name]
+            # Validate fields without evaluating lazy properties before injection.
             for key in kwargs:
-                if not hasattr(component, key):
+                if getattr_static(component, key, _UNSET) is _UNSET and not hasattr(component, key):
                     raise AttributeError(f"Component {component_type}:{name} has no attribute '{key}'")
             for key, value in kwargs.items():
                 setattr(component, key, value)
@@ -314,8 +317,9 @@ class Application(BaseComponent):
                 expected_type=BaseComponent,
                 name=name,
             )
+            # Validate fields without evaluating lazy properties before injection.
             for key, value in (runtime_updates or {}).items():
-                if not hasattr(replacement, key):
+                if getattr_static(replacement, key, _UNSET) is _UNSET and not hasattr(replacement, key):
                     raise AttributeError(
                         f"Replacement {component_type}:{name} has no attribute '{key}'",
                     )

@@ -301,8 +301,6 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
-        if self.as_llm is not None and self.as_llm.model is None:
-            self.as_llm.initialize_model()
         model = self.as_llm.model if self.as_llm else None
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")

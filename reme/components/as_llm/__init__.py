@@ -30,21 +30,33 @@ class BaseAsLLM(BaseComponent):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.model: ChatModelBase | None = None
+        self._model: ChatModelBase | None = None
 
     async def _start(self) -> None:
         """Keep service startup independent of provider credentials."""
 
+    @property
+    def model(self) -> ChatModelBase:
+        """Initialize on first access, including direct Step dependency resolution."""
+        self.initialize_model()
+        assert self._model is not None
+        return self._model
+
+    @model.setter
+    def model(self, value: ChatModelBase | None) -> None:
+        """Preserve explicit model injection used by standalone consumers."""
+        self._model = value
+
     def initialize_model(self) -> None:
         """Construct the configured provider once, without making a remote request."""
-        if self.model is not None:
+        if self._model is not None:
             return
         kwargs = dict(self.kwargs)
         credential = self.credential_cls(**kwargs.pop("credential", {}))
         model_cls = credential.get_chat_model_class()
         params_dict = kwargs.pop("parameters", None)
         parameters = model_cls.Parameters(**params_dict) if params_dict else None
-        self.model = model_cls(credential=credential, parameters=parameters, **kwargs)
+        self._model = model_cls(credential=credential, parameters=parameters, **kwargs)
 
 
 @R.register("openai")

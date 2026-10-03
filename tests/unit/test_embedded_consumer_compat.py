@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 import asyncio
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -362,3 +363,31 @@ def test_replace_component_start_failure_keeps_old_generation(tmp_path):
         await app.close()
 
     asyncio.run(exercise_api())
+
+
+@pytest.mark.parametrize("operation", ["update", "replace"])
+def test_model_injection_does_not_initialize_provider(tmp_path, operation):
+    """Attribute validation must not construct a provider before model injection."""
+    app = ReMe(**_qwenpaw_style_config(str(tmp_path)))
+    model = object()
+    credential_cls = Mock(side_effect=AssertionError("provider must not be constructed"))
+
+    async def run():
+        with patch("reme.components.as_llm.OpenAIAsLLM.credential_cls", credential_cls):
+            if operation == "update":
+                component = await app.update_component("as_llm", "default", model=model)
+            else:
+                component = await app.replace_component(
+                    "as_llm",
+                    "default",
+                    config={"backend": "openai", "model": "injected"},
+                    runtime_updates={"model": model},
+                )
+            await app.start()
+            try:
+                assert component.model is model
+                credential_cls.assert_not_called()
+            finally:
+                await app.close()
+
+    asyncio.run(run())
