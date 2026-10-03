@@ -1,71 +1,169 @@
-# ReMe plugin for Claude Code
+# ReMe memory for Claude Code
 
-Connect Claude Code to [ReMe](https://github.com/agentscope-ai/ReMe) — file-native long-term memory
-for AI agents. The plugin gives the agent **recall** (read long-term memory) and **records every
-session automatically** via a Stop hook. Consolidation of daily notes into long-term `digest/`
-knowledge runs server-side in ReMe.
+[中文说明](./README_ZH.md)
 
-## What you get
+Start a ReMe service, then install the ReMe plugin in Claude Code. This is the supported integration
+for this host. The plugin bundles automatic recall, completed-turn recording, MCP tools, and the
+`reme-memory` skill in one installation. ReMe manages durable memory and consolidation in your workspace.
 
-- **MCP tools** from the `reme` server: `search`, `traverse`, `daily_list`, `frontmatter_read`,
-  `read`, `auto_memory_cc`, and more.
-- **Stop hook** (`hooks/auto_memory.py`) — when a session ends it calls ReMe's server-side
-  `auto_memory_cc` tool in a detached background process, passing **only the session id**. The server
-  resolves that session's transcript on disk and records the durable facts into today's daily note.
-  Recording is fully automatic and asynchronous — the agent never records by hand, and stopping is
-  never delayed. Best-effort: if the server is down it logs and gives up silently.
-- **Skill** `reme-memory` — recall long-term memory before answering (semantic `search`, topological
-  `traverse`, state `daily_list`/`frontmatter_read`, then `read` with citations), plus a server
-  status check. Recording is handled silently by the Stop hook.
+The plugin and its marketplace are maintained in `integrations/claude_code/` and installed from
+this checkout. Keep the ReMe service running while using the plugin.
 
-## Deployment model
-
-The plugin **connects to a shared HTTP MCP server you start once** — it does not spawn ReMe. One
-server means one set of background watchers / dream cron across all your Claude Code windows.
-
-## Prerequisites
-
-1. Install ReMe (Python 3.11+):
-
-   ```bash
-   pip install "reme-ai[core]"
-   ```
-
-2. Configure model credentials in a `.env` (see `example.env`):
-
-   ```bash
-   EMBEDDING_API_KEY=sk-xxx
-   EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-   LLM_API_KEY=sk-xxx
-   LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-   ```
-
-3. Start the ReMe HTTP server (one time, leave it running):
-
-   ```bash
-   reme start service.backend=http
-   ```
-
-   The same process serves the JSON Job API and MCP at `http://127.0.0.1:2333/mcp`. To use a different port, start with
-   `service.port=<port>` and update the `url` in `.mcp.json` to match.
-
-## Install the plugin
-
+```text
+Start ReMe → Install the ReMe plugin → Use memory in Claude Code
 ```
-/plugin marketplace add ./integrations/claude_code
+
+## Requirements
+
+- Python 3.11+ available as `python3` in the host's environment, with FastMCP >= 3.1 (included with ReMe).
+- A current Claude Code version supporting plugin command hooks, `async`, and Stop `last_assistant_message`.
+- A running ReMe HTTP service exposing `search`, `auto_memory`, and `health_check`, with MCP enabled.
+- A working model configuration on the ReMe server for memory extraction. Default BM25 recall does not need embeddings.
+
+## 1. Start ReMe
+
+```bash
+pip install "reme-ai[core]"
+reme start workspace_dir=/absolute/path/to/workspace service.backend=http
+```
+
+The default endpoint is `http://127.0.0.1:2333`, with MCP at `/mcp`. Keep the unauthenticated HTTP
+service on loopback or behind a protected proxy. Different workspaces isolate different memory
+scopes; sharing one workspace between hosts is intentional cross-agent recall.
+
+## 2. Install the plugin
+
+In Claude Code, using an absolute path to this checkout:
+
+```text
+/plugin marketplace add /absolute/path/to/ReMe/integrations/claude_code
 /plugin install reme@reme-marketplace
 ```
 
-(Or point `/plugin marketplace add` at the GitHub repo + subpath once published.) Restart Claude Code, then
-run `/mcp` to confirm the `reme` server and its tools are connected; the `reme-memory` skill can then
-recall memory and report server health.
+Restart Claude Code or reload the installed plugin, then open a new conversation. The installation
+loads the bundled hooks, MCP connection, and skill together. Reinstall or reload the plugin after updates.
 
-## Notes
+## 3. Use memory in Claude Code
 
-- The plugin's MCP server URL lives in `integrations/claude_code/reme/.mcp.json`. Keep it in sync with how you start
-  ReMe (host/port). The Stop hook reads this same file to find the server (override with `REME_HOST`
-  / `REME_PORT` env vars).
-- The Stop hook needs `python3` on `PATH` and resolves transcripts under `~/.claude/projects`
-  (override the base with `CLAUDE_CONFIG_DIR`). It logs to `integrations/claude_code/reme/logs/auto_memory_hook.log`.
-- The MCP tool-name prefix (`mcp__reme__…`) may include the server segment depending on your Claude
-  Code version; the skill uses the `mcp__reme__*` wildcard so it works either way.
+In a new conversation, ask “Check whether ReMe is available.” The installed plugin's tools check
+the running service; `/mcp` shows the plugin's connection status. Then use Claude Code normally:
+the plugin recalls relevant memory before prompts and records completed turns in batches of five.
+For an explicit query, ask “What did we decide about Project Juniper? Cite the memory sources.”
+
+Automatic recording sends completed user/assistant text to the configured ReMe service.
+Set `auto_memory` to `false` for recall-only use.
+
+## Optional configuration
+
+The default service address works immediately after plugin installation. Create a configuration
+file only when you want to change the defaults below.
+
+Edit the user configuration file directly to change addresses and behavior. Plugin upgrades preserve
+this file, and only overrides need to be saved.
+
+Settings live at `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json`. For a new file, copy the bundled example; edit an existing file in place:
+
+```bash
+mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme"
+cp integrations/claude_code/reme/config.example.json "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/reme/config.json"
+```
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `mcp_url` | `http://127.0.0.1:2333/mcp` | MCP address; removing the trailing `/mcp` gives the default HTTP base for hooks |
+| `api_url` | Empty string | Optional HTTP Job API base; required for custom MCP paths |
+| `auto_recall` | `true` | Search before a user prompt |
+| `auto_memory` | `true` | Queue and submit completed turns; false also disables retries |
+| `recall_limit` | `5` | Search result limit |
+| `recall_min_score` | `0` | Minimum recall score |
+| `recall_timeout` | `5` | Foreground HTTP timeout in seconds, at most 10 |
+| `request_timeout` | `600` | Memory-write and MCP request timeout in seconds, at most 600 |
+| `memory_interval` | `5` | Completed turns per batch; use 1 for immediate per-turn writes |
+| `shutdown_timeout` | `2` | Total best-effort exit drain budget in seconds, at most 2 |
+| `context_max_chars` | `8000` | Maximum recalled payload characters |
+| `timezone` | `Asia/Shanghai` | Daily batch timezone; match the ReMe workspace |
+
+For example, use another port and disable automatic recording:
+
+```json
+{
+  "mcp_url": "http://127.0.0.1:2444/mcp",
+  "auto_memory": false,
+  "auto_recall": true,
+  "memory_interval": 1
+}
+```
+
+Both MCP and hooks read addresses from this user configuration. Hooks pick up edits on their next
+invocation. After changing an address or the MCP timeout, reconnect MCP or restart the host so the
+existing MCP process also reads the new settings. No source edits, cache edits, or reinstall are needed.
+For a custom MCP path such as `https://memory.example.com/tools`, also set `api_url` to the HTTP Job
+API base, for example `https://memory.example.com/reme`.
+
+Unknown fields and invalid values fail validation; hooks skip work and log `hook_failed` instead of
+falling back to another service. Disabling `auto_memory` stops automatic capture and retries while
+preserving pending batches; explicit MCP tools remain available. Changing the service address never
+sends old pending conversations to the new service. Remove a field to restore its default.
+
+The plugin uses a host-managed stdio process to forward MCP. Start the host with a `python3`
+environment containing FastMCP. If ReMe runs on another machine or in another Python environment,
+run `python3 -m pip install "fastmcp>=3.1"` in the host environment. Hooks use only the standard library.
+
+## Lifecycle and failure behavior
+
+- `UserPromptSubmit` calls `search` synchronously with a short timeout. Results are bounded and
+  wrapped in `<reme-context>` as untrusted historical evidence. A failure does not reject the prompt.
+- Native asynchronous `Stop` hooks extract only the completed user/final-assistant text from the
+  hook's local transcript, then submit `auto_memory` batches through the JSON Job API. Tool output,
+  reasoning, and injected ReMe context are excluded. The server does not need access to host files.
+- Session and message IDs are stable and host-scoped. Repeated Stops are deduplicated. Per-session
+  process locks serialize writes; batches never mix dates. Subagent events and hook continuations
+  are excluded. No extra background daemon, package download, or ReMe process is started.
+- Queues and acknowledgement receipts live under the host's `reme/queue/`, separate from the
+  plugin cache and namespaced by endpoint. A failed or timed-out write stays queued. `SessionStart`
+  retries pending work in the background; `SessionEnd` attempts a short, synchronous drain.
+- Shutdown and delivery are best-effort. A host killed before the Stop hook captures a turn can
+  lose that turn. A lost HTTP acknowledgement can cause a retry; stable message IDs prevent duplicate
+  source messages, but memory extraction is **at least once**, not exactly once. Short residual
+  batches survive for the next session when shutdown has insufficient time.
+- Queue files contain source conversation text; retain them until delivery completes. Logs in
+  `reme/hooks.log` contain event/error types only. Disabling `auto_memory` retains pending files.
+- Daily `auto_dream` consolidation remains owned by the ReMe service. Unlike OpenClaw's long-lived
+  Gateway adapter, these short-lived hook processes do not run their own scheduler.
+
+## Verify and troubleshoot
+
+1. In Claude Code, ask the installed ReMe plugin to check the connection; confirm its status in `/mcp`.
+2. For a quick test, set `memory_interval` to `1`, then start a new conversation and ask the agent to
+   remember a synthetic fact, such as “Project Juniper reviews are on Thursday.”
+3. Wait for the write and inspect `reme/hooks.log` for `memory_saved` and the ReMe workspace's `daily/`.
+4. Start a separate conversation and ask for that fact. Confirm recall is from ReMe, with source paths.
+
+The installed plugin provides both automatic memory and explicit search/read and health checks.
+If its tools are missing, check that the plugin is installed and enabled, the service is running,
+and `service.jobs` exposes the required jobs. If its hooks do not load, use a host version supporting
+the plugin requirements and reinstall or reload the plugin.
+
+Capture currently reads Claude JSONL user/assistant records with UUIDs. The hook requires
+`transcript_path` and `last_assistant_message`. Missing or unsupported transcripts are skipped rather
+than guessed. Check `capture_skipped` or
+`hook_failed` events when recall works but recording does not.
+
+## Migration from the previous Claude Code plugin
+
+Version 0.2 replaces the detached Stop-only `auto_memory_cc` client with automatic recall and
+client-side completed-turn capture via `auto_memory`. The existing server job `auto_memory_cc`
+remains available. Existing `session/claude_code/` transcripts and notes are preserved; new source
+messages use ReMe's standard `{session_dir}/dialog/claude-code-<hash>.jsonl` files and namespaced IDs.
+The plugin does not replay older conversations. Remove any manually installed duplicate Stop hook.
+Logs move from the plugin's `logs/` directory to the host's `reme/hooks.log`.
+
+For end-to-end checks, keep the session open until `memory_saved` appears. A short `claude -p`
+process can exit before its asynchronous hook receives the write acknowledgement; the next session
+retries captured work. A Markdown note alone does not prove that the queue was acknowledged.
+
+## Source and validation
+
+Run `pytest tests/unit/test_coding_agent_plugins.py -v` from the ReMe checkout. Tests isolate host
+state and mock service calls. Native hook behavior is described in the [Claude Code hook reference](https://code.claude.com/docs/en/hooks).
+ReMe is developed at [agentscope-ai/ReMe](https://github.com/agentscope-ai/ReMe) under Apache-2.0.

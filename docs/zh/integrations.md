@@ -16,9 +16,10 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 | 支持工具协议的 Agent | MCP |
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
-| Claude Code | [共享 HTTP MCP + Skill + Stop Hook](./integrations/claude-code.md) |
+| Claude Code | [启动 ReMe 后安装插件](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
-| Codex 或其他 coding agent | `reme_memory` Skill 或 MCP |
+| Codex | [启动 ReMe 后安装插件](./integrations/codex.md) |
+| 其他 coding agent | `reme_memory` Skill 或 MCP |
 
 ## 通用接入循环
 
@@ -87,13 +88,15 @@ openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin
 
 ## Claude Code
 
-[Claude Code 插件](./integrations/claude-code.md) 默认让所有 Claude Code 窗口连接同一个
-`http://127.0.0.1:2333/mcp` ReMe HTTP 进程。`reme-memory` Skill 会在语义 `search`、图关系 `traverse` 和状态查询
-`daily_list` / `frontmatter_read` 之间选择，再读取并引用相关 workspace 路径。
+先启动 ReMe HTTP 服务，再[安装 Claude Code 的 ReMe 插件](./integrations/claude-code.md)。
+插件统一提供自动召回、完成轮次记录和记忆查询，所需 Hook、MCP 工具与 Skill 随插件安装。
+本宿主使用插件安装流程接入。
 
-会话 Stop 时，Hook 只把 Claude Code `session_id` 交给服务端 `auto_memory_cc` Job。在 POSIX 系统上，它会脱离可能耗时的
-模型调用，让 Claude Code 立即停止；服务不可达等 best-effort 失败只写入插件日志，不阻塞宿主。ReMe 会解析本地 transcript；
-重复 Stop 且没有新消息时，不会重复生成记忆。
+## Codex
+
+先启动 ReMe HTTP 服务，再[安装 Codex 的 ReMe 插件](./integrations/codex.md)，在 `/hooks` 中信任插件 Hook。
+新建会话后即可使用自动召回、记录和插件提供的记忆工具。本宿主同样使用插件安装流程接入。
+两端各自保存插件配置与重试队列，记忆存储和整理由 ReMe 服务负责。
 
 ## Hermes Agent
 

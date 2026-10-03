@@ -1,0 +1,17 @@
+{
+  "mcpUrl": "http://127.0.0.1:2333/mcp",
+  "autoRecall": true,
+  "autoMemoryEnabled": true,
+  "searchLimit": 5,
+  "recallMinScore": 0.0,
+  "requestTimeoutMs": 10000,
+  "backgroundTimeoutMs": 3600000,
+  "autoMemoryInterval": 5,
+  "shutdownTimeoutMs": 5000,
+  "timezone": "Asia/Shanghai",
+  "language": "en",
+  "dreamHint": "",
+  "autoDreamEnabled": true,
+  "dreamCron": "0 23 * * *",
+  "rootAgentsOnly": true
+}

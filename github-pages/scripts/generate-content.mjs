@@ -11,6 +11,9 @@ const externalDocuments = [
   ["zh/overview.md", "README_ZH.md"],
   ["en/overview.md", "README.md"],
   ["en/integrations/claude-code.md", "integrations/claude_code/README.md"],
+  ["zh/integrations/claude-code.md", "integrations/claude_code/README_ZH.md"],
+  ["en/integrations/codex.md", "integrations/codex/README.md"],
+  ["zh/integrations/codex.md", "integrations/codex/README_ZH.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/dsh.md", "integrations/dsh/README_ZH.md"],
   ["en/integrations/dsh.md", "integrations/dsh/README.md"],
@@ -50,6 +53,18 @@ const externalDocumentRewrites = {
     ['href="./README_ZH.md"', 'href="/zh/overview"'],
     ['src="docs/figure/', 'src="../figure/'],
     ["(docs/zh/", "(./"],
+  ],
+  "integrations/codex/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/codex)"],
+    ["(../../docs/en/configuration.md)", "(/en/configuration)"],
+    ["(./figures/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/integrations/codex/figures/README.md)"],
+    ["(./figures/", "(/figures/codex/"],
+  ],
+  "integrations/codex/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/codex)"],
+    ["(../../docs/zh/configuration.md)", "(/zh/configuration)"],
+    ["(./figures/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/integrations/codex/figures/README.md)"],
+    ["(./figures/", "(/figures/codex/"],
   ],
   "integrations/dsh/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/dsh)"],
@@ -232,6 +247,10 @@ for (const [destination, source] of externalDocuments) {
   sourceMap[destination] = source;
 }
 
+await cp(path.join(repoDir, "integrations/codex/figures"), path.join(outputDir, "public/figures/codex"), {
+  recursive: true,
+  filter: (source) => !source.endsWith(".md"),
+});
 await cp(path.join(repoDir, "integrations/dsh/figures"), path.join(outputDir, "public/figures/dsh"), {
   recursive: true,
 });

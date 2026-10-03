@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "reme": {
-      "type": "http",
-      "url": "http://127.0.0.1:2333/mcp"
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"
+      ]
     }
   }
 }
