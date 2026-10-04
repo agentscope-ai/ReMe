@@ -47,6 +47,13 @@
 
 ## 📰 最新动态
 
+- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
+  即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
+
+  <a href="https://reme.agentscope.io/studio/?lang=zh">
+    <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480">
+  </a>
+
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
 - [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded

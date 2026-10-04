@@ -49,6 +49,14 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
+- [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
+  files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
+  Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
+
+  <a href="https://reme.agentscope.io/studio/?lang=en">
+    <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480">
+  </a>
+
 - [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
 - [2026.09] - **[Hermes Agent memory provider](https://reme.agentscope.io/en/integrations/hermes) available**: choose HTTP or embedded
