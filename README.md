@@ -53,9 +53,11 @@ users retain control of the durable files.
   files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
   Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
 
-  <a href="https://reme.agentscope.io/studio/?lang=en">
-    <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480">
-  </a>
+  <p align="center">
+    <a href="https://reme.agentscope.io/studio/?lang=en">
+      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio workspace preview — click to try the Playground" width="480" style="margin: 0 auto;">
+    </a>
+  </p>
 
 - [2026.09] - **[ReMe Memory Tags](https://reme.agentscope.io/en/blog_20260920) published**: an introduction
   to file-native entity tags, rebuildable tag indexes, and tag-filtered memory search.
@@ -70,6 +72,10 @@ users retain control of the durable files.
   [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) or
   [npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin) for long-term-memory guidance, `reme_search`,
   automatic memory, Auto Dream, and ReMe Status.
+
+<details>
+<summary>More updates</summary>
+
 - [2026.08] - **ReMe blog published**: the [ReMe blog](https://reme.agentscope.io/en/reme-blog) introduces the
   local-first memory architecture, self-evolving workflows, hybrid search, proactive discovery, and benchmark results.
 - [2026.08] - **New ReMe ecosystem plugins**: [Daily Paper](https://reme.agentscope.io/en/plugins/daily-paper)
@@ -84,6 +90,8 @@ users retain control of the durable files.
 - [2026.07] - Our
   paper [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   has been accepted to Findings of ACL 2026.
+
+</details>
 
 ## 🚀 Quick Start
 

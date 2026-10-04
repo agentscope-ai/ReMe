@@ -50,9 +50,11 @@
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
   即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
 
-  <a href="https://reme.agentscope.io/studio/?lang=zh">
-    <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480">
-  </a>
+  <p align="center">
+    <a href="https://reme.agentscope.io/studio/?lang=zh">
+      <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/reme_studio/figures/studio-overview.png" alt="ReMe Studio 工作区预览，点击体验 Playground" width="480" style="margin: 0 auto;">
+    </a>
+  </p>
 
 - [2026.09] - **[给记忆加上“标签”](https://reme.agentscope.io/zh/blog_20260920)发布**：介绍基于 Markdown 的实体标签、
   可重建 Tag Index 与标签过滤检索。
@@ -64,6 +66,10 @@
 - [2026.09] - **[DeepSeek Harness 插件](https://reme.agentscope.io/zh/integrations/dsh) 发布**：可通过
   [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) 或
   [npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin) 安装，提供长期记忆指引、`reme_search`、自动记忆、Auto Dream 和 ReMe Status。
+
+<details>
+<summary>更多更新</summary>
+
 - [2026.08] - **ReMe 博客发布**：[ReMe 博客](https://reme.agentscope.io/zh/reme-blog) 系统介绍了本地优先的记忆架构、
   自进化工作流、混合检索、主动发现与评测结果。
 - [2026.08] - **新增 ReMe 生态插件**：[每日论文](https://reme.agentscope.io/zh/plugins/daily-paper) 可自动发现、解析论文并生成文件化简报；
@@ -76,6 +82,8 @@
 - [2026.07] -
   我们的论文 [Remember Me, Refine Me: A Dynamic Procedural Memory Framework for Experience-Driven Agent Evolution](https://aclanthology.org/2026.findings-acl.829/)
   已被 Findings of ACL 2026 接收。
+
+</details>
 
 ## 🚀 快速开始
 
