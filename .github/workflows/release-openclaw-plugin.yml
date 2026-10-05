@@ -61,7 +61,7 @@ jobs:
       actions: read
       contents: read
       id-token: write
-    uses: openclaw/clawhub/.github/workflows/package-publish.yml@87ca030c30f3cfb78ab15c8e66b5ff1469c8f9c8 # v0.23.3
+    uses: openclaw/clawhub/.github/workflows/package-publish.yml@cacf5ec1b0ee3cb532ab4555a68c1db9e0c1aac7 # v0.24.0
     with:
       family: code-plugin
       version: ${{ needs.release.outputs.version }}
