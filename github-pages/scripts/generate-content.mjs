@@ -60,9 +60,15 @@ const externalDocumentRewrites = {
   ],
   "integrations/openclaw/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/openclaw)"],
+    ["(./figures/", "(/figures/openclaw/"],
   ],
   "integrations/openclaw/README_ZH.md": [
     ["(./README.md)", "(/en/integrations/openclaw)"],
+    ["(./figures/", "(/figures/openclaw/"],
+  ],
+  "integrations/hermes_agent/README.md": [
+    ["(README_ZH.md)", "(/zh/integrations/hermes)"],
+    ["(figures/", "(/figures/hermes/"],
   ],
   "reme_studio/README.md": [
     ["(./README_ZH.md)", "(/zh/workspace/studio)"],
@@ -233,6 +239,12 @@ for (const [destination, source] of externalDocuments) {
 }
 
 await cp(path.join(repoDir, "integrations/dsh/figures"), path.join(outputDir, "public/figures/dsh"), {
+  recursive: true,
+});
+await cp(path.join(repoDir, "integrations/openclaw/figures"), path.join(outputDir, "public/figures/openclaw"), {
+  recursive: true,
+});
+await cp(path.join(repoDir, "integrations/hermes_agent/figures"), path.join(outputDir, "public/figures/hermes"), {
   recursive: true,
 });
 await cp(path.join(repoDir, "reme_studio/figures"), path.join(outputDir, "public/figures/studio"), {

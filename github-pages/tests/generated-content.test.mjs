@@ -89,6 +89,24 @@ test("publishes Studio screenshots with site-safe links", async () => {
   assert.match(chinese, /\(\/en\/workspace\/studio\)/);
 });
 
+test("publishes OpenClaw and Hermes integration figures with site-safe links", async () => {
+  for (const [page, integration] of [
+    ["en/integrations/openclaw.md", "openclaw"],
+    ["zh/integrations/openclaw.md", "openclaw"],
+    ["en/integrations/hermes.md", "hermes"],
+  ]) {
+    const content = await readFile(path.join(generatedDir, page), "utf8");
+    const images = [...content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)];
+    assert.ok(images.length, `${page}: screenshots must exist`);
+    for (const [, source] of images) {
+      assert.ok(source.startsWith(`/figures/${integration}/`), `${page}: ${source}`);
+      await access(path.join(generatedDir, "public", source.slice(1)));
+    }
+  }
+  const hermesEnglish = await readFile(path.join(generatedDir, "en/integrations/hermes.md"), "utf8");
+  assert.match(hermesEnglish, /\(\/zh\/integrations\/hermes\)/);
+});
+
 test("keeps Studio source READMEs portable for package registries", async () => {
   for (const name of ["README.md", "README_ZH.md"]) {
     const source = await readFile(path.join(repoDir, "reme_studio", name), "utf8");
@@ -142,9 +160,11 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "reme/config/default.yaml",
     "integrations/claude_code/README.md",
     "integrations/hermes_agent/README.md",
+    "integrations/hermes_agent/figures/**",
     "integrations/dsh/README*.md",
     "integrations/dsh/figures/**",
     "integrations/openclaw/README*.md",
+    "integrations/openclaw/figures/**",
     "reme_studio/**",
     "benchmark/toolmemory/gitcha.png",
   ];
