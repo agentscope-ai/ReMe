@@ -32,6 +32,10 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 
 搜索不到内容时应明确返回空结果，不应把模型推测当成历史记忆。
 
+## Screenpipe 笔记
+
+通过现有资源流程[导入已审核的 Screenpipe 笔记](./screenpipe.md)，保留来源引用以便后续检索。
+
 ## MCP
 
 默认 HTTP 服务在 `http://127.0.0.1:2333/mcp` 提供 streamable HTTP MCP。常用工具包括：

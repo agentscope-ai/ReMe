@@ -20,6 +20,11 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Hermes Agent | Memory provider adapter |
 | Codex or another coding agent | `reme_memory` Skill or MCP |
 
+## Screenpipe notes
+
+[Import reviewed Screenpipe notes](./screenpipe.md) through the existing resource
+pipeline, preserving source references for later recall.
+
 ## General memory loop
 
 1. Before answering, call `search` for relevant memory.
