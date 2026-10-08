@@ -13,9 +13,11 @@
     * { box-sizing: border-box; }
     body { margin: 0; padding: clamp(16px, 4vw, 32px); background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.6 system-ui, -apple-system, sans-serif; }
     main { max-width: 880px; margin: auto; overflow-wrap: anywhere; }
-    header { display: flex; align-items: start; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+    header { display: grid; gap: 12px; margin-bottom: 28px; }
     header > div { min-width: 0; }
-    h1 { font-size: 22px; letter-spacing: -.4px; margin: 0; font-weight: 650; }
+    h1 { font-size: 22px; letter-spacing: -.4px; margin: 0; padding-inline-end: 48px; font-weight: 650; }
+    .status-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+    #checked { margin: 0; }
     h2 { font-size: 15px; line-height: 1.5; margin: 0 0 24px; font-weight: 600; }
     p { margin: 6px 0; }
     .muted, small { color: var(--muted); }
@@ -82,8 +84,11 @@
 <body>
 <main aria-busy="true">
   <header>
-    <div><h1>ReMe status</h1><p id="checked" class="muted label" aria-live="polite">Waiting for status…</p></div>
-    <button id="refresh" type="button" disabled>Refresh</button>
+    <h1>ReMe status</h1>
+    <div class="status-toolbar">
+      <button id="refresh" type="button" disabled>Refresh</button>
+      <p id="checked" class="muted label" aria-live="polite">Waiting for status…</p>
+    </div>
   </header>
   <p id="error" role="alert" hidden></p>
   <div id="loading" class="card muted">Opening the connection and memory overview…</div>
@@ -653,7 +658,7 @@
     }
     const host = await transport.request("ui/initialize", {
       protocolVersion: "2026-01-26",
-      appInfo: { name: "reme-status", version: "0.2.4" },
+      appInfo: { name: "reme-status", version: "0.2.5" },
       appCapabilities: { availableDisplayModes: ["fullscreen"] }
     });
     if (host.protocolVersion !== "2026-01-26") throw new Error("Unsupported UI protocol");

@@ -22,7 +22,7 @@ def snapshot(language):
     return {
         "checked_at": 1790757300,
         "language": language,
-        "plugin_version": "0.2.4",
+        "plugin_version": "0.2.5",
         "mcpUrl": "http://localhost:2333/mcp",
         "service": {
             "health_check": {"reachable": True, "answer": "ReMe v0.4.1.13 - healthy"},
@@ -57,6 +57,17 @@ def snapshot(language):
     }
 
 
+def check_host_close_clearance(page, frame):
+    refresh = frame.locator("#refresh").bounding_box()
+    close = page.locator("#host-close").bounding_box()
+    assert (
+        refresh["x"] + refresh["width"] <= close["x"]
+        or close["x"] + close["width"] <= refresh["x"]
+        or refresh["y"] + refresh["height"] <= close["y"]
+        or close["y"] + close["height"] <= refresh["y"]
+    ), "Refresh must remain outside the host's close control"
+
+
 def check_activity_history(page, frame, language, theme, tmp_path):
     playwright = pytest.importorskip("playwright.sync_api")
     dense = snapshot(language)
@@ -84,7 +95,8 @@ def check_activity_history(page, frame, language, theme, tmp_path):
     assert "GMT-3" in frame.locator("#activity time").first.get_attribute("title")
     for width in (320, 480, 768, 940):
         page.set_viewport_size({"width": width + 16, "height": 1250})
-        page.evaluate("width => document.querySelector('iframe').style.width = `${width}px`", width)
+        page.evaluate("width => document.querySelector('#status-shell').style.width = `${width}px`", width)
+        check_host_close_clearance(page, frame)
         assert frame.locator("body").evaluate("node => node.scrollWidth <= window.innerWidth")
         assert frame.locator("#activity-details").evaluate("node => node.scrollWidth <= node.clientWidth")
         page.screenshot(path=str(tmp_path / f"status-test-host-{theme}-activity-{width}.png"), full_page=True)
@@ -119,7 +131,12 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         errors, external = [], []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("**/*", lambda route: (external.append(route.request.url), route.abort()))
-        page.set_content('<iframe title="MCP status test host" style="border:0;width:940px;height:1200px"></iframe>')
+        page.set_content(
+            '<div id="status-shell" style="position:relative;width:940px">'
+            '<iframe title="MCP status test host" style="display:block;border:0;width:100%;height:1200px"></iframe>'
+            '<button id="host-close" aria-label="Host close" '
+            'style="position:absolute;top:12px;right:12px;width:36px;height:36px">×</button></div>',
+        )
         page.evaluate(
             """({html, initial, theme}) => {
                 window.calls = [];
@@ -175,7 +192,8 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
         assert frame.locator("#panel-overview").is_visible()
         for width in (320, 480, 640, 768, 940):
             page.set_viewport_size({"width": width + 16, "height": 1250})
-            page.evaluate("width => document.querySelector('iframe').style.width = `${width}px`", width)
+            page.evaluate("width => document.querySelector('#status-shell').style.width = `${width}px`", width)
+            check_host_close_clearance(page, frame)
             for name in ("overview", "memory", "dream", "components"):
                 frame.locator(f"#tab-{name}").click()
                 assert frame.locator("body").evaluate("node => node.scrollWidth <= window.innerWidth")
