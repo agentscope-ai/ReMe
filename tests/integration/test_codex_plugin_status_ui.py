@@ -22,7 +22,7 @@ def snapshot(language):
     return {
         "checked_at": 1790757300,
         "language": language,
-        "plugin_version": "0.2.5",
+        "plugin_version": "0.2.6",
         "mcpUrl": "http://localhost:2333/mcp",
         "service": {
             "health_check": {"reachable": True, "answer": "ReMe v0.4.1.13 - healthy"},

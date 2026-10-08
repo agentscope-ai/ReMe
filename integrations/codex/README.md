@@ -223,6 +223,7 @@ with the previous address; switch back to retry them. Changes made during consol
 | --- | --- |
 | No MCP settings entry | Confirm your desktop version meets the requirement above, then open the installed ReMe detail and its `reme` MCP card; confirm it is enabled and restart. |
 | Hooks settings keep loading or do not show ReMe | Open a local project folder and select the local host before reopening Hooks settings; see below. |
+| Status cannot open after an update, with `No such file or directory` pointing to an old plugin version | Fully quit and reopen Codex, then reopen ReMe status from MCP settings. Closing the card or starting a new conversation does not reload an existing MCP connection. |
 | Blank status card followed by a plugin feature loading error | Check network access to the Codex sandbox page; see below. |
 | Connection healthy, no recording or recall | Review every ReMe Hook; check the auto switches and recent activity. Health does not prove Hook execution. |
 | Turns stay queued | Keep Codex and ReMe running. Check the ReMe model configuration and service logs, and confirm the startup command includes `service.tool_error_on_failure=true`. |

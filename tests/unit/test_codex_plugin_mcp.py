@@ -5,6 +5,7 @@
 import asyncio
 import importlib
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -218,6 +219,32 @@ async def test_status_opens_a_self_contained_fullscreen_app_resource(plugin):
         assert "ui/notifications/tool-result" in content.text
         assert "/* STATUS_APP */" not in content.text
         assert "<script src=" not in content.text
+
+
+@pytest.mark.asyncio
+async def test_status_survives_removal_of_its_installation_cache(plugin, monkeypatch, tmp_path):
+    config, module, _ = plugin
+    features = importlib.import_module("reme_tools")
+    cache = tmp_path / "plugin-cache/old-version"
+    (cache / "ui").mkdir(parents=True)
+    (cache / ".codex-plugin").mkdir()
+    html = (PLUGIN / "ui/status.html").read_text(encoding="utf-8")
+    (cache / "ui/status.html").write_text(html, encoding="utf-8")
+    (cache / ".codex-plugin/plugin.json").write_text(json.dumps({"version": "old-version"}), encoding="utf-8")
+    monkeypatch.setattr(features, "__file__", str(cache / "reme_tools.py"))
+    monkeypatch.setattr(features, "call_async", AsyncMock(return_value={"answer": "healthy"}))
+    server = module.create_server()
+
+    async with Client(server) as client:
+        shutil.rmtree(cache)  # Codex can remove the old cache while its MCP connection is still alive.
+        content = (await client.read_resource(features.STATUS_URI))[0]
+        assert content.text == html
+        status = (await client.call_tool(module.STATUS, {})).structured_content
+        assert status["plugin_version"] == "old-version"
+        assert status["service"]["health_check"] == {"reachable": True, "answer": "healthy"}
+        await client.call_tool(module.SETTINGS_UPDATE, {"set": {"language": "zh"}})
+        assert (await client.call_tool(module.STATUS, {})).structured_content["language"] == "zh"
+        assert config.load_config()["language"] == "zh"
 
 
 @pytest.mark.asyncio

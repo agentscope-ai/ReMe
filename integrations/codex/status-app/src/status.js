@@ -235,7 +235,7 @@ $("refresh").addEventListener("click", async () => {
 async function connect() {
   if (window.parent === window) { text("loading", t("noHost")); return; }
   const host = await transport.request("ui/initialize", {
-    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.5" },
+    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.6" },
     appCapabilities: { availableDisplayModes: ["fullscreen"] },
   });
   if (host.protocolVersion !== "2026-01-26") throw new Error("Unsupported UI protocol");

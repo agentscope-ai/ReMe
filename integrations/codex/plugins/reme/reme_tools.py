@@ -77,6 +77,10 @@ def status_text(snapshot: dict, language: str) -> str:
 
 def register_tools(server: FastMCP) -> None:
     """Keep local tools discoverable even while the upstream service is unavailable."""
+    # Codex may remove this installation cache before closing the existing MCP connection.
+    root = Path(__file__).parent
+    status_html = (root / "ui/status.html").read_text(encoding="utf-8")
+    plugin_version = json.loads((root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
 
     @server.tool(name=SEARCH, title="Search ReMe memory", annotations={"readOnlyHint": True})
     async def search(
@@ -110,8 +114,7 @@ def register_tools(server: FastMCP) -> None:
     @server.resource(STATUS_URI, title="ReMe status", mime_type="text/html;profile=mcp-app", meta=STATUS_META)
     def status_view() -> ResourceResult:
         """Serve a self-contained read-only view without exposing a local HTTP server."""
-        html = (Path(__file__).parent / "ui/status.html").read_text(encoding="utf-8")
-        return ResourceResult([ResourceContent(html, mime_type="text/html;profile=mcp-app", meta=STATUS_META)])
+        return ResourceResult([ResourceContent(status_html, mime_type="text/html;profile=mcp-app", meta=STATUS_META)])
 
     @server.tool(
         name=STATUS,
@@ -126,11 +129,10 @@ def register_tools(server: FastMCP) -> None:
             service_snapshot(config, "health_check"),
             service_snapshot(config, "status"),
         )
-        manifest = Path(__file__).parent / ".codex-plugin/plugin.json"
         snapshot = {
             "checked_at": time.time(),
             "language": config["language"],
-            "plugin_version": json.loads(manifest.read_text(encoding="utf-8"))["version"],
+            "plugin_version": plugin_version,
             "mcpUrl": config["mcpUrl"],
             "service": {"health_check": health, "status": components},
             **local_status(config),
