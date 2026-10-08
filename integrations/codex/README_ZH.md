@@ -61,7 +61,9 @@ codex plugin add reme@reme-codex
 ![Codex 中已安装并启用 ReMe](./figures/plugin-installed.png)
 -->
 
-在 Codex 的 Hooks 设置中，审核并信任 **所有 ReMe 条目**（目前共七个）；CLI 可使用 `/hooks`。
+桌面端请先添加并打开一个本地项目文件夹，再进入 **Settings → Hooks**。
+如果出现主机选择，选择 **Local**，然后审核并信任 **所有 ReMe 条目**（目前共七个）。
+CLI 请在项目目录启动 `codex`，再使用 `/hooks`。
 完成这一步才能自动记录和召回。仅连接服务并不会启用这些能力。
 升级后如条目发生变化，需要重新审核。参见 [Codex Hook 审核与信任说明](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks)。
 
@@ -214,6 +216,7 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 | 现象 | 检查方式 |
 | --- | --- |
 | 找不到 MCP 设置 | 确认桌面端符合上述版本要求，再打开已安装的 ReMe 详情及 `reme` MCP 卡片；确认启用后重启。 |
+| Hooks 设置一直加载或没有 ReMe | 先打开本地项目文件夹并选择本机，再重新进入 Hooks 设置；见下方说明。 |
 | 状态卡片空白，随后提示“插件功能未成功加载” | 检查 Codex 沙箱页面的网络访问；见下方说明。 |
 | 连接健康，但没有记录或召回 | 检查全部 ReMe Hook 的信任状态、自动开关及最近活动；连接健康不代表 Hook 已执行。 |
 | 记录一直在队列中 | 保持 Codex 和 ReMe 运行，检查 ReMe 模型配置和服务日志，并确认启动命令包含 `service.tool_error_on_failure=true`。 |
@@ -221,6 +224,25 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 | Dream 未触发 | 查看保存的时区、下次运行时间、开关及 MCP 连接；离线期间错过的时点不会补跑。 |
 | 升级后提示未知配置字段 | 备份 `~/.codex/reme/config.json`，对照[当前配置示例](plugins/reme/config.example.json)更新旧字段，再打开设置。 |
 | Python 或 FastMCP 启动报错 | 检查 Codex 实际继承的 `python3` 环境，尤其是桌面端的启动环境。 |
+
+<details>
+<summary>Hooks 设置一直加载</summary>
+
+Codex 需要项目目录来列出 Hook。请先在桌面端添加并打开一个本地文件夹，若有主机选择则选择
+**Local**，然后重新进入 **Settings → Hooks**。如果 **Reload hooks** 可用，点击刷新。
+安装或升级 ReMe 后，如果列表仍未更新，重启 Codex。
+
+如果桌面端页面仍无法加载，可以在同一个项目目录使用 CLI：
+
+```bash
+cd /absolute/path/to/project
+codex
+```
+
+输入 `/hooks`，查看 ReMe 条目及启用、信任状态。如果自定义过 `CODEX_HOME`，请使用与桌面端
+相同的目录。桌面页一直加载本身不能证明 Hook 没有执行；记录和召回是否生效仍需通过 ReMe 最近活动确认。
+
+</details>
 
 <details>
 <summary>状态卡片空白或提示加载失败</summary>

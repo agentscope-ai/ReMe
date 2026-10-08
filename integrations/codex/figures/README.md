@@ -63,11 +63,14 @@ If the card or settings action is missing, check the version and enablement, the
 
 ### 2. 审核并信任 Hook / Review and trust Hooks
 
-进入 Hooks 设置，或在新 CLI 会话输入 `/hooks`。逐一审核 ReMe 条目，并由你在 Codex 中启用、信任。
+桌面端先打开本地项目文件夹，再进入 Hooks 设置；若有主机选择，选择 Local。
+也可以在该项目目录启动新 CLI 会话并输入 `/hooks`。逐一审核 ReMe 条目，并由你在 Codex 中启用、信任。
 当前共七个条目：`UserPromptSubmit`、`SessionStart`、`SessionEnd` 各一个，`Stop` 和 `SubagentStop` 各两个。
 保存为 `hooks-trusted.png`，保留事件名、ReMe 来源及信任状态。
 若单页放不下，可另拍 `hooks-trusted-more.png`，按补图步骤在对应位置追加第二张图片。
 
+Open a local project folder before entering desktop Hooks settings; select Local if a host selector is shown.
+Alternatively, start the CLI from that folder and enter `/hooks`.
 Review and trust the seven ReMe entries yourself. Capture their event names, plugin source, and trust state.
 Use a second image if the list does not fit legibly; do not shrink the text just to fit everything.
 

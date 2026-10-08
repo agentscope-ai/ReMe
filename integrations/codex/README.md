@@ -64,7 +64,9 @@ Restart the desktop app, or start a new CLI session. Open the installed ReMe ent
 ![ReMe installed and enabled in Codex](./figures/plugin-installed.png)
 -->
 
-In Codex's Hooks settings, review and trust **every ReMe entry** (currently seven). In the CLI, use `/hooks`.
+In the desktop app, add and open a local project folder before entering **Settings → Hooks**.
+Select **Local** if a host selector is shown, then review and trust **every ReMe entry** (currently seven).
+In the CLI, start `codex` from your project folder and use `/hooks`.
 This enables automatic recording and recall. A healthy service connection alone does not enable them.
 After an update, review any changed entries again. See [Codex Hook review and trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
@@ -220,6 +222,7 @@ with the previous address; switch back to retry them. Changes made during consol
 | Symptom | Check |
 | --- | --- |
 | No MCP settings entry | Confirm your desktop version meets the requirement above, then open the installed ReMe detail and its `reme` MCP card; confirm it is enabled and restart. |
+| Hooks settings keep loading or do not show ReMe | Open a local project folder and select the local host before reopening Hooks settings; see below. |
 | Blank status card followed by a plugin feature loading error | Check network access to the Codex sandbox page; see below. |
 | Connection healthy, no recording or recall | Review every ReMe Hook; check the auto switches and recent activity. Health does not prove Hook execution. |
 | Turns stay queued | Keep Codex and ReMe running. Check the ReMe model configuration and service logs, and confirm the startup command includes `service.tool_error_on_failure=true`. |
@@ -227,6 +230,26 @@ with the previous address; switch back to retry them. Changes made during consol
 | Dream did not run | Check the saved timezone, next run, schedule switch, and live MCP connection. Offline times are skipped. |
 | Unknown configuration fields after upgrading | Back up `~/.codex/reme/config.json`, compare it with the [current configuration example](plugins/reme/config.example.json), and update obsolete fields before reopening settings. |
 | Python or FastMCP startup error | Check the `python3` environment inherited by Codex, including the desktop app. |
+
+<details>
+<summary>Hooks settings keep loading</summary>
+
+Codex lists Hooks in the context of project folders. First add and open a local folder in the desktop
+app, select **Local** if a host selector is shown, and reopen **Settings → Hooks**. Use **Reload hooks**
+when available. After installing or updating ReMe, restart Codex if the list remains stale.
+
+If the desktop page still does not load, use the CLI from the same project folder:
+
+```bash
+cd /absolute/path/to/project
+codex
+```
+
+Enter `/hooks`, then review the ReMe entries and their enabled and trusted states. Use the same
+`CODEX_HOME` as the desktop app if you have customized it. A desktop page that keeps loading does not
+by itself show that Hooks failed to run; check ReMe's recent activity to verify recording and recall.
+
+</details>
 
 <details>
 <summary>The status card is blank or reports a loading error</summary>
