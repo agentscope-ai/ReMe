@@ -92,7 +92,7 @@ codex plugin add reme@reme-codex
 > **截图槽位 — `mcp-settings.png`：** 真实原生表单，保留服务地址、自动开关、批次大小及唯一的 ReMe status 入口。
 
 <!--
-![ReMe MCP 设置与连接结果](./figures/mcp-settings.png)
+![Codex 中的 ReMe MCP 设置](./figures/mcp-settings.png)
 -->
 
 ## 4. 记录并召回第一条记忆
@@ -165,10 +165,10 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 点击 **刷新** 更新状态。也可以在对话中要求：“调用 `reme_status`，用文字告诉我连接状态、
 待保存记忆和下次整理时间。”
 
-> **截图槽位 — `plugin-status.png`：** 真实 ReMe status 面板或 `reme_status` 输出，保留连接健康、待提交轮数、最近活动和下次 Dream 时间。
+> **截图槽位 — `plugin-status.png`：** 真实 ReMe status 面板的自动记忆页签，保留待提交轮数，并展开最近活动展示保存和召回记录。
 
 <!--
-![Codex 中的 ReMe 写入和整理状态](./figures/plugin-status.png)
+![Codex 中的 ReMe 自动记忆活动](./figures/plugin-status.png)
 -->
 
 需要调整时，回到 **Open MCP settings** 修改并保存。新设置对后续活动生效，无需重新安装。

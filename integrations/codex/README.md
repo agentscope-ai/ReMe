@@ -96,7 +96,7 @@ that your service is running. Next, try recording and recalling a memory.
 > **Screenshot placeholder — `mcp-settings.png`:** Actual native form with the address, capture switches, batch size, and the single ReMe status entry.
 
 <!--
-![ReMe MCP settings and connection result](./figures/mcp-settings.png)
+![ReMe MCP settings in Codex](./figures/mcp-settings.png)
 -->
 
 ## 4. Try your first memory
@@ -171,10 +171,10 @@ Open **ReMe status** from MCP settings and choose the tab for what you want to c
 Click **Refresh** for an updated view. If you prefer a text answer, ask Codex:
 “Call `reme_status` and summarize my connection, pending memories, and next consolidation.”
 
-> **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel or `reme_status` output with connection health, queued turns, recent activity, and the next Dream run.
+> **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel on Auto Memory, with queued turns and Recent activity expanded to show saved and recalled memories.
 
 <!--
-![ReMe delivery and consolidation status in Codex](./figures/plugin-status.png)
+![ReMe automatic memory activity in Codex](./figures/plugin-status.png)
 -->
 
 Change options in **Open MCP settings**, then save. New settings apply to subsequent activity; you do
