@@ -129,6 +129,7 @@ Use ReMe memory and include the source path in your answer.
 Expect Friday at 16:45 UTC, `amber-lynx-7319`, and a source path such as `daily/...md`.
 To confirm automatic recall, check **Auto Memory → Recent activity** for **Relevant memory recalled**
 (`recall_found`). A correct answer without that event does not confirm that automatic recall is enabled.
+Use **Show all … events** if it is outside the latest five activities.
 
 > **Screenshot placeholder — `memory-recalled.png`:** Separate conversation B with the recalled facts and source path.
 
@@ -168,7 +169,10 @@ Open **ReMe status** from MCP settings and choose the tab for what you want to c
 | Consolidation | When will memories next be organized, and did the last run succeed? |
 | Components | How much memory is ReMe using? Expand **Service details** when troubleshooting. |
 
-Click **Refresh** for an updated view. If you prefer a text answer, ask Codex:
+Click **Refresh** for an updated view. Recent activity initially shows the latest five events.
+Expand an event for its full timestamp and diagnostic details; use **Show all … events** to see the available history.
+
+If you prefer a text answer, ask Codex:
 “Call `reme_status` and summarize my connection, pending memories, and next consolidation.”
 
 > **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel on Auto Memory, with queued turns and Recent activity expanded to show saved and recalled memories.

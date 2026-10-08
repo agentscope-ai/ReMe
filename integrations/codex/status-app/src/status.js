@@ -8,6 +8,9 @@ let language = "en";
 let zone = "UTC";
 let hasSnapshot = false;
 let refreshing = false;
+let recentActivity = [];
+let showAllActivity = false;
+const ACTIVITY_PREVIEW_LIMIT = 5;
 const words = {
   en: {
     overview: "Overview", autoMemory: "Auto Memory", consolidation: "Consolidation", components: "Components",
@@ -22,6 +25,7 @@ const words = {
     next: "Next run", scheduler: "Scheduler", last: "Last consolidation", activity: "Recent activity",
     details: "Service details", on: "Enabled", off: "Disabled", connected: "Connected", offline: "Unavailable",
     refresh: "Refresh", refreshing: "Refreshing…", checked: "Checked", empty: "No activity recorded yet.",
+    showActivity: (n) => `Show all ${n} events`, lessActivity: "Show fewer events",
     waiting: "Waiting for the first status result…", unavailable: "Status could not be refreshed. Try again or reopen ReMe status.",
     noHost: "Open ReMe status from Codex MCP settings to view live data.",
     trust: "Connection health does not establish Hook trust. Review ReMe in Codex Hooks settings.",
@@ -52,6 +56,7 @@ const words = {
     scheduler: "调度状态", last: "最近整理", activity: "最近活动", details: "服务详情", on: "已开启", off: "已关闭",
     connected: "连接正常", offline: "无法连接", refresh: "刷新", refreshing: "刷新中…", checked: "检查时间",
     empty: "暂无活动记录。", waiting: "正在等待首次状态结果…", unavailable: "未能刷新状态，请重试或重新打开 ReMe status。",
+    showActivity: (n) => `查看全部 ${n} 条活动`, lessActivity: "收起更多活动",
     noHost: "请从 Codex 的 MCP 设置中打开 ReMe status 查看实时数据。",
     trust: "服务连接正常不代表 Hook 已获信任，请在 Codex Hooks 设置中审核 ReMe 条目。",
     saved: "此页面使用已保存的配置。修改 MCP 设置后，请先保存，再刷新此页面。",
@@ -69,12 +74,13 @@ const words = {
 };
 const t = (key) => words[language][key] ?? key;
 const text = (id, value) => { $(id).textContent = value; };
-function formatTime(value) {
+function formatTime(value, brief = false) {
   if (value == null) return "—";
   const date = new Date(typeof value === "number" ? value * 1000 : value);
   if (!Number.isFinite(date.getTime())) return "—";
   return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-GB", {
-    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", timeZoneName: "short",
+    timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    ...(brief ? {} : { second: "2-digit", timeZoneName: "short" }),
   }).format(date);
 }
 function pill(id, value, tone = "good") { text(id, value); $(id).dataset.tone = tone; }
@@ -112,7 +118,8 @@ function render(result) {
   text("health", health.reachable ? (typeof health.answer === "string" ? health.answer : JSON.stringify(health.answer)) : health.error);
   text("endpoint", data.mcpUrl);
   text("plugin-version", `ReMe for Codex · ${data.plugin_version}`);
-  text("checked", `${t("checked")} ${formatTime(data.checked_at)}`);
+  text("checked", `${t("checked")} ${formatTime(data.checked_at, true)}`);
+  $("checked").title = formatTime(data.checked_at);
   toggle("memory-state", data.auto_memory.enabled);
   text("queue", data.auto_memory.queued_turns);
   text("interval", data.auto_memory.interval);
@@ -123,31 +130,48 @@ function render(result) {
   const activity = data.recent_activity ?? [];
   const recall = activity.findLast((row) => row.event?.startsWith("recall_"));
   text("recall-result", recall ? t(recall.event) : t("noRecall"));
-  text("recall-time", recall ? formatTime(recall.time) : "—");
+  text("recall-time", recall ? formatTime(recall.time, true) : "—");
+  $("recall-time").title = recall ? formatTime(recall.time) : "";
   const dream = data.auto_dream;
   toggle("dream-state", dream.enabled);
   text("schedule", dream.cron);
   text("timezone", dream.timezone);
-  text("next", dream.next_run_at ? formatTime(dream.next_run_at) : t("paused"));
+  text("next", dream.next_run_at ? formatTime(dream.next_run_at, true) : t("paused"));
+  $("next").title = dream.next_run_at ? formatTime(dream.next_run_at) : "";
   text("scheduler", `${t("scheduler")}: ${t(dream.phase)}`);
   const last = dream.last_run;
   text("last-result", last ? t(last.status) : "—");
   text("last", last ? `${t(last.origin)} · ${t(last.status)} · ${formatTime(last.completed_at ?? last.started_at)}${last.error ? ` · ${last.error}` : ""}` : t("noDream"));
-  $("activity").replaceChildren();
-  for (const row of activity.slice(-20).reverse()) {
-    const item = document.createElement("li");
-    const description = document.createElement("span"); description.textContent = t(row.event);
-    const code = document.createElement("code"); code.textContent = `${row.event}${row.turns ? ` · ${row.turns}` : ""}${row.error ? ` · ${row.error}` : ""}`;
-    description.append(code);
-    const time = document.createElement("time"); time.textContent = formatTime(row.time);
-    item.append(description, time); $("activity").append(item);
-  }
-  $("no-activity").hidden = activity.length > 0; text("no-activity", t("empty"));
+  recentActivity = activity.slice(-20).reverse();
+  renderActivity();
   renderComponents(data.service.status);
   text("details", JSON.stringify(data.service, null, 2));
   $("error").hidden = true; $("loading").hidden = true; $("overview").hidden = false;
   document.querySelector("main").setAttribute("aria-busy", "false"); hasSnapshot = true;
 }
+
+function renderActivity() {
+  const expanded = new Set([...$("activity").querySelectorAll("details[open]")].map((node) => node.dataset.key));
+  $("activity").replaceChildren();
+  for (const row of recentActivity.slice(0, showAllActivity ? recentActivity.length : ACTIVITY_PREVIEW_LIMIT)) {
+    const item = document.createElement("li");
+    const entry = document.createElement("details"); entry.className = "activity-entry";
+    entry.dataset.key = JSON.stringify([row.time, row.event, row.turns, row.error]);
+    entry.open = expanded.has(entry.dataset.key);
+    const summary = document.createElement("summary");
+    const description = document.createElement("span"); description.className = "activity-title"; description.textContent = t(row.event);
+    const time = document.createElement("time"); time.textContent = formatTime(row.time, true); time.title = formatTime(row.time);
+    const code = document.createElement("code"); code.className = "activity-meta";
+    code.textContent = `${row.event}${row.turns ? ` · ${row.turns}` : ""}${row.error ? ` · ${row.error}` : ""} · ${formatTime(row.time)}`;
+    summary.append(description, time); entry.append(summary, code); item.append(entry); $("activity").append(item);
+  }
+  $("no-activity").hidden = recentActivity.length > 0; text("no-activity", t("empty"));
+  $("activity-more").hidden = recentActivity.length <= ACTIVITY_PREVIEW_LIMIT;
+  $("activity-more").setAttribute("aria-expanded", String(showAllActivity));
+  text("activity-more", showAllActivity ? t("lessActivity") : t("showActivity")(recentActivity.length));
+}
+
+$("activity-more").addEventListener("click", () => { showAllActivity = !showAllActivity; renderActivity(); });
 
 function renderComponents(status) {
   // ReMe's MCP contract returns the human-readable answer, not HTTP response metadata.
@@ -211,7 +235,7 @@ $("refresh").addEventListener("click", async () => {
 async function connect() {
   if (window.parent === window) { text("loading", t("noHost")); return; }
   const host = await transport.request("ui/initialize", {
-    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.3" },
+    protocolVersion: "2026-01-26", appInfo: { name: "reme-status", version: "0.2.4" },
     appCapabilities: { availableDisplayModes: ["fullscreen"] },
   });
   if (host.protocolVersion !== "2026-01-26") throw new Error("Unsupported UI protocol");

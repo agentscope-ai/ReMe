@@ -11,12 +11,12 @@
     :root[data-theme="dark"] { color-scheme: dark; --bg: #0b0d12; --surface: #12151d; --panel: #181c26; --ink: #f3f5f7; --muted: #979dab; --line: #292e3b; --blue: #79a8ff; --green: #63d4a3; --green-bg: #25382f; --amber: #f2be5c; --amber-bg: #3c3526; --red: #ff7b86; --red-bg: #40262c; }
     :root[data-theme="light"] { color-scheme: light; }
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 24px; background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.6 system-ui, -apple-system, sans-serif; }
-    main { max-width: 920px; margin: auto; overflow-wrap: anywhere; }
-    header { display: flex; align-items: start; justify-content: space-between; gap: 20px; margin-bottom: 24px; }
+    body { margin: 0; padding: clamp(16px, 4vw, 32px); background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.6 system-ui, -apple-system, sans-serif; }
+    main { max-width: 880px; margin: auto; overflow-wrap: anywhere; }
+    header { display: flex; align-items: start; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
     header > div { min-width: 0; }
     h1 { font-size: 22px; letter-spacing: -.4px; margin: 0; font-weight: 650; }
-    h2 { font-size: 15px; margin: 0 0 20px; font-weight: 600; }
+    h2 { font-size: 15px; line-height: 1.5; margin: 0 0 24px; font-weight: 600; }
     p { margin: 6px 0; }
     .muted, small { color: var(--muted); }
     .label { font-size: 13px; color: var(--muted); }
@@ -25,35 +25,44 @@
     button:hover:not(:disabled) { border-color: var(--blue); }
     button:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
     button:disabled { opacity: .55; cursor: wait; }
-    .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; padding: 5px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 24px; }
-    .tabs button { min-width: 0; color: var(--muted); background: transparent; border-color: transparent; padding: 10px 8px; font-weight: 600; white-space: normal; line-height: 1.4; }
-    .tabs button[aria-selected="true"] { color: var(--ink); background: var(--surface); border-color: var(--line); box-shadow: 0 1px 3px #0000000a; }
-    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
-    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; min-width: 0; }
+    .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+    .tabs button { min-width: 0; min-height: 44px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 8px; font-weight: 500; white-space: normal; line-height: 1.4; }
+    .tabs button[aria-selected="true"] { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 24px; align-items: start; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px; min-width: 0; }
     .full { grid-column: 1 / -1; }
     .value { font-size: 26px; line-height: 1.35; font-weight: 650; margin-top: 8px; }
     .compact { font-size: 16px; overflow-wrap: anywhere; }
-    .pill { display: inline-block; color: var(--green); background: var(--green-bg); border-radius: 99px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+    .pill { display: inline-block; flex-shrink: 0; color: var(--green); background: var(--green-bg); border-radius: 99px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
     [data-tone="good"] { color: var(--green); }
     [data-tone="bad"] { color: var(--red); }
     .pill[data-tone="neutral"] { color: var(--muted); background: var(--bg); }
     .pill[data-tone="warn"] { color: var(--amber); background: var(--amber-bg); }
     .pill[data-tone="bad"] { color: var(--red); background: var(--red-bg); }
-    .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 24px; }
     .section-heading h2 { margin: 0; }
     .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .service-metrics { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
     .properties { margin: 0; }
-    .properties > div { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+    .properties > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--line); }
     .properties > div:first-child { padding-top: 0; }
     .properties > div:last-child { padding-bottom: 0; border: 0; }
     .properties dt { color: var(--muted); }
     .properties dd { margin: 0; text-align: right; font-weight: 600; min-width: 0; }
     .rows { padding: 0; margin: 0; list-style: none; }
-    .rows li { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; padding: 16px 0; border-bottom: 1px solid var(--line); }
-    .rows li:last-child { border: 0; padding-bottom: 0; }
-    .rows code { display: block; color: var(--muted); font-size: 11px; }
-    time { color: var(--muted); font-size: 12px; flex-shrink: 0; max-width: 45%; }
-    .component-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .rows li { border-bottom: 1px solid var(--line); }
+    .rows li:last-child { border: 0; }
+    .rows .activity-entry { margin: 0; }
+    .activity-entry > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px 20px; padding: 16px 0; color: var(--ink); list-style: none; }
+    .activity-entry > summary::-webkit-details-marker { display: none; }
+    .activity-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .activity-title::before { content: "▸"; color: var(--muted); flex-shrink: 0; }
+    .activity-entry[open] .activity-title::before { content: "▾"; }
+    .activity-entry[open] > summary { margin-bottom: 0; }
+    .activity-meta { display: block; color: var(--muted); font-size: 12px; margin: 0 0 16px 20px; }
+    time { color: var(--muted); font-size: 12px; }
+    #activity-more { margin-top: 16px; }
+    .component-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
     .component { border: 1px solid var(--line); background: var(--panel); padding: 18px; border-radius: 9px; min-width: 0; }
     .component strong { display: block; overflow-wrap: anywhere; font-size: 13px; }
     details { margin-top: 20px; }
@@ -65,9 +74,9 @@
     .note { margin: 20px 0 0; font-size: 13px; color: var(--muted); }
     #error { border: 1px solid var(--red); color: var(--red); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
     [hidden] { display: none !important; }
-    @media (max-width: 700px) { .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 640px) { body { padding: 16px; } .grid, .component-grid { grid-template-columns: 1fr; } .card { padding: 20px; } header { gap: 12px; } .rows li { flex-direction: column; gap: 6px; } time { max-width: 100%; } }
-    @media (max-width: 380px) { .metrics { grid-template-columns: 1fr; gap: 16px; } .metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; } .metrics .value { margin: 0; } }
+    @media (max-width: 600px) { .card { padding: 24px; } header { gap: 16px; } .activity-entry > summary { grid-template-columns: 1fr; gap: 4px; } .activity-entry time { padding-left: 20px; } }
+    @media (max-width: 560px) { .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 380px) { .card { padding: 20px; } .properties > div { grid-template-columns: 1fr; gap: 4px; } .properties dd { text-align: left; } .metrics { grid-template-columns: 1fr; gap: 16px; } .metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; } .metrics .value { margin: 0; } }
   </style>
 </head>
 <body>
@@ -90,12 +99,12 @@
         <article class="card full">
           <div class="section-heading"><h2 data-i18n="service">ReMe service</h2><span id="connection-state" class="pill" hidden></span></div>
           <div id="service-health" class="value"></div><p id="health" class="muted"></p>
+          <div class="metrics service-metrics">
+            <div><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="overview-queue" class="value"></div></div>
+            <div><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="overview-sessions" class="value"></div></div>
+          </div>
           <details id="connection-details"><summary data-i18n="connectionDetails">Connection details</summary><p id="endpoint" class="endpoint muted"></p><small id="plugin-version"></small></details>
         </article>
-        <article class="card full"><div class="metrics">
-          <div><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="overview-queue" class="value"></div></div>
-          <div><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="overview-sessions" class="value"></div></div>
-        </div></article>
       </div>
     </section>
     <section id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
@@ -109,7 +118,7 @@
           </dl><p id="other-queue" class="note" hidden></p>
         </article>
         <article class="card"><div class="section-heading"><h2 data-i18n="recall">Automatic recall</h2><span id="recall-state" class="pill"></span></div><p id="recall-result"></p><p id="recall-time" class="muted label"></p></article>
-        <details id="activity-details" class="card full"><summary data-i18n="activity">Recent activity</summary><ul id="activity" class="rows"></ul><p id="no-activity" class="muted" hidden></p></details>
+        <details id="activity-details" class="card full"><summary data-i18n="activity">Recent activity</summary><ul id="activity" class="rows"></ul><p id="no-activity" class="muted" hidden></p><button id="activity-more" type="button" aria-controls="activity" aria-expanded="false" hidden></button></details>
       </div>
     </section>
     <section id="panel-dream" role="tabpanel" aria-labelledby="tab-dream" hidden>

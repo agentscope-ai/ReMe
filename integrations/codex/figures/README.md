@@ -134,10 +134,12 @@ Use ReMe memory and include the source path in your answer.
 
 确认回答包含 **每周五 16:45 UTC**、**amber-lynx-7319** 和真实的 ReMe 来源路径，例如 `daily/...md`。
 再检查最近活动中出现 **已召回相关记忆 / Relevant memory recalled**（`recall_found`）。
+若不在最近五条中，点击 **查看全部 … 条活动 / Show all … events**；点击单条活动可查看事件码和完整时间。
 答复正确且自动召回活动已确认后，截取 B 的问题、回答和来源路径，保存为 `memory-recalled.png`。
 
 Expect Friday at 16:45 UTC, `amber-lynx-7319`, and a real ReMe source path. Also confirm Relevant memory recalled
-in Recent activity. A correct answer alone does not establish that automatic recall ran.
+in Recent activity. Use Show all … events if it is outside the latest five; expand an event for its code and full timestamp.
+A correct answer alone does not establish that automatic recall ran.
 
 ### 6. 展示状态面板 / Capture the status panel
 
@@ -145,9 +147,11 @@ in Recent activity. A correct answer alone does not establish that automatic rec
 等待会话 B 的记录也保存完成、待提交轮数回到 `0`，再截取标题、页签、自动记录与召回状态及本次保存和召回活动，
 保存为 `plugin-status.png`。
 在最近活动仍保留这两条记录时拍摄，避免继续发送无关测试消息。
+若需要展示的记录不在最近五条中，先点击 **查看全部 … 条活动 / Show all … events**。
 
 Open the real status panel, select Auto Memory, refresh, and expand Recent activity. Capture the tabs,
 automatic switches, zero pending turns after B is also saved, and the saved/recalled events before unrelated activity replaces them.
+Use Show all … events if the needed entries are outside the latest five.
 
 状态面板的总览、自动记忆和记忆整理是不同页签，不需要把所有内容挤到一张图里。
 可另拍以下真实页面；没有开启每日计划时，显示暂停或没有计划是有效状态，无需为截图改动计划或执行整理。
