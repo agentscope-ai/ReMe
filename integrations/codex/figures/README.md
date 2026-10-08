@@ -1,10 +1,10 @@
 # Codex manual screenshot workflow / 手动截图流程
 
-仅使用真实 Codex 界面截图。按下面的顺序完成六张必需截图，中英文使用说明共用同一组 PNG。
-截图槽位在收到对应图片前保留；无需为两种语言各拍一套。
+六张真实 Codex 截图已接入[中文使用指南](../README_ZH.md)和[English guide](../README.md)，
+两种语言共用同一组 PNG。下面保留重新拍摄和补图的流程。
 
-Use real Codex screenshots only. Follow the capture order below; the English and Chinese guides share
-the same six PNGs. Keep each placeholder until its corresponding screenshot is available.
+All six real Codex screenshots are included in both guides, which share the same PNGs.
+Use the workflow below when replacing or adding captures.
 
 ## 开始前 / Before capture
 
@@ -50,7 +50,7 @@ the same six PNGs. Keep each placeholder until its corresponding screenshot is a
 | 3 | `mcp-settings.png` | 原生 **Open MCP settings** 表单 / Native settings | 已保存地址、自动开关、批次大小；**ReMe status** 入口可见 / Saved address, switches, batch size, and status action visible |
 | 4 | `memory-recorded.png` | 独立会话 A / Conversation A | 测试事实和回复可见，后台已出现 `memory_saved` / Fact and reply visible, recording confirmed |
 | 5 | `memory-recalled.png` | 新建会话 B / New conversation B | 问题、正确时间、校验词和来源路径可见，已出现 `recall_found` / Answer, source path, and automatic recall confirmed |
-| 6 | `plugin-status.png` | **ReMe status → 自动记忆 / Auto Memory** | 最近活动已展开，可见保存和召回记录，待提交轮数为零 / Activity expanded, saved/recalled events visible, queue zero |
+| 6 | `plugin-status.png` | **ReMe status → 总览 / Overview** | 健康状态、ReMe 版本和待提交轮数可见 / Health, version, and queue visible |
 
 ### 1. 已安装并启用 / Installed and enabled
 
@@ -146,24 +146,26 @@ A correct answer alone does not establish that automatic recall ran.
 
 ### 6. 展示状态面板 / Capture the status panel
 
-再次从原生设置打开 **ReMe status**，选择 **自动记忆 / Auto Memory**，点击刷新并展开 **最近活动 / Recent activity**。
-等待会话 B 的记录也保存完成、待提交轮数回到 `0`，再截取标题、页签、自动记录与召回状态及本次保存和召回活动，
-保存为 `plugin-status.png`。
-在最近活动仍保留这两条记录时拍摄，避免继续发送无关测试消息。
-若需要展示的记录不在最近五条中，先点击 **查看全部 … 条活动 / Show all … events**。
+再次从原生设置打开 **ReMe status**，选择 **总览 / Overview**，点击刷新。
+等待会话 B 的记录也保存完成、待提交轮数回到 `0`，再截取标题、页签、健康状态、ReMe 版本和待提交轮数，
+保存为 `plugin-status.png`。当前使用指南展示的是这个页签。
 
-Open the real status panel, select Auto Memory, refresh, and expand Recent activity. Capture the tabs,
-automatic switches, zero pending turns after B is also saved, and the saved/recalled events before unrelated activity replaces them.
+Open the real status panel, select Overview, and refresh. After B is also saved, capture the title,
+tabs, health, ReMe version, and zero pending turns. This is the tab shown in the current guides.
+
+需要补充自动记忆活动截图时，切换到 **自动记忆 / Auto Memory**，展开 **最近活动 / Recent activity**，
+保留本次 `memory_saved` 和 `recall_found`。若不在最近五条中，点击 **查看全部 … 条活动 / Show all … events**。
+For an activity capture, select Auto Memory and expand Recent activity to show `memory_saved` and `recall_found`.
 Use Show all … events if the needed entries are outside the latest five.
 
 状态面板的总览、自动记忆和记忆整理是不同页签，不需要把所有内容挤到一张图里。
 可另拍以下真实页面；没有开启每日计划时，显示暂停或没有计划是有效状态，无需为截图改动计划或执行整理。
-The tabs show different information. Optional captures below can show connection health and Dream separately;
+The tabs show different information. Optional captures below can show automatic memory and Dream separately;
 a paused schedule is valid, so there is no need to enable or run consolidation just for a screenshot.
 
 | 可选文件 / Optional file | 内容 / Content |
 | --- | --- |
-| `plugin-status-overview.png` | **总览 / Overview** 中的健康状态、ReMe 版本和待提交轮数 / Health, version, and queue |
+| `plugin-status-memory.png` | **自动记忆 / Auto Memory** 中的开关和保存、召回活动 / Switches and saved/recalled events |
 | `plugin-status-dream.png` | **记忆整理 / Consolidation** 中的 cron、时区、下次运行和最近结果 / Schedule, timezone, next run, and last result |
 
 ## 遇到失败时 / If a step fails
@@ -190,28 +192,25 @@ integrations/codex/figures/
 └── plugin-status.png
 ```
 
-图片保存好后即可交给维护者接入文档；若自行完成，对每张已存在的图片依次执行：
-Once the files are ready, hand them off for integration, or make these changes yourself for each supplied image:
+六张图片已接入文档。后续更新时覆盖对应文件，确认中英文说明与实际画面一致，并保留原图链接，例如：
+The six images are already linked. To update them, replace the corresponding PNG, check that both guides
+describe the captured screen accurately, and retain the link to the full-size image:
 
-1. 在 `../README.md` 和 `../README_ZH.md` 中找到同名截图槽位，删除对应的可见占位引用块。
-   Remove its visible screenshot-placeholder blockquote in both guides.
-2. 移除对应图片行外的 `<!--` / `-->`，保留相对路径。例如：
-   Uncomment the matching image line, keeping its relative path:
+```markdown
+[![ReMe MCP settings in Codex](./figures/mcp-settings.png)](./figures/mcp-settings.png)
+```
 
-   ```markdown
-   ![ReMe MCP settings in Codex](./figures/mcp-settings.png)
-   ```
+可选补图放在相关必需图片后，在中英文说明中分别加上对应图片行。
+Add optional images after their related required image, with captions in each language.
 
-3. 缺少图片的槽位继续保留。可选补图放在相关必需图片后，在中英文说明中分别加上对应图片行。
-   Leave missing-image slots intact. Add optional images after their related required image, with captions in each language.
-4. 从仓库根目录执行以下检查，再打开预览中的中英文 Codex 页面，确认图片加载、文字清晰且排版正常：
-   Run these checks from the repository root, then inspect both Codex guide pages in the preview:
+从仓库根目录执行以下检查，再打开预览中的中英文 Codex 页面，确认图片加载、文字清晰且排版正常：
+Run these checks from the repository root, then inspect both Codex guide pages in the preview:
 
-   ```bash
-   npm --prefix github-pages test
-   npm --prefix github-pages run build
-   npm --prefix github-pages run preview
-   ```
+```bash
+npm --prefix github-pages test
+npm --prefix github-pages run build
+npm --prefix github-pages run dev
+```
 
 不要提交服务日志、对话导出文件、配置凭据或临时记忆工作区。只提交已审核的 PNG 和对应文档修改。
 Commit the reviewed PNGs and documentation changes; keep logs, transcript exports, credentials, and demo memory out of the commit.

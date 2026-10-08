@@ -6,6 +6,8 @@ Connect Codex to your ReMe service to remember project decisions, preferences, a
 across conversations. ReMe can automatically record and recall memories, and organize them each day.
 Your memory files stay in your own ReMe workspace.
 
+The screenshots below were captured in Codex desktop. Click an image to view it at full size.
+
 ## Before you start
 
 - **Codex CLI >= 0.159.2** for installation and CLI use. Run `codex --version` to check.
@@ -58,11 +60,7 @@ codex plugin add reme@reme-codex
 
 Restart the desktop app, or start a new CLI session. Open the installed ReMe entry and confirm it is enabled.
 
-> **Screenshot placeholder — `plugin-installed.png`:** Actual Codex ReMe detail page, showing the enabled state and `reme` MCP card.
-
-<!--
-![ReMe installed and enabled in Codex](./figures/plugin-installed.png)
--->
+[![Installed ReMe details and MCP settings entry in Codex](./figures/plugin-installed.png)](./figures/plugin-installed.png)
 
 In the desktop app, add and open a local project folder before entering **Settings → Hooks**.
 Select **Local** if a host selector is shown, then review and trust **every ReMe entry** (currently seven).
@@ -70,15 +68,12 @@ In the CLI, start `codex` from your project folder and use `/hooks`.
 This enables automatic recording and recall. A healthy service connection alone does not enable them.
 After an update, review any changed entries again. See [Codex Hook review and trust](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
-> **Screenshot placeholder — `hooks-trusted.png`:** All seven ReMe entries enabled and trusted in Codex Hooks settings or `/hooks`.
-
-<!--
-![ReMe Hooks enabled and trusted](./figures/hooks-trusted.png)
--->
+[![The seven ReMe Hook entries in Codex settings](./figures/hooks-trusted.png)](./figures/hooks-trusted.png)
 
 ## 3. Connect through MCP settings
 
-Open the installed ReMe entry, find its **reme MCP server** card, and choose **Open MCP settings**.
+Open the installed ReMe entry, find its **reme MCP server** card, and click the settings gear
+(**Open MCP settings**).
 Use this form to change the service address and memory options. You do not need to edit a configuration file.
 
 For a first test, save these values:
@@ -95,11 +90,9 @@ Save, then click **ReMe status**. In **Overview**, check that the service is **H
 version is shown. If it is unavailable, expand **Connection details** to check the address and confirm
 that your service is running. Next, try recording and recalling a memory.
 
-> **Screenshot placeholder — `mcp-settings.png`:** Actual native form with the address, capture switches, batch size, and the single ReMe status entry.
+[![ReMe service address, automatic memory options, and Dream schedule in Codex settings](./figures/mcp-settings.png)](./figures/mcp-settings.png)
 
-<!--
-![ReMe MCP settings in Codex](./figures/mcp-settings.png)
--->
+The screenshot uses `http://127.0.0.1:2444/mcp`; enter your own service address.
 
 ## 4. Try your first memory
 
@@ -115,11 +108,7 @@ Auto Memory → Recent activity** and look for **Memory saved** (`memory_saved`)
 should return to zero. You can also read the saved note under `daily/` in your ReMe workspace.
 Wait for the saved status before continuing; Codex's acknowledgement alone does not confirm recording.
 
-> **Screenshot placeholder — `memory-recorded.png`:** Conversation A with the project decision and acknowledgement.
-
-<!--
-![Codex conversation supplying a fact to remember](./figures/memory-recorded.png)
--->
+[![Conversation A supplies the project decision and receives an acknowledgement](./figures/memory-recorded.png)](./figures/memory-recorded.png)
 
 Start a separate conversation B:
 
@@ -133,11 +122,7 @@ To confirm automatic recall, check **Auto Memory → Recent activity** for **Rel
 (`recall_found`). A correct answer without that event does not confirm that automatic recall is enabled.
 Use **Show all … events** if it is outside the latest five activities.
 
-> **Screenshot placeholder — `memory-recalled.png`:** Separate conversation B with the recalled facts and source path.
-
-<!--
-![Codex recalling memory in a separate conversation](./figures/memory-recalled.png)
--->
+[![Conversation B recalls the review time, keyword, and ReMe source path](./figures/memory-recalled.png)](./figures/memory-recalled.png)
 
 For everyday use, ask naturally: “What did we decide about this project's release process?” or
 “Find my earlier preferences for code reviews.” You can adjust **Capture batch size** after the first
@@ -155,8 +140,8 @@ Open **ReMe status → Consolidation** to check the next run and latest result. 
 running at the scheduled time; missed runs are not made up after restarting. If several machines
 use the same ReMe workspace, enable daily consolidation on only one of them.
 
-To organize your memories now, wait for **Queued turns** to reach zero, then click **Consolidate now
-(updates memory files)** in MCP settings. This updates your memory files and also works when the daily
+To organize your memories now, wait for **Queued turns** to reach zero, then click **Consolidate ReMe
+memory now** in MCP settings. This updates your memory files and also works when the daily
 schedule is off. Check **Consolidation** for the result. Turning off the schedule does not stop an
 already-started run; after a timeout, check its status before trying again.
 
@@ -177,11 +162,9 @@ Expand an event for its full timestamp and diagnostic details; use **Show all �
 If you prefer a text answer, ask Codex:
 “Call `reme_status` and summarize my connection, pending memories, and next consolidation.”
 
-> **Screenshot placeholder — `plugin-status.png`:** Real ReMe status panel on Auto Memory, with queued turns and Recent activity expanded to show saved and recalled memories.
+[![ReMe status Overview shows a healthy service and zero queued turns and sessions](./figures/plugin-status.png)](./figures/plugin-status.png)
 
-<!--
-![ReMe automatic memory activity in Codex](./figures/plugin-status.png)
--->
+Overview shows the service health and pending turns. Select **Auto Memory** to inspect recording and recall activity.
 
 Change options in **Open MCP settings**, then save. New settings apply to subsequent activity; you do
 not need to reinstall. Common adjustments are listed below using the names shown in the form.

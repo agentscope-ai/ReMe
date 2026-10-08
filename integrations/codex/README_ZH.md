@@ -5,6 +5,8 @@
 将 Codex 接入自己的 ReMe 服务，即可跨会话记住项目决策、个人偏好和待办事项。
 ReMe 可以自动记录、召回记忆，并每天整理。记忆文件保存在你自己的 ReMe 工作区中。
 
+下方为真实 Codex 桌面端截图，点击图片可查看原图。
+
 ## 开始前
 
 - **Codex CLI >= 0.159.2**：用于安装和命令行使用，运行 `codex --version` 查看版本。
@@ -55,11 +57,7 @@ codex plugin add reme@reme-codex
 
 重启桌面客户端，或打开新的 CLI 会话。在已安装的 ReMe 详情中确认已启用。
 
-> **截图槽位 — `plugin-installed.png`：** 真实 Codex 中的 ReMe 详情页，保留启用状态和 `reme` MCP 卡片。
-
-<!--
-![Codex 中已安装并启用 ReMe](./figures/plugin-installed.png)
--->
+[![Codex 中已安装的 ReMe 详情与 MCP 设置入口](./figures/plugin-installed.png)](./figures/plugin-installed.png)
 
 桌面端请先添加并打开一个本地项目文件夹，再进入 **Settings → Hooks**。
 如果出现主机选择，选择 **Local**，然后审核并信任 **所有 ReMe 条目**（目前共七个）。
@@ -67,15 +65,11 @@ CLI 请在项目目录启动 `codex`，再使用 `/hooks`。
 完成这一步才能自动记录和召回。仅连接服务并不会启用这些能力。
 升级后如条目发生变化，需要重新审核。参见 [Codex Hook 审核与信任说明](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks)。
 
-> **截图槽位 — `hooks-trusted.png`：** Codex Hooks 设置或 `/hooks` 中，七个 ReMe 条目均已启用、已信任。
-
-<!--
-![ReMe Hook 已启用并信任](./figures/hooks-trusted.png)
--->
+[![Codex 设置中的七个 ReMe Hook 条目](./figures/hooks-trusted.png)](./figures/hooks-trusted.png)
 
 ## 3. 在 MCP 设置中连接服务
 
-打开已安装的 ReMe 详情，找到 **reme MCP server** 卡片，点击 **Open MCP settings**。
+打开已安装的 ReMe 详情，找到 **reme MCP server** 卡片，点击齿轮设置图标（**Open MCP settings**）。
 在这个表单中调整服务地址和记忆选项，无需手动编辑配置文件。
 
 首次验证建议保存以下配置：
@@ -91,11 +85,9 @@ CLI 请在项目目录启动 `codex`，再使用 `/hooks`。
 先保存，再点击 **ReMe status**。在 **总览** 中确认服务显示 **健康**，并能看到 ReMe 版本。
 若无法连接，展开 **连接详情** 核对地址，并确认服务正在运行。接下来尝试记录和召回一条记忆。
 
-> **截图槽位 — `mcp-settings.png`：** 真实原生表单，保留服务地址、自动开关、批次大小及唯一的 ReMe status 入口。
+[![Codex 设置中的 ReMe 服务地址、自动记忆选项和 Dream 计划](./figures/mcp-settings.png)](./figures/mcp-settings.png)
 
-<!--
-![Codex 中的 ReMe MCP 设置](./figures/mcp-settings.png)
--->
+截图使用 `http://127.0.0.1:2444/mcp`，请填写你自己的服务地址。
 
 ## 4. 记录并召回第一条记忆
 
@@ -111,11 +103,7 @@ Codex 回复后，保持会话打开，等待记录完成。打开 **ReMe status
 也可以在 ReMe 工作区的 `daily/` 下阅读保存的笔记。
 看到保存成功后再进行下一步；Codex 的确认回复本身不能证明记忆已写入。
 
-> **截图槽位 — `memory-recorded.png`：** 会话 A 中的项目决策和确认回复。
-
-<!--
-![在 Codex 会话中提供需要记住的事实](./figures/memory-recorded.png)
--->
+[![会话 A 中提交项目决策并收到确认回复](./figures/memory-recorded.png)](./figures/memory-recorded.png)
 
 另建会话 B：
 
@@ -129,11 +117,7 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 仅答对问题、却没有这条活动记录，不能证明自动召回已开启。
 如果不在最近五条活动中，点击 **查看全部 … 条活动**。
 
-> **截图槽位 — `memory-recalled.png`：** 独立会话 B 中的正确事实和 ReMe 来源路径。
-
-<!--
-![Codex 在独立会话中召回记忆](./figures/memory-recalled.png)
--->
+[![会话 B 中召回评审时间、关键词和 ReMe 来源路径](./figures/memory-recalled.png)](./figures/memory-recalled.png)
 
 日常使用时，直接提问即可，例如“我们之前确定的发布流程是什么？”或“找一下我之前的代码评审偏好”。
 首次验证后可调整 **Capture batch size**：默认每五次完成的回复记录一批；希望每次回复后尽快保存时，设为 `1`。
@@ -151,7 +135,7 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 多台机器共用同一个 ReMe 工作区时，只在其中一台开启每日整理。
 
 需要立即整理时，等待 **待提交轮数** 回到零，再在 MCP 设置中点击
-**Consolidate now (updates memory files)**。该操作会更新记忆文件，关闭每日计划后仍可使用。
+**Consolidate ReMe memory now**。该操作会更新记忆文件，关闭每日计划后仍可使用。
 整理后到 **记忆整理** 页签查看结果。关闭计划不会停止已经开始的整理；如果出现超时，先检查状态再重试。
 
 ## 6. 查看状态和调整使用偏好
@@ -171,11 +155,9 @@ ReMe-Example-7319 的评审时间和项目关键词是什么？
 也可以在对话中要求：“调用 `reme_status`，用文字告诉我连接状态、
 待保存记忆和下次整理时间。”
 
-> **截图槽位 — `plugin-status.png`：** 真实 ReMe status 面板的自动记忆页签，保留待提交轮数，并展开最近活动展示保存和召回记录。
+[![ReMe status 总览：服务健康，待提交轮数和会话数均为零](./figures/plugin-status.png)](./figures/plugin-status.png)
 
-<!--
-![Codex 中的 ReMe 自动记忆活动](./figures/plugin-status.png)
--->
+总览展示服务健康状态和待提交轮数；查看记录与召回活动时，切换到 **Auto Memory** 页签。
 
 需要调整时，回到 **Open MCP settings** 修改并保存。新设置对后续活动生效，无需重新安装。
 下面按表单中显示的名称列出常用选项。
