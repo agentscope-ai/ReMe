@@ -136,11 +136,38 @@ def test_python_execute_step_times_out():
 
     async def run():
         step = PythonExecuteStep()
+        resp = await step(code="import time\ntime.sleep(1)", python_timeout=0.01)
+        assert resp.success is False
+        assert resp.answer == "Python execution timed out after 0.01s"
+        assert resp.metadata["python_timeout"] == 0.01
+        print("✓ test_python_execute_step_times_out passed")
+
+    _run(run())
+
+
+def test_python_execute_step_accepts_legacy_timeout_name():
+    """Configs written before the rename keep their timeout through the legacy key."""
+
+    async def run():
+        step = PythonExecuteStep()
         resp = await step(code="import time\ntime.sleep(1)", timeout=0.01)
         assert resp.success is False
         assert resp.answer == "Python execution timed out after 0.01s"
-        assert resp.metadata["timeout"] == 0.01
-        print("✓ test_python_execute_step_times_out passed")
+        assert resp.metadata["python_timeout"] == 0.01
+        print("✓ test_python_execute_step_accepts_legacy_timeout_name passed")
+
+    _run(run())
+
+
+def test_python_execute_step_rejects_invalid_timeout():
+    """A non-positive python_timeout fails the call instead of running unbounded."""
+
+    async def run():
+        step = PythonExecuteStep()
+        resp = await step(code="print(1)", python_timeout=0)
+        assert resp.success is False
+        assert resp.answer == "python_timeout must be a positive number"
+        print("✓ test_python_execute_step_rejects_invalid_timeout passed")
 
     _run(run())
 

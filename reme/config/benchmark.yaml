@@ -139,7 +139,7 @@ jobs:
         code:
           type: string
           description: "Python code to execute. Print the final result to stdout."
-        timeout:
+        python_timeout:
           type: number
           description: "Execution timeout in seconds; defaults to 60."
       required:

@@ -7,6 +7,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from reme.components.service import cli_service
 from reme.components.service.cli_service import CliService
@@ -329,6 +330,46 @@ def test_call_server_passes_shell_parameters_as_payload(monkeypatch, capsys):
     assert seen["action"] == "shell"
     assert seen["payload"] == {"cmd": "ls", "shell_timeout": 5}
     assert capsys.readouterr().out == "ok\n"
+
+
+def test_call_server_passes_python_execute_parameters_as_payload(monkeypatch, capsys):
+    """python_execute's timeout parameter avoids the client-side timeout option."""
+    seen = {}
+    _set_client_backend(monkeypatch, _recording_client(seen))
+    monkeypatch.setattr(reme_module, "running_app_config", lambda: None)
+
+    async def run():
+        await reme_module.call_server(
+            "python_execute",
+            backend="http",
+            code="print(1)",
+            python_timeout=5,
+            timeout=1.5,
+        )
+
+    asyncio.run(run())
+
+    assert seen["action"] == "python_execute"
+    assert seen["payload"] == {"code": "print(1)", "python_timeout": 5}
+    assert seen["client_kwargs"] == {"timeout": 1.5}
+    assert capsys.readouterr().out == "ok\n"
+
+
+def test_no_job_parameter_collides_with_client_kwargs():
+    """A job parameter named like a client option could never be set through the CLI."""
+    reserved = set(reme_module._CLIENT_KWARGS) | {"backend"}  # pylint: disable=protected-access
+    repo_root = Path(reme_module.__file__).resolve().parents[1]
+    configs = sorted((repo_root / "reme" / "config").glob("*.yaml"))
+    configs += sorted(repo_root.glob("plugins/*/src/*/plugin.yaml"))
+    for config_path in configs:
+        jobs = yaml.safe_load(config_path.read_text(encoding="utf-8")).get("jobs") or {}
+        for job_name, job in jobs.items():
+            properties = ((job or {}).get("parameters") or {}).get("properties") or {}
+            clash = sorted(set(properties) & reserved)
+            assert not clash, (
+                f"{config_path.relative_to(repo_root)} job '{job_name}' declares client-reserved "
+                f"parameters: {clash}"
+            )
 
 
 def test_call_server_uses_running_plugins_and_their_service_defaults(monkeypatch, capsys):

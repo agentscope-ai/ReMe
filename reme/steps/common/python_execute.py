@@ -27,7 +27,9 @@ class PythonExecuteStep(BaseStep):
         assert self.context is not None
 
         code = self.context.get("code", "")
-        timeout, timeout_error = self._parse_timeout(self.context.get("timeout", DEFAULT_TIMEOUT))
+        timeout, timeout_error = self._parse_timeout(
+            self.context.get("python_timeout", self.context.get("timeout", DEFAULT_TIMEOUT)),
+        )
         if not isinstance(code, str) or not code.strip():
             self.context.response.success = False
             self.context.response.answer = "code is required"
@@ -45,7 +47,7 @@ class PythonExecuteStep(BaseStep):
                 {
                     "returncode": result.returncode,
                     "stderr": result.stderr,
-                    "timeout": timeout,
+                    "python_timeout": timeout,
                 },
             )
             return self.context.response
@@ -58,7 +60,7 @@ class PythonExecuteStep(BaseStep):
             {
                 "returncode": result.returncode,
                 "stderr": stderr,
-                "timeout": timeout,
+                "python_timeout": timeout,
             },
         )
         return self.context.response
@@ -94,7 +96,7 @@ class PythonExecuteStep(BaseStep):
         try:
             timeout = float(raw)
         except (TypeError, ValueError):
-            return DEFAULT_TIMEOUT, "timeout must be a positive number"
+            return DEFAULT_TIMEOUT, "python_timeout must be a positive number"
         if timeout <= 0:
-            return DEFAULT_TIMEOUT, "timeout must be a positive number"
+            return DEFAULT_TIMEOUT, "python_timeout must be a positive number"
         return timeout, ""
