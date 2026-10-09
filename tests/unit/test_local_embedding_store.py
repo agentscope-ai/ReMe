@@ -126,6 +126,151 @@ class QuotaThenSuccessAsEmbedding:
         return [[1.0, 0.0] for _ in texts]
 
 
+class ContextLengthError(Exception):
+    """OpenAI-compatible 400 raised when one item exceeds the provider's per-item window."""
+
+    status_code = 400
+    body = {"error": {"message": "the input length exceeds the context length"}}
+
+
+class PerItemLimitAsEmbedding:
+    """Reject a whole request when any single text is over the provider's per-item limit.
+
+    Mirrors an OpenAI-compatible gateway: one over-limit item makes the provider answer
+    HTTP 400 for the entire batch, so a client that gives up on the batch loses every
+    vector in it.
+    """
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+    max_chars = 32
+
+    def __init__(self):
+        self.batch_sizes: list[int] = []
+
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        if any(len(text) > self.max_chars for text in texts):
+            raise ContextLengthError("the input length exceeds the context length")
+        return [[1.0, 0.0] for _ in texts]
+
+
+class AlwaysInsufficientQuotaAsEmbedding:
+    """Always fail with quota exhaustion, recording every requested batch size."""
+
+    dimensions = 2
+
+    def __init__(self):
+        self.batch_sizes: list[int] = []
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        raise InsufficientQuotaError("quota exhausted")
+
+
+class PerItemLimitThenTransientErrorAsEmbedding:
+    """Reject an over-limit batch, then fail the first single-item request once.
+
+    Mirrors the review case: the batch is rejected because one item exceeds the per-item
+    window, and a sibling item then hits a transient provider failure while retried alone.
+    """
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+    max_chars = 32
+
+    def __init__(self, transient: Exception):
+        self.transient = transient
+        self.batch_sizes: list[int] = []
+        self.transient_failures = 0
+
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        if any(len(text) > self.max_chars for text in texts):
+            raise ContextLengthError("the input length exceeds the context length")
+        if len(texts) == 1 and self.transient_failures == 0:
+            self.transient_failures += 1
+            raise self.transient
+        return [[1.0, 0.0] for _ in texts]
+
+
+class AuthenticationError(Exception):
+    """OpenAI-compatible 401 error used without importing the provider SDK."""
+
+    status_code = 401
+
+
+class PermissionDeniedError(Exception):
+    """OpenAI-compatible 403 error used without importing the provider SDK."""
+
+    status_code = 403
+
+
+class InternalServerError(Exception):
+    """OpenAI-compatible 500 error used without importing the provider SDK."""
+
+    status_code = 500
+
+
+class NotFoundError(Exception):
+    """OpenAI-compatible 404 error, e.g. a missing model or endpoint."""
+
+    status_code = 404
+
+
+class APIError(Exception):
+    """Base of the OpenAI SDK error hierarchy, reproduced without importing the SDK."""
+
+
+class APIConnectionError(APIError):
+    """OpenAI SDK connection failure: it does not inherit from the built-in ConnectionError."""
+
+
+class APITimeoutError(APIConnectionError):
+    """OpenAI SDK timeout, a subclass of APIConnectionError."""
+
+
+class AlwaysProviderWideFailureAsEmbedding:
+    """Always fail with the same provider-wide error, recording every requested batch size."""
+
+    dimensions = 2
+
+    def __init__(self, error: Exception):
+        self.error = error
+        self.batch_sizes: list[int] = []
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        raise self.error
+
+
+class TransientThenSuccessAsEmbedding:
+    """Fail the first `failures` calls with one error, then return valid embeddings."""
+
+    dimensions = 2
+    vector_space_id = "fakespace000"
+
+    def __init__(self, error: Exception, failures: int = 1):
+        self.error = error
+        self.failures = failures
+        self.batch_sizes: list[int] = []
+
+    def initialize_model(self):
+        """Mirror the real component's idempotent initialization hook."""
+
+    async def __call__(self, texts: list[str], **_kwargs):
+        self.batch_sizes.append(len(texts))
+        if len(self.batch_sizes) <= self.failures:
+            raise self.error
+        return [[1.0, 0.0] for _ in texts]
+
+
 class BadNodeEmbeddingStore(BaseEmbeddingStore):
     """Embedding store that returns wrong-dimensional vectors."""
 
@@ -728,5 +873,309 @@ def test_start_ignores_cache_file_without_vector_space_tag(monkeypatch, tmp_path
 
         assert untagged.exists()
         assert not store._cache
+
+    run(go())
+
+
+def test_batch_failure_falls_back_to_per_item_embedding():
+    """One over-limit item must cost one vector, not its whole batch."""
+
+    async def go():
+        provider = PerItemLimitAsEmbedding()
+        store = LocalEmbeddingStore(name="t_local_embedding_poison_batch", enable_cache=False)
+        store.as_embedding = provider
+
+        results = await store._call_with_retry(["ok", "x" * 64, "also ok"])
+
+        assert results == [[1.0, 0.0], None, [1.0, 0.0]]
+        assert provider.batch_sizes == [3, 1, 1, 1]
+
+    run(go())
+
+
+def test_poison_chunk_keeps_its_batch_mates():
+    """A rejected chunk must not clear the vectors of the chunks beside it."""
+
+    async def go():
+        store = LocalEmbeddingStore(name="t_local_embedding_poison_nodes", enable_cache=False)
+        store.as_embedding = PerItemLimitAsEmbedding()
+        nodes = [EmbNode(text="first"), EmbNode(text="y" * 64), EmbNode(text="third")]
+
+        await store.get_node_embeddings(nodes)
+
+        assert nodes[0].embedding is not None
+        assert nodes[1].embedding is None
+        assert nodes[2].embedding is not None
+
+    run(go())
+
+
+def test_single_item_failure_still_reports_a_failed_batch():
+    """A one-item request has nothing to isolate, so the existing contract stands."""
+
+    async def go():
+        store = LocalEmbeddingStore(name="t_local_embedding_single_poison", enable_cache=False)
+        store.as_embedding = PerItemLimitAsEmbedding()
+
+        assert await store._call_with_retry(["x" * 64]) is None
+
+    run(go())
+
+
+def test_rate_limited_batch_is_not_split_into_per_item_requests(monkeypatch):
+    """A 429 is a provider-level failure; splitting it would multiply the load."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(name="t_local_embedding_rate_limit_batch", max_retries=2)
+        embedding = AlwaysRateLimitedAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry(["a", "b"]) is None
+        assert embedding.calls == 2
+        assert sleeps == [1.0]
+
+    run(go())
+
+
+def test_insufficient_quota_batch_is_not_split_into_per_item_requests(monkeypatch):
+    """Quota exhaustion is a service-level failure; splitting it would multiply the load."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(name="t_local_embedding_quota_batch", max_retries=2)
+        embedding = AlwaysInsufficientQuotaAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry(["a", "b", "c"]) is None
+        assert embedding.batch_sizes == [3]
+        assert store.is_healthy is False
+        assert not sleeps
+
+    run(go())
+
+
+def test_exhausted_quota_retries_still_do_not_split_the_batch(monkeypatch):
+    """Once the opt-in quota retries run out, the store gives up instead of splitting."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        store = LocalEmbeddingStore(
+            name="t_local_embedding_quota_batch_exhausted",
+            max_retries=3,
+            quota_retry_delay=5.0,
+        )
+        embedding = AlwaysInsufficientQuotaAsEmbedding()
+        store.as_embedding = embedding
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry(["a", "b"]) is None
+        assert embedding.batch_sizes == [2, 2, 2]
+        assert sleeps == [5.0, 5.0]
+
+    run(go())
+
+
+def test_per_item_fallback_keeps_a_transiently_failed_vector(monkeypatch):
+    """A 429 / connection error / timeout on one isolated item must not lose its vector."""
+
+    async def go():
+        transients = (
+            RateLimitError("Requests are too frequent"),
+            ConnectionError("connection reset"),
+            TimeoutError("request timed out"),
+        )
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        for transient in transients:
+            sleeps.clear()
+
+            provider = PerItemLimitThenTransientErrorAsEmbedding(transient)
+            store = LocalEmbeddingStore(
+                name="t_local_embedding_fallback_transient",
+                max_retries=3,
+                enable_cache=False,
+            )
+            store.as_embedding = provider
+            monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+            results = await store._call_with_retry(["ok", "x" * 64, "also ok"])
+
+            assert results == [[1.0, 0.0], None, [1.0, 0.0]]
+            assert provider.batch_sizes == [3, 1, 1, 1, 1]
+            assert provider.transient_failures == 1
+            assert sleeps == [1.0]
+
+    run(go())
+
+
+def test_provider_wide_credentials_errors_are_not_split_into_per_item_requests():
+    """401/403 belong to the credentials: splitting ten items only multiplies the failures."""
+
+    async def go():
+        for error in (
+            AuthenticationError("invalid api key"),
+            PermissionDeniedError("no access to model"),
+        ):
+            provider = AlwaysProviderWideFailureAsEmbedding(error)
+            store = LocalEmbeddingStore(name="t_local_embedding_provider_wide", max_retries=3)
+            store.as_embedding = provider
+
+            assert await store._call_with_retry([f"item{i}" for i in range(10)]) is None
+            assert provider.batch_sizes == [10]
+            assert store.is_healthy is False
+
+    run(go())
+
+
+def test_provider_wide_server_errors_are_retried_without_splitting(monkeypatch):
+    """A 500 is transient, so it is retried with the usual backoff and never split per item."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        provider = AlwaysProviderWideFailureAsEmbedding(InternalServerError("upstream unavailable"))
+        store = LocalEmbeddingStore(name="t_local_embedding_provider_server", max_retries=3)
+        store.as_embedding = provider
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry([f"item{i}" for i in range(10)]) is None
+        assert provider.batch_sizes == [10, 10, 10]
+        assert sleeps == [1.0, 2.0]
+        assert store.is_healthy is False
+
+    run(go())
+
+
+def test_sdk_transport_errors_are_retried_without_splitting(monkeypatch):
+    """SDK connection/timeout errors are provider-wide: retry the batch, never split it."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        for error in (APIConnectionError("connection reset"), APITimeoutError("timed out")):
+            sleeps.clear()
+            provider = AlwaysProviderWideFailureAsEmbedding(error)
+            store = LocalEmbeddingStore(name="t_local_embedding_sdk_transport", max_retries=3)
+            store.as_embedding = provider
+
+            assert await store._call_with_retry([f"item{i}" for i in range(10)]) is None
+            assert provider.batch_sizes == [10, 10, 10]
+            assert sleeps == [1.0, 2.0]
+
+    run(go())
+
+
+def test_sdk_transport_error_recovers_without_losing_the_batch(monkeypatch):
+    """One SDK transport failure retries the original batch and keeps every vector."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        provider = TransientThenSuccessAsEmbedding(APITimeoutError("timed out"))
+        store = LocalEmbeddingStore(name="t_local_embedding_sdk_recover", max_retries=3)
+        store.as_embedding = provider
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        results = await store._call_with_retry([f"item{i}" for i in range(10)])
+
+        assert results == [[1.0, 0.0]] * 10
+        assert provider.batch_sizes == [10, 10]
+        assert sleeps == [1.0]
+
+    run(go())
+
+
+def test_isolated_item_retries_an_sdk_transport_error(monkeypatch):
+    """After a context-length rejection, one isolated item still retries an SDK transport error."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        provider = PerItemLimitThenTransientErrorAsEmbedding(APIConnectionError("connection reset"))
+        store = LocalEmbeddingStore(
+            name="t_local_embedding_sdk_isolated",
+            max_retries=3,
+            enable_cache=False,
+        )
+        store.as_embedding = provider
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        results = await store._call_with_retry(["ok", "x" * 64, "also ok"])
+
+        assert results == [[1.0, 0.0], None, [1.0, 0.0]]
+        assert provider.batch_sizes == [3, 1, 1, 1, 1]
+        assert provider.transient_failures == 1
+        assert sleeps == [1.0]
+
+    run(go())
+
+
+def test_provider_wide_statuses_exclude_input_dependent_bad_request():
+    """404 is provider-wide, but an over-limit 400 must stay input-dependent."""
+
+    async def go():
+        store = LocalEmbeddingStore(name="t_local_embedding_classifier")
+        for error in (
+            AuthenticationError("bad key"),
+            PermissionDeniedError("no access"),
+            NotFoundError("model_not_found"),
+            InternalServerError("boom"),
+        ):
+            assert store._is_provider_wide_failure(error) is True
+        over_limit = ContextLengthError("the input length exceeds the context length")
+        assert store._is_provider_wide_failure(over_limit) is False
+
+    run(go())
+
+
+def test_provider_wide_not_found_errors_are_not_split(monkeypatch):
+    """A missing model or endpoint is provider-wide: one request, then failure, never a split."""
+
+    async def go():
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+
+        provider = AlwaysProviderWideFailureAsEmbedding(NotFoundError("model_not_found"))
+        store = LocalEmbeddingStore(name="t_local_embedding_not_found", max_retries=3)
+        store.as_embedding = provider
+        monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+
+        assert await store._call_with_retry([f"item{i}" for i in range(10)]) is None
+        assert provider.batch_sizes == [10]
+        assert not sleeps
 
     run(go())

@@ -14,6 +14,27 @@ from ..as_embedding import BaseAsEmbedding
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 _MAX_VECTOR_SPACE_ATTEMPTS = 3
 
+_PROVIDER_WIDE_STATUS_CODES = frozenset({401, 403, 404})
+
+# Transport failures raised by the OpenAI SDK and httpx. They do not inherit from the built-in
+# TimeoutError / ConnectionError / OSError, so the built-in check alone lets them slip into the
+# generic handler and fan out into per-item requests. Matching on class names (across the MRO,
+# so subclasses such as APITimeoutError are covered) keeps this module free of SDK imports.
+_TRANSPORT_FAILURE_TYPES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectError",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "WriteError",
+        "WriteTimeout",
+    },
+)
+
 
 @R.register("local")
 class LocalEmbeddingStore(BaseEmbeddingStore):
@@ -190,10 +211,14 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 result = await self.as_embedding(texts, **kwargs)
                 if result and len(result) == len(texts):
                     return result
-            except (TimeoutError, ConnectionError, OSError):
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2**attempt)
             except Exception as error:
+                if self._is_transient_transport_failure(error):
+                    # A connection failure or a timeout describes the endpoint, not any single
+                    # item: retry the very same request with the usual backoff instead of
+                    # fanning out into per-item requests that would fail the same way.
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(2**attempt)
+                    continue
                 if self._is_rate_limited(error):
                     if attempt < self.max_retries - 1:
                         delay = 2**attempt
@@ -213,11 +238,92 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                     )
                     await asyncio.sleep(self.quota_retry_delay)
                     continue
+                if self._is_insufficient_quota(error):
+                    # Quota is a service-level failure: no single item is to blame, so splitting the
+                    # batch cannot isolate anything and would only multiply the rejected requests.
+                    # This also covers the case where the quota retries above are exhausted.
+                    self.logger.exception("Embedding request failed: quota exhausted")
+                    self.is_healthy = False
+                    return None
+                if self._is_provider_wide_failure(error):
+                    # Credentials, permissions and server outages describe the endpoint, not any
+                    # single item: isolation cannot fix them, so retry the transient ones with the
+                    # usual backoff and give up on the rest instead of multiplying the requests.
+                    if self._is_transient_provider_failure(error) and attempt < self.max_retries - 1:
+                        delay = 2**attempt
+                        self.logger.warning(f"Embedding provider error; retrying in {delay:.1f}s")
+                        await asyncio.sleep(delay)
+                        continue
+                    self.logger.exception("Embedding request failed: provider-wide error, not splitting")
+                    break
                 self.logger.exception("Embedding request failed")
                 self.is_healthy = False
+                if len(texts) > 1:
+                    return await self._embed_individually(texts, **kwargs)
                 return None
         self.is_healthy = False
         return None
+
+    async def _embed_individually(self, texts: list[str], **kwargs) -> list[list[float] | None]:
+        """Retry a rejected batch one item at a time so one bad item cannot drop the rest.
+
+        Provider-side request errors, such as a per-item context-length limit, reject the
+        whole batch and would otherwise cost every vector in it. Isolating each item bounds
+        the damage to the item that actually failed and keeps the remaining vectors usable.
+        Each single-item request goes back through ``_call_with_retry`` so a transient
+        failure (429, connection error, timeout) still gets the existing backoff and retry
+        policy instead of losing the vector; a one-item request never splits again.
+        """
+        results: list[list[float] | None] = []
+        for text in texts:
+            single = await self._call_with_retry([text], **kwargs)
+            if single and len(single) == 1:
+                results.append(single[0])
+                continue
+            self.logger.error(f"Embedding request failed for a single item (chars={len(text)})")
+            results.append(None)
+        return results
+
+    @staticmethod
+    def _is_transient_transport_failure(error: Exception) -> bool:
+        """Return whether an error is a transient transport failure worth retrying.
+
+        Covers the built-in socket errors as well as the provider/httpx exceptions that describe
+        a connection failure or a timeout. Transport failures are provider-wide: no individual
+        input can be blamed, so the same request is retried and never split per item.
+        """
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)):
+            return True
+        return any(cls.__name__ in _TRANSPORT_FAILURE_TYPES for cls in type(error).__mro__)
+
+    @staticmethod
+    def _is_provider_wide_failure(error: Exception) -> bool:
+        """Return whether an error describes the provider rather than a single input.
+
+        Authentication, permission, missing model or route and server errors belong to the
+        endpoint, the credentials or the deployment: no individual input can be blamed, so
+        splitting the batch cannot isolate anything and would only multiply the rejected
+        requests. Rate limits and quota exhaustion have their own branches above and never
+        reach this classifier. A context-length ``400`` stays input-dependent on purpose,
+        because that is the one status an over-limit item can explain by itself.
+        """
+        status = getattr(error, "status_code", None)
+        if isinstance(status, int) and (status in _PROVIDER_WIDE_STATUS_CODES or 500 <= status < 600):
+            return True
+        return type(error).__name__ in (
+            "AuthenticationError",
+            "PermissionDeniedError",
+            "NotFoundError",
+            "InternalServerError",
+        )
+
+    @staticmethod
+    def _is_transient_provider_failure(error: Exception) -> bool:
+        """Return whether a provider-wide failure is worth retrying with the usual backoff."""
+        status = getattr(error, "status_code", None)
+        if isinstance(status, int):
+            return 500 <= status < 600
+        return type(error).__name__ == "InternalServerError"
 
     @staticmethod
     def _is_rate_limited(error: Exception) -> bool:
