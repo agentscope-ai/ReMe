@@ -48,6 +48,8 @@ reme reindex scope=embedding
 
 `reindex` rebuilds BM25 and/or embedding indexes from the current `file_chunks`. It does not scan the workspace, rechunk files, or rebuild the wikilink graph. Diagnose the watcher first when ingestion is the problem.
 
+`reindex` also keeps whatever chunks are already stored. When the chunking behavior itself changes — an upgraded ReMe or edited chunker settings — the stored chunks are reused as they are, so a plain `reindex` cannot refresh them. Re-chunk from the source files instead by clearing the derived chunk state and letting the watchers rescan; see [Recover derived state](#recover-derived-state). Source files are never modified by this recovery.
+
 Rebuild a daily index page separately:
 
 ```bash
