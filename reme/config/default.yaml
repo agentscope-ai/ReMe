@@ -184,7 +184,7 @@ jobs:
           description: "optional hint"
         include_images:
           type: boolean
-          description: "Use session images with a caller-configured vision-capable AgentScope model and formatter"
+          description: "Use session images with a vision-capable AgentScope model; save Base64 originals and cite sources"
           default: false
         date:
           type: string
