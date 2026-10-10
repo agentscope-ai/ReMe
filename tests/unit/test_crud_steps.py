@@ -150,6 +150,35 @@ def test_stat_directory_fallback():
     asyncio.run(run())
 
 
+def test_stat_answer_reports_size_and_mtime():
+    """The answer carries size and mtime, not just the path and type.
+
+    The ``stat`` job description advertises "size, mtime, exists, is_dir,
+    is_file", but only ``answer`` reaches an MCP caller — mtime used to live
+    solely in metadata, so an agent could not tell how fresh a file was.
+    """
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = await _make_store({"topics/n.md": "---\nname: T\n---\nbody"})
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="topics/n.md")
+            answer = step.context.response.answer
+            mtime = _metadata(step)["mtime"]
+            assert answer.startswith("stat: topics/n.md (file, ")
+            assert "bytes, mtime " in answer
+            assert answer.endswith(f"{mtime})")
+
+            (Path(tmp) / "topics").mkdir(parents=True, exist_ok=True)
+            step = crud_stat.StatStep(file_store=store)
+            await step(path="topics")
+            answer = step.context.response.answer
+            assert answer == f"stat: topics (dir, mtime {_metadata(step)['mtime']})"
+            await store.close()
+
+    asyncio.run(run())
+
+
 def test_stat_directory_wins_over_same_name_index():
     """stat prefers an existing directory over its same-name ``.md`` index.
 
