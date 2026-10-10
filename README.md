@@ -49,6 +49,9 @@ users retain control of the durable files.
 
 ## 📰 Latest Updates
 
+- [2026.10] - **[ReMe Multimodal Memory](https://reme.agentscope.io/en/blog_20261009) update**: Auto Memory reads images
+  with their conversation context and preserves image sources; Auto Resource turns image files into searchable daily
+  cards linked to the originals.
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
   files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
   Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!

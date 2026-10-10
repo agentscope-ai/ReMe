@@ -47,6 +47,8 @@
 
 ## 📰 最新动态
 
+- [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
+  写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
   即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
 
