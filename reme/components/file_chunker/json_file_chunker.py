@@ -112,9 +112,10 @@ class JsonFileChunker(BaseFileChunker):
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         """Read and chunk a JSON file at *path*."""
-        file_path = Path(path)
+        return await self._chunk_in_worker(path, self._chunk_sync)
+
+    def _chunk_sync(self, file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
         stat = file_path.stat()
-        rel_path = self.to_workspace_relative(path)
 
         raw_text = file_path.read_text(encoding=self.encoding)
         if not raw_text.strip():

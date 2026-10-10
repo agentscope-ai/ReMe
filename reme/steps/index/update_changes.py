@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import os
 from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Callable
@@ -46,6 +47,7 @@ class ChangeApplyStep(BaseStep):
         self.chunk_memory_overhead_bytes = int(chunk_memory_overhead_bytes)
         self.estimated_chunk_bytes = int(estimated_chunk_bytes)
         self.float16_bytes = int(float16_bytes)
+        self._source_versions: dict[int, os.stat_result] = {}
         if self.batch_max_files <= 0:
             raise ValueError("batch_max_files must be greater than zero")
         if not math.isfinite(self.batch_available_memory_ratio) or not 0 < self.batch_available_memory_ratio <= 1:
@@ -323,8 +325,51 @@ class UpdateIndexStep(ChangeApplyStep):
     target_name = "file_store"
     reads_file_content = True
 
+    async def _apply_existing(self, buckets: dict[Change, list[str]]) -> list[dict]:
+        try:
+            return await super()._apply_existing(buckets)
+        finally:
+            # Steps are invocation-scoped; cancelled batches must release their snapshots too.
+            self._source_versions.clear()
+
     async def build_item(self, path: Path) -> tuple[FileNode, list[FileChunk]]:
-        return await self.chunk_file(path)
+        before = path.stat()
+        item = await self.chunk_file(path)
+        after = path.stat()
+        BaseFileChunker._check_file_version(path, before, after)  # pylint: disable=protected-access
+        self._source_versions[id(item[0])] = after
+        return item
+
+    async def _try_upsert(
+        self,
+        change: Change,
+        items: list[tuple[FileNode, list[FileChunk]]],
+        ok_paths: list[str],
+    ) -> list[dict]:
+        # Recheck after waiting for the same guard used by every store mutation.
+        async with self.file_store._maintenance_guard():  # pylint: disable=protected-access
+            current_items: list[tuple[FileNode, list[FileChunk]]] = []
+            current_paths: list[str] = []
+            results: list[dict] = []
+            for item, path in zip(items, ok_paths):
+                node = item[0]
+                try:
+                    BaseFileChunker._check_file_version(  # pylint: disable=protected-access
+                        self._to_abs_path(node.path),
+                        self._source_versions[id(node)],
+                        self._to_abs_path(node.path).stat(),
+                    )
+                except (OSError, RuntimeError) as exc:
+                    results.append({"change": change.name, "path": path, "success": False, "error": str(exc)})
+                else:
+                    current_items.append(item)
+                    current_paths.append(path)
+                finally:
+                    self._source_versions.pop(id(node))
+            if current_items:
+                results.extend(await super()._try_upsert(change, current_items, current_paths))
+            by_path = {result["path"]: result for result in results}
+            return [by_path[path] for path in ok_paths]
 
     async def upsert_items(self, items: list[tuple[FileNode, list[FileChunk]]]) -> None:
         await self.file_store.upsert(items)
