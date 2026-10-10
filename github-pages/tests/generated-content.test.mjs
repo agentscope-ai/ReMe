@@ -28,6 +28,8 @@ test("generates every required bilingual guide", async () => {
   }
   await access(path.join(generatedDir, "zh/integrations/claude-code.md"));
   await access(path.join(generatedDir, "en/integrations/claude-code.md"));
+  await access(path.join(generatedDir, "en/integrations/codex.md"));
+  await access(path.join(generatedDir, "zh/integrations/codex.md"));
   await access(path.join(generatedDir, "zh/integrations/hermes.md"));
   await access(path.join(generatedDir, "en/integrations/hermes.md"));
   await access(path.join(generatedDir, "zh/integrations/dsh.md"));
@@ -48,6 +50,9 @@ test("maps mirrored pages back to their canonical repository sources", async () 
   assert.equal(sourceMap["en/integrations/dsh.md"], "integrations/dsh/README.md");
   assert.equal(sourceMap["zh/integrations/openclaw.md"], "integrations/openclaw/README_ZH.md");
   assert.equal(sourceMap["en/integrations/claude-code.md"], "integrations/claude_code/README.md");
+  assert.equal(sourceMap["zh/integrations/claude-code.md"], "integrations/claude_code/README_ZH.md");
+  assert.equal(sourceMap["en/integrations/codex.md"], "integrations/codex/README.md");
+  assert.equal(sourceMap["zh/integrations/codex.md"], "integrations/codex/README_ZH.md");
   assert.equal(sourceMap["en/integrations/hermes.md"], "integrations/hermes_agent/README.md");
   assert.equal(sourceMap["en/workspace/studio.md"], "reme_studio/README.md");
   assert.equal(sourceMap["zh/plugins/lme.md"], "plugins/lme/README_ZH.md");
@@ -159,6 +164,10 @@ test("tracks every generated input in documentation CI and deployment", async ()
   const requiredPaths = [
     "reme/config/default.yaml",
     "integrations/claude_code/README.md",
+    "integrations/claude_code/README_ZH.md",
+    "integrations/codex/README.md",
+    "integrations/codex/README_ZH.md",
+    "integrations/codex/figures/**",
     "integrations/hermes_agent/README.md",
     "integrations/hermes_agent/figures/**",
     "integrations/dsh/README*.md",

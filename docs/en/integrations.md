@@ -16,9 +16,10 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Tool-protocol host | MCP |
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
-| Claude Code | [Shared HTTP MCP + Skill + Stop Hook](./integrations/claude-code.md) |
+| Claude Code | [Start ReMe, then install the plugin](./integrations/claude-code.md) |
 | Hermes Agent | Memory provider adapter |
-| Codex or another coding agent | `reme_memory` Skill or MCP |
+| Codex | [Start ReMe, then install the plugin](./integrations/codex.md) |
+| Other coding agents | `reme_memory` Skill or MCP |
 
 ## General memory loop
 
@@ -77,14 +78,16 @@ ReMe HTTP boundary and release lifecycle.
 
 ## Claude Code
 
-The [Claude Code plugin](./integrations/claude-code.md) connects every Claude Code window to one ReMe HTTP process at
-`http://127.0.0.1:2333/mcp` by default. The `reme-memory` Skill selects among semantic `search`, topological `traverse`,
-and state-oriented `daily_list` / `frontmatter_read`, then reads and cites the relevant workspace paths.
+Start the ReMe HTTP service, then install the [ReMe plugin in Claude Code](./integrations/claude-code.md).
+The installed plugin supplies automatic recall, completed-turn recording, and memory queries through its
+bundled hooks, MCP tools, and skill. This host uses the plugin installation flow.
 
-On Stop, the hook passes only the Claude Code `session_id` to the server-side `auto_memory_cc` job. On POSIX systems it
-detaches the potentially long model call so Claude Code can stop immediately; unreachable-service and other best-effort
-failures are written to the plugin log instead of blocking the host. ReMe resolves the local transcript, and repeated
-Stop events with no new messages do not create duplicate memory.
+## Codex
+
+Start the ReMe HTTP service, install the [ReMe plugin in Codex](./integrations/codex.md), and trust its
+hooks in `/hooks`. Open a new conversation to use automatic recall, recording, and the plugin's memory tools.
+This host also uses the plugin installation flow. Each host keeps its own plugin configuration and retry
+queue; the ReMe service owns memory storage and consolidation.
 
 ## Hermes Agent
 

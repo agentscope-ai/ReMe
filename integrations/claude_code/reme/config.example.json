@@ -1,0 +1,14 @@
+{
+  "mcp_url": "http://127.0.0.1:2333/mcp",
+  "api_url": "",
+  "auto_recall": true,
+  "auto_memory": true,
+  "recall_limit": 5,
+  "recall_min_score": 0.0,
+  "recall_timeout": 5.0,
+  "request_timeout": 600.0,
+  "memory_interval": 5,
+  "shutdown_timeout": 2.0,
+  "context_max_chars": 8000,
+  "timezone": "Asia/Shanghai"
+}

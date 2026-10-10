@@ -1,0 +1,159 @@
+<!doctype html>
+<!-- Built from status-app/src. Includes @openai/mcp-extensions 0.1.0 app transport (OpenAI, Apache-2.0); see LICENSE-mcp-extensions.txt. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReMe status</title>
+  <style>
+    :root { color-scheme: light dark; --bg: #f6f8fc; --surface: #fff; --panel: #f9faff; --ink: #20283b; --muted: #66718a; --line: #dfe5ee; --blue: #426ccd; --green: #23704b; --green-bg: #e6f2e9; --amber: #875811; --amber-bg: #fff2d9; --red: #a33036; --red-bg: #fbecee; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0b0d12; --surface: #12151d; --panel: #181c26; --ink: #f3f5f7; --muted: #979dab; --line: #292e3b; --blue: #79a8ff; --green: #63d4a3; --green-bg: #25382f; --amber: #f2be5c; --amber-bg: #3c3526; --red: #ff7b86; --red-bg: #40262c; } }
+    :root[data-theme="dark"] { color-scheme: dark; --bg: #0b0d12; --surface: #12151d; --panel: #181c26; --ink: #f3f5f7; --muted: #979dab; --line: #292e3b; --blue: #79a8ff; --green: #63d4a3; --green-bg: #25382f; --amber: #f2be5c; --amber-bg: #3c3526; --red: #ff7b86; --red-bg: #40262c; }
+    :root[data-theme="light"] { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: clamp(16px, 4vw, 32px); background: var(--color-background-primary, var(--bg)); color: var(--color-text-primary, var(--ink)); font: 14px/1.6 system-ui, -apple-system, sans-serif; }
+    main { max-width: 880px; margin: auto; overflow-wrap: anywhere; }
+    header { display: grid; gap: 12px; margin-bottom: 28px; }
+    header > div { min-width: 0; }
+    h1 { font-size: 22px; letter-spacing: -.4px; margin: 0; padding-inline-end: 48px; font-weight: 650; }
+    .status-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; }
+    #checked { margin: 0; }
+    h2 { font-size: 15px; line-height: 1.5; margin: 0 0 24px; font-weight: 600; }
+    p { margin: 6px 0; }
+    .muted, small { color: var(--muted); }
+    .label { font-size: 13px; color: var(--muted); }
+    .endpoint { overflow-wrap: anywhere; font-size: 12px; font-family: ui-monospace, monospace; }
+    button { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font: inherit; cursor: pointer; white-space: nowrap; }
+    button:hover:not(:disabled) { border-color: var(--blue); }
+    button:focus-visible, summary:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+    .tabs button { min-width: 0; min-height: 44px; color: var(--muted); background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; padding: 12px 8px; font-weight: 500; white-space: normal; line-height: 1.4; }
+    .tabs button[aria-selected="true"] { color: var(--blue); border-bottom-color: var(--blue); font-weight: 600; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 24px; align-items: start; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 28px; min-width: 0; }
+    .full { grid-column: 1 / -1; }
+    .value { font-size: 26px; line-height: 1.35; font-weight: 650; margin-top: 8px; }
+    .compact { font-size: 16px; overflow-wrap: anywhere; }
+    .pill { display: inline-block; flex-shrink: 0; color: var(--green); background: var(--green-bg); border-radius: 99px; padding: 4px 10px; font-size: 12px; font-weight: 600; }
+    [data-tone="good"] { color: var(--green); }
+    [data-tone="bad"] { color: var(--red); }
+    .pill[data-tone="neutral"] { color: var(--muted); background: var(--bg); }
+    .pill[data-tone="warn"] { color: var(--amber); background: var(--amber-bg); }
+    .pill[data-tone="bad"] { color: var(--red); background: var(--red-bg); }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 24px; }
+    .section-heading h2 { margin: 0; }
+    .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+    .service-metrics { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--line); }
+    .properties { margin: 0; }
+    .properties > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: baseline; gap: 8px 24px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .properties > div:first-child { padding-top: 0; }
+    .properties > div:last-child { padding-bottom: 0; border: 0; }
+    .properties dt { color: var(--muted); }
+    .properties dd { margin: 0; text-align: right; font-weight: 600; min-width: 0; }
+    .rows { padding: 0; margin: 0; list-style: none; }
+    .rows li { border-bottom: 1px solid var(--line); }
+    .rows li:last-child { border: 0; }
+    .rows .activity-entry { margin: 0; }
+    .activity-entry > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 8px 20px; padding: 16px 0; color: var(--ink); list-style: none; }
+    .activity-entry > summary::-webkit-details-marker { display: none; }
+    .activity-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+    .activity-title::before { content: "▸"; color: var(--muted); flex-shrink: 0; }
+    .activity-entry[open] .activity-title::before { content: "▾"; }
+    .activity-entry[open] > summary { margin-bottom: 0; }
+    .activity-meta { display: block; color: var(--muted); font-size: 12px; margin: 0 0 16px 20px; }
+    time { color: var(--muted); font-size: 12px; }
+    #activity-more { margin-top: 16px; }
+    .component-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+    .component { border: 1px solid var(--line); background: var(--panel); padding: 18px; border-radius: 9px; min-width: 0; }
+    .component strong { display: block; overflow-wrap: anywhere; font-size: 13px; }
+    details { margin-top: 20px; }
+    details.card { margin-top: 0; }
+    details[open] > summary { margin-bottom: 16px; }
+    .card > summary { color: var(--ink); font-weight: 600; font-size: 15px; }
+    summary { cursor: pointer; color: var(--muted); }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); padding: 14px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; max-height: 280px; overflow: auto; }
+    .note { margin: 20px 0 0; font-size: 13px; color: var(--muted); }
+    #error { border: 1px solid var(--red); color: var(--red); padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 600px) { .card { padding: 24px; } header { gap: 16px; } .activity-entry > summary { grid-template-columns: 1fr; gap: 4px; } .activity-entry time { padding-left: 20px; } }
+    @media (max-width: 560px) { .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 380px) { .card { padding: 20px; } .properties > div { grid-template-columns: 1fr; gap: 4px; } .properties dd { text-align: left; } .metrics { grid-template-columns: 1fr; gap: 16px; } .metrics > div { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; } .metrics .value { margin: 0; } }
+  </style>
+</head>
+<body>
+<main aria-busy="true">
+  <header>
+    <h1>ReMe status</h1>
+    <div class="status-toolbar">
+      <button id="refresh" type="button" disabled>Refresh</button>
+      <p id="checked" class="muted label" aria-live="polite">Waiting for status…</p>
+    </div>
+  </header>
+  <p id="error" role="alert" hidden></p>
+  <div id="loading" class="card muted">Opening the connection and memory overview…</div>
+  <div id="overview" hidden>
+    <nav class="tabs" role="tablist" aria-label="ReMe status">
+      <button id="tab-overview" role="tab" aria-controls="panel-overview" aria-selected="true" data-i18n="overview">Overview</button>
+      <button id="tab-memory" role="tab" aria-controls="panel-memory" aria-selected="false" tabindex="-1" data-i18n="autoMemory">Auto Memory</button>
+      <button id="tab-dream" role="tab" aria-controls="panel-dream" aria-selected="false" tabindex="-1" data-i18n="consolidation">Consolidation</button>
+      <button id="tab-components" role="tab" aria-controls="panel-components" aria-selected="false" tabindex="-1" data-i18n="components">Components</button>
+    </nav>
+    <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview">
+      <div class="grid">
+        <article class="card full">
+          <div class="section-heading"><h2 data-i18n="service">ReMe service</h2><span id="connection-state" class="pill" hidden></span></div>
+          <div id="service-health" class="value"></div><p id="health" class="muted"></p>
+          <div class="metrics service-metrics">
+            <div><div class="label" data-i18n="queuedTurns">Queued turns</div><div id="overview-queue" class="value"></div></div>
+            <div><div class="label" data-i18n="queuedSessions">Queued sessions</div><div id="overview-sessions" class="value"></div></div>
+          </div>
+          <details id="connection-details"><summary data-i18n="connectionDetails">Connection details</summary><p id="endpoint" class="endpoint muted"></p><small id="plugin-version"></small></details>
+        </article>
+      </div>
+    </section>
+    <section id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+      <div class="grid">
+        <article class="card">
+          <div class="section-heading"><h2 data-i18n="memory">Automatic memory</h2><span id="memory-state" class="pill"></span></div>
+          <dl class="properties">
+            <div><dt data-i18n="interval">Batch interval</dt><dd id="interval"></dd></div>
+            <div><dt data-i18n="queuedTurns">Queued turns</dt><dd id="queue"></dd></div>
+            <div><dt data-i18n="queuedSessions">Queued sessions</dt><dd id="sessions"></dd></div>
+          </dl><p id="other-queue" class="note" hidden></p>
+        </article>
+        <article class="card"><div class="section-heading"><h2 data-i18n="recall">Automatic recall</h2><span id="recall-state" class="pill"></span></div><p id="recall-result"></p><p id="recall-time" class="muted label"></p></article>
+        <details id="activity-details" class="card full"><summary data-i18n="activity">Recent activity</summary><ul id="activity" class="rows"></ul><p id="no-activity" class="muted" hidden></p><button id="activity-more" type="button" aria-controls="activity" aria-expanded="false" hidden></button></details>
+      </div>
+    </section>
+    <section id="panel-dream" role="tabpanel" aria-labelledby="tab-dream" hidden>
+      <div class="grid">
+        <article class="card full">
+          <div class="section-heading"><h2>Auto Dream</h2><span id="dream-state" class="pill"></span></div>
+          <dl class="properties">
+            <div><dt data-i18n="schedule">Schedule</dt><dd id="schedule"></dd></div>
+            <div><dt data-i18n="timezone">Timezone</dt><dd id="timezone"></dd></div>
+            <div><dt data-i18n="lastResult">Last result</dt><dd id="last-result"></dd></div>
+          </dl>
+        </article>
+        <article class="card"><h2 data-i18n="next">Next run</h2><div id="next" class="value compact"></div><p class="note" data-i18n="dreamHelp">The daily schedule runs while the ReMe MCP connection is alive.</p></article>
+        <article class="card"><h2 data-i18n="last">Last consolidation</h2><p id="last"></p><p id="scheduler" class="muted"></p></article>
+      </div>
+    </section>
+    <section id="panel-components" role="tabpanel" aria-labelledby="tab-components" hidden>
+      <div class="grid">
+        <article class="card"><div class="label" data-i18n="processMemory">Process memory (RSS)</div><div id="rss" class="value"></div></article>
+        <article class="card"><div class="label" data-i18n="componentMemory">Estimated component memory</div><div id="component-total" class="value"></div></article>
+        <article class="card full"><h2 data-i18n="components">Components</h2><div id="components" class="component-grid"></div><p id="no-components" class="muted" hidden></p><p class="note" data-i18n="componentHelp">Memory estimates from ReMe status. Component-level health is not included in the MCP response.</p></article>
+      </div>
+      <details id="service-details"><summary data-i18n="details">Service details</summary><pre id="details"></pre></details>
+    </section>
+    <details id="view-help"><summary data-i18n="viewHelp">About this view</summary>
+      <p class="note" data-i18n="trust">Connection health does not establish Hook trust. Review ReMe in Codex Hooks settings.</p>
+      <p class="note" data-i18n="saved">This view uses saved settings. Save changes in MCP settings, then refresh here.</p>
+    </details>
+  </div>
+</main>
+<script>/* STATUS_APP */</script>
+</body>
+</html>

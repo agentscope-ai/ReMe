@@ -228,9 +228,10 @@ lifecycle according to the capabilities of each runtime.
 | **DeepSeek Harness**           | Install [`@agentscope-ai/reme-dsh-plugin`](https://reme.agentscope.io/en/integrations/dsh) with `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin`. | Configurable memory guidance, `reme_search`, automatic turn capture, scheduled Auto Dream, and ReMe Status. |
 | **OpenClaw**                   | Install [`@agentscope-ai/reme-openclaw-plugin`](https://reme.agentscope.io/en/integrations/openclaw) with `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin`. | Native memory tools, recall before user-triggered runs, and automatic turn capture.                     |
 | **QwenPaw**                    | Embed ReMe in-process through its Python API.                                                                                            | Reuse the host lifecycle and model config while keeping memory local and file-based.                    |
-| **Claude Code**                | Start the shared streamable HTTP MCP service and install [the ReMe plugin](https://reme.agentscope.io/en/integrations/claude-code).      | Semantic, graph, and state recall through MCP, plus asynchronous session capture through a Stop hook.   |
+| **Claude Code** | Start ReMe, then install the [Claude Code plugin](integrations/claude_code/README.md). | Automatic recall, batched completed-turn recording, and MCP tools. |
 | **Hermes**                     | Install [the ReMe provider](https://reme.agentscope.io/en/integrations/hermes) and choose HTTP or embedded mode.                         | Recall before model calls and asynchronous `auto_memory` after each completed turn.                     |
-| **Codex and other CLI agents** | Install or copy the [ReMe Memory skill](skills/reme_memory/SKILL.md).                                                                    | Search, read, and write memory through the CLI; automatic capture requires host lifecycle integration.  |
+| **Codex** | Start ReMe, then install the [Codex plugin](integrations/codex/README.md). | Native hooks for automatic recall and batched recording, plus MCP tools. |
+| **Other CLI agents** | Install or copy the [ReMe Memory skill](skills/reme_memory/SKILL.md). | Search, read, and write memory through the CLI. |
 
 <p align="center"><b>Integration demos</b></p>
 

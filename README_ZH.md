@@ -218,9 +218,10 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 | **DeepSeek Harness**       | 使用 `dsh plugin --profile web add @agentscope-ai/reme-dsh-plugin` 安装 [`@agentscope-ai/reme-dsh-plugin`](https://reme.agentscope.io/zh/integrations/dsh)。 | 可配置记忆指引、`reme_search`、自动对话捕获、定时 Auto Dream 和 ReMe Status。 |
 | **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](https://reme.agentscope.io/zh/integrations/openclaw)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
-| **Claude Code**            | 启动共享的 streamable HTTP MCP service，并安装 [ReMe 插件](https://reme.agentscope.io/zh/integrations/claude-code)。                      | 通过 MCP 进行语义、图关系和状态召回，并由 Stop Hook 异步捕获会话。 |
+| **Claude Code** | 启动 ReMe 服务后，安装 [Claude Code 插件](integrations/claude_code/README_ZH.md)。 | 自动召回、完成轮次分批记录，以及 MCP 查询工具。 |
 | **Hermes**                 | 安装 [ReMe provider](https://reme.agentscope.io/zh/integrations/hermes)，并选择 HTTP 或 Embedded 模式。                                  | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
-| **Codex 及其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。                                                                             | 通过 CLI 搜索、读取和写入记忆；自动捕获需要显式接入宿主生命周期。     |
+| **Codex** | 启动 ReMe 服务后，安装 [Codex 插件](integrations/codex/README_ZH.md)。 | 原生 Hook 自动召回、分批记录，以及 MCP 查询工具。 |
+| **其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索、读取和写入记忆。 |
 
 <p align="center"><b>集成演示</b></p>
 

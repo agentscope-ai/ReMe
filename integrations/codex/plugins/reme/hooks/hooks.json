@@ -1,0 +1,75 @@
+{
+  "description": "ReMe recall, durable capture, background delivery, and bounded exit retry.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 125
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\" --capture-only",
+            "timeout": 10,
+            "statusMessage": "Queueing ReMe memory"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3610,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\" --capture-only",
+            "timeout": 10,
+            "statusMessage": "Queueing ReMe memory"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3610,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3610,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}
