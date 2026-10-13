@@ -11,6 +11,7 @@ from typing import Callable, TypeVar
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
+from ...utils.file_utils import check_file_version
 
 WorkResult = TypeVar("WorkResult")
 
@@ -92,7 +93,7 @@ class BaseFileChunker(BaseComponent):
                 result, version = await _finish_work(future)
                 if self._worker_closing or generation != self._worker_generation:
                     raise RuntimeError("File chunker closed while parsing")
-                self._check_file_version(file_path, version, file_path.stat())
+                check_file_version(file_path, version, file_path.stat())
                 return result
             finally:
                 if temporary_worker:
@@ -107,14 +108,8 @@ class BaseFileChunker(BaseComponent):
         before = path.stat()
         result = chunk(path, rel_path)
         after = path.stat()
-        BaseFileChunker._check_file_version(path, before, after)
+        check_file_version(path, before, after)
         return result, after
-
-    @staticmethod
-    def _check_file_version(path: Path, before: os.stat_result, after: os.stat_result) -> None:
-        fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
-        if any(getattr(before, field) != getattr(after, field) for field in fields):
-            raise RuntimeError(f"File changed while chunking: {path}")
 
     @abstractmethod
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:

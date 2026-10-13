@@ -14,8 +14,10 @@ import asyncio
 import datetime
 import os
 import tempfile
+import threading
 import warnings
 import weakref
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -28,8 +30,10 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
+from reme.components.job.background_job import BackgroundJob
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
+from reme.schema import FileChunk, FileNode
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.base_auto_resource import _compute_note_stem
 from reme.steps.evolve.auto_resource import AutoResourceStep
@@ -1044,6 +1048,116 @@ def test_index_update_loop_init_dispatch_updates_store_across_batches():
     asyncio.run(run())
 
 
+def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real background job indexes the latest source before its watcher baseline."""
+
+    async def run() -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            path = write_file(cwd / "daily" / "source.md", "initial contents")
+            entered, release = threading.Event(), threading.Event()
+            watcher_started = asyncio.Event()
+            chunk_calls: list[Path] = []
+
+            store = LocalFileStore(name="default", embedding_store="")
+            app_ctx = _make_app_context(cwd)
+            chunker = DefaultFileChunker(app_context=app_ctx)
+            app_ctx.components = {
+                ComponentEnum.FILE_STORE: {"default": store},
+                ComponentEnum.FILE_CHUNKER: {"default": chunker},
+            }
+            job = BackgroundJob(
+                name="index_update_loop",
+                app_context=app_ctx,
+                watch_dirs=["daily_dir"],
+                watch_suffixes=["md"],
+                steps=[
+                    {
+                        "backend": "init_changes_step",
+                        "monitor_type": "file_store",
+                        "monitor_name": "default",
+                        "dispatch_steps": ["update_index_step"],
+                    },
+                    {
+                        "backend": "watch_changes_step",
+                        "step": 20,
+                        "debounce": 50,
+                        "poll_delay_ms": 10,
+                        "dispatch_steps": [{"backend": "update_index_step", "persist": False}],
+                    },
+                ],
+            )
+
+            original_chunk = chunker._chunk_sync
+
+            def change_during_first_parse(file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+                result = original_chunk(file_path, rel_path)
+                chunk_calls.append(file_path)
+                if len(chunk_calls) == 1:
+                    entered.set()
+                    if not release.wait(5):
+                        raise TimeoutError("test did not release the initial parse")
+                return result
+
+            from reme.steps.index import watch_changes as watch_changes_module
+
+            original_awatch = watch_changes_module.awatch
+
+            async def track_watcher_start(
+                *paths: str | Path,
+                watch_filter: Callable[[Change, str], bool],
+                recursive: bool,
+                force_polling: bool,
+                debounce: int,
+                step: int,
+                poll_delay_ms: int,
+                stop_event: asyncio.Event,
+            ) -> AsyncGenerator[set[tuple[Change, str]], None]:
+                watcher_started.set()
+                async for changes in original_awatch(
+                    *paths,
+                    watch_filter=watch_filter,
+                    recursive=recursive,
+                    force_polling=force_polling,
+                    debounce=debounce,
+                    step=step,
+                    poll_delay_ms=poll_delay_ms,
+                    stop_event=stop_event,
+                ):
+                    yield changes
+
+            monkeypatch.setattr(chunker, "_chunk_sync", change_during_first_parse)
+            monkeypatch.setattr(watch_changes_module, "awatch", track_watcher_start)
+
+            try:
+                await store.start()
+                await chunker.start()
+                await job.start()
+                for _ in range(500):
+                    if entered.is_set():
+                        break
+                    await asyncio.sleep(0.01)
+                assert entered.is_set(), "initial file parse did not start"
+
+                latest = "latest contents after the initial scan"
+                path.write_text(latest, encoding="utf-8")
+                release.set()
+
+                await asyncio.wait_for(watcher_started.wait(), timeout=5)
+                nodes = await store.get_nodes()
+                assert len(nodes) == 1
+                chunks = [store.file_chunks[chunk_id] for chunk_id in nodes[0].chunk_ids]
+                assert "".join(chunk.text for chunk in chunks) == latest
+                assert len(chunk_calls) == 2
+            finally:
+                release.set()
+                await job.close()
+                await chunker.close()
+                await store.close()
+
+    asyncio.run(run())
+
+
 def test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs():
     """digest_watch_loop style config updates the digest catalog without touching resource/default catalogs."""
 
@@ -1349,12 +1463,12 @@ def test_auto_resource_handles_file_removed_before_stat():
                 original_stat = Path.stat
 
                 def existing_is_file(path, *args, **kwargs):
-                    if path == source:
+                    if Path(path).name == source.name:
                         return True
                     return original_is_file(path, *args, **kwargs)
 
                 def disappearing_stat(path, *args, **kwargs):
-                    if path == source:
+                    if Path(path).name == source.name:
                         raise FileNotFoundError("file disappeared")
                     return original_stat(path, *args, **kwargs)
 

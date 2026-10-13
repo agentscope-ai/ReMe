@@ -16,6 +16,7 @@ from ...components import R
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
+from ...utils.file_utils import FileChangedDuringChunkingError, check_file_version
 
 
 class ChangeApplyStep(BaseStep):
@@ -23,6 +24,7 @@ class ChangeApplyStep(BaseStep):
 
     target_name = "target"
     reads_file_content = False
+    source_change_retries: int = 0
 
     def __init__(
         self,
@@ -47,7 +49,6 @@ class ChangeApplyStep(BaseStep):
         self.chunk_memory_overhead_bytes = int(chunk_memory_overhead_bytes)
         self.estimated_chunk_bytes = int(estimated_chunk_bytes)
         self.float16_bytes = int(float16_bytes)
-        self._source_versions: dict[int, os.stat_result] = {}
         if self.batch_max_files <= 0:
             raise ValueError("batch_max_files must be greater than zero")
         if not math.isfinite(self.batch_available_memory_ratio) or not 0 < self.batch_available_memory_ratio <= 1:
@@ -201,14 +202,22 @@ class ChangeApplyStep(BaseStep):
         path: str,
         abs_path: Path,
         results: list[dict],
-    ):
-        try:
-            self.logger.debug(f"Processing {change.name} file: {path}")
-            return await self.build_item(abs_path)
-        except Exception as e:
-            self.logger.exception(f"Failed to process {path}")
-            results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
-            return None
+    ) -> Any | None:
+        for attempt in range(self.source_change_retries + 1):
+            try:
+                self.logger.debug(f"Processing {change.name} file: {path}")
+                return await self.build_item(abs_path)
+            except FileChangedDuringChunkingError as e:
+                if attempt < self.source_change_retries:
+                    self.logger.debug(f"Source changed while processing {path}; retrying")
+                    continue
+                self.logger.exception(f"Failed to process {path}")
+                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+                return None
+            except Exception as e:
+                self.logger.exception(f"Failed to process {path}")
+                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+                return None
 
     def _try_estimate_memory(
         self,
@@ -324,6 +333,34 @@ class UpdateIndexStep(ChangeApplyStep):
 
     target_name = "file_store"
     reads_file_content = True
+    source_change_retries: int = 1
+
+    def __init__(
+        self,
+        persist: bool | None = None,
+        batch_max_files: int = 100,
+        batch_available_memory_ratio: float = 0.10,
+        batch_memory_target_bytes: int = 512 * 1024 * 1024,
+        batch_memory_expansion_factor: float = 8.0,
+        file_memory_overhead_bytes: int = 32 * 1024,
+        chunk_memory_overhead_bytes: int = 4 * 1024,
+        estimated_chunk_bytes: int = 10_000,
+        float16_bytes: int = 2,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            persist=persist,
+            batch_max_files=batch_max_files,
+            batch_available_memory_ratio=batch_available_memory_ratio,
+            batch_memory_target_bytes=batch_memory_target_bytes,
+            batch_memory_expansion_factor=batch_memory_expansion_factor,
+            file_memory_overhead_bytes=file_memory_overhead_bytes,
+            chunk_memory_overhead_bytes=chunk_memory_overhead_bytes,
+            estimated_chunk_bytes=estimated_chunk_bytes,
+            float16_bytes=float16_bytes,
+            **kwargs,
+        )
+        self._source_versions: dict[str, os.stat_result] = {}
 
     async def _apply_existing(self, buckets: dict[Change, list[str]]) -> list[dict]:
         try:
@@ -336,8 +373,8 @@ class UpdateIndexStep(ChangeApplyStep):
         before = path.stat()
         item = await self.chunk_file(path)
         after = path.stat()
-        BaseFileChunker._check_file_version(path, before, after)  # pylint: disable=protected-access
-        self._source_versions[id(item[0])] = after
+        check_file_version(path, before, after)
+        self._source_versions[item[0].path] = after
         return item
 
     async def _try_upsert(
@@ -345,31 +382,70 @@ class UpdateIndexStep(ChangeApplyStep):
         change: Change,
         items: list[tuple[FileNode, list[FileChunk]]],
         ok_paths: list[str],
+        *,
+        retry_source_changes: bool = True,
     ) -> list[dict]:
         # Recheck after waiting for the same guard used by every store mutation.
+        retry_paths: list[str] = []
+        result_by_path: dict[str, dict] = {}
         async with self.file_store._maintenance_guard():  # pylint: disable=protected-access
             current_items: list[tuple[FileNode, list[FileChunk]]] = []
             current_paths: list[str] = []
-            results: list[dict] = []
             for item, path in zip(items, ok_paths):
                 node = item[0]
                 try:
-                    BaseFileChunker._check_file_version(  # pylint: disable=protected-access
+                    check_file_version(
                         self._to_abs_path(node.path),
-                        self._source_versions[id(node)],
+                        self._source_versions[node.path],
                         self._to_abs_path(node.path).stat(),
                     )
+                except FileChangedDuringChunkingError as exc:
+                    if retry_source_changes:
+                        retry_paths.append(path)
+                    else:
+                        result_by_path[path] = {
+                            "change": change.name,
+                            "path": path,
+                            "success": False,
+                            "error": str(exc),
+                        }
                 except (OSError, RuntimeError) as exc:
-                    results.append({"change": change.name, "path": path, "success": False, "error": str(exc)})
+                    result_by_path[path] = {
+                        "change": change.name,
+                        "path": path,
+                        "success": False,
+                        "error": str(exc),
+                    }
                 else:
                     current_items.append(item)
                     current_paths.append(path)
                 finally:
-                    self._source_versions.pop(id(node))
+                    self._source_versions.pop(node.path)
             if current_items:
-                results.extend(await super()._try_upsert(change, current_items, current_paths))
-            by_path = {result["path"]: result for result in results}
-            return [by_path[path] for path in ok_paths]
+                result_by_path.update(
+                    {
+                        result["path"]: result
+                        for result in await super()._try_upsert(change, current_items, current_paths)
+                    },
+                )
+
+        retry_results: list[dict] = []
+        for path in retry_paths:
+            inspected = await self._inspect_path(change, path, retry_results)
+            if inspected is None:
+                continue
+            abs_path, _ = inspected
+            item = await self._try_build_item(change, path, abs_path, retry_results)
+            if item is not None:
+                retried = await self._try_upsert(
+                    change,
+                    [item],
+                    [path],
+                    retry_source_changes=False,
+                )
+                result_by_path.update({result["path"]: result for result in retried})
+        result_by_path.update({result["path"]: result for result in retry_results})
+        return [result_by_path[path] for path in ok_paths]
 
     async def upsert_items(self, items: list[tuple[FileNode, list[FileChunk]]]) -> None:
         await self.file_store.upsert(items)

@@ -411,11 +411,17 @@ async def test_existing_content_searchable_during_indexing(
                     await updating
             else:
                 response = await updating
-                assert response.success == (outcome == "complete")
+                assert response.success is (outcome in ("complete", "change"))
         nodes = await store.get_nodes()
         chunks = [store.file_chunks[chunk_id] for chunk_id in nodes[0].chunk_ids]
-        assert chunks[0].text == ("new searchable content" if outcome == "complete" else "old searchable content")
-        if outcome != "complete":
+        expected_text = {
+            "complete": "new searchable content",
+            "change": "latest source content",
+            "cancel": "old searchable content",
+            "error": "old searchable content",
+        }[outcome]
+        assert chunks[0].text == expected_text
+        if outcome in ("cancel", "error"):
             recovered = await step(RuntimeContext(changes=[{"change": "modified", "path": str(path)}]))
             assert recovered.success is True
             nodes = await store.get_nodes()
@@ -424,8 +430,8 @@ async def test_existing_content_searchable_during_indexing(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["modify", "delete", "replace", "cancel"])
-async def test_changed_batched_file_is_not_published_and_valid_files_update(
+@pytest.mark.parametrize("change", ["modify", "delete", "replace", "oversize", "cancel"])
+async def test_changed_batched_file_is_rebuilt_before_publication_and_valid_files_update(
     tmp_path: Path,
     change: str,
     monkeypatch: pytest.MonkeyPatch,
@@ -454,8 +460,13 @@ async def test_changed_batched_file_is_not_published_and_valid_files_update(
 
         changes = [{"change": "modified", "path": str(path)} for path in (first_path, second_path)]
         step = UpdateIndexStep(file_store=store, persist=False, app_context=context)
+        runtime_context = (
+            RuntimeContext(changes=changes, max_file_bytes=20)
+            if change == "oversize"
+            else RuntimeContext(changes=changes)
+        )
         with patch.object(chunker, "chunk", side_effect=blocking_second):
-            task = asyncio.create_task(step(RuntimeContext(changes=changes)))
+            task = asyncio.create_task(step(runtime_context))
             await _wait_started(entered)
             try:
                 if change == "modify":
@@ -464,6 +475,8 @@ async def test_changed_batched_file_is_not_published_and_valid_files_update(
                     first_path.unlink()
                 elif change == "cancel":
                     task.cancel()
+                elif change == "oversize":
+                    first_path.write_text("content exceeds the configured limit")
                 else:
                     replacement = tmp_path / "replacement"
                     replacement.write_text("replacement first")
@@ -475,11 +488,26 @@ async def test_changed_batched_file_is_not_published_and_valid_files_update(
                     await task
             else:
                 response = await task
-                assert response.success is False
-                assert [result["success"] for result in response.answer] == [False, True]
+                expected_success = change in ("modify", "replace", "oversize")
+                assert response.success is expected_success
+                assert [result["success"] for result in response.answer] == (
+                    [True, True] if expected_success else [False, True]
+                )
+                if change == "oversize":
+                    assert response.answer[0]["skipped"] is True
+                    assert response.answer[0]["reason"] == "file_too_large"
         assert not step._source_versions
         nodes = {node.path: node for node in await store.get_nodes()}
-        assert store.file_chunks[nodes["first.txt"].chunk_ids[0]].text == "original first"
+        if change == "oversize":
+            assert "first.txt" not in nodes
+        else:
+            expected_first = {
+                "modify": "latest first",
+                "delete": "original first",
+                "replace": "replacement first",
+                "cancel": "original first",
+            }[change]
+            assert store.file_chunks[nodes["first.txt"].chunk_ids[0]].text == expected_first
         assert store.file_chunks[nodes["second.txt"].chunk_ids[0]].text == (
             "original second" if change == "cancel" else "updated second"
         )
@@ -536,12 +564,14 @@ async def test_version_is_checked_after_waiting_for_store_lock(
                     path.write_text("latest source")
             if outcome == "change":
                 response = await task
-                assert response.success is False
+                assert response.success is True
         assert not step._source_versions
         nodes = await store.get_nodes()
-        assert store.file_chunks[nodes[0].chunk_ids[0]].text == "original source"
-        recovered = await step(RuntimeContext(changes=[{"change": "modified", "path": str(path)}]))
-        assert recovered.success is True
-        nodes = await store.get_nodes()
-        assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
+        expected_text = "latest source" if outcome == "change" else "original source"
+        assert store.file_chunks[nodes[0].chunk_ids[0]].text == expected_text
+        if outcome == "cancel":
+            recovered = await step(RuntimeContext(changes=[{"change": "modified", "path": str(path)}]))
+            assert recovered.success is True
+            nodes = await store.get_nodes()
+            assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
         assert not step._source_versions
