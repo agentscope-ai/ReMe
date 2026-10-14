@@ -526,6 +526,100 @@ async def test_changed_batched_file_is_rebuilt_before_publication_and_valid_file
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("new_size", [12, 100])
+async def test_parse_retry_rechecks_size_limit_and_refreshes_memory_estimate(
+    tmp_path: Path,
+    new_size: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A parse retry rechecks the size cap and estimates memory from the new size."""
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "source.txt"
+    path.write_text("small")
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    chunker = DefaultFileChunker(app_context=context)
+    context.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+    async with LocalFileStore(embedding_store="") as store, chunker:
+        await store.upsert([await chunker.chunk(path)])
+        entered, release = threading.Event(), threading.Event()
+        calls: list[Path] = []
+        original_chunk = chunker._chunk_sync
+
+        def change_during_first_parse(file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+            result = original_chunk(file_path, rel_path)
+            calls.append(file_path)
+            if len(calls) == 1:
+                entered.set()
+                assert release.wait(5)
+            return result
+
+        step = UpdateIndexStep(file_store=store, persist=False, app_context=context)
+        estimated_sizes: list[int] = []
+        original_estimate = step.estimate_item_memory
+
+        def record_estimate(item: tuple[FileNode, list[FileChunk]], file_path: Path, size_bytes: int) -> int:
+            estimated_sizes.append(size_bytes)
+            return original_estimate(item, file_path, size_bytes)
+
+        monkeypatch.setattr(step, "estimate_item_memory", record_estimate)
+        with patch.object(chunker, "_chunk_sync", side_effect=change_during_first_parse):
+            task = asyncio.create_task(
+                step(RuntimeContext(changes=[{"change": "modified", "path": str(path)}], max_file_bytes=20)),
+            )
+            await _wait_started(entered)
+            path.write_text("x" * new_size)
+            release.set()
+            response = await task
+
+        assert response.success is True
+        assert len(response.answer) == 1
+        if new_size > 20:
+            assert response.answer[0]["skipped"] is True
+            assert response.answer[0]["reason"] == "file_too_large"
+            assert calls == [path]
+            assert not estimated_sizes
+            assert await store.get_nodes() == []
+        else:
+            assert response.answer[0]["success"] is True
+            assert len(calls) == 2
+            assert estimated_sizes == [new_size]
+            nodes = await store.get_nodes()
+            assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
+        assert not step._source_versions
+
+
+@pytest.mark.asyncio
+async def test_index_updates_deduplicate_absolute_and_relative_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Absolute and workspace-relative aliases of one file enter a batch once."""
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "source.txt"
+    path.write_text("source")
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    chunker = DefaultFileChunker(app_context=context)
+    context.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+    async with LocalFileStore(embedding_store="") as store, chunker:
+        step = UpdateIndexStep(file_store=store, persist=False, app_context=context)
+        response = await step(
+            RuntimeContext(
+                changes=[
+                    {"change": "modified", "path": str(path)},
+                    {"change": "modified", "path": "source.txt"},
+                ],
+            ),
+        )
+
+        assert response.success is True
+        assert response.answer == [{"change": "modified", "path": str(path), "success": True}]
+        nodes = await store.get_nodes()
+        assert len(nodes) == 1
+        assert nodes[0].path == "source.txt"
+        assert not step._source_versions
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["change", "cancel"])
 async def test_version_is_checked_after_waiting_for_store_lock(
     tmp_path: Path,

@@ -86,7 +86,11 @@ class ChangeApplyStep(BaseStep):
         assert self.context is not None
         changes: list[dict] = self.context.get("changes") or []
         persist = bool(self.context.get("persist", True)) if self.persist is None else self.persist
-        buckets = bucket_changes(changes, path_exists=lambda p: self._to_abs_path(p).is_file())
+        buckets = bucket_changes(
+            changes,
+            path_exists=lambda p: self._to_abs_path(p).is_file(),
+            path_key=self._change_path_key,
+        )
         results = await self._apply_existing(buckets)
         results.extend(await self._apply_deleted(buckets[Change.deleted]))
         if persist and results:
@@ -126,9 +130,11 @@ class ChangeApplyStep(BaseStep):
                     estimated_bytes = 0
                     memory_budget = self._batch_memory_budget()
 
-                item = await self._try_build_item(change, path, abs_path, results)
-                if item is None:
+                built = await self._try_build_item(change, path, abs_path, size_bytes, results)
+                if built is None:
                     continue
+                item, size_bytes = built
+                del built
                 item_bytes = self._try_estimate_memory(
                     path,
                     self.estimate_item_memory,
@@ -201,12 +207,18 @@ class ChangeApplyStep(BaseStep):
         change: Change,
         path: str,
         abs_path: Path,
+        size_bytes: int,
         results: list[dict],
-    ) -> Any | None:
+    ) -> tuple[Any, int] | None:
         for attempt in range(self.source_change_retries + 1):
+            if attempt:
+                inspected = await self._inspect_path(change, path, results)
+                if inspected is None:
+                    return None
+                abs_path, size_bytes = inspected
             try:
                 self.logger.debug(f"Processing {change.name} file: {path}")
-                return await self.build_item(abs_path)
+                return await self.build_item(abs_path), size_bytes
             except FileChangedDuringChunkingError as e:
                 if attempt < self.source_change_retries:
                     self.logger.debug(f"Source changed while processing {path}; retrying")
@@ -301,6 +313,10 @@ class ChangeApplyStep(BaseStep):
         p = Path(path)
         return p if p.is_absolute() else self.workspace_path / p
 
+    def _change_path_key(self, path: str) -> str:
+        """Return the identity used to coalesce path aliases before batching."""
+        return path
+
 
 @R.register("update_catalog_step")
 class UpdateCatalogStep(ChangeApplyStep):
@@ -361,6 +377,10 @@ class UpdateIndexStep(ChangeApplyStep):
             **kwargs,
         )
         self._source_versions: dict[str, os.stat_result] = {}
+
+    def _change_path_key(self, path: str) -> str:
+        """Coalesce absolute and workspace-relative aliases of the same file."""
+        return os.path.normcase(os.fspath(self._to_abs_path(path).absolute()))
 
     async def _apply_existing(self, buckets: dict[Change, list[str]]) -> list[dict]:
         try:
@@ -434,9 +454,11 @@ class UpdateIndexStep(ChangeApplyStep):
             inspected = await self._inspect_path(change, path, retry_results)
             if inspected is None:
                 continue
-            abs_path, _ = inspected
-            item = await self._try_build_item(change, path, abs_path, retry_results)
-            if item is not None:
+            abs_path, size_bytes = inspected
+            built = await self._try_build_item(change, path, abs_path, size_bytes, retry_results)
+            if built is not None:
+                item, _ = built
+                del built
                 retried = await self._try_upsert(
                     change,
                     [item],
@@ -444,6 +466,7 @@ class UpdateIndexStep(ChangeApplyStep):
                     retry_source_changes=False,
                 )
                 result_by_path.update({result["path"]: result for result in retried})
+                del item
         result_by_path.update({result["path"]: result for result in retry_results})
         return [result_by_path[path] for path in ok_paths]
 

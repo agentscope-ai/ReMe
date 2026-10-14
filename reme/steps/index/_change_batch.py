@@ -15,22 +15,31 @@ def _normalize_change(raw) -> Change | None:
     return None
 
 
-def coalesce_changes(changes: list[dict], path_exists: Callable[[str], bool] | None = None) -> list[dict]:
+def coalesce_changes(
+    changes: list[dict],
+    path_exists: Callable[[str], bool] | None = None,
+    *,
+    path_key: Callable[[str], str] | None = None,
+) -> list[dict]:
     """Collapse duplicate path events to the final on-disk state."""
-    by_path: OrderedDict[str, set[Change]] = OrderedDict()
+    by_path: OrderedDict[str, tuple[str, set[Change]]] = OrderedDict()
     for item in changes:
         if not isinstance(item, dict) or "path" not in item:
             continue
         change = _normalize_change(item.get("change"))
         if change not in (Change.added, Change.modified, Change.deleted):
             continue
-        by_path.setdefault(item["path"], set()).add(change)
+        path = item["path"]
+        key = path_key(path) if path_key is not None else path
+        if key not in by_path:
+            by_path[key] = (path, set())
+        by_path[key][1].add(change)
 
     def exists(path: str) -> bool:
         return path_exists(path) if path_exists is not None else Path(path).is_file()
 
     result: list[dict] = []
-    for path, seen in by_path.items():
+    for path, seen in by_path.values():
         if not exists(path):
             result.append({"change": Change.deleted.name, "path": path})
         elif seen == {Change.added}:
@@ -40,10 +49,15 @@ def coalesce_changes(changes: list[dict], path_exists: Callable[[str], bool] | N
     return result
 
 
-def bucket_changes(changes: list[dict], path_exists: Callable[[str], bool] | None = None) -> dict[Change, list[str]]:
+def bucket_changes(
+    changes: list[dict],
+    path_exists: Callable[[str], bool] | None = None,
+    *,
+    path_key: Callable[[str], str] | None = None,
+) -> dict[Change, list[str]]:
     """Group changes by watchfiles.Change."""
     buckets: dict[Change, list[str]] = {Change.added: [], Change.modified: [], Change.deleted: []}
-    for item in coalesce_changes(changes, path_exists=path_exists):
+    for item in coalesce_changes(changes, path_exists=path_exists, path_key=path_key):
         change = _normalize_change(item["change"])
         if isinstance(change, Change) and change in buckets:
             buckets[change].append(item["path"])

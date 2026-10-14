@@ -14,7 +14,6 @@ import asyncio
 import datetime
 import os
 import tempfile
-import threading
 import warnings
 import weakref
 from collections.abc import AsyncGenerator, Callable
@@ -1055,7 +1054,7 @@ def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatc
         with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
             cwd = Path.cwd()
             path = write_file(cwd / "daily" / "source.md", "initial contents")
-            entered, release = threading.Event(), threading.Event()
+            item_built = asyncio.Event()
             watcher_started = asyncio.Event()
             chunk_calls: list[Path] = []
 
@@ -1089,15 +1088,17 @@ def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatc
             )
 
             original_chunk = chunker._chunk_sync
+            original_build_item = UpdateIndexStep.build_item
 
-            def change_during_first_parse(file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+            def count_chunk(file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
                 result = original_chunk(file_path, rel_path)
                 chunk_calls.append(file_path)
-                if len(chunk_calls) == 1:
-                    entered.set()
-                    if not release.wait(5):
-                        raise TimeoutError("test did not release the initial parse")
                 return result
+
+            async def signal_item_built(step: UpdateIndexStep, file_path: Path) -> tuple[FileNode, list[FileChunk]]:
+                item = await original_build_item(step, file_path)
+                item_built.set()
+                return item
 
             from reme.steps.index import watch_changes as watch_changes_module
 
@@ -1126,22 +1127,18 @@ def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatc
                 ):
                     yield changes
 
-            monkeypatch.setattr(chunker, "_chunk_sync", change_during_first_parse)
+            monkeypatch.setattr(chunker, "_chunk_sync", count_chunk)
+            monkeypatch.setattr(UpdateIndexStep, "build_item", signal_item_built)
             monkeypatch.setattr(watch_changes_module, "awatch", track_watcher_start)
 
             try:
                 await store.start()
                 await chunker.start()
-                await job.start()
-                for _ in range(500):
-                    if entered.is_set():
-                        break
-                    await asyncio.sleep(0.01)
-                assert entered.is_set(), "initial file parse did not start"
-
                 latest = "latest contents after the initial scan"
-                path.write_text(latest, encoding="utf-8")
-                release.set()
+                async with store._maintenance_guard():
+                    await job.start()
+                    await asyncio.wait_for(item_built.wait(), timeout=5)
+                    path.write_text(latest, encoding="utf-8")
 
                 await asyncio.wait_for(watcher_started.wait(), timeout=5)
                 nodes = await store.get_nodes()
@@ -1150,7 +1147,6 @@ def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatc
                 assert "".join(chunk.text for chunk in chunks) == latest
                 assert len(chunk_calls) == 2
             finally:
-                release.set()
                 await job.close()
                 await chunker.close()
                 await store.close()
