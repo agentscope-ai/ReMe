@@ -42,7 +42,7 @@ class ProactiveFinishStep(BaseStep):
             return self.context.response
         ws = workspace_dir(self)
 
-        checkpoint = [rel for rel in state.changed_paths if (ws / rel).is_file()]
+        checkpoint = [rel for rel in (*state.changed_paths, *state.resource_changed) if (ws / rel).is_file()]
         snapshot = state.changed_mtimes
         nodes: list[FileNode] = []
         deferred = 0

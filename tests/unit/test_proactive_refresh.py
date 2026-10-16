@@ -21,14 +21,24 @@ from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import BaseFileCatalog
 from reme.components.file_store import BaseFileStore
 from reme.components.runtime_context import RuntimeContext
-from reme.schema import FileNode, ProactiveTopic
+from reme.schema import FileNode, ProactiveSchedule, ProactiveStateFile, ProactiveTopic
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.utils import pack_paths
-from reme.steps.evolve.proactive.agenda import ProactiveAgendaStep
+from reme.steps.evolve.proactive.agenda import ProactiveAgendaStep, _pin_reason
 from reme.steps.evolve.proactive.extract import ProactiveExtractStep
 from reme.steps.evolve.proactive.finish import ProactiveFinishStep
 from reme.steps.evolve.proactive.plan import ProactivePlanStep
 from reme.steps.evolve.proactive.proactive import ProactiveStep
+from reme.steps.evolve.proactive.refine import parse_refine_reply
+from reme.steps.evolve.proactive.schedules import (
+    apply_schedule_updates,
+    canonical_due,
+    merge_reminders,
+    parse_when,
+    reminder_candidates_from_view,
+    schedule_view,
+    trim_schedules,
+)
 from reme.steps.evolve.proactive.topics import ProactiveTopicsStep
 from reme.steps.evolve.proactive.utils import (
     load_carry_forward,
@@ -39,12 +49,39 @@ from reme.steps.evolve.proactive.utils import (
     parse_interests_topics,
     parse_extract_reply,
     scan_material_daily,
+    scan_material_resource,
     strip_frontmatter,
     topic_id,
     trim_state_file,
 )
 
 DAY = "2026-08-13"
+# Fixed business clock for the reminder branch: 08:00 on DAY (+08:00).
+NOW = dt.datetime(2026, 8, 13, 8, 0, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+EXTRACT_CLOCK = "reme.steps.evolve.proactive.extract.current_now"
+# Stage-2 refine probes: the pass is recognised by its user message, and an
+# unscripted refine call answers "keep everything" (fail-open by contract).
+REFINE_MARKERS = ("kind under review:", "本次裁决的 kind")
+KEEP_ALL_VERDICTS = "```yaml\nverdicts: []\n```"
+
+
+def _is_refine_call(inputs) -> bool:
+    text = str(inputs or "")
+    return any(marker in text for marker in REFINE_MARKERS)
+
+
+def _verdicts(*verdicts) -> str:
+    body = yaml.safe_dump({"verdicts": list(verdicts)}, allow_unicode=True, sort_keys=False)
+    return f"```yaml\n{body}```"
+
+
+def _verdict(cid, decision="drop", to_kind="", confidence=None, reason="not grounded"):
+    doc = {"id": cid, "decision": decision, "reason": reason}
+    if to_kind:
+        doc["to_kind"] = to_kind
+    if confidence is not None:
+        doc["confidence"] = confidence
+    return doc
 
 
 def _touch(path: Path, text: str = "x") -> Path:
@@ -121,13 +158,20 @@ class _FileStore(BaseFileStore):
 
 
 class _AgentWrapper(BaseAgentWrapper):
-    """Deterministic LLM stub with scripted replies and call accounting."""
+    """Deterministic LLM stub with scripted replies and call accounting.
 
-    def __init__(self, replies=None, delay: float = 0.0):
+    Stage-2 refine calls are routed to their own queue and default to "keep
+    everything", so a test that only cares about stage 1 (or about plan/agenda)
+    stays aligned while refine is enabled by default.
+    """
+
+    def __init__(self, replies=None, delay: float = 0.0, refine_replies=None):
         super().__init__()
         self.replies = list(replies or [])
+        self.refine_replies = list(refine_replies or [])
         self.delay = delay
         self.calls = 0
+        self.refine_calls = 0
         self.last_inputs = []
         self.last_system_prompts = []
 
@@ -135,7 +179,12 @@ class _AgentWrapper(BaseAgentWrapper):
         self.calls += 1
         self.last_inputs.append(inputs)
         self.last_system_prompts.append(str(kwargs.get("system_prompt") or ""))
-        item = self.replies.pop(0) if self.replies else ""
+        if _is_refine_call(inputs):
+            self.refine_calls += 1
+            queue, fallback = self.refine_replies, KEEP_ALL_VERDICTS
+        else:
+            queue, fallback = self.replies, ""
+        item = queue.pop(0) if queue else fallback
         if isinstance(item, tuple):
             text, delay = item
         else:
@@ -174,14 +223,20 @@ class _FakeEmbedding:
         return [list(self.vectors.get(text, [0.0, 1.0])) for text in inputs]
 
 
-def _reply(follow_ups=None, extends=None, updates=None) -> str:
+def _reply(follow_ups=None, extends=None, reminders=None, new_ideas=None, updates=None, schedule_updates=None) -> str:
     doc = {}
     if follow_ups is not None:
         doc["follow_ups"] = follow_ups
     if extends is not None:
         doc["extends"] = extends
+    if reminders is not None:
+        doc["reminders"] = reminders
+    if new_ideas is not None:
+        doc["new_ideas"] = new_ideas
     if updates is not None:
         doc["updates"] = updates
+    if schedule_updates is not None:
+        doc["schedule_updates"] = schedule_updates
     body = yaml.safe_dump(doc, allow_unicode=True, sort_keys=False)
     return f"```yaml\n{body}```"
 
@@ -213,7 +268,37 @@ def _state_topic(title, day=DAY, kind="follow_up", confidence=0.8, topic_id_valu
     }
 
 
-def _write_state(ws, budget=None, exposure=None, open_topics=None, resolved=None, omit_open_topics=False):
+def _reminder(title, due_at="", reason="快到期了", confidence=0.8, paths=None, **extra):
+    doc = {"title": title, "reason": reason, "confidence": confidence, "paths": paths or []}
+    if due_at:
+        doc["due_at"] = due_at
+    doc.update(extra)
+    return doc
+
+
+def _schedule(title, due_at="", schedule_id=None, status="open", **extra):
+    entry = {
+        "id": schedule_id or topic_id(title),
+        "title": title,
+        "due_at": due_at,
+        "status": status,
+        "confidence": 0.8,
+        "first_seen": DAY,
+        "last_seen_at": DAY,
+    }
+    entry.update(extra)
+    return entry
+
+
+def _write_state(
+    ws,
+    budget=None,
+    exposure=None,
+    open_topics=None,
+    resolved=None,
+    schedules=None,
+    omit_open_topics=False,
+):
     data = {"version": 1}
     if budget is not None:
         data["budget"] = budget
@@ -223,6 +308,8 @@ def _write_state(ws, budget=None, exposure=None, open_topics=None, resolved=None
         data["open_topics"] = open_topics or []
     if resolved is not None:
         data["resolved"] = resolved
+    if schedules is not None:
+        data["schedules"] = schedules
     _touch(ws / "daily" / "_proactive.yaml", yaml.safe_dump(data, allow_unicode=True, sort_keys=False))
 
 
@@ -641,7 +728,7 @@ def test_refresh_chain_e2e(tmp_path):
 
         assert resp_extract.success and resp_topics.success and resp_finish.success
         state = context.get("proactive")
-        assert state["llm_calls"] == 1
+        assert state["llm_calls"] == 1 + state["refine_calls"]  # stage 1 + one pass per non-empty kind
         assert state["push"] is True
         assert state["file_skip_reason"] == ""
         assert state["interests_written"] is True
@@ -1145,9 +1232,10 @@ def test_schema_error_reply_retries(tmp_path):
         good = _reply(follow_ups=[_topic("补救话题", paths=[f"daily/{DAY}/session.md"])])
         wrapper = _AgentWrapper([bad, good])
         _, wrapper, _, context, responses = await _run_chain(ws, wrapper=wrapper)
-        assert wrapper.calls == 2
+        state = context.get("proactive")
+        assert wrapper.calls == 2 + state["refine_calls"]  # 2 stage-1 attempts + refine
         assert all(r.success for r in responses)
-        assert [t["title"] for t in context.get("proactive")["follow_ups"]] == ["补救话题"]
+        assert [t["title"] for t in state["follow_ups"]] == ["补救话题"]
 
     asyncio.run(run())
 
@@ -1452,7 +1540,7 @@ def test_semantic_dedup(tmp_path):
         assert state["dropped_duplicate"] == 0
         assert [c["title"] for c in state["candidates"]] == ["Candidate Topic"]
         assert fake.calls >= 1
-        assert wrapper.calls == 1  # topics step is pure computation now
+        assert wrapper.calls == 1 + state["refine_calls"]  # extract (+refine); topics is pure computation
 
     asyncio.run(run())
 
@@ -1579,9 +1667,9 @@ def test_plan_agenda_chain_e2e(tmp_path):
         )
         _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply, plan_reply, agenda_text])
         assert all(r.success for r in resps)
-        assert wrapper.calls == 3
         state = context.get("proactive")
-        assert state["llm_calls"] == 1  # extract only
+        assert wrapper.calls == 3 + state["refine_calls"]  # extract + plan + agenda
+        assert state["llm_calls"] == 1 + state["refine_calls"]  # extract only
         assert state["plan_llm_calls"] == 2  # plan + agenda
         assert state["push"] is True
 
@@ -1622,8 +1710,8 @@ def test_plan_agenda_fallback_without_llm(tmp_path):
         # Only the extract reply is scripted; plan/agenda receive "" and must degrade.
         _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply])
         assert all(r.success for r in resps)
-        assert wrapper.calls == 3
         state = context.get("proactive")
+        assert wrapper.calls == 3 + state["refine_calls"]
         assert state["plan_llm_calls"] == 2  # attempted but unusable
         assert len(state["scenario_cards"]) == 2
 
@@ -1649,8 +1737,8 @@ def test_agenda_no_candidates_keeps_topics_render(tmp_path):
         )
         _, wrapper, _, context, resps = await _run_full_chain(ws, [extract_reply])
         assert all(r.success for r in resps)
-        assert wrapper.calls == 1  # extract only; plan/agenda made zero LLM calls
         state = context.get("proactive")
+        assert wrapper.calls == 1 + state["refine_calls"]  # extract only; plan/agenda made zero calls
         assert state["push"] is False
         assert state["push_candidates"] == []
         assert state["scenario_cards"] == []
@@ -1676,8 +1764,8 @@ def test_agenda_single_candidate_skips_llm(tmp_path):
         fid = topic_id("唯一候选")
         plan_reply = _plan_reply([_card(fid, scenario="answer_pending")])
         _, wrapper, _, context, _ = await _run_full_chain(ws, [extract_reply, plan_reply])
-        assert wrapper.calls == 2  # extract + plan only
         state = context.get("proactive")
+        assert wrapper.calls == 2 + state["refine_calls"]  # extract + plan only
         assert state["plan_llm_calls"] == 1
 
         data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
@@ -1982,5 +2070,1111 @@ def test_carry_forward_expiry_boundary_consistent(tmp_path):
 
         trim_state_file(state_file, DAY, 14)
         assert state_file.open_topics == []
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Four-kind extraction: follow_up / interest_extend / reminder / new_idea
+# ---------------------------------------------------------------------------
+
+
+def test_extract_prompt_covers_the_four_branches():
+    """All four branches render by default; disabling one removes its whole contract."""
+
+    async def run_once(**extract_kwargs):
+        with tempfile.TemporaryDirectory() as tmp:
+            ws = Path(tmp)
+            _touch(ws / "daily" / DAY / "s1.md", "material")
+            _, wrapper, _, _context, _ = await _run_chain(ws, [_reply(follow_ups=[])], extract_kwargs=extract_kwargs)
+            return wrapper.last_system_prompts[0], wrapper.last_inputs[0]
+
+    async def run():
+        system_on, user_on = await run_once()
+        for heading in (
+            "Branch A - follow_ups",
+            "Branch B - extends",
+            "Branch C - reminders",
+            "Branch D - new_ideas",
+        ):
+            assert heading in system_on
+        for section in ("follow_ups:", "extends:", "reminders:", "new_ideas:", "updates:", "schedule_updates:"):
+            assert section in system_on  # output shape lists every active section
+        assert "now (current clock" in user_on
+        assert "schedules (long-lived registry" in user_on
+        assert "capability_inventory" in user_on
+
+        system_off, user_off = await run_once(
+            extends_enabled=False,
+            reminders_enabled=False,
+            new_ideas_enabled=False,
+        )
+        for heading in ("Branch B", "Branch C", "Branch D"):
+            assert heading not in system_off
+        for section in ("extends:", "reminders:", "new_ideas:", "schedule_updates:"):
+            assert section not in system_off
+        assert "[" not in system_off.split("## Output format")[-1]  # no unrendered flag leaked
+        assert "schedules" not in user_off
+        assert "capability_inventory" not in user_off
+
+    asyncio.run(run())
+
+
+def test_kind_caps_and_new_idea_kind(tmp_path):
+    """Discovery kinds are capped and tagged; reminders are not capped."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        path = f"daily/{DAY}/session.md"
+        reply = _reply(
+            follow_ups=[_topic(f"任务{i}", paths=[path]) for i in range(4)],
+            new_ideas=[_topic(f"可以委托的事{i}", paths=[path]) for i in range(3)],
+            reminders=[_reminder(f"日程{i}", due_at="2026-08-14", paths=[path]) for i in range(4)],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_chain(
+                ws,
+                [reply],
+                extract_kwargs={"max_follow_ups": 2, "max_new_ideas": 1},
+            )
+        state = context.get("proactive")
+        assert [t["title"] for t in state["follow_ups"]] == ["任务0", "任务1"]
+        assert all(t["kind"] == "follow_up" for t in state["follow_ups"])
+        assert [t["title"] for t in state["new_ideas"]] == ["可以委托的事0"]
+        assert state["new_ideas"][0]["kind"] == "new_idea"
+        assert len(state["reminders"]) == 4  # uncapped
+        assert all(t["kind"] == "reminder" for t in state["reminders"])
+        assert state["dropped_over_cap"] == 2 + 2  # follow_ups + new_ideas
+
+    asyncio.run(run())
+
+
+def test_reminder_clock_only_round(tmp_path):
+    """A due schedule reaches today's agenda with zero extract LLM calls and no material."""
+
+    async def run():
+        ws = tmp_path
+        _write_state(ws, schedules=[_schedule("提交季度报告", "2026-08-14T09:00")])
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, wrapper, catalog, context, resps = await _run_full_chain(ws, [])
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert state["reminder_only"] is True
+        assert state["llm_calls"] == 0  # extract made no call; the single call is plan's
+        assert wrapper.calls == 1
+        assert [r["title"] for r in state["reminders"]] == ["提交季度报告"]
+        assert state["reminders"][0]["trigger"] == "due_soon"
+        assert state["push"] is True
+        assert catalog.upserts == [] and catalog.dumps == 0  # no material to checkpoint
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert data["push"] is True
+        assert [item["title"] for item in data["agenda"]] == ["提交季度报告"]
+        item = data["agenda"][0]
+        assert item["kind"] == "reminder"
+        assert item["scenario_type"] == "prepare_upcoming"
+        assert item["due_at"] == "2026-08-14T09:00"  # timed schedules keep their clock time
+        assert item["schedule_id"] == topic_id("提交季度报告")
+        assert item["order_reason"].startswith("reminder pinned")
+        assert data["topics"][0]["kind"] == "reminder"
+
+    asyncio.run(run())
+
+
+def test_pin_reason_names_the_actual_cause():
+    """A pinned reminder's audit trail says whether the clock or freshness pinned it."""
+    day = "2026-10-12"
+    overdue = _pin_reason({"due_at": "2026-10-06", "first_seen": "2026-09-19"}, day)
+    assert overdue == "reminder pinned: a due schedule always enters today's agenda (due 2026-10-06)"
+    due_today = _pin_reason({"due_at": "2026-10-12T18:00", "first_seen": day}, day)
+    assert due_today.startswith("reminder pinned: a due schedule")
+    fresh = _pin_reason({"due_at": "2026-11-06", "first_seen": day}, day)
+    assert fresh == "reminder pinned: a new reminder always enters today's agenda (due 2026-11-06)"
+    carried = _pin_reason({"due_at": "2026-11-06", "first_seen": "2026-09-19"}, day)
+    assert carried.startswith("reminder pinned: an open reminder")
+    undated = _pin_reason({"first_seen": day}, day)
+    assert undated.endswith("today's agenda") and "(due" not in undated
+    # Without an agenda date nothing can be claimed about the clock.
+    assert _pin_reason({"due_at": "2026-11-06"}, "").startswith("reminder pinned: an open reminder")
+
+
+def test_reminder_registry_maintenance_and_anchoring(tmp_path):
+    """schedule_updates maintain the registry; unanchored changes are rejected."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "用户说评审会改期，下周三要牙医复诊")
+        _write_state(
+            ws,
+            schedules=[
+                _schedule("季度评审会", "2026-08-20T14:00", schedule_id="sch-1"),
+                _schedule("旧体检", "2026-08-18", schedule_id="sch-2"),
+            ],
+        )
+        path = f"daily/{DAY}/session.md"
+        reply = _reply(
+            reminders=[_reminder("牙医复诊", due_at="2026年8月19日 15:00", paths=[path])],
+            schedule_updates=[
+                {
+                    "id": "sch-1",
+                    "action": "reschedule",
+                    "due_at": "2026-08-21T10:00",
+                    "reason": "改期",
+                    "evidence": path,
+                },
+                {"id": "sch-2", "action": "done", "reason": "已完成", "evidence": "daily/2026-01-01/old.md"},
+                {"id": "", "action": "add", "title": "牙医复诊", "due_at": "2026-08-19T15:00", "evidence": path},
+            ],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_full_chain(ws, [reply])
+        state = context.get("proactive")
+        assert state["schedules_added"] == 1
+        assert state["schedules_updated"] == 1
+        assert state["schedules_closed"] == 0  # the unanchored `done` was rejected
+        assert state["reminders"][0]["due_at"] == "2026-08-19T15:00"  # CJK due normalized
+
+        registry = {entry["id"]: entry for entry in _read_state(ws)["schedules"]}
+        assert registry["sch-1"]["due_at"] == "2026-08-21T10:00"
+        assert registry["sch-1"]["history"][-1]["action"] == "reschedule"
+        assert registry["sch-1"]["history"][-1]["from"] == "2026-08-20T14:00"
+        assert registry["sch-2"]["status"] == "open"  # untouched
+        added = registry[topic_id("牙医复诊")]
+        assert added["due_at"] == "2026-08-19T15:00"
+        assert added["history"][-1]["action"] == "add"
+        assert added["evidence"] == path
+        # ``schedules_out`` is the slim open-registry view published in metadata.
+        assert {entry["id"] for entry in state["schedules_out"]} == set(registry)
+        assert all("history" not in entry and "paths" not in entry for entry in state["schedules_out"])
+
+    asyncio.run(run())
+
+
+def test_reminder_registration_adopts_the_explicit_entry(tmp_path):
+    """One notice under two titles registers once: the derived channel adopts the explicit id."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "航司通知 MU5137 起飞时间变更")
+        path = f"daily/{DAY}/session.md"
+        reply = _reply(
+            reminders=[_reminder("MU5137 航班起飞时间调整", due_at="2026-08-19T15:30", paths=[path])],
+            schedule_updates=[
+                {
+                    "id": "",
+                    "action": "add",
+                    "title": "MU5137 上海虹桥-北京首都航班",
+                    "due_at": "2026-08-19T15:30",
+                    "evidence": path,
+                },
+            ],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_full_chain(ws, [reply])
+        state = context.get("proactive")
+        assert state["schedules_added"] == 1  # the explicit one; no twin behind a second title
+        registry = {entry["id"]: entry for entry in _read_state(ws)["schedules"]}
+        assert len(registry) == 1
+        kept = registry[topic_id("MU5137 上海虹桥-北京首都航班")]
+        assert kept["title"] == "MU5137 上海虹桥-北京首都航班"
+        assert [h["action"] for h in kept["history"]] == ["add"]
+        # The reminder republishes the adopted id, so the topic and the agenda
+        # card cannot point at a schedule that was never registered.
+        assert state["reminders"][0]["schedule_id"] == kept["id"]
+        agenda = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))["agenda"]
+        assert [item["schedule_id"] for item in agenda] == [kept["id"]]
+
+    asyncio.run(run())
+
+
+def test_one_notice_two_matters_keeps_both_schedules(tmp_path):
+    """Distinct dues from one file are distinct matters, so adoption must not merge them."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "航司通知 MU5137 起飞时间变更，改签需今天前办理")
+        path = f"daily/{DAY}/session.md"
+        reply = _reply(
+            reminders=[
+                _reminder("MU5137 航班起飞时间调整", due_at="2026-08-19T15:30", paths=[path]),
+                _reminder("MU5137 改签决策截止", due_at="2026-08-14T18:00", paths=[path]),
+            ],
+            schedule_updates=[
+                {
+                    "id": "",
+                    "action": "add",
+                    "title": "MU5137 上海虹桥-北京首都航班",
+                    "due_at": "2026-08-19T15:30",
+                    "evidence": path,
+                },
+            ],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_full_chain(ws, [reply])
+        state = context.get("proactive")
+        assert state["schedules_added"] == 2  # the flight plus the decision deadline
+        registry = {entry["id"]: entry for entry in _read_state(ws)["schedules"]}
+        assert len(registry) == 2
+        assert registry[topic_id("MU5137 改签决策截止")]["due_at"] == "2026-08-14T18:00"
+        # Reminders are sorted by due date, so look them up by title.
+        published = {r["title"]: r["schedule_id"] for r in state["reminders"]}
+        assert published["MU5137 航班起飞时间调整"] == topic_id("MU5137 上海虹桥-北京首都航班")
+        assert published["MU5137 改签决策截止"] == topic_id("MU5137 改签决策截止")
+
+    asyncio.run(run())
+
+
+def test_reminder_pins_agenda_ahead_of_higher_confidence(tmp_path):
+    """A low-confidence reminder outranks a 0.95 follow-up on today's agenda."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        path = f"daily/{DAY}/session.md"
+        reply = _reply(
+            follow_ups=[_topic("高置信任务", confidence=0.95, paths=[path])],
+            reminders=[_reminder("明天到期的报告", due_at="2026-08-14", confidence=0.4, paths=[path])],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_full_chain(ws, [reply])
+        state = context.get("proactive")
+        assert [c["kind"] for c in state["push_candidates"]] == ["reminder", "follow_up"]
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [item["kind"] for item in data["agenda"]] == ["reminder", "follow_up"]
+        assert data["agenda"][0]["due_at"] == "2026-08-14"
+        assert data["agenda"][1]["order_reason"] == "single push candidate; auto-agenda without LLM"
+        assert data["suppressed"] == []
+
+    asyncio.run(run())
+
+
+def test_llm_timeout_still_delivers_due_reminder(tmp_path):
+    """An extract timeout degrades to a clock-only round and never consumes material."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "daily" / DAY / "session.md", "unread material")
+        _write_state(ws, schedules=[_schedule("提交季度报告", "2026-08-14T09:00")])
+        wrapper = _AgentWrapper(["never returned"], delay=0.5)
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, catalog, context, resps = await _run_full_chain(
+                ws,
+                wrapper=wrapper,
+                extract_kwargs={"llm_timeout_seconds": 0.05},
+            )
+        assert all(r.success for r in resps)
+        assert context.get("proactive_skip") is None  # the chain was not short-circuited
+        state = context.get("proactive")
+        assert state["reminder_only"] is True
+        assert state["changed_paths"] == []
+        assert catalog.upserts == [] and catalog.dumps == 0  # material stays changed for next round
+
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [item["title"] for item in data["agenda"]] == ["提交季度报告"]
+
+    asyncio.run(run())
+
+
+def test_recurring_reminder_keeps_registry_anchor(tmp_path):
+    """A weekly schedule reminds on its next occurrence without rewriting the anchor."""
+
+    async def run():
+        ws = tmp_path
+        _write_state(ws, schedules=[_schedule("周报", "2026-08-06", recurrence="weekly", schedule_id="sch-w")])
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_full_chain(ws, [])
+        state = context.get("proactive")
+        assert [r["title"] for r in state["reminders"]] == ["周报"]
+        assert state["reminders"][0]["trigger"] == "due_today"
+        assert state["schedules_added"] == 0 and state["schedules_updated"] == 0
+
+        registry = _read_state(ws)["schedules"][0]
+        assert registry["due_at"] == "2026-08-06"  # anchor untouched
+        assert registry["history"] == []
+        topic = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))["topics"][0]
+        assert topic["due_at"] == "2026-08-13"  # published as the next occurrence
+        assert topic["schedule_id"] == "sch-w"
+
+    asyncio.run(run())
+
+
+def test_reminder_bypasses_known_gate(tmp_path):
+    """A due reminder fires even when the same title was published recently."""
+
+    async def run():
+        ws = tmp_path
+        title = "提交季度报告"
+        _write_interests_v2(
+            ws,
+            "2026-08-12",
+            [{"id": topic_id(title), "title": title, "reason": "旧提醒", "kind": "reminder", "confidence": 0.8}],
+        )
+        _write_state(
+            ws,
+            schedules=[_schedule(title, "2026-08-14T09:00", schedule_id="sch-1")],
+        )
+        embedder = _FakeEmbedding({})  # every text maps to the same vector -> sim 1.0 >= threshold
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_chain(ws, [], extra_ctx={"as_embedding": embedder})
+        state = context.get("proactive")
+        assert state["dropped_known"] == 0
+        assert [t["title"] for t in state["topics_out"]] == [title]
+        assert state["push"] is True
+
+    asyncio.run(run())
+
+
+def test_read_exempts_reminders_from_min_confidence(tmp_path):
+    """proactive_read keeps a low-confidence reminder but filters a weak discovery topic."""
+
+    async def run():
+        ws = tmp_path
+        topics = [
+            {
+                "id": topic_id("低置信提醒"),
+                "title": "低置信提醒",
+                "reason": "明天到期",
+                "kind": "reminder",
+                "confidence": 0.35,
+                "first_seen": DAY,
+                "last_evidence_at": DAY,
+                "evidence": "",
+                "paths": [],
+                "due_at": "2026-08-14",
+            },
+            {
+                "id": topic_id("低置信延伸"),
+                "title": "低置信延伸",
+                "reason": "弱联想",
+                "kind": "interest_extend",
+                "confidence": 0.35,
+                "first_seen": DAY,
+                "last_evidence_at": DAY,
+                "evidence": "",
+                "paths": [],
+            },
+            {
+                # A dateless reminder is an external notice / key event, i.e. a
+                # judgement call rather than a clock fact: the floor applies.
+                "id": topic_id("无日期关键事件"),
+                "title": "无日期关键事件",
+                "reason": "外部信源关键事件",
+                "kind": "reminder",
+                "confidence": 0.35,
+                "first_seen": DAY,
+                "last_evidence_at": DAY,
+                "evidence": f"resource/{DAY}/feed.md",
+                "paths": [f"resource/{DAY}/feed.md"],
+            },
+        ]
+        _write_interests_v2(ws, DAY, topics)
+        step = ProactiveStep(app_context=ApplicationContext(workspace_dir=str(ws)))
+        response = await step(RuntimeContext(date=DAY, include_content=False, file_store=_FileStore(ws)))
+        assert response.success is True
+        assert [t["title"] for t in response.answer["topics"]] == ["低置信提醒"]
+        assert response.answer["topics"][0]["due_at"] == "2026-08-14"
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Schedule registry helpers (clock maths, conflicts, lifecycle)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_when_and_canonical_due():
+    """Due parsing tolerates ISO and CJK wording; year-less values roll forward."""
+    assert parse_when("2026-08-14") == (dt.date(2026, 8, 14), None)
+    assert parse_when("2026-08-14T09:30") == (dt.date(2026, 8, 14), dt.datetime(2026, 8, 14, 9, 30))
+    assert parse_when("2026-08-14 09:30:00+08:00")[1] == dt.datetime(2026, 8, 14, 9, 30)
+    assert parse_when("2026年8月14日 9点")[1] == dt.datetime(2026, 8, 14, 9, 0)
+    assert parse_when("8月14日", dt.date(2026, 8, 13))[0] == dt.date(2026, 8, 14)
+    assert parse_when("8月14日", dt.date(2026, 9, 1))[0] == dt.date(2027, 8, 14)
+    assert parse_when(" soon ") == (None, None)
+    assert canonical_due("2026年8月14日 9点") == "2026-08-14T09:00"
+    assert canonical_due("无法解析") == "无法解析"
+
+
+def test_schedule_view_conflicts_and_triggers():
+    """Overlaps need a timed side; the earliest clash announces the conflict."""
+    schedules = [
+        ProactiveSchedule(id="a", title="评审(全天)", due_at="2026-08-14"),
+        ProactiveSchedule(id="b", title="客户会议", due_at="2026-08-14T10:00", due_end_at="2026-08-14T11:00"),
+        ProactiveSchedule(id="c", title="午餐", due_at="2026-08-14T12:00"),
+        ProactiveSchedule(id="d", title="远期限期", due_at="2026-12-01"),
+        ProactiveSchedule(id="e", title="逾期项", due_at="2026-08-01"),
+        ProactiveSchedule(id="f", title="无日期项", due_at=""),
+        ProactiveSchedule(id="g", title="已完成", due_at="2026-08-14", status="done"),
+    ]
+    view = {entry["id"]: entry for entry in schedule_view(schedules, NOW, 3)}
+    assert view["a"]["trigger"] == "conflict"  # all-day vs timed meeting on the same date
+    assert view["b"]["trigger"] == "due_soon"  # the clash is already announced by "a"
+    assert view["b"]["conflict_with"] == ["评审(全天)"]
+    # A timed appointment inside an all-day block is still a possible clash; it
+    # keeps ``due_soon`` only because the clash was announced once already.
+    assert view["c"]["trigger"] == "due_soon" and view["c"]["conflict_with"] == ["评审(全天)"]
+    assert view["d"]["trigger"] == "later"
+    assert view["e"]["trigger"] == "overdue" and view["e"]["due_in_days"] < 0
+    assert view["f"]["trigger"] == "unscheduled"
+    assert view["g"]["trigger"] == "closed"
+
+    titles = [c["title"] for c in reminder_candidates_from_view(list(view.values()), DAY)]
+    assert titles == ["逾期项", "评审(全天)", "客户会议", "午餐"]  # nearest due first, then by hour
+    assert "已完成" not in titles and "远期限期" not in titles and "无日期项" not in titles
+
+
+def test_merge_reminders_keeps_clock_facts():
+    """The model may reword a reminder but cannot move the registry anchor."""
+    seeded = [
+        {
+            "id": topic_id("评审会"),
+            "title": "评审会",
+            "reason": "模板理由",
+            "kind": "reminder",
+            "confidence": 0.6,
+            "schedule_id": "sch-1",
+            "due_at": "2026-08-20T14:00",
+            "next_due": "2026-08-20",
+            "paths": ["daily/2026-08-01/a.md"],
+            "trigger": "due_soon",
+        },
+    ]
+    emitted = [
+        {
+            "id": topic_id("评审会"),
+            "title": "评审会",
+            "reason": "素材显示材料还没齐",
+            "kind": "reminder",
+            "confidence": 0.9,
+            "schedule_id": "sch-1",
+            "due_at": "2026-09-01",
+            "next_due": "",
+            "paths": [f"daily/{DAY}/session.md"],
+        },
+    ]
+    merged = merge_reminders(seeded, emitted)
+    assert len(merged) == 1
+    assert merged[0]["reason"] == "素材显示材料还没齐"
+    assert merged[0]["confidence"] == 0.9
+    assert merged[0]["due_at"] == "2026-08-20T14:00"  # anchor kept
+    assert merged[0]["next_due"] == "2026-08-20"
+    assert merged[0]["paths"] == ["daily/2026-08-01/a.md", f"daily/{DAY}/session.md"]
+    assert merged[0]["trigger"] == "due_soon"
+
+
+def test_apply_schedule_updates_requires_anchor():
+    """Registry changes need evidence inside this round's material."""
+    state_file = ProactiveStateFile()
+    updates = [
+        {"id": "", "action": "add", "title": "新日程", "due_at": "2026-08-20", "evidence": "daily/2026-08-13/s.md"},
+        {"id": "", "action": "add", "title": "旧证据日程", "due_at": "2026-08-21", "evidence": "daily/2026-01-01/o.md"},
+        {"id": "unknown", "action": "cancel", "evidence": "daily/2026-08-13/s.md"},
+        {"id": "", "action": "nonsense", "title": "x"},
+    ]
+    counts, touched = apply_schedule_updates(state_file, updates, DAY, {"daily/2026-08-13/s.md"})
+    assert counts == {"added": 1, "updated": 0, "closed": 0, "skipped": 3}
+    # Only the accepted update is protected from the reminder safety net; the
+    # three skipped ones never touched the registry.
+    assert touched == {topic_id("新日程")}
+    assert [s.title for s in state_file.schedules] == ["新日程"]
+
+
+def test_trim_schedules_lifecycle():
+    """The registry outlives topics: only aged closures and hopeless overdues go."""
+    state_file = ProactiveStateFile(
+        schedules=[
+            ProactiveSchedule(id="open-future", title="未来", due_at="2027-01-01", status="open", last_seen_at=DAY),
+            ProactiveSchedule(
+                id="open-overdue",
+                title="逾期半年",
+                due_at="2026-01-01",
+                status="open",
+                last_seen_at=DAY,
+            ),
+            ProactiveSchedule(
+                id="closed-old",
+                title="旧完成",
+                due_at="2025-01-01",
+                status="done",
+                last_seen_at="2025-01-02",
+            ),
+            ProactiveSchedule(
+                id="chatty",
+                title="多次改期",
+                due_at="2026-09-01",
+                status="open",
+                last_seen_at=DAY,
+                history=[{"at": DAY, "action": "reschedule"} for _ in range(20)],
+            ),
+        ],
+    )
+    dropped = trim_schedules(state_file, DAY, retention_days=180, max_schedules=80, max_history=8)
+    kept = {s.id: s for s in state_file.schedules}
+    assert dropped == 1
+    assert "closed-old" not in kept
+    assert kept["open-overdue"].status == "cancelled"  # hopeless overdue auto-closed
+    assert kept["open-overdue"].history[-1]["action"] == "expire"
+    assert kept["open-future"].status == "open"
+    assert len(kept["chatty"].history) == 8  # change log capped, newest kept
+
+
+def test_scan_material_resource_window_and_filters(tmp_path):
+    """Only in-window, text-readable external records join the notice set."""
+    ws = tmp_path
+    _touch(ws / "resource" / DAY / "flight-change.eml", "MU5137 改期")
+    _touch(ws / "resource" / DAY / "scan.pdf", "binary")
+    _touch(ws / "resource" / DAY / "_internal.md", "not material")
+    _touch(ws / "resource" / "2026-01-02" / "old.md", "out of window")
+    inbox = _touch(ws / "resource" / "inbox.md", "undated root input")
+    fresh = dt.datetime(2026, 8, 13, 9, 0).timestamp()
+    os.utime(inbox, (fresh, fresh))
+    stale = _touch(ws / "resource" / "stale.md", "landed long ago")
+    ancient = dt.datetime(2026, 1, 2, 9, 0).timestamp()
+    os.utime(stale, (ancient, ancient))
+
+    paths, skipped = scan_material_resource(ws, DAY, 2)
+    assert paths == [f"resource/{DAY}/flight-change.eml", "resource/inbox.md"]
+    assert skipped == 1  # the pdf: auto_resource already interprets binaries into daily cards
+
+    with tempfile.TemporaryDirectory() as empty:
+        assert scan_material_resource(Path(empty), DAY, 2) == ([], 0)
+
+
+def test_resource_notice_feeds_reminder_branch_only(tmp_path):
+    """A notice alone keeps the round alive; only reminders may cite the resource layer."""
+
+    async def run():
+        ws = tmp_path
+        notice = f"resource/{DAY}/airline-notice.md"
+        _touch(ws / notice, "MU5137 改期到 8 月 15 日")
+        reply = _reply(
+            follow_ups=[_topic("跟进改签", paths=[notice])],
+            reminders=[_reminder("航班改期通知", due_at="2026-08-15", paths=[notice])],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, wrapper, catalog, context, resps = await _run_chain(ws, [reply])
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert (state["resource_scanned"], state["resource_skipped"]) == (1, 0)
+        assert state["resource_changed"] == [notice]
+        assert state["changed_paths"] == []  # no daily note changed this round
+        # the external notice alone triggered the round: stage 1 + its refine pass
+        assert state["llm_calls"] == 1 + state["refine_calls"]
+        assert [t["title"] for t in state["reminders"]] == ["航班改期通知"]
+        assert state["reminders"][0]["paths"] == [notice]
+        assert state["follow_ups"] == [] and state["dropped_missing"] == 1  # untraceable kind
+        assert [n.path for n in catalog.upserts] == [notice]  # shared watermark checkpoint
+        assert "resource_paths" in wrapper.last_inputs[0]
+        assert "# External notices" in wrapper.last_inputs[0]
+        assert "3. Notices and key events - scan `resource_notices`" in wrapper.last_system_prompts[0]
+
+    asyncio.run(run())
+
+
+def test_resources_disabled_keeps_notice_layer_out(tmp_path):
+    """``resources_enabled=False`` removes the scan, the prompt block and the trigger."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "resource" / DAY / "airline-notice.md", "MU5137 改期")
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, wrapper, catalog, context, resps = await _run_chain(
+                ws,
+                [_reply(follow_ups=[])],
+                extract_kwargs={"resources_enabled": False},
+            )
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert (state["resource_scanned"], state["resource_changed"]) == (0, [])
+        assert state["early_exit"] == "no_new_evidence"  # the notice is not material
+        assert wrapper.calls == 0
+        assert catalog.upserts == [] and catalog.dumps == 0
+
+        _touch(ws / "daily" / DAY / "session.md", "material")
+        _, wrapper2, _, _, _ = await _run_chain(
+            ws,
+            [_reply(follow_ups=[])],
+            extract_kwargs={"resources_enabled": False},
+        )
+        assert "resource_paths" not in wrapper2.last_inputs[0]
+        assert "# External notices" not in wrapper2.last_inputs[0]
+        assert "resource_notices" not in wrapper2.last_system_prompts[0]  # branch C job 3 gone too
+        assert "[" not in wrapper2.last_inputs[0].split("# Material")[-1]  # no unrendered flag leaked
+
+    asyncio.run(run())
+
+
+def test_degraded_round_does_not_consume_notices(tmp_path):
+    """A timeout still delivers due reminders and leaves the unread notice for next round."""
+
+    async def run():
+        ws = tmp_path
+        _touch(ws / "resource" / DAY / "airline-notice.md", "MU5137 改期")
+        _write_state(ws, schedules=[_schedule("提交季度报告", "2026-08-14T09:00")])
+        wrapper = _AgentWrapper(["never returned"], delay=0.5)
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, catalog, context, resps = await _run_full_chain(
+                ws,
+                wrapper=wrapper,
+                extract_kwargs={"llm_timeout_seconds": 0.05},
+            )
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert state["reminder_only"] is True
+        assert state["changed_paths"] == [] and state["resource_changed"] == []
+        assert catalog.upserts == [] and catalog.dumps == 0
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [item["title"] for item in data["agenda"]] == ["提交季度报告"]
+
+    asyncio.run(run())
+
+
+# ---------------------------------------------------------------------------
+# Stage 2: per-kind adjudication (precision pass)
+# ---------------------------------------------------------------------------
+
+
+def test_refine_stage_drops_moves_and_rescores(tmp_path):
+    """Stage 2 adjudicates each kind's own candidates: drop, move and rescore."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        titles = ("值得跟进的事", "其实是可委托的活", "站不住脚的猜测")
+        reply = _reply(follow_ups=[_topic(title, paths=[path]) for title in titles])
+        refine = _verdicts(
+            _verdict(topic_id("站不住脚的猜测"), "drop", reason="no visible open loop"),
+            _verdict(topic_id("其实是可委托的活"), "move", to_kind="new_idea", reason="delegatable work"),
+            _verdict(topic_id("值得跟进的事"), "keep", confidence=0.9, reason=""),
+        )
+        wrapper = _AgentWrapper([reply], refine_replies=[refine])
+        _, _, _, context, _ = await _run_chain(ws, wrapper=wrapper)
+        state = context.get("proactive")
+        assert (state["refine_calls"], state["refine_degraded"]) == (1, 0)
+        assert wrapper.refine_calls == 1  # only follow_up produced candidates
+        assert [t["title"] for t in state["follow_ups"]] == ["值得跟进的事"]
+        assert state["follow_ups"][0]["confidence"] == 0.9  # rescored per rubric
+        assert [t["title"] for t in state["new_ideas"]] == ["其实是可委托的活"]
+        assert state["new_ideas"][0]["kind"] == "new_idea"  # re-bucketed by the move
+        assert [d["title"] for d in state["refine_dropped"]] == ["站不住脚的猜测"]
+        assert state["refine_moved"][0]["to_kind"] == "new_idea"
+        assert "kind under review: follow_up" in wrapper.last_inputs[-1]
+
+    asyncio.run(run())
+
+
+def test_refine_stage_is_fail_open(tmp_path):
+    """An unusable or timed-out refine pass keeps the stage-1 candidates."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        reply = _reply(follow_ups=[_topic("候选一", paths=[path])])
+
+        _, _, _, context, _ = await _run_chain(
+            ws,
+            wrapper=_AgentWrapper([reply], refine_replies=["not a verdict block"]),
+        )
+        state = context.get("proactive")
+        assert state["refine_degraded"] == 1 and state["refine_calls"] == 1
+        assert [t["title"] for t in state["follow_ups"]] == ["候选一"]
+
+        ws2 = tmp_path / "second"
+        _touch(ws2 / "daily" / DAY / "session.md", "material")
+        _, _, _, context2, _ = await _run_chain(
+            ws2,
+            wrapper=_AgentWrapper([reply], refine_replies=[(KEEP_ALL_VERDICTS, 0.5)]),
+            extract_kwargs={"refine_timeout_seconds": 0.05},
+        )
+        state2 = context2.get("proactive")
+        assert state2["refine_degraded"] == 1
+        assert [t["title"] for t in state2["follow_ups"]] == ["候选一"]
+
+    asyncio.run(run())
+
+
+def test_parse_refine_reply_shapes():
+    """Only a genuinely unparseable reply is unusable; an empty verdict list is not."""
+    assert parse_refine_reply("```yaml\nverdicts:\n```") == []  # YAML's spelling of []
+    assert parse_refine_reply(KEEP_ALL_VERDICTS) == []
+    assert parse_refine_reply("```yaml\nfoo: 1\n```") is None  # format not followed
+    assert parse_refine_reply("no fenced block here") is None
+    assert parse_refine_reply("```yaml\nverdicts: {id: x}\n```") is None  # not a list
+    assert parse_refine_reply(_verdicts({"id": "x1", "decision": "drop", "reason": "weak"})) == [
+        {"id": "x1", "decision": "drop", "to_kind": "", "reason": "weak"},
+    ]
+
+
+def test_refine_empty_verdicts_is_not_a_degrade(tmp_path):
+    """ "Nothing to change" is the expected clean answer, so it must not count as degraded."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        reply = _reply(follow_ups=[_topic("候选一", paths=[path])])
+        _, _, _, context, _ = await _run_chain(
+            ws,
+            wrapper=_AgentWrapper([reply], refine_replies=["```yaml\nverdicts:\n```"]),
+        )
+        state = context.get("proactive")
+        assert (state["refine_calls"], state["refine_degraded"]) == (1, 0)
+        assert [t["title"] for t in state["follow_ups"]] == ["候选一"]
+
+    asyncio.run(run())
+
+
+def test_refine_disabled_keeps_stage1_output(tmp_path):
+    """``refine_enabled=False`` restores the single-call round."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        reply = _reply(follow_ups=[_topic("候选一", paths=[path])])
+        wrapper = _AgentWrapper([reply])
+        _, _, _, context, _ = await _run_chain(ws, wrapper=wrapper, extract_kwargs={"refine_enabled": False})
+        state = context.get("proactive")
+        assert (state["refine_calls"], wrapper.refine_calls) == (0, 0)
+        assert state["llm_calls"] == 1
+        assert [t["title"] for t in state["follow_ups"]] == ["候选一"]
+
+    asyncio.run(run())
+
+
+def test_refine_never_touches_clock_reminders(tmp_path):
+    """Seeded clock reminders are merged after stage 2, so no pass can drop them."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        _write_state(ws, schedules=[_schedule("提交季度报告", "2026-08-14T09:00")])
+        reply = _reply(follow_ups=[_topic("候选一", paths=[path])])
+        hostile = _verdicts(_verdict(topic_id("候选一"), "drop", reason="rejected"))
+        wrapper = _AgentWrapper([reply], refine_replies=[hostile])
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, resps = await _run_full_chain(ws, wrapper=wrapper)
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert state["follow_ups"] == []  # the drop was applied
+        assert [r["title"] for r in state["reminders"]] == ["提交季度报告"]
+        assert wrapper.refine_calls == 1  # the reminder bucket was empty at stage 2
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [item["title"] for item in data["agenda"]] == ["提交季度报告"]
+
+    asyncio.run(run())
+
+
+def test_key_event_reminder_without_due_date(tmp_path):
+    """A resource key event may be dateless; it is capped and never registered."""
+
+    async def run():
+        ws = tmp_path
+        notice = f"resource/{DAY}/policy-feed.md"
+        _touch(ws / notice, "监管新规发布，影响用户持续跟踪的品种")
+        reply = _reply(
+            reminders=[
+                _reminder(f"关键事件{i}", reason="外部信源关键事件", confidence=0.8, paths=[notice]) for i in range(4)
+            ],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, wrapper, _, context, _ = await _run_chain(ws, [reply])
+        state = context.get("proactive")
+        assert len(state["reminders"]) == 3  # max_notice_reminders default
+        assert state["dropped_over_cap"] == 1
+        assert all(not r["due_at"] for r in state["reminders"])
+        assert state["schedules_added"] == 0  # dateless events do not enter the registry
+        assert "key event" in wrapper.last_system_prompts[0]
+
+        # A reminder anchored on daily material still needs a due date: only the
+        # external-notice sub-type may be dateless.
+        daily_note = f"daily/{DAY}/session.md"
+        daily_only = _reply(reminders=[_reminder("无日期日程", reason="x", paths=[daily_note])])
+        ws2 = tmp_path / "second"
+        _touch(ws2 / daily_note, "material")
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context2, _ = await _run_chain(ws2, [daily_only])
+        assert context2.get("proactive")["reminders"] == []
+        assert context2.get("proactive")["dropped_missing"] == 1
+
+    asyncio.run(run())
+
+
+def test_state_file_bare_yaml_dates_load(tmp_path):
+    """Unquoted YAML dates must not invalidate the long-lived registry.
+
+    ``yaml.safe_load`` reads a bare ``2026-08-05`` as ``datetime.date``. The
+    truth source is hand-editable and the registry has to outlive topics by
+    months, so those scalars are coerced back to ISO text instead of failing
+    validation and taking every schedule down with them.
+    """
+    raw = (
+        "version: 1\n"
+        "open_topics:\n"
+        "  - id: t1\n"
+        "    title: 历史主题\n"
+        "    kind: follow_up\n"
+        "    first_seen: 2026-07-01\n"
+        "    last_evidence_at: 2026-07-02\n"
+        "resolved: []\n"
+        "schedules:\n"
+        "  - id: sch-tax\n"
+        "    title: 个税补充申报\n"
+        "    due_at: 2026-08-05\n"
+        "    status: open\n"
+        "    first_seen: 2026-07-01\n"
+        "    last_seen_at: 2026-07-01\n"
+        "    history:\n"
+        "      - at: 2026-07-01\n"
+        "        action: add\n"
+        "        to: 2026-08-05T09:00:00\n"
+        "deliveries:\n"
+        "  - topic_id: t1\n"
+        "    agenda_date: 2026-08-12\n"
+        "    delivered_at: 2026-08-12T09:00:00\n"
+        "    status: shown\n"
+    )
+    _touch(tmp_path / "daily" / "_proactive.yaml", raw)
+
+    state_file, needs_bootstrap = load_state(tmp_path)
+
+    assert needs_bootstrap is False
+    topic = state_file.open_topics[0]
+    assert (topic.first_seen, topic.last_evidence_at) == ("2026-07-01", "2026-07-02")
+    schedule = state_file.schedules[0]
+    assert schedule.id == "sch-tax" and schedule.due_at == "2026-08-05"
+    assert (schedule.first_seen, schedule.last_seen_at) == ("2026-07-01", "2026-07-01")
+    assert schedule.history[0]["at"] == "2026-07-01"
+    assert schedule.history[0]["to"] == "2026-08-05T09:00:00"
+    delivery = state_file.deliveries[0]
+    assert delivery.agenda_date == "2026-08-12"
+    assert delivery.delivered_at == "2026-08-12T09:00:00"
+
+
+def test_state_file_salvages_unreadable_entries(tmp_path):
+    """One malformed entry costs that entry, never the whole truth source."""
+    raw = (
+        "version: 1\n"
+        "open_topics:\n"
+        "  - id: good\n"
+        "    title: 正常主题\n"
+        "    kind: follow_up\n"
+        "  - id: bad\n"
+        "    title:\n"
+        "      nested: mapping\n"
+        "schedules:\n"
+        "  - id: sch-bad\n"
+        "    title:\n"
+        "      nested: mapping\n"
+        "    due_at: 2026-08-14\n"
+        "  - id: sch-earnings-call\n"
+        "    title: 财报电话会\n"
+        "    due_at: 2026-08-14T20:00\n"
+        "    first_seen: 2026-07-01\n"
+        "resolved:\n"
+        "  - id: tomb\n"
+        "  - not-a-mapping\n"
+    )
+    _touch(tmp_path / "daily" / "_proactive.yaml", raw)
+
+    state_file, needs_bootstrap = load_state(tmp_path)
+
+    # Salvage is not a first run, so the interests.yaml bootstrap stays off.
+    assert needs_bootstrap is False
+    assert [t.id for t in state_file.open_topics] == ["good"]
+    assert [s.id for s in state_file.schedules] == ["sch-earnings-call"]
+    assert state_file.schedules[0].due_at == "2026-08-14T20:00"
+    assert [r["id"] for r in state_file.resolved] == ["tomb"]
+
+
+def test_refine_cannot_demote_a_notice_reminder(tmp_path):
+    """Stage 2 may not move a resource-anchored reminder into a kind that cannot quote it."""
+
+    async def run():
+        ws = tmp_path
+        notice = f"resource/{DAY}/policy-feed.md"
+        daily = f"daily/{DAY}/session.md"
+        _touch(ws / notice, "监管新规发布，实质影响用户跟踪的品种")
+        _touch(ws / daily, "material")
+        reply = _reply(
+            reminders=[
+                _reminder("监管新规", reason="外部信源关键事件", paths=[notice]),
+                _reminder("内部评审", reason="临近到期", due_at="2026-08-14T09:00", paths=[daily]),
+            ],
+            follow_ups=[_topic("待跟进", paths=[daily])],
+        )
+        hostile = _verdicts(
+            _verdict(topic_id("监管新规"), "move", to_kind="interest_extend", reason="只是背景阅读"),
+            _verdict(topic_id("内部评审"), "move", to_kind="follow_up", reason="其实是未闭环事项"),
+        )
+        wrapper = _AgentWrapper([reply], refine_replies=[hostile])
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, _ = await _run_chain(ws, wrapper=wrapper)
+        state = context.get("proactive")
+
+        # The notice stays a reminder: only that branch may cite resource/.
+        assert [r["title"] for r in state["reminders"]] == ["监管新规"]
+        assert [t["title"] for t in state["extends"]] == []
+        # The daily-anchored move is legal, and leaves no dangling registry link.
+        moved = next(t for t in state["follow_ups"] if t["title"] == "内部评审")
+        assert moved["kind"] == "follow_up"
+        leaked = [key for key in ("schedule_id", "due_at", "next_due", "trigger", "conflict_with") if key in moved]
+        assert leaked == []
+        assert [m["to_kind"] for m in state["refine_moved"]] == ["follow_up"]
+
+    asyncio.run(run())
+
+
+def test_refine_refuses_an_impossible_move_into_reminder(tmp_path):
+    """Stage 2 cannot attach a due date, so a dateless daily candidate stays put."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        reply = _reply(follow_ups=[_topic("带日期的承诺", paths=[path])])
+        refine = _verdicts(_verdict(topic_id("带日期的承诺"), "move", to_kind="reminder", reason="其实是日程"))
+        wrapper = _AgentWrapper([reply], refine_replies=[refine])
+        _, _, _, context, _ = await _run_chain(ws, wrapper=wrapper)
+        state = context.get("proactive")
+
+        assert [t["title"] for t in state["follow_ups"]] == ["带日期的承诺"]
+        assert state["reminders"] == []
+        assert state["refine_moved"] == []  # refused outright, not recorded as a move
+
+    asyncio.run(run())
+
+
+def test_reminder_cannot_revert_an_explicit_reschedule(tmp_path):
+    """``schedule_updates`` is the only channel that may move a due date.
+
+    The clock scan reads the registry *before* the LLM reports a reschedule, so
+    the reminder it seeds still carries the old due value. Writing that back
+    would silently undo the change the material actually reported.
+    """
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "投顾通知复盘延后半小时")
+        _write_state(ws, schedules=[_schedule("季度持仓复盘", "2026-08-13T21:00", schedule_id="sch-review")])
+        reply = _reply(
+            reminders=[
+                _reminder(
+                    "季度持仓复盘",
+                    due_at="2026-08-13T21:00",
+                    reason="今晚复盘，投顾通知可能延后半小时",
+                    paths=[path],
+                    schedule_id="sch-review",
+                ),
+            ],
+            schedule_updates=[
+                {
+                    "action": "reschedule",
+                    "id": "sch-review",
+                    "title": "季度持仓复盘",
+                    "due_at": "2026-08-13T21:30",
+                    "evidence": path,
+                    "reason": "投顾通知延后半小时开始",
+                },
+            ],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, resps = await _run_full_chain(ws, [reply])
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert (state["schedules_added"], state["schedules_updated"]) == (0, 1)
+        # The clock scan seeded this reminder with the pre-update value; the
+        # published due date a reader sorts by has to follow the registry.
+        assert state["reminders_reanchored"] == 1
+        assert [r["due_at"] for r in state["reminders"]] == ["2026-08-13T21:30"]
+
+        entry = next(s for s in _read_state(ws)["schedules"] if s["id"] == "sch-review")
+        assert entry["due_at"] == "2026-08-13T21:30"  # the stale reminder did not revert it
+        assert [(h["action"], h["to"]) for h in entry["history"]] == [("reschedule", "2026-08-13T21:30")]
+        published = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        assert [t["due_at"] for t in published["topics"] if t["kind"] == "reminder"] == ["2026-08-13T21:30"]
+
+    asyncio.run(run())
+
+
+def test_reminder_heavy_day_keeps_discovery_slots(tmp_path):
+    """Pinned reminders never starve the discovery kinds of cards and slots."""
+
+    async def run():
+        ws = tmp_path
+        path = f"daily/{DAY}/session.md"
+        _touch(ws / path, "material")
+        # Seven schedules due today: more than max_agenda_items (6), which used
+        # to leave zero discovery slots and card-less, suppressed candidates.
+        _write_state(
+            ws,
+            schedules=[_schedule(f"今日日程{i}", "2026-08-13T09:00", schedule_id=f"sch-{i}") for i in range(7)],
+        )
+        reply = _reply(follow_ups=[_topic("待跟进事项", paths=[path])])
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, resps = await _run_full_chain(ws, [reply])
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+        assert len(state["reminders"]) == 7
+
+        carded = {c["topic_id"]: c["kind"] for c in state["scenario_cards"]}
+        assert list(carded.values()).count("follow_up") == 1  # expanded, not left card-less
+        data = yaml.safe_load(_interests(ws).read_text(encoding="utf-8"))
+        kinds = [item["kind"] for item in data["agenda"]]
+        assert kinds.count("reminder") == 7 and kinds.count("follow_up") == 1
+        assert all(item["kind"] != "follow_up" for item in data["suppressed"] if "kind" in item)
+        assert not any(s["title"] == "待跟进事项" for s in data["suppressed"])
+
+    asyncio.run(run())
+
+
+def test_schedule_update_may_anchor_on_a_notice(tmp_path):
+    """The registry accepts notice-anchored updates; discovery topics still may not.
+
+    Only the reminder branch may cite the ``resource/`` layer, and
+    ``clean_schedule_update`` already accepts those paths - so the registry
+    anchor has to agree, or a dated external notice could never be registered
+    through the explicit channel and would lose its detail/end-time/recurrence.
+    """
+
+    async def run():
+        ws = tmp_path
+        notice = f"resource/{DAY}/airline.md"
+        daily = f"daily/{DAY}/session.md"
+        _touch(ws / notice, "MU5137 改期，改签截止 2026-08-14 18:00")
+        _touch(ws / daily, "material")
+        _write_state(ws, open_topics=[_state_topic("既有主题")])
+        reply = _reply(
+            schedule_updates=[
+                {
+                    "action": "add",
+                    "title": "改签截止",
+                    "due_at": "2026-08-14T18:00",
+                    "due_end_at": "",
+                    "detail": "免手续费",
+                    "evidence": notice,
+                    "reason": "航司通知改期",
+                },
+            ],
+            updates=[{"id": topic_id("既有主题"), "action": "update", "evidence": notice, "confidence": 0.9}],
+        )
+        with patch(EXTRACT_CLOCK, return_value=NOW):
+            _, _, _, context, resps = await _run_full_chain(ws, [reply])
+        assert all(r.success for r in resps)
+        state = context.get("proactive")
+
+        schedules = _read_state(ws)["schedules"]
+        assert [s["title"] for s in schedules] == ["改签截止"]
+        assert schedules[0]["due_at"] == "2026-08-14T18:00"
+        assert schedules[0]["detail"] == "免手续费"  # only the explicit channel carries this
+        assert state["schedules_added"] == 1
+        # A discovery topic still may not take its evidence from the notice layer.
+        assert state["updates_applied"] == 0
 
     asyncio.run(run())

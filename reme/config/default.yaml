@@ -100,13 +100,34 @@ jobs:
         llm_timeout_seconds: 300
         max_chars_per_file: 60000
         max_total_chars: 300000
+        profile_max_chars: 1500
+        capability_max_chars: 1200
+        extends_enabled: true
+        reminders_enabled: true
+        new_ideas_enabled: true
+        max_follow_ups: 5
+        max_extends: 5
+        max_new_ideas: 3
+        reminder_lead_days: 3
+        resources_enabled: true
+        resource_max_chars: 40000
+        max_notice_reminders: 3
+        refine_enabled: true
+        refine_timeout_seconds: 150
       - backend: proactive_topics_step
         known_threshold: 0.85
         known_threshold_calibrated_for: text-embedding-v4@1024
         min_push_confidence: 0.5
+        min_reminder_confidence: 0.3
         max_topics: 10
+        schedule_retention_days: 180
+        max_schedules: 80
+        max_schedule_history: 8
       - backend: proactive_plan_step
+        max_reminder_cards: 8
       - backend: proactive_agenda_step
+        min_discovery_slots: 2
+        redelivery_cooldown_days: 3
       - backend: proactive_finish_step
         file_catalog: proactive
 
@@ -122,13 +143,34 @@ jobs:
         llm_timeout_seconds: 300
         max_chars_per_file: 60000
         max_total_chars: 300000
+        profile_max_chars: 1500
+        capability_max_chars: 1200
+        extends_enabled: true
+        reminders_enabled: true
+        new_ideas_enabled: true
+        max_follow_ups: 5
+        max_extends: 5
+        max_new_ideas: 3
+        reminder_lead_days: 3
+        resources_enabled: true
+        resource_max_chars: 40000
+        max_notice_reminders: 3
+        refine_enabled: true
+        refine_timeout_seconds: 150
       - backend: proactive_topics_step
         known_threshold: 0.85
         known_threshold_calibrated_for: text-embedding-v4@1024
         min_push_confidence: 0.5
+        min_reminder_confidence: 0.3
         max_topics: 10
+        schedule_retention_days: 180
+        max_schedules: 80
+        max_schedule_history: 8
       - backend: proactive_plan_step
+        max_reminder_cards: 8
       - backend: proactive_agenda_step
+        min_discovery_slots: 2
+        redelivery_cooldown_days: 3
       - backend: proactive_finish_step
         file_catalog: proactive
 
@@ -267,9 +309,40 @@ jobs:
           type: number
           description: "minimum topic confidence to return (default 0.4 sits safely below the 0.5 fallback; v1 topics fall back to 0.5)"
           default: 0.4
+        include_delivered:
+          type: boolean
+          description: "also return agenda items the host already reported as delivered (default withholds them)"
+          default: false
+        delivery_cooldown_days:
+          type: integer
+          description: "days an already-delivered agenda item stays withheld; 0 withholds only same-day deliveries"
+          default: 3
     steps:
       - backend: proactive_step
         min_confidence: 0.4
+        delivery_cooldown_days: 3
+
+  proactive_feedback:
+    backend: base
+    description: "Record which proactive agenda items a host agent already delivered or executed, so they are not repeated."
+    parameters:
+      type: object
+      properties:
+        date:
+          type: string
+          description: "YYYY-MM-DD the report belongs to; defaults to today in the application's timezone"
+          default: ""
+        items:
+          type: array
+          description: "delivery reports: [{topic_id, status, channel, consumer, outcome, external_ref, agenda_date}]"
+          items:
+            type: object
+      required:
+        - items
+    steps:
+      - backend: proactive_feedback_step
+        retention_days: 180
+        max_deliveries: 500
 
   version:
     backend: base

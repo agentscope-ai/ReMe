@@ -23,8 +23,18 @@ from .._evolve import passthrough_response
 from ....components import R
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
-from ....schema.proactive import clamp_confidence
+from ....schema.proactive import DEFAULT_KIND, clamp_confidence
 from ..dream.utils import daily_dir, previous_dates, today, workspace_dir
+from .schedules import (
+    apply_schedule_updates,
+    effective_due,
+    refresh_reminder_dues,
+    slim_schedule,
+    sort_reminders,
+    topic_from_candidate,
+    trim_schedules,
+    upsert_schedule_from_reminder,
+)
 from .utils import (
     current_now,
     dump_topic,
@@ -61,6 +71,10 @@ class ProactiveTopicsStep(BaseStep):
         dedup_lookback_days: int = 7,
         digest_compare_limit: int = 500,
         known_threshold_calibrated_for: str = "text-embedding-v4@1024",
+        min_reminder_confidence: float = 0.3,
+        schedule_retention_days: int = 180,
+        max_schedules: int = 80,
+        max_schedule_history: int = 8,
         skip_key: str = "proactive_skip",
         **kwargs,
     ):
@@ -71,6 +85,10 @@ class ProactiveTopicsStep(BaseStep):
         self.max_topics = max(int(max_topics), 1)
         self.dedup_lookback_days = max(int(dedup_lookback_days), 0)
         self.digest_compare_limit = max(int(digest_compare_limit), 0)
+        self.min_reminder_confidence = float(min_reminder_confidence)
+        self.schedule_retention_days = max(int(schedule_retention_days), 1)
+        self.max_schedules = max(int(max_schedules), 0)
+        self.max_schedule_history = max(int(max_schedule_history), 0)
         self.skip_key = skip_key
 
     # pylint: disable=too-many-statements
@@ -93,7 +111,9 @@ class ProactiveTopicsStep(BaseStep):
         daily = state.daily_dir or daily_dir(self)
         self.logger.info(
             f"[{self.name}] start date={day} follow_ups={len(state.follow_ups)} extends={len(state.extends)} "
-            f"updates={len(state.updates)} carry_forward={state.carry_forward_count}",
+            f"reminders={len(state.reminders)} new_ideas={len(state.new_ideas)} "
+            f"updates={len(state.updates)} schedule_updates={len(state.schedule_updates)} "
+            f"carry_forward={state.carry_forward_count}",
         )
 
         state_file, _needs_bootstrap = load_state(ws, daily)
@@ -105,6 +125,13 @@ class ProactiveTopicsStep(BaseStep):
         # check, same shape as INV-8); otherwise it degrades to keep so stale
         # re-reads cannot rewrite evidence or refresh the freshness sort key.
         new_material = {norm_path(str(path).split("#", 1)[0]) for path in state.changed_paths}
+        # The reminder branch is the only one allowed to cite the ``resource/``
+        # layer and ``clean_schedule_update`` already accepts those paths, so
+        # the registry anchor has to agree with it: without the notice paths a
+        # dated external notice could never be registered through the explicit
+        # channel and would only reach the registry via the reminder safety
+        # net, losing its detail/end-time/recurrence and its own reason.
+        schedule_material = new_material | {norm_path(str(path).split("#", 1)[0]) for path in state.resource_changed}
         for update in state.updates:
             topic = open_by_id.get(str(update.get("id") or ""))
             if topic is None:
@@ -138,8 +165,49 @@ class ProactiveTopicsStep(BaseStep):
                 )
                 state.updates_resolved += 1
 
+        # 1b) Schedule registry (branch C). Applied before the candidates so a
+        # reminder always sees the registry it just helped maintain. The
+        # registry has its own, much longer lifecycle than open_topics: a
+        # schedule mentioned weeks ago must still fire on its due date.
+        counts, touched_schedules = apply_schedule_updates(state_file, state.schedule_updates, day, schedule_material)
+        state.schedules_added += counts["added"]
+        state.schedules_updated += counts["updated"]
+        state.schedules_closed += counts["closed"]
+        # The clock scan read the registry before those updates landed, so a
+        # seeded reminder may still advertise the previous due value; a reader
+        # sorts and notifies by it, so re-anchor it on the registry.
+        state.reminders_reanchored = refresh_reminder_dues(
+            state.reminders,
+            state_file,
+            touched_schedules,
+            current_now(self),
+        )
+        adopted_schedules = 0
+        for candidate in state.reminders:
+            outcome = upsert_schedule_from_reminder(state_file, candidate, day, touched_schedules)
+            if outcome == "added":
+                state.schedules_added += 1
+            elif outcome == "updated":
+                state.schedules_updated += 1
+            elif outcome == "adopted":
+                adopted_schedules += 1
+        dropped_schedules = trim_schedules(
+            state_file,
+            day,
+            self.schedule_retention_days,
+            self.max_schedules,
+            self.max_schedule_history,
+        )
+        state.schedules_out = [slim_schedule(s) for s in state_file.schedules if s.status == "open"]
+        self.logger.info(
+            f"[{self.name}] schedule registry added={state.schedules_added} updated={state.schedules_updated} "
+            f"closed={state.schedules_closed} dropped={dropped_schedules} open={len(state.schedules_out)} "
+            f"skipped_updates={counts['skipped']} reminders_reanchored={state.reminders_reanchored} "
+            f"adopted={adopted_schedules}",
+        )
+
         # 2) Candidates: same-id merge, tombstone resurrect, dedup the rest.
-        raw_candidates = list(state.follow_ups) + list(state.extends)
+        raw_candidates = list(state.reminders) + list(state.follow_ups) + list(state.extends) + list(state.new_ideas)
         state.candidates_in = len(raw_candidates)
         merged: list[dict] = []
         resurrected: list[dict] = []
@@ -196,6 +264,13 @@ class ProactiveTopicsStep(BaseStep):
                 if normalized in seen_normalized:
                     dropped_duplicate += 1
                     continue
+                if str(candidate.get("kind") or "") == "reminder":
+                    # A due schedule must fire even when the same words were
+                    # published recently: the historical "known" gate filters
+                    # discovery noise, it is not a calendar.
+                    seen_normalized.add(normalized)
+                    survivors.append(candidate)
+                    continue
                 if embedder is None:
                     if normalized in comparison_norms:
                         dropped_duplicate += 1
@@ -230,7 +305,7 @@ class ProactiveTopicsStep(BaseStep):
 
         # 3) Truth source: add new topics, prune, single atomic write (F1.3).
         for candidate in survivors:
-            state_file.open_topics.append(ProactiveTopic.model_validate(candidate))
+            state_file.open_topics.append(topic_from_candidate(candidate))
         trim_state_file(state_file, day, max(state.carry_forward_days, 1))
         await save_state(ws, state_file, daily)
 
@@ -239,9 +314,24 @@ class ProactiveTopicsStep(BaseStep):
         # rounds because such topics persist in the truth source once added.
         # The candidate list (sorted deterministically) feeds the plan/agenda
         # steps; ``push`` is exactly "at least one candidate".
-        push_candidates = sort_topics(
-            [t for t in state_file.open_topics if t.first_seen == day and t.confidence >= self.min_push_confidence],
-        )
+        # Reminders are the exception on both counts: one refreshed today pushes
+        # regardless of ``first_seen`` (a due schedule recurs daily until it is
+        # closed) and only has to clear the lower ``min_reminder_confidence``.
+        reminders_today = [
+            t
+            for t in state_file.open_topics
+            if t.kind == "reminder"
+            and day in (t.first_seen, t.last_evidence_at)
+            and t.confidence >= self.min_reminder_confidence
+        ]
+        others_today = [
+            t
+            for t in state_file.open_topics
+            if t.kind != "reminder" and t.first_seen == day and t.confidence >= self.min_push_confidence
+        ]
+        push_candidates = sort_reminders([dump_topic(t) for t in reminders_today]) + [
+            dump_topic(t) for t in sort_topics(others_today)
+        ]
         push = bool(push_candidates)
         if push:
             file_skip_reason = ""
@@ -286,6 +376,13 @@ class ProactiveTopicsStep(BaseStep):
         existing.confidence = clamp_confidence(candidate.get("confidence"))
         if candidate.get("paths"):
             existing.paths = list(candidate["paths"])
+        if existing.kind == "reminder":
+            # Keep the published due date and registry link current so a
+            # recurring reminder shows its next occurrence, not the anchor.
+            if due := effective_due(candidate):
+                existing.due_at = due
+            if candidate.get("schedule_id"):
+                existing.schedule_id = str(candidate["schedule_id"])
 
     @staticmethod
     def _resurrect(tombstone: dict, candidate: dict, day: str) -> ProactiveTopic:
@@ -294,16 +391,19 @@ class ProactiveTopicsStep(BaseStep):
         The over-age trim still applies to the original ``first_seen``, so a
         resurrection only extends a lifetime that has not fully elapsed.
         """
+        kind = str(candidate.get("kind") or DEFAULT_KIND)
         return ProactiveTopic(
             id=str(tombstone.get("id") or candidate.get("id") or ""),
             title=str(candidate.get("title") or tombstone.get("title") or ""),
             reason=str(candidate.get("reason") or ""),
-            kind=str(candidate.get("kind") or "interest_extend"),
+            kind=kind,
             confidence=clamp_confidence(candidate.get("confidence")),
             first_seen=str(tombstone.get("first_seen") or day),
             last_evidence_at=day,
             evidence=str(candidate.get("evidence") or "")[:120],
             paths=candidate.get("paths") or [],
+            schedule_id=str(candidate.get("schedule_id") or ""),
+            due_at=effective_due(candidate) if kind == "reminder" else "",
         )
 
     async def _comparison_texts(
