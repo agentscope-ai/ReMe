@@ -5,8 +5,10 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from ...utils.file_sandbox.file_sandbox_backend import FileSandboxBackend
 from ..base_step import BaseStep
 from ...components import R
+from .file_sandbox import file_sandbox_for_step
 
 DEFAULT_TIMEOUT = 60.0
 
@@ -39,23 +41,22 @@ class PythonExecuteStep(BaseStep):
             self.context.response.answer = timeout_error
             return self.context.response
 
-        result = await self._run_python(code, timeout)
+        try:
+            backend = file_sandbox_for_step(self)
+            result = await self._run_python(code, timeout, backend)
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            self.context.response.success = False
+            self.context.response.answer = str(exc)
+            return self.context.response
         if result.timed_out:
             self.context.response.success = False
             self.context.response.answer = f"Python execution timed out after {timeout:g}s"
-            self.context.response.metadata.update(
-                {
-                    "returncode": result.returncode,
-                    "stderr": result.stderr,
-                    "python_timeout": timeout,
-                },
-            )
-            return self.context.response
-
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-        self.context.response.success = result.returncode == 0
-        self.context.response.answer = stdout if stdout or result.returncode == 0 else stderr
+            stderr = result.stderr
+        else:
+            stdout = result.stdout or ""
+            stderr = result.stderr or ""
+            self.context.response.success = result.returncode == 0
+            self.context.response.answer = stdout if stdout or result.returncode == 0 else stderr
         self.context.response.metadata.update(
             {
                 "returncode": result.returncode,
@@ -65,7 +66,19 @@ class PythonExecuteStep(BaseStep):
         )
         return self.context.response
 
-    async def _run_python(self, code: str, timeout: float) -> _PythonResult:
+    async def _run_python(self, code: str, timeout: float, backend: FileSandboxBackend | None = None) -> _PythonResult:
+        if backend is not None:
+            result = await backend.exec_shell(
+                [sys.executable, "-c", code],
+                cwd=str(self.workspace_path),
+                timeout=timeout,
+            )
+            return _PythonResult(
+                stdout=result.stdout.decode(errors="replace"),
+                stderr=result.stderr.decode(errors="replace"),
+                returncode=result.exit_code,
+                timed_out=result.exit_code == -1 and result.stderr == b"timed out",
+            )
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-c",

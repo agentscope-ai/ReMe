@@ -1,0 +1,40 @@
+backends:
+  auto_bash_step: reme_home.auto_bash:AutoBashStep
+
+application_defaults:
+  jobs:
+    auto_bash:
+      backend: base
+      description: "Run a shell command in the workspace; read-only mode is enabled by default"
+      parameters:
+        type: object
+        properties:
+          command:
+            type: string
+            description: "shell command to execute"
+          is_read_only:
+            type: boolean
+            description: "restrict execution to read-only commands"
+            default: true
+          timeout:
+            type: integer
+            description: "maximum execution time in milliseconds (default 60000, max 600000)"
+            default: 60000
+            minimum: 1
+            maximum: 600000
+          read_only_paths:
+            type: array
+            items: { type: string }
+            description: "Read-only host paths; providing either path list enables the platform file sandbox"
+          writable_paths:
+            type: array
+            items: { type: string }
+            description: "Writable host paths; sandbox paths match host paths"
+          memory_limit_mib:
+            type: integer
+            minimum: 0
+            description: "Linux cgroup memory limit in MiB (default 4096; 0 disables it); requires a path policy; macOS warns and ignores nonzero values"
+        required:
+          - command
+      steps:
+        - backend: auto_bash_step
