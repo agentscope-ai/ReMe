@@ -4,7 +4,6 @@ from bisect import bisect_right
 from pathlib import Path
 from typing import Literal
 
-import aiofiles
 import yaml
 
 from .base_file_chunker import BaseFileChunker
@@ -53,10 +52,9 @@ class DefaultFileChunker(BaseFileChunker):
             front_matter = FileFrontMatter()
         return front_matter, text[end_idx + 4 :].lstrip("\n")
 
-    async def _read_text_for_indexing(self, file_path: Path) -> str:
+    def _read_text_for_indexing(self, file_path: Path) -> str:
         """Decode text for a derived index without modifying the source file."""
-        async with aiofiles.open(file_path, "rb") as f:
-            data = await f.read()
+        data = file_path.read_bytes()
         try:
             text = data.decode(self.encoding)
         except UnicodeDecodeError as exc:
@@ -77,11 +75,12 @@ class DefaultFileChunker(BaseFileChunker):
         return text.replace("\r\n", "\n").replace("\r", "\n")
 
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
-        file_path = Path(path)
-        stat = file_path.stat()
-        rel_path = self.to_workspace_relative(path)
+        return await self._chunk_in_worker(path, self._chunk_sync)
 
-        text = await self._read_text_for_indexing(file_path)
+    def _chunk_sync(self, file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+        stat = file_path.stat()
+
+        text = self._read_text_for_indexing(file_path)
 
         if not text:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []

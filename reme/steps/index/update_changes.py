@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import os
 from abc import abstractmethod
 from pathlib import Path
 from typing import Any, Callable
@@ -15,6 +16,7 @@ from ...components import R
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
+from ...utils.file_utils import FileChangedDuringChunkingError, check_file_version
 
 
 class ChangeApplyStep(BaseStep):
@@ -22,6 +24,7 @@ class ChangeApplyStep(BaseStep):
 
     target_name = "target"
     reads_file_content = False
+    source_change_retries: int = 0
 
     def __init__(
         self,
@@ -83,7 +86,11 @@ class ChangeApplyStep(BaseStep):
         assert self.context is not None
         changes: list[dict] = self.context.get("changes") or []
         persist = bool(self.context.get("persist", True)) if self.persist is None else self.persist
-        buckets = bucket_changes(changes, path_exists=lambda p: self._to_abs_path(p).is_file())
+        buckets = bucket_changes(
+            changes,
+            path_exists=lambda p: self._to_abs_path(p).is_file(),
+            path_key=self._change_path_key,
+        )
         results = await self._apply_existing(buckets)
         results.extend(await self._apply_deleted(buckets[Change.deleted]))
         if persist and results:
@@ -123,9 +130,11 @@ class ChangeApplyStep(BaseStep):
                     estimated_bytes = 0
                     memory_budget = self._batch_memory_budget()
 
-                item = await self._try_build_item(change, path, abs_path, results)
-                if item is None:
+                built = await self._try_build_item(change, path, abs_path, size_bytes, results)
+                if built is None:
                     continue
+                item, size_bytes = built
+                del built
                 item_bytes = self._try_estimate_memory(
                     path,
                     self.estimate_item_memory,
@@ -198,15 +207,29 @@ class ChangeApplyStep(BaseStep):
         change: Change,
         path: str,
         abs_path: Path,
+        size_bytes: int,
         results: list[dict],
-    ):
-        try:
-            self.logger.debug(f"Processing {change.name} file: {path}")
-            return await self.build_item(abs_path)
-        except Exception as e:
-            self.logger.exception(f"Failed to process {path}")
-            results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
-            return None
+    ) -> tuple[Any, int] | None:
+        for attempt in range(self.source_change_retries + 1):
+            if attempt:
+                inspected = await self._inspect_path(change, path, results)
+                if inspected is None:
+                    return None
+                abs_path, size_bytes = inspected
+            try:
+                self.logger.debug(f"Processing {change.name} file: {path}")
+                return await self.build_item(abs_path), size_bytes
+            except FileChangedDuringChunkingError as e:
+                if attempt < self.source_change_retries:
+                    self.logger.debug(f"Source changed while processing {path}; retrying")
+                    continue
+                self.logger.exception(f"Failed to process {path}")
+                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+                return None
+            except Exception as e:
+                self.logger.exception(f"Failed to process {path}")
+                results.append({"change": change.name, "path": path, "success": False, "error": str(e)})
+                return None
 
     def _try_estimate_memory(
         self,
@@ -290,6 +313,10 @@ class ChangeApplyStep(BaseStep):
         p = Path(path)
         return p if p.is_absolute() else self.workspace_path / p
 
+    def _change_path_key(self, path: str) -> str:
+        """Return the identity used to coalesce path aliases before batching."""
+        return path
+
 
 @R.register("update_catalog_step")
 class UpdateCatalogStep(ChangeApplyStep):
@@ -322,9 +349,126 @@ class UpdateIndexStep(ChangeApplyStep):
 
     target_name = "file_store"
     reads_file_content = True
+    source_change_retries: int = 1
+
+    def __init__(
+        self,
+        persist: bool | None = None,
+        batch_max_files: int = 100,
+        batch_available_memory_ratio: float = 0.10,
+        batch_memory_target_bytes: int = 512 * 1024 * 1024,
+        batch_memory_expansion_factor: float = 8.0,
+        file_memory_overhead_bytes: int = 32 * 1024,
+        chunk_memory_overhead_bytes: int = 4 * 1024,
+        estimated_chunk_bytes: int = 10_000,
+        float16_bytes: int = 2,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(
+            persist=persist,
+            batch_max_files=batch_max_files,
+            batch_available_memory_ratio=batch_available_memory_ratio,
+            batch_memory_target_bytes=batch_memory_target_bytes,
+            batch_memory_expansion_factor=batch_memory_expansion_factor,
+            file_memory_overhead_bytes=file_memory_overhead_bytes,
+            chunk_memory_overhead_bytes=chunk_memory_overhead_bytes,
+            estimated_chunk_bytes=estimated_chunk_bytes,
+            float16_bytes=float16_bytes,
+            **kwargs,
+        )
+        self._source_versions: dict[str, os.stat_result] = {}
+
+    def _change_path_key(self, path: str) -> str:
+        """Coalesce absolute and workspace-relative aliases of the same file."""
+        return os.path.normcase(os.fspath(self._to_abs_path(path).absolute()))
+
+    async def _apply_existing(self, buckets: dict[Change, list[str]]) -> list[dict]:
+        try:
+            return await super()._apply_existing(buckets)
+        finally:
+            # Steps are invocation-scoped; cancelled batches must release their snapshots too.
+            self._source_versions.clear()
 
     async def build_item(self, path: Path) -> tuple[FileNode, list[FileChunk]]:
-        return await self.chunk_file(path)
+        before = path.stat()
+        item = await self.chunk_file(path)
+        after = path.stat()
+        check_file_version(path, before, after)
+        self._source_versions[item[0].path] = after
+        return item
+
+    async def _try_upsert(
+        self,
+        change: Change,
+        items: list[tuple[FileNode, list[FileChunk]]],
+        ok_paths: list[str],
+        *,
+        retry_source_changes: bool = True,
+    ) -> list[dict]:
+        # Recheck after waiting for the same guard used by every store mutation.
+        retry_paths: list[str] = []
+        result_by_path: dict[str, dict] = {}
+        async with self.file_store._maintenance_guard():  # pylint: disable=protected-access
+            current_items: list[tuple[FileNode, list[FileChunk]]] = []
+            current_paths: list[str] = []
+            for item, path in zip(items, ok_paths):
+                node = item[0]
+                try:
+                    check_file_version(
+                        self._to_abs_path(node.path),
+                        self._source_versions[node.path],
+                        self._to_abs_path(node.path).stat(),
+                    )
+                except FileChangedDuringChunkingError as exc:
+                    if retry_source_changes:
+                        retry_paths.append(path)
+                    else:
+                        result_by_path[path] = {
+                            "change": change.name,
+                            "path": path,
+                            "success": False,
+                            "error": str(exc),
+                        }
+                except (OSError, RuntimeError) as exc:
+                    result_by_path[path] = {
+                        "change": change.name,
+                        "path": path,
+                        "success": False,
+                        "error": str(exc),
+                    }
+                else:
+                    current_items.append(item)
+                    current_paths.append(path)
+                finally:
+                    self._source_versions.pop(node.path)
+            if current_items:
+                result_by_path.update(
+                    {
+                        result["path"]: result
+                        for result in await super()._try_upsert(change, current_items, current_paths)
+                    },
+                )
+
+        retry_results: list[dict] = []
+        for path in retry_paths:
+            inspected = await self._inspect_path(change, path, retry_results)
+            if inspected is None:
+                continue
+            abs_path, size_bytes = inspected
+            built = await self._try_build_item(change, path, abs_path, size_bytes, retry_results)
+            if built is not None:
+                item, _ = built
+                del built
+                retried = await self._try_upsert(
+                    change,
+                    [item],
+                    [path],
+                    retry_source_changes=False,
+                )
+                result_by_path.update({result["path"]: result for result in retried})
+                del item
+        result_by_path.update({result["path"]: result for result in retry_results})
+        return [result_by_path[path] for path in ok_paths]
 
     async def upsert_items(self, items: list[tuple[FileNode, list[FileChunk]]]) -> None:
         await self.file_store.upsert(items)
