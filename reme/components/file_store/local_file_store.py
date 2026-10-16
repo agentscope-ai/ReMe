@@ -43,6 +43,7 @@ _SEARCH_FILTER_RESERVED_KEYS = frozenset(
         "strict_date_filter",
     },
 )
+_FAILED_CHUNK_PREVIEW = 5
 
 
 @R.register("local")
@@ -440,7 +441,12 @@ class LocalFileStore(BaseFileStore):
                         if chunk.text and not self._embedding_dim_matches(chunk.embedding)
                     ]
                     if missing:
-                        raise RuntimeError(f"embedding reindex incomplete: {len(missing)} chunks failed")
+                        preview = ", ".join(missing[:_FAILED_CHUNK_PREVIEW])
+                        if len(missing) > _FAILED_CHUNK_PREVIEW:
+                            preview += f" (+{len(missing) - _FAILED_CHUNK_PREVIEW} more)"
+                        raise RuntimeError(
+                            f"embedding reindex incomplete: {len(missing)} chunks failed: {preview}",
+                        )
                     await self._finalize_embedding_reindex()
                 await self._dump_owned_state()
                 if self.embedding_store is not None:
@@ -544,6 +550,7 @@ class LocalFileStore(BaseFileStore):
                     return
 
             processed = 0
+            filled = 0
             batch_count = 0
             embedding_started_at = time.monotonic()
             next_percent = _PROGRESS_LOG_PERCENT_STEP
@@ -552,10 +559,11 @@ class LocalFileStore(BaseFileStore):
                 await self.embedding_store.get_node_embeddings(batch)
                 self._drop_stale_embeddings(batch, "backfill")
                 processed += len(batch)
+                filled += sum(1 for chunk in batch if chunk.embedding is not None)
                 batch_count += 1
                 next_percent = self._log_progress("embedding backfill", processed, total, next_percent)
             self.logger.info(
-                f"{self.name}: embedding batches complete: processed={processed}/{total}, "
+                f"{self.name}: embedding batches complete: processed={processed}/{total}, filled={filled}, "
                 f"batches={batch_count}, elapsed={time.monotonic() - embedding_started_at:.3f}s",
             )
         except asyncio.CancelledError:

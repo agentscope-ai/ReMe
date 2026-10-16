@@ -118,6 +118,16 @@ class RecoveringEmbeddingStore(CountingFakeEmbeddingStore):
         return await super().get_node_embeddings(nodes, **kwargs)
 
 
+class PartialEmbeddingStore(FakeEmbeddingStore):
+    """Fake provider that leaves chunks whose text contains "beta" without a vector."""
+
+    async def get_node_embeddings(self, nodes: list[FileChunk], **_kwargs) -> list[FileChunk]:
+        for chunk_node in nodes:
+            if "beta" not in chunk_node.text:
+                chunk_node.embedding = self._embed(chunk_node.text)
+        return nodes
+
+
 class HealthCountingEmbeddingStore(FakeEmbeddingStore):
     """Fake provider that records eager health checks."""
 
@@ -833,6 +843,41 @@ def test_verified_resume_without_chunks_supersedes_inflight_health_check():
             assert fake.is_healthy is True
             assert not fake.node_embedding_calls
             assert store._embedding_backfill_task is None
+            await store.close()
+
+    run(go())
+
+
+@pytest.mark.parametrize("store_factory", [_new_local_store, _new_faiss_store, _new_zvec_store])
+def test_embedding_reindex_error_names_the_chunks_without_vectors(store_factory):
+    """The final reindex error must name the chunks that still have no vector."""
+
+    async def go():
+        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+            store = store_factory("t_reindex_failure_ids")
+            await store.start()
+            await set_chunks_with_graph(
+                store,
+                {
+                    "good": chunk("good", "a.md", "alpha text"),
+                    "bad": chunk("bad", "b.md", "beta text"),
+                },
+            )
+            store.embedding_store = PartialEmbeddingStore()
+            _ensure_zvec_collection(store)
+            if isinstance(store, FaissLocalFileStore):
+                store._rebuild_index()
+            elif isinstance(store, ZvecLocalFileStore):
+                store._rebuild_collection()
+            await store.require_embedding_rebuild()
+
+            with pytest.raises(RuntimeError) as failure:
+                await store.reindex("embedding")
+
+            message = str(failure.value)
+            assert "1 chunks failed" in message
+            assert "bad" in message
+            assert "good" not in message
             await store.close()
 
     run(go())
