@@ -1,0 +1,12 @@
+# Build from repository root with this Dockerfile-specific ignore file.
+ARG BASE_IMAGE=reme-benchmark-base:agentscope-2.0.9
+FROM ${BASE_IMAGE}
+
+COPY . /opt/reme
+ARG REME_PLUGIN_PATH=""
+RUN python -m pip install --no-deps --no-build-isolation /opt/reme \
+    && if [ -n "${REME_PLUGIN_PATH}" ]; then \
+        python -m pip install --no-deps --no-build-isolation "/opt/reme/${REME_PLUGIN_PATH}"; \
+    fi
+
+WORKDIR /workspace

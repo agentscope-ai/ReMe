@@ -62,7 +62,12 @@ def test_studio_packages_have_independent_identity() -> None:
     assert auto_fin_config["project"]["version"] == "0.1.3"
     assert daily_paper_config["project"]["version"] == "0.1.3"
     assert dingtalk_config["project"]["version"] == "0.1.0"
-    assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
+    assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
+        "reme",
+        "reme.*",
+        "deploy",
+        "deploy.*",
+    ]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 
 

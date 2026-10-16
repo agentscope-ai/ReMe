@@ -1,0 +1,24 @@
+# Build from repository root:
+# docker build -f deploy/benchmark_docker/Dockerfile.base -t reme-benchmark-base:agentscope-2.0.9 .
+FROM python:3.11-slim
+
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential git ripgrep tar \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies with an expendable package stub. Each candidate is
+# installed later with --no-deps so its code, not a fixed ReMe wheel, runs.
+WORKDIR /tmp/reme-dependencies
+COPY pyproject.toml README.md ./
+RUN mkdir reme \
+    && printf '__version__ = "0.0.0"\n' > reme/__init__.py \
+    && python -m pip install '.[core]' \
+    && python -m pip uninstall -y reme-ai \
+    && python -c 'import agentscope; assert agentscope.__version__ == "2.0.9"' \
+    && rm -rf /tmp/reme-dependencies
+
+WORKDIR /workspace
