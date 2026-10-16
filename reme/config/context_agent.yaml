@@ -1,0 +1,41 @@
+# Opt-in task-time assistance. No new jobs are exposed to HTTP/MCP.
+# Embedded hosts publish events and lease ready hints from context_agent.default.
+extends: default
+
+jobs:
+  evaluate_context:
+    backend: base
+    enable_serve: false
+    description: "Evaluate whether source-backed memory evidence can help the current task."
+    parameters:
+      type: object
+      properties:
+        event:
+          type: object
+          description: "ContextEvent: session/task/event IDs, revision, event_type and task_snapshot.goal"
+        options:
+          type: object
+          description: "ContextAgentOptions: bounded request, deadline and decision thresholds"
+      required: [event]
+    steps:
+      - backend: evaluate_context_step
+        as_classifier: context_agent
+
+components:
+  as_classifier:
+    context_agent:
+      backend: ${CLASSIFIER_BACKEND:-jev}
+      model: ${CLASSIFIER_MODEL_NAME:-jev-latest}
+      credential:
+        api_key: ${CLASSIFIER_API_KEY:-}
+        base_url: ${CLASSIFIER_BASE_URL:-null}
+      timeout: 0.8
+      max_retries: 0
+  context_agent:
+    default:
+      backend: jev
+      as_classifier: context_agent
+      file_store: default
+      limits:
+        enabled: true
+        mode: shadow

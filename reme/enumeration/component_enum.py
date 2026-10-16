@@ -12,6 +12,8 @@ class ComponentEnum(str, Enum):
 
     AS_CLASSIFIER = "as_classifier"
 
+    CONTEXT_AGENT = "context_agent"
+
     AS_EMBEDDING = "as_embedding"
 
     EMBEDDING_STORE = "embedding_store"

@@ -4,6 +4,7 @@ from . import agent_wrapper
 from . import as_llm
 from . import as_classifier
 from . import client
+from . import context_agent
 from . import as_embedding
 from . import embedding_store
 from . import file_catalog
@@ -36,6 +37,7 @@ __all__ = [
     "as_llm",
     "as_classifier",
     "client",
+    "context_agent",
     "as_embedding",
     "embedding_store",
     "file_catalog",

@@ -1,6 +1,14 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .context_agent import (
+    ContextAgentOptions,
+    ContextEvaluationResult,
+    ContextEvent,
+    ContextHint,
+    ContextTaskSnapshot,
+    MemoryCandidate,
+)
 from .dream import (
     DreamExtractOutput,
     DreamState,
@@ -28,6 +36,12 @@ from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 __all__ = [
     "ApplicationConfig",
     "ComponentConfig",
+    "ContextAgentOptions",
+    "ContextEvaluationResult",
+    "ContextEvent",
+    "ContextHint",
+    "ContextTaskSnapshot",
+    "MemoryCandidate",
     "DreamExtractOutput",
     "DreamState",
     "DreamUnit",
