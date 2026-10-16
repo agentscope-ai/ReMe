@@ -21,6 +21,11 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | Codex | [Start ReMe, then install the plugin](./integrations/codex.md) |
 | Other coding agents | `reme_memory` Skill or MCP |
 
+## Screenpipe notes
+
+[Import reviewed Screenpipe notes](./screenpipe.md) through the existing resource
+pipeline, preserving source references for later recall.
+
 ## General memory loop
 
 1. Before answering, call `search` for relevant memory.
