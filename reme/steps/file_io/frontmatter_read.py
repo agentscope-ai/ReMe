@@ -1,13 +1,16 @@
-"""``frontmatter_read_step`` — return the frontmatter dict of a markdown file.
+"""``frontmatter_read_step`` — surface a markdown file's frontmatter.
 
 Cheap structured read — frontmatter only, no body. Use ``body:read``
 for the post-frontmatter content slice, or whole-file ``read`` when
-you want both at once. Returns ``{exists: false}`` when the target
-doesn't exist; otherwise ``{exists: true, frontmatter: {...}}``.
+you want both at once. The answer is textual — ``- key: value`` per
+line — because MCP callers only ever see ``answer``; the parsed
+mapping itself is returned in ``metadata["frontmatter"]`` (and
+``exists: false`` in metadata when the target doesn't exist).
 
 ``path`` is a path relative to the workspace.
 """
 
+import json
 from pathlib import Path
 
 import frontmatter
@@ -16,6 +19,35 @@ import yaml
 from ._path import _check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
+
+
+def _render_value(value) -> str:
+    """Render one frontmatter value on a single answer line.
+
+    ``frontmatter_read`` is served straight to the LLM, so the answer
+    has to carry the frontmatter itself. ``json.dumps`` (with
+    ``default=str`` for YAML-only types such as dates, and
+    ``ensure_ascii=False`` for non-ASCII) preserves the structural
+    distinction between a literal ``"\\n"`` two-character sequence and
+    an actual newline, between the string ``"null"`` and YAML ``null``,
+    and between mixed mapping key types (an int ``1`` and a string
+    ``"1"`` round-trip with their JSON-form distinction). The
+    one-key-per-line layout is enforced upstream by the caller.
+    """
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError, RecursionError):
+        return repr(value)
+
+
+def _render_key(key) -> str:
+    """Render a frontmatter key (the caller formats ``key: value`` lines).
+
+    Keys are always strings in YAML frontmatter, so they do not need
+    the json.dumps structural pinning. Return them as-is so the answer
+    reads as ``- key: value`` rather than ``- "key": value``.
+    """
+    return str(key)
 
 
 @R.register("frontmatter_read_step")
@@ -71,6 +103,8 @@ class FrontmatterReadStep(BaseStep):
             self.logger.info(f"[{self.name}] path={path} parse_error={exc!r}")
             return
         self.context.response.success = True
-        self.context.response.answer = f"Read frontmatter from {path} ({len(meta)} key(s))"
+        header = f"Read frontmatter from {probed} ({len(meta)} key(s))"
+        rendered = [f"- {_render_key(key)}: {_render_value(value)}" for key, value in meta.items()]
+        self.context.response.answer = f"{header}:\n" + "\n".join(rendered) if rendered else f"{header}: (no keys)"
         self.context.response.metadata.update({"path": path, "exists": True, "frontmatter": meta, **resolved})
         self.logger.info(f"[{self.name}] path={path} keys={len(meta)}")

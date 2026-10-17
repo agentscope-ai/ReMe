@@ -549,7 +549,7 @@ jobs:
 
   frontmatter_read:
     backend: base
-    description: "Read a file's frontmatter as a dict."
+    description: "Read a file's frontmatter, one key: value per line."
     parameters:
       type: object
       properties:
