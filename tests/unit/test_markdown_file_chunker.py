@@ -13,6 +13,8 @@ import os
 import tempfile
 from unittest.mock import patch
 
+import pytest
+
 from reme.components.file_chunker import DefaultFileChunker, MarkdownFileChunker
 
 
@@ -169,6 +171,26 @@ def test_parse_frontmatter_only():
         print("✓ test_parse_frontmatter_only passed")
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("max_ast_sections", [0, None])
+def test_markdown_source_lines_and_metadata_remain_separate(tmp_path, max_ast_sections):
+    """AST and inherited byte fallback retain Markdown-specific semantics."""
+    path = tmp_path / "note.md"
+    source = b"---\nname: t\n---\n# H\nline 1\n[[target.md]]\n"
+    path.write_bytes(source)
+    chunker = MarkdownFileChunker(max_ast_sections=max_ast_sections, include_frontmatter_in_metadata=True)
+
+    node, chunks = asyncio.run(chunker.chunk(path))
+
+    assert len(chunks) == 1
+    assert (chunks[0].start_line, chunks[0].end_line) == (4, 6)
+    assert "name: t" not in chunks[0].text
+    assert chunks[0].metadata == {"name": "t"}
+    assert node.front_matter.name == "t"
+    assert [link.target_path for link in node.links] == ["target.md"]
+    assert node.chunk_ids == [chunks[0].id]
+    assert path.read_bytes() == source
 
 
 def test_parse_frontmatter_metadata_is_opt_in():
@@ -510,7 +532,7 @@ def test_parse_excessive_sections_uses_plain_text_without_ast():
                     ) as chunk_content,
                 ):
                     node, chunks = await chunker.chunk(path)
-                assert chunk_content.call_count == 1
+                chunk_content.assert_called_once_with(sections, path, parse_links=True)
             finally:
                 await chunker.close()
 
@@ -695,6 +717,91 @@ def test_parse_bad_frontmatter_does_not_abort_chunking():
             assert chunks[0].start_line == 4
             assert "body" in chunks[0].text
         print("✓ test_parse_bad_frontmatter_does_not_abort_chunking passed")
+
+    asyncio.run(run())
+
+
+def test_chunk_does_not_split_wikilink_at_boundary():
+    """A wikilink straddling the chunk_byte_size boundary should be retreated to its start."""
+
+    async def run():
+        # Pre-link filler is 90 bytes, link itself is 19 bytes ("[[a-very-long-target]]"=22).
+        # With chunk_byte_size=100, the boundary lands inside the link.
+        prefix = "x" * 90
+        link = "[[a-very-long-target]]"  # 22 bytes
+        suffix = "y" * 90
+        content = f"# H\n{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            chunker = MarkdownFileChunker(chunk_byte_size=100, overlap_byte_size=10, max_ast_sections=0)
+            _, chunks = await chunker.chunk(temp_path)
+            # The first chunk must NOT contain a partial link.
+            first = chunks[0].text
+            assert "[[" not in first or "]]" in first, f"first chunk has dangling '[[': {first!r}"
+            # And the link should appear intact in some chunk.
+            assert any(link in c.text for c in chunks), "link was split across all chunks"
+            print("✓ test_chunk_does_not_split_wikilink_at_boundary passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_chunk_does_not_split_wikilink_in_overlap():
+    """A wikilink landing inside the overlap region should be advanced past."""
+
+    async def run():
+        # 200-byte content, chunk=100, overlap=20. First chunk ends near byte 100,
+        # next start = 80. Place a link straddling byte 80 to land in the overlap.
+        prefix = "a" * 75
+        link = "[[overlap-target]]"  # 18 bytes; spans bytes 75..93
+        suffix = "b" * 110
+        content = f"# H\n{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            chunker = MarkdownFileChunker(chunk_byte_size=100, overlap_byte_size=20, max_ast_sections=0)
+            _, chunks = await chunker.chunk(temp_path)
+            # No chunk should start mid-link.
+            for c in chunks:
+                t = c.text
+                if "]]" in t and "[[" not in t.split("]]", 1)[0]:
+                    raise AssertionError(f"chunk starts mid-link: {t[:40]!r}")
+            assert any(link in c.text for c in chunks)
+            print("✓ test_chunk_does_not_split_wikilink_in_overlap passed")
+        finally:
+            os.unlink(temp_path)
+
+    asyncio.run(run())
+
+
+def test_chunk_falls_back_for_oversize_link():
+    """If a single link exceeds half the chunk size, the parser hard-cuts to make progress."""
+
+    async def run():
+        # chunk=100, link is 80 bytes, surrounded by short filler.
+        # Retreating would leave a tiny chunk (< 50), so the fallback kicks in.
+        prefix = "x" * 30
+        link = "[[" + ("L" * 76) + "]]"  # 80 bytes total
+        suffix = "y" * 200
+        content = f"# H\n{prefix}{link}{suffix}"
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+            f.write(content)
+            temp_path = f.name
+
+        try:
+            chunker = MarkdownFileChunker(chunk_byte_size=100, overlap_byte_size=10, max_ast_sections=0)
+            _, chunks = await chunker.chunk(temp_path)
+            # Must terminate (not hang) and cover the whole file.
+            assert len(chunks) >= 2
+            print("✓ test_chunk_falls_back_for_oversize_link passed")
+        finally:
+            os.unlink(temp_path)
 
     asyncio.run(run())
 

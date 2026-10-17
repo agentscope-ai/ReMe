@@ -5,11 +5,10 @@ from pathlib import Path
 from typing import Literal
 
 import aiofiles
-import yaml
 
 from .base_file_chunker import BaseFileChunker
 from ..component_registry import R
-from ...schema import FileChunk, FileFrontMatter, FileNode
+from ...schema import FileChunk, FileNode
 from ...utils.wikilink_handler import WikilinkHandler
 
 InvalidEncodingPolicy = Literal["replace", "strict"]
@@ -17,7 +16,7 @@ InvalidEncodingPolicy = Literal["replace", "strict"]
 
 @R.register("default")
 class DefaultFileChunker(BaseFileChunker):
-    """Default chunker that splits files into byte-based overlapping chunks."""
+    """Split complete files into plain-text byte chunks, regardless of extension."""
 
     def __init__(
         self,
@@ -37,21 +36,6 @@ class DefaultFileChunker(BaseFileChunker):
         self.invalid_encoding_policy = invalid_encoding_policy
         self.chunk_byte_size = max(100, chunk_byte_size)
         self.overlap_byte_size = max(4, overlap_byte_size)
-
-    @staticmethod
-    def _parse_front_matter(text: str) -> tuple[FileFrontMatter, str]:
-        """Parse YAML front matter delimited by ---, return (front_matter, remaining)."""
-        if not text.startswith("---"):
-            return FileFrontMatter(), text
-        end_idx = text.find("\n---", 3)
-        if end_idx == -1:
-            return FileFrontMatter(), text
-        try:
-            data = yaml.safe_load(text[3:end_idx].strip()) or {}
-            front_matter = FileFrontMatter(**(data if isinstance(data, dict) else {}))
-        except yaml.YAMLError:
-            front_matter = FileFrontMatter()
-        return front_matter, text[end_idx + 4 :].lstrip("\n")
 
     async def _read_text_for_indexing(self, file_path: Path) -> str:
         """Decode text for a derived index without modifying the source file."""
@@ -86,25 +70,12 @@ class DefaultFileChunker(BaseFileChunker):
         if not text:
             return FileNode(path=rel_path, st_mtime=stat.st_mtime), []
 
-        is_markdown = file_path.suffix.lower() == ".md"
-        if is_markdown:
-            front_matter, content = self._parse_front_matter(text)
-            if not content:
-                return FileNode(path=rel_path, st_mtime=stat.st_mtime, front_matter=front_matter), []
-            links = WikilinkHandler.extract_links(content, rel_path)
-        else:
-            front_matter = FileFrontMatter()
-            content = text
-            links = []
-
-        chunks = self.chunk_content(content, rel_path, parse_links=is_markdown)
+        chunks = self.chunk_content(text, rel_path, parse_links=False)
         chunk_ids = [c.id for c in chunks]
         return (
             FileNode(
                 path=rel_path,
                 st_mtime=stat.st_mtime,
-                front_matter=front_matter,
-                links=links,
                 chunk_ids=chunk_ids,
             ),
             chunks,
@@ -139,7 +110,8 @@ class DefaultFileChunker(BaseFileChunker):
         """Split content into overlapping byte-range chunks, avoiding cuts inside wikilinks.
 
         When ``parse_links`` is False, skip wikilink span computation and boundary checks
-        — used for non-markdown files where wikilink semantics don't apply.
+        — used by the default chunker for all files. Markdown fallback explicitly
+        enables link-aware chunking.
         """
         content_bytes = content.encode(self.encoding)
         n = len(content_bytes)
