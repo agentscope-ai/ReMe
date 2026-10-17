@@ -15,6 +15,7 @@ jobs:
         monitor_name: default
         dispatch_steps: [update_index_step]
       - backend: watch_changes_step
+        watch_mode: awatch  # Set to watch to isolate the blocking wait from AnyIO's shared thread limiter.
         dispatch_steps:
           - backend: update_index_step
             persist: False
@@ -35,6 +36,7 @@ jobs:
               - auto_image_resource_step
               - auto_text_resource_step
       - backend: watch_changes_step
+        watch_mode: awatch
         dispatch_steps:
           - backend: update_catalog_step
             file_catalog: resource
@@ -56,6 +58,7 @@ jobs:
             file_catalog: digest
           - backend: log_changes_step
       - backend: watch_changes_step
+        watch_mode: awatch
         dispatch_steps:
           - backend: update_catalog_step
             file_catalog: digest

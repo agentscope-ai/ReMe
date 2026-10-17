@@ -60,6 +60,12 @@ While the service is running, `watch_changes_step` takes over. It uses `watchfil
 directories, groups file events within a quiet window, and uses `coalesce_changes()` to collapse repeated events for the
 same path into one stable batch of changes.
 
+The Step's `watch_mode` defaults to `awatch`. Set `watch_mode: watch` on each relevant
+`watch_changes_step` to run `watchfiles.watch()` on a dedicated thread. This isolates long-lived
+watchers from AnyIO's shared request-thread limiter when embedding many ReMe applications in one
+process. Each active watcher still needs one thread. Filtering, batching, and `force_polling`
+settings apply to both modes; stopping the job also stops and joins its dedicated watcher.
+
 `update_index_step` performs the actual index writes:
 
 1. Select a file chunker by suffix.

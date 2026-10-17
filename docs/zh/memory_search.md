@@ -54,6 +54,11 @@ index_update_loop:
 服务运行期间由 `watch_changes_step` 接手。它用 `watchfiles.awatch()` 监听同一批目录，按 quiet window 聚合文件事件，再用
 `coalesce_changes()` 把同一路径上的重复事件压成一批稳定变化。
 
+Step 的 `watch_mode` 默认为 `awatch`。在需要切换的 `watch_changes_step` 上设置 `watch_mode: watch`，
+即可在专用线程中运行 `watchfiles.watch()`。同一进程内嵌入多个 ReMe 应用时，这能避免长期监听占用 AnyIO
+处理同步请求的共享线程额度。每个活跃 watcher 仍需要一个线程。两种模式共用过滤、批次处理及 `force_polling`
+设置；Job 停止时也会停止并回收其专用监听线程。
+
 `update_index_step` 真正写索引：
 
 1. 按后缀选择 file chunker。
