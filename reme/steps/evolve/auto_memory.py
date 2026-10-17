@@ -299,54 +299,55 @@ class AutoMemoryStep(BaseStep):
             f"[{self.name}] save session start session_id={session_id!r} messages={len(messages)} path={path}",
         )
 
-        existing: list[Msg] = []
-        if path.exists():
-            async with aiofiles.open(path, encoding="utf-8") as f:
-                content = await f.read()
-            for line in content.splitlines():
-                line = line.strip()
-                if line:
-                    try:
-                        existing.append(Msg.model_validate_json(line))
-                    except Exception:
-                        pass
+        async with await get_path_lock(path):
+            existing: list[Msg] = []
+            if path.exists():
+                async with aiofiles.open(path, encoding="utf-8") as f:
+                    content = await f.read()
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line:
+                        try:
+                            existing.append(Msg.model_validate_json(line))
+                        except Exception:
+                            pass
 
-        by_id: dict[str, Msg] = {}
-        for msg in existing:
-            by_id[msg.id] = msg
-        for msg in messages:
-            by_id[msg.id] = msg
-        merged = sorted(by_id.values(), key=lambda m: m.created_at)
+            by_id: dict[str, Msg] = {}
+            for msg in existing:
+                by_id[msg.id] = msg
+            for msg in messages:
+                by_id[msg.id] = msg
+            merged = sorted(by_id.values(), key=lambda m: m.created_at)
 
-        can_append = 0 < len(existing) <= len(merged) and all(
-            merged[i].id == existing[i].id for i in range(len(existing))
-        )
+            can_append = 0 < len(existing) <= len(merged) and all(
+                merged[i].id == existing[i].id for i in range(len(existing))
+            )
 
-        path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
 
-        if can_append:
-            new_msgs = merged[len(existing) :]
-            if new_msgs:
-                async with aiofiles.open(path, "a", encoding="utf-8") as f:
-                    for msg in new_msgs:
+            if can_append:
+                new_msgs = merged[len(existing) :]
+                if new_msgs:
+                    async with aiofiles.open(path, "a", encoding="utf-8") as f:
+                        for msg in new_msgs:
+                            await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                    self.logger.info(
+                        f"[{self.name}] save session appended session_id={session_id!r} "
+                        f"existing={len(existing)} appended={len(new_msgs)} total={len(merged)}",
+                    )
+                else:
+                    self.logger.info(
+                        f"[{self.name}] save session unchanged session_id={session_id!r} "
+                        f"existing={len(existing)} total={len(merged)}",
+                    )
+            else:
+                async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                    for msg in merged:
                         await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
                 self.logger.info(
-                    f"[{self.name}] save session appended session_id={session_id!r} "
-                    f"existing={len(existing)} appended={len(new_msgs)} total={len(merged)}",
-                )
-            else:
-                self.logger.info(
-                    f"[{self.name}] save session unchanged session_id={session_id!r} "
+                    f"[{self.name}] save session rewrote session_id={session_id!r} "
                     f"existing={len(existing)} total={len(merged)}",
                 )
-        else:
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
-                for msg in merged:
-                    await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
-            self.logger.info(
-                f"[{self.name}] save session rewrote session_id={session_id!r} "
-                f"existing={len(existing)} total={len(merged)}",
-            )
 
     @staticmethod
     def _to_msg(item) -> Msg:
