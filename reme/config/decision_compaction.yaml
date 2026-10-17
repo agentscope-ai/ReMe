@@ -1,0 +1,31 @@
+extends: default
+jobs:
+  compact_context:
+    backend: base
+    description: "Propose recoverable tool-result previews; the caller owns source history and recovery."
+    parameters:
+      type: object
+      properties:
+        messages: {type: array, items: {type: object}}
+        goal: {type: string}
+        next_action: {type: string}
+        source_refs: {type: object, additionalProperties: {type: string}}
+        protected_message_ids: {type: array, items: {type: string}}
+        protected_call_ids: {type: array, items: {type: string}}
+        eligible_tool_names: {type: array, items: {type: string}}
+        options: {type: object}
+      required: [messages]
+    steps:
+      - backend: compact_context_step
+        as_decision_model: compaction
+components:
+  as_decision_model:
+    compaction:
+      backend: ${DECISION_MODEL_BACKEND:-agentscope}
+      model: ${DECISION_MODEL_NAME:-null}
+      credential:
+        api_key: ${DECISION_MODEL_API_KEY:-}
+        base_url: ${DECISION_MODEL_BASE_URL:-null}
+      timeout: 10
+      max_retries: 1
+      retry_delay: 0.5

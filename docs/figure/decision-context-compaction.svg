@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="810" viewBox="0 0 1000 810" role="img" aria-labelledby="title desc">
+  <title id="title">Recoverable evidence compaction</title>
+  <desc id="desc">The host archives source history. ReMe protects tool pairs, sends bounded evidence per batch, asks one usefulness question and previews only low-probability results. Calls remain intact. The host supplies recovery and an optional exact token counter. Necessary or uncertain evidence is retained even if the budget cannot be met.</desc>
+  <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#516784"/></marker></defs>
+  <style>text{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#24364b}.title{font-size:30px;font-weight:700}.heading{font-size:21px;font-weight:700}.body{font-size:17px}.small{font-size:16px;fill:#526b84}.arrow{stroke:#516784;stroke-width:2;marker-end:url(#arrow)}</style>
+  <rect width="1000" height="810" rx="18" fill="#f4f7fb"/>
+  <text x="40" y="51" class="title">Recoverable evidence compaction</text>
+  <text x="40" y="82" class="small">One usefulness probability. Source history stays with the host.</text>
+  <g fill="#fff" stroke="#d3ddea" stroke-width="1.5">
+    <rect x="40" y="110" width="620" height="100" rx="14"/>
+    <rect x="40" y="245" width="620" height="100" rx="14"/>
+    <rect x="40" y="380" width="620" height="100" rx="14" fill="#eaf2ff"/>
+    <rect x="40" y="515" width="620" height="100" rx="14"/>
+    <rect x="40" y="650" width="620" height="110" rx="14"/>
+    <rect x="710" y="110" width="250" height="650" rx="14" fill="#edf6f0"/>
+  </g>
+  <text x="62" y="144" class="heading">1. Pair and protect</text>
+  <text x="62" y="176" class="body">Unique IDs, successful text results, read-only allowlist</text>
+  <text x="62" y="199" class="small">System / first / recent / pinned / no source reference: keep</text>
+  <text x="62" y="279" class="heading">2. Pack evidence with its question</text>
+  <text x="62" y="311" class="body">Goal + next action + recent text + candidate input/result preview</text>
+  <text x="62" y="334" class="small">Each batch shows its own evidence; oversized units stay untouched</text>
+  <text x="62" y="414" class="heading">3. Decision model: is this evidence still needed?</text>
+  <text x="62" y="446" class="body">One probability per tool pair; usefulness, not irrecoverability</text>
+  <text x="62" y="469" class="small">Missing, invalid, failed or uncertain answers: keep</text>
+  <text x="62" y="549" class="heading">4. Preview low-value results</text>
+  <text x="62" y="581" class="body">Lowest probabilities first; stop once the host budget is met</text>
+  <text x="62" y="604" class="small">Verbatim head/tail + source reference; tool calls are never deleted</text>
+  <text x="62" y="684" class="heading">5. Return a proposal</text>
+  <text x="62" y="716" class="body">Messages + decisions + usage + optional budget status</text>
+  <text x="62" y="743" class="small">Required evidence still too large? Return budget_exceeded.</text>
+  <path d="M350 212 V238" class="arrow"/>
+<path d="M350 347 V373" class="arrow"/>
+<path d="M350 482 V508" class="arrow"/>
+<path d="M350 617 V643" class="arrow"/>
+  <text x="732" y="148" class="heading">Host responsibilities</text>
+  <text x="732" y="193" class="body">Archive full history</text>
+  <text x="732" y="221" class="small">before applying changes</text>
+  <text x="732" y="283" class="body">Resolve source_refs</text>
+  <text x="732" y="311" class="small">retrieve original evidence</text>
+  <text x="732" y="373" class="body">Sanitize model inputs</text>
+  <text x="732" y="401" class="small">previews contain real text</text>
+  <text x="732" y="463" class="body">Count actual tokens</text>
+  <text x="732" y="491" class="small">system + tools + messages</text>
+  <text x="732" y="553" class="body">Handle excess budget</text>
+  <text x="732" y="581" class="small">summary or another fallback</text>
+  <text x="732" y="643" class="body">Apply and evaluate</text>
+  <text x="732" y="671" class="small">task quality and total cost</text>
+</svg>

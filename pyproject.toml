@@ -44,7 +44,7 @@ dependencies = [
 as = [
     "agentscope[model-ollama]==2.0.10",
 ]
-classifier-jev = [
+decision = [
     "agentscope[classifier-jev]==2.0.10",
 ]
 web = [
@@ -81,7 +81,7 @@ dev = [
 full = [
     "reme-ai[core]",
     "reme-ai[qwen-tokenizer]",
-    "reme-ai[classifier-jev]",
+    "reme-ai[decision]",
     "reme-ai[dev]",
     "reme-ai[image-heif]",
 ]

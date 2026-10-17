@@ -845,13 +845,13 @@ components:
 #      backend: local
 #      as_embedding: default
 
-#  as_classifier:
+#  as_decision_model:
 #    default:
-#      backend: ${CLASSIFIER_BACKEND:-jev}
-#      model: ${CLASSIFIER_MODEL_NAME:-jev-latest}
+#      backend: ${DECISION_MODEL_BACKEND:-agentscope}
+#      model: ${DECISION_MODEL_NAME:-null}
 #      credential:
-#        api_key: ${CLASSIFIER_API_KEY:-}
-#        base_url: ${CLASSIFIER_BASE_URL:-null}
+#        api_key: ${DECISION_MODEL_API_KEY:-}
+#        base_url: ${DECISION_MODEL_BASE_URL:-null}
 #      timeout: 30
 #      max_retries: 2
 #      retry_delay: 0.5

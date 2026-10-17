@@ -1,42 +1,43 @@
-"""Jev transport is optional, lazy, validated, and lifecycle managed."""
+"""Decision model transport is optional, lazy, validated, and lifecycle managed."""
 
 # pylint: disable=protected-access,redefined-outer-name
 
 import asyncio
 import sys
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
 
-from reme.components.as_classifier import JevAsClassifier
-from reme.components.as_classifier import jev as jev_module
+from reme.components.as_decision_model import AgentScopeAsDecisionModel
+from reme.components.as_decision_model import agentscope as provider_module
 
 
 @pytest.fixture
-def classifier_api():
+def provider_api():
     """Use actual AgentScope schemas when the optional adapter is installed."""
     return pytest.importorskip("agentscope.classifier")
 
 
 @pytest.fixture
-def provider(classifier_api, monkeypatch):
+def provider(provider_api, monkeypatch):
     """Keep the question schema real while mocking the model boundary."""
-    model = AsyncMock(return_value=SimpleNamespace(model="jev-test"))
+    model = AsyncMock(return_value=SimpleNamespace(model="decision-test"))
     model.client = SimpleNamespace(aclose=AsyncMock())
     factory = Mock(return_value=model)
-    monkeypatch.setattr(classifier_api, "JevClassifierModel", factory)
+    monkeypatch.setattr(provider_api, "JevClassifierModel", factory)
     return factory, model
 
 
 def test_start_and_close_never_load_optional_dependencies(monkeypatch):
     """An enabled but unused component does not need credentials or an SDK."""
     loader = Mock(side_effect=AssertionError("Unexpected provider import"))
-    monkeypatch.setattr(jev_module, "import_module", loader)
+    monkeypatch.setattr(provider_module, "import_module", loader)
 
     async def run():
-        component = JevAsClassifier()
+        component = AgentScopeAsDecisionModel()
         await component.start()
         await component.close()
         await component.close()
@@ -46,12 +47,15 @@ def test_start_and_close_never_load_optional_dependencies(monkeypatch):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize("failure", [ModuleNotFoundError("No classifier"), AttributeError("No Jev export")])
+@pytest.mark.parametrize(
+    "failure",
+    [ModuleNotFoundError("No decision model adapter"), AttributeError("No model export")],
+)
 def test_old_agentscope_has_actionable_error(monkeypatch, failure):
     """Older installations fail on use, not at application startup."""
-    monkeypatch.setattr(jev_module, "import_module", Mock(side_effect=failure))
-    component = JevAsClassifier()
-    with pytest.raises(ImportError, match=r"reme-ai\[classifier-jev\]"):
+    monkeypatch.setattr(provider_module, "import_module", Mock(side_effect=failure))
+    component = AgentScopeAsDecisionModel()
+    with pytest.raises(ImportError, match=r"reme-ai\[decision\]"):
         asyncio.run(component(state="hello", questions={"q": {"type": "binary"}}))
 
 
@@ -62,7 +66,7 @@ def test_old_agentscope_has_actionable_error(monkeypatch, failure):
 def test_transport_options_are_validated_locally(options):
     """Invalid numeric options cannot silently reach the SDK."""
     with pytest.raises(ValidationError):
-        JevAsClassifier(**options)
+        AgentScopeAsDecisionModel(**options)
 
 
 @pytest.mark.parametrize(
@@ -81,13 +85,13 @@ def test_transport_options_are_validated_locally(options):
 def test_invalid_request_shape_never_loads_provider(monkeypatch, state, questions):
     """Reject malformed state and mappings before optional imports."""
     loader = Mock(side_effect=AssertionError("Unexpected provider import"))
-    monkeypatch.setattr(jev_module, "import_module", loader)
+    monkeypatch.setattr(provider_module, "import_module", loader)
     with pytest.raises(ValueError):
-        asyncio.run(JevAsClassifier()(state=state, questions=questions))
+        asyncio.run(AgentScopeAsDecisionModel()(state=state, questions=questions))
     loader.assert_not_called()
 
 
-def test_valid_questions_reuse_model_and_restart_closes_clients(provider, classifier_api):
+def test_valid_questions_reuse_model_and_restart_closes_clients(provider, provider_api):
     """Concurrent calls construct one model; close and restart own each client."""
     factory, model = provider
     questions = {
@@ -97,9 +101,9 @@ def test_valid_questions_reuse_model_and_restart_closes_clients(provider, classi
     }
 
     async def run():
-        component = JevAsClassifier(
+        component = AgentScopeAsDecisionModel(
             credential={"api_key": "test-key", "base_url": ""},
-            model="jev-test",
+            model="decision-test",
             timeout=12,
             max_retries=4,
             retry_delay=0.2,
@@ -107,26 +111,26 @@ def test_valid_questions_reuse_model_and_restart_closes_clients(provider, classi
         await component.start()
         factory.assert_not_called()
         responses = await asyncio.gather(*(component(state={"text": "hello"}, questions=questions) for _ in range(3)))
-        assert all(response.model == "jev-test" for response in responses)
+        assert all(response.model == "decision-test" for response in responses)
         factory.assert_called_once()
         options = factory.call_args.kwargs
         assert options["credential"].api_key.get_secret_value() == "test-key"
         assert options["credential"].base_url is None
         assert {key: value for key, value in options.items() if key != "credential"} == {
-            "model": "jev-test",
+            "model": "decision-test",
             "timeout": 12.0,
             "max_retries": 4,
             "retry_delay": 0.2,
         }
         parsed = model.await_args.kwargs["questions"]
-        assert isinstance(parsed["binary"], classifier_api.BinaryQuestion)
-        assert isinstance(parsed["choice"], classifier_api.ChoiceQuestion)
-        assert isinstance(parsed["score"], classifier_api.ScoreQuestion)
+        assert isinstance(parsed["binary"], provider_api.BinaryQuestion)
+        assert isinstance(parsed["choice"], provider_api.ChoiceQuestion)
+        assert isinstance(parsed["score"], provider_api.ScoreQuestion)
         await component.close()
         await component.close()
         model.client.aclose.assert_awaited_once()
         assert component._model is None
-        await component(state="hello", questions={"q": classifier_api.BinaryQuestion()})
+        await component(state="hello", questions={"q": provider_api.BinaryQuestion()})
         assert factory.call_count == 2
         await component.close()
         assert model.client.aclose.await_count == 2
@@ -147,7 +151,7 @@ def test_invalid_question_never_constructs_model(provider, question):
     """Use the provider-independent schema before touching credentials."""
     factory, model = provider
     with pytest.raises(ValidationError):
-        asyncio.run(JevAsClassifier()(state="hello", questions={"q": question}))
+        asyncio.run(AgentScopeAsDecisionModel()(state="hello", questions={"q": question}))
     factory.assert_not_called()
     model.assert_not_awaited()
 
@@ -157,9 +161,9 @@ def test_missing_credentials_can_be_corrected_after_failure(provider):
     factory, _ = provider
 
     async def run():
-        component = JevAsClassifier()
+        component = AgentScopeAsDecisionModel()
         try:
-            with pytest.raises(ValueError, match="CLASSIFIER_API_KEY"):
+            with pytest.raises(ValueError, match="DECISION_MODEL_API_KEY"):
                 await component(state="hello", questions={"q": {"type": "binary"}})
             factory.assert_not_called()
             assert component._model is None
@@ -188,10 +192,10 @@ def test_close_waits_for_all_active_requests(provider, monkeypatch):
             if count == 2:
                 started.set()
             await releases[index].wait()
-            return SimpleNamespace(model="jev-test")
+            return SimpleNamespace(model="decision-test")
 
         model.side_effect = reply
-        component = JevAsClassifier(credential={"api_key": "test-key"})
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
         original_close = component._close
 
         async def mark_close():
@@ -225,7 +229,7 @@ def test_failed_or_cancelled_call_does_not_block_close(provider, failure):
     model.side_effect = failure
 
     async def run():
-        component = JevAsClassifier(credential={"api_key": "test-key"})
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
         with pytest.raises(type(failure)):
             await component(state="hello", questions={"q": {"type": "binary"}})
         await asyncio.wait_for(component.close(), timeout=2)
@@ -239,7 +243,7 @@ def test_client_close_error_clears_cached_model(provider):
     factory, model = provider
 
     async def run():
-        component = JevAsClassifier(credential={"api_key": "test-key"})
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
         await component(state="hello", questions={"q": {"type": "binary"}})
         model.client.aclose.side_effect = RuntimeError("close failed")
         with pytest.raises(RuntimeError, match="close failed"):
@@ -254,15 +258,15 @@ def test_client_close_error_clears_cached_model(provider):
     asyncio.run(run())
 
 
-def test_missing_sdk_has_actionable_error(classifier_api, monkeypatch):
+def test_missing_sdk_has_actionable_error(provider_api, monkeypatch):
     """The actual AgentScope constructor reports the optional dependency failure."""
-    assert classifier_api.JevClassifierModel is not None
+    assert provider_api.JevClassifierModel is not None
     monkeypatch.setitem(sys.modules, "typesafe_sdk", None)
 
     async def run():
-        component = JevAsClassifier(credential={"api_key": "test-key"})
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
         try:
-            with pytest.raises(ImportError, match=r"reme-ai\[classifier-jev\]"):
+            with pytest.raises(ImportError, match=r"reme-ai\[decision\]"):
                 await component(state="hello", questions={"q": {"type": "binary"}})
             assert component._model is None
         finally:
@@ -271,13 +275,13 @@ def test_missing_sdk_has_actionable_error(classifier_api, monkeypatch):
     asyncio.run(run())
 
 
-def test_sdk_response_and_retry_policy_round_trip(classifier_api, monkeypatch):
+def test_sdk_response_and_retry_policy_round_trip(provider_api, monkeypatch):
     """Exercise the real adapter with official SDK types and a mocked HTTP boundary."""
     sdk = pytest.importorskip("typesafe_sdk")
     client = SimpleNamespace(
         system_one=AsyncMock(
             return_value=SimpleNamespace(
-                model="jev-test",
+                model="decision-test",
                 answers={
                     "binary": sdk.NoulAnswer(type="noul", noul=0.8),
                     "choice": sdk.ChoiceAnswer(type="choice", choice="a", confidence=1, probabilities={"a": 1}),
@@ -298,7 +302,11 @@ def test_sdk_response_and_retry_policy_round_trip(classifier_api, monkeypatch):
     monkeypatch.setattr(sdk, "AsyncTypeSafeClient", factory)
 
     async def run():
-        async with JevAsClassifier(credential={"api_key": "test-key"}, max_retries=4, retry_delay=0.2) as component:
+        async with AgentScopeAsDecisionModel(
+            credential={"api_key": "test-key"},
+            max_retries=4,
+            retry_delay=0.2,
+        ) as component:
             response = await component(
                 state="hello",
                 questions={
@@ -307,7 +315,7 @@ def test_sdk_response_and_retry_policy_round_trip(classifier_api, monkeypatch):
                     "score": {"type": "score", "criteria": ["low", "high"]},
                 },
             )
-            assert isinstance(response, classifier_api.ClassifierResponse)
+            assert isinstance(response, provider_api.ClassifierResponse)
             assert response.content["binary"].probability == 0.8
             assert response.content["choice"].choice == "a"
             assert response.content["score"].score == 0.7
@@ -315,5 +323,30 @@ def test_sdk_response_and_retry_policy_round_trip(classifier_api, monkeypatch):
             assert factory.call_args.kwargs["retry"] == sdk.RetryPolicy(max_retries=4, backoff_initial=0.2)
             assert client.system_one.await_args.kwargs["questions"]["binary"].type == "noul"
         client.aclose.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("model_name", [None, "custom-decision-model"])
+def test_adapter_uses_sdk_default_or_explicit_model(monkeypatch, model_name):
+    """Model defaults belong to the provider; explicit choices pass through."""
+    model = AsyncMock(return_value=SimpleNamespace(content={}, usage=None))
+    model.client = SimpleNamespace(aclose=AsyncMock())
+    factory = Mock(return_value=model)
+    modules = {
+        "agentscope.classifier": SimpleNamespace(ClassifierQuestion=Any, JevClassifierModel=factory),
+        "agentscope.credential": SimpleNamespace(TypeSafeCredential=SimpleNamespace),
+    }
+    monkeypatch.setattr(provider_module, "import_module", modules.__getitem__)
+
+    async def run():
+        async with AgentScopeAsDecisionModel(credential={"api_key": "test-key"}, model=model_name) as component:
+            await component(state="hello", questions={"q": {"type": "binary"}})
+            options = factory.call_args.kwargs
+            if model_name is None:
+                assert "model" not in options
+            else:
+                assert options["model"] == model_name
+        model.client.aclose.assert_awaited_once()
 
     asyncio.run(run())

@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          pip install -e reme_studio -e ".[dev,core,classifier-jev,qwen-tokenizer]"
+          pip install -e reme_studio -e ".[dev,core,decision,qwen-tokenizer]"
           pip install --no-deps -e plugins/auto-fin
           pip install -e plugins/daily_paper
           pip install -e plugins/lme -e plugins/beam

@@ -47,6 +47,10 @@
 
 ## 📰 最新动态
 
+<!-- 最新动态最多展开 5 条；新增条目时，将超出的旧条目移入下方“更多更新”折叠区。 -->
+
+- [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
+  保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
   写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
@@ -62,15 +66,16 @@
   可重建 Tag Index 与标签过滤检索。
 - [2026.09] - **[Hermes Agent 记忆 Provider](https://reme.agentscope.io/zh/integrations/hermes) 已可使用**：支持 HTTP 和 Embedded
   两种模式，在模型调用前自动召回、每轮对话结束后异步执行 `auto_memory`。集成支持 Hermes Agent 0.21 及以上版本，后台任务也会继承当前 profile 上下文。
+
+<details>
+<summary>更多更新</summary>
+
 - [2026.09] - **[OpenClaw 插件](https://reme.agentscope.io/zh/integrations/openclaw) 发布**：可通过
   [ClawHub](https://clawhub.ai/agentscope-ai/plugins/reme-openclaw-plugin) 或
   [npm](https://www.npmjs.com/package/@agentscope-ai/reme-openclaw-plugin) 安装，为 OpenClaw 提供原生记忆召回、自动对话捕获和定时整理能力。
 - [2026.09] - **[DeepSeek Harness 插件](https://reme.agentscope.io/zh/integrations/dsh) 发布**：可通过
   [Awesome DSH Plugin](https://awesome-dsh-plugin.com/p/agentscope-ai/ReMe--integrations-dsh/) 或
   [npm](https://www.npmjs.com/package/@agentscope-ai/reme-dsh-plugin) 安装，提供长期记忆指引、`reme_search`、自动记忆、Auto Dream 和 ReMe Status。
-
-<details>
-<summary>更多更新</summary>
 
 - [2026.08] - **ReMe 博客发布**：[ReMe 博客](https://reme.agentscope.io/zh/reme-blog) 系统介绍了本地优先的记忆架构、
   自进化工作流、混合检索、主动发现与评测结果。
@@ -113,8 +118,8 @@ cd ..
 
 静态构建要求 Node.js 22.13 或更高版本，并让源码安装可以直接使用 Studio。
 
-可选 Jev 分类功能使用 `pip install "reme-ai[core,classifier-jev]"` 安装。配置 TypeSafe API key 后即可启动服务并调用 `reme jev`，
-详见[Classifier 配置](https://reme.agentscope.io/zh/configuration#classifier-配置)。
+可选决策模型功能使用 `pip install "reme-ai[core,decision]"` 安装。配置 TypeSafe API key 后即可启动服务并调用 `reme decide`，
+详见[决策模型配置](https://reme.agentscope.io/zh/configuration#决策模型配置)。
 
 ### Docker
 

@@ -1,4 +1,4 @@
-"""Optional TypeSafe Jev classifier, initialized only when called."""
+"""Optional AgentScope decision model adapter, initialized only when called."""
 
 import asyncio
 from collections.abc import Mapping
@@ -8,27 +8,27 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
-from .base_as_classifier import BaseAsClassifier
+from .base_as_decision_model import BaseAsDecisionModel
 from ..component_registry import R
 
 if TYPE_CHECKING:
-    from agentscope.classifier import ClassifierResponse, JevClassifierModel
+    from agentscope.classifier import ClassifierModelBase, ClassifierResponse
 
 
-class _JevOptions(BaseModel):
+class _DecisionOptions(BaseModel):
     """Validate transport options without importing optional provider modules."""
 
     model_config = ConfigDict(extra="forbid")
 
-    model: str = Field(default="jev-latest", min_length=1)
+    model: str | None = Field(default=None, min_length=1)
     timeout: float = Field(default=30.0, gt=0, allow_inf_nan=False)
     max_retries: int = Field(default=2, ge=0)
     retry_delay: float = Field(default=0.5, ge=0, allow_inf_nan=False)
 
 
-@R.register("jev")
-class JevAsClassifier(BaseAsClassifier):
-    """Wrap AgentScope's Jev API without requiring its extra during startup.
+@R.register("agentscope")
+class AgentScopeAsDecisionModel(BaseAsDecisionModel):
+    """Wrap AgentScope's TypeSafe decision model with lazy provider loading.
 
     ``questions`` accepts AgentScope question objects or JSON dictionaries with
     a ``type`` discriminator (``binary``, ``choice``, or ``score``). Only this
@@ -38,7 +38,7 @@ class JevAsClassifier(BaseAsClassifier):
     def __init__(
         self,
         credential: dict | None = None,
-        model: str = "jev-latest",
+        model: str | None = None,
         timeout: float = 30.0,
         max_retries: int = 2,
         retry_delay: float = 0.5,
@@ -46,58 +46,66 @@ class JevAsClassifier(BaseAsClassifier):
     ) -> None:
         super().__init__(**kwargs)
         self.credential = dict(credential or {})
-        self.options = _JevOptions(model=model, timeout=timeout, max_retries=max_retries, retry_delay=retry_delay)
-        self._model: "JevClassifierModel | None" = None
+        self.options = _DecisionOptions(
+            model=model,
+            timeout=timeout,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
+        self._model: "ClassifierModelBase | None" = None
         self._active_calls = 0
         self._idle = asyncio.Event()
         self._idle.set()
 
     @staticmethod
-    def _load_classifier():
-        """Delay the optional AgentScope classifier import until classification."""
+    def _load_decision_model():
+        """Load the optional AgentScope adapter on the first decision request."""
         try:
             module = import_module("agentscope.classifier")
             # Check exports as well as module presence for older installations.
             return module.ClassifierQuestion, module.JevClassifierModel
         except (ImportError, AttributeError) as exc:
             raise ImportError(
-                "Jev classification requires compatible AgentScope classifier support. "
-                "Install it with `pip install 'reme-ai[classifier-jev]'`.",
+                "Decision model inference requires compatible AgentScope classifier support. "
+                "Install it with `pip install 'reme-ai[decision]'`.",
             ) from exc
 
     async def __call__(self, state: str | dict, questions: Mapping[str, Any]) -> "ClassifierResponse":
         """Validate the request before constructing or calling the provider."""
         if not isinstance(state, (str, dict)) or (isinstance(state, str) and not state.strip()):
-            raise ValueError("Classifier state must be non-empty text or a JSON object.")
+            raise ValueError("Decision state must be non-empty text or a JSON object.")
         if isinstance(state, dict):
             state = TypeAdapter(dict[str, JsonValue]).validate_python(state, strict=True)
             json.dumps(state, allow_nan=False)
         if not isinstance(questions, Mapping) or not questions:
-            raise ValueError("Classifier questions must be a non-empty mapping.")
+            raise ValueError("Decision questions must be a non-empty mapping.")
         if any(not isinstance(name, str) or not name.strip() for name in questions):
-            raise ValueError("Classifier question names must be non-empty strings.")
+            raise ValueError("Decision question names must be non-empty strings.")
 
-        question_type, model_cls = self._load_classifier()
+        question_type, model_cls = self._load_decision_model()
         adapter = TypeAdapter(question_type)
         parsed = {name: adapter.validate_python(question) for name, question in questions.items()}
         await self.start()
         async with self._lock:
             if not self.is_started:
-                raise RuntimeError("Classifier component closed before the request could start.")
+                raise RuntimeError("Decision model component closed before the request could start.")
             if self._model is None:
                 credential = dict(self.credential)
                 api_key = credential.get("api_key")
                 if not isinstance(api_key, str) or not api_key.strip():
-                    raise ValueError("Jev classification requires CLASSIFIER_API_KEY or credential.api_key.")
+                    raise ValueError("Decision model inference requires DECISION_MODEL_API_KEY or credential.api_key.")
                 if not credential.get("base_url"):
                     credential["base_url"] = None
                 try:
                     credential_cls = import_module("agentscope.credential").TypeSafeCredential
-                    self._model = model_cls(credential=credential_cls(**credential), **self.options.model_dump())
+                    self._model = model_cls(
+                        credential=credential_cls(**credential),
+                        **self.options.model_dump(exclude_none=True),
+                    )
                 except ImportError as exc:
                     raise ImportError(
-                        "Jev classification requires a compatible typesafe-sdk. "
-                        "Install it with `pip install 'reme-ai[classifier-jev]'`.",
+                        "Decision model inference requires a compatible typesafe-sdk. "
+                        "Install it with `pip install 'reme-ai[decision]'`.",
                     ) from exc
             model = self._model
             self._active_calls += 1

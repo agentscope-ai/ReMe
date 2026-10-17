@@ -148,6 +148,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: "Auto Resource", link: `/${language}/auto_resource` },
         { text: "Auto Dream", link: `/${language}/auto_dream` },
         { text: "Proactive", link: `/${language}/proactive` },
+        { text: zh ? "决策模型上下文压缩" : "Context Compaction", link: `/${language}/context_compaction` },
       ],
     },
     {

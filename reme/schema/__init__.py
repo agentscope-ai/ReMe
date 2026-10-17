@@ -1,6 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
     DreamState,
@@ -26,6 +27,10 @@ from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "CallDecision",
+    "CompactionOptions",
+    "CompactionRequest",
+    "CompactionResult",
     "ApplicationConfig",
     "ComponentConfig",
     "DreamExtractOutput",

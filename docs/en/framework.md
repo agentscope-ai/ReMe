@@ -73,7 +73,7 @@ reme/
     file_chunker/            # Markdown / JSON / JSONL / generic text chunking
     file_catalog/            # change checkpoints
     as_llm/, as_embedding/   # model wrappers
-    as_classifier/           # optional Jev probabilistic classifier wrapper
+    as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
@@ -542,7 +542,7 @@ Current default components in `reme/config/default.yaml`:
 | `service`         | singleton                       | `http`                                           | Default HTTP service.                                                          |
 | `tokenizer`       | `default`                       | `regex`                                          | BM25 tokenizer.                                                                |
 | `as_embedding`    | `default`                       | Not configured by default; example uses `openai` | Provides the embedding model wrapper after uncommenting the example config.    |
-| `as_classifier`   | `default`                       | Not configured by default; example uses `jev` | Optional probabilistic classifier; demonstrated by the classifier_demo config extending default. |
+| `as_decision_model`   | `default`                       | Not configured by default; example uses `agentscope` | Optional probabilistic decision model; demonstrated by the decision_demo config extending default. |
 | `embedding_store` | `default`                       | Not configured by default; example uses `local`  | Depends on `as_embedding: default` after uncommenting the example config.      |
 | `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`                         | LLM model wrapper.                                                             |
 | `agent_wrapper`   | `default`                       | `agentscope`                                     | AgentScope wrapper.                                                            |

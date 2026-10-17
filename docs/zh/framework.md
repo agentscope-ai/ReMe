@@ -68,7 +68,7 @@ reme/
     file_chunker/            # Markdown / JSON / JSONL / 通用文本分块
     file_catalog/            # 变更 checkpoint
     as_llm/, as_embedding/   # 模型封装
-    as_classifier/           # 可选的 Jev 概率分类封装
+    as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
@@ -525,7 +525,7 @@ flowchart LR
 | `as_embedding`    | `default`                       | 默认未配置；示例为 `openai` | 取消配置注释后提供 embedding 模型封装                      |
 | `embedding_store` | `default`                       | 默认未配置；示例为 `local`  | 取消配置注释后依赖 `as_embedding: default`                 |
 | `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`    | LLM 模型封装                                               |
-| `as_classifier`   | `default`                       | 默认未配置；示例为 `jev` | 可选概率分类；通过继承 default 的 classifier_demo 配置演示   |
+| `as_decision_model`   | `default`                       | 默认未配置；示例为 `agentscope` | 可选概率决策；通过继承 default 的 decision_demo 配置演示   |
 | `agent_wrapper`   | `default`                       | `agentscope`                | AgentScope wrapper                                         |
 | `agent_wrapper`   | `claude_code`                   | `claude_code`               | Claude Code wrapper                                        |
 | `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 分别使用 API key 与 OAuth 的 Codex wrapper                 |
