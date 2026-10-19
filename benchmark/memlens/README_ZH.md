@@ -38,8 +38,10 @@ session 正文。每题新建 30 轮回答 Agent，工具为 `search`、`read`�
 为 600 秒；不叠加 SDK／Agent 重试，也不修补模型输出。
 
 独立的 [MemLens Judge](../../plugins/memlens-judge/README.md) 使用官方按
-category／subtype 区分的二元评分：Qwen3.8-Max、thinking 关闭、temperature
+category／subtype 区分的二元评分：默认 Qwen3.8-Max、thinking 关闭、temperature
 0、输出预算 256。辅助指标为官方 SubEM、F1。答案与题型字段仅进入评分。
+`JUDGE_MODEL_NAME` 可独立覆盖 Judge 模型；`settings.json` 记录插件默认值和
+环境变量展开后实际生效的 Judge 模型、生成参数与协议，不保存凭据或服务端点。
 
 ## 结果
 
@@ -48,8 +50,20 @@ category／subtype 区分的二元评分：Qwen3.8-Max、thinking 关闭、tempe
 指标及完成状态。workspace 下的 `mem_session/` 保留原生 Agent JSONL 轨迹。
 已有结果目录不会被覆盖。
 
-Token 统计包含成功记忆／回答调用及压缩调用，不计 Judge 和失败尝试。
-缺失的 cache／reasoning 字段保持未知；技术失败计为覆盖缺口，合法空答案与
-达到轮数上限的回答仍评分。
+新运行使用 `successful-http-requests-v2` 口径：统计记忆／回答作用域中观测到的
+成功 HTTP 请求，包括压缩，以及所属 Job 或历史处理随后失败前已成功的请求；
+每个作用域只计一次。不计 Judge 请求及未成功的 HTTP 尝试。这是实测请求用量，
+并非完整样本成本估计或供应商账单。未知计数保持 `null`，`records` 与各计数的
+`coverage` 标示观测覆盖；预期、已评分、未评分题数分别记录。
+
+技术失败计为覆盖缺口，合法空答案与达到轮数上限的回答仍评分。失败诊断记录阶段、
+场景／session／题目 ID、脱敏错误链和不含局部变量的堆栈位置，不保存凭据、
+请求头、原始配置或图片数据。失败 Response 在检查前保存到独立的
+`diagnostics/*-response.json`；`answer.json` 仍只表示成功回答，保留原始预测。
+`diagnostics/*-usage.json` 在直接异常或取消时也保留已观测用量；
+`status.json.memory_complete` 独立表示历史摄入和索引完成。
+清理失败保留评分及用量、增加 `cleanup_error_count`，并使 CLI 返回非零状态。
+
+历史报告沿用其原有的选定成功 Job／历史统计口径，不按新口径重写数据。
 
 数据来源、上游版本和完整授权文本见[英文 README](README.md#sources-and-license)。

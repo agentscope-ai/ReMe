@@ -15,7 +15,12 @@ long-answer preprocessing and over-500-word zero rule are preserved. A successfu
 but unparseable judge output receives the official zero score; API errors instead
 remain failed jobs for resumable judging of the same saved prediction.
 
-This comparison uses `qwen3.8-max`, temperature 0 and thinking disabled. The output
+The default judge is `qwen3.8-max`, with temperature 0 and thinking disabled.
+Set `JUDGE_MODEL_NAME` to override the judge model independently of the candidate.
+The benchmark's `settings.json` records the effective judge model, generation
+parameters and protocol from the validated application configuration, after plugin
+defaults and environment expansion. The snapshot excludes credentials and endpoints.
+The output
 budget is 256 tokens from the released OpenAI-compatible API judge branch
 (`max_completion_tokens`), not the separate vLLM branch's 2,048-token setting.
 These judge settings are independent of the candidate reader's thinking mode.

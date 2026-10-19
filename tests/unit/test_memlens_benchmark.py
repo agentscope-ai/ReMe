@@ -29,6 +29,11 @@ from reme.steps.file_io.read_image import ReadImageStep
 from benchmark.memlens import run as memlens
 
 
+@pytest.fixture(autouse=True)
+def memlens_judge_path(monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "plugins/memlens-judge/src"))
+
+
 def test_candidate_declares_required_image_dependency():
     manifest = Path(__file__).resolve().parents[2] / "plugins/memlens/pyproject.toml"
     project = tomllib.loads(manifest.read_text(encoding="utf-8"))["project"]
@@ -95,12 +100,10 @@ def test_official_metric_normalization():
 
 @pytest.fixture(name="candidate")
 def fixture_candidate(tmp_path, monkeypatch):
-    name = "memlens"
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "plugins" / name / "src"))
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "plugins/memlens/src"))
     monkeypatch.chdir(tmp_path)
-    memory = import_module(f"reme_{name}.auto_memory")
-    answer = import_module(f"reme_{name}.agentic_answer")
-    prefix = "MemLens"
+    memory = import_module("reme_memlens.auto_memory")
+    answer = import_module("reme_memlens.agentic_answer")
     app = SimpleNamespace(
         registry=R,
         metadata={},
@@ -111,23 +114,23 @@ def fixture_candidate(tmp_path, monkeypatch):
     wrapper = AsAgentWrapper(backend="agentscope", as_llm="", app_context=app)
     wrapper.reply = AsyncMock(return_value={"result": "answer", "session_id": "new", "usage": {"input_tokens": 7}})
     store = LocalFileStore(embedding_store="", app_context=app)
-    return name, memory, answer, prefix, app, wrapper, store, tmp_path
+    return memory, answer, app, wrapper, store, tmp_path
 
 
 def test_candidate_registration_is_application_local(candidate):
-    name, memory, answer, prefix, *_ = candidate
-    plugin = _load_plugin(name, EntryPoint(name=name, value=f"reme_{name}", group="reme.plugins"))
+    memory, answer, *_ = candidate
+    plugin = _load_plugin("memlens", EntryPoint(name="memlens", value="reme_memlens", group="reme.plugins"))
     registry = create_application_registry()
     PluginManager([plugin]).register(registry)
-    assert registry.get("step", f"{name}_auto_memory_step") is getattr(memory, f"{prefix}AutoMemoryStep")
-    assert registry.get("step", f"{name}_agentic_answer_step") is getattr(answer, f"{prefix}AgenticAnswerStep")
+    assert registry.get("step", "memlens_auto_memory_step") is memory.MemLensAutoMemoryStep
+    assert registry.get("step", "memlens_agentic_answer_step") is answer.MemLensAgenticAnswerStep
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [True, False])
 async def test_memory_saves_originals_and_native_image_links(candidate, sources):
-    _, memory, _, prefix, app, wrapper, store, workspace = candidate
-    step = getattr(memory, f"{prefix}AutoMemoryStep")(app_context=app, agent_wrapper=wrapper, file_store=store)
+    memory, _, app, wrapper, store, workspace = candidate
+    step = memory.MemLensAutoMemoryStep(app_context=app, agent_wrapper=wrapper, file_store=store)
     step._list_session_note = AsyncMock(return_value=None)
     picture = BytesIO()
     Image.new("RGB", (1, 1), (12, 34, 56)).save(picture, format="PNG")
@@ -165,7 +168,7 @@ async def test_memory_saves_originals_and_native_image_links(candidate, sources)
 
 @pytest.mark.asyncio
 async def test_read_image_returns_real_formatter_image_and_rejects_escape(candidate):
-    _, _, answer, prefix, app, wrapper, store, workspace = candidate
+    _, answer, app, wrapper, store, workspace = candidate
     path = workspace / "session/images/one/photo.png"
     path.parent.mkdir(parents=True)
     Image.new("RGB", (2, 2), (12, 34, 56)).save(path)
@@ -176,7 +179,7 @@ async def test_read_image_returns_real_formatter_image_and_rejects_escape(candid
         return step.context.response
 
     app.jobs["read_image"] = AsyncMock(side_effect=native_read)
-    step = getattr(answer, f"{prefix}AgenticAnswerStep")(app_context=app, agent_wrapper=wrapper, file_store=store)
+    step = answer.MemLensAgenticAnswerStep(app_context=app, agent_wrapper=wrapper, file_store=store)
     tool = answer.image_reader(step)
     result = await tool.call(path="session/images/one/photo.png")
     assert result.state == ToolResultState.SUCCESS and isinstance(result.content[1], DataBlock)
@@ -200,7 +203,7 @@ async def test_read_image_returns_real_formatter_image_and_rejects_escape(candid
 @pytest.mark.asyncio
 @pytest.mark.parametrize("sources", [True, False])
 async def test_answer_has_fresh_state_bm25_scope_and_no_gold(candidate, sources):
-    _, _, answer, prefix, app, wrapper, store, workspace = candidate
+    _, answer, app, wrapper, store, workspace = candidate
     for relative in ["daily/note.md", "digest/note.md", "session/dialog/one.jsonl", "mem_session/private.md"]:
         path = workspace / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,7 +227,7 @@ async def test_answer_has_fresh_state_bm25_scope_and_no_gold(candidate, sources)
     read = AsyncMock(return_value=Response(answer="evidence"))
     read.name, read.description, read.parameters = "read", "read", {"type": "object", "properties": {}}
     app.jobs = {"search": job, "read": read}
-    step = getattr(answer, f"{prefix}AgenticAnswerStep")(app_context=app, agent_wrapper=wrapper, file_store=store)
+    step = answer.MemLensAgenticAnswerStep(app_context=app, agent_wrapper=wrapper, file_store=store)
     sessions, contexts = [], []
     for _ in range(2):
         response = await step(query="Official question", include_source_sessions=sources)

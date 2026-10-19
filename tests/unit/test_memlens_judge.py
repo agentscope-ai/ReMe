@@ -17,12 +17,10 @@ from reme.plugin_manifest import parse_plugin_manifest
 
 @pytest.fixture(name="judge")
 def fixture_judge(monkeypatch):
-    name = "memlens"
-    root = Path(__file__).resolve().parents[2] / "plugins" / f"{name}-judge" / "src"
+    root = Path(__file__).resolve().parents[2] / "plugins/memlens-judge/src"
     monkeypatch.syspath_prepend(str(root))
-    module = import_module(f"judge_{name}.llm_judge")
-    prefix = "MemLens"
-    step = getattr(module, f"{prefix}JudgeStep")()
+    module = import_module("judge_memlens.llm_judge")
+    step = module.MemLensJudgeStep()
     step.context = RuntimeContext.from_context(
         None,
         question="QUESTION",
@@ -38,12 +36,12 @@ def fixture_judge(monkeypatch):
             usage=ChatUsage(100, 10, 0.01, cache_input_tokens=30),
         ),
     )
-    return name, step, import_module(f"judge_{name}.protocol"), root
+    return step, import_module("judge_memlens.protocol"), root
 
 
 @pytest.mark.asyncio
 async def test_judge_job_uses_only_official_prompt_and_separate_usage(judge):
-    name, step, protocol, root = judge
+    step, protocol, root = judge
     response = await step.execute()
     assert response.success and response.metadata["llm_judge_score"] == 1
     assert response.metadata["usage"]["cache_input_tokens"] == 30
@@ -51,10 +49,10 @@ async def test_judge_job_uses_only_official_prompt_and_separate_usage(judge):
     expected = protocol.judge_prompt("QUESTION", "REFERENCE", "PREDICTION", **kwargs)
     assert step.as_llm.call_args.args[0][0].get_text_content() == expected
     assert len(step.as_llm.call_args.args[0]) == 1 and not step.as_llm.call_args.kwargs
-    text = (root / f"judge_{name}" / "plugin.yaml").read_text()
-    parse_plugin_manifest(text, plugin_name=f"{name}-judge")
+    text = (root / "judge_memlens/plugin.yaml").read_text()
+    parse_plugin_manifest(text, plugin_name="memlens-judge")
     manifest = yaml.safe_load(text)["application_defaults"]
-    assert manifest["jobs"]["answer_judge"]["steps"] == [{"backend": f"{name}_judge_step", "as_llm": "judge"}]
+    assert manifest["jobs"]["answer_judge"]["steps"] == [{"backend": "memlens_judge_step", "as_llm": "judge"}]
     model = manifest["components"]["as_llm"]["judge"]
     assert model["extra_body"] == {"enable_thinking": False} and model["parameters"]["temperature"] == 0
     assert model["parameters"]["max_tokens"] == 256
