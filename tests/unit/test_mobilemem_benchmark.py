@@ -148,6 +148,7 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
     monkeypatch.setattr("reme.config.config_parser.find_entry_points", installed)
     monkeypatch.setenv("LLM_API_KEY", "offline")
     monkeypatch.setenv("LLM_BASE_URL", "https://provider.invalid/v1")
+    monkeypatch.setenv("JUDGE_MODEL_NAME", "offline-judge-override")
     candidate_app = Application(**mobilemem.candidate_config(tmp_path / "candidate", "candidate-model"))
     judge_app = Application(**mobilemem.judge_config(tmp_path / "judge"))
     try:
@@ -155,6 +156,11 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
         await judge_app.start()
         assert set(judge_app.context.jobs) == {"answer_judge"}
         assert set(judge_app.context.components) == {"as_llm"}
+        audit = mobilemem.judge_settings(judge_app)
+        assert audit["model"] == "offline-judge-override"
+        assert audit["parameters"] == {"max_tokens": 4096, "temperature": 0, "thinking_enable": False}
+        assert audit["protocol"] == "mobilemem-omni-membase-default-judge-v1"
+        assert "credential" not in json.dumps(audit) and "provider.invalid" not in json.dumps(audit)
         models = candidate_app.context.components["as_llm"]
         for component in models.values():
             assert component.kwargs["model"] == "candidate-model"

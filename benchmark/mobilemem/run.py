@@ -24,6 +24,15 @@ import yaml
 from reme import Application
 from reme.config import resolve_app_config
 
+from benchmark.mobilemem._audit import (
+    ImageInputError,
+    USAGE_POLICY,
+    error_record,
+    judge_settings,
+    mean_tokens,
+    response_record,
+)
+
 
 def timestamp(value: str) -> str:
     """Preserve published start-time precision in AgentScope ISO timestamps."""
@@ -128,10 +137,14 @@ def session_messages(session: dict, image_root: Path, aliases=None) -> list[dict
         if turn["content_type"] == "image" and not refs:
             raise ValueError("MobileMem image turn has no image reference")
         for source in refs:
+            try:
+                image = image_block(resolve_image(image_root, source, aliases))
+            except Exception as error:  # pylint: disable=broad-exception-caught
+                raise ImageInputError(source, error) from error
             content.extend(
                 [
                     {"type": "text", "text": f"[Image ID: {source}]"},
-                    image_block(resolve_image(image_root, source, aliases)),
+                    image,
                 ],
             )
         messages.append(
@@ -329,76 +342,124 @@ def judge_config(workspace: Path) -> dict:
 
 def check_response(response):
     """Keep failed Jobs as technical errors rather than incorrect predictions."""
+    if response.metadata.get("cancelled"):
+        raise asyncio.CancelledError("ReMe Job cancelled")
     if not response.success:
         raise RuntimeError("ReMe Job failed; see the saved response artifact.")
     return response
 
 
+async def close_application(app, directory, *, user_id=None):
+    """Finish owned cleanup; keep its diagnostics separate from the primary failure."""
+    if app is None:
+        return
+    closing = asyncio.create_task(app.close())
+    try:
+        await asyncio.shield(closing)
+    except asyncio.CancelledError as cancellation:
+        if closing.cancelled():
+            save(directory / "cleanup-error.json", error_record(cancellation, stage="cleanup", user_id=user_id))
+            return
+        try:
+            await closing
+        except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
+            save(directory / "cleanup-error.json", error_record(error, stage="cleanup", user_id=user_id))
+        raise
+    except Exception as error:  # pylint: disable=broad-exception-caught
+        save(directory / "cleanup-error.json", error_record(error, stage="cleanup", user_id=user_id))
+
+
 async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) -> list[dict]:
     """Ingest the complete chronological history into one fresh user workspace."""
-    app = Application(**candidate_config(directory / "workspace", model))
+    app, response, session_id = None, None, None
+    stage = "startup"
     results, memory_usage, aliases = [], [], {}
     try:
+        app = Application(**candidate_config(directory / "workspace", model))
         await app.start()
         observe_usage(app)
         observe_completion(app)
         for ordinal, session in enumerate(scene["sessions"]):
+            session_id, response = session["session_id"], None
+            stage = "preprocessing"
             with usage_scope() as measured:
-                response = await app.run_job(
-                    "auto_memory",
-                    messages=await asyncio.to_thread(session_messages, session, scene["image_root"], aliases),
-                    session_id=session["session_id"],
-                    date=timestamp(session["event_start_time"])[:10],
-                    include_images=True,
-                    include_source_sessions=True,
-                )
-            save(
-                directory / "sessions" / f"{ordinal:05d}.json",
-                {
-                    "session_id": session["session_id"],
-                    "response": response.model_dump(),
-                    "usage": aggregate_usage(measured),
-                },
-            )
-            check_response(response)
+                try:
+                    messages = await asyncio.to_thread(session_messages, session, scene["image_root"], aliases)
+                    stage = "memory"
+                    response = await app.run_job(
+                        "auto_memory",
+                        messages=messages,
+                        session_id=session_id,
+                        date=timestamp(session["event_start_time"])[:10],
+                        include_images=True,
+                        include_source_sessions=True,
+                    )
+                    check_response(response)
+                finally:
+                    save(
+                        directory / "sessions" / f"{ordinal:05d}.json",
+                        {
+                            "session_id": session_id,
+                            "response": response_record(response),
+                            "usage": aggregate_usage(measured),
+                        },
+                    )
             memory_usage.extend(measured)
             print(f"{scene['id']}: session {ordinal + 1}/{len(scene['sessions'])}", flush=True)
-        check_response(await app.run_job("index_update"))
+        stage, session_id, response = "index", None, None
+        with usage_scope() as measured:
+            try:
+                response = await app.run_job("index_update")
+                check_response(response)
+            finally:
+                save(
+                    directory / "index-response.json",
+                    {"response": response_record(response), "usage": aggregate_usage(measured)},
+                )
+        memory_usage.extend(measured)
+        # Compatibility marker: never write this for a partial history or failed index.
         save(directory / "memory_usage.json", aggregate_usage(memory_usage))
 
         async def answer_question(ordinal, question):
             question_dir = directory / "questions" / f"{ordinal:04d}"
+            answer_stage, answer_response = "answer", None
             try:
                 async with query_slots:
                     with usage_scope() as measured:
-                        response = await app.run_job(
-                            "agentic_answer",
-                            query=query_prompt(question["question"], "Use the available evidence tools."),
-                            scene_id=scene["id"],
-                            include_images=True,
-                            include_source_sessions=True,
-                            max_iters=30,
-                        )
-                    answer_record = {
-                        "question_id": question["question_id"],
-                        "response": response.model_dump(),
-                        "usage": aggregate_usage(measured),
-                    }
-                    save(question_dir / "answer-response.json", answer_record)
-                    check_response(response)
+                        try:
+                            answer_response = await app.run_job(
+                                "agentic_answer",
+                                query=query_prompt(question["question"], "Use the available evidence tools."),
+                                scene_id=scene["id"],
+                                include_images=True,
+                                include_source_sessions=True,
+                                max_iters=30,
+                            )
+                            check_response(answer_response)
+                        finally:
+                            answer_record = {
+                                "question_id": question["question_id"],
+                                "response": response_record(answer_response),
+                                "usage": aggregate_usage(measured),
+                            }
+                            save(question_dir / "answer-response.json", answer_record)
                     save(question_dir / "answer.json", answer_record)
-                    prediction = response.answer
-                    judgment = await judge.run_job(
-                        "answer_judge",
-                        question=question["question"],
-                        reference=question["answer"],
-                        prediction=prediction,
-                        evidence=evidence_values(question),
-                    )
-                    save(question_dir / "judge.json", judgment.model_dump())
-                    check_response(judgment)
+                    prediction = answer_response.answer
+                    answer_stage, answer_response = "judge", None
+                    try:
+                        answer_response = await judge.run_job(
+                            "answer_judge",
+                            question=question["question"],
+                            reference=question["answer"],
+                            prediction=prediction,
+                            evidence=evidence_values(question),
+                        )
+                        check_response(answer_response)
+                    finally:
+                        save(question_dir / "judge.json", response_record(answer_response))
+                answer_stage = "metrics"
                 metrics = score_answer(question["answer"], prediction)
-                metrics["llm_judge"] = judgment.metadata["llm_judge_score"]
+                metrics["llm_judge"] = answer_response.metadata["llm_judge_score"]
                 result = {
                     "question_id": question["question_id"],
                     "category": question["question_type"],
@@ -407,43 +468,61 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
                     "prediction": prediction,
                     "metrics": metrics,
                     "usage": aggregate_usage(measured),
-                    "judge_parse_default_zero": judgment.metadata["parse_default_zero"],
+                    "judge_parse_default_zero": answer_response.metadata["parse_default_zero"],
                 }
                 save(question_dir / "result.json", result)
                 results.append(result)
                 print(f"{scene['id']}: {question['question_id']} completed", flush=True)
-            except Exception as error:  # pylint: disable=broad-exception-caught
-                save(question_dir / "error.json", {"error_type": type(error).__name__})
+            except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
+                save(
+                    question_dir / "error.json",
+                    error_record(
+                        error,
+                        stage=answer_stage,
+                        user_id=scene["id"],
+                        question_id=question["question_id"],
+                        response=answer_response,
+                    ),
+                )
+                if isinstance(error, asyncio.CancelledError):
+                    raise
                 print(f"{scene['id']}: {question['question_id']} failed ({type(error).__name__})", flush=True)
 
-        await asyncio.gather(*(answer_question(i, question) for i, question in enumerate(scene["questions"])))
-    except Exception as error:  # pylint: disable=broad-exception-caught
-        save(directory / "error.json", {"error_type": type(error).__name__})
-        print(f"{scene['id']}: ingestion failed ({type(error).__name__})", flush=True)
+        stage, response = "answers", None
+        tasks = [asyncio.create_task(answer_question(i, question)) for i, question in enumerate(scene["questions"])]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
+        save(
+            directory / "error.json",
+            error_record(error, stage=stage, user_id=scene["id"], session_id=session_id, response=response),
+        )
+        if isinstance(error, asyncio.CancelledError):
+            raise
+        print(f"{scene['id']}: {stage} failed ({type(error).__name__})", flush=True)
     finally:
-        await app.close()
-    save(directory / "summary.json", {"completed": len(results), "expected": len(scene["questions"])})
+        try:
+            await close_application(app, directory, user_id=scene["id"])
+        finally:
+            save(directory / "summary.json", {"completed": len(results), "expected": len(scene["questions"])})
     return results
 
 
-async def run(scenes, output: Path, model: str, user_concurrency: int, query_concurrency: int) -> bool:
-    """Run independent users concurrently and save official metrics plus method cost."""
-    judge = Application(**judge_config(output / "judge-workspace"))
-    rows = []
-    user_slots, query_slots = asyncio.Semaphore(user_concurrency), asyncio.Semaphore(query_concurrency)
-    try:
-        await judge.start()
-
-        async def user_job(scene):
-            async with user_slots:
-                rows.extend(await evaluate_user(scene, output / "users" / scene["id"], model, judge, query_slots))
-
-        await asyncio.gather(*(user_job(scene) for scene in scenes))
-    finally:
-        await judge.close()
+def summarize_run(scenes, output: Path, model: str) -> dict:
+    """Read each canonical receipt/result once, including a run interrupted after partial progress."""
     expected = sum(len(scene["questions"]) for scene in scenes)
-    memory = [json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/memory_usage.json")]
-    answers = [json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/questions/*/answer.json")]
+    rows = [json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/questions/*/result.json")]
+    sessions = [json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/sessions/*.json")]
+    indexes = [json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/index-response.json")]
+    memory = [row["usage"] for row in sessions + indexes]
+    answers = [
+        json.loads(path.read_text(encoding="utf-8")) for path in output.glob("users/*/questions/*/answer-response.json")
+    ]
     answer_usage = [row["usage"] for row in answers]
     total = aggregate_usage(memory + answer_usage)
     summary = {
@@ -457,31 +536,58 @@ async def run(scenes, output: Path, model: str, user_concurrency: int, query_con
         "memory_usage": aggregate_usage(memory),
         "answer_usage": aggregate_usage(answer_usage),
         "token_usage": total,
-        "mean_tokens_per_user": {
-            key: total[key] / len(memory) if memory and total[key] is not None else None
-            for key in (
-                "input_tokens",
-                "output_tokens",
-                "total_tokens",
-                "cached_input_tokens",
-                "noncached_input_tokens",
-            )
+        "usage_policy": USAGE_POLICY,
+        "cleanup_error_count": len(list(output.glob("users/*/cleanup-error.json")))
+        + int((output / "cleanup-error.json").exists()),
+        "usage_denominators": {"scheduled_users": len(scenes), "expected_questions": expected},
+        "usage_counts": {
+            "attempted_users": len(list(output.glob("users/*/summary.json"))),
+            "attempted_sessions": len(sessions),
+            "successful_sessions": sum(bool((row.get("response") or {}).get("success")) for row in sessions),
+            "completed_ingestion_users": len(list(output.glob("users/*/memory_usage.json"))),
+            "attempted_answers": len(answers),
+            "successful_answers": sum(bool((row.get("response") or {}).get("success")) for row in answers),
+            "scored_questions": len(rows),
         },
-        "mean_tokens_per_question": {
-            key: total[key] / len(answers) if answers and total[key] is not None else None
-            for key in (
-                "input_tokens",
-                "output_tokens",
-                "total_tokens",
-                "cached_input_tokens",
-                "noncached_input_tokens",
-            )
-        },
+        "mean_tokens_per_user": mean_tokens(total, len(scenes)),
+        "mean_tokens_per_question": mean_tokens(total, expected),
         "judge_parse_default_zero": sum(row["judge_parse_default_zero"] for row in rows),
     }
     save(output / "summary.json", summary)
+    return summary
+
+
+async def run(scenes, output: Path, model: str, user_concurrency: int, query_concurrency: int) -> bool:
+    """Run independent users concurrently and save official metrics plus method cost."""
+    judge = None
+    user_slots, query_slots = asyncio.Semaphore(user_concurrency), asyncio.Semaphore(query_concurrency)
+    try:
+        judge = Application(**judge_config(output / "judge-workspace"))
+        save(output / "judge-settings.json", judge_settings(judge))
+        await judge.start()
+
+        async def user_job(scene):
+            async with user_slots:
+                await evaluate_user(scene, output / "users" / scene["id"], model, judge, query_slots)
+
+        tasks = [asyncio.create_task(user_job(scene)) for scene in scenes]
+        try:
+            await asyncio.gather(*tasks)
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+    except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
+        save(output / "error.json", error_record(error, stage="run"))
+        raise
+    finally:
+        try:
+            await close_application(judge, output)
+        finally:
+            summary = summarize_run(scenes, output, model)
     print(json.dumps(summary, ensure_ascii=False, indent=2), flush=True)
-    return len(rows) == expected
+    return summary["completed"] == summary["expected"] and summary["cleanup_error_count"] == 0
 
 
 def main() -> int:

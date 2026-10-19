@@ -41,8 +41,20 @@ temperature 为 0，开启 thinking，输出预算 65,536，上下文为 1,000,0
 
 每个用户的 `workspace/` 保存笔记、原始 JSONL、图像及原生 AgentScope 轨迹。
 `sessions/*.json` 与 `questions/*/` 保存响应、评分、指标和技术错误。
-`summary.json` 汇总完成/应测题数、指标、记忆与回答 token 总量及平均值。
-用量覆盖 provider 返回的压缩调用；缺失的 cache 字段保持未知。Judge 用量不计入方法成本。
-原生中断与失败 Job 作为未评分的技术缺口保存；runner 不额外加入 fallback 或重试队列。
+`summary.json` 汇总完成/应测题数，指标只对成功评分的结果求均值。
+原生中断与失败 Job 保留为未评分的技术缺口，不作为零分答案；runner 不额外加入 fallback 或重试队列。
+
+usage policy 第 2 版统计已观测的成功 HTTP 请求，包括压缩调用及摄入/回答最终失败前已经产生的请求。
+记忆成本只汇总 `sessions/*.json` 和 `index-response.json`；回答成本只汇总 `answer-response.json`，
+包括失败响应及直接异常时的 `response: null`。`answer.json`、result 和 response metadata 中的副本不重复计费。
+`memory_usage.json` 仍仅在完整历史摄入及索引更新成功后生成，不能将它误作部分摄入标记。
+Judge 用量不计入方法成本；缺失字段保持未知，并记录每个字段的观测覆盖数。
+`mean_tokens_per_user` / `mean_tokens_per_question` 是本次已观测成本按计划用户数/应测题数均摊，
+summary 明确记录分母和尝试/完成数，不代表成功样本平均成本。旧的 selected-success-only 报告不改写口径。
+
+错误记录包含失败阶段、用户/会话/题号、安全的图片相对路径、脱敏原因和调用栈位置，不保存凭据、请求 headers、
+图片载荷或 frame locals；清理错误单独保留，`cleanup_error_count` 使本轮以状态码 2 退出，但不丢弃已评分结果。
+`judge-settings.json` 从实际校验后的配置中保存 Judge 模型、参数和协议白名单，
+包括可选的 `JUDGE_MODEL_NAME` 覆盖值，不导出凭据。
 
 协议来源、数据版本和改编代码的完整 MIT 许可证见 [英文说明](README.md)。

@@ -43,9 +43,25 @@ MemBase executable-default `mobilemem-omni-judge` rubric, `qwen3.8-max`, tempera
 
 Each user's `workspace/` retains notes, source JSONL, images and native AgentScope trajectories.
 `sessions/*.json` and `questions/*/` retain responses, judgments, metrics and technical errors.
-`summary.json` reports completed/expected questions, scores, memory/answer token totals and averages.
-Provider usage includes compression; absent cache fields stay unknown. Judge usage is excluded from method cost.
-Native interrupted replies and failed Jobs remain unscored technical gaps. The runner adds no fallback or retry queue.
+`summary.json` reports completed/expected questions and scores over successfully scored results only.
+Native interrupted replies and failed Jobs remain unscored technical gaps, not zero-score answers.
+The runner adds no fallback or retry queue.
+
+Usage policy version 2 counts observed successful HTTP requests, including compression and requests made before
+a candidate history or answer later fails. Memory cost comes from `sessions/*.json` and `index-response.json`;
+answer cost comes only from `answer-response.json`, including failed responses or `response: null` when a call raises.
+Copies in `answer.json`, result files and response metadata are not counted again. `memory_usage.json` remains a
+completion marker: it is written only after the full history and index update succeed.
+Judge usage is excluded; absent counters stay unknown and each counter includes its observation coverage.
+The `mean_tokens_per_user` / `mean_tokens_per_question` fields amortize this run's observed cost over scheduled users /
+expected questions, with explicit denominators and attempt/completion counts. They are not successful-sample averages.
+Earlier selected-success-only reports retain their original accounting policy.
+
+Errors retain the failing stage, user/session/question identifiers, safe image paths, sanitized reasons and stack
+locations; credentials, request headers, image payloads and frame locals are omitted. Cleanup errors are separate;
+`cleanup_error_count` makes the run exit with status 2 without discarding already scored results.
+`judge-settings.json` records a credential-free whitelist of the validated Judge model, parameters and protocol,
+including an optional `JUDGE_MODEL_NAME` override, so scoring can be traced to the effective configuration.
 
 Sources: [MobileMem evaluation code](https://github.com/zjunlp/MobileMem/tree/fa5cd13c9c659699df9caf650987ba2bea8ca085/omni/eval/eval)
 and [MemBase judge](https://github.com/zjunlp/MemBase/blob/a9ba9495d48541d3e68588ff097294cc7a1201bc/membase/inference_utils/prompts.py).
