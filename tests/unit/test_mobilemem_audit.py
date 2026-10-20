@@ -356,6 +356,56 @@ def test_failed_response_token_aliases_are_redacted_without_removing_usage_count
     assert record["metadata"]["cached_input_tokens"] == 30
 
 
+@pytest.mark.parametrize(
+    "name", ["private_key", "private-key", "privateKey", "PRIVATE_KEY", "PRIVATE-KEY", "PrIvAtEkEy"]
+)
+def test_private_key_aliases_are_redacted_in_failed_responses_and_error_chains(name):
+    sentinel = "0123456789abcdef" * 4
+    usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "cached_input_tokens": 30}
+    response = Response(
+        success=False,
+        answer=f'provider rejection {name}="{sentinel}"',
+        metadata={name: sentinel, "usage": usage},
+    )
+    try:
+        try:
+            raise ValueError(f"provider {name}: {sentinel}")
+        except ValueError as cause:
+            raise RuntimeError(f"job {name}='{sentinel}'") from cause
+    except RuntimeError as error:
+        diagnostic = error_record(error, stage="answer", user_id="uuid_0", question_id="q0", response=response)
+    record = response_record(response)
+    assert sentinel not in json.dumps([record, diagnostic])
+    assert record["metadata"] == {name: "[redacted]", "usage": usage}
+    assert record["answer"] == f"provider rejection {name}=[redacted]"
+    assert diagnostic["reason"] == record["answer"]
+    assert [item["reason"] for item in diagnostic["chain"]] == [
+        f"job {name}=[redacted]",
+        f"provider {name}: [redacted]",
+    ]
+    assert diagnostic["stage"] == "answer" and diagnostic["question_id"] == "q0"
+    successful = response.model_copy(update={"success": True})
+    assert response_record(successful) == successful.model_dump()
+
+
+@pytest.mark.parametrize(
+    "name", ["private_key", "private-key", "privateKey", "PRIVATE_KEY", "PRIVATE-KEY", "PrIvAtEkEy"]
+)
+@pytest.mark.parametrize("sentinel", ["0123456789abcdef" * 4, "a"])
+def test_private_key_environment_values_are_redacted_without_changing_usage_schema(monkeypatch, name, sentinel):
+    monkeypatch.setenv(f"TEST_{name}", sentinel)
+    usage = {"input_tokens": 100, "output_tokens": 20, "records": 1, "coverage": {"input_tokens": 1}}
+    response = Response(success=False, answer=f"provider returned {sentinel}", metadata={"usage": usage})
+    record = response_record(response)
+    assert set(record) == {"success", "answer", "metadata"}
+    assert record["answer"] == "provider returned [redacted]"
+    assert record["metadata"]["usage"] == usage
+    diagnostic = error_record(RuntimeError(f"provider returned {sentinel}"), stage="startup")
+    assert diagnostic["reason"] == diagnostic["chain"][0]["reason"] == "provider returned [redacted]"
+    successful = response.model_copy(update={"success": True})
+    assert response_record(successful) == successful.model_dump()
+
+
 @pytest.mark.parametrize("header", ["Cookie", "Set-Cookie"])
 def test_failed_response_redacts_whole_cookie_header_without_changing_ordinary_prose(header):
     response = Response(

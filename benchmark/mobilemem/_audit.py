@@ -13,7 +13,7 @@ USAGE_POLICY = {
     "means": "observed run cost amortized over scheduled users / expected questions, not successful samples",
 }
 _SENSITIVE = re.compile(
-    r"authorization|credential|secret|password|api.?key|cookie|headers|"
+    r"authorization|credential|secret|password|api.?key|private[_-]?key|cookie|headers|"
     r"(?:^|[_-])(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token)$",
     re.I,
 )
@@ -38,7 +38,7 @@ def safe_text(value, limit: int = 1200) -> str:
     text = re.sub(r"(?<![\w])(?:[A-Za-z]:\\|/)[^\s\"']+", "[path redacted]", text)
     text = re.sub(r"\b(?:Bearer|Basic)\s+[^\s,;\"'}]+", "[authorization redacted]", text, flags=re.I)
     text = re.sub(
-        r"(?i)([\"']?(?:api[_-]?key|authorization|password|secret|access[_-]?token|"
+        r"(?i)([\"']?(?:api[_-]?key|private[_-]?key|authorization|password|secret|access[_-]?token|"
         r"refresh[_-]?token|id[_-]?token|token|cookie)[\"']?\s*[:=]\s*)"
         r"(?:[\"'][^\"']*[\"']|[^\s,;}]+)",
         r"\1[redacted]",
