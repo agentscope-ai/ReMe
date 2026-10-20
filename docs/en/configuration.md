@@ -78,6 +78,20 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
+`workspace_dir` also accepts an ordered mapping of alias to path for hosts that serve several workspaces from one
+configuration, for example in a YAML config file:
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+The first entry is the default workspace; every alias gets the same subdirectory layout (`metadata_dir`,
+`session_dir`, and the others above) materialized under its own root at startup. Aliases must be non-empty, and
+resolved directories must be distinct and must not contain one another. A single string keeps the existing
+behavior and is normalized internally to a `default` alias.
+
 ## Enabling jobs
 
 `jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not
