@@ -3,7 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
-from ..schema import ApplicationConfig
+from ..schema import ApplicationConfig, WorkspaceContext
 from .component_registry import ComponentRegistry, create_application_registry
 
 if TYPE_CHECKING:
@@ -24,6 +24,13 @@ class ApplicationContext:
         # Parse raw kwargs into a typed, validated config object.
         self.app_config: ApplicationConfig = ApplicationConfig(**kwargs)
         self.registry = registry or create_application_registry()
+
+        # Ordered per-workspace path views; the first entry is the default workspace.
+        self.workspaces: dict[str, WorkspaceContext] = {
+            alias: WorkspaceContext.from_config(alias, path, self.app_config)
+            for alias, path in self.app_config.workspaces.items()
+        }
+        self.workspace: WorkspaceContext = next(iter(self.workspaces.values()))
 
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None

@@ -5,7 +5,6 @@ import heapq
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from inspect import getattr_static
-from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
 
 from . import __version__
@@ -54,20 +53,11 @@ class Application(BaseComponent):
     # ----- Wiring (called once during __init__) --------------------------
 
     def _setup_workspace_directories(self) -> None:
-        """Ensure the workspace root and configured subdirectories exist on disk."""
-        cfg = self.config
-        workspace_path = Path(cfg.workspace_dir).absolute()
-        workspace_path.mkdir(parents=True, exist_ok=True)
-        for subdir in [
-            cfg.metadata_dir,
-            cfg.session_dir,
-            cfg.mem_session_dir,
-            cfg.resource_dir,
-            cfg.daily_dir,
-            cfg.digest_dir,
-        ]:
-            if subdir:
-                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
+        """Ensure every configured workspace root and its configured subdirectories exist on disk."""
+        for workspace in self.context.workspaces.values():
+            workspace.workspace_path.mkdir(parents=True, exist_ok=True)
+            for subdir in workspace.storage_dirs():
+                subdir.mkdir(parents=True, exist_ok=True)
 
     def _init_service(self) -> None:
         """Instantiate the single service backend declared in config.service."""

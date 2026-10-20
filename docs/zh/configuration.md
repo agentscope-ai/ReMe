@@ -83,6 +83,18 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
 
+`workspace_dir` 也接受"别名到路径"的有序映射，便于一个配置服务多个 workspace，例如在 YAML 配置文件中：
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+第一个 entry 是默认 workspace；每个别名在启动时都会在自己的根目录下创建相同的子目录布局
+（`metadata_dir`、`session_dir` 等上述目录）。别名必须非空，且解析后的目录必须互不相同、不能互相包含。
+单个字符串保持原有行为，内部归一化为 `default` 别名。
+
 ## Job 启停
 
 `jobs.<name>.enabled` 默认为 `true`，适用于所有 Job 类型。禁用的 Job 保留配置，但不启动、不暴露接口，
