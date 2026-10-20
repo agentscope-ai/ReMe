@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from benchmark.memlens import run as runner
-from benchmark.memlens.artifacts import error_details, judge_settings, safe_value
+from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, response_record, safe_value
 from reme.schema import Response
 
 
@@ -313,6 +313,102 @@ def test_diagnostic_private_key_blocks_are_redacted():
 @pytest.mark.parametrize("header", ["Cookie", "Set-Cookie"])
 def test_diagnostic_cookie_headers_redact_the_entire_value(header):
     assert safe_value(f"{header}: session=FIRST_SENTINEL; other=SECOND_SENTINEL") == f"{header}: [REDACTED]"
+
+
+def test_short_environment_secret_does_not_replace_ordinary_word_substrings(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "a")
+    assert safe_value("candidate stage q_a1 default") == "candidate stage q_a1 default"
+    assert safe_value("received credential: a") == "received credential: [REDACTED]"
+    assert safe_value({"a": "a", "api_key": "a"}) == {"[REDACTED]": "[REDACTED]", "api_key": "[REDACTED]"}
+
+
+def test_arbitrary_response_keys_and_values_still_redact_known_secrets(monkeypatch):
+    secret = "ENV_SECRET_SENTINEL_314159"
+    monkeypatch.setenv("LLM_API_KEY", secret)
+    response = Response(
+        success=False,
+        answer=f"provider failed {secret}",
+        metadata={f"debug-{secret}": f"detail-{secret}", "private_key": "PRIVATE_SENTINEL"},
+        **{f"extra-{secret}": secret},
+    )
+    record = response_record(response)
+    assert secret not in json.dumps(record) and "PRIVATE_SENTINEL" not in json.dumps(record)
+    assert record["success"] is False and "provider failed" in record["answer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secret", ["response", "success", "answer", "metadata"])
+async def test_failed_response_schema_survives_environment_name_collision(scene_run, monkeypatch, secret):
+    _, app, _, case, evaluate = scene_run
+    monkeypatch.setenv("LLM_API_KEY", secret)
+    app.run_job.return_value = Response(success=False, answer="Provider unavailable", metadata={"code": 503})
+    await evaluate()
+    record = json.loads((case / "ingestion/attempt-001/diagnostics/00000-response.json").read_text())
+    assert record["response"]["success"] is False
+    assert record["response"]["answer"] == "Provider unavailable"
+    assert record["response"]["metadata"] == {"code": 503}
+
+
+@pytest.mark.parametrize("secret", ["a", "model", "temperature"])
+def test_model_snapshot_preserves_whitelisted_schema(monkeypatch, secret):
+    monkeypatch.setenv("LLM_API_KEY", secret)
+    spec = {"backend": "agentscope", "model": "candidate", "parameters": {"temperature": 0, "max_tokens": 256}}
+    config = SimpleNamespace(components={"as_llm": {"default": SimpleNamespace(model_dump=lambda: spec)}})
+    snapshot = model_settings(config)["default"]
+    assert snapshot["backend"] == "agentscope" and snapshot["model"] == "candidate"
+    assert snapshot["parameters"] == {"temperature": 0, "max_tokens": 256}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("secret", ["a", "stage", "complete", "cleanup", "input_tokens"])
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+async def test_run_summary_survives_environment_schema_collision(scene_run, monkeypatch, secret, cleanup_failure):
+    import reme
+    from reme.schema import ApplicationConfig
+
+    scene, app, judge, case, _ = scene_run
+    root = case.parents[2]
+    monkeypatch.setenv("LLM_API_KEY", secret)
+    monkeypatch.setattr(runner, "app_config", lambda workspace, *_, **__: {"workspace_dir": str(workspace)})
+    monkeypatch.setattr(runner, "load_memlens", lambda *_: [scene])
+    judge.start, judge.close = AsyncMock(), AsyncMock()
+    judge.config = ApplicationConfig(workspace_dir=root / "judge")
+    applications = iter([judge, app])
+    monkeypatch.setattr(reme, "Application", lambda **_: next(applications))
+
+    async def job(name, **_):
+        if name != "index_update":
+            runner._CURRENT.get().append(measured())
+        return Response(answer="Answer")
+
+    app.run_job.side_effect = job
+    if cleanup_failure:
+        app.close.side_effect = RuntimeError("Close failed")
+    summary = await runner.run(
+        {
+            "dataset": str(root / "unused"),
+            "output": str(root / "output"),
+            "query_concurrency": 1,
+            "scenario_concurrency": 1,
+        },
+        "candidate",
+        "128k",
+    )
+    group = root / "output/memlens-128k/candidate"
+    status = json.loads((group / "reme_image/scenes/0000-scene-1/status.json").read_text())
+    assert status["stage"] == ("cleanup" if cleanup_failure else "complete")
+    assert status["scene_id"] == "scene-1" and status["question_id"] == "question-1"
+    assert status["memory_complete"] is True and status["complete"] is not cleanup_failure
+    assert status["memory_usage"]["input_tokens"] == 100 and status["answer_usage"]["total_tokens"] == 120
+    assert summary["scored_questions"] == summary["memory_complete_scenes"] == 1
+    assert summary["token_usage"]["total_tokens"] == 240 and summary["token_usage"]["records"] == 2
+    assert summary["cleanup_error_count"] == int(cleanup_failure)
+    assert summary["completed_scenes"] == int(not cleanup_failure)
+    assert json.loads((group / "summary.json").read_text()) == summary
+    assert json.loads((group / "status.json").read_text())["complete"] is not cleanup_failure
+    if cleanup_failure:
+        assert status["error_type"] == status["error"]["type"] == "RuntimeError"
+        assert status["error"]["message"] == "Close failed"
 
 
 @pytest.mark.asyncio

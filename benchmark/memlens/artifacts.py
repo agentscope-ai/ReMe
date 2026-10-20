@@ -39,7 +39,10 @@ _MODEL_OPTIONS = {
 def _safe_text(value: str) -> str:
     for key, secret in sorted(os.environ.items(), key=lambda item: len(item[1]), reverse=True):
         if secret and _PRIVATE_KEY.search(key):
-            value = value.replace(secret, "[REDACTED]")
+            if len(secret) < 12:
+                value = re.sub(r"(?<![\w-])" + re.escape(secret) + r"(?![\w-])", "[REDACTED]", value)
+            else:
+                value = value.replace(secret, "[REDACTED]")
 
     def safe_url(match):
         try:
@@ -84,18 +87,37 @@ def safe_value(value):
     return f"<{type(value).__name__}>"
 
 
+def status_record(status: dict) -> dict:
+    """Keep runner-owned schema/enums/counters intact; errors are already sanitized."""
+    return {
+        key: safe_value(value) if key in {"scene_id", "session_id", "question_id"} else value
+        for key, value in status.items()
+    }
+
+
+def response_record(response) -> dict:
+    """Keep the Response schema while sanitizing its untrusted payload and extras."""
+    raw = response.model_dump()
+    return {
+        **safe_value({key: value for key, value in raw.items() if key not in {"success", "answer", "metadata"}}),
+        "success": raw["success"],
+        "answer": safe_value(raw["answer"]),
+        "metadata": safe_value(raw["metadata"]),
+    }
+
+
 def error_details(exc: BaseException, seen: set[int] | None = None) -> dict:
     """Keep the error chain and frame locations, never frame locals or source text."""
     seen = set() if seen is None else seen
     seen.add(id(exc))
     result = {
         "type": type(exc).__name__,
-        "message": str(exc),
+        "message": _safe_text(str(exc)),
         "traceback": [
             {
-                "file": Path(frame.filename).name,
+                "file": _safe_text(Path(frame.filename).name),
                 "line": frame.lineno,
-                "function": frame.name,
+                "function": _safe_text(frame.name),
             }
             for frame in traceback.extract_tb(exc.__traceback__)
         ],
@@ -103,7 +125,7 @@ def error_details(exc: BaseException, seen: set[int] | None = None) -> dict:
     cause = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
     if cause is not None and id(cause) not in seen:
         result["cause"] = error_details(cause, seen)
-    return safe_value(result)
+    return result
 
 
 def model_settings(config) -> dict:
@@ -111,12 +133,12 @@ def model_settings(config) -> dict:
     models = {}
     for name, component in config.components.get("as_llm", {}).items():
         spec = component.model_dump()
-        snapshot = {key: spec[key] for key in _MODEL_FIELDS if key in spec}
+        snapshot = {key: safe_value(spec[key]) for key in _MODEL_FIELDS if key in spec}
         for key, allowed in _MODEL_OPTIONS.items():
             options = spec.get(key) or {}
-            snapshot[key] = {name: options[name] for name in allowed if name in options}
-        models[name] = snapshot
-    return safe_value(models)
+            snapshot[key] = {name: safe_value(options[name]) for name in allowed if name in options}
+        models[_safe_text(name)] = snapshot
+    return models
 
 
 def judge_settings(app) -> dict:

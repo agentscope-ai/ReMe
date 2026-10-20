@@ -18,7 +18,14 @@ import sys
 
 import yaml
 
-from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, safe_value
+from benchmark.memlens.artifacts import (
+    error_details,
+    judge_settings,
+    model_settings,
+    response_record,
+    safe_value,
+    status_record,
+)
 
 # Adapted query/metric code retains its upstream MIT notice in README.md.
 SYSTEM_PROMPT = (
@@ -386,7 +393,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                     if not response.success:
                         save(
                             directory / "diagnostics" / f"{ordinal:05d}-response.json",
-                            safe_value({"response": response.model_dump()}),
+                            {"response": response_record(response)},
                         )
                     check_response(response)
                     save(
@@ -403,7 +410,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
         if not response.success:
             save(
                 case / "ingestion/attempt-001/diagnostics/index-response.json",
-                safe_value({"response": response.model_dump()}),
+                {"response": response_record(response)},
             )
         check_response(response)
         status["memory_complete"] = True
@@ -425,7 +432,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                     if not response.success:
                         save(
                             directory / "diagnostics/answer-response.json",
-                            safe_value({"response": response.model_dump()}),
+                            {"response": response_record(response)},
                         )
                     check_response(response)
                     save(
@@ -449,7 +456,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                     old_answer=question.get("old_answer", ""),
                 )
                 if not judgment.success:
-                    save(directory / "diagnostics/judge-response.json", safe_value({"response": judgment.model_dump()}))
+                    save(directory / "diagnostics/judge-response.json", {"response": response_record(judgment)})
                 check_response(judgment)
             status["stage"] = "score"
             metrics = score_answer(question, response.answer)
@@ -486,7 +493,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
             status.update(memory_usage=total_usage(memory), answer_usage=total_usage(answers))
             if "error" in status:
                 status["error_type"] = status["error"]["type"]
-            save(case / "status.json", safe_value(status))
+            save(case / "status.json", status_record(status))
     return results, memory, answers
 
 
@@ -594,7 +601,7 @@ async def run(settings: dict, model: str, length: str, limit: int | None = None)
                 status.update(complete=False, stage="judge_cleanup", error=error_details(exc))
                 raise
         finally:
-            save(group / "status.json", safe_value(status))
+            save(group / "status.json", status_record(status))
     return summary
 
 
