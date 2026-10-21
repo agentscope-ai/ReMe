@@ -35,6 +35,10 @@ class ApplicationContext:
         # Populated by Application during initialization.
         self.service: "BaseService | None" = None
         self.components: dict[str, dict[str, "BaseComponent"]] = {}
+        # Per-alias instances of workspace-scoped components, keyed
+        # ctype -> name -> alias. The default alias instance is also the one
+        # registered under ``components`` for backward-compatible lookups.
+        self.workspace_components: dict[str, dict[str, dict[str, "BaseComponent"]]] = {}
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
 
@@ -43,3 +47,18 @@ class ApplicationContext:
         # This is in-memory state, not durable storage; use workspace files or a store when state
         # must survive an Application restart.
         self.metadata: dict[str, Any] = {}
+
+    def get_component(self, ctype: str, name: str, alias: str | None = None) -> "BaseComponent | None":
+        """Resolve a component, honoring workspace bindings for scoped components.
+
+        Returns None when the component is not configured at all. Raises
+        KeyError when a workspace-scoped component has no instance for the
+        requested alias — a missing scoped resource must fail, never fall back.
+        """
+        scoped = self.workspace_components.get(ctype, {}).get(name)
+        if scoped is not None:
+            alias = alias or next(iter(self.workspaces))
+            if alias in scoped:
+                return scoped[alias]
+            raise KeyError(f"Component '{name}' in {ctype} has no instance for workspace alias {alias!r}")
+        return self.components.get(ctype, {}).get(name)
