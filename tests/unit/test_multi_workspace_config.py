@@ -11,7 +11,7 @@ import yaml
 from reme.application import Application
 from reme.components import ApplicationContext
 from reme.config import resolve_app_config
-from reme.schema import ApplicationConfig, WorkspaceContext
+from reme.schema import ApplicationConfig
 
 
 def test_string_workspace_normalizes_to_default_alias(tmp_path):
@@ -157,3 +157,48 @@ def test_default_yaml_string_workspace_still_loads(monkeypatch):
     assert isinstance(config.workspace_dir, str)
     assert list(config.workspaces) == ["default"]
     assert config.workspaces["default"] == str(Path(".reme").resolve())
+
+
+def test_alias_normalization_collision_rejected(tmp_path):
+    with pytest.raises(ValidationError, match="aliases collide"):
+        ApplicationConfig(workspace_dir={"alice": str(tmp_path / "a"), " alice ": str(tmp_path / "b")})
+
+
+def test_non_string_alias_rejected(tmp_path):
+    with pytest.raises(ValidationError, match="aliases must be strings"):
+        ApplicationConfig(workspace_dir={123: str(tmp_path / "a")})
+
+
+@pytest.mark.parametrize("bad_value", [None, 123, "", "  "])
+def test_invalid_mapping_value_rejected(bad_value):
+    with pytest.raises(ValidationError, match="non-empty path string"):
+        ApplicationConfig(workspace_dir={"alice": bad_value})
+
+
+def test_supplied_workspaces_rejected_with_string_form(tmp_path):
+    with pytest.raises(ValidationError, match="derived from workspace_dir"):
+        ApplicationConfig(workspace_dir=str(tmp_path / "expected"), workspaces={"": str(tmp_path / "other")})
+
+
+def test_supplied_workspaces_rejected_with_mapping_form(tmp_path):
+    with pytest.raises(ValidationError, match="derived from workspace_dir"):
+        ApplicationConfig(
+            workspace_dir={"main": str(tmp_path / "main")},
+            workspaces={"other": str(tmp_path / "other")},
+        )
+
+
+def test_default_workspace_matches_directory_creation_source(tmp_path):
+    """The default workspace_dir and the materialized directories share one derivation."""
+    app = Application(
+        workspace_dir={"main": str(tmp_path / "main"), "scratch": str(tmp_path / "scratch")},
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+    )
+
+    assert app.config.workspace_dir == str(tmp_path / "main")
+    assert app.config.workspace_dir == app.config.workspaces["main"]
+    assert app.context.workspace.workspace_path == tmp_path / "main"
+    assert (tmp_path / "main" / "daily").is_dir()
