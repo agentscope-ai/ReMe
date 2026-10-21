@@ -95,6 +95,12 @@ workspace_dir:
 （`metadata_dir`、`session_dir` 等上述目录）。别名必须非空，且解析后的目录必须互不相同、不能互相包含。
 单个字符串保持原有行为，内部归一化为 `default` 别名。
 
+Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
+`reme read_note path=daily/note.md workspace=scratch`；缺省绑定默认 workspace，未知别名会直接报错。
+绑定仅在单次调用内生效：workspace 相关的状态组件（file store、索引、graph、catalog）按别名解析到各自实例，
+共享组件（模型、tokenizer 等）保持单实例。无法隔离 workspace 的外部有状态后端（目前是 `neo4j` file graph）
+在多 workspace 配置下会在启动时被拒绝。
+
 ## Job 启停
 
 `jobs.<name>.enabled` 默认为 `true`，适用于所有 Job 类型。禁用的 Job 保留配置，但不启动、不暴露接口，

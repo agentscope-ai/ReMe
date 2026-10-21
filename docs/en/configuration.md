@@ -92,6 +92,13 @@ The first entry is the default workspace; every alias gets the same subdirectory
 resolved directories must be distinct and must not contain one another. A single string keeps the existing
 behavior and is normalized internally to a `default` alias.
 
+Job calls accept an optional `workspace` field naming the alias to bind, for example
+`reme read_note path=daily/note.md workspace=scratch`; omitting it binds the default workspace, and an unknown
+alias fails fast. The binding is scoped to that call: workspace-aware state (file stores, indexes, graphs,
+catalogs) resolves to per-alias instances, while shared components (models, tokenizers) stay single-instance.
+External stateful backends that cannot isolate workspaces (currently the `neo4j` file graph) are rejected at
+startup in multi-workspace configurations.
+
 ## Enabling jobs
 
 `jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not

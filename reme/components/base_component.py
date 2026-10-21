@@ -14,21 +14,44 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound="BaseComponent")
 
 
+def _context_workspaces(app_context) -> dict | None:
+    """Return the workspace mapping of a real ApplicationContext, else None.
+
+    Duck-typing is not enough here: MagicMock-style test doubles answer every
+    attribute access, so the workspace layer engages only for the real type.
+    """
+    from .application_context import ApplicationContext  # lazy: registry imports this module
+
+    if isinstance(app_context, ApplicationContext):
+        return app_context.workspaces
+    return None
+
+
 class ComponentMixin:
     """Shared state for components and steps: identity, config, workspace paths."""
 
     component_type = ComponentEnum.BASE
+    # Workspace-scoped components keep per-workspace state (indexes, graphs,
+    # catalogs, chunk stores) and get one instance per configured alias.
+    workspace_scoped: bool = False
+    # Stateful external backends that cannot isolate workspaces must opt out
+    # explicitly; Application rejects them in multi-workspace configurations.
+    supports_multi_workspace: bool = True
 
     def __init__(
         self,
         name: str | None = None,
         backend: str = "",
         app_context: "ApplicationContext | None" = None,
+        workspace_alias: str | None = None,
         **kwargs,
     ) -> None:
         self.name: str = name or self.__class__.__name__
         self.backend: str = backend
         self.app_context: "ApplicationContext | None" = app_context
+        # Bound alias for workspace-scoped component instances; None for steps,
+        # jobs, and shared components.
+        self.workspace_alias: str | None = workspace_alias
         self.kwargs: dict = dict(kwargs)
 
         logger = get_logger()
@@ -36,10 +59,25 @@ class ComponentMixin:
 
     @property
     def workspace_path(self) -> Path:
-        """Absolute workspace root directory (cwd when no app_context is attached)."""
+        """Workspace root: the bound alias for scoped components, the current
+        call's workspace binding for steps, otherwise the default workspace."""
         if self.app_context is None:
             return Path.cwd()
-        return Path(self.app_context.app_config.workspace_dir).absolute()
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces is None:
+            # Test doubles and standalone-style contexts without the workspace layer.
+            return Path(self.app_context.app_config.workspace_dir).absolute()
+        alias = self.workspace_alias
+        if alias is None:
+            context = getattr(self, "context", None)
+            bound = getattr(context, "workspace", None) if context is not None else None
+            alias = bound.alias if bound is not None else None
+        if alias is None:
+            return next(iter(workspaces.values())).workspace_path
+        workspace = workspaces.get(alias)
+        if workspace is None:
+            raise KeyError(f"Unknown workspace alias {alias!r}")
+        return workspace.workspace_path
 
     def to_workspace_relative(self, path: str | Path) -> str:
         """Convert ``path`` to a POSIX workspace path; keep outside paths absolute."""
@@ -183,8 +221,18 @@ class BaseComponent(ComponentMixin, ABC):
             setattr(self, attr, None)
 
     def _resolve_from_context(self, attr: str, dep: Dependency) -> None:
-        """Context-bound mode: look up the component from ``app_context.components``."""
-        target = self.app_context.components.get(dep.ctype, {}).get(dep.name)
+        """Context-bound mode: look up the component from ``app_context.components``.
+
+        Workspace-scoped dependencies resolve to the same-alias instance as the
+        dependent; a missing alias instance is an error, never a fallback.
+        """
+        scoped = getattr(self.app_context, "workspace_components", {}).get(dep.ctype, {}).get(dep.name)
+        if scoped is not None and self.workspace_alias is not None:
+            target = scoped.get(self.workspace_alias)
+            if target is None:
+                raise ValueError(f"{dep.ctype} '{dep.name}' has no instance for workspace '{self.workspace_alias}'.")
+        else:
+            target = self.app_context.components.get(dep.ctype, {}).get(dep.name)
         if target is not None:
             setattr(self, attr, target)
         elif dep.optional:

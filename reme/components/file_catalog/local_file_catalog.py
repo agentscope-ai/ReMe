@@ -12,6 +12,8 @@ from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 class LocalFileCatalog(BaseFileCatalog):
     """Dict-backed catalog persisted as JSONL."""
 
+    workspace_scoped = True
+
     def __init__(self, encoding: str = "utf-8", **kwargs):
         super().__init__(**kwargs)
         self.encoding = encoding

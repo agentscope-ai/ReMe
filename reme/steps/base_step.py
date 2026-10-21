@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 from agentscope.model import ChatModelBase
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from ..components.base_component import ComponentMixin
+from ..components.base_component import ComponentMixin, _context_workspaces
 from ..components.component_registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
@@ -87,7 +87,17 @@ class Ref:
             if self.optional:
                 return None
             raise RuntimeError(f"app_context is not set when resolving '{self.key}'")
-        comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
+        if _context_workspaces(obj.app_context) is not None:
+            context = obj.context
+            bound = getattr(context, "workspace", None) if context is not None else None
+            comp = obj.app_context.get_component(
+                self.comp_enum,
+                name,
+                alias=bound.alias if bound is not None else None,
+            )
+        else:
+            # Test doubles and standalone-style contexts without the workspace layer.
+            comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
         if comp is None:
             if self.optional:
                 return None

@@ -15,7 +15,8 @@ class StreamJob(BaseJob):
         self.check_enabled()
         self._record_call()
         merged = {**self.kwargs, **kwargs}
-        context = RuntimeContext(**merged)
+        workspace = self._bind_workspace(merged)
+        context = RuntimeContext(workspace=workspace, **merged)
         try:
             for step in self._build_steps():
                 await step(context)

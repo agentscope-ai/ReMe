@@ -12,6 +12,8 @@ from ...schema import FileFrontMatter, FileNode
 class LocalTagIndex(BaseTagIndex):
     """Maintain bidirectional path/tag relationships without separate source I/O."""
 
+    workspace_scoped = True
+
     reserved_tag_keys = frozenset(FileFrontMatter.model_fields) | {
         "kind",
         "session_id",
