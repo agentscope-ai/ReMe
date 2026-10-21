@@ -81,17 +81,25 @@ class ApplicationConfig(BaseModel):
         """Resolve a mapping workspace_dir, keeping its first entry as the default workspace."""
         if not isinstance(data, dict):
             return data
+        if "workspaces" in data:
+            raise ValueError("workspaces is derived from workspace_dir; do not supply it")
         raw = data.get("workspace_dir")
         if not isinstance(raw, Mapping):
             return data
         if not raw:
             raise ValueError("workspace_dir mapping must contain at least one workspace")
         resolved: dict[str, str] = {}
-        for alias, path in raw.items():
-            alias = str(alias).strip()
+        for key, path in raw.items():
+            if not isinstance(key, str):
+                raise ValueError(f"workspace_dir aliases must be strings: {key!r}")
+            alias = key.strip()
             if not alias:
                 raise ValueError("workspace_dir aliases must be non-empty")
-            resolved[alias] = str(Path(str(path)).expanduser().resolve(strict=False))
+            if alias in resolved:
+                raise ValueError(f"workspace_dir aliases collide after normalization: {alias!r}")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError(f"workspace_dir[{key!r}] must be a non-empty path string: {path!r}")
+            resolved[alias] = str(Path(path).expanduser().resolve(strict=False))
         directories = list(resolved.values())
         if len(set(directories)) != len(directories):
             raise ValueError(f"workspace_dir aliases must point to distinct directories: {resolved}")
@@ -105,8 +113,7 @@ class ApplicationConfig(BaseModel):
     @model_validator(mode="after")
     def derive_default_workspace(self):
         """Normalize every workspace_dir form to an ordered mapping; the first entry is the default."""
-        if not self.workspaces:
-            self.workspaces = {DEFAULT_WORKSPACE_ALIAS: self.workspace_dir}
+        self.workspaces = dict(self.workspaces) or {DEFAULT_WORKSPACE_ALIAS: self.workspace_dir}
         return self
 
     @field_validator("components", mode="before")
