@@ -8,7 +8,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base_component import BaseComponent, _context_workspaces
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import StreamChunk, TokenUsage
@@ -57,6 +57,25 @@ class BaseAgentWrapper(BaseComponent):
             return self.project_path
         cwd = Path(self._cwd)
         return cwd if cwd.is_absolute() else (self.workspace_path / cwd)
+
+    def _call_workspace_path(self, kwargs: dict[str, Any]) -> Path:
+        """Workspace root for this call: the forwarded binding, else the default workspace."""
+        alias = str(kwargs.get("workspace") or "")
+        if not alias:
+            return self.workspace_path
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces is None or alias not in workspaces:
+            configured = sorted(workspaces) if workspaces else []
+            raise ValueError(f"Unknown workspace {alias!r}; configured: {configured}")
+        return workspaces[alias].workspace_path
+
+    def _call_cwd(self, kwargs: dict[str, Any]) -> Path:
+        """Working directory for this call: explicit cwd config wins, then the bound workspace."""
+        if self._cwd:
+            return self.cwd
+        if kwargs.get("workspace"):
+            return self._call_workspace_path(kwargs)
+        return self.cwd
 
     def set_system_prompt(self, prompt: str) -> "BaseAgentWrapper":
         """Set the agent's system prompt. Returns self for chaining."""

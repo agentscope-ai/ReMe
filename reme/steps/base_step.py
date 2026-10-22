@@ -212,31 +212,43 @@ class BaseStep(ComponentMixin, ABC):
         return await job(**kwargs)
 
     def _bound_workspace_alias(self) -> str:
-        """Alias of the current call's workspace binding.
+        """Alias of the current call's workspace binding ("" only when unbound).
 
-        Returns "" when unbound or bound to the default workspace: the default
-        needs no forwarding because every resolution already lands there, and
-        single-workspace behavior stays byte-identical.
+        Execution bindings are explicit end to end: the default alias is a
+        real binding and is forwarded like any other, so a nested job's own
+        configured workspace cannot silently override the caller's binding.
         """
         bound = getattr(self.context, "workspace", None) if self.context is not None else None
-        if bound is None:
-            return ""
+        return bound.alias if bound is not None else ""
+
+    def _is_default_workspace_alias(self, alias: str) -> bool:
+        """Whether the alias names the first (default) configured workspace."""
         workspaces = _context_workspaces(self.app_context)
-        if workspaces and bound.alias == next(iter(workspaces)):
-            return ""
-        return bound.alias
+        return bool(workspaces) and alias == next(iter(workspaces))
 
     def _workspace_forward_kwargs(self) -> dict:
-        """Forward the current call's workspace binding to agent wrapper calls."""
-        alias = self._bound_workspace_alias()
-        return {"workspace": alias} if alias else {}
+        """Forward the current call's workspace binding to agent wrapper calls.
 
-    def _scoped_state_key(self, key: str) -> str:
-        """Namespace a shared in-memory state key with the bound workspace alias."""
+        The default workspace needs no forwarding because wrappers already
+        resolve there; explicit non-default bindings are always forwarded.
+        """
         alias = self._bound_workspace_alias()
-        if not alias or not key:
+        if not alias or self._is_default_workspace_alias(alias):
+            return {}
+        return {"workspace": alias}
+
+    def _scoped_state_key(self, key: str):
+        """Namespace a shared in-memory state key with the bound workspace alias.
+
+        The default workspace keeps its legacy plain key (omitting the binding
+        and selecting the default alias share state by design); other aliases
+        use an unambiguous ``(alias, key)`` tuple so ids containing separators
+        of another workspace cannot collide with it.
+        """
+        alias = self._bound_workspace_alias()
+        if not alias or not key or self._is_default_workspace_alias(alias):
             return key
-        return f"{alias}/{key}"
+        return (alias, key)
 
     def _resolve_dispatch_step(self, raw: _DispatchStep):
         """Resolve a dispatch step spec to (step class, init params)."""

@@ -13,6 +13,12 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Expose selected ReMe jobs over FastMCP STDIO")
     parser.add_argument("--config", default="default", help="ReMe config name or file path")
     parser.add_argument("--workspace", required=True, help="ReMe workspace directory")
+    parser.add_argument(
+        "--workspace-alias",
+        default="",
+        help="Alias selecting one workspace of a multi-workspace config snapshot; "
+        "without it, --workspace overrides the config with a single workspace (legacy behavior)",
+    )
     parser.add_argument("--job", dest="jobs", action="append", required=True, help="ReMe job name; repeat as needed")
     parser.add_argument("--tool-context-id", default="", help="Context id injected into every job call")
     parser.add_argument(
@@ -66,17 +72,32 @@ def _prepare_config(
 def main() -> None:
     """Load ReMe and serve the requested jobs over STDIO."""
     args = _parse_args()
+    overrides: dict[str, Any] = {}
+    if not args.workspace_alias:
+        # Legacy single-workspace mode: the CLI path replaces the config value.
+        overrides["workspace_dir"] = str(Path(args.workspace).absolute())
     config = resolve_app_config(
         config=args.config,
-        workspace_dir=str(Path(args.workspace).absolute()),
         enable_logo=False,
         log_to_console=False,
         log_to_file=False,
         log_config=False,
+        **overrides,
     )
+    if args.workspace_alias:
+        raw_workspaces = config.get("workspace_dir")
+        if not isinstance(raw_workspaces, dict) or args.workspace_alias not in raw_workspaces:
+            raise ValueError(
+                f"--workspace-alias {args.workspace_alias!r} requires a config snapshot "
+                "carrying the full workspace mapping",
+            )
     injected_job_kwargs = json.loads(args.injected_job_kwargs) if args.injected_job_kwargs else None
     if injected_job_kwargs is not None and not isinstance(injected_job_kwargs, dict):
         raise TypeError("--injected-job-kwargs must be a JSON object")
+    injected_job_kwargs = dict(injected_job_kwargs or {})
+    if args.workspace_alias:
+        # The binding is server-owned; nested job calls inherit it from here.
+        injected_job_kwargs.setdefault("workspace", args.workspace_alias)
     config = _prepare_config(config, args.jobs, args.tool_context_id, injected_job_kwargs)
     ReMe(**config).run_app()
 

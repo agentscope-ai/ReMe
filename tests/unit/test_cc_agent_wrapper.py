@@ -379,7 +379,7 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
         observed["build"] = (inputs, kwargs)
         return FakeAgent(), inputs
 
-    async def dump_state(state):
+    async def dump_state(state, _kwargs=None):
         observed["state"] = state
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
