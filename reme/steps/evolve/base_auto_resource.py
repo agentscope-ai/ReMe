@@ -15,6 +15,7 @@ import frontmatter
 from agentscope.message import DataBlock, TextBlock, UserMsg
 from watchfiles import Change
 
+from ...components.base_component import _context_workspaces
 from ...components.runtime_context import RuntimeContext
 from ..base_step import BaseStep
 from ..file_io import refresh_day_index, validate_filename_component
@@ -404,9 +405,15 @@ class BaseAutoResourceStep(BaseStep):
             **self._workspace_forward_kwargs(),
         }
         if "session_id" not in agent_kwargs:
+            # Storage compatibility: the default workspace keeps its historical
+            # (unprefixed) session UUIDs; other aliases are namespaced.
+            session_alias = agent_kwargs.get("workspace", "")
+            workspaces = _context_workspaces(self.app_context)
+            if workspaces and session_alias == next(iter(workspaces)):
+                session_alias = ""
             agent_kwargs["session_id"] = _compute_agent_session_id(
                 file_path,
-                workspace_alias=agent_kwargs.get("workspace", ""),
+                workspace_alias=session_alias,
             )
         # Consume the resource-only option before forwarding kwargs to the wrapper.
         if agent_kwargs.pop("scope_note_tools", False):

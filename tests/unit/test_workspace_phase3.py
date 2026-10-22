@@ -120,12 +120,10 @@ async def test_tool_context_state_namespaced_per_workspace(tmp_path):
         )
         await step.execute()
 
-    stores = context.metadata["tool_contexts"]
-    # The default workspace keeps the legacy plain key; other aliases use
-    # unambiguous tuple keys.
-    assert set(stores) == {"ctx-1", ("beta", "ctx-1")}
-    assert stores["ctx-1"]["drafts"] == ["draft-alpha"]
-    assert stores[("beta", "ctx-1")]["drafts"] == ["draft-beta"]
+    # State is owned by each WorkspaceContext; identical ids stay independent.
+    assert context.workspaces["alpha"].tool_contexts["ctx-1"]["drafts"] == ["draft-alpha"]
+    assert context.workspaces["beta"].tool_contexts["ctx-1"]["drafts"] == ["draft-beta"]
+    assert "tool_contexts" not in context.metadata
 
 
 @pytest.mark.asyncio
@@ -306,9 +304,8 @@ async def test_tool_context_keys_cannot_collide_across_workspaces(tmp_path):
     step.context = RuntimeContext(workspace=context.workspaces["beta"], tool_context_id="ctx-1", text="d-beta")
     await step.execute()
 
-    stores = context.metadata["tool_contexts"]
-    assert stores["beta/ctx-1"]["drafts"] == ["d-alpha"]
-    assert stores[("beta", "ctx-1")]["drafts"] == ["d-beta"]
+    assert context.workspaces["alpha"].tool_contexts["beta/ctx-1"]["drafts"] == ["d-alpha"]
+    assert context.workspaces["beta"].tool_contexts["ctx-1"]["drafts"] == ["d-beta"]
 
 
 @pytest.mark.asyncio

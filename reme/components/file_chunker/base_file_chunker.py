@@ -9,9 +9,14 @@ from ...schema import FileChunk, FileNode
 
 
 class BaseFileChunker(BaseComponent):
-    """Abstract base for file chunkers. Subclasses implement `chunk`."""
+    """Abstract base for file chunkers. Subclasses implement `chunk`.
+
+    Chunkers are workspace-scoped: node paths are workspace-relative, so each
+    alias gets its own instance rooted at that workspace.
+    """
 
     component_type = ComponentEnum.FILE_CHUNKER
+    workspace_scoped = True
 
     def __init__(self, supported_extensions: list[str] | None = None, **kwargs):
         super().__init__(**kwargs)

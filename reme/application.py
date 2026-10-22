@@ -82,8 +82,8 @@ class Application(BaseComponent):
                         f"{label} backend '{cfg.backend}' does not support multi-workspace configurations",
                     )
                 if backend_cls.workspace_scoped:
-                    instances = {
-                        alias: self._instantiate(
+                    for alias, workspace in self.context.workspaces.items():
+                        instance = self._instantiate(
                             ctype,
                             cfg,
                             label=label,
@@ -91,11 +91,11 @@ class Application(BaseComponent):
                             name=name,
                             workspace_alias=alias,
                         )
-                        for alias in self.context.workspaces
-                    }
+                        workspace.components.setdefault(ctype, {})[name] = instance
                     # The default alias instance doubles as the plain lookup entry.
-                    self.context.components[ctype][name] = instances[next(iter(instances))]
-                    self.context.workspace_components.setdefault(ctype, {})[name] = instances
+                    self.context.components[ctype][name] = next(iter(self.context.workspaces.values())).components[
+                        ctype
+                    ][name]
                 else:
                     self.context.components[ctype][name] = self._instantiate(
                         ctype,
@@ -166,13 +166,15 @@ class Application(BaseComponent):
     ) -> dict[_NodeKey, BaseComponent]:
         """One node per component instance; scoped components contribute one node per alias."""
         nodes: dict[_NodeKey, BaseComponent] = {}
+        scoped_keys: set[tuple[str, str]] = set()
+        for alias, workspace in self.context.workspaces.items():
+            for ctype, group in workspace.components.items():
+                for name, instance in group.items():
+                    nodes[(ctype, name, alias)] = instance
+                    scoped_keys.add((ctype, name))
         for ctype, group in self.context.components.items():
             for name, comp in group.items():
-                scoped = self.context.workspace_components.get(ctype, {}).get(name)
-                if scoped:
-                    for alias, instance in scoped.items():
-                        nodes[(ctype, name, alias)] = instance
-                else:
+                if (ctype, name) not in scoped_keys:
                     nodes[(ctype, name, "")] = comp
         if replacement is not None:
             nodes[replacement[0]] = replacement[1]
@@ -311,13 +313,13 @@ class Application(BaseComponent):
     def _all_component_instances(self) -> list[BaseComponent]:
         """Every component instance: plain entries plus all alias instances of scoped components."""
         instances: dict[int, BaseComponent] = {}
+        for workspace in self.context.workspaces.values():
+            for group in workspace.components.values():
+                for instance in group.values():
+                    instances[id(instance)] = instance
         for group in self.context.components.values():
             for component in group.values():
                 instances[id(component)] = component
-        for group in self.context.workspace_components.values():
-            for scoped in group.values():
-                for instance in scoped.values():
-                    instances[id(instance)] = instance
         return list(instances.values())
 
     def _replacement_shutdown_order(
@@ -427,8 +429,8 @@ class Application(BaseComponent):
             # Commit the new generation synchronously so observers cannot see
             # a context with only some dependency references updated.
             group[name] = replacement
-            if scoped_instances is not None:
-                scoped_instances[alias] = replacement
+            if alias is not None:
+                self.context.workspaces[alias].components[component_type][name] = replacement
             config_group[name] = replacement_config
             for consumer, attr in consumers:
                 consumer.__dict__[attr] = replacement
