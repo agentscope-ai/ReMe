@@ -226,9 +226,11 @@ class BaseComponent(ComponentMixin, ABC):
         Workspace-scoped dependencies resolve to the same-alias instance as the
         dependent; a missing alias instance is an error, never a fallback.
         """
-        scoped = getattr(self.app_context, "workspace_components", {}).get(dep.ctype, {}).get(dep.name)
-        if scoped is not None and self.workspace_alias is not None:
-            target = scoped.get(self.workspace_alias)
+        workspaces = getattr(self.app_context, "workspaces", None)
+        workspace = workspaces.get(self.workspace_alias) if workspaces and self.workspace_alias is not None else None
+        scoped_group = workspace.components.get(dep.ctype) if workspace is not None else None
+        if scoped_group is not None:
+            target = scoped_group.get(dep.name)
             if target is None:
                 raise ValueError(f"{dep.ctype} '{dep.name}' has no instance for workspace '{self.workspace_alias}'.")
         else:

@@ -16,8 +16,11 @@ class _ToolContextMixin:
         kwargs: dict[str, Any]
 
     def _tool_context_store(self, tool_context_id: str) -> dict:
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if bound is not None:
+            return bound.tool_contexts.setdefault(tool_context_id, {})
         if self.app_context is not None:
             contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
         else:
             contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(self._scoped_state_key(tool_context_id), {})
+        return contexts.setdefault(tool_context_id, {})

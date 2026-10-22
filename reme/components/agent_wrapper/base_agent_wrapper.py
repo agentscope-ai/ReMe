@@ -70,9 +70,16 @@ class BaseAgentWrapper(BaseComponent):
         return workspaces[alias].workspace_path
 
     def _call_cwd(self, kwargs: dict[str, Any]) -> Path:
-        """Working directory for this call: explicit cwd config wins, then the bound workspace."""
+        """Working directory for this call: explicit cwd config wins, then the bound workspace.
+
+        A relative configured cwd resolves against the bound workspace;
+        an absolute path keeps its explicit meaning.
+        """
         if self._cwd:
-            return self.cwd
+            cwd = Path(self._cwd)
+            if cwd.is_absolute():
+                return cwd
+            return self._call_workspace_path(kwargs) / cwd
         if kwargs.get("workspace"):
             return self._call_workspace_path(kwargs)
         return self.cwd

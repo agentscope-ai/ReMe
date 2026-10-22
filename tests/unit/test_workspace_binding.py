@@ -176,7 +176,7 @@ async def test_workspace_scoped_components_instantiate_per_alias(tmp_path):
         assert store_alpha.keyword_index is index_alpha
         assert store_beta.file_graph is graph_beta
 
-        with pytest.raises(KeyError, match="no instance for workspace alias 'nope'"):
+        with pytest.raises(KeyError, match="Unknown workspace alias 'nope'"):
             app.context.get_component(ComponentEnum.FILE_STORE, "default", "nope")
 
 
