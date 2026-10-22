@@ -137,6 +137,7 @@ class DreamExtractStep(BaseStep):
                         output_schema_json=json.dumps(output_schema, ensure_ascii=False, indent=2),
                     ),
                     job_tools=list(_TOOLS),
+                    **self._workspace_forward_kwargs(),
                 )
                 self.logger.info(f"[{self.name}] agent done has_result={bool(result.get('result'))}")
                 raw_result = agent_reply_result_text(result)

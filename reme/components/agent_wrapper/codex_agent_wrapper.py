@@ -16,6 +16,7 @@ import tempfile
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
+from ..base_component import _context_workspaces
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, TokenUsage
@@ -240,6 +241,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
             names = ", ".join(invalid)
             raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
 
+    def _call_workspace_path(self, kwargs: dict[str, Any]) -> Path:
+        """Resolve the workspace binding forwarded by the calling step to a path."""
+        alias = str(kwargs.get("workspace") or "")
+        if not alias:
+            return self.workspace_path
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces is None or alias not in workspaces:
+            configured = sorted(workspaces) if workspaces else []
+            raise ValueError(f"Unknown workspace {alias!r}; configured: {configured}")
+        return workspaces[alias].workspace_path
+
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         from ..job import BackgroundJob, StreamJob
 
@@ -258,12 +270,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "--config",
             config_source,
             "--workspace",
-            str(self.workspace_path),
+            str(self._call_workspace_path(kwargs)),
         ]
         for name in job_names:
             args.extend(["--job", name])
         args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
-        if injected_job_kwargs := dict(kwargs.get("injected_job_kwargs") or {}):
+        injected_job_kwargs = dict(kwargs.get("injected_job_kwargs") or {})
+        if workspace := kwargs.get("workspace"):
+            # The bridge injects the binding into nested job calls; models cannot override it.
+            injected_job_kwargs["workspace"] = workspace
+        if injected_job_kwargs:
             args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])
         return {
             "command": sys.executable,
@@ -300,6 +316,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
+        alias = str(kwargs.get("workspace") or "")
         resume = kwargs.get("resume") or ""
         session_id = kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
@@ -318,8 +335,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
             sort_keys=True,
             default=str,
         )
-        if not fork_session and thread_id in self._thread_tool_contexts:
-            if requested_tool_context != self._thread_tool_contexts[thread_id]:
+        guard_key = f"{alias}/{thread_id}" if alias else thread_id
+        if not fork_session and guard_key in self._thread_tool_contexts:
+            if requested_tool_context != self._thread_tool_contexts[guard_key]:
                 raise ValueError("tool_context_id and injected_job_kwargs cannot change when resuming a Codex thread")
 
         common = {
@@ -353,7 +371,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 thread_source=thread_source,
                 **common,
             )
-        self._thread_tool_contexts[thread.id] = requested_tool_context
+        self._thread_tool_contexts[f"{alias}/{thread.id}" if alias else thread.id] = requested_tool_context
         return thread
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -429,7 +447,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             self.logger.warning(f"Failed to list loaded Codex threads: {exc}")
             return
         self._thread_tool_contexts = {
-            thread_id: context for thread_id, context in self._thread_tool_contexts.items() if thread_id in loaded_ids
+            key: context for key, context in self._thread_tool_contexts.items() if key.rsplit("/", 1)[-1] in loaded_ids
         }
 
     async def _release_thread(self, codex: AsyncCodex, thread_id: str) -> None:

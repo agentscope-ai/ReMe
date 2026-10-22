@@ -199,11 +199,44 @@ class BaseStep(ComponentMixin, ABC):
         return self.app_context.jobs.get(name)
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
-        """Execute a job by name and kwargs, return the final response."""
+        """Execute a job by name and kwargs, return the final response.
+
+        Nested calls inherit the current call's workspace binding unless the
+        caller selects a workspace explicitly.
+        """
         job: "BaseJob | None" = self.get_job(name)
         if job is None:
             raise RuntimeError(f"Job {name} not found")
+        if alias := self._bound_workspace_alias():
+            kwargs.setdefault("workspace", alias)
         return await job(**kwargs)
+
+    def _bound_workspace_alias(self) -> str:
+        """Alias of the current call's workspace binding.
+
+        Returns "" when unbound or bound to the default workspace: the default
+        needs no forwarding because every resolution already lands there, and
+        single-workspace behavior stays byte-identical.
+        """
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if bound is None:
+            return ""
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces and bound.alias == next(iter(workspaces)):
+            return ""
+        return bound.alias
+
+    def _workspace_forward_kwargs(self) -> dict:
+        """Forward the current call's workspace binding to agent wrapper calls."""
+        alias = self._bound_workspace_alias()
+        return {"workspace": alias} if alias else {}
+
+    def _scoped_state_key(self, key: str) -> str:
+        """Namespace a shared in-memory state key with the bound workspace alias."""
+        alias = self._bound_workspace_alias()
+        if not alias or not key:
+            return key
+        return f"{alias}/{key}"
 
     def _resolve_dispatch_step(self, raw: _DispatchStep):
         """Resolve a dispatch step spec to (step class, init params)."""

@@ -99,6 +99,26 @@ catalogs) resolves to per-alias instances, while shared components (models, toke
 External stateful backends that cannot isolate workspaces (currently the `neo4j` file graph) are rejected at
 startup in multi-workspace configurations.
 
+The binding propagates through nested job calls and agent tool calls (`job_tools`) as a server-owned constraint
+that models cannot override. Background and cron jobs bind through their job configuration, so extra workspaces
+are watched by declaring explicit per-alias variants:
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # watches the default workspace; workspace defaults to the first alias
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+Two scoping notes: the Claude Code integration reads transcripts from the global `~/.claude/projects` directory
+(a Claude Code-side limitation — only ReMe's own copies are workspace-scoped), and token usage accounting remains
+application-level across workspaces.
+
 ## Enabling jobs
 
 `jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not
