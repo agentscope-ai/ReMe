@@ -83,11 +83,16 @@ class CcAgentWrapper(BaseAgentWrapper):
         job: "BaseJob",
         tool_context_id: str | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
+        workspace: str | None = None,
     ):
         from claude_agent_sdk import SdkMcpTool
 
         injected = cls._resolve_injected_job_kwargs(
-            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+            {
+                "tool_context_id": tool_context_id,
+                "injected_job_kwargs": injected_job_kwargs,
+                "workspace": workspace,
+            },
         )
 
         async def run_job(args):
@@ -203,7 +208,12 @@ class CcAgentWrapper(BaseAgentWrapper):
             if self.MCP_SERVER_NAME in opts.mcp_servers:
                 raise ValueError(f"mcp_servers already contains reserved server name {self.MCP_SERVER_NAME!r}")
             sdk_tools = [
-                self._make_tool(job, kwargs.get("tool_context_id"), kwargs.get("injected_job_kwargs"))
+                self._make_tool(
+                    job,
+                    kwargs.get("tool_context_id"),
+                    kwargs.get("injected_job_kwargs"),
+                    workspace=kwargs.get("workspace"),
+                )
                 for job in resolved_jobs
             ]
             opts.mcp_servers[self.MCP_SERVER_NAME] = create_sdk_mcp_server(

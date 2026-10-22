@@ -20,4 +20,4 @@ class _ToolContextMixin:
             contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
         else:
             contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
+        return contexts.setdefault(self._scoped_state_key(tool_context_id), {})

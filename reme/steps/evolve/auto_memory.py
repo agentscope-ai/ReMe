@@ -630,6 +630,7 @@ class AutoMemoryStep(BaseStep):
             system_prompt=self.prompt_format("system_prompt"),
             job_tools=self.create_tools if created else self.update_tools,
             **reply_kwargs,
+            **self._workspace_forward_kwargs(),
         )
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 

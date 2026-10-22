@@ -145,6 +145,7 @@ class DreamIntegrateStep(BaseStep):
                         bucket=bucket,
                     ),
                     job_tools=list(_TOOLS),
+                    **self._workspace_forward_kwargs(),
                 )
             except Exception as e:  # noqa: BLE001
                 after = _snapshot_digest(workspace, digest_dir)

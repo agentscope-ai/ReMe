@@ -165,9 +165,14 @@ class AsAgentWrapper(BaseAgentWrapper):
         job: "BaseJob",
         tool_context_id: str | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
+        workspace: str | None = None,
     ) -> FunctionTool:
         injected = cls._resolve_injected_job_kwargs(
-            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+            {
+                "tool_context_id": tool_context_id,
+                "injected_job_kwargs": injected_job_kwargs,
+                "workspace": workspace,
+            },
         )
 
         async def run_job(**kwargs) -> ToolChunk:
@@ -318,7 +323,15 @@ class AsAgentWrapper(BaseAgentWrapper):
             builtin_tools = "all"
         tools: list[ToolBase] = []
         tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
-        tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
+        tools.extend(
+            self._make_tool(
+                job,
+                tool_context_id,
+                kwargs.get("injected_job_kwargs"),
+                workspace=kwargs.get("workspace"),
+            )
+            for job in resolved_jobs
+        )
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,

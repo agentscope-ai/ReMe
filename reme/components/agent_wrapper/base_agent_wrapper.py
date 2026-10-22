@@ -163,12 +163,15 @@ class BaseAgentWrapper(BaseComponent):
 
         ``injected_job_kwargs`` values are enforced constraints added by the
         wrapper after receiving the model's tool arguments; the model can
-        neither see nor override them. ``tool_context_id`` keeps its dedicated
-        option but is carried through the same mechanism.
+        neither see nor override them. ``tool_context_id`` and the workspace
+        binding keep their dedicated options but are carried through the same
+        mechanism, so the model can never switch workspaces.
         """
         injected = dict(kwargs.get("injected_job_kwargs") or {})
         if tool_context_id := kwargs.get("tool_context_id"):
             injected["tool_context_id"] = tool_context_id
+        if workspace := kwargs.get("workspace"):
+            injected["workspace"] = workspace
         return injected
 
     @staticmethod

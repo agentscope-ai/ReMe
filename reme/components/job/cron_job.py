@@ -35,7 +35,9 @@ class CronJob(BackgroundJob):
         return max(0.0, (nxt - now).total_seconds())
 
     async def _execute_steps(self) -> Response:
-        context = RuntimeContext(**self.kwargs)
+        merged = dict(self.kwargs)
+        workspace = self._bind_workspace(merged)
+        context = RuntimeContext(workspace=workspace, **merged)
         for step in self._build_steps():
             await step(context)
         return context.response

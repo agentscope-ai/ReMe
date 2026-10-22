@@ -101,6 +101,25 @@ Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
 共享组件（模型、tokenizer 等）保持单实例。无法隔离 workspace 的外部有状态后端（目前是 `neo4j` file graph）
 在多 workspace 配置下会在启动时被拒绝。
 
+绑定会经嵌套 Job 调用和 agent 工具调用（`job_tools`）传播，作为模型无法覆盖的服务端约束。
+Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # 监控默认 workspace；workspace 缺省为第一个别名
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+两点作用域说明：Claude Code 集成从全局 `~/.claude/projects` 目录读取 transcript
+（这是 Claude Code 源端的固有限制，ReMe 自己的副本按 workspace 隔离）；token 用量统计保持 Application 级，
+不随 workspace 拆分。
+
 ## Job 启停
 
 `jobs.<name>.enabled` 默认为 `true`，适用于所有 Job 类型。禁用的 Job 保留配置，但不启动、不暴露接口，

@@ -302,6 +302,7 @@ class DreamExtractStep(BaseStep):
             user_message,
             system_prompt=system_prompt,
             job_tools=list(_TOOLS),
+            **self._workspace_forward_kwargs(),
         )
         self.logger.info(f"[{self.name}] agent done files={len(batch)} has_result={bool(result.get('result'))}")
         raw_result = agent_reply_result_text(result)
@@ -324,6 +325,7 @@ class DreamExtractStep(BaseStep):
             user_message + retry_feedback,
             system_prompt=system_prompt,
             job_tools=list(_TOOLS),
+            **self._workspace_forward_kwargs(),
         )
         raw_result = agent_reply_result_text(result)
         state.extract_summary = "\n".join(filter(None, (state.extract_summary, raw_result)))
