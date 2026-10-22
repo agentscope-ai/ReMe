@@ -308,6 +308,18 @@ class Application(BaseComponent):
                 setattr(component, key, value)
             return component
 
+    def _all_component_instances(self) -> list[BaseComponent]:
+        """Every component instance: plain entries plus all alias instances of scoped components."""
+        instances: dict[int, BaseComponent] = {}
+        for group in self.context.components.values():
+            for component in group.values():
+                instances[id(component)] = component
+        for group in self.context.workspace_components.values():
+            for scoped in group.values():
+                for instance in scoped.values():
+                    instances[id(instance)] = instance
+        return list(instances.values())
+
     def _replacement_shutdown_order(
         self,
         old_component: BaseComponent,
@@ -318,9 +330,7 @@ class Application(BaseComponent):
         started_ids = {id(component) for component in self._started_components}
         started_ids.discard(id(old_component))
         started_ids.add(id(replacement))
-        component_ids = {
-            id(component) for components in self.context.components.values() for component in components.values()
-        }
+        component_ids = {id(component) for component in self._all_component_instances()}
         non_components = [
             component
             for component in self._started_components
@@ -392,9 +402,7 @@ class Application(BaseComponent):
             was_started = old_component.is_started
 
             consumers: list[tuple[BaseComponent, str]] = []
-            candidates: list[BaseComponent] = [
-                component for components in self.context.components.values() for component in components.values()
-            ]
+            candidates: list[BaseComponent] = self._all_component_instances()
             candidates.extend(self.context.jobs.values())
             if self.context.service is not None:
                 candidates.append(self.context.service)

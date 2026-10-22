@@ -3,15 +3,13 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
-from pathlib import Path
 
 import pytest
 
 from reme.application import Application
 from reme.components import ApplicationContext
 from reme.components.base_component import BaseComponent
-from reme.components.job import BaseJob, StreamJob
-from reme.components.runtime_context import RuntimeContext
+from reme.components.job import StreamJob
 from reme.components.component_registry import R
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import FileChunk, FileNode
@@ -131,7 +129,7 @@ async def test_concurrent_same_relative_path_stays_isolated(tmp_path):
                 app.run_job("write_note", path="daily/shared.md", content=f"{alias}-{i}", workspace=alias)
                 for i in range(5)
                 for alias in ("alpha", "beta")
-            )
+            ),
         )
         alpha = (tmp_path / "alpha" / "daily" / "shared.md").read_text(encoding="utf-8")
         beta = (tmp_path / "beta" / "daily" / "shared.md").read_text(encoding="utf-8")
@@ -205,7 +203,14 @@ async def test_store_state_persists_per_alias_across_restart(tmp_path):
     app = _app(tmp_path)
     async with app:
         store = app.context.get_component(ComponentEnum.FILE_STORE, "default", "alpha")
-        await store.upsert([(FileNode(path="daily/a.md", st_mtime=0.0), [FileChunk(path="daily/a.md", text="alpha data", start_line=0, end_line=0)])])
+        await store.upsert(
+            [
+                (
+                    FileNode(path="daily/a.md", st_mtime=0.0),
+                    [FileChunk(path="daily/a.md", text="alpha data", start_line=0, end_line=0)],
+                ),
+            ],
+        )
 
     rebuilt = _app(tmp_path)
     async with rebuilt:
@@ -223,6 +228,8 @@ async def test_store_state_persists_per_alias_across_restart(tmp_path):
 @pytest.mark.asyncio
 async def test_external_stateful_backend_rejected_in_multi_workspace(tmp_path):
     class FakeExternalGraph(BaseComponent):
+        """Stand-in for a stateful external backend that cannot isolate workspaces."""
+
         component_type = ComponentEnum.FILE_GRAPH
         supports_multi_workspace = False
 
@@ -275,3 +282,77 @@ async def test_single_workspace_string_config_binds_default(tmp_path):
         response = await app.run_job("write_note", path="daily/other.md", content="plain", workspace="default")
         assert response.success
         assert (tmp_path / "only" / "daily" / "other.md").exists()
+
+
+# ----- Review follow-ups: binding-aware catalog reads and replace_component --
+
+
+@pytest.mark.asyncio
+async def test_digest_titles_follow_workspace_binding(tmp_path):
+    """The digest dedup source must read the bound workspace's catalog."""
+    from reme.components.runtime_context import RuntimeContext
+    from reme.steps.evolve.proactive.topics import ProactiveTopicsStep
+
+    app = Application(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+        components={"file_catalog": {"digest": {"backend": "local"}}},
+    )
+    async with app:
+        catalog_alpha = app.context.get_component(ComponentEnum.FILE_CATALOG, "digest", "alpha")
+        catalog_beta = app.context.get_component(ComponentEnum.FILE_CATALOG, "digest", "beta")
+        await catalog_alpha.upsert([FileNode(path="digest/2026-01-01/alpha-only.md", st_mtime=1.0)])
+        await catalog_beta.upsert([FileNode(path="digest/2026-01-01/beta-only.md", st_mtime=1.0)])
+
+        step = ProactiveTopicsStep(app_context=app.context, digest_compare_limit=10)
+        step.context = RuntimeContext(workspace=app.context.workspaces["beta"])
+        # Beta binding sees beta's digests only: an alpha-only title must not
+        # mark a beta candidate as a known duplicate.
+        assert await step._digest_titles() == ["beta-only"]
+
+        step.context = RuntimeContext()
+        assert await step._digest_titles() == ["alpha-only"]
+
+
+@pytest.mark.asyncio
+async def test_replace_shared_component_rewires_every_alias(tmp_path):
+    """Replacing a shared component rewires scoped consumers of every alias once."""
+    app = Application(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+        components={
+            "tokenizer": {"default": {"backend": "regex"}},
+            "keyword_index": {"default": {"backend": "bm25"}},
+        },
+    )
+    async with app:
+        old = app.context.components[ComponentEnum.TOKENIZER]["default"]
+        close_calls = 0
+        original_close = old.close
+
+        async def counting_close():
+            nonlocal close_calls
+            close_calls += 1
+            await original_close()
+
+        old.close = counting_close
+
+        index_alpha = app.context.get_component(ComponentEnum.KEYWORD_INDEX, "default", "alpha")
+        index_beta = app.context.get_component(ComponentEnum.KEYWORD_INDEX, "default", "beta")
+        assert index_alpha.tokenizer is old
+        assert index_beta.tokenizer is old
+
+        replacement = await app.replace_component(ComponentEnum.TOKENIZER, "default", config={"backend": "regex"})
+
+        assert replacement is not old
+        assert index_alpha.tokenizer is replacement
+        assert index_beta.tokenizer is replacement
+        assert close_calls == 1
+        started_ids = [id(component) for component in app._started_components]
+        assert len(started_ids) == len(set(started_ids))

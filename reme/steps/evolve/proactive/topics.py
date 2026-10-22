@@ -21,6 +21,7 @@ import time
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
 from ....components import R
+from ....components.base_component import _context_workspaces
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
@@ -340,7 +341,16 @@ class ProactiveTopicsStep(BaseStep):
     async def _digest_titles(self) -> list[str]:
         if self.app_context is None or self.digest_compare_limit <= 0:
             return []
-        catalog = self.app_context.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if _context_workspaces(self.app_context) is not None:
+            catalog = self.app_context.get_component(
+                ComponentEnum.FILE_CATALOG,
+                "digest",
+                alias=bound.alias if bound is not None else None,
+            )
+        else:
+            # Test doubles and standalone-style contexts without the workspace layer.
+            catalog = self.app_context.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
         if catalog is None:
             return []
         try:
