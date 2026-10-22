@@ -179,7 +179,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
             if hasattr(os, "fchmod"):
                 os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
+                payload = self.app_context.app_config.model_dump(mode="json")
+                workspaces = _context_workspaces(self.app_context)
+                if workspaces and len(workspaces) > 1:
+                    # The bridge rebuilds the full multi-workspace config;
+                    # the serialized workspace_dir string alone would lose it.
+                    payload["workspace_dir"] = {
+                        alias: str(workspace.workspace_path) for alias, workspace in workspaces.items()
+                    }
+                json.dump(payload, stream)
         except BaseException:
             with suppress(OSError):
                 os.close(fd)
@@ -241,17 +249,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
             names = ", ".join(invalid)
             raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
 
-    def _call_workspace_path(self, kwargs: dict[str, Any]) -> Path:
-        """Resolve the workspace binding forwarded by the calling step to a path."""
-        alias = str(kwargs.get("workspace") or "")
-        if not alias:
-            return self.workspace_path
-        workspaces = _context_workspaces(self.app_context)
-        if workspaces is None or alias not in workspaces:
-            configured = sorted(workspaces) if workspaces else []
-            raise ValueError(f"Unknown workspace {alias!r}; configured: {configured}")
-        return workspaces[alias].workspace_path
-
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         from ..job import BackgroundJob, StreamJob
 
@@ -263,6 +260,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if unsupported:
             raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
 
+        alias = str(kwargs.get("workspace") or "")
         config_source = self._mcp_config_source(kwargs)
         args = [
             "-m",
@@ -272,6 +270,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "--workspace",
             str(self._call_workspace_path(kwargs)),
         ]
+        if alias:
+            # The child builds the full multi-workspace config and binds via the alias.
+            args.extend(["--workspace-alias", alias])
         for name in job_names:
             args.extend(["--job", name])
         args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
@@ -344,7 +345,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),
             "base_instructions": kwargs.get("base_instructions"),
             "config": self._thread_config(kwargs),
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
@@ -380,7 +381,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         return {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
             "model": kwargs.get("model"),
             "output_schema": kwargs.get("output_schema"),

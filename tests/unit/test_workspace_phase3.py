@@ -3,6 +3,8 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -111,20 +113,23 @@ async def test_tool_context_state_namespaced_per_workspace(tmp_path):
     context = _context(tmp_path)
     step = AddDraftStep(app_context=context)
     for alias in ("alpha", "beta"):
-        step.context = RuntimeContext(workspace=context.workspaces[alias], tool_context_id="ctx-1", text=f"draft-{alias}")
+        step.context = RuntimeContext(
+            workspace=context.workspaces[alias],
+            tool_context_id="ctx-1",
+            text=f"draft-{alias}",
+        )
         await step.execute()
 
     stores = context.metadata["tool_contexts"]
-    # The default workspace keeps the legacy plain key; other aliases are namespaced.
-    assert sorted(stores) == ["beta/ctx-1", "ctx-1"]
+    # The default workspace keeps the legacy plain key; other aliases use
+    # unambiguous tuple keys.
+    assert set(stores) == {"ctx-1", ("beta", "ctx-1")}
     assert stores["ctx-1"]["drafts"] == ["draft-alpha"]
-    assert stores["beta/ctx-1"]["drafts"] == ["draft-beta"]
+    assert stores[("beta", "ctx-1")]["drafts"] == ["draft-beta"]
 
 
 @pytest.mark.asyncio
 async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
-    from types import SimpleNamespace
-
     wrapper = CodexAgentWrapper(
         app_context=ApplicationContext(
             workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
@@ -132,6 +137,8 @@ async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
     )
 
     class FakeCodex:
+        """Minimal Codex double returning a fixed thread id."""
+
         async def thread_start(self, **_kwargs):
             return SimpleNamespace(id="thread-1")
 
@@ -229,8 +236,6 @@ async def test_per_alias_watch_variant_jobs_write_own_workspace(tmp_path):
 
 @pytest.mark.asyncio
 async def test_mcp_tool_boundary_forwards_injected_workspace(tmp_path):
-    from types import SimpleNamespace
-
     from reme.components.service.mcp_tools import add_mcp_job
 
     context = _context(tmp_path)
@@ -267,3 +272,229 @@ async def test_codex_bridge_uses_bound_workspace_path(tmp_path):
         wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "nope"})
 
     await wrapper.close()
+
+
+# ----- Review follow-ups: explicit bindings, session isolation, key collisions
+
+
+@pytest.mark.asyncio
+async def test_nested_call_default_binding_beats_child_config(tmp_path):
+    """An explicit default binding propagates; the child's configured alias must not win."""
+    context = _context(tmp_path)
+    parent = _job(context, "parent", backend="nested_caller_step")
+    child = _job(context, "report", workspace="beta")  # job-level configured binding
+    context.jobs = {"parent": parent, "report": child}
+    await parent.start()
+    await child.start()
+
+    # Top-level call to the configured child still honors its configuration.
+    assert (await child()).answer == "beta"
+    # Nested under an alpha-bound parent, the parent binding wins.
+    response = await parent(workspace="alpha")
+    assert response.answer == "parent->alpha"
+    response = await parent(workspace="beta")
+    assert response.answer == "parent->beta"
+
+
+@pytest.mark.asyncio
+async def test_tool_context_keys_cannot_collide_across_workspaces(tmp_path):
+    context = _context(tmp_path)
+    step = AddDraftStep(app_context=context)
+    # Default-workspace id that spells like another alias's namespaced key.
+    step.context = RuntimeContext(workspace=context.workspaces["alpha"], tool_context_id="beta/ctx-1", text="d-alpha")
+    await step.execute()
+    step.context = RuntimeContext(workspace=context.workspaces["beta"], tool_context_id="ctx-1", text="d-beta")
+    await step.execute()
+
+    stores = context.metadata["tool_contexts"]
+    assert stores["beta/ctx-1"]["drafts"] == ["d-alpha"]
+    assert stores[("beta", "ctx-1")]["drafts"] == ["d-beta"]
+
+
+@pytest.mark.asyncio
+async def test_agentscope_sessions_isolated_per_workspace(tmp_path):
+    from uuid import uuid4
+
+    from agentscope.permission import PermissionMode
+
+    from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
+
+    context = _context(tmp_path)
+    wrapper = AsAgentWrapper(app_context=context, as_llm="")
+    wrapper.as_llm = SimpleNamespace(model=object())
+
+    session_id = str(uuid4())
+    state = await wrapper._load_state({"session_id": session_id, "workspace": "beta"}, PermissionMode.DEFAULT)
+    state.summary = "beta summary"
+    await wrapper._dump_state(state, {"workspace": "beta"})
+
+    session_file = tmp_path / "beta" / "mem_session" / "agentscope" / f"{session_id}.jsonl"
+    assert session_file.is_file()
+    assert not (tmp_path / "alpha" / "mem_session" / "agentscope" / f"{session_id}.jsonl").exists()
+
+    # Same id under another workspace must not read beta's state.
+    with pytest.raises(FileNotFoundError):
+        await wrapper._load_state({"resume": session_id, "workspace": "alpha"}, PermissionMode.DEFAULT)
+    resumed = await wrapper._load_state({"resume": session_id, "workspace": "beta"}, PermissionMode.DEFAULT)
+    assert resumed.summary == "beta summary"
+    # Default workspace is untouched by the beta session.
+    with pytest.raises(FileNotFoundError):
+        await wrapper._load_state({"resume": session_id}, PermissionMode.DEFAULT)
+
+
+def test_cc_options_follow_bound_workspace(tmp_path):
+    from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
+
+    context = _context(tmp_path)
+    wrapper = CcAgentWrapper(app_context=context)
+
+    opts = wrapper._build_options("hi", workspace="beta")
+    assert opts.env["CLAUDE_CONFIG_DIR"].startswith(str(tmp_path / "beta"))
+    assert opts.cwd == tmp_path / "beta"
+
+    default_opts = wrapper._build_options("hi")
+    assert default_opts.env["CLAUDE_CONFIG_DIR"].startswith(str(tmp_path / "alpha"))
+
+
+@pytest.mark.asyncio
+async def test_codex_thread_cwd_follows_bound_workspace(tmp_path):
+    context = _context(tmp_path)
+    wrapper = CodexAgentWrapper(app_context=context)
+    observed = {}
+
+    class FakeCodex:
+        """Capture thread_start parameters without an app-server."""
+
+        async def thread_start(self, **kwargs):
+            observed.update(kwargs)
+            return SimpleNamespace(id="thread-1")
+
+    await wrapper._open_thread(FakeCodex(), {"workspace": "beta"})
+    assert observed["cwd"] == str(tmp_path / "beta")
+
+    observed.clear()
+    await wrapper._open_thread(FakeCodex(), {})
+    assert observed["cwd"] != str(tmp_path / "beta")
+
+
+# ----- Codex bridge: real child-process execution ----------------------------
+
+
+@pytest.mark.asyncio
+async def test_codex_bridge_executes_non_default_alias(tmp_path):
+    """The bridge child rebuilds the full workspace mapping and binds via the alias."""
+    import json
+    import sys
+
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    snapshot = tmp_path / "bridge.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "workspace_dir": {"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+                "enable_logo": False,
+                "log_to_console": False,
+                "log_to_file": False,
+                "service": {"backend": "mcp"},
+                "components": {
+                    "tokenizer": {"default": {"backend": "regex"}},
+                    "file_store": {"default": {"backend": "local", "embedding_store": "", "tag_index": ""}},
+                    "keyword_index": {"default": {"backend": "bm25"}},
+                    "file_graph": {"default": {"backend": "local"}},
+                },
+                "jobs": {
+                    "write_note": {
+                        "backend": "base",
+                        "description": "write a note",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                            "required": ["path", "content"],
+                        },
+                        "steps": [{"backend": "write_step"}],
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    transport = StdioTransport(
+        command=sys.executable,
+        args=[
+            "-m",
+            "reme.components.agent_wrapper.codex_mcp_server",
+            "--config",
+            str(snapshot),
+            "--workspace",
+            str(tmp_path / "beta"),
+            "--workspace-alias",
+            "beta",
+            "--job",
+            "write_note",
+        ],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        keep_alive=False,
+    )
+
+    async with Client(transport, timeout=None, init_timeout=30) as client:
+        await asyncio.wait_for(
+            client.call_tool("write_note", {"path": "daily/bridge.md", "content": "via-beta"}),
+            timeout=30,
+        )
+
+    assert "via-beta" in (tmp_path / "beta" / "daily" / "bridge.md").read_text(encoding="utf-8")
+    assert not (tmp_path / "alpha" / "daily" / "bridge.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_codex_bridge_rejects_alias_without_mapping_snapshot(tmp_path):
+    import json
+    import sys
+
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    snapshot = tmp_path / "bridge-single.json"
+    snapshot.write_text(
+        json.dumps(
+            {
+                "workspace_dir": str(tmp_path / "only"),
+                "enable_logo": False,
+                "log_to_console": False,
+                "log_to_file": False,
+                "service": {"backend": "mcp"},
+                "jobs": {
+                    "write_note": {
+                        "backend": "base",
+                        "parameters": {"type": "object", "properties": {}},
+                        "steps": [{"backend": "write_step"}],
+                    },
+                },
+            },
+        ),
+        encoding="utf-8",
+    )
+    transport = StdioTransport(
+        command=sys.executable,
+        args=[
+            "-m",
+            "reme.components.agent_wrapper.codex_mcp_server",
+            "--config",
+            str(snapshot),
+            "--workspace",
+            str(tmp_path / "only"),
+            "--workspace-alias",
+            "beta",
+            "--job",
+            "write_note",
+        ],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        keep_alive=False,
+    )
+
+    # The child process fails fast with a ValueError; the client sees the closed connection.
+    with pytest.raises(Exception, match="Connection closed"):
+        async with Client(transport, timeout=None, init_timeout=30):
+            pass

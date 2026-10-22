@@ -182,7 +182,7 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
     wrapper.as_llm = SimpleNamespace(model=object())
     observed = {}
 
-    def builtin_tools(names, *, sequential_tool_calls=False):
+    def builtin_tools(names, *, sequential_tool_calls=False, **_extra):
         observed["names"] = names
         observed["sequential_tool_calls"] = sequential_tool_calls
         return []
@@ -251,7 +251,7 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         """Return the fake AgentScope agent."""
         return FakeAgent(), inputs
 
-    async def dump_state(_state):
+    async def dump_state(_state, _kwargs=None):
         """Skip session persistence."""
         return None
 

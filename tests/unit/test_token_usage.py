@@ -216,7 +216,7 @@ async def test_agentscope_stream_reply_does_not_record_token_usage(tmp_path, mon
         """Build the minimal stream double."""
         return FakeAgent(), inputs
 
-    async def dump_state(_state):
+    async def dump_state(_state, _kwargs=None):
         """Avoid durable state writes in this accounting test."""
         return None
 
