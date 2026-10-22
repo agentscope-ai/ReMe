@@ -7,8 +7,6 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
-import stat
-import sys
 from types import SimpleNamespace
 
 import pytest
@@ -16,12 +14,11 @@ from openai_codex.generated.v2_all import TokenUsageBreakdown
 from pydantic import BaseModel
 
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
 from reme.components.job import BackgroundJob
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import ApplicationConfig, Response
+from reme.schema import Response
 
 # A fresh bridge imports ReMe before replying to initialize; keep this separate
 # from the 10-second budget for requests to an already initialized server.
@@ -64,24 +61,32 @@ def _wrapper(tmp_path, **kwargs):
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
-def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
+@pytest.mark.asyncio
+async def test_mcp_config_uses_loopback_bridge_and_selected_jobs(tmp_path):
     wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
+    await wrapper._ensure_job_server()  # pylint: disable=protected-access
 
     config = wrapper._mcp_server_config(  # pylint: disable=protected-access
         {"job_tools": ["search", "search"], "tool_context_id": "ctx-1"},
     )
+    await wrapper.close()
 
     assert config["command"]
     assert config["enabled_tools"] == ["search"]
     assert config["args"].count("--job") == 1
     assert config["args"][config["args"].index("--job") + 1] == "search"
     assert "reme.components.agent_wrapper.codex_mcp_server" in config["args"]
-    assert config["args"][config["args"].index("--config") + 1] == str(tmp_path / "custom.yaml")
+    assert config["args"][config["args"].index("--endpoint") + 1].startswith("http://127.0.0.1:")
+    assert config["args"][config["args"].index("--token") + 1]
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
+    # mcp_config is accepted for compatibility but no longer builds a child app.
+    assert "--config" not in config["args"]
 
 
-def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
+@pytest.mark.asyncio
+async def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
     wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
+    await wrapper._ensure_job_server()  # pylint: disable=protected-access
 
     config = wrapper._mcp_server_config(  # pylint: disable=protected-access
         {
@@ -90,6 +95,7 @@ def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
             "injected_job_kwargs": {"_allowed_paths": ["daily/2025-06-01/note.md"]},
         },
     )
+    await wrapper.close()
 
     raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
     assert json.loads(raw) == {"_allowed_paths": ["daily/2025-06-01/note.md"]}
@@ -98,28 +104,17 @@ def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
     assert "--injected-job-kwargs" not in plain["args"]
 
 
-def test_prepare_config_merges_injected_job_kwargs_with_tool_context():
-    prepared = _prepare_config(
-        {"jobs": {"selected": {"backend": "base"}}},
-        ["selected"],
-        "ctx-1",
-        {"_allowed_paths": ["daily/2025-06-01/note.md"]},
-    )
-
-    assert prepared["service"]["injected_job_kwargs"] == {
-        "_allowed_paths": ["daily/2025-06-01/note.md"],
-        "tool_context_id": "ctx-1",
-    }
-
-
-def test_thread_config_preserves_other_mcp_servers(tmp_path):
+@pytest.mark.asyncio
+async def test_thread_config_preserves_other_mcp_servers(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
+    await wrapper._ensure_job_server()  # pylint: disable=protected-access
     config = wrapper._thread_config(  # pylint: disable=protected-access
         {
             "job_tools": ["search"],
             "config": {"mcp_servers": {"docs": {"url": "https://example.test/mcp"}}},
         },
     )
+    await wrapper.close()
 
     assert "docs" in config["mcp_servers"]
     assert len(config["mcp_servers"]) == 2
@@ -171,114 +166,69 @@ def test_mcp_config_rejects_background_jobs(tmp_path):
         wrapper._mcp_server_config({"job_tools": ["watch"]})
 
 
-def test_prepare_config_reuses_selected_stdio_mcp_service():
-    prepared = _prepare_config(
-        {
-            "service": {"backend": "http"},
-            "jobs": {
-                "selected": {"backend": "base", "enable_serve": False},
-                "helper": {"backend": "base"},
-                "watch": {"backend": "background"},
-            },
-        },
-        ["selected"],
-        "ctx-1",
-    )
+@pytest.mark.asyncio
+async def test_loopback_endpoint_serves_parent_jobs(tmp_path):
+    import httpx
 
-    assert prepared["service"] == {
-        "backend": "mcp",
-        "transport": "stdio",
-        "jobs": ["selected"],
-        "tool_error_on_failure": True,
-        "injected_job_kwargs": {"tool_context_id": "ctx-1"},
-    }
-    assert set(prepared["jobs"]) == {"selected", "helper"}
-    assert prepared["jobs"]["selected"]["enable_serve"] is True
+    wrapper, job = _wrapper(tmp_path)
+    await wrapper.start()
+    server = await wrapper._ensure_job_server()  # pylint: disable=protected-access
+    base = server.url
+    headers = {"Authorization": f"Bearer {server.token}"}
+    try:
+        async with httpx.AsyncClient(base_url=base, headers=headers, timeout=10) as http:
+            listed = (await http.get("/jobs")).json()["jobs"]
+            assert [entry["name"] for entry in listed] == ["search"]
 
+            called = await http.post("/call", json={"job": "search", "kwargs": {"query": "memo"}})
+            assert called.json() == {"success": True, "answer": "found:memo"}
+            # The job executed in the parent process, not in any child.
+            assert job.calls == [{"query": "memo"}]
 
-def test_prepare_config_rejects_missing_or_background_selected_jobs():
-    with pytest.raises(KeyError, match="missing"):
-        _prepare_config({"jobs": {}}, ["missing"])
-    with pytest.raises(KeyError, match="watch"):
-        _prepare_config({"jobs": {"watch": {"backend": "background"}}}, ["watch"])
+            missing = await http.post("/call", json={"job": "missing", "kwargs": {}})
+            assert missing.status_code == 404
+
+            unauthorized = await http.get("/jobs", headers={"Authorization": "Bearer wrong"})
+            assert unauthorized.status_code == 401
+    finally:
+        await wrapper.close()
+    assert server.is_running is False
 
 
 @pytest.mark.asyncio
-async def test_stdio_bridge_starts_and_lists_selected_job(tmp_path):
+async def test_loopback_bridge_lists_and_calls_parent_job(tmp_path):
     from fastmcp import Client
     from fastmcp.client import StdioTransport
 
-    config_path = tmp_path / "bridge.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "service": {"backend": "mcp"},
-                "workspace_dir": str(tmp_path / "workspace"),
-                "jobs": {
-                    "empty": {
-                        "backend": "base",
-                        "description": "Return an empty response",
-                        "parameters": {"type": "object", "properties": {}},
-                        "steps": [],
-                    },
-                },
-            },
-        ),
-        encoding="utf-8",
-    )
+    wrapper, job = _wrapper(tmp_path)
+    await wrapper._ensure_job_server()  # pylint: disable=protected-access
+    server_config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
     transport = StdioTransport(
-        command=sys.executable,
-        args=[
-            "-m",
-            "reme.components.agent_wrapper.codex_mcp_server",
-            "--config",
-            str(config_path),
-            "--workspace",
-            str(tmp_path / "workspace"),
-            "--job",
-            "empty",
-        ],
-        cwd=str(Path(__file__).resolve().parents[2]),
+        command=server_config["command"],
+        args=server_config["args"],
+        cwd=server_config["cwd"],
         keep_alive=False,
     )
 
     async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
         tools = await asyncio.wait_for(client.list_tools(), timeout=10)
+        assert [tool.name for tool in tools] == ["search"]
+        result = await asyncio.wait_for(client.call_tool("search", {"query": "via-bridge"}), timeout=10)
+    await wrapper.close()
 
-    assert [tool.name for tool in tools] == ["empty"]
+    assert "found:via-bridge" in str(result.content[0].text)
+    assert job.calls == [{"query": "via-bridge"}]
 
 
 @pytest.mark.asyncio
 async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
-    config_path = tmp_path / "bridge.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "service": {"backend": "mcp"},
-                "workspace_dir": str(tmp_path / "workspace"),
-                "jobs": {
-                    "empty": {
-                        "backend": "base",
-                        "description": "Empty",
-                        "parameters": {"type": "object", "properties": {}},
-                        "steps": [],
-                    },
-                },
-            },
-        ),
-        encoding="utf-8",
-    )
+    wrapper, _job = _wrapper(tmp_path)
+    await wrapper._ensure_job_server()  # pylint: disable=protected-access
+    server_config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
     proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "reme.components.agent_wrapper.codex_mcp_server",
-        "--config",
-        str(config_path),
-        "--workspace",
-        str(tmp_path / "workspace"),
-        "--job",
-        "empty",
-        cwd=str(Path(__file__).resolve().parents[2]),
+        server_config["command"],
+        *server_config["args"],
+        cwd=server_config["cwd"],
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -309,6 +259,7 @@ async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
+        await wrapper.close()
     stdout = first_line + await proc.stdout.read()
     stderr = (await proc.stderr.read()).decode()
     assert b"Loading config" not in stdout
@@ -1197,11 +1148,6 @@ def test_event_to_chunks_maps_approval_started_and_completed(review_status):
 def test_codex_home_expands_user_directory(tmp_path):
     wrapper, _job = _wrapper(tmp_path, codex_home="~/.codex")
     assert wrapper.session_path == Path.home() / ".codex"
-
-
-def test_named_default_mcp_config_remains_supported(tmp_path):
-    wrapper, _job = _wrapper(tmp_path, mcp_config="default")
-    assert wrapper._mcp_config_source({}) == "default"  # pylint: disable=protected-access
 
 
 def test_default_config_provides_codex_oauth_wrapper(monkeypatch):
