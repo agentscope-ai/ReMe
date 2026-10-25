@@ -74,8 +74,11 @@ class DreamFinishStep(BaseStep):
 def render_summary(state: DreamState) -> str:
     """Render a concise user-facing summary."""
     dates = ", ".join(state.dates or [state.date])
+    title = "AutoDream failed" if state.errors else "AutoDream completed"
+    if state.warnings and not state.errors:
+        title += " with warnings"
     lines = [
-        ("AutoDream completed with warnings" if state.warnings else "AutoDream completed"),
+        title,
         "",
         f"- Date: {state.date}",
         f"- Scan window: {dates}",

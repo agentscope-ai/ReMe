@@ -20,17 +20,16 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
   const current = () => config;
   const client = new ReMeClient(current);
   const runtime = new ReMeRuntime(client, current, ctx.logger);
+  ctx.effect(() => {
+    runtime.start();
+    return () => runtime.disposeAll();
+  }, "remeMemory.lifecycle()");
   ctx.provide("remeMemory", runtime);
   void ctx.plugin(ReMeStatusGateway);
   ctx.effect(
     () => registerReMeTools(ctx, client, current),
     "remeMemory.tools()",
   );
-
-  ctx.effect(() => {
-    runtime.start();
-    return () => runtime.disposeAll();
-  }, "remeMemory.lifecycle()");
 
   ctx.on("loader/volatile-update", () => {
     config = resolveConfig(input);

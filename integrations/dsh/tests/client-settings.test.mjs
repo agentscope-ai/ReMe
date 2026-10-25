@@ -168,7 +168,7 @@ test("resets overrides in one mutation only after Save", async () => {
       await ui.button("save").props.onClick();
     });
     assert.equal(ui.calls.length, 1);
-    assert.equal(ui.calls[0].ops.length, 13);
+    assert.equal(ui.calls[0].ops.length, 15);
     assert.ok(ui.calls[0].ops.every((op) => op.op === "unset"));
     assert.equal(ui.calls[0].revision, 7);
   } finally {
@@ -191,3 +191,30 @@ test("read-only configuration cannot be saved", async () => {
     ui.close();
   }
 });
+
+for (const endpoint of [
+  "http://alice:SECRET@localhost:2333",
+  "http://localhost:2333?token=SECRET",
+  "http://localhost:2333#search",
+  "http://localhost:2333?",
+  "http://localhost:2333#",
+]) {
+  test(
+    "rejects unsupported endpoint components before saving: " +
+      new URL(endpoint).hash +
+      new URL(endpoint).search,
+    async () => {
+      const ui = await editor(async () => true);
+      try {
+        ui.change(0, endpoint);
+        assert.equal(ui.button("save").props.disabled, true);
+        await act(async () => {
+          await ui.button("save").props.onClick();
+        });
+        assert.equal(ui.calls.length, 0);
+      } finally {
+        ui.close();
+      }
+    },
+  );
+}

@@ -3,14 +3,14 @@
 import frontmatter
 import yaml
 
+from ._base import _FileIOStep
 from ._file_io import get_path_lock, read_file_safe, write_file_safe
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
-from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("edit_step")
-class EditStep(BaseStep):
+class EditStep(_FileIOStep):
     """Replace every occurrence of ``old`` with ``new`` inside the file body.
 
     The YAML front matter block (if any) is parsed out, kept verbatim and
@@ -23,13 +23,6 @@ class EditStep(BaseStep):
     Concurrency: in-process per-path ``asyncio.Lock`` serializes the
     read-modify-write cycle against the same file (multi-worker / multi-
     process safety is out of scope)."""
-
-    def _fail(self, message: str, **meta) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        if meta:
-            self.context.response.metadata.update(meta)
 
     async def execute(self):  # pylint: disable=too-many-return-statements
         assert self.context is not None

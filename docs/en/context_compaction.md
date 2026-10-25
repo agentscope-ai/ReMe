@@ -159,3 +159,20 @@ the entire gain cannot be attributed to Jev ranking itself. Agent continuation s
 
 <!-- Payment has 10 units (maximum Top 10); actual N is min(N, available units). -->
 [Complete experiment: design, results, expected answers and reproduction](https://github.com/jinliyl/ReMe/blob/74e1251ddcd212205788f21ccd6b5ebd82ade7c3/benchmark/compaction/README.md)
+
+## Host-owned decision models
+
+Embedded hosts can reuse their existing AgentScope JEV instance, just as they inject an LLM:
+
+```python
+# app contains an as_decision_model.compaction component with backend: agentscope.
+await app.update_component("as_decision_model", "compaction", model=host_jev)
+```
+
+The YAML `model` value remains the provider model name. The runtime `model` property accepts a callable instance
+and does not construct a client on access. Inject before the first request; ReMe validates and converts JSON
+questions normally, but does not require separate ReMe credentials or close the borrowed client. The host must
+keep the instance alive until ReMe has finished its calls, then close it itself. Close the component before
+replacing an internally constructed model or any model with active requests. Shutdown waits for active calls and
+owned-client cleanup even when cancelled, then propagates cancellation. Component shutdown detaches the instance;
+inject again before restarting a borrowed-model component. Standalone credential-based behavior is unchanged.

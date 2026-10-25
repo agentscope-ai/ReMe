@@ -2,23 +2,17 @@
 
 from datetime import datetime
 
+from ._base import _FileIOStep
 from ._file_io import read_file_safe
 from ._path import _check_path_permission, resolve_path
-from ..base_step import BaseStep
 from ...components import R
 
 DEFAULT_EDITOR_MAX_BYTES = 5 * 1024 * 1024
 
 
 @R.register("load_step")
-class LoadStep(BaseStep):
+class LoadStep(_FileIOStep):
     """Return complete text without the truncation used by agent-facing reads."""
-
-    def _fail(self, message: str, **metadata) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        self.context.response.metadata.update(metadata)
 
     async def execute(self):
         assert self.context is not None

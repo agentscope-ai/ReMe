@@ -162,20 +162,3 @@ def test_application_registry_copy_remains_mutable():
     reg.register(_DummyComponent, "runtime-component")
     assert reg.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is _DummyComponent
     assert R.get(ComponentEnum.FILE_CHUNKER, "runtime-component") is None
-
-
-if __name__ == "__main__":
-    print("\n=== ComponentRegistry Tests ===")
-    test_register_direct_with_explicit_name()
-    test_register_direct_defaults_to_class_name()
-    test_register_decorator()
-    test_register_rejects_missing_component_type()
-    test_register_rejects_empty_name()
-    test_register_rejects_non_class_non_string()
-    test_get_all_returns_copy()
-    test_get_all_unknown_type_returns_empty()
-    test_get_nonexistent_returns_none()
-    test_unregister_existing()
-    test_unregister_missing_returns_false()
-    test_clear()
-    print("\n所有测试通过!")

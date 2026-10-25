@@ -267,7 +267,3 @@ def test_configs_define_original_jobs_without_daily_variants():
         {"backend": "auto_memory_cc_step"},
         {"backend": "auto_tag_step"},
     ]
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

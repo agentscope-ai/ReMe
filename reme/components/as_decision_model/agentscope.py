@@ -31,8 +31,8 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
     """Wrap AgentScope's TypeSafe decision model with lazy provider loading.
 
     ``questions`` accepts AgentScope question objects or JSON dictionaries with
-    a ``type`` discriminator (``binary``, ``choice``, or ``score``). Only this
-    component's configuration supplies credentials and transport options.
+    a ``type`` discriminator (``binary``, ``choice``, or ``score``). Hosts may inject a borrowed model
+    through ``model``; otherwise this component constructs and owns its client.
     """
 
     def __init__(
@@ -53,9 +53,30 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
             retry_delay=retry_delay,
         )
         self._model: "ClassifierModelBase | None" = None
+        self._owns_model = False
         self._active_calls = 0
         self._idle = asyncio.Event()
         self._idle.set()
+
+    @property
+    def model(self) -> "ClassifierModelBase | None":
+        """Return the current instance without constructing a provider client."""
+        return self._model
+
+    @model.setter
+    def model(self, value: "ClassifierModelBase | None") -> None:
+        """Borrow a host-owned instance, including via Application.update_component.
+
+        Close the component before replacing an internally owned client. An
+        active request must finish before any replacement or detachment.
+        """
+        if value is self._model:
+            return
+        if value is not None and not callable(value):
+            raise TypeError("An injected decision model must be callable.")
+        if self._active_calls or self._owns_model:
+            raise RuntimeError("Close the decision component before replacing its active or owned model.")
+        self._model = value
 
     @staticmethod
     def _load_decision_model():
@@ -102,6 +123,7 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
                         credential=credential_cls(**credential),
                         **self.options.model_dump(exclude_none=True),
                     )
+                    self._owns_model = True
                 except ImportError as exc:
                     raise ImportError(
                         "Decision model inference requires a compatible typesafe-sdk. "
@@ -120,10 +142,24 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
                 self._idle.set()
 
     async def _close(self) -> None:
+        """Finish draining and cleanup before propagating shutdown cancellation."""
+        cleanup = asyncio.create_task(self._release_model())
+        cancellation = None
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError as exc:
+                # Keep the lifecycle lock until cleanup finishes, even after
+                # repeated cancellation. No cleanup task outlives close().
+                cancellation = exc
+        cleanup.result()
+        if cancellation is not None:
+            raise cancellation
+
+    async def _release_model(self) -> None:
         """Release the owned TypeSafe client and allow a later fresh start."""
-        try:
-            await self._idle.wait()
-        finally:
-            model, self._model = self._model, None
-            if model is not None:
-                await model.client.aclose()
+        await self._idle.wait()
+        model, owned = self._model, self._owns_model
+        self._model, self._owns_model = None, False
+        if model is not None and owned:
+            await model.client.aclose()

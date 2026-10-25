@@ -11,11 +11,12 @@ Two pure helpers:
 
 # pylint: disable=protected-access
 
-import asyncio
-import os
+from contextlib import chdir as temp_chdir
 import tempfile
 import warnings
 from pathlib import Path
+
+import pytest
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileFrontMatter, FileNode
@@ -24,22 +25,6 @@ from reme.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
-
-
-class temp_chdir:
-    """Test helper: chdir to ``path`` on enter, restore previous cwd on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 async def _store_with(files: dict[str, dict]) -> LocalFileStore:
@@ -79,98 +64,86 @@ async def _store_with(files: dict[str, dict]) -> LocalFileStore:
 # -- expand_links -------------------------------------------------------------
 
 
-def test_expand_links_empty_paths_short_circuits():
+@pytest.mark.asyncio
+async def test_expand_links_empty_paths_short_circuits():
     """No paths ⇒ empty dict, no file_store calls needed."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = LocalFileStore(name="t", embedding_store="")
-            await store.start()
-            result = await expand_links(store, [])
-            assert result == {}
-            await store.close()
-        print("✓ test_expand_links_empty_paths_short_circuits passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = LocalFileStore(name="t", embedding_store="")
+        await store.start()
+        result = await expand_links(store, [])
+        assert result == {}
+        await store.close()
 
 
-def test_expand_links_returns_outlinks_and_inlinks_with_meta():
+@pytest.mark.asyncio
+async def test_expand_links_returns_outlinks_and_inlinks_with_meta():
     """A.md links to B.md ⇒ A has B as outlink, B has A as inlink, meta surfaced."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc", "description": "alpha"},
-                    "B.md": {"body": "End node.", "name": "B Doc", "description": "beta"},
-                },
-            )
-            result = await expand_links(store, ["A.md", "B.md"])
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc", "description": "alpha"},
+                "B.md": {"body": "End node.", "name": "B Doc", "description": "beta"},
+            },
+        )
+        result = await expand_links(store, ["A.md", "B.md"])
 
-            assert set(result.keys()) == {"A.md", "B.md"}
+        assert set(result.keys()) == {"A.md", "B.md"}
 
-            a_out = result["A.md"]["outlinks"]
-            assert len(a_out) == 1
-            assert a_out[0]["path"] == "B.md"
-            assert a_out[0]["meta"] == {"name": "B Doc", "description": "beta"}
-            assert a_out[0]["anchors"] == []
-            assert result["A.md"]["inlinks"] == []
+        a_out = result["A.md"]["outlinks"]
+        assert len(a_out) == 1
+        assert a_out[0]["path"] == "B.md"
+        assert a_out[0]["meta"] == {"name": "B Doc", "description": "beta"}
+        assert a_out[0]["anchors"] == []
+        assert result["A.md"]["inlinks"] == []
 
-            b_in = result["B.md"]["inlinks"]
-            assert len(b_in) == 1
-            assert b_in[0]["path"] == "A.md"
-            assert b_in[0]["meta"] == {"name": "A Doc", "description": "alpha"}
-            assert result["B.md"]["outlinks"] == []
+        b_in = result["B.md"]["inlinks"]
+        assert len(b_in) == 1
+        assert b_in[0]["path"] == "A.md"
+        assert b_in[0]["meta"] == {"name": "A Doc", "description": "alpha"}
+        assert result["B.md"]["outlinks"] == []
 
-            await store.close()
-        print("✓ test_expand_links_returns_outlinks_and_inlinks_with_meta passed")
-
-    asyncio.run(run())
+        await store.close()
 
 
-def test_expand_links_max_per_direction_caps_neighbors():
+@pytest.mark.asyncio
+async def test_expand_links_max_per_direction_caps_neighbors():
     """max_per_direction=2 ⇒ only first two distinct neighbors per direction kept."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "hub.md": {
-                        "body": "[[a.md]] [[b.md]] [[c.md]] [[d.md]]",
-                    },
-                    "a.md": {"body": "a"},
-                    "b.md": {"body": "b"},
-                    "c.md": {"body": "c"},
-                    "d.md": {"body": "d"},
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "hub.md": {
+                    "body": "[[a.md]] [[b.md]] [[c.md]] [[d.md]]",
                 },
-            )
-            result = await expand_links(store, ["hub.md"], max_per_direction=2)
-            out = result["hub.md"]["outlinks"]
-            assert len(out) == 2
-            assert [n["path"] for n in out] == ["a.md", "b.md"]
-            await store.close()
-        print("✓ test_expand_links_max_per_direction_caps_neighbors passed")
+                "a.md": {"body": "a"},
+                "b.md": {"body": "b"},
+                "c.md": {"body": "c"},
+                "d.md": {"body": "d"},
+            },
+        )
+        result = await expand_links(store, ["hub.md"], max_per_direction=2)
+        out = result["hub.md"]["outlinks"]
+        assert len(out) == 2
+        assert [n["path"] for n in out] == ["a.md", "b.md"]
+        await store.close()
 
-    asyncio.run(run())
 
-
-def test_expand_links_node_without_meta_returns_empty_meta_dict():
+@pytest.mark.asyncio
+async def test_expand_links_node_without_meta_returns_empty_meta_dict():
     """Neighbor with no frontmatter name/description ⇒ meta = {}."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "src.md": {"body": "[[dst.md]]"},
-                    "dst.md": {"body": "no meta"},
-                },
-            )
-            result = await expand_links(store, ["src.md"])
-            assert result["src.md"]["outlinks"][0]["meta"] == {}
-            await store.close()
-        print("✓ test_expand_links_node_without_meta_returns_empty_meta_dict passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "src.md": {"body": "[[dst.md]]"},
+                "dst.md": {"body": "no meta"},
+            },
+        )
+        result = await expand_links(store, ["src.md"])
+        assert result["src.md"]["outlinks"][0]["meta"] == {}
+        await store.close()
 
 
 # -- render_expansion_lines ---------------------------------------------------
@@ -180,7 +153,6 @@ def test_render_expansion_lines_empty_input_yields_empty_list():
     """Both directions empty ⇒ no lines."""
     assert not render_expansion_lines({})
     assert not render_expansion_lines({"outlinks": [], "inlinks": []})
-    print("✓ test_render_expansion_lines_empty_input_yields_empty_list passed")
 
 
 def test_render_expansion_lines_outlinks_only():
@@ -200,7 +172,6 @@ def test_render_expansion_lines_outlinks_only():
         "  outlinks (1):",
         '    → B.md  name="B"  description="beta"',
     ]
-    print("✓ test_render_expansion_lines_outlinks_only passed")
 
 
 def test_render_expansion_lines_inlinks_only_with_anchor():
@@ -221,7 +192,6 @@ def test_render_expansion_lines_inlinks_only_with_anchor():
         "    ← src.md  (no meta)",
         "        via anchor=#intro",
     ]
-    print("✓ test_render_expansion_lines_inlinks_only_with_anchor passed")
 
 
 def test_render_expansion_lines_both_directions_in_order():
@@ -239,15 +209,3 @@ def test_render_expansion_lines_both_directions_in_order():
     assert lines[2] == "  inlinks (1):"
     assert lines[1].lstrip().startswith("→")
     assert lines[3].lstrip().startswith("←")
-    print("✓ test_render_expansion_lines_both_directions_in_order passed")
-
-
-if __name__ == "__main__":
-    test_expand_links_empty_paths_short_circuits()
-    test_expand_links_returns_outlinks_and_inlinks_with_meta()
-    test_expand_links_max_per_direction_caps_neighbors()
-    test_expand_links_node_without_meta_returns_empty_meta_dict()
-    test_render_expansion_lines_empty_input_yields_empty_list()
-    test_render_expansion_lines_outlinks_only()
-    test_render_expansion_lines_inlinks_only_with_anchor()
-    test_render_expansion_lines_both_directions_in_order()

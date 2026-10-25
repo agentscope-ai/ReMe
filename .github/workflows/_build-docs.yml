@@ -67,7 +67,7 @@ jobs:
       - name: Verify browser demo bundle
         if: inputs.run_tests
         working-directory: reme_studio
-        run: node --test tests/demo-build.test.mjs
+        run: node --test tests/distribution/demo-build.test.mjs
 
       - name: Configure Pages
         if: inputs.upload_pages_artifact

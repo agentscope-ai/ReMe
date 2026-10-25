@@ -3,7 +3,7 @@ import { access, readFile, readdir } from "node:fs/promises";
 import test from "node:test";
 
 test("the browser demo builds for a subdirectory with no service API or live settings", async () => {
-  const directory = new URL("../dist-demo/", import.meta.url);
+  const directory = new URL("../../dist-demo/", import.meta.url);
   const html = await readFile(new URL("index.html", directory), "utf8");
   assert.match(html, /<title>Try ReMe Studio<\/title>/);
   assert.match(html, /src="\.\/assets\//);

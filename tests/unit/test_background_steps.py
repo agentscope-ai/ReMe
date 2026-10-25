@@ -10,6 +10,7 @@ downstream ``update_index_step`` to consume; tests assert against that key.
 
 # pylint: disable=protected-access,too-many-lines
 
+from contextlib import chdir as temp_chdir
 import asyncio
 import datetime
 import os
@@ -58,22 +59,6 @@ from reme.utils.file_utils import FileChangedDuringChunkingError
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 def write_file(path: Path, content: str = "x") -> Path:
@@ -153,7 +138,6 @@ def test_build_watch_rules_basic():
     assert rules[0].path == workspace / "daily"
     assert rules[0].suffixes == ["md"]
     assert rules[1].path == workspace / "digest"
-    print("✓ test_build_watch_rules_basic passed")
 
 
 def test_build_watch_rules_multiple_suffixes():
@@ -172,7 +156,6 @@ def test_build_watch_rules_multiple_suffixes():
     assert len(rules) == 2
     assert rules[0].suffixes == ["md", "jsonl"]
     assert rules[1].suffixes == ["md", "jsonl"]
-    print("✓ test_build_watch_rules_multiple_suffixes passed")
 
 
 def test_build_watch_rules_fallback_literal():
@@ -181,7 +164,6 @@ def test_build_watch_rules_fallback_literal():
     workspace = Path("/fake/workspace")
     rules = build_watch_rules(app_config, workspace, watch_dirs=["custom_dir"], watch_suffixes=["txt"])
     assert rules[0].path == workspace / "custom_dir"
-    print("✓ test_build_watch_rules_fallback_literal passed")
 
 
 def test_match_file_suffix():
@@ -191,7 +173,6 @@ def test_match_file_suffix():
     assert match_file("/workspace/daily/sub/note.md", rules)
     assert not match_file("/workspace/daily/file.txt", rules)
     assert not match_file("/workspace/other/file.md", rules)
-    print("✓ test_match_file_suffix passed")
 
 
 def test_match_file_suffix_is_case_insensitive():
@@ -208,7 +189,6 @@ def test_match_file_no_suffix_filter():
     assert match_file("/workspace/resource/anything.xyz", rules)
     assert match_file("/workspace/resource/sub/deep.pdf", rules)
     assert not match_file("/workspace/other/file.md", rules)
-    print("✓ test_match_file_no_suffix_filter passed")
 
 
 def test_collect_existing_filters():
@@ -232,7 +212,6 @@ def test_collect_existing_filters():
         assert str((daily / "ignore.txt").absolute()) not in paths
         assert str((resource / "data.json").absolute()) in paths
         assert str((resource / "binary.png").absolute()) not in paths
-    print("✓ test_collect_existing_filters passed")
 
 
 def test_collect_existing_matches_uppercase_suffixes():
@@ -252,32 +231,29 @@ def test_collect_existing_matches_uppercase_suffixes():
 # ---------------------------------------------------------------------------
 
 
-def test_clear_and_scan_flow_includes_jsonl_when_configured():
+@pytest.mark.asyncio
+async def test_clear_and_scan_flow_includes_jsonl_when_configured():
     """The legacy clear-and-scan primitives accept configured JSONL inputs."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            write_file(cwd / "daily" / "note.md", "alpha")
-            write_file(cwd / "resource" / "events.jsonl", '{"a": 1}\n')
-            write_file(cwd / "resource" / "ignore.txt", "skip")
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        write_file(cwd / "daily" / "note.md", "alpha")
+        write_file(cwd / "resource" / "events.jsonl", '{"a": 1}\n')
+        write_file(cwd / "resource" / "ignore.txt", "skip")
 
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            await fs.start()
-            try:
-                clear_step = ClearStoreStep(file_store=fs, app_context=_make_app_context(cwd))
-                scan_step = InitChangesStep(store="file_store", file_store=fs, app_context=_make_app_context(cwd))
-                ctx = RuntimeContext(watch_dirs=["daily_dir", "resource_dir"], watch_suffixes=["md", "jsonl"])
-                await clear_step(ctx)
-                resp = await scan_step(ctx)
-                paths = {Path(item["path"]).name for item in ctx["changes"]}
-                assert resp.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
-                assert paths == {"note.md", "events.jsonl"}
-            finally:
-                await fs.close()
-        print("✓ test_clear_and_scan_defaults_include_jsonl passed")
-
-    asyncio.run(run())
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        await fs.start()
+        try:
+            clear_step = ClearStoreStep(file_store=fs, app_context=_make_app_context(cwd))
+            scan_step = InitChangesStep(store="file_store", file_store=fs, app_context=_make_app_context(cwd))
+            ctx = RuntimeContext(watch_dirs=["daily_dir", "resource_dir"], watch_suffixes=["md", "jsonl"])
+            await clear_step(ctx)
+            resp = await scan_step(ctx)
+            paths = {Path(item["path"]).name for item in ctx["changes"]}
+            assert resp.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
+            assert paths == {"note.md", "events.jsonl"}
+        finally:
+            await fs.close()
 
 
 async def _make_scan_step(workspace_path: Path, watch_dirs=None, watch_suffixes=None, recursive=True):
@@ -305,151 +281,133 @@ async def _teardown(fs: LocalFileStore, chunker: DefaultFileChunker) -> None:
     await fs.close()
 
 
-def test_scan_changes_initial_all_added():
+@pytest.mark.asyncio
+async def test_scan_changes_initial_all_added():
     """First run on a fresh store emits 'added' for every existing file."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            write_file(cwd / "daily" / "a.md", "alpha")
-            write_file(cwd / "daily" / "b.md", "beta")
-            (cwd / "digest").mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        write_file(cwd / "daily" / "a.md", "alpha")
+        write_file(cwd / "daily" / "b.md", "beta")
+        (cwd / "digest").mkdir(parents=True, exist_ok=True)
 
-            step, ctx, fs, chunker = await _make_scan_step(cwd)
-            try:
-                resp = await step(ctx)
-                counts = resp.metadata["counts"]
-                assert counts == {"added": 2, "modified": 0, "deleted": 0}
-                assert len(ctx["changes"]) == 2
-            finally:
-                await _teardown(fs, chunker)
-        print("✓ test_scan_changes_initial_all_added passed")
-
-    asyncio.run(run())
+        step, ctx, fs, chunker = await _make_scan_step(cwd)
+        try:
+            resp = await step(ctx)
+            counts = resp.metadata["counts"]
+            assert counts == {"added": 2, "modified": 0, "deleted": 0}
+            assert len(ctx["changes"]) == 2
+        finally:
+            await _teardown(fs, chunker)
 
 
-def test_scan_changes_no_changes():
+@pytest.mark.asyncio
+async def test_scan_changes_no_changes():
     """Second run over an unchanged store reports zero counts."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            a = write_file(cwd / "daily" / "a.md", "alpha")
-            (cwd / "digest").mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        a = write_file(cwd / "daily" / "a.md", "alpha")
+        (cwd / "digest").mkdir(parents=True, exist_ok=True)
 
-            step, ctx, fs, chunker = await _make_scan_step(cwd)
-            try:
-                node, chunks = await chunker.chunk(a)
-                await fs.upsert([(node, chunks)])
-                resp = await step(ctx)
-                assert resp.metadata["counts"] == {"added": 0, "modified": 0, "deleted": 0}
-                assert ctx["changes"] == []
-            finally:
-                await _teardown(fs, chunker)
-        print("✓ test_scan_changes_no_changes passed")
-
-    asyncio.run(run())
+        step, ctx, fs, chunker = await _make_scan_step(cwd)
+        try:
+            node, chunks = await chunker.chunk(a)
+            await fs.upsert([(node, chunks)])
+            resp = await step(ctx)
+            assert resp.metadata["counts"] == {"added": 0, "modified": 0, "deleted": 0}
+            assert ctx["changes"] == []
+        finally:
+            await _teardown(fs, chunker)
 
 
-def test_scan_changes_detect_modify_delete():
+@pytest.mark.asyncio
+async def test_scan_changes_detect_modify_delete():
     """Second pass distinguishes added/modified/deleted."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            a = write_file(cwd / "daily" / "a.md", "alpha")
-            b = write_file(cwd / "daily" / "b.md", "beta")
-            (cwd / "digest").mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        a = write_file(cwd / "daily" / "a.md", "alpha")
+        b = write_file(cwd / "daily" / "b.md", "beta")
+        (cwd / "digest").mkdir(parents=True, exist_ok=True)
 
-            step, ctx, fs, chunker = await _make_scan_step(cwd)
-            try:
-                for p in (a, b):
-                    node, chunks = await chunker.chunk(p)
-                    await fs.upsert([(node, chunks)])
-                a.write_text("alpha-v2", encoding="utf-8")
-                os.utime(a, (9_999_999_999, 9_999_999_999))
-                b.unlink()
-                write_file(cwd / "daily" / "c.md", "gamma")
+        step, ctx, fs, chunker = await _make_scan_step(cwd)
+        try:
+            for p in (a, b):
+                node, chunks = await chunker.chunk(p)
+                await fs.upsert([(node, chunks)])
+            a.write_text("alpha-v2", encoding="utf-8")
+            os.utime(a, (9_999_999_999, 9_999_999_999))
+            b.unlink()
+            write_file(cwd / "daily" / "c.md", "gamma")
 
-                resp = await step(ctx)
-                counts = resp.metadata["counts"]
-                assert counts == {"added": 1, "modified": 1, "deleted": 1}
-            finally:
-                await _teardown(fs, chunker)
-        print("✓ test_scan_changes_detect_modify_delete passed")
-
-    asyncio.run(run())
+            resp = await step(ctx)
+            counts = resp.metadata["counts"]
+            assert counts == {"added": 1, "modified": 1, "deleted": 1}
+        finally:
+            await _teardown(fs, chunker)
 
 
-def test_scan_changes_missing_dir_skipped():
+@pytest.mark.asyncio
+async def test_scan_changes_missing_dir_skipped():
     """Non-existent watch_dirs entries are dropped silently."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            (cwd / "daily").mkdir()
-            # digest dir missing
-            step, ctx, fs, chunker = await _make_scan_step(cwd)
-            try:
-                resp = await step(ctx)
-                assert resp.metadata["counts"] == {"added": 0, "modified": 0, "deleted": 0}
-            finally:
-                await _teardown(fs, chunker)
-        print("✓ test_scan_changes_missing_dir_skipped passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        (cwd / "daily").mkdir()
+        # digest dir missing
+        step, ctx, fs, chunker = await _make_scan_step(cwd)
+        try:
+            resp = await step(ctx)
+            assert resp.metadata["counts"] == {"added": 0, "modified": 0, "deleted": 0}
+        finally:
+            await _teardown(fs, chunker)
 
 
-def test_scan_changes_resource_dir():
+@pytest.mark.asyncio
+async def test_scan_changes_resource_dir():
     """Scanning resource_dir with multiple suffixes works."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            resource = cwd / "resource"
-            write_file(resource / "data.json", "{}")
-            write_file(resource / "note.md", "# Note")
-            write_file(resource / "image.png", "binary")
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        resource = cwd / "resource"
+        write_file(resource / "data.json", "{}")
+        write_file(resource / "note.md", "# Note")
+        write_file(resource / "image.png", "binary")
 
-            step, ctx, fs, chunker = await _make_scan_step(
-                cwd,
-                watch_dirs=["resource_dir"],
-                watch_suffixes=["md", "json"],
-            )
-            try:
-                resp = await step(ctx)
-                assert resp.metadata["counts"]["added"] == 2
-            finally:
-                await _teardown(fs, chunker)
-        print("✓ test_scan_changes_resource_dir passed")
-
-    asyncio.run(run())
+        step, ctx, fs, chunker = await _make_scan_step(
+            cwd,
+            watch_dirs=["resource_dir"],
+            watch_suffixes=["md", "json"],
+        )
+        try:
+            resp = await step(ctx)
+            assert resp.metadata["counts"]["added"] == 2
+        finally:
+            await _teardown(fs, chunker)
 
 
-def test_init_changes_named_file_catalog_monitor():
+@pytest.mark.asyncio
+async def test_init_changes_named_file_catalog_monitor():
     """monitor_type/monitor_name selects the requested file_catalog component."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            write_file(cwd / "resource" / "2026-01-01" / "a.md", "alpha")
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        write_file(cwd / "resource" / "2026-01-01" / "a.md", "alpha")
 
-            catalog = LocalFileCatalog(name="resource")
-            await catalog.start()
-            try:
-                app_ctx = _make_app_context(cwd)
-                app_ctx.components = {ComponentEnum.FILE_CATALOG: {"resource": catalog}}
-                step = InitChangesStep(monitor_type="file_catalog", monitor_name="resource", app_context=app_ctx)
-                ctx = RuntimeContext(watch_dirs=["resource_dir"], watch_suffixes=["md"])
-                resp = await step(ctx)
+        catalog = LocalFileCatalog(name="resource")
+        await catalog.start()
+        try:
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {ComponentEnum.FILE_CATALOG: {"resource": catalog}}
+            step = InitChangesStep(monitor_type="file_catalog", monitor_name="resource", app_context=app_ctx)
+            ctx = RuntimeContext(watch_dirs=["resource_dir"], watch_suffixes=["md"])
+            resp = await step(ctx)
 
-                assert resp.metadata["counts"] == {"added": 1, "modified": 0, "deleted": 0}
-                assert ctx["changes"][0]["change"] == "added"
-            finally:
-                await catalog.close()
-        print("✓ test_init_changes_named_file_catalog_monitor passed")
-
-    asyncio.run(run())
+            assert resp.metadata["counts"] == {"added": 1, "modified": 0, "deleted": 0}
+            assert ctx["changes"][0]["change"] == "added"
+        finally:
+            await catalog.close()
 
 
 def test_bucket_changes_coalesces_by_final_file_state():
@@ -466,177 +424,165 @@ def test_bucket_changes_coalesces_by_final_file_state():
         assert buckets[Change.modified] == [str(p)]
         assert buckets[Change.added] == []
         assert buckets[Change.deleted] == []
-    print("✓ test_bucket_changes_coalesces_by_final_file_state passed")
 
 
-def test_update_catalog_relative_path_uses_workspace():
+@pytest.mark.asyncio
+async def test_update_catalog_relative_path_uses_workspace():
     """update_catalog_step resolves workspace-relative change paths against workspace_path."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            write_file(cwd / "daily" / "a.md", "alpha")
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        write_file(cwd / "daily" / "a.md", "alpha")
 
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            try:
-                step = UpdateCatalogStep(file_catalog=catalog, app_context=_make_app_context(cwd))
-                ctx = RuntimeContext(changes=[{"change": "added", "path": "daily/a.md"}])
-                resp = await step(ctx)
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        try:
+            step = UpdateCatalogStep(file_catalog=catalog, app_context=_make_app_context(cwd))
+            ctx = RuntimeContext(changes=[{"change": "added", "path": "daily/a.md"}])
+            resp = await step(ctx)
 
-                assert resp.success is True
-                nodes = await catalog.get_nodes()
-                assert [n.path for n in nodes] == ["daily/a.md"]
-            finally:
-                await catalog.close()
-        print("✓ test_update_catalog_relative_path_uses_workspace passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            nodes = await catalog.get_nodes()
+            assert [n.path for n in nodes] == ["daily/a.md"]
+        finally:
+            await catalog.close()
 
 
-def test_update_catalog_upserts_in_batches_of_at_most_100_files():
+@pytest.mark.asyncio
+async def test_update_catalog_upserts_in_batches_of_at_most_100_files():
     """Large change sets are committed incrementally instead of retained as one list."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            paths = [write_file(cwd / "daily" / f"{index:03d}.md", "x") for index in range(205)]
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            batch_sizes = []
-            original_upsert = catalog.upsert
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        paths = [write_file(cwd / "daily" / f"{index:03d}.md", "x") for index in range(205)]
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        batch_sizes = []
+        original_upsert = catalog.upsert
 
-            async def record_upsert(nodes):
-                batch_sizes.append(len(nodes))
-                await original_upsert(nodes)
+        async def record_upsert(nodes):
+            batch_sizes.append(len(nodes))
+            await original_upsert(nodes)
 
-            try:
-                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
-                changes = [{"change": "added", "path": str(path)} for path in paths]
-                available = MagicMock(available=8 * 1024 * 1024 * 1024)
-                with (
-                    patch.object(catalog, "upsert", side_effect=record_upsert),
-                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
-                ):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+            available = MagicMock(available=8 * 1024 * 1024 * 1024)
+            with (
+                patch.object(catalog, "upsert", side_effect=record_upsert),
+                patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+            ):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is True
-                assert batch_sizes == [100, 100, 5]
-                assert len(await catalog.get_nodes()) == 205
-            finally:
-                await catalog.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert batch_sizes == [100, 100, 5]
+            assert len(await catalog.get_nodes()) == 205
+        finally:
+            await catalog.close()
 
 
-def test_update_catalog_deletes_in_batches_of_at_most_100_paths():
+@pytest.mark.asyncio
+async def test_update_catalog_deletes_in_batches_of_at_most_100_paths():
     """Large delete sets use the same bounded failure domain as upserts."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            deleted = [cwd / "daily" / f"{index:03d}.md" for index in range(205)]
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            batch_sizes = []
-            original_delete = catalog.delete
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        deleted = [cwd / "daily" / f"{index:03d}.md" for index in range(205)]
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        batch_sizes = []
+        original_delete = catalog.delete
 
-            async def record_delete(paths):
-                batch_sizes.append(len(paths))
-                await original_delete(paths)
+        async def record_delete(paths):
+            batch_sizes.append(len(paths))
+            await original_delete(paths)
 
-            try:
-                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
-                changes = [{"change": "deleted", "path": str(path)} for path in deleted]
-                with patch.object(catalog, "delete", side_effect=record_delete):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+            changes = [{"change": "deleted", "path": str(path)} for path in deleted]
+            with patch.object(catalog, "delete", side_effect=record_delete):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is True
-                assert batch_sizes == [100, 100, 5]
-                assert len(response.answer) == 205
-            finally:
-                await catalog.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert batch_sizes == [100, 100, 5]
+            assert len(response.answer) == 205
+        finally:
+            await catalog.close()
 
 
-def test_update_index_memory_budget_can_reduce_batches_to_one_file():
+@pytest.mark.asyncio
+async def test_update_index_memory_budget_can_reduce_batches_to_one_file():
     """A file larger than the target batch budget is still processed alone."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            paths = [write_file(cwd / "daily" / f"{index}.md", f"# Note {index}\nbody\n") for index in range(3)]
-            fs = LocalFileStore(name="default", embedding_store="")
-            chunker = DefaultFileChunker(supported_extensions=["md"])
-            await fs.start()
-            await chunker.start()
-            batch_sizes = []
-            original_upsert = fs.upsert
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        paths = [write_file(cwd / "daily" / f"{index}.md", f"# Note {index}\nbody\n") for index in range(3)]
+        fs = LocalFileStore(name="default", embedding_store="")
+        chunker = DefaultFileChunker(supported_extensions=["md"])
+        await fs.start()
+        await chunker.start()
+        batch_sizes = []
+        original_upsert = fs.upsert
 
-            async def record_upsert(items):
-                batch_sizes.append(len(items))
-                await original_upsert(items)
+        async def record_upsert(items):
+            batch_sizes.append(len(items))
+            await original_upsert(items)
 
-            try:
-                app_ctx = _make_app_context(cwd)
-                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
-                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
-                changes = [{"change": "added", "path": str(path)} for path in paths]
-                available = MagicMock(available=1_000)
-                with (
-                    patch.object(fs, "upsert", side_effect=record_upsert),
-                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
-                ):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+            step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+            available = MagicMock(available=1_000)
+            with (
+                patch.object(fs, "upsert", side_effect=record_upsert),
+                patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+            ):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is True
-                assert batch_sizes == [1, 1, 1]
-                assert len(await fs.get_nodes()) == 3
-            finally:
-                await chunker.close()
-                await fs.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert batch_sizes == [1, 1, 1]
+            assert len(await fs.get_nodes()) == 3
+        finally:
+            await chunker.close()
+            await fs.close()
 
 
-def test_update_catalog_memory_target_limits_cumulative_batch_size():
+@pytest.mark.asyncio
+async def test_update_catalog_memory_target_limits_cumulative_batch_size():
     """The memory target applies to the accumulated batch, not only individual files."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            batch_sizes = []
-            original_upsert = catalog.upsert
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        batch_sizes = []
+        original_upsert = catalog.upsert
 
-            async def record_upsert(nodes):
-                batch_sizes.append(len(nodes))
-                await original_upsert(nodes)
+        async def record_upsert(nodes):
+            batch_sizes.append(len(nodes))
+            await original_upsert(nodes)
 
-            try:
-                step = UpdateCatalogStep(
-                    file_catalog=catalog,
-                    persist=False,
-                    batch_memory_target_bytes=64 * 1024,
-                    app_context=_make_app_context(cwd),
-                )
-                changes = [{"change": "added", "path": str(path)} for path in paths]
-                available = MagicMock(available=8 * 1024 * 1024 * 1024)
-                with (
-                    patch.object(catalog, "upsert", side_effect=record_upsert),
-                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
-                ):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            step = UpdateCatalogStep(
+                file_catalog=catalog,
+                persist=False,
+                batch_memory_target_bytes=64 * 1024,
+                app_context=_make_app_context(cwd),
+            )
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+            available = MagicMock(available=8 * 1024 * 1024 * 1024)
+            with (
+                patch.object(catalog, "upsert", side_effect=record_upsert),
+                patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+            ):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is True
-                assert batch_sizes == [2, 1]
-            finally:
-                await catalog.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert batch_sizes == [2, 1]
+        finally:
+            await catalog.close()
 
 
 @pytest.mark.parametrize(
@@ -681,38 +627,36 @@ def test_update_step_accepts_configured_batch_memory_settings():
 
 
 @pytest.mark.parametrize("estimate_method", ["estimate_source_memory", "estimate_item_memory"])
-def test_update_catalog_memory_estimate_failure_processes_each_file_alone(estimate_method):
+@pytest.mark.asyncio
+async def test_update_catalog_memory_estimate_failure_processes_each_file_alone(estimate_method):
     """Advisory estimate failures isolate files without skipping their updates."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(2)]
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            batch_sizes = []
-            original_upsert = catalog.upsert
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(2)]
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        batch_sizes = []
+        original_upsert = catalog.upsert
 
-            async def record_upsert(nodes):
-                batch_sizes.append(len(nodes))
-                await original_upsert(nodes)
+        async def record_upsert(nodes):
+            batch_sizes.append(len(nodes))
+            await original_upsert(nodes)
 
-            try:
-                step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
-                changes = [{"change": "added", "path": str(path)} for path in paths]
-                with (
-                    patch.object(step, estimate_method, side_effect=RuntimeError("estimate failed")),
-                    patch.object(catalog, "upsert", side_effect=record_upsert),
-                ):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            step = UpdateCatalogStep(file_catalog=catalog, persist=False, app_context=_make_app_context(cwd))
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+            with (
+                patch.object(step, estimate_method, side_effect=RuntimeError("estimate failed")),
+                patch.object(catalog, "upsert", side_effect=record_upsert),
+            ):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is True
-                assert batch_sizes == [1, 1]
-                assert len(await catalog.get_nodes()) == 2
-            finally:
-                await catalog.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert batch_sizes == [1, 1]
+            assert len(await catalog.get_nodes()) == 2
+        finally:
+            await catalog.close()
 
 
 def test_update_catalog_releases_flushed_item_before_building_next_file():
@@ -761,47 +705,45 @@ def test_update_catalog_releases_flushed_item_before_building_next_file():
     asyncio.run(run())
 
 
-def test_update_catalog_continues_after_one_batch_fails():
+@pytest.mark.asyncio
+async def test_update_catalog_continues_after_one_batch_fails():
     """An upsert failure is isolated to its bounded batch and later files continue."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
-            catalog = LocalFileCatalog(name="test_catalog")
-            await catalog.start()
-            original_upsert = catalog.upsert
-            call_count = 0
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        paths = [write_file(cwd / "daily" / f"{index}.md", "x") for index in range(3)]
+        catalog = LocalFileCatalog(name="test_catalog")
+        await catalog.start()
+        original_upsert = catalog.upsert
+        call_count = 0
 
-            async def fail_first_batch(nodes):
-                nonlocal call_count
-                call_count += 1
-                if call_count == 1:
-                    raise RuntimeError("batch failed")
-                await original_upsert(nodes)
+        async def fail_first_batch(nodes):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("batch failed")
+            await original_upsert(nodes)
 
-            try:
-                step = UpdateCatalogStep(
-                    file_catalog=catalog,
-                    persist=False,
-                    batch_max_files=2,
-                    app_context=_make_app_context(cwd),
-                )
-                changes = [{"change": "added", "path": str(path)} for path in paths]
-                available = MagicMock(available=8 * 1024 * 1024 * 1024)
-                with (
-                    patch.object(catalog, "upsert", side_effect=fail_first_batch),
-                    patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
-                ):
-                    response = await step(RuntimeContext(changes=changes))
+        try:
+            step = UpdateCatalogStep(
+                file_catalog=catalog,
+                persist=False,
+                batch_max_files=2,
+                app_context=_make_app_context(cwd),
+            )
+            changes = [{"change": "added", "path": str(path)} for path in paths]
+            available = MagicMock(available=8 * 1024 * 1024 * 1024)
+            with (
+                patch.object(catalog, "upsert", side_effect=fail_first_batch),
+                patch("reme.steps.index.update_changes.psutil.virtual_memory", return_value=available),
+            ):
+                response = await step(RuntimeContext(changes=changes))
 
-                assert response.success is False
-                assert [result["success"] for result in response.answer] == [False, False, True]
-                assert [node.path for node in await catalog.get_nodes()] == ["daily/2.md"]
-            finally:
-                await catalog.close()
-
-    asyncio.run(run())
+            assert response.success is False
+            assert [result["success"] for result in response.answer] == [False, False, True]
+            assert [node.path for node in await catalog.get_nodes()] == ["daily/2.md"]
+        finally:
+            await catalog.close()
 
 
 def test_update_catalog_yields_to_event_loop_while_building_batch():
@@ -855,164 +797,156 @@ class _CountingEmbeddingStore:
         return nodes
 
 
-def test_update_index_modified_file_reuses_unchanged_embedding():
+@pytest.mark.asyncio
+async def test_update_index_modified_file_reuses_unchanged_embedding():
     """The step relies on replace-aware upsert instead of deleting reusable chunks first."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            source = write_file(cwd / "daily" / "a.md", "alpha")
-            fs = LocalFileStore(name="default", embedding_store="")
-            chunker = DefaultFileChunker(supported_extensions=["md"])
-            await fs.start()
-            await chunker.start()
-            embedding_store = _CountingEmbeddingStore()
-            fs.embedding_store = embedding_store
-            try:
-                app_ctx = _make_app_context(cwd)
-                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
-                await fs.upsert([await chunker.chunk(source)])
-                assert embedding_store.calls == 1
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        source = write_file(cwd / "daily" / "a.md", "alpha")
+        fs = LocalFileStore(name="default", embedding_store="")
+        chunker = DefaultFileChunker(supported_extensions=["md"])
+        await fs.start()
+        await chunker.start()
+        embedding_store = _CountingEmbeddingStore()
+        fs.embedding_store = embedding_store
+        try:
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+            await fs.upsert([await chunker.chunk(source)])
+            assert embedding_store.calls == 1
 
-                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
-                with patch.object(fs, "delete", wraps=fs.delete) as delete_mock:
-                    response = await step(
-                        RuntimeContext(changes=[{"change": "modified", "path": str(source)}]),
-                    )
+            step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+            with patch.object(fs, "delete", wraps=fs.delete) as delete_mock:
+                response = await step(
+                    RuntimeContext(changes=[{"change": "modified", "path": str(source)}]),
+                )
 
-                assert response.success is True
-                assert embedding_store.calls == 1
-                delete_mock.assert_not_awaited()
-            finally:
-                await chunker.close()
-                await fs.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert embedding_store.calls == 1
+            delete_mock.assert_not_awaited()
+        finally:
+            await chunker.close()
+            await fs.close()
 
 
-def test_update_index_replaces_large_malformed_json_without_changing_source():
+@pytest.mark.asyncio
+async def test_update_index_replaces_large_malformed_json_without_changing_source():
     """Malformed JSON uses the fallback and replaces its old chunks."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            source = cwd / "daily" / "broken.json"
-            sibling = cwd / "daily" / "healthy.json"
-            original = ("{" + "x" * 2000).encode()
-            replacement = ("{" + "y" * 2000).encode()
-            source.parent.mkdir(parents=True)
-            source.write_bytes(original)
-            sibling.write_text('{"healthy": true}', encoding="utf-8")
-            fs = LocalFileStore(name="default", embedding_store="")
-            chunker = JsonFileChunker(supported_extensions=["json"], chunk_chars=256)
-            await fs.start()
-            await chunker.start()
-            try:
-                app_ctx = _make_app_context(cwd)
-                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"json": chunker}}
-                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
-                response = await step(
-                    RuntimeContext(
-                        changes=[
-                            {"change": "added", "path": str(source)},
-                            {"change": "added", "path": str(sibling)},
-                        ],
-                    ),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        source = cwd / "daily" / "broken.json"
+        sibling = cwd / "daily" / "healthy.json"
+        original = ("{" + "x" * 2000).encode()
+        replacement = ("{" + "y" * 2000).encode()
+        source.parent.mkdir(parents=True)
+        source.write_bytes(original)
+        sibling.write_text('{"healthy": true}', encoding="utf-8")
+        fs = LocalFileStore(name="default", embedding_store="")
+        chunker = JsonFileChunker(supported_extensions=["json"], chunk_chars=256)
+        await fs.start()
+        await chunker.start()
+        try:
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"json": chunker}}
+            step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+            response = await step(
+                RuntimeContext(
+                    changes=[
+                        {"change": "added", "path": str(source)},
+                        {"change": "added", "path": str(sibling)},
+                    ],
+                ),
+            )
 
-                assert response.success is True
-                assert source.read_bytes() == original
-                nodes = {node.path: node for node in await fs.get_nodes()}
-                old_chunk_ids = nodes["daily/broken.json"].chunk_ids
-                assert nodes["daily/healthy.json"].chunk_ids
+            assert response.success is True
+            assert source.read_bytes() == original
+            nodes = {node.path: node for node in await fs.get_nodes()}
+            old_chunk_ids = nodes["daily/broken.json"].chunk_ids
+            assert nodes["daily/healthy.json"].chunk_ids
 
-                source.write_bytes(replacement)
-                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
-                response = await step(RuntimeContext(changes=[{"change": "modified", "path": str(source)}]))
+            source.write_bytes(replacement)
+            step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+            response = await step(RuntimeContext(changes=[{"change": "modified", "path": str(source)}]))
 
-                assert response.success is True
-                assert source.read_bytes() == replacement
-                nodes = {node.path: node for node in await fs.get_nodes()}
-                assert nodes["daily/broken.json"].chunk_ids != old_chunk_ids
-                assert all(chunk_id not in fs.file_chunks for chunk_id in old_chunk_ids)
-                assert nodes["daily/healthy.json"].chunk_ids
-            finally:
-                await chunker.close()
-                await fs.close()
-
-    asyncio.run(run())
+            assert response.success is True
+            assert source.read_bytes() == replacement
+            nodes = {node.path: node for node in await fs.get_nodes()}
+            assert nodes["daily/broken.json"].chunk_ids != old_chunk_ids
+            assert all(chunk_id not in fs.file_chunks for chunk_id in old_chunk_ids)
+            assert nodes["daily/healthy.json"].chunk_ids
+        finally:
+            await chunker.close()
+            await fs.close()
 
 
-def test_update_index_skips_oversized_file_and_clears_stale_index():
+@pytest.mark.asyncio
+async def test_update_index_skips_oversized_file_and_clears_stale_index():
     """Oversized content is not read and any previous index entry is removed."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            source = write_file(cwd / "daily" / "a.md", "small")
-            fs = LocalFileStore(name="default", embedding_store="")
-            chunker = DefaultFileChunker()
-            await fs.start()
-            await chunker.start()
-            try:
-                app_ctx = _make_app_context(cwd)
-                app_ctx.components = {
-                    ComponentEnum.FILE_CHUNKER: {"default": chunker},
-                }
-                step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        source = write_file(cwd / "daily" / "a.md", "small")
+        fs = LocalFileStore(name="default", embedding_store="")
+        chunker = DefaultFileChunker()
+        await fs.start()
+        await chunker.start()
+        try:
+            app_ctx = _make_app_context(cwd)
+            app_ctx.components = {
+                ComponentEnum.FILE_CHUNKER: {"default": chunker},
+            }
+            step = UpdateIndexStep(file_store=fs, persist=False, app_context=app_ctx)
 
-                added = await step(
-                    RuntimeContext(
-                        changes=[{"change": "added", "path": str(source)}],
-                        max_file_bytes=10,
-                    ),
-                )
-                assert added.success is True
-                assert {node.path for node in await fs.get_nodes()} == {"daily/a.md"}
+            added = await step(
+                RuntimeContext(
+                    changes=[{"change": "added", "path": str(source)}],
+                    max_file_bytes=10,
+                ),
+            )
+            assert added.success is True
+            assert {node.path for node in await fs.get_nodes()} == {"daily/a.md"}
 
-                source.write_text("now too large", encoding="utf-8")
-                modified = await step(
-                    RuntimeContext(
-                        changes=[{"change": "modified", "path": str(source)}],
-                        max_file_bytes=10,
-                    ),
-                )
+            source.write_text("now too large", encoding="utf-8")
+            modified = await step(
+                RuntimeContext(
+                    changes=[{"change": "modified", "path": str(source)}],
+                    max_file_bytes=10,
+                ),
+            )
 
-                assert modified.success is True
-                assert modified.answer[0]["skipped"] is True
-                assert modified.answer[0]["reason"] == "file_too_large"
-                assert await fs.get_nodes() == []
-            finally:
-                await chunker.close()
-                await fs.close()
-
-    asyncio.run(run())
+            assert modified.success is True
+            assert modified.answer[0]["skipped"] is True
+            assert modified.answer[0]["reason"] == "file_too_large"
+            assert await fs.get_nodes() == []
+        finally:
+            await chunker.close()
+            await fs.close()
 
 
-def test_update_index_handles_file_removed_before_stat():
+@pytest.mark.asyncio
+async def test_update_index_handles_file_removed_before_stat():
     """A file disappearing after is_file is reported without aborting the batch."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            step = UpdateIndexStep(persist=False, app_context=_make_app_context(Path.cwd()))
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        step = UpdateIndexStep(persist=False, app_context=_make_app_context(Path.cwd()))
 
-            with (
-                patch.object(Path, "is_file", return_value=True),
-                patch.object(Path, "stat", side_effect=FileNotFoundError("file disappeared")),
-            ):
-                response = await step(RuntimeContext(changes=[{"change": "modified", "path": "daily/a.md"}]))
+        with (
+            patch.object(Path, "is_file", return_value=True),
+            patch.object(Path, "stat", side_effect=FileNotFoundError("file disappeared")),
+        ):
+            response = await step(RuntimeContext(changes=[{"change": "modified", "path": "daily/a.md"}]))
 
-            assert response.success is False
-            assert response.answer == [
-                {
-                    "change": "modified",
-                    "path": "daily/a.md",
-                    "success": False,
-                    "error": "file disappeared",
-                },
-            ]
-
-    asyncio.run(run())
+        assert response.success is False
+        assert response.answer == [
+            {
+                "change": "modified",
+                "path": "daily/a.md",
+                "success": False,
+                "error": "file disappeared",
+            },
+        ]
 
 
 def test_update_index_initial_scan_removes_file_disappeared_during_parse():
@@ -1092,32 +1026,28 @@ def test_update_index_initial_scan_fails_when_source_never_stabilizes():
     asyncio.run(run())
 
 
-def test_update_index_reports_memory_estimation_failure_without_aborting():
+@pytest.mark.asyncio
+async def test_update_index_reports_memory_estimation_failure_without_aborting():
     """A missing chunker is isolated to the affected file and returned as a normal failure."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            source = write_file(cwd / "daily" / "a.unknown", "alpha")
-            app_ctx = _make_app_context(cwd)
-            app_ctx.components = {ComponentEnum.FILE_CHUNKER: {}}
-            step = UpdateIndexStep(persist=False, app_context=app_ctx)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        source = write_file(cwd / "daily" / "a.unknown", "alpha")
+        app_ctx = _make_app_context(cwd)
+        app_ctx.components = {ComponentEnum.FILE_CHUNKER: {}}
+        step = UpdateIndexStep(persist=False, app_context=app_ctx)
 
-            response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+        response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-            assert response.success is False
-            assert response.answer == [
-                {
-                    "change": "added",
-                    "path": str(source),
-                    "success": False,
-                    "error": (
-                        f"No file chunker supports {source} (suffix='unknown') and no default chunker is configured"
-                    ),
-                },
-            ]
-
-    asyncio.run(run())
+        assert response.success is False
+        assert response.answer == [
+            {
+                "change": "added",
+                "path": str(source),
+                "success": False,
+                "error": (f"No file chunker supports {source} (suffix='unknown') and no default chunker is configured"),
+            },
+        ]
 
 
 def test_index_update_loop_init_dispatch_updates_store_across_batches():
@@ -1176,7 +1106,6 @@ def test_index_update_loop_init_dispatch_updates_store_across_batches():
             finally:
                 await chunker.close()
                 await fs.close()
-        print("✓ test_index_update_loop_init_dispatch_updates_store_across_batches passed")
 
     asyncio.run(run())
 
@@ -1369,7 +1298,6 @@ def test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs():
             finally:
                 await resource_catalog.close()
                 await digest_catalog.close()
-        print("✓ test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs passed")
 
     asyncio.run(run())
 
@@ -1392,8 +1320,6 @@ def test_watch_changes_default_low_power_timing():
     assert custom.step == 250
     assert custom.poll_delay_ms == 3000
 
-    print("✓ test_watch_changes_default_low_power_timing passed")
-
 
 def test_watch_changes_requires_stop_event():
     """Missing stop_event in context raises a clear error."""
@@ -1411,30 +1337,26 @@ def test_watch_changes_requires_stop_event():
                 assert "stop_event" in str(e)
             else:
                 raise AssertionError("expected RuntimeError")
-        print("✓ test_watch_changes_requires_stop_event passed")
 
     asyncio.run(run())
 
 
-def test_watch_changes_raises_no_valid_paths():
+@pytest.mark.asyncio
+async def test_watch_changes_raises_no_valid_paths():
     """With no valid watch_paths, the step raises."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            step = WatchChangesStep(app_context=app_ctx)
-            stop = asyncio.Event()
-            step.context = RuntimeContext(stop_event=stop, watch_dirs=["daily_dir"], watch_suffixes=["md"])
-            try:
-                await step.execute()
-            except RuntimeError as e:
-                assert "No valid watch paths" in str(e)
-            else:
-                raise AssertionError("expected RuntimeError")
-        print("✓ test_watch_changes_raises_no_valid_paths passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        step = WatchChangesStep(app_context=app_ctx)
+        stop = asyncio.Event()
+        step.context = RuntimeContext(stop_event=stop, watch_dirs=["daily_dir"], watch_suffixes=["md"])
+        try:
+            await step.execute()
+        except RuntimeError as e:
+            assert "No valid watch paths" in str(e)
+        else:
+            raise AssertionError("expected RuntimeError")
 
 
 def test_watch_changes_filter_matches_rules():
@@ -1454,8 +1376,6 @@ def test_watch_changes_filter_matches_rules():
         assert step._filter(Change.added, str(workspace / "digest/bar.md"))
         assert not step._filter(Change.added, str(workspace / "daily/foo.txt"))
         assert not step._filter(Change.added, str(workspace / "resource/file.md"))
-
-    print("✓ test_watch_changes_filter_matches_rules passed")
 
 
 def test_watch_changes_filter_matches_uppercase_suffixes():
@@ -1478,1040 +1398,925 @@ def test_watch_changes_dispatch_steps_list():
     step = WatchChangesStep(dispatch_steps=["update_catalog_step", "auto_resource_step"])
     assert step.dispatch_step_specs == ["update_catalog_step", "auto_resource_step"]
 
-    print("✓ test_watch_changes_dispatch_steps_list passed")
 
-
-def test_auto_resource_batch_deleted_changes():
+@pytest.mark.asyncio
+async def test_auto_resource_batch_deleted_changes():
     """AutoResourceStep accepts a batch of change dicts from dispatch_steps."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                filename = "file.md"
-                note_stem = _compute_note_stem(filename)
-                note_path = cwd / "daily" / "2026-01-01" / f"{note_stem}.md"
-                write_file(
-                    note_path,
-                    "---\nname: test\nsource_resource: '[[resource/2026-01-01/file.md]]'\n---\nbody\n",
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            filename = "file.md"
+            note_stem = _compute_note_stem(filename)
+            note_path = cwd / "daily" / "2026-01-01" / f"{note_stem}.md"
+            write_file(
+                note_path,
+                "---\nname: test\nsource_resource: '[[resource/2026-01-01/file.md]]'\n---\nbody\n",
+            )
 
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
-                ctx = RuntimeContext(
-                    changes=[
-                        {"change": "deleted", "path": str(cwd / "resource" / "2026-01-01" / filename)},
-                    ],
-                )
-                resp = await step(ctx)
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
+            ctx = RuntimeContext(
+                changes=[
+                    {"change": "deleted", "path": str(cwd / "resource" / "2026-01-01" / filename)},
+                ],
+            )
+            resp = await step(ctx)
 
-                assert resp.success is True
-                assert resp.answer == "Deleted resource note: daily/2026-01-01/file.md"
-                assert resp.metadata["processed"] == 1
-                assert resp.metadata["results"][0]["path"] == "resource/2026-01-01/file.md"
-                assert not note_path.exists()
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_batch_deleted_changes passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.answer == "Deleted resource note: daily/2026-01-01/file.md"
+            assert resp.metadata["processed"] == 1
+            assert resp.metadata["results"][0]["path"] == "resource/2026-01-01/file.md"
+            assert not note_path.exists()
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_skips_oversized_file_before_reading():
+@pytest.mark.asyncio
+async def test_auto_resource_skips_oversized_file_before_reading():
     """Oversized resources are reported as successful skips without an agent call."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                source = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(
-                        changes=[{"change": "added", "path": str(source)}],
-                        max_file_bytes=4,
-                    ),
-                )
-
-                result = resp.metadata["results"][0]
-                assert resp.success is True
-                assert result["metadata"]["oversized"] is True
-                assert result["metadata"]["reason"] == "file_too_large"
-                assert resp.metadata["modified"] is False
-                assert wrapper.inputs == ""
-            finally:
-                await fs.close()
-
-    asyncio.run(run())
-
-
-def test_auto_resource_batch_keeps_result_metadata_isolated():
-    """Oversized metadata from one resource does not leak into the next result."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                large = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
-                small = write_file(cwd / "resource" / "2026-01-01" / "small.txt", "ok")
-                second_large = write_file(cwd / "resource" / "2026-01-01" / "second-large.txt", "also large")
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(
-                        changes=[
-                            {"change": "added", "path": str(large)},
-                            {"change": "added", "path": str(small)},
-                            {"change": "added", "path": str(second_large)},
-                        ],
-                        max_file_bytes=4,
-                    ),
-                )
-
-                large_metadata = resp.metadata["results"][0]["metadata"]
-                small_metadata = resp.metadata["results"][1]["metadata"]
-                second_large_metadata = resp.metadata["results"][2]["metadata"]
-                assert large_metadata["oversized"] is True
-                assert large_metadata["reason"] == "file_too_large"
-                assert "oversized" not in small_metadata
-                assert "reason" not in small_metadata
-                assert "size_bytes" not in small_metadata
-                assert second_large_metadata["oversized"] is True
-                assert "created" not in second_large_metadata
-                assert "agent_session_id" not in second_large_metadata
-            finally:
-                await fs.close()
-
-    asyncio.run(run())
-
-
-def test_auto_resource_handles_file_removed_before_stat():
-    """A resource disappearing after is_file becomes one failed batch result."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                source = write_file(cwd / "resource" / "2026-01-01" / "vanishing.txt", "content")
-                original_is_file = Path.is_file
-                original_stat = Path.stat
-
-                def existing_is_file(path, *args, **kwargs):
-                    if Path(path).name == source.name:
-                        return True
-                    return original_is_file(path, *args, **kwargs)
-
-                def disappearing_stat(path, *args, **kwargs):
-                    if Path(path).name == source.name:
-                        raise FileNotFoundError("file disappeared")
-                    return original_stat(path, *args, **kwargs)
-
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
-                with (
-                    patch.object(Path, "is_file", existing_is_file),
-                    patch.object(Path, "stat", disappearing_stat),
-                ):
-                    resp = await step(
-                        RuntimeContext(changes=[{"change": "added", "path": str(source)}]),
-                    )
-
-                result = resp.metadata["results"][0]
-                assert resp.success is False
-                assert result["success"] is False
-                assert result["metadata"]["action"] == "failed"
-                assert result["metadata"]["error"] == "file disappeared"
-            finally:
-                await fs.close()
-
-    asyncio.run(run())
-
-
-def test_auto_resource_rejects_paths_outside_resource_scope_before_agent_call():
-    """Traversal, outside absolute paths, and escaping symlinks fail closed."""
-
-    async def run():
-        with (
-            tempfile.TemporaryDirectory() as tmpdir,
-            tempfile.TemporaryDirectory() as outside_dir,
-            temp_chdir(tmpdir),
-        ):
-            workspace = Path.cwd()
-            outside = write_file(Path(outside_dir) / "outside.txt", "secret")
-            workspace_outside = write_file(workspace / "daily" / "outside.txt", "workspace secret")
-            link = workspace / "resource" / "2026-01-01" / "escape.txt"
-            link.parent.mkdir(parents=True, exist_ok=True)
-            link.symlink_to(outside)
-            wrapper = _FakeAgentWrapper()
-            step = AutoTextResourceStep(app_context=_make_app_context(workspace), agent_wrapper=wrapper)
-
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            source = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
             resp = await step(
                 RuntimeContext(
-                    changes=[
-                        {"change": "added", "path": "resource/2026-01-01/../../../outside.txt"},
-                        {"change": "modified", "path": str(outside)},
-                        {"change": "added", "path": str(workspace_outside)},
-                        {"change": "added", "path": str(link)},
-                    ],
-                ),
-            )
-
-            assert resp.success is False
-            assert wrapper.inputs == ""
-            assert len(resp.metadata["results"]) == 4
-            assert all(result["metadata"]["action"] == "failed" for result in resp.metadata["results"])
-            assert all(result["metadata"]["modified"] is False for result in resp.metadata["results"])
-            assert outside.read_text(encoding="utf-8") == "secret"
-            assert workspace_outside.read_text(encoding="utf-8") == "workspace secret"
-
-    asyncio.run(run())
-
-
-def test_auto_resource_rejects_traversal_delete_without_touching_note():
-    """A malicious deleted path cannot reach or remove a daily note."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            note = write_file(
-                workspace / "daily" / "2026-01-01" / "outside.md",
-                "---\nname: outside\n"
-                "source_resource: '[[resource/2026-01-01/../../../outside.txt]]'\n---\nkeep me\n",
-            )
-            step = AutoTextResourceStep(app_context=_make_app_context(workspace))
-
-            resp = await step(
-                RuntimeContext(
-                    changes=[
-                        {"change": "deleted", "path": "resource/2026-01-01/../../../outside.txt"},
-                    ],
+                    changes=[{"change": "added", "path": str(source)}],
+                    max_file_bytes=4,
                 ),
             )
 
             result = resp.metadata["results"][0]
+            assert resp.success is True
+            assert result["metadata"]["oversized"] is True
+            assert result["metadata"]["reason"] == "file_too_large"
+            assert resp.metadata["modified"] is False
+            assert wrapper.inputs == ""
+        finally:
+            await fs.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_resource_batch_keeps_result_metadata_isolated():
+    """Oversized metadata from one resource does not leak into the next result."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            large = write_file(cwd / "resource" / "2026-01-01" / "large.txt", "too large")
+            small = write_file(cwd / "resource" / "2026-01-01" / "small.txt", "ok")
+            second_large = write_file(cwd / "resource" / "2026-01-01" / "second-large.txt", "also large")
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(
+                    changes=[
+                        {"change": "added", "path": str(large)},
+                        {"change": "added", "path": str(small)},
+                        {"change": "added", "path": str(second_large)},
+                    ],
+                    max_file_bytes=4,
+                ),
+            )
+
+            large_metadata = resp.metadata["results"][0]["metadata"]
+            small_metadata = resp.metadata["results"][1]["metadata"]
+            second_large_metadata = resp.metadata["results"][2]["metadata"]
+            assert large_metadata["oversized"] is True
+            assert large_metadata["reason"] == "file_too_large"
+            assert "oversized" not in small_metadata
+            assert "reason" not in small_metadata
+            assert "size_bytes" not in small_metadata
+            assert second_large_metadata["oversized"] is True
+            assert "created" not in second_large_metadata
+            assert "agent_session_id" not in second_large_metadata
+        finally:
+            await fs.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_resource_handles_file_removed_before_stat():
+    """A resource disappearing after is_file becomes one failed batch result."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            source = write_file(cwd / "resource" / "2026-01-01" / "vanishing.txt", "content")
+            original_is_file = Path.is_file
+            original_stat = Path.stat
+
+            def existing_is_file(path, *args, **kwargs):
+                if Path(path).name == source.name:
+                    return True
+                return original_is_file(path, *args, **kwargs)
+
+            def disappearing_stat(path, *args, **kwargs):
+                if Path(path).name == source.name:
+                    raise FileNotFoundError("file disappeared")
+                return original_stat(path, *args, **kwargs)
+
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
+            with (
+                patch.object(Path, "is_file", existing_is_file),
+                patch.object(Path, "stat", disappearing_stat),
+            ):
+                resp = await step(
+                    RuntimeContext(changes=[{"change": "added", "path": str(source)}]),
+                )
+
+            result = resp.metadata["results"][0]
             assert resp.success is False
+            assert result["success"] is False
             assert result["metadata"]["action"] == "failed"
-            assert result["metadata"]["modified"] is False
-            assert note.read_text(encoding="utf-8").endswith("keep me\n")
+            assert result["metadata"]["error"] == "file disappeared"
+        finally:
+            await fs.close()
 
-    asyncio.run(run())
+
+@pytest.mark.asyncio
+async def test_auto_resource_rejects_paths_outside_resource_scope_before_agent_call():
+    """Traversal, outside absolute paths, and escaping symlinks fail closed."""
+
+    with (
+        tempfile.TemporaryDirectory() as tmpdir,
+        tempfile.TemporaryDirectory() as outside_dir,
+        temp_chdir(tmpdir),
+    ):
+        workspace = Path.cwd()
+        outside = write_file(Path(outside_dir) / "outside.txt", "secret")
+        workspace_outside = write_file(workspace / "daily" / "outside.txt", "workspace secret")
+        link = workspace / "resource" / "2026-01-01" / "escape.txt"
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(outside)
+        wrapper = _FakeAgentWrapper()
+        step = AutoTextResourceStep(app_context=_make_app_context(workspace), agent_wrapper=wrapper)
+
+        resp = await step(
+            RuntimeContext(
+                changes=[
+                    {"change": "added", "path": "resource/2026-01-01/../../../outside.txt"},
+                    {"change": "modified", "path": str(outside)},
+                    {"change": "added", "path": str(workspace_outside)},
+                    {"change": "added", "path": str(link)},
+                ],
+            ),
+        )
+
+        assert resp.success is False
+        assert wrapper.inputs == ""
+        assert len(resp.metadata["results"]) == 4
+        assert all(result["metadata"]["action"] == "failed" for result in resp.metadata["results"])
+        assert all(result["metadata"]["modified"] is False for result in resp.metadata["results"])
+        assert outside.read_text(encoding="utf-8") == "secret"
+        assert workspace_outside.read_text(encoding="utf-8") == "workspace secret"
 
 
-def test_auto_resource_internal_symlink_keeps_logical_source_identity():
+@pytest.mark.asyncio
+async def test_auto_resource_rejects_traversal_delete_without_touching_note():
+    """A malicious deleted path cannot reach or remove a daily note."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        note = write_file(
+            workspace / "daily" / "2026-01-01" / "outside.md",
+            "---\nname: outside\nsource_resource: '[[resource/2026-01-01/../../../outside.txt]]'\n---\nkeep me\n",
+        )
+        step = AutoTextResourceStep(app_context=_make_app_context(workspace))
+
+        resp = await step(
+            RuntimeContext(
+                changes=[
+                    {"change": "deleted", "path": "resource/2026-01-01/../../../outside.txt"},
+                ],
+            ),
+        )
+
+        result = resp.metadata["results"][0]
+        assert resp.success is False
+        assert result["metadata"]["action"] == "failed"
+        assert result["metadata"]["modified"] is False
+        assert note.read_text(encoding="utf-8").endswith("keep me\n")
+
+
+@pytest.mark.asyncio
+async def test_auto_resource_internal_symlink_keeps_logical_source_identity():
     """A safe internal symlink is read by target while provenance keeps the link path."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            target = write_file(workspace / "resource" / "2026-01-01" / "target.txt", "visible")
-            link = workspace / "resource" / "2026-01-01" / "link.txt"
-            link.symlink_to(target)
-            captured = {}
-            step = AutoTextResourceStep(app_context=_make_app_context(workspace))
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        target = write_file(workspace / "resource" / "2026-01-01" / "target.txt", "visible")
+        link = workspace / "resource" / "2026-01-01" / "link.txt"
+        link.symlink_to(target)
+        captured = {}
+        step = AutoTextResourceStep(app_context=_make_app_context(workspace))
 
-            async def fake_upsert(file_path, date_str, note_stem, added, source_path):
-                captured.update(
-                    {
-                        "file_path": file_path,
-                        "date_str": date_str,
-                        "note_stem": note_stem,
-                        "added": added,
-                        "source_path": source_path,
-                    },
-                )
-                step.context.response.success = True
-                step.context.response.answer = "ok"
+        async def fake_upsert(file_path, date_str, note_stem, added, source_path):
+            captured.update(
+                {
+                    "file_path": file_path,
+                    "date_str": date_str,
+                    "note_stem": note_stem,
+                    "added": added,
+                    "source_path": source_path,
+                },
+            )
+            step.context.response.success = True
+            step.context.response.answer = "ok"
 
-            step._handle_upsert = fake_upsert
-            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(link)}]))
+        step._handle_upsert = fake_upsert
+        resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(link)}]))
 
-            assert resp.success is True
-            assert captured == {
-                "file_path": "resource/2026-01-01/link.txt",
-                "date_str": "2026-01-01",
-                "note_stem": "link",
-                "added": True,
-                "source_path": target.resolve(),
-            }
-
-    asyncio.run(run())
+        assert resp.success is True
+        assert captured == {
+            "file_path": "resource/2026-01-01/link.txt",
+            "date_str": "2026-01-01",
+            "note_stem": "link",
+            "added": True,
+            "source_path": target.resolve(),
+        }
 
 
-def test_auto_resource_accepts_absolute_resource_dir_inside_workspace():
+@pytest.mark.asyncio
+async def test_auto_resource_accepts_absolute_resource_dir_inside_workspace():
     """An absolute in-workspace resource_dir keeps a workspace-relative source identity."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            resource_dir = workspace / "assets"
-            source = write_file(resource_dir / "2026-01-01" / "report.txt", "visible")
-            step = AutoTextResourceStep(app_context=_make_app_context(workspace, resource_dir=str(resource_dir)))
-            captured = {}
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        resource_dir = workspace / "assets"
+        source = write_file(resource_dir / "2026-01-01" / "report.txt", "visible")
+        step = AutoTextResourceStep(app_context=_make_app_context(workspace, resource_dir=str(resource_dir)))
+        captured = {}
 
-            async def fake_upsert(file_path, date_str, note_stem, added, source_path):
-                captured.update(
-                    {
-                        "file_path": file_path,
-                        "date_str": date_str,
-                        "note_stem": note_stem,
-                        "added": added,
-                        "source_path": source_path,
-                    },
-                )
-                step.context.response.success = True
-                step.context.response.answer = "ok"
+        async def fake_upsert(file_path, date_str, note_stem, added, source_path):
+            captured.update(
+                {
+                    "file_path": file_path,
+                    "date_str": date_str,
+                    "note_stem": note_stem,
+                    "added": added,
+                    "source_path": source_path,
+                },
+            )
+            step.context.response.success = True
+            step.context.response.answer = "ok"
 
-            step._handle_upsert = fake_upsert
-            response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+        step._handle_upsert = fake_upsert
+        response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-            assert response.success is True
-            assert captured == {
-                "file_path": "assets/2026-01-01/report.txt",
-                "date_str": "2026-01-01",
-                "note_stem": "report",
-                "added": True,
-                "source_path": source.resolve(),
-            }
-
-    asyncio.run(run())
+        assert response.success is True
+        assert captured == {
+            "file_path": "assets/2026-01-01/report.txt",
+            "date_str": "2026-01-01",
+            "note_stem": "report",
+            "added": True,
+            "source_path": source.resolve(),
+        }
 
 
-def test_auto_resource_accepts_loose_root_resource():
+@pytest.mark.asyncio
+async def test_auto_resource_accepts_loose_root_resource():
     """Root-level resource files use today's date without moving the source."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            source = write_file(workspace / "resource" / "report.txt", "hello")
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
-            captured = {}
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        source = write_file(workspace / "resource" / "report.txt", "hello")
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        captured = {}
 
-            step = AutoTextResourceStep(app_context=app_ctx)
+        step = AutoTextResourceStep(app_context=app_ctx)
 
-            async def fake_upsert(file_path, date_str, note_stem, created, source_path):
-                captured.update(
-                    {
-                        "file_path": file_path,
-                        "date_str": date_str,
-                        "note_stem": note_stem,
-                        "created": created,
-                        "source_path": source_path,
-                    },
-                )
-                step.context.response.success = True
-                step.context.response.answer = "ok"
+        async def fake_upsert(file_path, date_str, note_stem, created, source_path):
+            captured.update(
+                {
+                    "file_path": file_path,
+                    "date_str": date_str,
+                    "note_stem": note_stem,
+                    "created": created,
+                    "source_path": source_path,
+                },
+            )
+            step.context.response.success = True
+            step.context.response.answer = "ok"
 
-            step._handle_upsert = fake_upsert
+        step._handle_upsert = fake_upsert
 
-            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+        resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-            assert resp.success is True
-            assert source.read_text(encoding="utf-8") == "hello"
-            assert not (workspace / "resource" / today / "report.txt").exists()
-            assert captured == {
-                "file_path": "resource/report.txt",
-                "date_str": today,
-                "note_stem": "report",
-                "created": True,
-                "source_path": source.resolve(),
-            }
-        print("✓ test_auto_resource_accepts_loose_root_resource passed")
-
-    asyncio.run(run())
+        assert resp.success is True
+        assert source.read_text(encoding="utf-8") == "hello"
+        assert not (workspace / "resource" / today / "report.txt").exists()
+        assert captured == {
+            "file_path": "resource/report.txt",
+            "date_str": today,
+            "note_stem": "report",
+            "created": True,
+            "source_path": source.resolve(),
+        }
 
 
-def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
+@pytest.mark.asyncio
+async def test_auto_resource_loose_root_resource_keeps_existing_dated_resource():
     """Loose-resource compatibility does not overwrite dated resource files."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            today = datetime.datetime.now().strftime("%Y-%m-%d")
-            write_file(workspace / "resource" / today / "report.txt", "existing")
-            source = write_file(workspace / "resource" / "report.txt", "new")
-            captured = {}
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        write_file(workspace / "resource" / today / "report.txt", "existing")
+        source = write_file(workspace / "resource" / "report.txt", "new")
+        captured = {}
 
-            step = AutoTextResourceStep(app_context=app_ctx)
+        step = AutoTextResourceStep(app_context=app_ctx)
 
-            async def fake_upsert(file_path, date_str, note_stem, created, source_path):
-                captured.update(
-                    {
-                        "file_path": file_path,
-                        "date_str": date_str,
-                        "note_stem": note_stem,
-                        "created": created,
-                        "source_path": source_path,
-                    },
-                )
-                step.context.response.success = True
-                step.context.response.answer = "ok"
+        async def fake_upsert(file_path, date_str, note_stem, created, source_path):
+            captured.update(
+                {
+                    "file_path": file_path,
+                    "date_str": date_str,
+                    "note_stem": note_stem,
+                    "created": created,
+                    "source_path": source_path,
+                },
+            )
+            step.context.response.success = True
+            step.context.response.answer = "ok"
 
-            step._handle_upsert = fake_upsert
+        step._handle_upsert = fake_upsert
 
-            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+        resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-            assert resp.success is True
-            assert (workspace / "resource" / today / "report.txt").read_text(encoding="utf-8") == "existing"
-            assert source.read_text(encoding="utf-8") == "new"
-            assert captured == {
-                "file_path": "resource/report.txt",
-                "date_str": today,
-                "note_stem": "report",
-                "created": True,
-                "source_path": source.resolve(),
-            }
-        print("✓ test_auto_resource_loose_root_resource_keeps_existing_dated_resource passed")
-
-    asyncio.run(run())
+        assert resp.success is True
+        assert (workspace / "resource" / today / "report.txt").read_text(encoding="utf-8") == "existing"
+        assert source.read_text(encoding="utf-8") == "new"
+        assert captured == {
+            "file_path": "resource/report.txt",
+            "date_str": today,
+            "note_stem": "report",
+            "created": True,
+            "source_path": source.resolve(),
+        }
 
 
-def test_auto_resource_modified_missing_note_uses_create_tools():
+@pytest.mark.asyncio
+async def test_auto_resource_modified_missing_note_uses_create_tools():
     """A modified resource with no daily note is treated as a create."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
-                wrapper.on_reply = lambda *_: write_file(
-                    cwd / "daily" / "2026-01-01" / "report.md",
-                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+            wrapper.on_reply = lambda *_: write_file(
+                cwd / "daily" / "2026-01-01" / "report.md",
+                "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                assert resp.success is True
-                assert resp.metadata["results"][0]["metadata"]["created"] is True
-                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/resource-summary.md"
-                assert wrapper.kwargs["job_tools"] == ["write"]
-                assert "The target file does not exist" in wrapper.inputs
-                assert "Target note path: daily/2026-01-01/report.md" in wrapper.inputs
-                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
-                assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_modified_missing_note_uses_create_tools passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["results"][0]["metadata"]["created"] is True
+            assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/resource-summary.md"
+            assert wrapper.kwargs["job_tools"] == ["write"]
+            assert "The target file does not exist" in wrapper.inputs
+            assert "Target note path: daily/2026-01-01/report.md" in wrapper.inputs
+            assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+            assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_create_preserves_unowned_same_stem_note():
+@pytest.mark.asyncio
+async def test_auto_resource_create_preserves_unowned_same_stem_note():
     """A no-source same-stem note is user-owned and never used as the staging path."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                source = write_file(workspace / "resource" / "2026-01-01" / "report.txt", "resource body")
-                user_note = write_file(
-                    workspace / "daily" / "2026-01-01" / "report.md",
-                    "---\nname: report\ndescription: private user note\n---\nkeep this body\n",
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            source = write_file(workspace / "resource" / "2026-01-01" / "report.txt", "resource body")
+            user_note = write_file(
+                workspace / "daily" / "2026-01-01" / "report.md",
+                "---\nname: report\ndescription: private user note\n---\nkeep this body\n",
+            )
+            original = user_note.read_bytes()
+
+            def write_allocated_target(inputs, _kwargs):
+                target_line = next(line for line in str(inputs).splitlines() if line.startswith("Target note path: "))
+                target_path = target_line.removeprefix("Target note path: ").strip()
+                assert target_path != "daily/2026-01-01/report.md"
+                write_file(
+                    workspace / target_path,
+                    "---\nname: generated-topic\ndescription: resource summary\n"
+                    "source_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
                 )
-                original = user_note.read_bytes()
 
-                def write_allocated_target(inputs, _kwargs):
-                    target_line = next(
-                        line for line in str(inputs).splitlines() if line.startswith("Target note path: ")
-                    )
-                    target_path = target_line.removeprefix("Target note path: ").strip()
-                    assert target_path != "daily/2026-01-01/report.md"
-                    write_file(
-                        workspace / target_path,
-                        "---\nname: generated-topic\ndescription: resource summary\n"
-                        "source_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
-                    )
+            wrapper.on_reply = write_allocated_target
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-                wrapper.on_reply = write_allocated_target
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
-
-                result_meta = resp.metadata["results"][0]["metadata"]
-                assert resp.success is True
-                assert result_meta["created"] is True
-                assert result_meta["path"] == "daily/2026-01-01/generated-topic.md"
-                assert user_note.read_bytes() == original
-                assert (workspace / result_meta["path"]).is_file()
-            finally:
-                await fs.close()
-
-    asyncio.run(run())
+            result_meta = resp.metadata["results"][0]["metadata"]
+            assert resp.success is True
+            assert result_meta["created"] is True
+            assert result_meta["path"] == "daily/2026-01-01/generated-topic.md"
+            assert user_note.read_bytes() == original
+            assert (workspace / result_meta["path"]).is_file()
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_reports_modified_when_post_write_lookup_fails():
+@pytest.mark.asyncio
+async def test_auto_resource_reports_modified_when_post_write_lookup_fails():
     """A text note written before post-processing failure remains reported as modified."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            file_store = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await file_store.start()
-            _install_file_jobs(app_ctx, file_store)
-            try:
-                source = write_file(workspace / "resource/2026-01-01/report.txt", "resource body")
-                wrapper.on_reply = lambda *_: write_file(
-                    workspace / "daily/2026-01-01/report.md",
-                    "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=file_store, agent_wrapper=wrapper)
-                list_resource_note = step._list_resource_note
-                calls = 0
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        file_store = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await file_store.start()
+        _install_file_jobs(app_ctx, file_store)
+        try:
+            source = write_file(workspace / "resource/2026-01-01/report.txt", "resource body")
+            wrapper.on_reply = lambda *_: write_file(
+                workspace / "daily/2026-01-01/report.md",
+                "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nsummary\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=file_store, agent_wrapper=wrapper)
+            list_resource_note = step._list_resource_note
+            calls = 0
 
-                async def fail_second_lookup(day, file_path):
-                    nonlocal calls
-                    calls += 1
-                    if calls == 2:
-                        raise RuntimeError("daily_list failed after agent write")
-                    return await list_resource_note(day, file_path)
+            async def fail_second_lookup(day, file_path):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise RuntimeError("daily_list failed after agent write")
+                return await list_resource_note(day, file_path)
 
-                step._list_resource_note = fail_second_lookup
-                response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
+            step._list_resource_note = fail_second_lookup
+            response = await step(RuntimeContext(changes=[{"change": "added", "path": str(source)}]))
 
-                result = response.metadata["results"][0]
-                assert response.success is False
-                assert result["metadata"]["action"] == "failed"
-                assert result["metadata"]["path"] == "daily/2026-01-01/report.md"
-                assert result["metadata"]["created"] is True
-                assert result["metadata"]["modified"] is True
-                assert "daily_list failed after agent write" in result["metadata"]["error"]
-                assert (workspace / "daily/2026-01-01/report.md").is_file()
-            finally:
-                await file_store.close()
-
-    asyncio.run(run())
+            result = response.metadata["results"][0]
+            assert response.success is False
+            assert result["metadata"]["action"] == "failed"
+            assert result["metadata"]["path"] == "daily/2026-01-01/report.md"
+            assert result["metadata"]["created"] is True
+            assert result["metadata"]["modified"] is True
+            assert "daily_list failed after agent write" in result["metadata"]["error"]
+            assert (workspace / "daily/2026-01-01/report.md").is_file()
+        finally:
+            await file_store.close()
 
 
-def test_auto_resource_sanitizes_invalid_generated_name():
+@pytest.mark.asyncio
+async def test_auto_resource_sanitizes_invalid_generated_name():
     """Invalid LLM-suggested names are sanitized before renaming."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
-                wrapper.on_reply = lambda *_: write_file(
-                    cwd / "daily" / "2026-01-01" / "report.md",
-                    "---\nname: bad/name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+            wrapper.on_reply = lambda *_: write_file(
+                cwd / "daily" / "2026-01-01" / "report.md",
+                "---\nname: bad/name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                assert resp.success is True
-                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/bad-name.md"
-                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
-                assert "name: bad-name" in (cwd / "daily" / "2026-01-01" / "bad-name.md").read_text(encoding="utf-8")
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_sanitizes_invalid_generated_name passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/bad-name.md"
+            assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+            assert "name: bad-name" in (cwd / "daily" / "2026-01-01" / "bad-name.md").read_text(encoding="utf-8")
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_uniquifies_conflicting_generated_name():
+@pytest.mark.asyncio
+async def test_auto_resource_uniquifies_conflicting_generated_name():
     """Conflicting LLM-suggested names get a stable source-derived suffix."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
-                write_file(
-                    cwd / "daily" / "2026-01-01" / "resource-summary.md",
-                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/other.txt]]'\n---\nother\n",
-                )
-                wrapper.on_reply = lambda *_: write_file(
-                    cwd / "daily" / "2026-01-01" / "report.md",
-                    "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello")
+            write_file(
+                cwd / "daily" / "2026-01-01" / "resource-summary.md",
+                "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/other.txt]]'\n---\nother\n",
+            )
+            wrapper.on_reply = lambda *_: write_file(
+                cwd / "daily" / "2026-01-01" / "report.md",
+                "---\nname: resource-summary\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "added", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                path = resp.metadata["results"][0]["metadata"]["path"]
-                assert resp.success is True
-                assert path.startswith("daily/2026-01-01/resource-summary--")
-                assert path.endswith(".md")
-                assert (cwd / path).exists()
-                assert "name: resource-summary--" in (cwd / path).read_text(encoding="utf-8")
-                assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
-                assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_uniquifies_conflicting_generated_name passed")
-
-    asyncio.run(run())
+            path = resp.metadata["results"][0]["metadata"]["path"]
+            assert resp.success is True
+            assert path.startswith("daily/2026-01-01/resource-summary--")
+            assert path.endswith(".md")
+            assert (cwd / path).exists()
+            assert "name: resource-summary--" in (cwd / path).read_text(encoding="utf-8")
+            assert (cwd / "daily" / "2026-01-01" / "resource-summary.md").exists()
+            assert not (cwd / "daily" / "2026-01-01" / "report.md").exists()
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_update_finds_renamed_note_by_source_resource():
+@pytest.mark.asyncio
+async def test_auto_resource_update_finds_renamed_note_by_source_resource():
     """A modified resource updates the renamed note linked by source_resource."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
-                write_file(
-                    cwd / "daily" / "2026-01-01" / "generated-name.md",
-                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
+            write_file(
+                cwd / "daily" / "2026-01-01" / "generated-name.md",
+                "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                assert resp.success is True
-                assert resp.metadata["results"][0]["metadata"]["created"] is False
-                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
-                assert wrapper.kwargs["job_tools"] == ["read", "edit", "frontmatter_update", "write"]
-                assert "Target note path: daily/2026-01-01/generated-name.md" in wrapper.inputs
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_update_finds_renamed_note_by_source_resource passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["results"][0]["metadata"]["created"] is False
+            assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+            assert wrapper.kwargs["job_tools"] == ["read", "edit", "frontmatter_update", "write"]
+            assert "Target note path: daily/2026-01-01/generated-name.md" in wrapper.inputs
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_update_keeps_existing_renamed_path():
+@pytest.mark.asyncio
+async def test_auto_resource_update_keeps_existing_renamed_path():
     """Updates do not rename an already-renamed note from a fresh LLM suggestion."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "hello v2")
+            write_file(
+                cwd / "daily" / "2026-01-01" / "generated-name.md",
+                "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
+            )
+
+            def rewrite_frontmatter(*_args):
                 write_file(
                     cwd / "daily" / "2026-01-01" / "generated-name.md",
-                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nold body\n",
+                    "---\nname: new-suggestion\nsource_resource: "
+                    "'[[resource/2026-01-01/report.txt]]'\n---\nnew body\n",
                 )
 
-                def rewrite_frontmatter(*_args):
-                    write_file(
-                        cwd / "daily" / "2026-01-01" / "generated-name.md",
-                        "---\nname: new-suggestion\nsource_resource: "
-                        "'[[resource/2026-01-01/report.txt]]'\n---\nnew body\n",
-                    )
+            wrapper.on_reply = rewrite_frontmatter
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                wrapper.on_reply = rewrite_frontmatter
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
-                )
-
-                path = cwd / "daily" / "2026-01-01" / "generated-name.md"
-                assert resp.success is True
-                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
-                assert path.exists()
-                text = path.read_text(encoding="utf-8")
-                assert "name: generated-name" in text
-                assert not (cwd / "daily" / "2026-01-01" / "new-suggestion.md").exists()
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_update_keeps_existing_renamed_path passed")
-
-    asyncio.run(run())
+            path = cwd / "daily" / "2026-01-01" / "generated-name.md"
+            assert resp.success is True
+            assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+            assert path.exists()
+            text = path.read_text(encoding="utf-8")
+            assert "name: generated-name" in text
+            assert not (cwd / "daily" / "2026-01-01" / "new-suggestion.md").exists()
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_reports_unmodified_when_agent_skips_existing_note():
+@pytest.mark.asyncio
+async def test_auto_resource_reports_unmodified_when_agent_skips_existing_note():
     """A modified event that leaves the note bytes unchanged reports modified=False."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                write_file(cwd / "resource" / "2026-01-01" / "report.txt", "same")
-                write_file(
-                    cwd / "daily" / "2026-01-01" / "report.md",
-                    "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
-                )
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            write_file(cwd / "resource" / "2026-01-01" / "report.txt", "same")
+            write_file(
+                cwd / "daily" / "2026-01-01" / "report.md",
+                "---\nname: report\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(changes=[{"change": "modified", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                result_meta = resp.metadata["results"][0]["metadata"]
-                assert resp.success is True
-                assert result_meta["modified"] is False
-                assert resp.metadata["modified"] is False
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_reports_unmodified_when_agent_skips_existing_note passed")
-
-    asyncio.run(run())
+            result_meta = resp.metadata["results"][0]["metadata"]
+            assert resp.success is True
+            assert result_meta["modified"] is False
+            assert resp.metadata["modified"] is False
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_preserves_unowned_loose_root_same_stem_note():
+@pytest.mark.asyncio
+async def test_auto_resource_preserves_unowned_loose_root_same_stem_note():
     """Deleting a loose resource never claims an unowned same-stem user note."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                today = datetime.datetime.now().strftime("%Y-%m-%d")
-                note_path = write_file(workspace / "daily" / today / "report.md", "---\nname: report\n---\nbody\n")
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            note_path = write_file(workspace / "daily" / today / "report.md", "---\nname: report\n---\nbody\n")
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
 
-                resp = await step(RuntimeContext(changes=[{"change": "deleted", "path": "resource/report.txt"}]))
+            resp = await step(RuntimeContext(changes=[{"change": "deleted", "path": "resource/report.txt"}]))
 
-                assert resp.success is True
-                assert resp.metadata["results"][0]["path"] == "resource/report.txt"
-                result_meta = resp.metadata["results"][0]["metadata"]
-                assert result_meta["action"] == "skipped"
-                assert result_meta["reason"] == "resource_note_not_found"
-                assert result_meta["modified"] is False
-                assert resp.metadata["modified"] is False
-                assert note_path.read_text(encoding="utf-8") == "---\nname: report\n---\nbody\n"
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_preserves_unowned_loose_root_same_stem_note passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["results"][0]["path"] == "resource/report.txt"
+            result_meta = resp.metadata["results"][0]["metadata"]
+            assert result_meta["action"] == "skipped"
+            assert result_meta["reason"] == "resource_note_not_found"
+            assert result_meta["modified"] is False
+            assert resp.metadata["modified"] is False
+            assert note_path.read_text(encoding="utf-8") == "---\nname: report\n---\nbody\n"
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_deletes_renamed_note_by_source_resource():
+@pytest.mark.asyncio
+async def test_auto_resource_deletes_renamed_note_by_source_resource():
     """Deleting a resource removes the note even after frontmatter-name rename."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            workspace = Path.cwd()
-            app_ctx = _make_app_context(workspace)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                note_path = write_file(
-                    workspace / "daily" / "2026-01-01" / "generated-name.md",
-                    "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
-                )
-                step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        workspace = Path.cwd()
+        app_ctx = _make_app_context(workspace)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            note_path = write_file(
+                workspace / "daily" / "2026-01-01" / "generated-name.md",
+                "---\nname: generated-name\nsource_resource: '[[resource/2026-01-01/report.txt]]'\n---\nbody\n",
+            )
+            step = AutoTextResourceStep(app_context=app_ctx, file_store=fs)
 
-                resp = await step(
-                    RuntimeContext(changes=[{"change": "deleted", "path": "resource/2026-01-01/report.txt"}]),
-                )
+            resp = await step(
+                RuntimeContext(changes=[{"change": "deleted", "path": "resource/2026-01-01/report.txt"}]),
+            )
 
-                assert resp.success is True
-                assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
-                assert not note_path.exists()
-            finally:
-                await fs.close()
-        print("✓ test_auto_resource_deletes_renamed_note_by_source_resource passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["results"][0]["metadata"]["path"] == "daily/2026-01-01/generated-name.md"
+            assert not note_path.exists()
+        finally:
+            await fs.close()
 
 
-def test_auto_memory_reports_modified_for_create_and_false_for_skip():
+@pytest.mark.asyncio
+async def test_auto_memory_reports_modified_for_create_and_false_for_skip():
     """AutoMemoryStep reports whether a daily note actually changed."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="", tag_index="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                today = datetime.datetime.now().strftime("%Y-%m-%d")
-                wrapper.on_reply = lambda *_: write_file(
-                    cwd / "daily" / today / "memory.md",
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="", tag_index="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            today = datetime.datetime.now().strftime("%Y-%m-%d")
+            wrapper.on_reply = lambda *_: write_file(
+                cwd / "daily" / today / "memory.md",
+                "---\nname: memory\nsession_id: s1\nsource_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
+            )
+            step = AutoMemoryStep(
+                app_context=app_ctx,
+                file_store=fs,
+                agent_wrapper=wrapper,
+            )
+            context = RuntimeContext(
+                messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
+                session_id="s1",
+            )
+            resp = await step(context)
+            resp = resp or step.context.response
+
+            assert resp.success is True
+            assert resp.metadata["created"] is True
+            assert resp.metadata["modified"] is True
+            assert context["changes"] == [{"change": "added", "path": f"daily/{today}/memory.md"}]
+            assert "tags:" not in (cwd / "daily" / today / "memory.md").read_text(encoding="utf-8")
+
+            wrapper.on_reply = None
+            context = RuntimeContext(messages=[], session_id="s2")
+            resp = await step(context)
+            resp = resp or step.context.response
+
+            assert resp.success is True
+            assert resp.metadata["modified"] is False
+            assert resp.metadata["n_messages"] == 0
+            assert context["changes"] == []
+        finally:
+            await fs.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_memory_uses_message_day_for_historical_create():
+    """AutoMemoryStep creates historical daily notes from message timestamps."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            historical_day = "2023-01-19"
+
+            def write_historical_note(inputs, _kwargs):
+                assert f"Today: {historical_day}" in inputs
+                assert f"date={historical_day}" in inputs
+                assert "injected_job_kwargs" not in _kwargs
+                write_file(
+                    cwd / "daily" / historical_day / "memory.md",
                     "---\nname: memory\nsession_id: s1\n"
                     "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
                 )
-                step = AutoMemoryStep(
-                    app_context=app_ctx,
-                    file_store=fs,
-                    agent_wrapper=wrapper,
-                )
-                context = RuntimeContext(
-                    messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
+
+            wrapper.on_reply = write_historical_note
+            step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(
+                    messages=[
+                        {
+                            "name": "user",
+                            "role": "user",
+                            "content": "remember historical project detail",
+                            "created_at": "2023-01-19T08:00:00",
+                        },
+                    ],
                     session_id="s1",
-                )
-                resp = await step(context)
-                resp = resp or step.context.response
+                ),
+            )
+            resp = resp or step.context.response
 
-                assert resp.success is True
-                assert resp.metadata["created"] is True
-                assert resp.metadata["modified"] is True
-                assert context["changes"] == [{"change": "added", "path": f"daily/{today}/memory.md"}]
-                assert "tags:" not in (cwd / "daily" / today / "memory.md").read_text(encoding="utf-8")
-
-                wrapper.on_reply = None
-                context = RuntimeContext(messages=[], session_id="s2")
-                resp = await step(context)
-                resp = resp or step.context.response
-
-                assert resp.success is True
-                assert resp.metadata["modified"] is False
-                assert resp.metadata["n_messages"] == 0
-                assert context["changes"] == []
-            finally:
-                await fs.close()
-        print("✓ test_auto_memory_reports_modified_for_create_and_false_for_skip passed")
-
-    asyncio.run(run())
+            assert resp.success is True
+            assert resp.metadata["date"] == historical_day
+            assert resp.metadata["path"] == "daily/2023-01-19/memory.md"
+            assert (cwd / "daily" / historical_day / "memory.md").is_file()
+        finally:
+            await fs.close()
 
 
-def test_auto_memory_uses_message_day_for_historical_create():
-    """AutoMemoryStep creates historical daily notes from message timestamps."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                historical_day = "2023-01-19"
-
-                def write_historical_note(inputs, _kwargs):
-                    assert f"Today: {historical_day}" in inputs
-                    assert f"date={historical_day}" in inputs
-                    assert "injected_job_kwargs" not in _kwargs
-                    write_file(
-                        cwd / "daily" / historical_day / "memory.md",
-                        "---\nname: memory\nsession_id: s1\n"
-                        "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nbody\n",
-                    )
-
-                wrapper.on_reply = write_historical_note
-                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(
-                        messages=[
-                            {
-                                "name": "user",
-                                "role": "user",
-                                "content": "remember historical project detail",
-                                "created_at": "2023-01-19T08:00:00",
-                            },
-                        ],
-                        session_id="s1",
-                    ),
-                )
-                resp = resp or step.context.response
-
-                assert resp.success is True
-                assert resp.metadata["date"] == historical_day
-                assert resp.metadata["path"] == "daily/2023-01-19/memory.md"
-                assert (cwd / "daily" / historical_day / "memory.md").is_file()
-            finally:
-                await fs.close()
-        print("✓ test_auto_memory_uses_message_day_for_historical_create passed")
-
-    asyncio.run(run())
-
-
-def test_auto_memory_rejects_invalid_explicit_date_before_saving_session():
+@pytest.mark.asyncio
+async def test_auto_memory_rejects_invalid_explicit_date_before_saving_session():
     """Invalid explicit dates fail before writing session history."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
-            cwd = Path.cwd()
-            app_ctx = _make_app_context(cwd)
-            fs = LocalFileStore(name="test_store", embedding_store="")
-            wrapper = _FakeAgentWrapper()
-            await fs.start()
-            _install_file_jobs(app_ctx, fs)
-            try:
-                step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
-                resp = await step(
-                    RuntimeContext(
-                        messages=[
-                            {
-                                "name": "user",
-                                "role": "user",
-                                "content": "remember historical project detail",
-                                "created_at": "2023-01-19T08:00:00",
-                            },
-                        ],
-                        session_id="s1",
-                        date="2023-01-19T08:00:00",
-                    ),
-                )
-                resp = resp or step.context.response
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        fs = LocalFileStore(name="test_store", embedding_store="")
+        wrapper = _FakeAgentWrapper()
+        await fs.start()
+        _install_file_jobs(app_ctx, fs)
+        try:
+            step = AutoMemoryStep(app_context=app_ctx, file_store=fs, agent_wrapper=wrapper)
+            resp = await step(
+                RuntimeContext(
+                    messages=[
+                        {
+                            "name": "user",
+                            "role": "user",
+                            "content": "remember historical project detail",
+                            "created_at": "2023-01-19T08:00:00",
+                        },
+                    ],
+                    session_id="s1",
+                    date="2023-01-19T08:00:00",
+                ),
+            )
+            resp = resp or step.context.response
 
-                assert resp.success is False
-                assert resp.answer == "Error: date must be YYYY-MM-DD"
-                assert resp.metadata == {
-                    "date": "2023-01-19T08:00:00",
-                    "modified": False,
-                    "n_messages": 1,
-                }
-                assert not (cwd / "session" / "dialog" / "s1.jsonl").exists()
-                assert not (cwd / "daily").exists()
-                assert wrapper.inputs == ""
-            finally:
-                await fs.close()
-        print("✓ test_auto_memory_rejects_invalid_explicit_date_before_saving_session passed")
-
-    asyncio.run(run())
+            assert resp.success is False
+            assert resp.answer == "Error: date must be YYYY-MM-DD"
+            assert resp.metadata == {
+                "date": "2023-01-19T08:00:00",
+                "modified": False,
+                "n_messages": 1,
+            }
+            assert not (cwd / "session" / "dialog" / "s1.jsonl").exists()
+            assert not (cwd / "daily").exists()
+            assert wrapper.inputs == ""
+        finally:
+            await fs.close()
 
 
-def test_auto_resource_result_hook_is_optional_and_isolated():
+@pytest.mark.asyncio
+async def test_auto_resource_result_hook_is_optional_and_isolated():
     """AutoResourceStep optionally emits host result hooks without coupling."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmpdir:
-            app_ctx = _make_app_context(Path(tmpdir))
-            step = AutoResourceStep(app_context=app_ctx)
-            step.context = RuntimeContext()
-            changes = [{"change": "added", "path": "resource/2026-01-01/file.md"}]
-            results = [{"success": True, "path": "resource/2026-01-01/file.md"}]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        app_ctx = _make_app_context(Path(tmpdir))
+        step = AutoResourceStep(app_context=app_ctx)
+        step.context = RuntimeContext()
+        changes = [{"change": "added", "path": "resource/2026-01-01/file.md"}]
+        results = [{"success": True, "path": "resource/2026-01-01/file.md"}]
 
-            app_ctx.metadata = {}
-            await step._emit_result_hook(changes=changes, results=results)
+        app_ctx.metadata = {}
+        await step._emit_result_hook(changes=changes, results=results)
 
-            calls = []
+        calls = []
 
-            async def hook(**kwargs):
-                calls.append(kwargs)
+        async def hook(**kwargs):
+            calls.append(kwargs)
 
-            app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
-            step.context.response.metadata["modified"] = False
-            await step._emit_result_hook(changes=changes, results=results)
-            assert not calls
+        app_ctx.metadata = {"qwenpaw_memory_result_hook": hook}
+        step.context.response.metadata["modified"] = False
+        await step._emit_result_hook(changes=changes, results=results)
+        assert not calls
 
-            step.context.response.metadata["modified"] = True
-            await step._emit_result_hook(changes=changes, results=results)
-            assert len(calls) == 1
-            assert calls[0]["job_name"] == "auto_resource"
-            assert calls[0]["response"] is step.context.response
-            assert calls[0]["kwargs"] == {"changes": changes}
-            assert calls[0]["metadata"] == {"results": results}
+        step.context.response.metadata["modified"] = True
+        await step._emit_result_hook(changes=changes, results=results)
+        assert len(calls) == 1
+        assert calls[0]["job_name"] == "auto_resource"
+        assert calls[0]["response"] is step.context.response
+        assert calls[0]["kwargs"] == {"changes": changes}
+        assert calls[0]["metadata"] == {"results": results}
 
-            def failing_hook(**_kwargs):
-                raise RuntimeError("boom")
+        def failing_hook(**_kwargs):
+            raise RuntimeError("boom")
 
-            app_ctx.metadata = {"qwenpaw_memory_result_hook": failing_hook}
-            await step._emit_result_hook(changes=changes, results=results)
-
-        print("✓ test_auto_resource_result_hook_is_optional_and_isolated passed")
-
-    asyncio.run(run())
+        app_ctx.metadata = {"qwenpaw_memory_result_hook": failing_hook}
+        await step._emit_result_hook(changes=changes, results=results)
 
 
 # LogChangesStep
 # ---------------------------------------------------------------------------
 
 
-def test_log_changes_step():
+@pytest.mark.asyncio
+async def test_log_changes_step():
     """LogChangesStep logs and reports count."""
 
-    async def run():
-        step = LogChangesStep()
-        changes = [
-            {"change": "added", "path": "/workspace/daily/note.md"},
-            {"change": "deleted", "path": "/workspace/daily/old.md"},
-        ]
-        ctx = RuntimeContext(changes=changes)
-        resp = await step(ctx)
-        assert resp.success is True
-        assert resp.metadata["count"] == 2
-        print("✓ test_log_changes_step passed")
-
-    asyncio.run(run())
-
-
-if __name__ == "__main__":
-    print("\n=== Background Steps Tests ===")
-    # _watch_rules
-    test_build_watch_rules_basic()
-    test_build_watch_rules_multiple_suffixes()
-    test_build_watch_rules_fallback_literal()
-    test_match_file_suffix()
-    test_match_file_no_suffix_filter()
-    test_collect_existing_filters()
-    # InitChangesStep
-    test_clear_and_scan_flow_includes_jsonl_when_configured()
-    test_scan_changes_initial_all_added()
-    test_scan_changes_no_changes()
-    test_scan_changes_detect_modify_delete()
-    test_scan_changes_missing_dir_skipped()
-    test_scan_changes_resource_dir()
-    test_index_update_loop_init_dispatch_updates_store_across_batches()
-    test_digest_watch_loop_init_dispatch_updates_named_catalog_and_logs()
-    # WatchChangesStep
-    test_watch_changes_default_low_power_timing()
-    test_watch_changes_requires_stop_event()
-    test_watch_changes_raises_no_valid_paths()
-    test_watch_changes_filter_matches_rules()
-    test_watch_changes_dispatch_steps_list()
-    test_auto_resource_batch_deleted_changes()
-    test_auto_resource_accepts_loose_root_resource()
-    test_auto_resource_loose_root_resource_keeps_existing_dated_resource()
-    test_auto_resource_modified_missing_note_uses_create_tools()
-    test_auto_resource_sanitizes_invalid_generated_name()
-    test_auto_resource_uniquifies_conflicting_generated_name()
-    test_auto_resource_update_finds_renamed_note_by_source_resource()
-    test_auto_resource_update_keeps_existing_renamed_path()
-    test_auto_memory_uses_message_day_for_historical_create()
-    test_auto_memory_rejects_invalid_explicit_date_before_saving_session()
-    test_auto_resource_preserves_unowned_loose_root_same_stem_note()
-    test_auto_resource_deletes_renamed_note_by_source_resource()
-    test_auto_resource_result_hook_is_optional_and_isolated()
-    # LogChangesStep
-    test_log_changes_step()
-    print("\n所有测试通过!")
+    step = LogChangesStep()
+    changes = [
+        {"change": "added", "path": "/workspace/daily/note.md"},
+        {"change": "deleted", "path": "/workspace/daily/old.md"},
+    ]
+    ctx = RuntimeContext(changes=changes)
+    resp = await step(ctx)
+    assert resp.success is True
+    assert resp.metadata["count"] == 2

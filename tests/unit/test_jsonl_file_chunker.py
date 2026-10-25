@@ -45,7 +45,6 @@ def test_empty_file():
         node, chunks = _run(chunker.chunk(path))
         assert len(chunks) == 0
         assert node.links == []
-        print("✓ test_empty_file passed")
     finally:
         os.unlink(path)
 
@@ -59,7 +58,6 @@ def test_blank_lines_only():
         chunker = JsonlFileChunker()
         _, chunks = _run(chunker.chunk(path))
         assert len(chunks) == 0
-        print("✓ test_blank_lines_only passed")
     finally:
         os.unlink(path)
 
@@ -75,7 +73,6 @@ def test_single_line():
         assert chunks[0].start_line == 1
         assert chunks[0].end_line == 1
         assert lines[0] in chunks[0].text
-        print("✓ test_single_line passed")
     finally:
         os.unlink(path)
 
@@ -106,7 +103,6 @@ def test_all_lines_fit_in_one_chunk():
         assert len(chunks) == 1
         assert chunks[0].start_line == 1
         assert chunks[0].end_line == 5
-        print("✓ test_all_lines_fit_in_one_chunk passed")
     finally:
         os.unlink(path)
 
@@ -148,7 +144,6 @@ def test_multiple_chunks_no_overlap():
         assert chunks[0].start_line == 1
         assert chunks[-1].end_line == 10
         print(f"  Created {len(chunks)} chunks")
-        print("✓ test_multiple_chunks_no_overlap passed")
     finally:
         os.unlink(path)
 
@@ -165,7 +160,6 @@ def test_line_aligned_no_intra_line_split():
             # Each chunk text should be a concatenation of whole lines.
             text_lines = c.text.splitlines()
             assert len(text_lines) == (c.end_line - c.start_line + 1)
-        print("✓ test_line_aligned_no_intra_line_split passed")
     finally:
         os.unlink(path)
 
@@ -193,7 +187,6 @@ def test_overlap_lines_shared():
         # Last chunk still reaches the end of the file.
         assert chunks[-1].end_line == 12
         print(f"  Created {len(chunks)} chunks with overlap")
-        print("✓ test_overlap_lines_shared passed")
     finally:
         os.unlink(path)
 
@@ -207,7 +200,6 @@ def test_zero_overlap():
         _, chunks = _run(chunker.chunk(path))
         for i in range(len(chunks) - 1):
             assert chunks[i].end_line < chunks[i + 1].start_line
-        print("✓ test_zero_overlap passed")
     finally:
         os.unlink(path)
 
@@ -228,7 +220,6 @@ def test_overlap_capped_by_max_overlap_chars():
                     overlap_lines = list(range(overlap_start, overlap_end + 1))
                     overlap_text = "".join(lines[ln - 1] for ln in overlap_lines)
                     assert len(overlap_text) <= max_overlap, f"Overlap size {len(overlap_text)} > {max_overlap}"
-        print("✓ test_overlap_capped_by_max_overlap_chars passed")
     finally:
         os.unlink(path)
 
@@ -255,7 +246,6 @@ def test_single_line_exceeds_max():
                 break
         assert found, "Long line was not found in any chunk"
         assert len(chunks) >= 2  # At least some splitting happened.
-        print("✓ test_single_line_exceeds_max passed")
     finally:
         os.unlink(path)
 
@@ -290,7 +280,6 @@ def test_byte_mode():
             f"than char mode ({len(chunks_chars)}) for CJK text"
         )
         print(f"  char mode: {len(chunks_chars)} chunks, byte mode: {len(chunks_bytes)} chunks")
-        print("✓ test_byte_mode passed")
     finally:
         os.unlink(path)
 
@@ -302,7 +291,6 @@ def test_invalid_mode_raises():
         assert False, "Should have raised ValueError"
     except ValueError:
         pass
-    print("✓ test_invalid_mode_raises passed")
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +310,6 @@ def test_file_chunk_properties():
         assert c.end_line >= c.start_line
         assert c.id and len(c.id) > 0
         assert c.text.strip()
-        print("✓ test_file_chunk_properties passed")
     finally:
         os.unlink(path)
 
@@ -337,7 +324,6 @@ def test_file_node_properties():
         assert node.st_mtime > 0
         assert node.links == []
         assert node.chunk_ids == [c.id for c in chunks]
-        print("✓ test_file_node_properties passed")
     finally:
         os.unlink(path)
 
@@ -352,7 +338,6 @@ def test_hash_id_deterministic():
         c2 = JsonlFileChunker(max_chars=100)
         _, chunks2 = _run(c2.chunk(path))
         assert [c.id for c in chunks1] == [c.id for c in chunks2]
-        print("✓ test_hash_id_deterministic passed")
     finally:
         os.unlink(path)
 
@@ -366,14 +351,12 @@ def test_max_chars_floor():
     """max_chars is clamped to at least 64."""
     c = JsonlFileChunker(max_chars=1)
     assert c.max_chars == 64
-    print("✓ test_max_chars_floor passed")
 
 
 def test_max_overlap_floor():
     """Negative max_overlap_chars is clamped to 0."""
     c = JsonlFileChunker(max_overlap_chars=-10)
     assert c.max_overlap_chars == 0
-    print("✓ test_max_overlap_floor passed")
 
 
 def test_full_coverage():
@@ -387,7 +370,6 @@ def test_full_coverage():
         for c in chunks:
             covered.update(range(c.start_line, c.end_line + 1))
         assert covered == set(range(1, 26)), f"Missing lines: {set(range(1, 26)) - covered}"
-        print("✓ test_full_coverage passed")
     finally:
         os.unlink(path)
 
@@ -406,7 +388,6 @@ def test_chunk_lines_algorithm_simple():
     # 3 lines = 63 chars ≤ 64 → chunk 1: (0,3).  4th line alone → chunk 2: (3,4).
     ranges = chunker._chunk_lines(lines)
     assert ranges == [(0, 3), (3, 4)], f"Got {ranges}"
-    print("✓ test_chunk_lines_algorithm_simple passed")
 
 
 def test_chunk_lines_algorithm_with_overlap():
@@ -422,34 +403,8 @@ def test_chunk_lines_algorithm_with_overlap():
         assert ranges[i][1] >= ranges[i + 1][0], f"No overlap between range {i} {ranges[i]} and {i+1} {ranges[i+1]}"
     # Last range reaches end.
     assert ranges[-1][1] == 6
-    print("✓ test_chunk_lines_algorithm_with_overlap passed")
 
 
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
-
-
-if __name__ == "__main__":
-    test_empty_file()
-    test_blank_lines_only()
-    test_single_line()
-    test_unicode_line_separator_inside_json_string_is_not_a_record_boundary()
-    test_all_lines_fit_in_one_chunk()
-    test_multiple_chunks_no_overlap()
-    test_line_aligned_no_intra_line_split()
-    test_overlap_lines_shared()
-    test_zero_overlap()
-    test_overlap_capped_by_max_overlap_chars()
-    test_single_line_exceeds_max()
-    test_byte_mode()
-    test_invalid_mode_raises()
-    test_file_chunk_properties()
-    test_file_node_properties()
-    test_hash_id_deterministic()
-    test_max_chars_floor()
-    test_max_overlap_floor()
-    test_full_coverage()
-    test_chunk_lines_algorithm_simple()
-    test_chunk_lines_algorithm_with_overlap()
-    print("\n所有测试通过!")

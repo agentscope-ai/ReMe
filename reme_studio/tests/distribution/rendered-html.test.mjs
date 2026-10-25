@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render() {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  const workerUrl = new URL("../../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
 
@@ -23,7 +23,7 @@ test("server-renders the ReMe Studio shell", async () => {
 
   const html = await response.text();
   const packageJson = JSON.parse(
-    await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    await readFile(new URL("../../package.json", import.meta.url), "utf8"),
   );
   assert.match(html, /<title>ReMe Studio<\/title>/i);
   assert.match(

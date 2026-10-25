@@ -4,20 +4,22 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 test("static build contains the ReMe workspace entry and assets", async () => {
-  const output = fileURLToPath(new URL("../dist-static/", import.meta.url));
+  const output = fileURLToPath(new URL("../../dist-static/", import.meta.url));
   const html = await readFile(
-    new URL("../dist-static/index.html", import.meta.url),
+    new URL("../../dist-static/index.html", import.meta.url),
     "utf8",
   );
   const assets = await readdir(
-    new URL("../dist-static/assets/", import.meta.url),
+    new URL("../../dist-static/assets/", import.meta.url),
   );
   const javascript = (
     await Promise.all(
       assets
         .filter((name) => name.endsWith(".js"))
         .map((name) =>
-          readFile(new URL(`../dist-static/assets/${name}`, import.meta.url)),
+          readFile(
+            new URL(`../../dist-static/assets/${name}`, import.meta.url),
+          ),
         ),
     )
   ).join("\n");

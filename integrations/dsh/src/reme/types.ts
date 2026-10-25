@@ -95,6 +95,8 @@ export interface SearchOptions {
 
 /** Automatic-memory request controls supported by the plugin client. */
 export interface AutoMemoryOptions {
+  endpoint?: string;
+  requestId?: string;
   date?: string;
   memoryHint?: string;
   signal?: AbortSignal;

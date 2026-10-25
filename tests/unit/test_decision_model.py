@@ -238,6 +238,88 @@ def test_failed_or_cancelled_call_does_not_block_close(provider, failure):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("borrowed", [False, True])
+def test_cancelled_close_drains_requests_and_releases_model(provider, borrowed):
+    """Shutdown defers cancellation until active calls and model cleanup finish."""
+    _, model = provider
+
+    async def run():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def reply(**_kwargs):
+            started.set()
+            await release.wait()
+
+        model.side_effect = reply
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
+        if borrowed:
+            component.model = model
+        call = asyncio.create_task(component(state="hello", questions={"q": {"type": "binary"}}))
+        await asyncio.wait_for(started.wait(), 2)
+        close = asyncio.create_task(component.close())
+        await asyncio.sleep(0)
+        try:
+            for _ in range(2):
+                close.cancel()
+                await asyncio.sleep(0)
+                assert not close.done()
+                assert component.is_started
+                assert component.model is model
+                model.client.aclose.assert_not_awaited()
+            release.set()
+            await asyncio.wait_for(call, 2)
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(close, 2)
+            assert component.model is None
+            assert not component.is_started
+            assert not component._owns_model
+            await component.close()
+            assert model.client.aclose.await_count == (0 if borrowed else 1)
+        finally:
+            release.set()
+            await asyncio.gather(call, close, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+def test_cancelled_close_finishes_owned_client_cleanup(provider):
+    """Repeated shutdown cancellation cannot interrupt the client's own close."""
+    _, model = provider
+
+    async def run():
+        closing, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def close_client():
+            closing.set()
+            await release.wait()
+            finished.set()
+
+        model.client.aclose.side_effect = close_client
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
+        await component(state="hello", questions={"q": {"type": "binary"}})
+        close = asyncio.create_task(component.close())
+        await asyncio.wait_for(closing.wait(), 2)
+        try:
+            for _ in range(2):
+                close.cancel()
+                await asyncio.sleep(0)
+                assert not close.done()
+                assert component.is_started
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(close, 2)
+            assert finished.is_set()
+            assert component.model is None
+            assert not component.is_started
+            await component.close()
+            model.client.aclose.assert_awaited_once()
+        finally:
+            release.set()
+            await asyncio.gather(close, return_exceptions=True)
+
+    asyncio.run(run())
+
+
 def test_client_close_error_clears_cached_model(provider):
     """A failed close cannot leave a stale client selected on the next start."""
     factory, model = provider
@@ -348,5 +430,82 @@ def test_adapter_uses_sdk_default_or_explicit_model(monkeypatch, model_name):
             else:
                 assert options["model"] == model_name
         model.client.aclose.assert_awaited_once()
+
+    asyncio.run(run())
+
+
+def test_injected_model_is_borrowed_and_accepts_json_questions(provider, tmp_path):
+    """Application injection shares the host instance without owning its client."""
+    from reme.application import Application
+
+    factory, model = provider
+
+    async def run():
+        app = Application(
+            workspace_dir=str(tmp_path),
+            enable_logo=False,
+            log_to_console=False,
+            log_to_file=False,
+            service={"backend": "http"},
+            components={"as_decision_model": {"compaction": {"backend": "agentscope"}}},
+        )
+        component = await app.update_component("as_decision_model", "compaction", model=model)
+        assert component.model is model
+        async with app:
+            await component(state="hello", questions={"q": {"type": "binary"}})
+        factory.assert_not_called()
+        model.assert_awaited_once()
+        model.client.aclose.assert_not_awaited()
+        assert component.model is None
+
+    asyncio.run(run())
+
+
+def test_model_replacement_guards_owned_clients(provider):
+    """Replacing an owned client requires an explicit close to prevent leaks."""
+    _, model = provider
+
+    async def run():
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
+        await component(state="hello", questions={"q": {"type": "binary"}})
+        component.model = model
+        with pytest.raises(RuntimeError, match="Close"):
+            component.model = None
+        await component.close()
+        component.model = model
+        await component.close()
+        # The borrowed instance is never closed a second time.
+        model.client.aclose.assert_awaited_once()
+        with pytest.raises(TypeError, match="callable"):
+            component.model = "model-name"
+
+    asyncio.run(run())
+
+
+def test_borrowed_model_cannot_be_replaced_while_in_use(provider):
+    """Host ownership still obeys the component's in-flight request boundary."""
+    _, model = provider
+
+    async def run():
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def reply(**_kwargs):
+            started.set()
+            await release.wait()
+
+        model.side_effect = reply
+        component = AgentScopeAsDecisionModel()
+        component.model = model
+        task = asyncio.create_task(component(state="hello", questions={"q": {"type": "binary"}}))
+        await asyncio.wait_for(started.wait(), 2)
+        with pytest.raises(RuntimeError, match="Close"):
+            component.model = None
+        close = asyncio.create_task(component.close())
+        await asyncio.sleep(0)
+        assert not close.done()
+        release.set()
+        await task
+        await close
+        model.client.aclose.assert_not_awaited()
 
     asyncio.run(run())

@@ -1,6 +1,45 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { registerReMeTools } from "../dist/tools.js";
+import { ReMeClient } from "../dist/reme/client.js";
+
+test("reme_search does not expose whitespace-bearing URL credentials from service errors", async () => {
+  const originalFetch = globalThis.fetch;
+  const registered = [];
+  globalThis.fetch = async () =>
+    Response.json({
+      success: false,
+      answer: "refused http://alice:SECRET CANARY@localhost:2333/search",
+    });
+  try {
+    registerReMeTools(
+      {
+        tools: {
+          register(tool) {
+            registered.push(tool);
+            return () => {};
+          },
+        },
+      },
+      new ReMeClient({
+        endpoint: "http://localhost:2333",
+        requestTimeoutMs: 1000,
+        backgroundTimeoutMs: 1000,
+      }),
+      { searchLimit: 5 },
+    );
+    const result = await registered[0].execute(
+      { query: "history" },
+      { signal: new AbortController().signal },
+    );
+    assert.equal(
+      result,
+      "ReMe search failed: refused http://[redacted]@localhost:2333/search",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("reme_search uses the ReMe search contract and renders model-facing text", async () => {
   const registered = [];

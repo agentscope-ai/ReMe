@@ -10,7 +10,7 @@ probed path in not-found errors instead of the caller's raw input.
 
 # pylint: disable=protected-access
 
-import os
+from contextlib import chdir as temp_chdir
 import tempfile
 from pathlib import Path
 
@@ -21,22 +21,6 @@ from reme.components.file_store import LocalFileStore
 from reme.steps.file_io.frontmatter_delete import FrontmatterDeleteStep
 from reme.steps.file_io.frontmatter_read import FrontmatterReadStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 def _seed(workspace: Path, rel: str, body: str) -> Path:

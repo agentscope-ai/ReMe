@@ -36,7 +36,7 @@ class BaseEmbeddingStore(BaseComponent):
         self.health_check_timeout = health_check_timeout
         self.is_healthy: bool = True
 
-    def _truncate(self, text: str) -> str:
+    def _truncate(self, text: str, *, max_length: int | None = None) -> str:
         """Truncate text using a CJK-aware character budget.
 
         ASCII text keeps its historical character limit. For non-ASCII text,
@@ -44,8 +44,12 @@ class BaseEmbeddingStore(BaseComponent):
         characters cost 1.5 units because they commonly consume more
         embedding tokens. The estimate reserves a 5% safety margin, and
         integer half-units avoid floating-point boundary errors.
+
+        ``max_length`` overrides the configured ``max_input_length`` for this call only, so a
+        caller can re-prepare a rejected input under a smaller budget without mutating shared
+        configuration or changing the vector space.
         """
-        limit = max(0, self.max_input_length)
+        limit = max(0, self.max_input_length if max_length is None else max_length)
         if text.isascii():
             return text[:limit]
 

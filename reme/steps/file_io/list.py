@@ -19,8 +19,8 @@ from pathlib import Path
 from stat import S_ISREG
 from typing import Iterable
 
+from ._base import _FileIOStep
 from ._path import resolve_path
-from ..base_step import BaseStep
 from ...components import R
 
 # Default cap on returned items so huge workspaces don't blow up the response.
@@ -28,16 +28,8 @@ DEFAULT_LIMIT = 100
 
 
 @R.register("list_step")
-class ListStep(BaseStep):
+class ListStep(_FileIOStep):
     """Enumerate files under a directory in the workspace."""
-
-    def _fail(self, message: str, **meta) -> None:
-        """Set a failed response (matches the read/edit/... fail envelope)."""
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        if meta:
-            self.context.response.metadata.update(meta)
 
     def _collect_params(self) -> tuple[str, bool, int, str, frozenset[str]]:
         """Read ``path`` / ``recursive`` / ``limit`` from context; coerce permissively."""

@@ -253,6 +253,23 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
 - `response.answer`：给人看的文本，每个命中块包含路径、行号、分数和 chunk 内容，后面跟 outlinks / inlinks。
 - `response.metadata`：给程序看的结构化结果，包括 `results`、`link_expansion`、`counts`。
 
+默认 `search` Job 没有结果可返回时，`response.answer` 保持 `""`，`success` 保持 `true`。
+此时 `results` 为空列表，`counts.returned` 为 `0`，可选字段 `response.metadata.empty_result` 说明原因：
+
+| `reason`       | 含义                                                            |
+|----------------|-----------------------------------------------------------------|
+| `no_results`   | 没有匹配结果，或所有候选都被 `min_score` 过滤。                    |
+| `all_returned` | 符合分数要求的内容在同一 `tool_context_id` 中都已返回过。          |
+
+该字段还包含便于阅读的 `message`。程序调用方应通过 `reason` 区分两种情况。
+正常命中不包含 `empty_result`，正文格式保持原样。
+
+通过 CLI 客户端调用已启动的服务时，可以开启已有的元数据显示选项查看原因：
+
+```bash
+reme search query="最近关于索引的讨论" show_metadata=true
+```
+
 典型文本结构：
 
 ```text

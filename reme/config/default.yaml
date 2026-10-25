@@ -173,6 +173,9 @@ jobs:
     parameters:
       type: object
       properties:
+        request_id:
+          type: string
+          description: "Optional stable batch ID (1-128 characters); replay completed requests without rerunning the memory agent"
         messages:
           type: array
           description: "messages"

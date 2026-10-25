@@ -147,3 +147,18 @@ agent 继续执行的成功率尚未验证。
 
 <!-- 支付轨迹有 10 个证据块，最多 Top 10；实际 N 为 min(N, 可用证据块数)。 -->
 [完整实验：设计、结果、标准答案与复现](https://github.com/jinliyl/ReMe/blob/74e1251ddcd212205788f21ccd6b5ebd82ade7c3/benchmark/compaction/README_ZH.md)
+
+## 注入宿主管理的决策模型
+
+嵌入式宿主可以复用已有的 AgentScope JEV 实例，与注入 LLM 的方式一致：
+
+```python
+# app 已配置 backend: agentscope 的 as_decision_model.compaction 组件。
+await app.update_component("as_decision_model", "compaction", model=host_jev)
+```
+
+YAML 中的 `model` 仍表示供应商模型名称；运行时 `model` 属性接收可调用的模型实例，读取属性不会创建客户端。
+在首次请求之前注入。ReMe 继续校验并转换 JSON 问题，但不再要求额外的 ReMe 凭据，也不会关闭借用的客户端。
+宿主应等待 ReMe 调用结束后自行关闭实例。替换 ReMe 自建模型或存在进行中请求的实例之前，须先关闭组件。
+关闭过程即使被取消，也会等待活动请求和自建客户端清理完成，再传播取消信号。组件关闭时会解除实例引用；
+重新启动使用外部模型的组件前需要再次注入。独立运行时按凭据创建模型的行为保持不变。

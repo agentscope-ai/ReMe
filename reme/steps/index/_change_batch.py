@@ -7,7 +7,7 @@ from pathlib import Path
 from watchfiles import Change
 
 
-def _normalize_change(raw) -> Change | None:
+def _normalize_change(raw: object) -> Change | None:
     if isinstance(raw, Change):
         return raw
     if isinstance(raw, str):

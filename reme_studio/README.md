@@ -402,8 +402,10 @@ Run proportionate checks from `reme_studio/`:
 ```bash
 npm run format:check
 npm run lint
-npm run build
-npm run build:static
+npm run test:unit
+# Build and verify the Sites, static, and demo distributions:
+npm run test:build
+# Run both suites:
 npm test
 ```
 

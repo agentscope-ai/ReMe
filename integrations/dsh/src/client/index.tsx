@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore } from "react";
 import type { ConfigForm } from "@deepseek-ai/dsh-client-ui-settings/client";
 
 import type { ReMeSettings } from "../types.js";
+import { validEndpoint } from "../endpoint.js";
 import {
   ReMeStatusPage,
   statusEn,
@@ -19,6 +20,8 @@ const FIELDS = [
   "requestTimeoutMs",
   "backgroundTimeoutMs",
   "shutdownTimeoutMs",
+  "autoMemoryRetryMs",
+  "autoMemoryRetryMaxMs",
   "autoMemoryEnabled",
   "autoMemoryInterval",
   "autoDreamEnabled",
@@ -65,6 +68,8 @@ interface Draft {
   requestTimeoutMs: string;
   backgroundTimeoutMs: string;
   shutdownTimeoutMs: string;
+  autoMemoryRetryMs: string;
+  autoMemoryRetryMaxMs: string;
   autoMemoryEnabled: boolean;
   autoMemoryInterval: string;
   autoDreamEnabled: boolean;
@@ -113,6 +118,8 @@ const en = {
   advanced: "Advanced",
   backgroundTimeout: "Background request timeout (ms)",
   shutdownTimeout: "Shutdown flush timeout (ms)",
+  retryDelay: "Retry delay (ms)",
+  retryMaxDelay: "Maximum retry delay (ms)",
   diagnostics: "Service diagnostics",
   processMemory: "Process memory",
   componentMemory: "Component memory",
@@ -186,6 +193,8 @@ const zh: typeof en = {
   advanced: "高级设置",
   backgroundTimeout: "后台请求超时（毫秒）",
   shutdownTimeout: "关闭时写入等待（毫秒）",
+  retryDelay: "失败重试间隔（毫秒）",
+  retryMaxDelay: "最大重试间隔（毫秒）",
   diagnostics: "服务诊断",
   processMemory: "进程内存",
   componentMemory: "组件内存",
@@ -568,6 +577,28 @@ function SettingsForm({
               }
             />
           </Field>
+          <Field label={t("retryDelay")}>
+            <input
+              type="number"
+              min={1000}
+              max={60000}
+              value={draft.autoMemoryRetryMs}
+              onChange={(event) =>
+                update("autoMemoryRetryMs", event.target.value)
+              }
+            />
+          </Field>
+          <Field label={t("retryMaxDelay")}>
+            <input
+              type="number"
+              min={1000}
+              max={3600000}
+              value={draft.autoMemoryRetryMaxMs}
+              onChange={(event) =>
+                update("autoMemoryRetryMaxMs", event.target.value)
+              }
+            />
+          </Field>
           <Field label={t("shutdownTimeout")}>
             <input
               type="number"
@@ -632,6 +663,8 @@ function draftFrom(value: ReMeSettings): Draft {
     requestTimeoutMs: String(value.requestTimeoutMs),
     backgroundTimeoutMs: String(value.backgroundTimeoutMs),
     shutdownTimeoutMs: String(value.shutdownTimeoutMs),
+    autoMemoryRetryMs: String(value.autoMemoryRetryMs),
+    autoMemoryRetryMaxMs: String(value.autoMemoryRetryMaxMs),
     autoMemoryEnabled: value.autoMemoryEnabled,
     autoMemoryInterval: String(value.autoMemoryInterval),
     autoDreamEnabled: value.autoDreamEnabled,
@@ -652,6 +685,16 @@ function parseDraft(draft: Draft): ReMeSettings | undefined {
     3600000,
   );
   const shutdownTimeoutMs = boundedInteger(draft.shutdownTimeoutMs, 100, 60000);
+  const autoMemoryRetryMs = boundedInteger(
+    draft.autoMemoryRetryMs,
+    1000,
+    60000,
+  );
+  const autoMemoryRetryMaxMs = boundedInteger(
+    draft.autoMemoryRetryMaxMs,
+    autoMemoryRetryMs ?? 1000,
+    3600000,
+  );
   const autoMemoryInterval = boundedInteger(draft.autoMemoryInterval, 1, 1000);
   const searchLimit = boundedInteger(draft.searchLimit, 1, 50);
   if (
@@ -665,6 +708,8 @@ function parseDraft(draft: Draft): ReMeSettings | undefined {
       requestTimeoutMs,
       backgroundTimeoutMs,
       shutdownTimeoutMs,
+      autoMemoryRetryMs,
+      autoMemoryRetryMaxMs,
       autoMemoryInterval,
       searchLimit,
     ].some((value) => value === undefined)
@@ -676,6 +721,8 @@ function parseDraft(draft: Draft): ReMeSettings | undefined {
     requestTimeoutMs: requestTimeoutMs!,
     backgroundTimeoutMs: backgroundTimeoutMs!,
     shutdownTimeoutMs: shutdownTimeoutMs!,
+    autoMemoryRetryMs: autoMemoryRetryMs!,
+    autoMemoryRetryMaxMs: autoMemoryRetryMaxMs!,
     autoMemoryEnabled: draft.autoMemoryEnabled,
     autoMemoryInterval: autoMemoryInterval!,
     autoDreamEnabled: draft.autoDreamEnabled,
@@ -697,15 +744,6 @@ function boundedInteger(
   return Number.isInteger(value) && value >= minimum && value <= maximum
     ? value
     : undefined;
-}
-
-function validEndpoint(value: string): boolean {
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 function validTimezone(value: string): boolean {
