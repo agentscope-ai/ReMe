@@ -73,7 +73,6 @@ class Application(BaseComponent):
         """Instantiate declared components; workspace-scoped ones once per alias."""
         multi_workspace = len(self.context.workspaces) > 1
         for ctype, group in self.config.components.items():
-            self.context.components[ctype] = {}
             for name, cfg in group.items():
                 label = f"Component '{name}'"
                 backend_cls = self._backend_class(ctype, cfg, label)
@@ -92,12 +91,8 @@ class Application(BaseComponent):
                             workspace_alias=alias,
                         )
                         workspace.components.setdefault(ctype, {})[name] = instance
-                    # The default alias instance doubles as the plain lookup entry.
-                    self.context.components[ctype][name] = next(iter(self.context.workspaces.values())).components[
-                        ctype
-                    ][name]
                 else:
-                    self.context.components[ctype][name] = self._instantiate(
+                    self.context.shared_components.setdefault(ctype, {})[name] = self._instantiate(
                         ctype,
                         cfg,
                         label=label,
@@ -166,16 +161,13 @@ class Application(BaseComponent):
     ) -> dict[_NodeKey, BaseComponent]:
         """One node per component instance; scoped components contribute one node per alias."""
         nodes: dict[_NodeKey, BaseComponent] = {}
-        scoped_keys: set[tuple[str, str]] = set()
         for alias, workspace in self.context.workspaces.items():
             for ctype, group in workspace.components.items():
                 for name, instance in group.items():
                     nodes[(ctype, name, alias)] = instance
-                    scoped_keys.add((ctype, name))
-        for ctype, group in self.context.components.items():
+        for ctype, group in self.context.shared_components.items():
             for name, comp in group.items():
-                if (ctype, name) not in scoped_keys:
-                    nodes[(ctype, name, "")] = comp
+                nodes[(ctype, name, "")] = comp
         if replacement is not None:
             nodes[replacement[0]] = replacement[1]
         return nodes
@@ -297,11 +289,10 @@ class Application(BaseComponent):
         """Update an existing component by type/name; never creates missing components."""
         async with self._component_mutation_lock:
             component_type = component_type_name(component_enum)
-            group = self.context.components.get(component_type)
-            if not group or name not in group:
+            component = self.context.get_component(component_type, name)
+            if component is None:
                 raise KeyError(f"Component '{name}' not found in {component_type}")
 
-            component = group[name]
             # Validate fields without evaluating lazy properties before injection.
             for key in kwargs:
                 if getattr_static(component, key, _UNSET) is _UNSET and not hasattr(component, key):
@@ -317,7 +308,7 @@ class Application(BaseComponent):
             for group in workspace.components.values():
                 for instance in group.values():
                     instances[id(instance)] = instance
-        for group in self.context.components.values():
+        for group in self.context.shared_components.values():
             for component in group.values():
                 instances[id(component)] = component
         return list(instances.values())
@@ -365,19 +356,27 @@ class Application(BaseComponent):
         """
         async with self._component_mutation_lock:
             component_type = component_type_name(component_enum)
-            group = self.context.components.get(component_type)
             config_group = self.config.components.get(component_type)
-            if not group or name not in group or config_group is None:
-                raise KeyError(f"Component '{name}' not found in {component_type}")
-
-            old_component = group[name]
-            scoped_instances = self.context.workspace_components.get(component_type, {}).get(name)
-            if scoped_instances is not None and len(scoped_instances) > 1:
+            scoped_instances = {
+                alias: workspace.components[component_type][name]
+                for alias, workspace in self.context.workspaces.items()
+                if name in workspace.components.get(component_type, {})
+            }
+            if len(scoped_instances) > 1:
                 raise NotImplementedError(
                     f"replace_component does not support workspace-scoped component "
                     f"'{component_type}:{name}' in multi-workspace configurations",
                 )
-            alias = next(iter(scoped_instances)) if scoped_instances is not None else None
+            alias = next(iter(scoped_instances), None)
+            group = (
+                self.context.workspaces[alias].components.get(component_type)
+                if alias is not None
+                else self.context.shared_components.get(component_type)
+            )
+            if not group or name not in group or config_group is None:
+                raise KeyError(f"Component '{name}' not found in {component_type}")
+
+            old_component = group[name]
             replacement_config = (
                 config.model_copy(deep=True)
                 if isinstance(config, ComponentConfig)

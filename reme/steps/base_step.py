@@ -87,14 +87,16 @@ class Ref:
             if self.optional:
                 return None
             raise RuntimeError(f"app_context is not set when resolving '{self.key}'")
-        if _context_workspaces(obj.app_context) is not None:
+        if (workspaces := _context_workspaces(obj.app_context)) is not None:
             context = obj.context
             bound = getattr(context, "workspace", None) if context is not None else None
-            comp = obj.app_context.get_component(
-                self.comp_enum,
-                name,
-                alias=bound.alias if bound is not None else None,
-            )
+            is_scoped = any(name in workspace.components.get(self.comp_enum, {}) for workspace in workspaces.values())
+            if is_scoped:
+                if bound is None:
+                    raise RuntimeError(f"A workspace binding is required when resolving '{self.key}'")
+                comp = bound.get_component(self.comp_enum, name)
+            else:
+                comp = obj.app_context.shared_components.get(self.comp_enum, {}).get(name)
         else:
             # Test doubles and standalone-style contexts without the workspace layer.
             comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
@@ -159,6 +161,8 @@ class BaseStep(ComponentMixin, ABC):
             del self.__dict__[key]
         self.context = RuntimeContext.from_context(context, **kwargs)
         assert self.context is not None
+        if (workspaces := _context_workspaces(self.app_context)) is not None and self.context.workspace is None:
+            self.context.workspace = next(iter(workspaces.values()))
         if self.input_mapping:
             self.context.apply_mapping(self.input_mapping)
         result = await self.execute()

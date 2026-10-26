@@ -100,8 +100,13 @@ External stateful backends that cannot isolate workspaces (currently the `neo4j`
 startup in multi-workspace configurations.
 
 The binding propagates through nested job calls and agent tool calls (`job_tools`) as a server-owned constraint
-that models cannot override. Background and cron jobs bind through their job configuration, so extra workspaces
-are watched by declaring explicit per-alias variants:
+that models cannot override. For Codex with multiple workspaces, `job_tools` requires the resident HTTP service
+with MCP enabled, and the selected jobs must be exposed by that service. Its STDIO bridge forwards to this service
+without creating another Application. The multi-workspace one-shot CLI combination is not supported; `mcp_config`
+retains its legacy meaning only for single-workspace Codex job tools.
+
+Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
+explicit per-alias variants:
 
 ```yaml
 jobs:

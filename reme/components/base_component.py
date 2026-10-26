@@ -221,20 +221,24 @@ class BaseComponent(ComponentMixin, ABC):
             setattr(self, attr, None)
 
     def _resolve_from_context(self, attr: str, dep: Dependency) -> None:
-        """Context-bound mode: look up the component from ``app_context.components``.
-
-        Workspace-scoped dependencies resolve to the same-alias instance as the
-        dependent; a missing alias instance is an error, never a fallback.
-        """
+        """Resolve scoped dependencies from their workspace and shared ones from the application."""
         workspaces = getattr(self.app_context, "workspaces", None)
         workspace = workspaces.get(self.workspace_alias) if workspaces and self.workspace_alias is not None else None
-        scoped_group = workspace.components.get(dep.ctype) if workspace is not None else None
-        if scoped_group is not None:
-            target = scoped_group.get(dep.name)
-            if target is None:
-                raise ValueError(f"{dep.ctype} '{dep.name}' has no instance for workspace '{self.workspace_alias}'.")
+        if workspace is not None and dep.name in workspace.components.get(dep.ctype, {}):
+            target = workspace.get_component(dep.ctype, dep.name)
+        elif workspace is not None and any(
+            dep.name in candidate.components.get(dep.ctype, {}) for candidate in workspaces.values()
+        ):
+            raise ValueError(f"{dep.ctype} '{dep.name}' has no instance for workspace '{self.workspace_alias}'.")
         else:
-            target = self.app_context.components.get(dep.ctype, {}).get(dep.name)
+            shared = getattr(self.app_context, "shared_components", None)
+            if shared is None:
+                shared = self.app_context.components
+            target = shared.get(dep.ctype, {}).get(dep.name)
+            if target is None and workspaces:
+                default_workspace = next(iter(workspaces.values()))
+                if dep.name in default_workspace.components.get(dep.ctype, {}):
+                    target = default_workspace.get_component(dep.ctype, dep.name)
         if target is not None:
             setattr(self, attr, target)
         elif dep.optional:

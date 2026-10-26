@@ -343,11 +343,9 @@ class ProactiveTopicsStep(BaseStep):
             return []
         bound = getattr(self.context, "workspace", None) if self.context is not None else None
         if _context_workspaces(self.app_context) is not None:
-            catalog = self.app_context.get_component(
-                ComponentEnum.FILE_CATALOG,
-                "digest",
-                alias=bound.alias if bound is not None else None,
-            )
+            if bound is None:
+                raise RuntimeError("A workspace binding is required to resolve the digest catalog")
+            catalog = bound.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
         else:
             # Test doubles and standalone-style contexts without the workspace layer.
             catalog = self.app_context.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
@@ -368,7 +366,7 @@ class ProactiveTopicsStep(BaseStep):
         name = self.kwargs.get("as_embedding", "default")
         if self.app_context is None:
             return None
-        return self.app_context.components.get(ComponentEnum.AS_EMBEDDING, {}).get(name)
+        return self.app_context.shared_components.get(ComponentEnum.AS_EMBEDDING, {}).get(name)
 
     async def _semantic_verdict(
         self,
