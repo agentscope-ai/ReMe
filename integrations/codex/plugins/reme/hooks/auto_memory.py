@@ -21,9 +21,12 @@ from reme_guidance import memory_guidance  # noqa: E402
 from reme_mcp import call  # noqa: E402
 from reme_state import digest, log_status, queue_root  # noqa: E402
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 HOME_ENV = reme_config.HOME_ENV
 HOST = "codex"
 CAPTURE_WAIT_SECONDS = 10
+CAPTURE_SETTLE_SECONDS = 3.0
 
 
 def clean_text(value: str) -> str:
@@ -37,9 +40,12 @@ def transcript_messages(path: Path, *, root_only: bool = True):
     """Read current completed-item events, excluding reasoning and response-item duplicates."""
     with path.open(encoding="utf-8") as handle:
         for index, line in enumerate(handle):
-            if not line.endswith("\n"):
-                break
-            record = json.loads(line)
+            try:
+                record = json.loads(line.rstrip("\r\n"))
+            except (json.JSONDecodeError, UnicodeError):
+                if not line.endswith("\n"):
+                    return
+                continue
             if not isinstance(record, dict):
                 continue
             payload = record.get("payload")
@@ -83,19 +89,32 @@ def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> li
         payload.get("transcript_path"),
         payload.get("turn_id"),
     )
-    if not all(isinstance(value, str) and value.strip() for value in (final, transcript, turn_id)):
+    if not all(isinstance(value, str) and value.strip() for value in (transcript, turn_id)):
+        return []
+    if final is not None and not isinstance(final, str):
         return []
     path = Path(transcript).expanduser()
     if root_only and "subagents" in path.parts:
         return []
+    try:
+        messages = list(transcript_messages(path, root_only=root_only))
+    except FileNotFoundError:
+        return []
+    final_text = clean_text(final) if isinstance(final, str) else ""
+    turn_messages = [message for message in messages if message["turn_id"] == turn_id]
     user, pair = None, []
-    for message in transcript_messages(path, root_only=root_only):
-        if message["turn_id"] != turn_id:
-            continue
+    for message in turn_messages:
         if message["role"] == "user":
             user = message
-        elif user and message["text"] == clean_text(final):
+        elif user and final_text and message["text"] == final_text:
             pair = [user, message]
+    if not pair:
+        user = None
+        for message in turn_messages:
+            if message["role"] == "user":
+                user = message
+            elif user and message["role"] == "assistant":
+                pair = [user, message]
     return [
         {
             "id": f"{HOST}-{digest(session + ':' + message['id'])}",
@@ -108,6 +127,22 @@ def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> li
     ]
 
 
+def completed_turn_with_retry(
+    payload: dict,
+    session: str,
+    *,
+    root_only: bool = True,
+    timeout: float | None = None,
+) -> list[dict]:
+    """Allow Codex a short window to finish writing the current transcript turn."""
+    deadline = time.monotonic() + max(0, CAPTURE_SETTLE_SECONDS if timeout is None else timeout)
+    while True:
+        messages = completed_turn(payload, session, root_only=root_only)
+        if len(messages) == 2 or time.monotonic() >= deadline:
+            return messages
+        time.sleep(min(0.1, deadline - time.monotonic()))
+
+
 def session_queue(config: dict, payload: dict) -> Path | None:
     """Locate this agent's queue for the currently configured service without reading source text."""
     native_id = payload.get("agent_id") or payload.get("session_id")
@@ -117,12 +152,22 @@ def session_queue(config: dict, payload: dict) -> Path | None:
     return queue_root(config) / session
 
 
+def delivery_session_id(payload: dict) -> str | None:
+    """Use the stable native id for the session store while keeping queue paths private."""
+    native_id = payload.get("agent_id") or payload.get("session_id")
+    if not isinstance(native_id, str) or not native_id:
+        return None
+    safe = re.sub(r'[<>:"/\\|?*]', "-", native_id)[:120]
+    return f"{HOST}-{safe}"
+
+
 def capture(config: dict, payload: dict) -> Path | None:
     """Persist a completed turn before any network request."""
     root = session_queue(config, payload)
-    if root is None:
+    session_id = delivery_session_id(payload)
+    if root is None or session_id is None:
         return None
-    messages = completed_turn(payload, root.name, root_only=config["rootAgentsOnly"])
+    messages = completed_turn_with_retry(payload, root.name, root_only=config["rootAgentsOnly"])
     if len(messages) != 2:
         log_status("capture_skipped", config=config)
         return None
@@ -132,7 +177,7 @@ def capture(config: dict, payload: dict) -> Path | None:
         day = instant.astimezone(ZoneInfo(config["timezone"])).date().isoformat()
         write_json(
             root / f"{key}.json",
-            {"session_id": root.name, "turn_id": payload["turn_id"], "messages": messages, "date": day},
+            {"session_id": session_id, "turn_id": payload.get("turn_id"), "messages": messages, "date": day},
         )
         log_status("memory_queued", config=config, turns=1)
     return root
@@ -225,7 +270,7 @@ def recall(config: dict, payload: dict) -> dict:
                     f"{text}\n</reme-context>"
                 )
         except (OSError, ValueError, RuntimeError) as exc:
-            log_status("recall_failed", exc, config=config)
+            log_status("recall_failed", exc.__cause__ or exc, config=config)
     else:
         log_status("recall_disabled", config=config)
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}
