@@ -34,6 +34,17 @@ _MODEL_OPTIONS = {
     "extra_body": ("enable_thinking",),
     "client_kwargs": ("timeout", "max_retries"),
 }
+_USAGE_FIELDS = {
+    "usage",
+    "coverage",
+    "records",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cached_input_tokens",
+    "noncached_input_tokens",
+    "reasoning_tokens",
+}
 
 
 def _safe_text(value: str) -> str:
@@ -67,19 +78,19 @@ def _safe_text(value: str) -> str:
     )
 
 
-def safe_value(value):
+def safe_value(value, *, fixed_keys=()):
     """Redact diagnostic data recursively without serializing arbitrary objects."""
     if isinstance(value, dict):
         return {
-            _safe_text(str(key)): (
+            (key if key in fixed_keys else _safe_text(str(key))): (
                 "[REDACTED]"
                 if _PRIVATE_KEY.search(str(key)) or (key == "data" and value.get("type") == "base64")
-                else safe_value(item)
+                else safe_value(item, fixed_keys=fixed_keys)
             )
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return [safe_value(item) for item in value]
+        return [safe_value(item, fixed_keys=fixed_keys) for item in value]
     if isinstance(value, str):
         return _safe_text(value)
     if value is None or isinstance(value, (bool, int, float)):
@@ -102,7 +113,7 @@ def response_record(response) -> dict:
         **safe_value({key: value for key, value in raw.items() if key not in {"success", "answer", "metadata"}}),
         "success": raw["success"],
         "answer": safe_value(raw["answer"]),
-        "metadata": safe_value(raw["metadata"]),
+        "metadata": safe_value(raw["metadata"], fixed_keys=_USAGE_FIELDS),
     }
 
 

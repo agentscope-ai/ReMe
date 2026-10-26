@@ -287,16 +287,29 @@ def test_diagnostic_credentials_are_redacted_without_removing_counters(field):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("secret", ["response", "success", "answer", "metadata"])
+@pytest.mark.parametrize(
+    "secret",
+    ["response", "success", "answer", "metadata", "usage", "coverage", "records", "input_tokens"],
+)
 async def test_failed_response_schema_survives_environment_name_collision(scene_run, monkeypatch, secret):
     _, app, _, case, evaluate = scene_run
-    monkeypatch.setenv("LLM_API_KEY", secret)
-    app.run_job.return_value = Response(success=False, answer="Provider unavailable", metadata={"code": 503})
+    monkeypatch.setenv("TEST_PRIVATE_KEY", secret)
+    usage = {"input_tokens": 100, "output_tokens": 20, "records": 1, "coverage": {"input_tokens": 1}}
+    app.run_job.return_value = Response(
+        success=False,
+        answer=f"Provider unavailable: {secret}",
+        metadata={"usage": usage, "private_key": "PRIVATE_SENTINEL", f"debug {secret}": f"detail {secret}"},
+    )
     await evaluate()
     record = json.loads((case / "ingestion/attempt-001/diagnostics/00000-response.json").read_text())
-    assert record["response"]["success"] is False
-    assert record["response"]["answer"] == "Provider unavailable"
-    assert record["response"]["metadata"] == {"code": 503}
+    response = record["response"]
+    assert Response.model_validate(response).success is False
+    assert response["answer"] == "Provider unavailable: [REDACTED]"
+    assert response["metadata"] == {
+        "usage": usage,
+        "private_key": "[REDACTED]",
+        "debug [REDACTED]": "detail [REDACTED]",
+    }
 
 
 @pytest.mark.parametrize("secret", ["a", "model", "temperature"])
