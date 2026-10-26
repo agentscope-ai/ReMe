@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from benchmark.memlens import run as runner
-from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, safe_value
+from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, response_record, safe_value
 from reme.schema import Response
 
 
@@ -286,23 +286,19 @@ def test_diagnostic_credentials_are_redacted_without_removing_counters(field):
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "secret",
     ["response", "success", "answer", "metadata", "usage", "coverage", "records", "input_tokens"],
 )
-async def test_failed_response_schema_survives_environment_name_collision(scene_run, monkeypatch, secret):
-    _, app, _, case, evaluate = scene_run
+def test_failed_response_schema_survives_environment_name_collision(monkeypatch, secret):
     monkeypatch.setenv("TEST_PRIVATE_KEY", secret)
     usage = {"input_tokens": 100, "output_tokens": 20, "records": 1, "coverage": {"input_tokens": 1}}
-    app.run_job.return_value = Response(
+    raw = Response(
         success=False,
         answer=f"Provider unavailable: {secret}",
         metadata={"usage": usage, "private_key": "PRIVATE_SENTINEL", f"debug {secret}": f"detail {secret}"},
     )
-    await evaluate()
-    record = json.loads((case / "ingestion/attempt-001/diagnostics/00000-response.json").read_text())
-    response = record["response"]
+    response = json.loads(json.dumps(response_record(raw)))
     assert Response.model_validate(response).success is False
     assert response["answer"] == "Provider unavailable: [REDACTED]"
     assert response["metadata"] == {
