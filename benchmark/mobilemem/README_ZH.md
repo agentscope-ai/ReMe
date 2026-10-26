@@ -46,7 +46,8 @@ temperature 为 0，开启 thinking，输出预算 65,536，上下文为 1,000,0
 
 usage policy 第 2 版统计已观测的成功 HTTP 请求，包括压缩调用及摄入/回答最终失败前已经产生的请求。
 记忆成本只汇总 `sessions/*.json` 和 `index-response.json`；回答成本只汇总 `answer-response.json`，
-包括失败响应及直接异常时的 `response: null`。`answer.json`、result 和 response metadata 中的副本不重复计费。
+包括失败响应及直接异常时的 `response: null`。成功与失败的回答统一保存在这个文件中，
+根据 `response.success` 决定是否进入评分；旧运行的 `answer.json` 副本、result 和 response metadata 不重复计费。
 `memory_usage.json` 仍仅在完整历史摄入及索引更新成功后生成，不能将它误作部分摄入标记。
 Judge 用量不计入方法成本；缺失字段保持未知，并记录每个字段的观测覆盖数。
 `mean_tokens_per_user` / `mean_tokens_per_question` 是本次已观测成本按计划用户数/应测题数均摊，

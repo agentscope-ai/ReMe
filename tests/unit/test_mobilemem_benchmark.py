@@ -129,7 +129,7 @@ def test_candidate_registration_is_application_local(candidate):
 
 
 @pytest.mark.asyncio
-async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypatch):
+async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypatch, mobile_scene):
     from reme import Application
 
     root = Path(__file__).resolve().parents[2] / "plugins"
@@ -174,6 +174,23 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
             "digest_dir",
             "session_dir/dialog",
         ]
+        from reme_mobilemem.auto_memory import MobileMemAutoMemoryStep
+
+        monkeypatch.setattr(MobileMemAutoMemoryStep, "_list_session_note", AsyncMock(return_value=None))
+        wrappers = candidate_app.context.components["agent_wrapper"]
+        for wrapper in wrappers.values():
+            wrapper.reply = AsyncMock(return_value={"result": "answer"})
+        _, scene = mobile_scene
+        messages = mobilemem.session_messages(scene["sessions"][0], scene["image_root"])
+        for images, kwargs in ((True, {}), (False, {"include_images": False})):
+            answer = await candidate_app.run_job("agentic_answer", query="Question", **kwargs)
+            assert answer.success and answer.metadata["include_images"] is images
+            toolkit = wrappers["bench"].reply.call_args.kwargs["toolkit"]
+            assert ((await toolkit.get_tool("read_image")) is not None) is images
+            memory = await candidate_app.run_job("auto_memory", messages=messages, session_id=f"s-{images}", **kwargs)
+            assert memory.success
+            assert isinstance(wrappers["default"].reply.call_args.args[0], Msg) is images
+            assert (tmp_path / "candidate/session/images" / f"s-{images}").exists() is images
     finally:
         await judge_app.close()
         await candidate_app.close()

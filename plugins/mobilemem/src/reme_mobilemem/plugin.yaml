@@ -18,6 +18,7 @@ application_defaults:
     auto_memory:
       backend: base
       description: "Record one original MobileMem-Omni session using native Auto Memory."
+      include_images: true
       include_source_sessions: true
       parameters:
         type: object
@@ -49,6 +50,7 @@ application_defaults:
     agentic_answer:
       backend: base
       description: "Answer a MobileMem question through a fresh evidence retrieval Agent."
+      include_images: true
       include_source_sessions: true
       parameters:
         type: object
@@ -56,11 +58,10 @@ application_defaults:
           query: {type: string, description: "Official benchmark answer prompt including the query."}
           query_time: {type: string, default: ""}
           query_images: {type: array, items: {type: object}, default: []}
-          scene_id: {type: string}
           max_iters: {type: integer, minimum: 1, default: 30}
           include_images: {type: boolean, default: true}
           include_source_sessions: {type: boolean, default: true}
-        required: [query, scene_id]
+        required: [query]
       steps:
         - backend: mobilemem_agentic_answer_step
           agent_wrapper: bench

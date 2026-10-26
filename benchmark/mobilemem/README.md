@@ -50,7 +50,8 @@ The runner adds no fallback or retry queue.
 Usage policy version 2 counts observed successful HTTP requests, including compression and requests made before
 a candidate history or answer later fails. Memory cost comes from `sessions/*.json` and `index-response.json`;
 answer cost comes only from `answer-response.json`, including failed responses or `response: null` when a call raises.
-Copies in `answer.json`, result files and response metadata are not counted again. `memory_usage.json` remains a
+Successful and failed answers use this single response file; its `response.success` determines whether scoring proceeds.
+Earlier runs' `answer.json` copies, result files and response metadata are not counted again. `memory_usage.json` remains a
 completion marker: it is written only after the full history and index update succeed.
 Judge usage is excluded; absent counters stay unknown and each counter includes its observation coverage.
 The `mean_tokens_per_user` / `mean_tokens_per_question` fields amortize this run's observed cost over scheduled users /

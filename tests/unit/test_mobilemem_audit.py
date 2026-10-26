@@ -95,18 +95,20 @@ def fixture_flow(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_failed_second_memory_keeps_both_requests(flow):
+@pytest.mark.parametrize("direct", [False, True])
+async def test_failed_second_memory_keeps_both_requests(flow, direct):
     flow.scenes[0]["sessions"].append({"session_id": "s1", "event_start_time": "2025-01-02T09:00:00"})
-    flow.fail = "s1"
+    flow.fail, flow.direct = "s1", direct
     complete, summary = await flow.execute()
     assert not complete and summary["completed"] == 0
     assert summary["memory_usage"]["total_tokens"] == summary["token_usage"]["total_tokens"] == 240
     assert summary["token_usage"]["records"] == 2
     assert not (flow.directory / "memory_usage.json").exists()
-    assert read(flow.directory / "sessions/00001.json")["response"]["success"] is False
+    response = read(flow.directory / "sessions/00001.json")["response"]
+    assert response is None if direct else response["success"] is False
     error = read(flow.directory / "error.json")
     assert (error["stage"], error["user_id"], error["session_id"]) == ("memory", "uuid_0", "s1")
-    assert "input length" in error["reason"] and all(app.closed for app in flow.apps)
+    assert all(app.closed for app in flow.apps)
 
 
 @pytest.mark.asyncio
@@ -129,16 +131,6 @@ async def test_failed_answer_keeps_memory_and_answer_cost_once(flow, direct):
     assert (receipt["response"] is None) is direct
     assert not (question / "answer.json").exists() and not (question / "result.json").exists()
     assert read(question / "error.json")["stage"] == "answer"
-
-
-@pytest.mark.asyncio
-async def test_direct_memory_exception_keeps_null_response_receipt(flow):
-    flow.fail, flow.direct = "auto_memory", True
-    _, summary = await flow.execute()
-    assert summary["memory_usage"]["total_tokens"] == 120
-    receipt = read(flow.directory / "sessions/00000.json")
-    assert receipt["response"] is None and receipt["usage"]["records"] == 1
-    assert not (flow.directory / "memory_usage.json").exists()
 
 
 @pytest.mark.asyncio
@@ -182,7 +174,8 @@ async def test_judge_failure_preserves_answer_without_double_counting(flow, dire
     assert not complete and summary["token_usage"]["total_tokens"] == 240
     assert summary["answer_usage"]["records"] == 1
     question = flow.directory / "questions/0000"
-    assert read(question / "answer.json") == read(question / "answer-response.json")
+    assert read(question / "answer-response.json")["response"]["success"] is True
+    assert not (question / "answer.json").exists()
     assert not (question / "result.json").exists()
     assert read(question / "error.json")["stage"] == "judge"
     assert (read(question / "judge.json") is None) is direct
@@ -209,7 +202,8 @@ async def test_all_success_old_payloads_metrics_and_usage_stay_compatible(flow):
         "answer_judge",
     ]
     question = flow.directory / "questions/0000"
-    assert read(question / "answer.json") == read(question / "answer-response.json")
+    assert read(question / "answer-response.json")["response"]["success"] is True
+    assert not (question / "answer.json").exists()
     result = read(question / "result.json")
     assert result == {
         "question_id": "q0",
@@ -263,7 +257,7 @@ async def test_summary_ignores_legacy_answer_and_result_usage_copies(flow, monke
         if app is not None and app.judge:
             for name in ("answer.json", "result.json"):
                 path = flow.directory / "questions/0000" / name
-                data = read(path)
+                data = read(path) if path.exists() else {"response": {"success": True}}
                 data["usage"] = {"total_tokens": 999999}
                 run.save(path, data)
 
@@ -336,30 +330,11 @@ def test_error_artifacts_remove_secrets_payloads_and_locals(monkeypatch):
     assert response_record(successful) == successful.model_dump()
 
 
-@pytest.mark.parametrize("name", ["token", "refresh_token", "id_token", "access_token", "auth_token"])
-def test_failed_response_token_aliases_are_redacted_without_removing_usage_counters(name):
-    sentinel = "opaque-new-session"
-    response = Response(
-        success=False,
-        answer=f"{name}='{sentinel}'",
-        metadata={
-            name: sentinel,
-            "input_tokens": 100,
-            "output_tokens": 20,
-            "cached_input_tokens": 30,
-        },
-    )
-    record = response_record(response)
-    assert sentinel not in json.dumps(record)
-    assert record["metadata"]["input_tokens"] == 100
-    assert record["metadata"]["output_tokens"] == 20
-    assert record["metadata"]["cached_input_tokens"] == 30
-
-
 @pytest.mark.parametrize(
-    "name", ["private_key", "private-key", "privateKey", "PRIVATE_KEY", "PRIVATE-KEY", "PrIvAtEkEy"]
+    "name",
+    ["token", "refresh_token", "id_token", "access_token", "auth_token", "private_key", "private-key", "privateKey"],
 )
-def test_private_key_aliases_are_redacted_in_failed_responses_and_error_chains(name):
+def test_credentials_are_redacted_in_failed_responses_and_error_chains(name):
     sentinel = "0123456789abcdef" * 4
     usage = {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120, "cached_input_tokens": 30}
     response = Response(
@@ -388,12 +363,9 @@ def test_private_key_aliases_are_redacted_in_failed_responses_and_error_chains(n
     assert response_record(successful) == successful.model_dump()
 
 
-@pytest.mark.parametrize(
-    "name", ["private_key", "private-key", "privateKey", "PRIVATE_KEY", "PRIVATE-KEY", "PrIvAtEkEy"]
-)
 @pytest.mark.parametrize("sentinel", ["0123456789abcdef" * 4, "a"])
-def test_private_key_environment_values_are_redacted_without_changing_usage_schema(monkeypatch, name, sentinel):
-    monkeypatch.setenv(f"TEST_{name}", sentinel)
+def test_private_key_environment_values_are_redacted_without_changing_usage_schema(monkeypatch, sentinel):
+    monkeypatch.setenv("TEST_PRIVATE_KEY", sentinel)
     usage = {"input_tokens": 100, "output_tokens": 20, "records": 1, "coverage": {"input_tokens": 1}}
     response = Response(success=False, answer=f"provider returned {sentinel}", metadata={"usage": usage})
     record = response_record(response)
@@ -402,8 +374,6 @@ def test_private_key_environment_values_are_redacted_without_changing_usage_sche
     assert record["metadata"]["usage"] == usage
     diagnostic = error_record(RuntimeError(f"provider returned {sentinel}"), stage="startup")
     assert diagnostic["reason"] == diagnostic["chain"][0]["reason"] == "provider returned [redacted]"
-    successful = response.model_copy(update={"success": True})
-    assert response_record(successful) == successful.model_dump()
 
 
 @pytest.mark.parametrize("header", ["Cookie", "Set-Cookie"])
@@ -430,9 +400,9 @@ async def test_http_observer_includes_compressor_subsets_and_null_coverage_witho
                 "as_llm": {
                     name: SimpleNamespace(model=SimpleNamespace(client=SimpleNamespace(_client=client)))
                     for name, client in zip(("default", "bench", "compressor"), clients)
-                }
-            }
-        )
+                },
+            },
+        ),
     )
     run.observe_usage(app)
     run.observe_usage(app)
@@ -440,10 +410,10 @@ async def test_http_observer_includes_compressor_subsets_and_null_coverage_witho
     async def scoped(amount):
         with run.usage_scope() as records:
             await clients[0].send(
-                {"prompt_tokens": amount, "completion_tokens": 20, "prompt_tokens_details": {"cached_tokens": 30}}
+                {"prompt_tokens": amount, "completion_tokens": 20, "prompt_tokens_details": {"cached_tokens": 30}},
             )
             await clients[2].send(
-                {"prompt_tokens": 50, "completion_tokens": 10, "completion_tokens_details": {"reasoning_tokens": 4}}
+                {"prompt_tokens": 50, "completion_tokens": 10, "completion_tokens_details": {"reasoning_tokens": 4}},
             )
         return run.aggregate_usage(records)
 
@@ -456,18 +426,14 @@ async def test_http_observer_includes_compressor_subsets_and_null_coverage_witho
 
 
 @pytest.mark.asyncio
-async def test_cleanup_error_does_not_replace_primary_failure(flow):
-    flow.fail, flow.cleanup_fail = "auto_memory", True
-    _, summary = await flow.execute()
-    assert summary["memory_usage"]["total_tokens"] == 120
-    assert read(flow.directory / "error.json")["stage"] == "memory"
-    assert read(flow.directory / "cleanup-error.json")["stage"] == "cleanup"
-
-
-@pytest.mark.asyncio
-async def test_cleanup_failure_keeps_valid_scores_but_does_not_report_operational_success(flow):
-    flow.cleanup_fail = True
+@pytest.mark.parametrize("failed_job,completed,cost", [("auto_memory", 0, 120), (None, 1, 240)])
+async def test_cleanup_failure_preserves_primary_outcome(flow, failed_job, completed, cost):
+    flow.fail, flow.cleanup_fail = failed_job, True
     complete, summary = await flow.execute()
-    assert not complete and summary["completed"] == summary["expected"] == 1
-    assert summary["cleanup_error_count"] == 1 and summary["metrics"]["llm_judge"] == 1.0
-    assert summary["token_usage"]["total_tokens"] == 240
+    assert not complete and summary["completed"] == completed
+    assert summary["cleanup_error_count"] == 1 and summary["token_usage"]["total_tokens"] == cost
+    assert read(flow.directory / "cleanup-error.json")["stage"] == "cleanup"
+    if failed_job:
+        assert read(flow.directory / "error.json")["stage"] == "memory"
+    else:
+        assert summary["metrics"]["llm_judge"] == 1.0

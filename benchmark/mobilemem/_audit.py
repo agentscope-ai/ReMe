@@ -29,7 +29,10 @@ def safe_text(value, limit: int = 1200) -> str:
             else:
                 text = text.replace(secret, "[redacted]")
     text = re.sub(
-        r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", "[private key redacted]", text, flags=re.S
+        r"-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----",
+        "[private key redacted]",
+        text,
+        flags=re.S,
     )
     text = re.sub(r"(?i)\b(?:request[_ -]?)?headers\s*[:=].*", "headers=[redacted]", text)
     text = re.sub(r"(?i)\b(?:set-cookie|cookie)\s*:[^\r\n]*", "cookie: [redacted]", text)
@@ -150,7 +153,7 @@ def judge_settings(app) -> dict:
                 key: value
                 for key, value in (model.get("parameters") or {}).items()
                 if key in {"temperature", "max_tokens", "thinking_enable", "top_p"}
-            }
+            },
         ),
         "extra_body": {"enable_thinking": (model.get("extra_body") or {}).get("enable_thinking")},
         "client_kwargs": {

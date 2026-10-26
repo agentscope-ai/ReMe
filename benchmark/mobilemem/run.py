@@ -430,7 +430,6 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
                             answer_response = await app.run_job(
                                 "agentic_answer",
                                 query=query_prompt(question["question"], "Use the available evidence tools."),
-                                scene_id=scene["id"],
                                 include_images=True,
                                 include_source_sessions=True,
                                 max_iters=30,
@@ -443,7 +442,6 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
                                 "usage": aggregate_usage(measured),
                             }
                             save(question_dir / "answer-response.json", answer_record)
-                    save(question_dir / "answer.json", answer_record)
                     prediction = answer_response.answer
                     answer_stage, answer_response = "judge", None
                     try:

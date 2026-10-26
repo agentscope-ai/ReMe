@@ -64,7 +64,6 @@ class MobileMemAgenticAnswerStep(BaseStep):
 
     async def execute(self):
         """Answer through a fresh, scene-scoped Agent and its allowed tools."""
-        self.context.data.setdefault("max_iters", 30)
         wrapper = self.agent_wrapper
         if not isinstance(wrapper, AsAgentWrapper):
             raise NotImplementedError("MobileMem agentic_answer requires the AgentScope wrapper")
