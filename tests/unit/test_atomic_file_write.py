@@ -2,7 +2,10 @@
 
 import asyncio
 import os
+from pathlib import Path
 import stat
+import subprocess
+import sys
 import threading
 
 import pytest
@@ -107,3 +110,75 @@ async def test_cancelled_save_keeps_path_lock_until_publication(tmp_path, monkey
     assert results[1].success
     assert target.read_text(encoding="utf-8") == "successful write"
     assert list(tmp_path.iterdir()) == [target]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions")
+async def test_save_rejects_read_only_target_without_replacing_it(tmp_path):
+    """A writable parent must not let saving bypass the target's access rights."""
+    if os.geteuid() == 0:
+        pytest.skip("Root bypasses ordinary file write permissions")
+    target = tmp_path / "readonly.md"
+    target.write_bytes(b"original")
+    target.chmod(0o444)
+    try:
+        response = await SaveStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(
+            path=target.name,
+            content="replacement",
+        )
+        assert response.success is False
+        assert target.read_bytes() == b"original"
+        assert stat.S_IMODE(target.stat().st_mode) == 0o444
+        assert list(tmp_path.iterdir()) == [target]
+    finally:
+        target.chmod(0o644)
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions")
+async def test_atomic_write_does_not_require_target_read_access(tmp_path):
+    """Permission checks retain the existing write-only file contract."""
+    target = tmp_path / "writeonly.md"
+    target.write_bytes(b"original")
+    target.chmod(0o200)
+    try:
+        await write_file_safe(target, b"replacement")
+        assert stat.S_IMODE(target.stat().st_mode) == 0o200
+    finally:
+        target.chmod(0o600)
+    assert target.read_bytes() == b"replacement"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX umask semantics")
+@pytest.mark.parametrize("mask, expected", [(0o002, 0o664), (0o077, 0o600)])
+def test_new_save_respects_process_umask(tmp_path, mask, expected):
+    """Check real creation modes without changing the test process's umask."""
+    script = """
+import asyncio
+import os
+from pathlib import Path
+import stat
+import sys
+from reme.components.application_context import ApplicationContext
+from reme.steps.file_io.save import SaveStep
+
+workspace = Path(sys.argv[1])
+os.umask(int(sys.argv[2]))
+response = asyncio.run(SaveStep(app_context=ApplicationContext(workspace_dir=str(workspace)))(
+    path="new.md", content="memory"
+))
+assert response.success, response.answer
+target = workspace / "new.md"
+assert target.read_text() == "memory"
+assert list(workspace.iterdir()) == [target]
+print(stat.S_IMODE(target.stat().st_mode))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), str(mask)],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=15,
+    )
+    assert int(result.stdout.splitlines()[-1]) == expected

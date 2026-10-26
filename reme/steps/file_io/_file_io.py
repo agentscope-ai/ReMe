@@ -3,8 +3,8 @@
 import asyncio
 import os
 from pathlib import Path
+from secrets import token_hex
 from stat import S_IMODE
-import tempfile
 from typing import Iterable
 
 import aiofiles
@@ -156,7 +156,7 @@ async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
 
 
 async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
-    """Publish complete bytes atomically so index readers never see a partial write."""
+    """Publish complete bytes atomically while retaining normal file permissions."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, str):
         try:
@@ -171,8 +171,20 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
         payload = content
 
     def publish():
-        mode = S_IMODE(file_path.stat().st_mode) if file_path.exists() else None
-        fd, temporary = tempfile.mkstemp(prefix=".reme-", suffix=".tmp", dir=file_path.parent)
+        flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
+        # Check OS write access without truncating the existing bytes.
+        try:
+            existing_fd = os.open(file_path, flags)
+        except FileNotFoundError:
+            mode = None
+        else:
+            try:
+                mode = S_IMODE(os.fstat(existing_fd).st_mode)
+            finally:
+                os.close(existing_fd)
+
+        temporary = file_path.parent / f".reme-{token_hex(16)}.tmp"
+        fd = os.open(temporary, flags | os.O_CREAT | os.O_EXCL, 0o600 if mode is not None else 0o666)
         try:
             with os.fdopen(fd, "wb") as handle:
                 handle.write(payload)
