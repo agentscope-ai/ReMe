@@ -159,6 +159,10 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
         audit = mobilemem.judge_settings(judge_app)
         assert audit["model"] == "offline-judge-override"
         assert audit["parameters"] == {"max_tokens": 4096, "temperature": 0, "thinking_enable": False}
+        with monkeypatch.context() as environment:
+            for field in ("temperature", "max_tokens", "thinking_enable"):
+                environment.setenv("TEST_PRIVATE_KEY", field)
+                assert mobilemem.judge_settings(judge_app)["parameters"] == audit["parameters"]
         assert audit["protocol"] == "mobilemem-omni-membase-default-judge-v1"
         assert "credential" not in json.dumps(audit) and "provider.invalid" not in json.dumps(audit)
         models = candidate_app.context.components["as_llm"]

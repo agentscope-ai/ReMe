@@ -166,13 +166,11 @@ def judge_settings(app) -> dict:
     fields = ("backend", "model", "stream", "context_size", "max_retries", "retry_delay")
     return {
         **{key: safe_value(model[key]) for key in fields if key in model},
-        "parameters": safe_value(
-            {
-                key: value
-                for key, value in (model.get("parameters") or {}).items()
-                if key in {"temperature", "max_tokens", "thinking_enable", "top_p"}
-            },
-        ),
+        "parameters": {
+            key: safe_value(value)
+            for key, value in (model.get("parameters") or {}).items()
+            if key in {"temperature", "max_tokens", "thinking_enable", "top_p"}
+        },
         "extra_body": {"enable_thinking": (model.get("extra_body") or {}).get("enable_thinking")},
         "client_kwargs": {
             key: value for key, value in (model.get("client_kwargs") or {}).items() if key in {"timeout", "max_retries"}
