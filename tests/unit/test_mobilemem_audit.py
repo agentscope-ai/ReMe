@@ -363,15 +363,27 @@ def test_credentials_are_redacted_in_failed_responses_and_error_chains(name):
     assert response_record(successful) == successful.model_dump()
 
 
-@pytest.mark.parametrize("sentinel", ["0123456789abcdef" * 4, "a"])
+@pytest.mark.parametrize(
+    "sentinel",
+    ["0123456789abcdef" * 4, "a", "success", "answer", "metadata", "usage", "coverage", "records", "input_tokens"],
+)
 def test_private_key_environment_values_are_redacted_without_changing_usage_schema(monkeypatch, sentinel):
     monkeypatch.setenv("TEST_PRIVATE_KEY", sentinel)
     usage = {"input_tokens": 100, "output_tokens": 20, "records": 1, "coverage": {"input_tokens": 1}}
-    response = Response(success=False, answer=f"provider returned {sentinel}", metadata={"usage": usage})
+    response = Response(
+        success=False,
+        answer=f"provider returned {sentinel}",
+        metadata={"usage": usage, "private_key": "PRIVATE_SENTINEL", f"debug {sentinel}": f"detail {sentinel}"},
+    )
     record = response_record(response)
     assert set(record) == {"success", "answer", "metadata"}
+    assert Response.model_validate(record).success is False
     assert record["answer"] == "provider returned [redacted]"
-    assert record["metadata"]["usage"] == usage
+    assert record["metadata"] == {
+        "usage": usage,
+        "private_key": "[redacted]",
+        "debug [redacted]": "detail [redacted]",
+    }
     diagnostic = error_record(RuntimeError(f"provider returned {sentinel}"), stage="startup")
     assert diagnostic["reason"] == diagnostic["chain"][0]["reason"] == "provider returned [redacted]"
 

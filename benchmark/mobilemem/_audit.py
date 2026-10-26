@@ -17,6 +17,17 @@ _SENSITIVE = re.compile(
     r"(?:^|[_-])(?:access[_-]?token|refresh[_-]?token|id[_-]?token|token)$",
     re.I,
 )
+_USAGE_FIELDS = {
+    "usage",
+    "coverage",
+    "records",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cached_input_tokens",
+    "noncached_input_tokens",
+    "reasoning_tokens",
+}
 
 
 def safe_text(value, limit: int = 1200) -> str:
@@ -52,21 +63,21 @@ def safe_text(value, limit: int = 1200) -> str:
     return text[:limit]
 
 
-def safe_value(value, depth: int = 0):
+def safe_value(value, depth: int = 0, *, fixed_keys=()):
     """Sanitize failed response envelopes, never serialize arbitrary objects/locals."""
     if depth > 6:
         return "[nested data omitted]"
     if isinstance(value, dict):
         return {
-            safe_text(key, 100): (
+            (key if key in fixed_keys else safe_text(key, 100)): (
                 "[redacted]"
                 if _SENSITIVE.search(str(key)) or str(key).lower() in {"base64", "data", "body", "request", "traceback"}
-                else safe_value(item, depth + 1)
+                else safe_value(item, depth + 1, fixed_keys=fixed_keys)
             )
             for key, item in list(value.items())[:50]
         }
     if isinstance(value, (list, tuple)):
-        return [safe_value(item, depth + 1) for item in value[:20]]
+        return [safe_value(item, depth + 1, fixed_keys=fixed_keys) for item in value[:20]]
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return safe_text(value) if isinstance(value, str) else f"[{type(value).__name__} omitted]"
@@ -77,7 +88,14 @@ def response_record(response):
     if response is None:
         return None
     value = response.model_dump()
-    return value if response.success else safe_value(value)
+    if response.success:
+        return value
+    return {
+        **safe_value({key: item for key, item in value.items() if key not in {"success", "answer", "metadata"}}),
+        "success": value["success"],
+        "answer": safe_value(value["answer"]),
+        "metadata": safe_value(value["metadata"], fixed_keys=_USAGE_FIELDS),
+    }
 
 
 def safe_image_path(source) -> str:
