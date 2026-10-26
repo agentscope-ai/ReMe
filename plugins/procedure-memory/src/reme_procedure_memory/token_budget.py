@@ -45,19 +45,31 @@ class TokenBudget:
         if exceeds:
             raise ValueError(f"{field} has {count} tokens; maximum is {self.limits[field]}. Rewrite it more concisely.")
 
-    def prefix(self, text: str, limit: int) -> int:
-        """Find a nonempty original-text prefix within a token budget."""
-        if self.count(text) <= limit:
-            return len(text)
-        low, high = 0, len(text)
+    def prefix(self, text: str, limit: int, *, start: int = 0) -> int:
+        """Find a bounded prefix at start, probing progressively larger windows."""
+        available = len(text) - start
+        if not available:
+            return 0
+        low, high = 0, min(available, limit)
+        while True:
+            count = self.count(text[start : start + high])
+            if count > limit:
+                high -= 1
+                break
+            low = high
+            if high == available:
+                return high
+            # An exact fit commonly occurs in logs. One extra character can
+            # establish the boundary without another full-sized search window.
+            if count == limit and self.count(text[start : start + high + 1]) > limit:
+                return high
+            high = min(available, high * 2)
         while low < high:
             middle = (low + high + 1) // 2
-            if self.count(text[:middle]) <= limit:
+            if self.count(text[start : start + middle]) <= limit:
                 low = middle
             else:
                 high = middle - 1
-        while low and self.count(text[:low]) > limit:
-            low -= 1
         if not low:
             raise ValueError("Token budget cannot hold one character")
         return low

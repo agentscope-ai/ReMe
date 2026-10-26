@@ -13,6 +13,10 @@ def test_exact_counter_and_boundaries():
     with pytest.raises(ValueError, match="maximum is 6"):
         budget.check("content", "你好!")
     assert budget.prefix("你好!", 6) == 2
+    assert budget.prefix("skip你好!", 6, start=4) == 2
+    assert budget.prefix("skip", 6, start=4) == 0
+    with pytest.raises(ValueError, match="cannot hold one character"):
+        budget.prefix("你", 1)
 
 
 def test_no_estimate_fallback():

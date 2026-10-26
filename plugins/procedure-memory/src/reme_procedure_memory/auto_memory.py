@@ -10,7 +10,7 @@ from .checkpoint import atomic_json, digest, json_text, load_json
 from .schema import ProcessingCheckpoint, SegmentResult
 from .search import ProcedureStep
 from .store import ProcedureIndexError
-from .trajectory import prepare_text, segments
+from .trajectory import SEGMENTATION_VERSION, prepare_text, segments
 
 TOOLS = ["procedure_search", "procedure_read", "procedure_create", "procedure_update"]
 
@@ -50,6 +50,7 @@ class ProcedureAutoMemoryStep(ProcedureStep):
             json_text(
                 {
                     "version": 1,
+                    "segmentation": SEGMENTATION_VERSION,
                     "tokenizer": store.budget.source,
                     # Raising an execution context budget must remain a valid
                     # way to resume; it does not alter the saved segmentation.

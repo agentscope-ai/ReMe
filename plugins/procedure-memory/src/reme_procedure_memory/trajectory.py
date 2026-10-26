@@ -13,6 +13,7 @@ from reme.steps.file_io._file_io import detect_file_encoding
 from .checkpoint import atomic_json, checked_path, digest, load_json
 
 SUPPORTED = {"", ".txt", ".md", ".markdown", ".json", ".jsonl", ".log"}
+SEGMENTATION_VERSION = 2
 
 
 def file_hash(path: Path, max_bytes: int) -> str:
@@ -129,15 +130,22 @@ def segments(path: Path, encoding: str, budget):
     limit = budget.limits["segment"]
     with path.open(encoding=encoding, errors="strict", newline="") as stream:
         for line in stream:
-            if pending and budget.count(pending + line) > limit:
+            if pending:
+                combined = pending + line
+                if budget.prefix(combined, limit) == len(combined):
+                    pending = combined
+                    continue
                 yield {"offset": offset, "text": pending}
                 offset += len(pending)
                 pending = ""
-            while budget.count(line) > limit:
-                end = budget.prefix(line, limit)
-                yield {"offset": offset, "text": line[:end]}
+            start = 0
+            while start < len(line):
+                end = budget.prefix(line, limit, start=start)
+                if start + end == len(line):
+                    pending = line[start:]
+                    break
+                yield {"offset": offset, "text": line[start : start + end]}
                 offset += end
-                line = line[end:]
-            pending += line
+                start += end
         if pending:
             yield {"offset": offset, "text": pending}
