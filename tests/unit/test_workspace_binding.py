@@ -165,7 +165,12 @@ async def test_workspace_scoped_components_instantiate_per_alias(tmp_path):
         store_beta = app.context.get_component(ComponentEnum.FILE_STORE, "default", "beta")
 
         assert store_alpha is not store_beta
-        assert app.context.components[ComponentEnum.FILE_STORE]["default"] is store_alpha  # default alias entry
+        assert app.context.components[ComponentEnum.FILE_STORE]["default"] is store_alpha
+        assert ComponentEnum.FILE_STORE not in app.context.shared_components
+        assert app.context.workspaces["alpha"].get_component(ComponentEnum.FILE_STORE, "default") is store_alpha
+        assert app.context.workspaces["beta"].get_component(ComponentEnum.FILE_STORE, "default") is store_beta
+        with pytest.raises(KeyError, match="no instance for workspace 'alpha'"):
+            app.context.workspaces["alpha"].get_component(ComponentEnum.FILE_STORE, "missing")
         assert store_alpha.workspace_path == tmp_path / "alpha"
         assert store_beta.workspace_path == tmp_path / "beta"
         assert store_alpha.chunks_path.parent == tmp_path / "alpha" / "metadata" / "file_store"
@@ -314,7 +319,8 @@ async def test_digest_titles_follow_workspace_binding(tmp_path):
         assert await step._digest_titles() == ["beta-only"]
 
         step.context = RuntimeContext()
-        assert await step._digest_titles() == ["alpha-only"]
+        with pytest.raises(RuntimeError, match="workspace binding is required"):
+            await step._digest_titles()
 
 
 @pytest.mark.asyncio

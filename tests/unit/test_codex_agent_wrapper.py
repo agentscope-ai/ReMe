@@ -61,60 +61,51 @@ def _wrapper(tmp_path, **kwargs):
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
-@pytest.mark.asyncio
-async def test_mcp_config_uses_loopback_bridge_and_selected_jobs(tmp_path):
+def test_mcp_config_uses_legacy_child_bridge_and_selected_jobs(tmp_path):
     wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
 
-    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
+    config = wrapper._mcp_server_config(
         {"job_tools": ["search", "search"], "tool_context_id": "ctx-1"},
     )
-    await wrapper.close()
 
     assert config["command"]
     assert config["enabled_tools"] == ["search"]
     assert config["args"].count("--job") == 1
     assert config["args"][config["args"].index("--job") + 1] == "search"
     assert "reme.components.agent_wrapper.codex_mcp_server" in config["args"]
-    assert config["args"][config["args"].index("--endpoint") + 1].startswith("http://127.0.0.1:")
-    assert config["args"][config["args"].index("--token") + 1]
+    assert config["args"][config["args"].index("--config") + 1] == str(tmp_path / "custom.yaml")
+    assert config["args"][config["args"].index("--workspace") + 1] == str(tmp_path)
     assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
-    # mcp_config is accepted for compatibility but no longer builds a child app.
-    assert "--config" not in config["args"]
+    assert "--endpoint" not in config["args"]
+    assert "--token" not in config["args"]
 
 
-@pytest.mark.asyncio
-async def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
+def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
     wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
 
-    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
+    config = wrapper._mcp_server_config(
         {
             "job_tools": ["search"],
             "tool_context_id": "ctx-1",
             "injected_job_kwargs": {"_allowed_paths": ["daily/2025-06-01/note.md"]},
         },
     )
-    await wrapper.close()
 
     raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
     assert json.loads(raw) == {"_allowed_paths": ["daily/2025-06-01/note.md"]}
 
-    plain = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
+    plain = wrapper._mcp_server_config({"job_tools": ["search"]})
     assert "--injected-job-kwargs" not in plain["args"]
 
 
-@pytest.mark.asyncio
-async def test_thread_config_preserves_other_mcp_servers(tmp_path):
+def test_thread_config_preserves_other_mcp_servers(tmp_path):
     wrapper, _job = _wrapper(tmp_path)
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
-    config = wrapper._thread_config(  # pylint: disable=protected-access
+    config = wrapper._thread_config(
         {
             "job_tools": ["search"],
             "config": {"mcp_servers": {"docs": {"url": "https://example.test/mcp"}}},
         },
     )
-    await wrapper.close()
 
     assert "docs" in config["mcp_servers"]
     assert len(config["mcp_servers"]) == 2
@@ -167,64 +158,14 @@ def test_mcp_config_rejects_background_jobs(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_loopback_endpoint_serves_parent_jobs(tmp_path):
-    import httpx
-
-    wrapper, job = _wrapper(tmp_path)
-    await wrapper.start()
-    server = await wrapper._ensure_job_server()  # pylint: disable=protected-access
-    base = server.url
-    headers = {"Authorization": f"Bearer {server.token}"}
-    try:
-        async with httpx.AsyncClient(base_url=base, headers=headers, timeout=10) as http:
-            listed = (await http.get("/jobs")).json()["jobs"]
-            assert [entry["name"] for entry in listed] == ["search"]
-
-            called = await http.post("/call", json={"job": "search", "kwargs": {"query": "memo"}})
-            assert called.json() == {"success": True, "answer": "found:memo"}
-            # The job executed in the parent process, not in any child.
-            assert job.calls == [{"query": "memo"}]
-
-            missing = await http.post("/call", json={"job": "missing", "kwargs": {}})
-            assert missing.status_code == 404
-
-            unauthorized = await http.get("/jobs", headers={"Authorization": "Bearer wrong"})
-            assert unauthorized.status_code == 401
-    finally:
-        await wrapper.close()
-    assert server.is_running is False
-
-
-@pytest.mark.asyncio
-async def test_loopback_bridge_lists_and_calls_parent_job(tmp_path):
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    wrapper, job = _wrapper(tmp_path)
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
-    server_config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
-    transport = StdioTransport(
-        command=server_config["command"],
-        args=server_config["args"],
-        cwd=server_config["cwd"],
-        keep_alive=False,
-    )
-
-    async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
-        tools = await asyncio.wait_for(client.list_tools(), timeout=10)
-        assert [tool.name for tool in tools] == ["search"]
-        result = await asyncio.wait_for(client.call_tool("search", {"query": "via-bridge"}), timeout=10)
-    await wrapper.close()
-
-    assert "found:via-bridge" in str(result.content[0].text)
-    assert job.calls == [{"query": "via-bridge"}]
-
-
-@pytest.mark.asyncio
 async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
-    server_config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"jobs": {"search": {"backend": "base", "steps": []}}}),
+        encoding="utf-8",
+    )
+    wrapper, _job = _wrapper(tmp_path, mcp_config=str(config_path))
+    server_config = wrapper._mcp_server_config({"job_tools": ["search"]})
     proc = await asyncio.create_subprocess_exec(
         server_config["command"],
         *server_config["args"],

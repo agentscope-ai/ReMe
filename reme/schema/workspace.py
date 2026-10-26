@@ -9,17 +9,17 @@ if TYPE_CHECKING:
     from .application_config import ApplicationConfig
 
 
+@dataclass
+class WorkspaceAgentState:
+    """Session execution state owned by one agent wrapper within one workspace."""
+
+    thread_tool_contexts: dict[str, str] = field(default_factory=dict)
+    owned_thread_ids: set[str] | None = None
+
+
 @dataclass(frozen=True)
 class WorkspaceContext:
-    """Owns everything scoped to one workspace of an application.
-
-    Built from ApplicationConfig when the application context is created.
-    Beyond the resolved paths, the workspace owns its stateful component
-    instances (stores, graphs, indexes, catalogs), in-memory execution state
-    (drafts, search dedup, call budgets), session ownership records, and
-    workspace-scoped locks. Shared, stateless clients stay on the
-    ApplicationContext; per-call bindings reference this object.
-    """
+    """Owns the paths, stateful components, execution state, and locks of one workspace."""
 
     alias: str
     workspace_path: Path
@@ -29,16 +29,15 @@ class WorkspaceContext:
     resource_path: Path | None
     daily_path: Path | None
     digest_path: Path | None
-    # Workspace-scoped component instances keyed by component type then name.
-    # Values are BaseComponent instances; typed as Any to keep this module
-    # free of component imports (schema must not depend on components).
     components: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Drafts and search dedup state, keyed by tool_context_id.
     tool_contexts: dict[str, Any] = field(default_factory=dict)
-    # Search call budgets keyed by tool_context_id.
     search_call_budgets: dict[str, Any] = field(default_factory=dict)
-    # Workspace-scoped named asyncio locks (e.g. dream integration).
+    agent_states: dict[str, WorkspaceAgentState] = field(default_factory=dict)
     locks: dict[str, asyncio.Lock] = field(default_factory=dict)
+
+    def agent_state(self, wrapper_name: str) -> WorkspaceAgentState:
+        """Return the named wrapper's state within this workspace."""
+        return self.agent_states.setdefault(wrapper_name, WorkspaceAgentState())
 
     @classmethod
     def from_config(cls, alias: str, workspace: str, config: "ApplicationConfig") -> "WorkspaceContext":
@@ -58,6 +57,13 @@ class WorkspaceContext:
             daily_path=child(config.daily_dir),
             digest_path=child(config.digest_dir),
         )
+
+    def get_component(self, ctype: str, name: str) -> Any:
+        """Return a component owned by this workspace, never a default or shared substitute."""
+        try:
+            return self.components[ctype][name]
+        except KeyError as exc:
+            raise KeyError(f"Component '{name}' in {ctype} has no instance for workspace '{self.alias}'") from exc
 
     def storage_dirs(self) -> list[Path]:
         """Subdirectories the application materializes at startup, in configuration order."""

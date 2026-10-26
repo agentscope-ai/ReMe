@@ -3,6 +3,8 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
+import json
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -128,11 +130,8 @@ async def test_tool_context_state_namespaced_per_workspace(tmp_path):
 
 @pytest.mark.asyncio
 async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
-    wrapper = CodexAgentWrapper(
-        app_context=ApplicationContext(
-            workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
-        ),
-    )
+    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
+    wrapper = CodexAgentWrapper(app_context=context)
 
     class FakeCodex:
         """Minimal Codex double echoing the requested thread id."""
@@ -158,7 +157,13 @@ async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
     with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
         await wrapper._open_thread(codex, {"session_id": "thread-1", "workspace": "beta"})
 
-    assert sorted(wrapper._thread_tool_contexts) == ["beta/thread-2", "thread-1"]
+    alpha_state = context.workspaces["alpha"].agent_state(wrapper.name)
+    beta_state = context.workspaces["beta"].agent_state(wrapper.name)
+    assert set(alpha_state.thread_tool_contexts) == {"thread-1"}
+    assert set(beta_state.thread_tool_contexts) == {"thread-2"}
+    assert not wrapper._thread_tool_contexts
+    assert alpha_state.owned_thread_ids == {"thread-1"}
+    assert beta_state.owned_thread_ids == {"thread-2"}
 
 
 @pytest.mark.asyncio
@@ -295,27 +300,24 @@ async def test_mcp_tool_boundary_forwards_injected_workspace(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_codex_bridge_uses_loopback_endpoint(tmp_path):
-    import json
+async def test_codex_bridge_uses_resident_mcp_endpoint(tmp_path):
+    from reme.components.service import HttpService
 
     context = _context(tmp_path)
+    context.service = HttpService(app_context=context)
     context.jobs = {"search_job": _job(context, "search_job")}
     wrapper = CodexAgentWrapper(app_context=context)
-    await wrapper.start()
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
 
     config = wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
-    assert "--workspace-alias" in config["args"]
-    assert config["args"][config["args"].index("--workspace-alias") + 1] == "beta"
+    assert config["args"][config["args"].index("--endpoint") + 1] == "http://127.0.0.1:2333/mcp"
     raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
     assert json.loads(raw) == {"workspace": "beta"}
     assert "--config" not in config["args"] and "--workspace" not in config["args"]
+    assert "--token" not in config["args"]
 
     default_config = wrapper._mcp_server_config({"job_tools": ["search_job"]})
-    assert "--workspace-alias" not in default_config["args"]
-
+    assert "--injected-job-kwargs" not in default_config["args"]
     await wrapper.close()
-    assert wrapper._job_server is None
 
 
 # ----- Review follow-ups: explicit bindings, session isolation, key collisions
@@ -423,18 +425,13 @@ async def test_codex_thread_cwd_follows_bound_workspace(tmp_path):
 # ----- Codex bridge: real child-process execution ----------------------------
 
 
-@pytest.mark.asyncio
-async def test_codex_bridge_reads_resident_parent_state(tmp_path):
-    """Bridge calls execute against the parent's live stores; there is no second owner."""
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    app = Application(
+def _codex_test_app(tmp_path):
+    return Application(
         workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
         enable_logo=False,
         log_to_console=False,
         log_to_file=False,
-        service={"backend": "cli"},
+        service={"backend": "http", "host": "127.0.0.1", "port": 0, "web_enabled": False},
         components={
             "tokenizer": {"default": {"backend": "regex"}},
             "file_store": {"default": {"backend": "local", "embedding_store": "", "tag_index": ""}},
@@ -464,57 +461,104 @@ async def test_codex_bridge_reads_resident_parent_state(tmp_path):
             },
         },
     )
+
+
+async def _start_resident_http(app):
+    import uvicorn
+
+    service = app.context.service
+    service.build_service(app)
+    service.add_jobs(app)
+    config = uvicorn.Config(service.service, host=service.host, port=0, log_level="error", lifespan="on")
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    for _ in range(100):
+        if server.started:
+            break
+        await asyncio.sleep(0.05)
+    assert server.started
+    service.port = server.servers[0].sockets[0].getsockname()[1]
+    return server, task
+
+
+async def _stop_resident_http(server, task):
+    server.should_exit = True
+    await asyncio.wait_for(task, timeout=30)
+
+
+@pytest.mark.asyncio
+async def test_codex_bridge_reads_resident_parent_state(tmp_path):
+    """The stdio bridge reuses the resident MCP service and its live workspace state."""
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    app = _codex_test_app(tmp_path)
     wrapper = CodexAgentWrapper(app_context=app.context)
     async with app:
-        await wrapper.start()
-        # Index a note directly in the parent's beta store.
-        await app.run_job("write_note", path="daily/resident.md", content="parent-resident-beta", workspace="beta")
-        await wrapper._ensure_job_server()  # pylint: disable=protected-access
-        server_config = wrapper._mcp_server_config(  # pylint: disable=protected-access
-            {"job_tools": ["read_note", "write_note"], "workspace": "beta"},
-        )
-        transport = StdioTransport(
-            command=server_config["command"],
-            args=server_config["args"],
-            cwd=server_config["cwd"],
-            keep_alive=False,
-        )
-        async with Client(transport, timeout=None, init_timeout=30) as client:
-            read = await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
-            await asyncio.wait_for(
-                client.call_tool("write_note", {"path": "daily/bridge.md", "content": "via-bridge-beta"}),
-                timeout=30,
+        server, task = await _start_resident_http(app)
+        try:
+            await app.run_job("write_note", path="daily/resident.md", content="parent-resident-beta", workspace="beta")
+            from reme.components.client import MCPClient
+
+            resident_client = MCPClient(transport="streamable-http", host="127.0.0.1", port=app.context.service.port)
+            await resident_client.start()
+            assert {entry["name"] for entry in await resident_client.list_actions()} == {"read_note", "write_note"}
+            await resident_client.close()
+            server_config = wrapper._mcp_server_config(
+                {"job_tools": ["read_note", "write_note"], "workspace": "beta"},
             )
-        # The bridge saw the parent's resident beta state and wrote through it.
-        assert "parent-resident-beta" in str(read.content[0].text)
-        assert "via-bridge-beta" in (tmp_path / "beta" / "daily" / "bridge.md").read_text(encoding="utf-8")
-        assert not (tmp_path / "alpha" / "daily" / "bridge.md").exists()
-        store_alpha = app.context.get_component(ComponentEnum.FILE_STORE, "default", "alpha")
-        assert all("bridge" not in node.path for node in await store_alpha.get_nodes())
+            transport = StdioTransport(
+                command=server_config["command"],
+                args=server_config["args"],
+                cwd=server_config["cwd"],
+                keep_alive=False,
+                env=dict(os.environ),
+            )
+            async with Client(transport, timeout=None, init_timeout=30) as client:
+                tools = await client.list_tools()
+                assert {tool.name for tool in tools} == {"read_note", "write_note"}
+                read = await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
+                with pytest.raises(Exception):
+                    await client.call_tool("read_note", {"path": "daily/resident.md", "workspace": "alpha"})
+                await asyncio.wait_for(
+                    client.call_tool("write_note", {"path": "daily/bridge.md", "content": "via-bridge-beta"}),
+                    timeout=30,
+                )
+            assert "parent-resident-beta" in str(read.content[0].text)
+            assert "via-bridge-beta" in (tmp_path / "beta" / "daily" / "bridge.md").read_text(encoding="utf-8")
+            assert not (tmp_path / "alpha" / "daily" / "bridge.md").exists()
+            store_alpha = app.context.get_component(ComponentEnum.FILE_STORE, "default", "alpha")
+            assert all("bridge" not in node.path for node in await store_alpha.get_nodes())
+
+            invalid_config = wrapper._mcp_server_config({"job_tools": ["read_note"], "workspace": "nope"})
+            invalid_transport = StdioTransport(
+                command=invalid_config["command"],
+                args=invalid_config["args"],
+                cwd=invalid_config["cwd"],
+                keep_alive=False,
+                env=dict(os.environ),
+            )
+            async with Client(invalid_transport, timeout=None, init_timeout=30) as client:
+                with pytest.raises(Exception, match="Unknown workspace 'nope'"):
+                    await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
+        finally:
+            await _stop_resident_http(server, task)
     await wrapper.close()
 
 
 @pytest.mark.asyncio
-async def test_codex_bridge_unknown_alias_fails_at_execution(tmp_path):
-    """An unknown workspace alias surfaces as a tool error from the parent boundary."""
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
+async def test_codex_multi_workspace_rejects_unsupported_job_transport(tmp_path):
+    from reme.components.service import CliService
 
     context = _context(tmp_path)
+    context.service = CliService(app_context=context)
     context.jobs = {"search_job": _job(context, "search_job")}
-    wrapper = CodexAgentWrapper(app_context=context, project_path=str(tmp_path))
-    await wrapper.start()
-    await wrapper._ensure_job_server()  # pylint: disable=protected-access
-    server_config = wrapper._mcp_server_config(  # pylint: disable=protected-access
-        {"job_tools": ["search_job"], "workspace": "nope"},
-    )
-    transport = StdioTransport(
-        command=server_config["command"],
-        args=server_config["args"],
-        cwd=server_config["cwd"],
-        keep_alive=False,
-    )
-    async with Client(transport, timeout=None, init_timeout=30) as client:
-        with pytest.raises(Exception, match="Unknown workspace 'nope'"):
-            await asyncio.wait_for(client.call_tool("search_job", {}), timeout=30)
+    wrapper = CodexAgentWrapper(app_context=context)
+
+    with pytest.raises(RuntimeError, match="resident HTTP MCP service"):
+        wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
+    with pytest.raises(ValueError, match="only supported for single-workspace"):
+        wrapper._mcp_server_config(
+            {"job_tools": ["search_job"], "workspace": "beta", "mcp_config": "custom.yaml"},
+        )
     await wrapper.close()

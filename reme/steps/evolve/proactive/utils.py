@@ -681,7 +681,7 @@ def resolve_agent_wrapper(step):
     if wrapper is not None:
         return wrapper
     if step.app_context is not None:
-        fallback = step.app_context.components.get(ComponentEnum.AGENT_WRAPPER, {}).get("default")
+        fallback = step.app_context.shared_components.get(ComponentEnum.AGENT_WRAPPER, {}).get("default")
         if fallback is not None:
             configured = step.kwargs.get("agent_wrapper", "default")
             step.logger.warning(f"[{step.name}] agent_wrapper '{configured}' missing; using default")

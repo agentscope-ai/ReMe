@@ -102,6 +102,10 @@ Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
 在多 workspace 配置下会在启动时被拒绝。
 
 绑定会经嵌套 Job 调用和 agent 工具调用（`job_tools`）传播，作为模型无法覆盖的服务端约束。
+多 workspace 下的 Codex `job_tools` 需要启用 MCP 的常驻 HTTP 服务，且所选 Job 必须由该服务暴露；
+其 STDIO bridge 转发到该服务，不会创建另一个 Application。多 workspace 与 one-shot CLI 的组合暂不支持；
+`mcp_config` 仅在单 workspace 的 Codex job tools 中保留原有语义。
+
 Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
 
 ```yaml
