@@ -291,6 +291,30 @@ async def test_cancelled_request_finalizes_once_and_closes_owned_apps(flow):
     assert read(flow.directory.parents[1] / "summary.json")["memory_usage"]["total_tokens"] == 120
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_failed_task_joins_sibling_cleanup_before_propagating(cancel):
+    started, closed = asyncio.Event(), asyncio.Event()
+
+    async def waiting():
+        try:
+            started.set()
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            closed.set()
+
+    async def interrupted():
+        await started.wait()
+        if cancel:
+            raise asyncio.CancelledError()
+        raise ValueError("offline task failed")
+
+    with pytest.raises(asyncio.CancelledError if cancel else ValueError):
+        await run.gather_tasks([waiting(), interrupted()])
+    assert closed.is_set()
+
+
 def test_error_artifacts_remove_secrets_payloads_and_locals(monkeypatch):
     secret = "offline-sensitive-value"
     monkeypatch.setenv("LLM_API_KEY", secret)

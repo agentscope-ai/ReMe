@@ -364,7 +364,7 @@ async def test_image_only_pipeline_keeps_all_sessions_and_gold_is_judge_only(mob
     monkeypatch.setattr(mobilemem, "candidate_config", configured)
     monkeypatch.setattr(mobilemem, "observe_usage", lambda _: None)
     monkeypatch.setattr(mobilemem, "observe_completion", lambda _: None)
-    rows = await mobilemem.evaluate_user(
+    await mobilemem.evaluate_user(
         scene,
         tmp_path / "new-user",
         "candidate",
@@ -387,8 +387,8 @@ async def test_image_only_pipeline_keeps_all_sessions_and_gold_is_judge_only(mob
     judge_inputs = judge.run_job.call_args.kwargs
     assert judge_inputs["reference"] == "HIDDEN_GOLD"
     assert judge_inputs["evidence"] == ["HIDDEN_EVIDENCE"]
-    assert rows[0]["metrics"]["llm_judge"] == 1 and apps[0].closed
-    assert (tmp_path / "new-user/questions/0000/result.json").is_file()
+    result = json.loads((tmp_path / "new-user/questions/0000/result.json").read_text(encoding="utf-8"))
+    assert result["metrics"]["llm_judge"] == 1 and apps[0].closed
     assert normalized_usage({"prompt_tokens": 100, "completion_tokens": 20})["cached_input_tokens"] is None
     assert (
         normalized_usage({"prompt_tokens": 100, "prompt_tokens_details": {"cached_tokens": 30}})[

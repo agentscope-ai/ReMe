@@ -369,11 +369,24 @@ async def close_application(app, directory, *, user_id=None):
         save(directory / "cleanup-error.json", error_record(error, stage="cleanup", user_id=user_id))
 
 
-async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) -> list[dict]:
+async def gather_tasks(coroutines) -> None:
+    """Wait for owned tasks, cancelling and joining siblings on failure or cancellation."""
+    tasks = [asyncio.create_task(coroutine) for coroutine in coroutines]
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) -> None:
     """Ingest the complete chronological history into one fresh user workspace."""
     app, response, session_id = None, None, None
     stage = "startup"
-    results, memory_usage, aliases = [], [], {}
+    completed = 0
+    memory_usage, aliases = [], {}
     try:
         app = Application(**candidate_config(directory / "workspace", model))
         await app.start()
@@ -421,6 +434,7 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
         save(directory / "memory_usage.json", aggregate_usage(memory_usage))
 
         async def answer_question(ordinal, question):
+            nonlocal completed
             question_dir = directory / "questions" / f"{ordinal:04d}"
             answer_stage, answer_response = "answer", None
             try:
@@ -469,7 +483,7 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
                     "judge_parse_default_zero": answer_response.metadata["parse_default_zero"],
                 }
                 save(question_dir / "result.json", result)
-                results.append(result)
+                completed += 1
                 print(f"{scene['id']}: {question['question_id']} completed", flush=True)
             except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
                 save(
@@ -487,14 +501,7 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
                 print(f"{scene['id']}: {question['question_id']} failed ({type(error).__name__})", flush=True)
 
         stage, response = "answers", None
-        tasks = [asyncio.create_task(answer_question(i, question)) for i, question in enumerate(scene["questions"])]
-        try:
-            await asyncio.gather(*tasks)
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await gather_tasks(answer_question(i, question) for i, question in enumerate(scene["questions"]))
     except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
         save(
             directory / "error.json",
@@ -507,8 +514,7 @@ async def evaluate_user(scene, directory: Path, model: str, judge, query_slots) 
         try:
             await close_application(app, directory, user_id=scene["id"])
         finally:
-            save(directory / "summary.json", {"completed": len(results), "expected": len(scene["questions"])})
-    return results
+            save(directory / "summary.json", {"completed": completed, "expected": len(scene["questions"])})
 
 
 def summarize_run(scenes, output: Path, model: str) -> dict:
@@ -568,14 +574,7 @@ async def run(scenes, output: Path, model: str, user_concurrency: int, query_con
             async with user_slots:
                 await evaluate_user(scene, output / "users" / scene["id"], model, judge, query_slots)
 
-        tasks = [asyncio.create_task(user_job(scene)) for scene in scenes]
-        try:
-            await asyncio.gather(*tasks)
-        finally:
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        await gather_tasks(user_job(scene) for scene in scenes)
     except (Exception, asyncio.CancelledError) as error:  # pylint: disable=broad-exception-caught
         save(output / "error.json", error_record(error, stage="run"))
         raise
