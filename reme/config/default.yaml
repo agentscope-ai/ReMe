@@ -518,14 +518,33 @@ jobs:
 
   daily_list:
     backend: base
-    description: "List notes under a single day."
+    description: >-
+      List daily notes without changing files or indexes. Defaults to all notes for today; date selects one day.
+      Alternatively, start_date and end_date select an inclusive range, newest day first then path ascending.
+      Range queries or explicit page/page_size opt into pagination (defaults: page 1, page_size 100).
+      Metadata adds page, page_size, total_notes and total_pages; count and notes describe the returned page.
     parameters:
       type: object
       properties:
         date:
           type: string
-          description: "YYYY-MM-DD; empty = today"
+          description: "YYYY-MM-DD; empty = today when no range is given; cannot be combined with a range"
           default: ""
+        start_date:
+          type: string
+          description: "inclusive YYYY-MM-DD range start; requires end_date; cannot be combined with date"
+        end_date:
+          type: string
+          description: "inclusive YYYY-MM-DD range end; requires start_date"
+        page:
+          type: integer
+          minimum: 1
+          description: "optional 1-based page; defaults to 1 when paginating; past the end returns no notes"
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          description: "optional notes per page; defaults to 100 when paginating"
     steps:
       - backend: daily_list_step
 

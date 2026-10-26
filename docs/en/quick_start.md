@@ -179,10 +179,18 @@ Daily notes:
 ```bash
 reme write path=daily/2026-06-20/demo-session.md name=demo-session description="Demo session" content="Recorded content"
 reme daily_list
+reme daily_list start_date=2026-06-01 end_date=2026-06-20 page=1 page_size=20
 reme daily_reindex
 ```
 
 `write` can create a daily note directly. Run `daily_reindex` when the day's index needs to be refreshed.
+
+`daily_list` is read-only. Without new parameters, it still lists all notes for `date` (default: today) and returns
+`{date, count, notes}`. Both range dates are required, inclusive, and cannot be combined with a non-empty `date`.
+Ranges sort by date descending, then path ascending. Ranges or an explicit `page`/`page_size` enable pagination:
+page defaults to 1, page size to 100 (maximum 1000), and metadata adds `page`, `page_size`, `total_notes`, `total_pages`.
+An empty range has zero pages; a page past the end returns no notes. Totals count readable, valid, authorized notes.
+Pagination limits output, not scanning; each request reflects the current files rather than a cross-page snapshot.
 
 ---
 
