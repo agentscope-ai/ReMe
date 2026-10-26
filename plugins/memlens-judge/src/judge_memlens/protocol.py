@@ -14,8 +14,6 @@ import re
 SOURCE_REVISION = "77f3ab9a52fa2d6a17978e2dffe80438a4ecced2"
 
 PROTOCOL_ID = "memlens-task-binary-api-qwen-v1"
-MODEL = "qwen3.8-max"  # Declared judge-model substitution; the paper used Qwen3-VL-235B.
-MAX_TOKENS = 256  # Official --judge_api_model branch, not its separate vLLM branch (2048).
 _HEDGING_MARKERS = (
     "wait",
     "let me re-read",

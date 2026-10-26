@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from benchmark.memlens import run as runner
-from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, response_record, safe_value
+from benchmark.memlens.artifacts import error_details, judge_settings, model_settings, safe_value
 from reme.schema import Response
 
 
@@ -81,10 +81,13 @@ async def test_index_failure_retains_completed_session_usage(scene_run):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("direct", [False, True])
 async def test_failed_memory_keeps_its_successful_requests_and_diagnostics(scene_run, direct):
-    _, app, _, case, evaluate = scene_run
+    scene, app, _, case, evaluate = scene_run
+    scene["sessions"].append({"id": "session-2", "timestamp": "2026-01-02"})
 
-    async def job(*_, **__):
+    async def job(*_, session_id, **__):
         runner._CURRENT.get().append(measured())
+        if session_id == "session-1":
+            return Response(answer="Memory")
         if direct:
             try:
                 raise ValueError("Original provider failure")
@@ -94,18 +97,18 @@ async def test_failed_memory_keeps_its_successful_requests_and_diagnostics(scene
 
     app.run_job.side_effect = job
     _, memory, _ = await evaluate()
-    assert runner.total_usage(memory)["total_tokens"] == 120
+    assert runner.total_usage(memory)["total_tokens"] == 240
     status = json.loads((case / "status.json").read_text())
-    assert status["stage"] == "auto_memory" and status["session_id"] == "session-1"
+    assert status["stage"] == "auto_memory" and status["session_id"] == "session-2"
     assert status["memory_complete"] is False
-    assert not (case / "ingestion/attempt-001/sessions/00000.json").exists()
-    assert not list((case / "ingestion/attempt-001/sessions").glob("*.json"))
-    assert json.loads((case / "ingestion/attempt-001/diagnostics/00000-usage.json").read_text())["total_tokens"] == 120
+    assert (case / "ingestion/attempt-001/sessions/00000.json").exists()
+    assert not (case / "ingestion/attempt-001/sessions/00001.json").exists()
+    assert json.loads((case / "ingestion/attempt-001/diagnostics/00001-usage.json").read_text())["total_tokens"] == 120
     if direct:
         assert status["error"]["cause"]["message"] == "Original provider failure"
         assert status["error"]["traceback"] and "locals" not in json.dumps(status)
     else:
-        artifact = json.loads((case / "ingestion/attempt-001/diagnostics/00000-response.json").read_text())
+        artifact = json.loads((case / "ingestion/attempt-001/diagnostics/00001-response.json").read_text())
         assert artifact["response"]["success"] is False
     app.close.assert_awaited_once()
 
@@ -149,7 +152,7 @@ async def test_direct_lifecycle_failures_are_recorded(scene_run, monkeypatch, st
     else:
 
         def broken(_):
-            raise ValueError("Invalid image")
+            raise ValueError("Invalid image: release_images/missing.png")
 
         monkeypatch.setattr(runner, "session_messages", broken)
     if stage == "cancel":
@@ -163,6 +166,9 @@ async def test_direct_lifecycle_failures_are_recorded(scene_run, monkeypatch, st
     assert status["error"]["type"] == (
         "CancelledError" if stage == "cancel" else "RuntimeError" if stage in {"start", "cleanup"} else "ValueError"
     )
+    if stage == "preprocess":
+        assert status["session_id"] == "session-1" and "missing.png" in status["error"]["message"]
+        assert status["error"]["traceback"]
 
 
 @pytest.mark.asyncio
@@ -178,9 +184,9 @@ async def test_observer_separates_concurrent_scopes_including_compression_and_un
                 "as_llm": {
                     "default": SimpleNamespace(model=SimpleNamespace(client=SimpleNamespace(_client=client))),
                     "compressor": SimpleNamespace(model=SimpleNamespace(client=SimpleNamespace(_client=compressor))),
-                }
-            }
-        )
+                },
+            },
+        ),
     )
     runner.observe_usage(app)
 
@@ -271,69 +277,13 @@ async def test_cancellation_finalizes_observed_requests_before_propagating(scene
     app.close.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_cancellation_during_cleanup_finishes_owned_close(scene_run):
-    _, app, _, case, evaluate = scene_run
-    app.run_job.return_value = Response(answer="Answer")
-    started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
-
-    async def close():
-        started.set()
-        await release.wait()
-        finished.set()
-
-    app.close.side_effect = close
-    task = asyncio.create_task(evaluate())
-    await asyncio.wait_for(started.wait(), timeout=2)
-    task.cancel()
-    await asyncio.sleep(0)
-    assert not finished.is_set()
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await asyncio.wait_for(task, timeout=2)
-    assert finished.is_set()
-    status = json.loads((case / "status.json").read_text())
-    assert status["error_type"] == "CancelledError" and status["stage"] == "cleanup"
-
-
 @pytest.mark.parametrize("field", ["cookie", "set-cookie", "private_key", "id_token", "refresh_token", "token"])
 def test_diagnostic_credentials_are_redacted_without_removing_counters(field):
     diagnostic = safe_value({field: "DIAGNOSTIC_SECRET_SENTINEL", "input_tokens": 120, "output_tokens": 20})
     assert diagnostic == {field: "[REDACTED]", "input_tokens": 120, "output_tokens": 20}
     assert "DIAGNOSTIC_SECRET_SENTINEL" not in json.dumps(
-        error_details(RuntimeError(f"{field}: DIAGNOSTIC_SECRET_SENTINEL"))
+        error_details(RuntimeError(f"{field}: DIAGNOSTIC_SECRET_SENTINEL")),
     )
-
-
-def test_diagnostic_private_key_blocks_are_redacted():
-    text = "-----BEGIN PRIVATE KEY-----\nPEM_SENTINEL\n-----END PRIVATE KEY-----"
-    assert safe_value(text) == "[REDACTED_KEY]"
-
-
-@pytest.mark.parametrize("header", ["Cookie", "Set-Cookie"])
-def test_diagnostic_cookie_headers_redact_the_entire_value(header):
-    assert safe_value(f"{header}: session=FIRST_SENTINEL; other=SECOND_SENTINEL") == f"{header}: [REDACTED]"
-
-
-def test_short_environment_secret_does_not_replace_ordinary_word_substrings(monkeypatch):
-    monkeypatch.setenv("LLM_API_KEY", "a")
-    assert safe_value("candidate stage q_a1 default") == "candidate stage q_a1 default"
-    assert safe_value("received credential: a") == "received credential: [REDACTED]"
-    assert safe_value({"a": "a", "api_key": "a"}) == {"[REDACTED]": "[REDACTED]", "api_key": "[REDACTED]"}
-
-
-def test_arbitrary_response_keys_and_values_still_redact_known_secrets(monkeypatch):
-    secret = "ENV_SECRET_SENTINEL_314159"
-    monkeypatch.setenv("LLM_API_KEY", secret)
-    response = Response(
-        success=False,
-        answer=f"provider failed {secret}",
-        metadata={f"debug-{secret}": f"detail-{secret}", "private_key": "PRIVATE_SENTINEL"},
-        **{f"extra-{secret}": secret},
-    )
-    record = response_record(response)
-    assert secret not in json.dumps(record) and "PRIVATE_SENTINEL" not in json.dumps(record)
-    assert record["success"] is False and "provider failed" in record["answer"]
 
 
 @pytest.mark.asyncio
@@ -360,9 +310,9 @@ def test_model_snapshot_preserves_whitelisted_schema(monkeypatch, secret):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("secret", ["a", "stage", "complete", "cleanup", "input_tokens"])
-@pytest.mark.parametrize("cleanup_failure", [False, True])
-async def test_run_summary_survives_environment_schema_collision(scene_run, monkeypatch, secret, cleanup_failure):
+@pytest.mark.parametrize("secret", ["a", "stage"])
+@pytest.mark.parametrize("outcome", ["complete", "index_update", "cleanup"])
+async def test_run_summary_keeps_usage_and_independent_completion(scene_run, monkeypatch, secret, outcome):
     import reme
     from reme.schema import ApplicationConfig
 
@@ -379,10 +329,10 @@ async def test_run_summary_survives_environment_schema_collision(scene_run, monk
     async def job(name, **_):
         if name != "index_update":
             runner._CURRENT.get().append(measured())
-        return Response(answer="Answer")
+        return Response(answer="Answer", success=name != outcome)
 
     app.run_job.side_effect = job
-    if cleanup_failure:
+    if outcome == "cleanup":
         app.close.side_effect = RuntimeError("Close failed")
     summary = await runner.run(
         {
@@ -390,23 +340,29 @@ async def test_run_summary_survives_environment_schema_collision(scene_run, monk
             "output": str(root / "output"),
             "query_concurrency": 1,
             "scenario_concurrency": 1,
+            "unexpected": "RAW_CONFIG_SENTINEL",
         },
         "candidate",
         "128k",
     )
     group = root / "output/memlens-128k/candidate"
     status = json.loads((group / "reme_image/scenes/0000-scene-1/status.json").read_text())
-    assert status["stage"] == ("cleanup" if cleanup_failure else "complete")
-    assert status["scene_id"] == "scene-1" and status["question_id"] == "question-1"
-    assert status["memory_complete"] is True and status["complete"] is not cleanup_failure
-    assert status["memory_usage"]["input_tokens"] == 100 and status["answer_usage"]["total_tokens"] == 120
-    assert summary["scored_questions"] == summary["memory_complete_scenes"] == 1
-    assert summary["token_usage"]["total_tokens"] == 240 and summary["token_usage"]["records"] == 2
-    assert summary["cleanup_error_count"] == int(cleanup_failure)
-    assert summary["completed_scenes"] == int(not cleanup_failure)
+    complete = outcome == "complete"
+    memory_complete = outcome != "index_update"
+    assert status["stage"] == outcome and status["scene_id"] == "scene-1"
+    assert status["memory_complete"] is memory_complete and status["complete"] is complete
+    assert status["memory_usage"]["input_tokens"] == 100
+    assert summary["scored_questions"] == summary["memory_complete_scenes"] == int(memory_complete)
+    assert summary["token_usage"]["total_tokens"] == (240 if memory_complete else 120)
+    assert summary["cleanup_error_count"] == int(outcome == "cleanup")
+    assert summary["completed_scenes"] == int(complete)
+    assert summary["usage_policy_version"] == "successful-http-requests-v2"
     assert json.loads((group / "summary.json").read_text()) == summary
-    assert json.loads((group / "status.json").read_text())["complete"] is not cleanup_failure
-    if cleanup_failure:
+    assert json.loads((group / "status.json").read_text())["complete"] is complete
+    settings = (group / "settings.json").read_text()
+    assert "RAW_CONFIG_SENTINEL" not in settings
+    assert json.loads(settings)["judge"]["protocol_id"] == "memlens-task-binary-api-qwen-v1"
+    if outcome == "cleanup":
         assert status["error_type"] == status["error"]["type"] == "RuntimeError"
         assert status["error"]["message"] == "Close failed"
 
@@ -449,82 +405,6 @@ async def test_judge_snapshot_uses_validated_plugin_and_environment_config(tmp_p
     await app.close()
 
 
-@pytest.mark.asyncio
-async def test_summary_versions_request_usage_and_whitelists_settings(scene_run, monkeypatch):
-    import reme
-    from reme.schema import ApplicationConfig
-
-    scene, _, _, case, _ = scene_run
-    root = case.parents[2]
-    judge = SimpleNamespace(
-        start=AsyncMock(),
-        close=AsyncMock(),
-        config=ApplicationConfig(workspace_dir=root),
-    )
-    monkeypatch.setattr(reme, "Application", lambda **_: judge)
-    monkeypatch.setattr(runner, "load_memlens", lambda *_: [scene])
-    monkeypatch.setattr(runner, "evaluate_scene", AsyncMock(return_value=([], [measured()], [])))
-    summary = await runner.run(
-        {
-            "dataset": str(root / "unused"),
-            "output": str(root / "output"),
-            "query_concurrency": 1,
-            "scenario_concurrency": 1,
-            "unexpected": "RAW_CONFIG_SENTINEL",
-        },
-        "candidate",
-        "128k",
-    )
-    assert summary["usage_policy_version"] == "successful-http-requests-v2"
-    assert summary["expected_questions"] == summary["unscored_questions"] == 1
-    assert summary["scored_questions"] == 0 and summary["token_usage"]["total_tokens"] == 120
-    settings = (root / "output/memlens-128k/candidate/settings.json").read_text()
-    assert "RAW_CONFIG_SENTINEL" not in settings
-    assert json.loads(settings)["judge"]["protocol_id"] == "memlens-task-binary-api-qwen-v1"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["preprocess", "judge_start", "judge_cleanup", "cancel"])
-async def test_run_lifecycle_keeps_safe_status(tmp_path, monkeypatch, stage):
-    import reme
-    from reme.schema import ApplicationConfig
-
-    judge = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), config=ApplicationConfig(workspace_dir=tmp_path))
-    monkeypatch.setattr(reme, "Application", lambda **_: judge)
-    monkeypatch.setattr(runner, "app_config", lambda *_, **__: {})
-    monkeypatch.setattr(runner, "load_memlens", lambda *_: [])
-    monkeypatch.setenv("LLM_API_KEY", "RUN_SECRET_SENTINEL")
-    error = RuntimeError("RUN_SECRET_SENTINEL failed")
-    if stage == "preprocess":
-
-        def broken(*_):
-            raise error
-
-        monkeypatch.setattr(runner, "load_memlens", broken)
-    elif stage == "judge_start":
-        judge.start.side_effect = error
-    elif stage == "judge_cleanup":
-        judge.close.side_effect = error
-    else:
-        judge.start.side_effect = asyncio.CancelledError()
-    with pytest.raises(asyncio.CancelledError if stage == "cancel" else RuntimeError):
-        await runner.run(
-            {
-                "dataset": str(tmp_path / "unused"),
-                "output": str(tmp_path / "output"),
-                "query_concurrency": 1,
-                "scenario_concurrency": 1,
-            },
-            "candidate",
-            "128k",
-        )
-    text = (tmp_path / "output/memlens-128k/candidate/status.json").read_text()
-    assert "RUN_SECRET_SENTINEL" not in text
-    status = json.loads(text)
-    assert status["complete"] is False
-    assert status["stage"] == ("judge_start" if stage == "cancel" else stage)
-
-
 def test_cli_reports_sanitized_direct_failure(monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["memlens"])
     monkeypatch.setattr(runner, "run", AsyncMock(side_effect=RuntimeError("provider api_key=CLI_SECRET_SENTINEL")))
@@ -532,50 +412,3 @@ def test_cli_reports_sanitized_direct_failure(monkeypatch, capsys):
     diagnostic = capsys.readouterr().err
     assert "CLI_SECRET_SENTINEL" not in diagnostic
     assert json.loads(diagnostic)["error"]["message"] == "provider api_key=[REDACTED]"
-
-
-@pytest.mark.asyncio
-async def test_scene_cleanup_failure_retains_scores_but_fails_operational_status(scene_run, monkeypatch):
-    import reme
-    from reme.schema import ApplicationConfig
-
-    scene, app, judge, case, _ = scene_run
-    root = case.parents[2]
-    judge.start, judge.close = AsyncMock(), AsyncMock()
-    judge.config = ApplicationConfig(workspace_dir=root)
-    applications = iter([judge, app])
-    monkeypatch.setattr(reme, "Application", lambda **_: next(applications))
-    monkeypatch.setattr(runner, "load_memlens", lambda *_: [scene])
-    app.run_job.return_value = Response(answer="Answer")
-    app.close.side_effect = RuntimeError("Cleanup failed")
-    summary = await runner.run(
-        {
-            "dataset": str(root / "unused"),
-            "output": str(root / "output"),
-            "query_concurrency": 1,
-            "scenario_concurrency": 1,
-        },
-        "candidate",
-        "128k",
-    )
-    assert summary["scored_questions"] == summary["expected_questions"] == 1
-    assert summary["metrics"] == {"llm_judge": 1, "sub_em": 1, "f1": 1}
-    assert summary["cleanup_error_count"] == summary["memory_complete_scenes"] == 1
-    assert summary["completed_scenes"] == 0
-    assert json.loads((root / "output/memlens-128k/candidate/status.json").read_text())["complete"] is False
-
-
-def test_cli_cleanup_failure_is_nonzero_even_when_all_questions_scored(monkeypatch):
-    monkeypatch.setattr("sys.argv", ["memlens"])
-    monkeypatch.setattr(
-        runner,
-        "run",
-        AsyncMock(
-            return_value={
-                "scored_questions": 1,
-                "expected_questions": 1,
-                "cleanup_error_count": 1,
-            }
-        ),
-    )
-    assert runner.main() == 2

@@ -3,7 +3,6 @@
 # pylint: disable=missing-function-docstring,protected-access
 import asyncio
 import base64
-from importlib import import_module
 from importlib.metadata import EntryPoint
 from io import BytesIO
 import json
@@ -102,8 +101,8 @@ def test_official_metric_normalization():
 def fixture_candidate(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "plugins/memlens/src"))
     monkeypatch.chdir(tmp_path)
-    memory = import_module("reme_memlens.auto_memory")
-    answer = import_module("reme_memlens.agentic_answer")
+    from reme_memlens import agentic_answer as answer, auto_memory as memory
+
     app = SimpleNamespace(
         registry=R,
         metadata={},
