@@ -1,0 +1,158 @@
+{
+  "config": {
+    "dataset": "/Users/xyf/projects/ReMe/tmp/longmemeval-oracle/longmemeval_oracle.json",
+    "start_index": 0,
+    "num_items": 2,
+    "max_sessions": 0,
+    "filter_future_sessions": false,
+    "with_time_context": false,
+    "construction_model": "qwen3.6-flash",
+    "answer_model": "qwen3.7-max",
+    "judge_model": "qwen3.7-max",
+    "embedding_model": "text-embedding-v4"
+  },
+  "summary": {
+    "num_cases": 2,
+    "correct": 2,
+    "accuracy": 100.0,
+    "per_type": {
+      "temporal-reasoning": {
+        "correct": 2,
+        "total": 2
+      }
+    },
+    "total_time_sec": 187.3
+  },
+  "results": [
+    {
+      "question_id": "gpt4_2655b836",
+      "question_type": "temporal-reasoning",
+      "question": "What was the first issue I had with my new car after its first service?",
+      "ground_truth": "GPS system not functioning correctly",
+      "simplemem_response": "GPS system issue",
+      "judgment": {
+        "verdict": "yes",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "yes"
+      },
+      "query_token_usage": {
+        "input_tokens": 4038,
+        "output_tokens": 5393,
+        "total_tokens": 9431,
+        "reasoning_tokens": 4749,
+        "llm_calls": 5,
+        "calls_with_usage": 5
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 2301,
+        "output_tokens": 4910,
+        "total_tokens": 7211,
+        "reasoning_tokens": 4333,
+        "llm_calls": 4,
+        "calls_with_usage": 4
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 1737,
+        "output_tokens": 483,
+        "total_tokens": 2220,
+        "reasoning_tokens": 416,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "construction_token_usage": {
+        "input_tokens": 10502,
+        "output_tokens": 2859,
+        "total_tokens": 13361,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "judge_token_usage": {
+        "input_tokens": 217,
+        "output_tokens": 1,
+        "total_tokens": 218,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 5,
+        "embedded_texts": 25
+      },
+      "num_dialogues": 36,
+      "num_memories": 23,
+      "num_retrieved_contexts": 23,
+      "sessions_ingested": 3,
+      "construction_time_sec": 22.39,
+      "query_time_sec": 65.46
+    },
+    {
+      "question_id": "gpt4_2487a7cb",
+      "question_type": "temporal-reasoning",
+      "question": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+      "ground_truth": "'Data Analysis using Python' webinar",
+      "simplemem_response": "'Data Analysis using Python' webinar",
+      "judgment": {
+        "verdict": "yes",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "yes"
+      },
+      "query_token_usage": {
+        "input_tokens": 6403,
+        "output_tokens": 5637,
+        "total_tokens": 12040,
+        "reasoning_tokens": 4963,
+        "llm_calls": 5,
+        "calls_with_usage": 5
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 3194,
+        "output_tokens": 4854,
+        "total_tokens": 8048,
+        "reasoning_tokens": 4288,
+        "llm_calls": 4,
+        "calls_with_usage": 4
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 3209,
+        "output_tokens": 783,
+        "total_tokens": 3992,
+        "reasoning_tokens": 675,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "construction_token_usage": {
+        "input_tokens": 8380,
+        "output_tokens": 4427,
+        "total_tokens": 12807,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "judge_token_usage": {
+        "input_tokens": 231,
+        "output_tokens": 1,
+        "total_tokens": 232,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 5,
+        "embedded_texts": 26
+      },
+      "num_dialogues": 24,
+      "num_memories": 24,
+      "num_retrieved_contexts": 24,
+      "sessions_ingested": 2,
+      "construction_time_sec": 31.81,
+      "query_time_sec": 65.62
+    }
+  ]
+}

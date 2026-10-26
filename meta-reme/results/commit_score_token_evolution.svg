@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="455" viewBox="0 0 700 455" role="img" aria-label="Mean query score versus tokens per query for commits init through v6, with arrows showing commit evolution">
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#243441}.tick{font-size:21px;fill:#52616d}.axis-title{font-size:25px;font-weight:600}.node-number{font-size:21px;font-weight:600;fill:#126d9a}.node-number.frontier{fill:#c43c39}.note{font-size:22px;fill:#52616d}</style>
+<rect width="700" height="455" fill="white"/>
+<line x1="100" y1="390.0" x2="665" y2="390.0" stroke="#e2e7eb" stroke-width="1"/>
+<text x="87" y="395.0" text-anchor="end" class="tick">0.64</text>
+<line x1="100" y1="316.3" x2="665" y2="316.3" stroke="#e2e7eb" stroke-width="1"/>
+<text x="87" y="321.3" text-anchor="end" class="tick">0.66</text>
+<line x1="100" y1="242.6" x2="665" y2="242.6" stroke="#e2e7eb" stroke-width="1"/>
+<text x="87" y="247.6" text-anchor="end" class="tick">0.68</text>
+<line x1="100" y1="168.9" x2="665" y2="168.9" stroke="#e2e7eb" stroke-width="1"/>
+<text x="87" y="173.9" text-anchor="end" class="tick">0.70</text>
+<line x1="100" y1="95.3" x2="665" y2="95.3" stroke="#e2e7eb" stroke-width="1"/>
+<text x="87" y="100.3" text-anchor="end" class="tick">0.72</text>
+<line x1="100.0" y1="390" x2="100.0" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="100.0" y="417" text-anchor="middle" class="tick">30k</text>
+<line x1="200.9" y1="390" x2="200.9" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="200.9" y="417" text-anchor="middle" class="tick">35k</text>
+<line x1="301.8" y1="390" x2="301.8" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="301.8" y="417" text-anchor="middle" class="tick">40k</text>
+<line x1="402.7" y1="390" x2="402.7" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="402.7" y="417" text-anchor="middle" class="tick">45k</text>
+<line x1="503.6" y1="390" x2="503.6" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="503.6" y="417" text-anchor="middle" class="tick">50k</text>
+<line x1="604.5" y1="390" x2="604.5" y2="397" stroke="#52616d" stroke-width="1.5"/>
+<text x="604.5" y="417" text-anchor="middle" class="tick">55k</text>
+<path d="M 100,40 V 390 H 665" fill="none" stroke="#52616d" stroke-width="1.6"/>
+<path d="M 100,31 L 96,42 L 104,42 Z" fill="#52616d"/>
+<path d="M 674,390 L 663,386 L 663,394 Z" fill="#52616d"/>
+<text x="382.5" y="437" text-anchor="middle" class="axis-title">Query Token Consumption</text>
+<text transform="translate(27 215.0) rotate(-90)" text-anchor="middle" class="axis-title">Score</text>
+<circle cx="455" cy="80" r="12" fill="white" stroke="#c43c39" stroke-width="2.5"/>
+<text x="480" y="87" class="note">Pareto Frontier</text>
+<path d="M 606.1,356.4 Q 499.7,281.7 394.9,208.1" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 394.9,208.1 L 405.9,209.8 L 400.2,218.0 Z" fill="#55748a"/>
+<path d="M 364.3,179.9 Q 323.3,129.2 283.6,80.0" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 283.6,80.0 L 293.7,84.6 L 286.0,90.9 Z" fill="#55748a"/>
+<path d="M 251.4,54.8 Q 200.9,32.6 153.6,75.4" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 153.6,75.4 L 157.6,64.9 L 164.3,72.4 Z" fill="#55748a"/>
+<path d="M 148.3,73.5 Q 170.6,40.0 190.9,59.4" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 190.9,59.4 L 180.2,56.1 L 187.1,48.9 Z" fill="#55748a"/>
+<path d="M 225.7,81.1 Q 240.9,86.2 254.1,90.7" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 254.1,90.7 L 243.0,92.3 L 246.3,82.8 Z" fill="#55748a"/>
+<path d="M 257.1,106.8 Q 221.1,124.7 192.3,105.1" fill="none" stroke="#55748a" stroke-width="2.1" stroke-linecap="round"/><path d="M 192.3,105.1 L 203.4,106.6 L 197.8,114.9 Z" fill="#55748a"/>
+<circle cx="622.4" cy="367.9" r="17" fill="white" stroke="#126d9a" stroke-width="3"/>
+<text x="622.4" y="373.9" text-anchor="middle" class="node-number"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">0</tspan></text>
+<circle cx="376.9" cy="195.5" r="17" fill="white" stroke="#126d9a" stroke-width="3"/>
+<text x="376.9" y="201.5" text-anchor="middle" class="node-number"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">1</tspan></text>
+<circle cx="269.7" cy="62.8" r="17" fill="white" stroke="#c43c39" stroke-width="3"/>
+<text x="269.7" y="68.8" text-anchor="middle" class="node-number frontier"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">2</tspan></text>
+<circle cx="137.2" cy="90.1" r="17" fill="white" stroke="#c43c39" stroke-width="3"/>
+<text x="137.2" y="96.1" text-anchor="middle" class="node-number frontier"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">3</tspan></text>
+<circle cx="206.8" cy="74.6" r="17" fill="white" stroke="#c43c39" stroke-width="3"/>
+<text x="206.8" y="80.6" text-anchor="middle" class="node-number frontier"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">4</tspan></text>
+<circle cx="274.9" cy="97.8" r="17" fill="white" stroke="#126d9a" stroke-width="3"/>
+<text x="274.9" y="103.8" text-anchor="middle" class="node-number"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">5</tspan></text>
+<circle cx="174.2" cy="92.7" r="17" fill="white" stroke="#126d9a" stroke-width="3"/>
+<text x="174.2" y="98.7" text-anchor="middle" class="node-number"><tspan font-style="italic">h</tspan><tspan dy="4" font-size="13">6</tspan></text>
+</svg>

@@ -152,6 +152,34 @@ async def test_reply_saved_before_checkpoint_advances(app_factory, tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_segmentation_version_change_rejects_resume(app_factory, tmp_path, monkeypatch):
+    app, store = await app_factory()
+    source = tmp_path / "segmentation.log"
+    source.write_text("evidence")
+    calls = 0
+
+    async def reply(_inputs, _options):
+        nonlocal calls
+        calls += 1
+        return {"result": '{"summary":"unfinished","complete":false}'}
+
+    app.context.metadata["fake_reply"] = reply
+    job = app.context.jobs["procedure_auto_memory"]
+    arguments = {"file": str(source), "filename": "segmentation.log", "request_id": "segmentation"}
+    with monkeypatch.context() as patch:
+        patch.setattr(auto_memory, "SEGMENTATION_VERSION", auto_memory.SEGMENTATION_VERSION - 1)
+        assert not (await job(**arguments)).success
+    checkpoint_path = store.checkpoint_path("session/trajectories/segmentation.log")
+    checkpoint = checkpoint_path.read_bytes()
+    result = await job(**arguments)
+    assert not result.success
+    assert "configuration changed" in result.metadata["error"]
+    assert calls == 1
+    assert checkpoint_path.read_bytes() == checkpoint
+    assert store.source_path(result.metadata["source"]).read_text() == "evidence"
+
+
+@pytest.mark.asyncio
 async def test_incomplete_is_resumable_and_config_change_rejected(app_factory, tmp_path):
     app, store = await app_factory()
     source = tmp_path / "a.txt"
@@ -312,6 +340,63 @@ def reject_payload(monkeypatch):
         monkeypatch.setattr(backend, "get_embeddings", selective)
 
     return install
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ["create", "update"])
+@pytest.mark.parametrize("restart", [False, True])
+async def test_repeated_pending_write_stays_failed_until_indexes_recover(
+    runtime,
+    experience,
+    reject_payload,
+    monkeypatch,
+    app_factory,
+    action,
+    restart,
+):
+    app, store, scope = runtime
+    if action == "create":
+        arguments = {**experience, "content": "unembeddable-payload"}
+    else:
+        original = await store.apply_mutation("create", experience, scope)
+        arguments = {
+            "path": original["path"],
+            "expected_version": original["version"],
+            "operation_key": "pending-update",
+            "changes": {"content": "unembeddable-payload"},
+        }
+    backend = type(store.views["when_to_use"].embedding_store)
+    get_embeddings = backend.get_embeddings
+    reject_payload(store.views["when_to_use"].embedding_store)
+    job = app.context.jobs[f"procedure_{action}"]
+    failed = await job(**arguments, _procedure_scope=scope)
+    assert not failed.success
+    if restart:
+        workspace = store.workspace_path
+        source = failed.metadata["path"]
+        saved_source = (await store.read_experience(source))["experience"]["sources"][0]
+        await app.close()
+        app, store = await app_factory(workspace=workspace)
+        scope = store.open_scope(saved_source, 0)
+        job = app.context.jobs[f"procedure_{action}"]
+    for _ in range(2):
+        repeated = await job(**arguments, _procedure_scope=scope)
+        assert not repeated.success
+        assert repeated.metadata["status"] == "index_pending"
+        assert repeated.metadata["path"] == failed.metadata["path"]
+        assert repeated.metadata["version"] == failed.metadata["version"]
+        assert repeated.metadata["error"]
+        assert "new operation_key" in repeated.metadata["repair"]
+        assert not (await store.search("repair", "when_to_use"))["index_complete"]
+    monkeypatch.setattr(backend, "get_embeddings", get_embeddings)
+    recovered = await job(**arguments, _procedure_scope=scope)
+    assert recovered.success, recovered.answer
+    assert recovered.metadata["status"] == "indexed"
+    assert (await job(**arguments, _procedure_scope=scope)).metadata == recovered.metadata
+    for view in store.views.values():
+        chunks = list(view.file_chunks.values())
+        assert len(chunks) == 1
+        assert chunks[0].metadata["version"] == recovered.metadata["version"]
 
 
 @pytest.mark.asyncio

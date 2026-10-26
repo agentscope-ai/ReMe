@@ -1,0 +1,120 @@
+backends:
+  beam_auto_memory_step: reme_beam.auto_memory:BeamAutoMemoryStep
+  beam_agentic_answer_step: reme_beam.agentic_answer:BeamAgenticAnswerStep
+  beam_rubric_judge_step: judge_beam.llm_judge:BeamRubricJudgeStep
+  beam_search_v2_step: reme_beam.search_v2:SearchV2Step
+
+application_defaults:
+  jobs:
+    search:
+      backend: base
+      description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "search query"
+          start_date:
+            type: string
+            description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+          end_date:
+            type: string
+            description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+        required:
+          - query
+      steps:
+        - backend: beam_search_v2_step
+          vector_weight: 0.7
+          candidate_multiplier: 5.0
+          expand_links: false
+          max_links_per_direction: 10
+
+    agentic_answer:
+      backend: base
+      description: "BEAM agentic answer job (ReAct agent with search tool)"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The query to ask"
+          query_time:
+            type: string
+            description: "ISO timestamp representing the query time"
+            default: ""
+        required:
+          - query
+      steps:
+        - backend: beam_agentic_answer_step
+          agent_wrapper: bench
+
+    answer_judge:
+      backend: base
+      description: "BEAM rubric-based LLM-as-Judge: evaluate response against rubric criteria"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          llm_response:
+            type: string
+            description: "The model's response to evaluate"
+          rubric:
+            type: array
+            description: "List of rubric criteria to check"
+            items:
+              type: string
+          probing_question:
+            type: string
+            description: "The original probing question"
+            default: ""
+          question_type:
+            type: string
+            description: "BEAM question type (e.g. event_ordering)"
+            default: ""
+        required:
+          - llm_response
+          - rubric
+      steps:
+        - backend: beam_rubric_judge_step
+          agent_wrapper: judge
+
+    auto_memory:
+      backend: base
+      description: "Auto-memory: record conversation facts into a daily note"
+      parameters:
+        type: object
+        properties:
+          messages:
+            type: array
+            description: "messages"
+            items:
+              type: object
+          session_id:
+            type: string
+            description: "source conversation session identifier"
+            default: ""
+          memory_hint:
+            type: string
+            description: "optional hint"
+          date:
+            type: string
+            description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
+            default: ""
+        required:
+          - messages
+      steps:
+        - backend: beam_auto_memory_step
+          # Long sessions are split into turn-aligned segments and fed to the
+          # agent incrementally; <= 0 disables splitting.
+          max_segment_words: 10000
+
+  components:
+    as_llm:
+      default:
+        max_retries: 5
+      judge:
+        retry_delay: 5.0

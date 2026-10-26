@@ -1,0 +1,113 @@
+backends:
+  lme_auto_memory_step: reme_lme.auto_memory:LmeAutoMemoryStep
+  lme_agentic_answer_step: reme_lme.agentic_answer:LmeAgenticAnswerStep
+  lme_answer_judge_step: judge_lme.llm_judge:LmeAnswerJudgeStep
+  lme_search_v2_step: reme_lme.search_v2:SearchV2Step
+
+application_defaults:
+  jobs:
+    search:
+      backend: base
+      description: "Hybrid workspace search (vector + BM25, RRF-fused) with deduplication."
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "search query"
+          start_date:
+            type: string
+            description: "optional inclusive start date filter (YYYY-MM-DD); results earlier than this date are excluded"
+          end_date:
+            type: string
+            description: "optional inclusive end date filter (YYYY-MM-DD); results later than this date are excluded"
+        required:
+          - query
+      steps:
+        - backend: lme_search_v2_step
+          vector_weight: 0.7
+          candidate_multiplier: 5.0
+          expand_links: false
+          max_links_per_direction: 10
+
+    agentic_answer:
+      backend: base
+      description: "LongMemEval agentic answer job (ReAct agent with search tool)"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The query to ask"
+          query_time:
+            type: string
+            description: "ISO timestamp representing the query time"
+            default: ""
+        required:
+          - query
+      steps:
+        - backend: lme_agentic_answer_step
+          agent_wrapper: bench
+
+    answer_judge:
+      backend: base
+      description: "LLM-as-Judge: evaluate agent answer against golden answer"
+      watch_dirs: []
+      watch_suffixes: []
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The question being asked"
+          agent_answer:
+            type: string
+            description: "The model's answer to evaluate"
+          golden_answer:
+            type: string
+            description: "The correct/golden answer"
+          question_type:
+            type: string
+            description: "The question type for prompt selection"
+            default: ""
+        required:
+          - query
+          - agent_answer
+          - golden_answer
+      steps:
+        - backend: lme_answer_judge_step
+          agent_wrapper: judge
+
+    auto_memory:
+      backend: base
+      description: "Auto-memory: record conversation facts into a daily note"
+      parameters:
+        type: object
+        properties:
+          messages:
+            type: array
+            description: "messages"
+            items:
+              type: object
+          session_id:
+            type: string
+            description: "source conversation session identifier"
+            default: ""
+          memory_hint:
+            type: string
+            description: "optional hint"
+          date:
+            type: string
+            description: "YYYY-MM-DD daily note date; empty = infer from message timestamps or today"
+            default: ""
+        required:
+          - messages
+      steps:
+        - backend: lme_auto_memory_step
+
+  components:
+    as_llm:
+      default:
+        max_retries: 3

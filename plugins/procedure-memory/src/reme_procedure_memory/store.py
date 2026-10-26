@@ -173,6 +173,14 @@ class ProcedureMemoryStore(BaseComponent):
                 record = load_json(operation_path)
                 if record["signature"] != signature:
                     raise ValueError("operation_key already belongs to different arguments; read completed operations")
+                if record["status"] not in {"indexed", "superseded"}:
+                    raise ProcedureIndexError(
+                        {
+                            **self._operation_result(record),
+                            "status": "index_pending",
+                            "error": record.get("index_error", "Procedure indexes are still pending recovery"),
+                        },
+                    )
                 return self._operation_result(record)
             record = self._prepare_mutation(action, arguments, scope, signature)
             # Persist the replacement's dependency list before touching either

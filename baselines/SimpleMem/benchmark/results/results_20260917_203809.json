@@ -1,0 +1,288 @@
+{
+  "config": {
+    "dataset": "/Users/xyf/projects/ReMe/tmp/longmemeval-oracle/longmemeval_oracle.json",
+    "start_index": 0,
+    "num_items": 4,
+    "max_sessions": 0,
+    "filter_future_sessions": true,
+    "with_time_context": false,
+    "construction_model": "qwen3.6-flash",
+    "answer_model": "qwen3.7-max",
+    "judge_model": "qwen3.7-max",
+    "embedding_model": "text-embedding-v4"
+  },
+  "summary": {
+    "num_cases": 4,
+    "correct": 2,
+    "accuracy": 50.0,
+    "per_type": {
+      "temporal-reasoning": {
+        "correct": 2,
+        "total": 4
+      }
+    },
+    "total_time_sec": 402.13
+  },
+  "results": [
+    {
+      "question_id": "gpt4_2655b836",
+      "question_type": "temporal-reasoning",
+      "question": "What was the first issue I had with my new car after its first service?",
+      "ground_truth": "GPS system not functioning correctly",
+      "simplemem_response": "GPS system issue",
+      "judgment": {
+        "verdict": "yes",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "yes"
+      },
+      "query_token_usage": {
+        "input_tokens": 4372,
+        "output_tokens": 8438,
+        "total_tokens": 12810,
+        "reasoning_tokens": 7312,
+        "llm_calls": 7,
+        "calls_with_usage": 7
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 3374,
+        "output_tokens": 7833,
+        "total_tokens": 11207,
+        "reasoning_tokens": 6773,
+        "llm_calls": 6,
+        "calls_with_usage": 6
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 998,
+        "output_tokens": 605,
+        "total_tokens": 1603,
+        "reasoning_tokens": 539,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "construction_token_usage": {
+        "input_tokens": 10502,
+        "output_tokens": 1485,
+        "total_tokens": 11987,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "judge_token_usage": {
+        "input_tokens": 217,
+        "output_tokens": 1,
+        "total_tokens": 218,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 7,
+        "embedded_texts": 19
+      },
+      "num_dialogues": 36,
+      "num_memories": 14,
+      "num_retrieved_contexts": 14,
+      "sessions_ingested": 3,
+      "construction_time_sec": 10.68,
+      "query_time_sec": 109.42
+    },
+    {
+      "question_id": "gpt4_2487a7cb",
+      "question_type": "temporal-reasoning",
+      "question": "Which event did I attend first, the 'Effective Time Management' workshop or the 'Data Analysis using Python' webinar?",
+      "ground_truth": "'Data Analysis using Python' webinar",
+      "simplemem_response": "No relevant information found",
+      "judgment": {
+        "verdict": "no",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "no"
+      },
+      "query_token_usage": {
+        "input_tokens": 902,
+        "output_tokens": 4655,
+        "total_tokens": 5557,
+        "reasoning_tokens": 4232,
+        "llm_calls": 3,
+        "calls_with_usage": 3
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 902,
+        "output_tokens": 4655,
+        "total_tokens": 5557,
+        "reasoning_tokens": 4232,
+        "llm_calls": 3,
+        "calls_with_usage": 3
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "llm_calls": 0,
+        "calls_with_usage": 0
+      },
+      "construction_token_usage": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "reasoning_tokens": 0,
+        "llm_calls": 0,
+        "calls_with_usage": 0
+      },
+      "judge_token_usage": {
+        "input_tokens": 228,
+        "output_tokens": 1,
+        "total_tokens": 229,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 0,
+        "embedded_texts": 0
+      },
+      "num_dialogues": 0,
+      "num_memories": 0,
+      "num_retrieved_contexts": 0,
+      "sessions_ingested": 0,
+      "construction_time_sec": 0.0,
+      "query_time_sec": 57.55
+    },
+    {
+      "question_id": "gpt4_76048e76",
+      "question_type": "temporal-reasoning",
+      "question": "Which vehicle did I take care of first in February, the bike or the car?",
+      "ground_truth": "bike",
+      "simplemem_response": "The bike",
+      "judgment": {
+        "verdict": "yes",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "yes"
+      },
+      "query_token_usage": {
+        "input_tokens": 6016,
+        "output_tokens": 5907,
+        "total_tokens": 11923,
+        "reasoning_tokens": 5372,
+        "llm_calls": 5,
+        "calls_with_usage": 5
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 3106,
+        "output_tokens": 5534,
+        "total_tokens": 8640,
+        "reasoning_tokens": 5073,
+        "llm_calls": 4,
+        "calls_with_usage": 4
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 2910,
+        "output_tokens": 373,
+        "total_tokens": 3283,
+        "reasoning_tokens": 299,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "construction_token_usage": {
+        "input_tokens": 6993,
+        "output_tokens": 4544,
+        "total_tokens": 11537,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "judge_token_usage": {
+        "input_tokens": 213,
+        "output_tokens": 1,
+        "total_tokens": 214,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 7,
+        "embedded_texts": 36
+      },
+      "num_dialogues": 24,
+      "num_memories": 33,
+      "num_retrieved_contexts": 33,
+      "sessions_ingested": 2,
+      "construction_time_sec": 28.82,
+      "query_time_sec": 75.86
+    },
+    {
+      "question_id": "gpt4_2312f94c",
+      "question_type": "temporal-reasoning",
+      "question": "Which device did I got first, the Samsung Galaxy S22 or the Dell XPS 13?",
+      "ground_truth": "Samsung Galaxy S22",
+      "simplemem_response": "Cannot be determined (Dell XPS 13 not mentioned)",
+      "judgment": {
+        "verdict": "no",
+        "reason": "",
+        "metric": "binary",
+        "question_type": "temporal-reasoning",
+        "raw_answer": "no"
+      },
+      "query_token_usage": {
+        "input_tokens": 11538,
+        "output_tokens": 7405,
+        "total_tokens": 18943,
+        "reasoning_tokens": 6489,
+        "llm_calls": 8,
+        "calls_with_usage": 8
+      },
+      "query_retrieval_token_usage": {
+        "input_tokens": 8720,
+        "output_tokens": 6447,
+        "total_tokens": 15167,
+        "reasoning_tokens": 5606,
+        "llm_calls": 7,
+        "calls_with_usage": 7
+      },
+      "query_generation_token_usage": {
+        "input_tokens": 2818,
+        "output_tokens": 958,
+        "total_tokens": 3776,
+        "reasoning_tokens": 883,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "construction_token_usage": {
+        "input_tokens": 4301,
+        "output_tokens": 3843,
+        "total_tokens": 8144,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "judge_token_usage": {
+        "input_tokens": 234,
+        "output_tokens": 1,
+        "total_tokens": 235,
+        "reasoning_tokens": 0,
+        "llm_calls": 1,
+        "calls_with_usage": 1
+      },
+      "embedding_stats": {
+        "embedding_model": "text-embedding-v4",
+        "embedding_api_calls": 11,
+        "embedded_texts": 33
+      },
+      "num_dialogues": 12,
+      "num_memories": 25,
+      "num_retrieved_contexts": 25,
+      "sessions_ingested": 1,
+      "construction_time_sec": 23.49,
+      "query_time_sec": 92.18
+    }
+  ]
+}

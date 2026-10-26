@@ -9,6 +9,42 @@ from reme_procedure_memory.token_budget import TokenBudget
 from reme_procedure_memory.trajectory import prepare_text, segments
 
 
+@pytest.mark.parametrize("size", [1024 * 1024, 4 * 1024 * 1024])
+@pytest.mark.parametrize("chars_per_token", [1, 4])
+def test_long_line_tokenization_is_bounded_by_segment_size(tmp_path, size, chars_per_token):
+    counted = 0
+    largest = 0
+
+    def count(text):
+        nonlocal counted, largest
+        counted += len(text)
+        largest = max(largest, len(text))
+        return (len(text) + chars_per_token - 1) // chars_per_token
+
+    text = "x" * size + "\r\nlast line\r\n"
+    path = tmp_path / "long.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=count)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < len(chunk["text"]) <= budget.limits["segment"] * chars_per_token for chunk in chunks)
+    assert [chunk["offset"] for chunk in chunks] == [
+        sum(len(previous["text"]) for previous in chunks[:n]) for n in range(len(chunks))
+    ]
+    assert largest <= budget.limits["segment"] * chars_per_token + 1
+    assert counted < len(text) * 8
+
+
+def test_multibyte_long_lines_remain_lossless(tmp_path):
+    text = "leading\r\n" + "你好🙂" * 1000 + "\r\ntrailing\n"
+    path = tmp_path / "unicode.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=lambda value: len(value.encode()), segment=63)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(len(chunk["text"].encode()) <= 63 for chunk in chunks)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "filename,text",

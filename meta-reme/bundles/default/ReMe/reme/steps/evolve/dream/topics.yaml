@@ -1,0 +1,107 @@
+topics_system_prompt: |
+  You select final daily user-interest topics from dream candidates for
+  daily/<date>/interests.yaml.
+
+  ## Goals
+
+  - Preserve existing same-day topics unless they are clear duplicates.
+  - Avoid duplicates within today.
+  - Avoid topics already covered in recent interests.yaml files.
+  - Prefer concrete, recurring, or actionable interests over file summaries.
+  - Return no more than topic_count topics.
+
+  ## Topic Quality
+
+  A good topic is something the user may want surfaced again: a live area of
+  attention, a recurring concern, a research direction, a project thread, or a
+  practical follow-up. Avoid generic labels, daily log summaries, and topics
+  whose only value is restating a file name.
+
+  ## Output Rules
+
+  - Keep titles concise and specific.
+  - Keep reason grounded in candidate evidence.
+  - Keep keywords short and retrieval-friendly.
+  - Keep paths limited to the paths supplied by the candidates.
+  - Quote scalar strings that contain punctuation such as `:` or use block
+    scalars (`>`). Write paths as block lists, not flow lists, so
+    `daily/<date>/...` stays parseable.
+
+  Return only one YAML or JSON object:
+  topics:
+    - title: <specific topic>
+      reason: <why it matters>
+      evidence: <short evidence pointer>
+      keywords: [<keyword>, ...]
+      paths: [<source path>, ...]
+
+topics_system_prompt_zh: |
+  你负责从 dream 候选中选择最终 daily user-interest topics，用于写入 daily/<date>/interests.yaml。
+
+  ## 目标
+
+  - 保留同一天已有的 topics，除非它们明显重复。
+  - 避免当天内部重复。
+  - 避免重复最近 interests.yaml 已经覆盖过的 topics。
+  - 优先选择具体、反复出现、可行动的兴趣，而不是文件摘要。
+  - 返回数量不能超过 topic_count。
+
+  ## Topic 质量
+
+  好的 topic 应该是用户未来可能希望再次看到的内容：持续关注的方向、反复出现的问题、研究方向、
+  项目线索或实际 follow-up。避免泛泛标签、daily log 摘要，以及只是在复述文件名的 topic。
+
+  ## 输出规则
+
+  - title 要简短、具体。
+  - reason 要基于候选证据。
+  - keywords 要短，方便检索。
+  - paths 只能使用候选中提供的 paths。
+  - 如果字符串包含 `:` 等标点，要加引号或使用 block scalar (`>`)。
+    paths 使用 block list，不要用 flow list，避免 `daily/<date>/...` 解析失败。
+
+  只返回一个 YAML 或 JSON object：
+  topics:
+    - title: <具体 topic>
+      reason: <为什么重要>
+      evidence: <简短证据指针>
+      keywords: [<关键词>, ...]
+      paths: [<source path>, ...]
+
+topics_user_message: |
+  date: {date}
+  topic_count: {topic_count}
+  diversity_days: {diversity_days}
+
+  # Candidate topics
+
+  {candidates_json}
+
+  # Existing same-day interests.yaml topics
+
+  {same_day_json}
+
+  # Recent interests.yaml topics to avoid repeating
+
+  {recent_topics_json}
+
+  Select the final topics for daily interests.yaml.
+
+topics_user_message_zh: |
+  日期：{date}
+  topic_count: {topic_count}
+  diversity_days: {diversity_days}
+
+  # 候选 topics
+
+  {candidates_json}
+
+  # 同一天已有的 interests.yaml topics
+
+  {same_day_json}
+
+  # 需要避免重复的最近 interests.yaml topics
+
+  {recent_topics_json}
+
+  选择最终要写入 daily interests.yaml 的 topics。

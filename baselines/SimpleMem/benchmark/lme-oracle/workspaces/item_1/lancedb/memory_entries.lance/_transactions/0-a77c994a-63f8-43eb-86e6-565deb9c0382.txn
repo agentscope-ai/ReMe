@@ -1,0 +1,4 @@
+$a77c994a-63f8-43eb-86e6-565deb9c0382²à*entry_id ÿÿÿÿÿÿÿÿÿ*string08Zdefault8lossless_restatement ÿÿÿÿÿÿÿÿÿ*string08Zdefault*keywords ÿÿÿÿÿÿÿÿÿ*list08Zdefaultitem *string08Zdefault-	timestamp ÿÿÿÿÿÿÿÿÿ*string08Zdefault,location ÿÿÿÿÿÿÿÿÿ*string08Zdefault)persons ÿÿÿÿÿÿÿÿÿ*list08Zdefaultitem *string08Zdefault*entities ÿÿÿÿÿÿÿÿÿ*list08Zdefaultitem	 *string08Zdefault)topic
+ ÿÿÿÿÿÿÿÿÿ*string08Zdefault>vector ÿÿÿÿÿÿÿÿÿ*fixed_size_list:float:102408Zdefault"!
+lance.auto_cleanup.interval20"'
+lance.auto_cleanup.older_than14days
