@@ -497,14 +497,17 @@ async def test_pending_payload_survives_restart_and_can_still_be_repaired(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["supersede", "publish", "indexed"])
+@pytest.mark.parametrize("restart", [False, True])
 async def test_repair_intent_recovers_without_replaying_old_payload(
     runtime,
     experience,
     reject_payload,
     monkeypatch,
     stage,
+    restart,
+    app_factory,
 ):
-    _, store, scope = runtime
+    app, store, scope = runtime
     reject_payload(store.views["when_to_use"].embedding_store)
     with pytest.raises(RuntimeError, match="indexes pending"):
         await store.apply_mutation("create", {**experience, "content": "unembeddable-payload"}, scope)
@@ -530,6 +533,10 @@ async def test_repair_intent_recovers_without_replaying_old_payload(
     with pytest.raises(RuntimeError, match="repair interrupted"):
         await store.apply_mutation("update", correction, scope)
     monkeypatch.setattr(store_module, "atomic_json", original)
+    if restart:
+        await app.close()
+        _, store = await app_factory(workspace=store.workspace_path)
+        scope = store.open_scope("session/trajectories/input.log", 0)
     await store.reconcile()
     assert (await store.apply_mutation("update", correction, scope))["status"] == "indexed"
     assert (await store.read_experience(saved["path"]))["experience"]["content"] == "valid replacement"
@@ -706,3 +713,95 @@ async def test_failed_update_hides_previous_projection_and_allows_another_correc
     result = await store.search("repair", "when_to_use_content")
     assert result["index_complete"]
     assert result["results"][0]["experience"]["content"] == "valid procedure"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart", [False, True])
+async def test_completed_history_is_not_read_on_search_or_write(
+    runtime,
+    experience,
+    monkeypatch,
+    app_factory,
+    restart,
+):
+    app, store, scope = runtime
+    source = "session/trajectories/input.log"
+    current = await store.apply_mutation("create", experience, scope)
+    for number in range(32):
+        current = await store.apply_mutation(
+            "update",
+            {
+                "path": current["path"],
+                "expected_version": current["version"],
+                "operation_key": f"update-{number}",
+                "changes": {"content": f"repair index revision {number}"},
+            },
+            store.open_scope(source, number % 3),
+        )
+    root = store.state_root / "operations"
+    expected = {segment: store.operation_records(source, segment) for segment in (None, 0, 1, 2)}
+    reads = []
+    original = store_module.load_json
+
+    def track(path):
+        if path.parent == root:
+            reads.append(path.name)
+        return original(path)
+
+    monkeypatch.setattr(store_module, "load_json", track)
+    if restart:
+        await app.close()
+        _, store = await app_factory(workspace=store.workspace_path)
+        scope = store.open_scope(source, 0)
+        # Indexed journals are decoded only once during startup.
+        assert len(reads) == len(set(reads)) == 33
+        reads.clear()
+    for segment, records in expected.items():
+        assert store.operation_records(source, segment) == records
+    assert store.operation_records("unknown") == []
+    assert all("document" not in receipt for receipt in store._operations.values())
+    for _ in range(3):
+        assert (await store.search("repair", "when_to_use"))["index_complete"]
+    await store.reconcile(source=source, segment=0)
+    await store.apply_mutation(
+        "update",
+        {
+            "path": current["path"],
+            "expected_version": current["version"],
+            "operation_key": "new-update",
+            "changes": {"content": "repair latest index"},
+        },
+        scope,
+    )
+    assert not reads
+    await store.apply_mutation("create", experience, scope)
+    assert len(reads) == 1  # An idempotent retry reads just its own journal.
+
+
+@pytest.mark.asyncio
+async def test_recovery_reads_only_pending_history(runtime, experience, reject_payload, monkeypatch):
+    _, store, scope = runtime
+    await store.apply_mutation("create", experience, scope)
+    reject_payload(store.views["when_to_use"].embedding_store)
+    with pytest.raises(RuntimeError, match="indexes pending"):
+        await store.apply_mutation(
+            "create",
+            {**experience, "filename": "pending.json", "operation_key": "bad", "content": "unembeddable-payload"},
+            scope,
+        )
+    root = store.state_root / "operations"
+    pending = next(path.name for path in root.glob("*.json") if load_json(path)["status"] == "committed")
+    original = store_module.load_json
+    reads = []
+
+    def track(path):
+        if path.parent == root:
+            reads.append(path.name)
+        return original(path)
+
+    monkeypatch.setattr(store_module, "load_json", track)
+    for _ in range(3):
+        result = await store.search("repair", "when_to_use_content")
+        assert not result["index_complete"]
+        assert len(result["results"]) == 1
+    assert reads == [pending] * 3

@@ -66,6 +66,9 @@ class ProcedureMemoryStore(BaseComponent):
         self.index_error: str | None = None
         self.rebuild_pending = False
         self.pending_indexes: dict[str, dict] = {}
+        self._operations: dict[str, dict] = {}
+        self._operations_by_source: dict[str, dict[int, set[str]]] = {}
+        self._pending_operations: dict[str, set[str]] = {}
 
     @property
     def views(self) -> dict:
@@ -86,6 +89,7 @@ class ProcedureMemoryStore(BaseComponent):
         # A crash can lose cached index dumps, even for an acknowledged write.
         # Rebuild from user files at startup, never from cached chunks alone.
         async with self.data_lock:
+            self._load_operations()
             await self._recover_unlocked()
             result = await self._rebuild_unlocked()
             for error in result["errors"]:
@@ -143,18 +147,50 @@ class ProcedureMemoryStore(BaseComponent):
         self.scopes[token] = {"source": source, "segment": segment}
         return token
 
+    def _remember_operation(self, journal: Path, record: dict) -> None:
+        """Cache receipts and lookup keys, never the full experience payload."""
+        name = journal.name
+        self._operations[name] = {
+            key: value for key, value in record.items() if key not in {"document", "previous", "signature"}
+        }
+        segments = self._operations_by_source.setdefault(record["source"], {})
+        segments.setdefault(record["segment"], set()).add(name)
+        pending = self._pending_operations.setdefault(record["path"], set())
+        if record["status"] in {"indexed", "superseded"}:
+            pending.discard(name)
+            if not pending:
+                self._pending_operations.pop(record["path"])
+        else:
+            pending.add(name)
+
+    def _write_operation(self, journal: Path, record: dict) -> None:
+        atomic_json(journal, record)
+        self._remember_operation(journal, record)
+
+    def _load_operations(self) -> None:
+        """Rebuild the in-memory directory once at startup from durable journals."""
+        self._operations.clear()
+        self._operations_by_source.clear()
+        self._pending_operations.clear()
+        root = self.state_root / "operations"
+        for path in sorted(root.glob("*.json")):
+            self._remember_operation(path, load_json(path))
+        # Completed replacements can still name older intents. Resolve all
+        # chains before replay without rereading completed journal payloads.
+        for name, record in list(self._operations.items()):
+            self._mark_superseded(root / name, record)
+
     def operation_records(self, source: str, segment: int | None = None) -> list[dict]:
-        """Recover acknowledged and in-flight tool context for this segment."""
+        """Return acknowledged and in-flight tool context without reading journals."""
+        segments = self._operations_by_source.get(source, {})
+        names = set().union(*segments.values()) if segment is None else segments.get(segment, set())
         records = []
-        for path in sorted((self.state_root / "operations").glob("*.json")):
-            record = load_json(path)
-            if record["source"] == source and (segment is None or record["segment"] == segment):
-                records.append(
-                    {key: record[key] for key in ("operation_key", "path", "version", "status", "action")},
-                )
-                for key in ("index_error", "superseded_by"):
-                    if key in record:
-                        records[-1][key] = record[key]
+        for name in sorted(names):
+            record = self._operations[name]
+            records.append({key: record[key] for key in ("operation_key", "path", "version", "status", "action")})
+            for key in ("index_error", "superseded_by"):
+                if key in record:
+                    records[-1][key] = record[key]
         return records
 
     async def apply_mutation(self, action: str, arguments: dict, scope_token: str) -> dict:
@@ -186,15 +222,10 @@ class ProcedureMemoryStore(BaseComponent):
             # Persist the replacement's dependency list before touching either
             # file. Recovery can then skip the old intent even if we crash
             # before marking it superseded or publishing the replacement.
-            record["supersedes"] = [
-                journal.name
-                for journal in (self.state_root / "operations").glob("*.json")
-                if (prior := load_json(journal))["path"] == record["path"]
-                and prior["status"] not in {"indexed", "superseded"}
-            ]
+            record["supersedes"] = sorted(self._pending_operations.get(record["path"], set()))
             path = self.experience_path(record["path"])
             async with await get_path_lock(path):
-                atomic_json(operation_path, record)
+                self._write_operation(operation_path, record)
                 self._mark_superseded(operation_path, record)
                 await self._commit_record(operation_path, record)
             return self._operation_result(record)
@@ -256,19 +287,19 @@ class ProcedureMemoryStore(BaseComponent):
                 raise ValueError(f"Journal conflicts with current experience: {record['path']}")
             atomic_json(path, record["document"])
         record["status"] = "committed"
-        atomic_json(journal, record)
+        self._write_operation(journal, record)
         try:
             await self._sync_unlocked([record["path"]])
         except Exception as exc:
             record["index_error"] = str(exc)
-            atomic_json(journal, record)
+            self._write_operation(journal, record)
             await self._quarantine_unlocked(record["path"], str(exc))
             raise ProcedureIndexError(
                 {**self._operation_result(record), "status": "index_pending", "error": str(exc)},
             ) from exc
         record["status"] = "indexed"
         record.pop("index_error", None)
-        atomic_json(journal, record)
+        self._write_operation(journal, record)
         self.pending_indexes.pop(record["path"], None)
 
     def _mark_superseded(self, replacement: Path, record: dict) -> None:
@@ -277,13 +308,14 @@ class ProcedureMemoryStore(BaseComponent):
             prior_path = replacement.parent / name
             if prior_path.parent != replacement.parent or prior_path.suffix != ".json":
                 raise ValueError("Invalid superseded operation path")
-            prior = load_json(prior_path)
+            prior = self._operations[name]
             if prior["path"] != record["path"]:
                 raise ValueError("A replacement cannot supersede a different experience")
             if prior["status"] != "superseded":
+                prior = load_json(prior_path)
                 prior["status"] = "superseded"
                 prior["superseded_by"] = record["operation_key"]
-                atomic_json(prior_path, prior)
+                self._write_operation(prior_path, prior)
 
     @staticmethod
     def _operation_result(record: dict) -> dict:
@@ -293,18 +325,19 @@ class ProcedureMemoryStore(BaseComponent):
         return result
 
     async def _recover_unlocked(self) -> None:
-        journals = sorted((self.state_root / "operations").glob("*.json"))
+        root = self.state_root / "operations"
+        names = sorted(set().union(*self._pending_operations.values()))
+        records = {name: load_json(root / name) for name in names}
         # Resolve replacement chains before replay, independent of hashed file
         # ordering and of how far the interrupted replacement had progressed.
-        for path in journals:
-            self._mark_superseded(path, load_json(path))
+        for name, record in records.items():
+            self._mark_superseded(root / name, record)
         attempted = set()
-        for path in journals:
-            record = load_json(path)
-            if record["status"] not in {"indexed", "superseded"}:
+        for name, record in records.items():
+            if self._operations[name]["status"] not in {"indexed", "superseded"}:
                 attempted.add(record["path"])
                 try:
-                    await self._commit_record(path, record)
+                    await self._commit_record(root / name, record)
                 except ProcedureIndexError:
                     pass  # Keep this source file repairable without blocking other files.
         if self.rebuild_pending:
