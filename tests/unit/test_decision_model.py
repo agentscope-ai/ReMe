@@ -4,6 +4,7 @@
 
 import asyncio
 import sys
+import threading
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -101,6 +102,13 @@ def test_valid_questions_reuse_model_and_restart_closes_clients(provider, provid
     }
 
     async def run():
+        loop_thread = threading.get_ident()
+
+        def construct(**_kwargs):
+            assert threading.get_ident() != loop_thread
+            return model
+
+        factory.side_effect = construct
         component = AgentScopeAsDecisionModel(
             credential={"api_key": "test-key", "base_url": ""},
             model="decision-test",
@@ -134,6 +142,53 @@ def test_valid_questions_reuse_model_and_restart_closes_clients(provider, provid
         assert factory.call_count == 2
         await component.close()
         assert model.client.aclose.await_count == 2
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("construction_fails", [False, True])
+def test_cancelled_construction_keeps_ownership_until_close(provider, construction_fails):
+    """Cancellation cannot abandon a client or let shutdown overtake its worker."""
+    factory, model = provider
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        entered, release = asyncio.Event(), threading.Event()
+
+        def construct(**_kwargs):
+            loop.call_soon_threadsafe(entered.set)
+            assert release.wait(5), "Construction was not released"
+            if construction_fails:
+                raise RuntimeError("construction failed")
+            return model
+
+        factory.side_effect = construct
+        component = AgentScopeAsDecisionModel(credential={"api_key": "test-key"})
+        call = asyncio.create_task(component(state="hello", questions={"q": {"type": "binary"}}))
+        closing = None
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            with pytest.raises(RuntimeError, match="Close the decision component"):
+                component.model = AsyncMock()
+            for _ in range(2):
+                call.cancel()
+                await asyncio.sleep(0)
+                assert not call.done()
+            closing = asyncio.create_task(component.close())
+            await asyncio.sleep(0)
+            assert not closing.done()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(call, 2)
+            await asyncio.wait_for(closing, 2)
+            assert component.model is None
+            assert not component._owns_model
+            model.assert_not_awaited()
+            assert model.client.aclose.await_count == (0 if construction_fails else 1)
+        finally:
+            release.set()
+            await asyncio.gather(call, *([closing] if closing is not None else []), return_exceptions=True)
+            await component.close()
 
     asyncio.run(run())
 

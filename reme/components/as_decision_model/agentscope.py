@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 from .base_as_decision_model import BaseAsDecisionModel
 from ..component_registry import R
+from ...utils.async_utils import complete_in_thread
 
 if TYPE_CHECKING:
     from agentscope.classifier import ClassifierModelBase, ClassifierResponse
@@ -117,18 +118,19 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
                     raise ValueError("Decision model inference requires DECISION_MODEL_API_KEY or credential.api_key.")
                 if not credential.get("base_url"):
                     credential["base_url"] = None
+                # Reserve ownership before yielding so host injection cannot race
+                # initialization. The worker publishes the model to this component
+                # before cancellation can release the lifecycle lock.
+                self._owns_model = True
                 try:
-                    credential_cls = import_module("agentscope.credential").TypeSafeCredential
-                    self._model = model_cls(
-                        credential=credential_cls(**credential),
-                        **self.options.model_dump(exclude_none=True),
-                    )
-                    self._owns_model = True
+                    await complete_in_thread(self._create_model, model_cls, credential)
                 except ImportError as exc:
                     raise ImportError(
                         "Decision model inference requires a compatible typesafe-sdk. "
                         "Install it with `pip install 'reme-ai[decision]'`.",
                     ) from exc
+                finally:
+                    self._owns_model = self._model is not None
             model = self._model
             self._active_calls += 1
             self._idle.clear()
@@ -140,6 +142,14 @@ class AgentScopeAsDecisionModel(BaseAsDecisionModel):
             self._active_calls -= 1
             if self._active_calls == 0:
                 self._idle.set()
+
+    def _create_model(self, model_cls, credential) -> None:
+        """Construct and retain the owned client, including synchronous TLS setup."""
+        credential_cls = import_module("agentscope.credential").TypeSafeCredential
+        self._model = model_cls(
+            credential=credential_cls(**credential),
+            **self.options.model_dump(exclude_none=True),
+        )
 
     async def _close(self) -> None:
         """Finish draining and cleanup before propagating shutdown cancellation."""

@@ -14,8 +14,7 @@ from reme.components.as_decision_model import BaseAsDecisionModel
 from reme.components.job import BaseJob
 from reme.enumeration import ComponentEnum
 from reme.schema.compaction import CompactionOptions, CompactionRequest
-from reme.steps.compaction import CompactContextStep
-from reme.steps.compaction.messages import collect_pairs
+from reme.steps.compaction import CompactContextStep, collect_pairs
 from reme.steps.compaction.state import build_batches, estimate_decision_tokens, serialize
 
 

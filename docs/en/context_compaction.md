@@ -176,3 +176,11 @@ keep the instance alive until ReMe has finished its calls, then close it itself.
 replacing an internally constructed model or any model with active requests. Shutdown waits for active calls and
 owned-client cleanup even when cancelled, then propagates cancellation. Component shutdown detaches the instance;
 inject again before restarting a borrowed-model component. Standalone credential-based behavior is unchanged.
+
+Owned clients initialize in a worker thread so certificate loading does not block the event loop. Cancelling a request
+during construction waits for initialization to finish and leaves the client owned by the component until shutdown;
+the cancelled request is not sent.
+
+Hosts can import `CompactContextStep`, `ToolPair`, `collect_pairs`, and `preview_result` from `reme.steps.compaction`.
+The pairing and preview helpers share the Step's rules for validating proposals. Archiving, resolving references,
+and committing proposals remain host responsibilities.
