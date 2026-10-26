@@ -17,6 +17,7 @@ ReMe 把记忆能力放在独立服务和用户拥有的 workspace 中。Agent �
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
 | Claude Code | [启动 ReMe 后安装插件](./integrations/claude-code.md) |
+| Qoder | [启动 ReMe 后安装插件](./integrations/qoder.md) |
 | Hermes Agent | Memory provider adapter |
 | Codex | [启动 ReMe 后安装插件](./integrations/codex.md) |
 | 其他 coding agent | `reme_memory` Skill 或 MCP |
@@ -97,6 +98,15 @@ openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin
 先启动 ReMe HTTP 服务，再[安装 Codex 的 ReMe 插件](./integrations/codex.md)，在 `/hooks` 中信任插件 Hook。
 新建会话后即可使用自动召回、记录和插件提供的记忆工具。本宿主同样使用插件安装流程接入。
 两端各自保存插件配置与重试队列，记忆存储和整理由 ReMe 服务负责。
+
+## Qoder
+
+先启动 ReMe HTTP 服务，再安装 [Qoder 的 ReMe 插件](./integrations/qoder.md)。插件整包提供生命周期
+Hook、MCP Bridge 和 `reme-memory` Skill；Qoder 以 user 级插件统一加载全部组件，不再需要手工维护
+`settings.json` 中的 ReMe Hook。
+
+Qoder 的 transcript 与 Claude Code 一样使用 user/assistant JSONL。插件会捕获完成轮次，把失败写入
+留在本地队列重试，并通过配置的 HTTP Job API 提交。使用期间需保持 ReMe 服务运行。
 
 ## Hermes Agent
 
