@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import frontmatter
 import pytest
@@ -53,6 +54,39 @@ def _file_store(*, name: str = "default", **tag_index_kwargs) -> LocalFileStore:
     store = LocalFileStore(name=name, embedding_store="", tag_index="")
     store.tag_index = LocalTagIndex(**tag_index_kwargs)
     return store
+
+
+@pytest.mark.asyncio
+async def test_auto_tag_reports_missing_agent_write_without_inventing_empty_tags(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "memory/note.md"
+    _write_note(note)
+    original = note.read_bytes()
+    wrapper = _TaggingWrapper(tmp_path)
+    monkeypatch.setattr(wrapper, "reply", AsyncMock(return_value={"result": "", "last_message": {}}))
+    step = AutoTagStep(agent_wrapper=wrapper, file_store=_file_store())
+
+    response = await step(RuntimeContext(changes=[{"change": "added", "path": "memory/note.md"}]))
+
+    assert response.metadata["auto_tag"]["failed"] == 1
+    assert response.metadata["auto_tag"]["succeeded"] == 0
+    assert "did not write" in response.metadata["auto_tag"]["results"][0]["error"]
+    assert note.read_bytes() == original
+
+
+@pytest.mark.asyncio
+async def test_auto_tag_accepts_explicitly_written_empty_tags(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "memory/note.md"
+    _write_note(note)
+    wrapper = _TaggingWrapper(tmp_path, tags=[])
+    step = AutoTagStep(agent_wrapper=wrapper, file_store=_file_store())
+
+    response = await step(RuntimeContext(changes=[{"change": "added", "path": "memory/note.md"}]))
+
+    assert response.metadata["auto_tag"]["succeeded"] == 1
+    assert response.metadata["auto_tag"]["failed"] == 0
+    assert frontmatter.loads(note.read_text(encoding="utf-8")).metadata["memory_tags"] == []
 
 
 @pytest.mark.asyncio

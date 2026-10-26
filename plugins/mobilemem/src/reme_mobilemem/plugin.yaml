@@ -1,0 +1,71 @@
+backends:
+  mobilemem_auto_memory_step: reme_mobilemem.auto_memory:MobileMemAutoMemoryStep
+  mobilemem_agentic_answer_step: reme_mobilemem.agentic_answer:MobileMemAgenticAnswerStep
+
+application_defaults:
+  jobs:
+    read_image:
+      backend: base
+      description: "Read an original saved session image through ReMe's native image Job."
+      parameters:
+        type: object
+        properties:
+          path: {type: string, description: "Workspace-relative image attachment path."}
+        required: [path]
+      steps:
+        - backend: read_image_step
+          max_bytes: 52428800
+    auto_memory:
+      backend: base
+      description: "Record one original MobileMem-Omni session using native Auto Memory."
+      include_images: true
+      include_source_sessions: true
+      parameters:
+        type: object
+        properties:
+          messages: {type: array, items: {type: object}}
+          session_id: {type: string}
+          date: {type: string, default: ""}
+          include_images: {type: boolean, default: true}
+          include_source_sessions: {type: boolean, default: true}
+          memory_hint: {type: string, default: ""}
+        required: [messages, session_id]
+      steps:
+        - backend: mobilemem_auto_memory_step
+    search:
+      backend: base
+      description: "Search this user's allowed memory and source text using BM25."
+      parameters:
+        type: object
+        properties:
+          query: {type: string}
+          limit: {type: integer, description: "Number of search results."}
+          start_date: {type: string}
+          end_date: {type: string}
+        required: [query]
+      steps:
+        - backend: search_step
+          vector_weight: 0.0
+          expand_links: false
+    agentic_answer:
+      backend: base
+      description: "Answer a MobileMem question through a fresh evidence retrieval Agent."
+      include_images: true
+      include_source_sessions: true
+      parameters:
+        type: object
+        properties:
+          query: {type: string, description: "Official benchmark answer prompt including the query."}
+          query_time: {type: string, default: ""}
+          query_images: {type: array, items: {type: object}, default: []}
+          max_iters: {type: integer, minimum: 1, default: 30}
+          include_images: {type: boolean, default: true}
+          include_source_sessions: {type: boolean, default: true}
+        required: [query]
+      steps:
+        - backend: mobilemem_agentic_answer_step
+          agent_wrapper: bench
+  components:
+    file_store:
+      default:
+        embedding_store: null

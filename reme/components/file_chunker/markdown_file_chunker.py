@@ -126,6 +126,8 @@ class MarkdownFileChunker(DefaultFileChunker):
     async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
         file_path = Path(path)
         rel_path = self.to_workspace_relative(path)
+        # A write during the read must stay detectable by the next scan.
+        stat = file_path.stat()
         text = await self._read_text_for_indexing(file_path)
         front_matter, content, line_offset = self._parse_front_matter(text)
 
@@ -157,7 +159,7 @@ class MarkdownFileChunker(DefaultFileChunker):
 
         node = FileNode(
             path=rel_path,
-            st_mtime=file_path.stat().st_mtime,
+            st_mtime=stat.st_mtime,
             chunk_ids=[chunk.id for chunk in chunks],
             links=links,
             front_matter=front_matter,

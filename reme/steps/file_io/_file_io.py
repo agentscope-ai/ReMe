@@ -1,7 +1,10 @@
 """Encoding-aware file IO, output truncation, and per-path write locks."""
 
 import asyncio
+import os
 from pathlib import Path
+from secrets import token_hex
+from stat import S_IMODE
 from typing import Iterable
 
 import aiofiles
@@ -10,6 +13,7 @@ import aiofiles.os
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES, TRUNCATION_NOTICE_MARKER
 from ...schema import FileChunk
 from ...utils import get_logger
+from ...utils.async_utils import complete_in_thread
 
 logger = get_logger(log_to_file=False)
 
@@ -152,7 +156,7 @@ async def detect_file_encoding(file_path, sniff_bytes: int = 8192) -> str:
 
 
 async def write_file_safe(file_path: Path, content: str | bytes, encoding: str = "utf-8") -> None:
-    """Write ``content`` to ``file_path`` in binary mode; creates parent dirs."""
+    """Publish complete bytes atomically while retaining normal file permissions."""
     file_path.parent.mkdir(parents=True, exist_ok=True)
     if isinstance(content, str):
         try:
@@ -165,8 +169,32 @@ async def write_file_safe(file_path: Path, content: str | bytes, encoding: str =
             payload = content.encode("utf-8")
     else:
         payload = content
-    async with aiofiles.open(str(file_path), "wb") as f:
-        await f.write(payload)
+
+    def publish():
+        flags = os.O_WRONLY | getattr(os, "O_BINARY", 0)
+        # Check OS write access without truncating the existing bytes.
+        try:
+            existing_fd = os.open(file_path, flags)
+        except FileNotFoundError:
+            mode = None
+        else:
+            try:
+                mode = S_IMODE(os.fstat(existing_fd).st_mode)
+            finally:
+                os.close(existing_fd)
+
+        temporary = file_path.parent / f".reme-{token_hex(16)}.tmp"
+        fd = os.open(temporary, flags | os.O_CREAT | os.O_EXCL, 0o600 if mode is not None else 0o666)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+            if mode is not None:
+                os.chmod(temporary, mode)
+            os.replace(temporary, file_path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+    await complete_in_thread(publish)
 
 
 # ---------------------------------------------------------------------------

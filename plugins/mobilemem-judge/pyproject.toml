@@ -1,0 +1,22 @@
+[project]
+name = "reme-mobilemem-judge"
+version = "0.1.0"
+description = "Official MobileMem-Omni judge protocols as an independent ReMe plugin."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["reme-ai[as]>=0.4.1.11"]
+
+[project.entry-points."reme.plugins"]
+mobilemem-judge = "judge_mobilemem"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["judge_mobilemem*"]
+
+[tool.setuptools.package-data]
+judge_mobilemem = ["plugin.yaml"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

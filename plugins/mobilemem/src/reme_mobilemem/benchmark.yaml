@@ -1,0 +1,32 @@
+extends: benchmark
+plugins: [mobilemem]
+components:
+  file_store:
+    default:
+      embedding_store: null
+  as_llm:
+    default: &candidate_model
+      backend: openai
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      stream: false
+      context_size: 1000000
+      max_retries: 3
+      retry_delay: 60
+      credential:
+        api_key: ${LLM_API_KEY:-}
+        base_url: ${LLM_BASE_URL:-}
+      extra_body: {enable_thinking: true}
+      parameters:
+        temperature: 0
+        thinking_enable: true
+        max_tokens: 65536
+      client_kwargs: {timeout: 600, max_retries: 0}
+    bench: *candidate_model
+    compressor: *candidate_model
+  agent_wrapper:
+    default:
+      context_config: {max_image_num: 4096}
+      model_config: {max_retries: 0}
+    bench:
+      context_config: {max_image_num: 4096}
+      model_config: {max_retries: 0}

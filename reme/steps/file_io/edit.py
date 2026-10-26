@@ -1,5 +1,7 @@
 """Find-and-replace text in a markdown file body (front matter is preserved)."""
 
+import re
+
 import frontmatter
 import yaml
 
@@ -7,6 +9,44 @@ from ._base import _FileIOStep
 from ._file_io import get_path_lock, read_file_safe, write_file_safe
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ...components import R
+
+
+def _replace_normalized_newlines(body: str, old: str, new: str) -> tuple[str, int]:
+    """Find literal LF text, mapping its spans back without normalizing untouched text."""
+    normalized = body.replace("\r\n", "\n").replace("\r", "\n")
+    position = normalized.find(old)
+    if position < 0:
+        return body, 0
+
+    # Only CRLF pairs change offsets. Consume them once as match boundaries advance;
+    # no per-character offset array or regex search for the user-supplied needle.
+    crlf_starts = (match.start() for match in re.finditer("\r\n", body))
+    next_crlf = next(crlf_starts, len(body))
+    removed = 0
+    source_cursor = 0
+    count = 0
+    parts = []
+    while position >= 0:
+        source_start = position + removed
+        while next_crlf < source_start:
+            removed += 1
+            source_start += 1
+            next_crlf = next(crlf_starts, len(body))
+
+        end = position + len(old)
+        source_end = end + removed
+        while next_crlf < source_end:
+            removed += 1
+            source_end += 1
+            next_crlf = next(crlf_starts, len(body))
+
+        parts.extend((body[source_cursor:source_start], new))
+        source_cursor = source_end
+        count += 1
+        position = normalized.find(old, end)
+
+    parts.append(body[source_cursor:])
+    return "".join(parts), count
 
 
 @R.register("edit_step")
@@ -82,12 +122,15 @@ class EditStep(_FileIOStep):
                 body = raw_text
                 not_found_msg = f"text to replace was not found in {target}"
 
-            if old_str not in body:
+            if "\r" in body and "\n" in old_str and "\r" not in old_str:
+                new_body, count = _replace_normalized_newlines(body, old_str, new_str)
+            else:
+                count = body.count(old_str)
+                new_body = body.replace(old_str, new_str)
+
+            if count == 0:
                 self._fail(not_found_msg, path=str(target))
                 return None
-
-            count = body.count(old_str)
-            new_body = body.replace(old_str, new_str)
 
             if is_md and post is not None:
                 post.content = new_body
