@@ -295,7 +295,7 @@ async def test_image_only_pipeline_preserves_sessions_and_official_query(candida
     monkeypatch.setattr(runner, "app_config", lambda *_, **__: {})
     monkeypatch.setattr(runner, "session_messages", lambda session: [{"text": session["id"]}])
     monkeypatch.setattr(runner, "observe_usage", lambda _: None)
-    rows, _, _ = await runner.evaluate_scene(scene, 0, "candidate", workspace, judge, asyncio.Semaphore(2))
+    rows, *_ = await runner.evaluate_scene(scene, 0, "candidate", workspace, judge, asyncio.Semaphore(2))
     assert [name for name, _ in calls] == ["auto_memory", "auto_memory", "index_update", "agentic_answer"]
     assert [kw["session_id"] for name, kw in calls if name == "auto_memory"] == ["first", "second"]
     for name, kwargs in calls:

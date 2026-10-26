@@ -65,10 +65,10 @@ async def test_index_failure_retains_completed_session_usage(scene_run):
         return Response(success=False, answer="Index unavailable")
 
     app.run_job.side_effect = job
-    results, memory, answers = await evaluate()
+    results, memory, answers, status = await evaluate()
     assert results == answers == []
     assert runner.total_usage(memory)["total_tokens"] == 120
-    status = json.loads((case / "status.json").read_text())
+    assert json.loads((case / "status.json").read_text()) == status
     assert status["stage"] == "index_update" and status["scene_id"] == "scene-1"
     assert "response detail: Index unavailable" in status["error"]["message"]
     assert status["error_type"] == "RuntimeError"
@@ -96,7 +96,7 @@ async def test_failed_memory_keeps_its_successful_requests_and_diagnostics(scene
         return Response(success=False, metadata={"error": "Memory failed"})
 
     app.run_job.side_effect = job
-    _, memory, _ = await evaluate()
+    _, memory, _, _ = await evaluate()
     assert runner.total_usage(memory)["total_tokens"] == 240
     status = json.loads((case / "status.json").read_text())
     assert status["stage"] == "auto_memory" and status["session_id"] == "session-2"
@@ -126,7 +126,7 @@ async def test_failed_answer_or_judge_keeps_answer_usage_once(scene_run, failed_
     app.run_job.side_effect = job
     if failed_job == "judge":
         judge.run_job.return_value = Response(success=False, metadata={"error": "Judge failed"})
-    results, memory, answers = await evaluate()
+    results, memory, answers, _ = await evaluate()
     assert results == [] and len(memory) == len(answers) == 1
     assert runner.total_usage(answers)["total_tokens"] == 120
     status = json.loads((case / "status.json").read_text())
@@ -253,7 +253,7 @@ async def test_successful_predictions_and_references_remain_verbatim(scene_run):
     answer = "token=ordinary-text https://example.test/path?a=b data:image/png;base64," + "QmFzZTY0" * 20
     scene["questions"][0]["answer"] = answer
     app.run_job.return_value = Response(answer=answer)
-    results, _, _ = await evaluate()
+    results, *_ = await evaluate()
     assert results[0]["prediction"] == results[0]["reference"] == answer
     assert judge.run_job.call_args.kwargs["prediction"] == answer
     for name in ("answer.json", "result.json"):

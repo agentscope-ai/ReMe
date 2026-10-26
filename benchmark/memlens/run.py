@@ -330,14 +330,15 @@ def app_config(workspace: Path, model: str, *, judge: bool = False) -> dict:
     return values
 
 
-def check_response(response):
-    """Do not reinterpret execution failures as incorrect predictions."""
+def check_response(response, diagnostic_path: Path) -> None:
+    """Save failed responses before validation; keep execution failures unscored."""
+    if not response.success:
+        save(diagnostic_path, {"response": response_record(response)})
     if asyncio.current_task().cancelling():
         raise asyncio.CancelledError
     if not response.success:
         detail = response.answer or response.metadata.get("error") or "No failure detail provided."
         raise RuntimeError(f"ReMe Job failed; response detail: {safe_value(detail)}")
-    return response
 
 
 async def close_application(app) -> None:
@@ -390,12 +391,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                         include_images=True,
                         include_source_sessions=True,
                     )
-                    if not response.success:
-                        save(
-                            directory / "diagnostics" / f"{ordinal:05d}-response.json",
-                            {"response": response_record(response)},
-                        )
-                    check_response(response)
+                    check_response(response, directory / "diagnostics" / f"{ordinal:05d}-response.json")
                     save(
                         directory / "sessions" / f"{ordinal:05d}.json",
                         {
@@ -407,12 +403,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
         status.pop("session_id", None)
         status["stage"] = "index_update"
         response = await app.run_job("index_update")
-        if not response.success:
-            save(
-                case / "ingestion/attempt-001/diagnostics/index-response.json",
-                {"response": response_record(response)},
-            )
-        check_response(response)
+        check_response(response, case / "ingestion/attempt-001/diagnostics/index-response.json")
         status["memory_complete"] = True
         for index, question in enumerate(scene["questions"]):
             directory = case / "questions" / f"{index:04d}"
@@ -429,12 +420,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                         include_source_sessions=True,
                         max_iters=30,
                     )
-                    if not response.success:
-                        save(
-                            directory / "diagnostics/answer-response.json",
-                            {"response": response_record(response)},
-                        )
-                    check_response(response)
+                    check_response(response, directory / "diagnostics/answer-response.json")
                     save(
                         directory / "answer.json",
                         {
@@ -455,9 +441,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
                     subtype=question.get("subtype", ""),
                     old_answer=question.get("old_answer", ""),
                 )
-                if not judgment.success:
-                    save(directory / "diagnostics/judge-response.json", {"response": response_record(judgment)})
-                check_response(judgment)
+                check_response(judgment, directory / "diagnostics/judge-response.json")
             status["stage"] = "score"
             metrics = score_answer(question, response.answer)
             metrics["llm_judge"] = judgment.metadata["llm_judge_score"]
@@ -494,7 +478,7 @@ async def evaluate_scene(scene, number, model, group, judge, slots):
             if "error" in status:
                 status["error_type"] = status["error"]["type"]
             save(case / "status.json", status_record(status))
-    return results, memory, answers
+    return results, memory, answers, status
 
 
 async def run(settings: dict, model: str, length: str, limit: int | None = None) -> dict:
@@ -557,7 +541,7 @@ async def run(settings: dict, model: str, length: str, limit: int | None = None)
         memory = [row for output in outputs for row in output[1]]
         answers = [row for output in outputs for row in output[2]]
         expected = sum(len(scene["questions"]) for scene in scenes)
-        statuses = [json.loads(path.read_text()) for path in (group / "reme_image/scenes").glob("*/status.json")]
+        statuses = [output[3] for output in outputs]
         cleanup_errors = sum("cleanup_error" in row or row["stage"] == "cleanup" for row in statuses)
         summary = {
             "method": "reme_image",
