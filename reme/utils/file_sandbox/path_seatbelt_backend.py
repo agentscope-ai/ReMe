@@ -61,6 +61,14 @@ class PathSeatbeltBackend(FileSandboxBackend):
         """Quote a path as one Seatbelt profile string, never as profile syntax."""
         return f"(subpath {json.dumps(path)})" if os.path.isdir(path) else f"(literal {json.dumps(path)})"
 
+    @classmethod
+    def _runtime_link_rules(cls) -> list[str]:
+        """Permit runtime symlink traversal without granting their parent trees."""
+        links, metadata = cls._runtime_paths()
+        return [f"(allow file-read* (literal {json.dumps(path)}))" for path in sorted(links)] + [
+            f"(allow file-read-metadata (literal {json.dumps(path)}))" for path in sorted(metadata - links)
+        ]
+
     def _profile(self, tempdir: str) -> str:
         """Allow only configured files plus the system runtime needed to launch tools."""
         system_roots = ("/System", "/usr", "/bin", "/sbin", "/private/etc", "/dev")
@@ -82,6 +90,7 @@ class PathSeatbeltBackend(FileSandboxBackend):
                 ancestors.add(parent)
                 parent = os.path.dirname(parent)
         lines.extend(f"(allow file-read-metadata (literal {json.dumps(path)}))" for path in sorted(ancestors))
+        lines.extend(self._runtime_link_rules())
         lines.extend(f"(allow file-read* {self._path_rule(path)})" for path in read_paths)
         # Shell redirection to the null device is safe and is accepted by
         # AutoBash's read-only policy; do not grant writes to the rest of /dev.
@@ -130,7 +139,7 @@ class PathSeatbeltBackend(FileSandboxBackend):
         self._process_tempdirs[process.pid] = tempdir
         return process
 
-    def _release_process(self, process: asyncio.subprocess.Process) -> None:
+    async def _release_process(self, process: asyncio.subprocess.Process) -> None:
         tempdir = self._process_tempdirs.pop(process.pid, None)
         if tempdir is not None:
             shutil.rmtree(tempdir)

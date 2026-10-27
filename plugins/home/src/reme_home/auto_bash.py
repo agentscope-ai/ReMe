@@ -95,7 +95,11 @@ def _read_specs():
     """Build the fixed safecmd policy once, when read-only mode is used."""
     from safecmd import CmdSpec  # pylint: disable=import-outside-toplevel
 
-    return {CmdSpec(name, denied=options.get("denied")) for name, options in _READ_COMMANDS.items()}
+    return {
+        CmdSpec(f"{name} {subcommand}".strip(), denied=options.get("denied"))
+        for name, options in _READ_COMMANDS.items()
+        for subcommand in options.get("allow", [""])
+    }
 
 
 def _literal_shell(node: dict, command: str, quoted: bool = False) -> bool:
@@ -119,7 +123,7 @@ def _literal_shell(node: dict, command: str, quoted: bool = False) -> bool:
             continue
         if op in {">&", "<&"} and (destination == "-" or destination.rstrip("-").isdigit()):
             continue
-        if op not in {">", ">>", ">|", "<>", "&>", "&>>", ">&"} or destination != "/dev/null":
+        if op not in {">", ">>", ">|", "<>", "&>", "&>>", ">&"} or destination not in _SAFE_DESTINATIONS:
             return False
     for value in node.values():
         children = value if isinstance(value, list) else [value]
@@ -129,10 +133,8 @@ def _literal_shell(node: dict, command: str, quoted: bool = False) -> bool:
 
 
 def _allowed_arguments(tokens: list[str]) -> bool:
-    """Supplement CmdSpec with subcommands, abbreviated flags and Git formats."""
+    """Supplement CmdSpec with abbreviated flags and Git formats."""
     options = _READ_COMMANDS[tokens[0]]
-    if "allow" in options and (len(tokens) < 2 or tokens[1] not in options["allow"]):
-        return False
     # Signature placeholders invoke Git's configured GPG program.
     if tokens[0] == "git" and any("%G" in token for token in tokens[1:]):
         return False
@@ -253,20 +255,13 @@ class AutoBashStep(BaseStep):
         command = self.context.get("command", "")
         timeout = self.context.get("timeout", self.kwargs.get("timeout", 60000))
         is_read_only = self.context.get("is_read_only", self.kwargs.get("is_read_only", True))
-        if not isinstance(command, str) or not command.strip():
-            self.context.response.success = False
-            self.context.response.answer = "command is required"
-            return self.context.response
-        if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
-            self.context.response.success = False
-            self.context.response.answer = "timeout must be a positive integer in milliseconds"
-            return self.context.response
-        if not isinstance(is_read_only, bool):
-            self.context.response.success = False
-            self.context.response.answer = "is_read_only must be a boolean"
-            return self.context.response
-
         try:
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError("command is required")
+            if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
+                raise ValueError("timeout must be a positive integer in milliseconds")
+            if not isinstance(is_read_only, bool):
+                raise ValueError("is_read_only must be a boolean")
             backend = file_sandbox_for_step(self)
         except (TypeError, ValueError, RuntimeError) as exc:
             self.context.response.success = False

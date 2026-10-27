@@ -110,7 +110,7 @@ class LocalProcessBackend(LocalBackend):
             await finish_cleanup(rollback())
             raise
 
-    def _release_process(self, process: asyncio.subprocess.Process) -> None:
+    async def _release_process(self, process: asyncio.subprocess.Process) -> None:
         """Release any platform resources owned by a completed execution."""
 
     @staticmethod
@@ -192,12 +192,12 @@ class LocalProcessBackend(LocalBackend):
             self._collect_output(process, data, stdout_buffer, stderr_buffer, exceeded),
         )
 
-        async def cleanup(completed):
+        async def cleanup(_completed):
             try:
-                if not completed:
-                    await self._stop_process(process, communication)
+                # Closed pipes do not imply that redirected background children exited.
+                await self._stop_process(process, communication)
             finally:
-                self._release_process(process)
+                await self._release_process(process)
 
         try:
             stdout, stderr = await self._execute(

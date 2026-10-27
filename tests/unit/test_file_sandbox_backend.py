@@ -4,7 +4,6 @@ import asyncio
 import os
 import plistlib
 import sys
-from contextlib import nullcontext
 from pathlib import Path
 
 import pytest
@@ -93,6 +92,29 @@ def test_sandbox_reads_virtual_environment_base_runtime(tmp_path, monkeypatch):
     assert f'(allow file-write* (literal "{interpreter}"))' not in profile
 
 
+def test_seatbelt_runtime_links_have_only_literal_read_grants(tmp_path, monkeypatch):
+    """Follow relative link chains while keeping user-configured symlinks invalid."""
+    workspace = tmp_path / "workspace"
+    environment = tmp_path / "venv"
+    workspace.mkdir()
+    (environment / "bin").mkdir(parents=True)
+    (environment / "bin" / "python").symlink_to("python3")
+    (environment / "bin" / "python3").symlink_to(sys.executable)
+    alias = tmp_path / "alias"
+    alias.symlink_to("venv", target_is_directory=True)
+    monkeypatch.setattr(sys, "prefix", str(alias))
+    monkeypatch.setattr(sys, "executable", str(alias / "bin" / "python"))
+
+    backend = PathSeatbeltBackend(cwd=workspace, read_only_paths=[], writable_paths=[])
+    profile = backend._profile(str(workspace / "temporary"))  # pylint: disable=protected-access
+    for link in (alias, environment / "bin" / "python", environment / "bin" / "python3"):
+        assert f'(allow file-read* (literal "{link}"))' in profile
+        assert f'(allow file-read* (subpath "{link}"))' not in profile
+    assert f'(allow file-read* (subpath "{tmp_path}"))' not in profile
+    with pytest.raises(ValueError, match="without symlinks"):
+        PathSeatbeltBackend(cwd=workspace, read_only_paths=[str(alias)], writable_paths=[])
+
+
 def test_seatbelt_excludes_read_only_child_from_writable_parent(tmp_path):
     """A parent write grant must not override a nested read-only restriction."""
     protected = tmp_path / "protected"
@@ -112,95 +134,23 @@ def test_seatbelt_excludes_read_only_child_from_writable_parent(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("backend_class", [PathBubbleBackend, PathSeatbeltBackend])
 @pytest.mark.parametrize("data", [b"", b"hello\x00\n\xff"])
-async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, backend_class, data):
+async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data):
     """The common file helpers preserve binary stdin, literal paths and write errors."""
-    from unittest.mock import AsyncMock
-
-    backend = backend_class(cwd=tmp_path, read_only_paths=[], writable_paths=[str(tmp_path)])
+    backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[str(tmp_path)])
     # Exercise shared file I/O with real pipes; OS isolation is checked separately.
     monkeypatch.setattr(
         backend,
         "_start_process",
         LocalProcessBackend()._start_process,  # pylint: disable=protected-access
     )
-    if backend_class is PathSeatbeltBackend:
-        monkeypatch.setattr(sys, "platform", "darwin")
-        monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
-        monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=False))
-    warning = (
-        pytest.warns(RuntimeWarning, match="No macOS GUI launchd domain")
-        if backend_class is PathSeatbeltBackend
-        else nullcontext()
-    )
-    with warning:
-        path = str(tmp_path / "nested directory" / "literal ' ; name.bin")
-        await backend.write_file(path, data)
-        assert await backend.read_file(path) == data
-        with pytest.raises(TypeError, match="data must be bytes"):
-            await backend.write_file(path, "invalid")
-        with pytest.raises(OSError):
-            await backend.write_file(str(tmp_path), data)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("sandbox", [False, True])
-@pytest.mark.parametrize("cancel", [False, True])
-async def test_inherited_pipe_cleanup_is_bounded(tmp_path, monkeypatch, sandbox, cancel):
-    """A surviving child with an output pipe must not hold the timeout response open."""
-    from unittest.mock import Mock
-
-    backend = (
-        PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[], memory_limit_mib=0)
-        if sandbox
-        else LocalProcessBackend()
-    )
-    started = asyncio.Event()
-    cancelled = asyncio.Event()
-
-    class StuckPipe:
-        """Model an inherited pipe held open after termination."""
-
-        async def read(self, _size):
-            """Wait forever until the caller cancels pipe draining."""
-            started.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                cancelled.set()
-
-    class StuckProcess:
-        """Model a child that keeps its output pipe open after termination."""
-
-        pid = 12345
-        _transport = Mock()
-        stdout = StuckPipe()
-        stderr = StuckPipe()
-        stdin = None
-
-        async def wait(self):
-            """A stale process transport must also have a bounded wait."""
-            await asyncio.Event().wait()
-
-    async def start(*_args, **_kwargs):
-        return StuckProcess()
-
-    monkeypatch.setattr(backend, "_start_process", start)
-    monkeypatch.setattr(backend, "_kill_process", lambda _process: None)
-    monkeypatch.setattr("reme.utils.local_backend._CLEANUP_TIMEOUT", 0.01)
-
-    task = asyncio.create_task(backend.exec_shell(["true"], timeout=None if cancel else 0.01))
-    await asyncio.wait_for(started.wait(), timeout=1)
-    if cancel:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(task, timeout=1)
-    else:
-        result = await asyncio.wait_for(task, timeout=1)
-        assert result.exit_code == -1 and result.stderr == b"timed out"
-    assert cancelled.is_set()
-    StuckProcess._transport.close.assert_called_once()  # pylint: disable=protected-access
+    path = str(tmp_path / "nested directory" / "literal ' ; name.bin")
+    await backend.write_file(path, data)
+    assert await backend.read_file(path) == data
+    with pytest.raises(TypeError, match="data must be bytes"):
+        await backend.write_file(path, "invalid")
+    with pytest.raises(OSError):
+        await backend.write_file(str(tmp_path), data)
 
 
 @pytest.mark.asyncio

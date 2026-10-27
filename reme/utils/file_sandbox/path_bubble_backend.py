@@ -1,6 +1,7 @@
 """Bubblewrap execution with host-identical, explicitly mounted paths."""
 
 import asyncio
+import errno
 import os
 import shutil
 import uuid
@@ -8,7 +9,10 @@ from pathlib import Path
 
 import sys
 
-from .file_sandbox_backend import FileSandboxBackend
+from .file_sandbox_backend import FileSandboxBackend, contains
+from ..local_backend import finish_cleanup
+
+_CGROUP_CLEANUP_TIMEOUT = 0.25
 
 # Run after exec of a fresh interpreter: Python preexec_fn can deadlock when
 # the parent has threads. The requested command starts only after enrollment.
@@ -61,6 +65,15 @@ class PathBubbleBackend(FileSandboxBackend):
         mounts += [(path, "--bind") for path in self._writable_paths]
         for path, mode in sorted(mounts, key=lambda item: (item[0].count("/"), item[0])):
             args.extend((mode, path, path))
+        # Existing mounts already preserve their internal links. Recreate only
+        # runtime links missing from the sandbox, without mounting their parents.
+        visible_paths = [
+            args[index + 2] for index in range(len(args) - 2) if args[index] in {"--ro-bind", "--bind", "--symlink"}
+        ]
+        links, _ = self._runtime_paths()
+        for path in sorted(links):
+            if not any(contains(root, path) for root in visible_paths):
+                args.extend(("--symlink", os.readlink(path), path))
         binary_paths = [str(Path(sys.prefix) / "bin"), "/usr/local/bin", "/usr/bin", "/bin"]
         args.extend(("--clearenv", "--setenv", "HOME", self._cwd, "--setenv", "TMPDIR", "/tmp"))
         args.extend(("--setenv", "PATH", ":".join(binary_paths), "--chdir", cwd, "--"))
@@ -83,7 +96,7 @@ class PathBubbleBackend(FileSandboxBackend):
             )
         except BaseException:
             if group is not None:
-                group.rmdir()
+                await finish_cleanup(self._remove_cgroup(group))
             raise
         if group is not None:
             self._process_cgroups[process.pid] = group
@@ -109,16 +122,34 @@ class PathBubbleBackend(FileSandboxBackend):
         except (OSError, StopIteration) as exc:
             raise RuntimeError("PathBubbleBackend requires a writable delegated cgroup v2 for memory limits") from exc
 
-    def _release_process(self, process: asyncio.subprocess.Process) -> None:
+    async def _release_process(self, process: asyncio.subprocess.Process) -> None:
         """Release the per-execution group after its process has been reaped."""
-        group = self._process_cgroups.pop(process.pid, None)
+        group = self._process_cgroups.get(process.pid)
         if group is None:
             return
+        await self._remove_cgroup(group)
+        self._process_cgroups.pop(process.pid)
+
+    @staticmethod
+    async def _remove_cgroup(group: Path) -> None:
+        """Kill remaining members and yield until the group is empty, within a deadline."""
         try:
-            group.rmdir()
-        except OSError as exc:
             try:
-                (group / "cgroup.kill").write_text("1", encoding="ascii")
                 group.rmdir()
-            except OSError as cleanup_error:
-                raise RuntimeError(f"could not remove sandbox cgroup {group}: {cleanup_error}") from exc
+                return
+            except OSError as exc:
+                if exc.errno != errno.EBUSY:
+                    raise
+            (group / "cgroup.kill").write_text("1", encoding="ascii")
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + _CGROUP_CLEANUP_TIMEOUT
+            while True:
+                try:
+                    group.rmdir()
+                    return
+                except OSError as exc:
+                    if exc.errno != errno.EBUSY or loop.time() >= deadline:
+                        raise
+                await asyncio.sleep(0.01)
+        except OSError as exc:
+            raise RuntimeError(f"could not remove sandbox cgroup {group}: {exc}") from exc

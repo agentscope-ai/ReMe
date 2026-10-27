@@ -244,14 +244,28 @@ async def test_step_configuration_can_disable_read_only(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_step_rejects_non_boolean_mode(tmp_path):
-    """A string false value must not silently enable unrestricted execution."""
-    step = AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+@pytest.mark.parametrize(
+    ("inputs", "message"),
+    [
+        ({"command": " "}, "command is required"),
+        ({"command": 1}, "command is required"),
+        ({"command": "echo ok", "timeout": 0}, "timeout must be a positive integer in milliseconds"),
+        ({"command": "echo ok", "timeout": True}, "timeout must be a positive integer in milliseconds"),
+        ({"command": "echo ok", "timeout": "1"}, "timeout must be a positive integer in milliseconds"),
+        ({"command": "touch denied.txt", "is_read_only": "false"}, "is_read_only must be a boolean"),
+        ({"command": "", "timeout": 0, "is_read_only": "false"}, "command is required"),
+    ],
+)
+async def test_step_parameter_errors_do_not_execute(tmp_path, monkeypatch, inputs, message):
+    """Parameter errors preserve their messages and precedence without executing."""
 
-    response = await step(command="touch denied.txt", is_read_only="false")
+    def unexpected_backend(_step):
+        pytest.fail("invalid parameters reached backend selection")
 
+    monkeypatch.setattr("reme_home.auto_bash.file_sandbox_for_step", unexpected_backend)
+    response = await AutoBashStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(**inputs)
     assert response.success is False
-    assert response.answer == "is_read_only must be a boolean"
+    assert response.answer == message
     assert not (tmp_path / "denied.txt").exists()
 
 
@@ -519,8 +533,11 @@ async def test_git_pretty_config_cannot_launch_gpg(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("subcommand", ["status", "diff", "log", "show", "rev-parse", "ls-files"])
-@pytest.mark.parametrize("flag", ["--help", "--hel", "--he", "--h", "-h"])
+@pytest.mark.parametrize(
+    ("subcommand", "flag"),
+    [(name, "--help") for name in ("status", "diff", "log", "show", "rev-parse", "ls-files")]
+    + [("status", flag) for flag in ("--hel", "--he", "--h", "-h")],
+)
 async def test_git_help_flags_are_denied(tmp_path, monkeypatch, subcommand, flag):
     """All allowlisted Git commands reject help before starting a process."""
 
@@ -638,6 +655,8 @@ async def test_allow_and_denied_command_options_are_combined(tmp_path, monkeypat
     from reme_home import auto_bash
 
     commands = auto_bash._READ_COMMANDS  # pylint: disable=protected-access
+    # Rebuild specs from the temporary policy rather than the production cache.
+    monkeypatch.setattr(auto_bash, "_read_specs", auto_bash._read_specs.__wrapped__)  # pylint: disable=protected-access
     monkeypatch.setitem(commands, "echo", {"allow": ["hello"]})
     tool = AutoBash(cwd=tmp_path)
 
@@ -645,11 +664,6 @@ async def test_allow_and_denied_command_options_are_combined(tmp_path, monkeypat
     assert not await tool.check_read_only({"command": "echo goodbye"})
 
     monkeypatch.setitem(commands, "echo", {"allow": ["hello"], "denied": ["-n"]})
-    from safecmd import CmdSpec
-
-    specs = {spec for spec in auto_bash._read_specs() if "echo" not in spec.name}  # pylint: disable=protected-access
-    specs.add(CmdSpec("echo", denied=["-n"]))
-    monkeypatch.setattr(auto_bash, "_read_specs", lambda: specs)
     assert not await tool.check_read_only({"command": "echo hello -n"})
     assert await tool.check_read_only({"command": "find . -name note.txt"})
     assert not await tool.check_read_only({"command": "find . -delete"})

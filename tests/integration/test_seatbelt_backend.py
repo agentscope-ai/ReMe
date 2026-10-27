@@ -1,8 +1,12 @@
 """Exercise macOS sandbox startup and file isolation using real subprocesses."""
 
 import asyncio
+import os
 import sys
+import sysconfig
+import tempfile
 import venv
+from pathlib import Path
 
 import psutil
 
@@ -48,6 +52,52 @@ async def test_seatbelt_starts_virtual_environment_python(tmp_path):
 
     assert result.exit_code == 0, result.stderr.decode(errors="replace")
     assert result.stdout.decode().strip() == str(workspace)
+
+
+@pytest.mark.asyncio
+async def test_seatbelt_external_virtual_environment_through_symlinks(tmp_path, monkeypatch):
+    """An external venv reached through /tmp keeps its packages and file isolation."""
+    workspace = tmp_path.resolve()
+    with tempfile.TemporaryDirectory(prefix="reme-venv-test-", dir="/private/tmp") as directory:
+        root = Path(directory)
+        environment = root / "venv"
+        venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
+        (root / "alias").symlink_to("venv", target_is_directory=True)
+        alias = Path("/tmp") / root.name / "alias"
+        interpreter = alias / "bin" / "python"
+        packages = Path(sysconfig.get_path("purelib", vars={"base": str(environment), "platbase": str(environment)}))
+        (packages / "reme_venv_marker.py").write_text("VALUE = 'venv-package'\n", encoding="utf-8")
+        secret = root / "outside.txt"
+        secret.write_text("private", encoding="utf-8")
+        # Match the runtime paths reported when ReMe is launched through this venv.
+        monkeypatch.setattr(sys, "prefix", str(alias))
+        monkeypatch.setattr(sys, "executable", str(interpreter))
+        backend = PathSeatbeltBackend(cwd=workspace, read_only_paths=[], writable_paths=[])
+        code = f"""
+import os, sys
+from pathlib import Path
+import reme_venv_marker
+assert os.path.realpath(sys.prefix) == {str(environment)!r}
+assert sys.prefix != sys.base_prefix
+assert reme_venv_marker.VALUE == 'venv-package'
+for path in [{str(secret)!r}, {str(Path('/tmp') / root.name / 'outside.txt')!r}]:
+    try:
+        Path(path).read_text()
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError(f'outside file readable: {{path}}')
+print('ready')
+"""
+        # Exercise real Seatbelt directly, independent of GUI launchd availability.
+        process = await backend._start_process(  # pylint: disable=protected-access
+            [str(interpreter), "-c", code],
+            str(workspace),
+        )
+        result = await backend._communicate(process, data=None, timeout=10)  # pylint: disable=protected-access
+        assert result.exit_code == 0, result.stderr.decode(errors="replace")
+        assert result.stdout == b"ready\n"
+        assert os.path.realpath(interpreter) != str(interpreter)
 
 
 @pytest.mark.asyncio

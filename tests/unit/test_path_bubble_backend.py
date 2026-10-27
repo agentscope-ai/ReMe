@@ -1,8 +1,11 @@
 """Path-preserving Bubblewrap mounts and job integration."""
 
+import asyncio
+import errno
 import sys
 from types import SimpleNamespace
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -52,6 +55,46 @@ def test_path_bubble_backend_adds_workspace_read_only(tmp_path):
     backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
     argv = backend._bwrap_argv(["true"], str(tmp_path))  # pylint: disable=protected-access
     assert ("--ro-bind", str(tmp_path), str(tmp_path)) in _mounts(argv)
+
+
+@pytest.mark.parametrize("relative", [False, True])
+def test_runtime_symlink_chains_preserve_interpreter_paths(tmp_path, monkeypatch, relative):
+    """External runtime aliases work without exposing siblings or duplicating mounted links."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    environment = tmp_path / "venv"
+    runtime = tmp_path / "runtime"
+    (environment / "bin").mkdir(parents=True)
+    (runtime / "bin").mkdir(parents=True)
+    (runtime / "bin" / "python").touch()
+    targets = {
+        tmp_path / "alias": "venv-alias",
+        tmp_path / "venv-alias": "venv",
+        tmp_path / "base-alias": "runtime",
+        tmp_path / "launcher": "runtime/bin/python",
+    }
+    for path, target in targets.items():
+        path.symlink_to(target if relative else tmp_path / target)
+    # This link is already available through the venv's read-only mount, but
+    # its target requires another link outside that mount.
+    (environment / "bin" / "python").symlink_to("../../launcher")
+    interpreter = str(tmp_path / "alias" / "bin" / "python")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "alias"))
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path / "base-alias"))
+    monkeypatch.setattr(sys, "executable", interpreter)
+    backend = PathBubbleBackend(cwd=workspace, read_only_paths=[], writable_paths=[])
+
+    argv = backend._bwrap_argv([interpreter, "-c", "print(1)"], str(workspace))  # pylint: disable=protected-access
+    links = {argv[index + 2]: argv[index + 1] for index in range(len(argv) - 2) if argv[index] == "--symlink"}
+
+    for path, target in targets.items():
+        assert links[str(path)] == (target if relative else str(tmp_path / target))
+    assert str(environment / "bin" / "python") not in links
+    assert ("--ro-bind", str(environment), str(environment)) in _mounts(argv)
+    assert ("--ro-bind", str(runtime), str(runtime)) in _mounts(argv)
+    assert all(source != str(tmp_path) for _, source, _ in _mounts(argv))
+    assert not any(mode == "--bind" for mode, _, _ in _mounts(argv))
+    assert argv[-3:] == [interpreter, "-c", "print(1)"]
 
 
 @pytest.mark.parametrize("limit", [-1, True, 1.5, "4096"])
@@ -113,9 +156,71 @@ async def test_each_execution_gets_separate_memory_cgroup(tmp_path, monkeypatch)
     for argv, group in zip(subprocess_commands, groups):
         assert argv[:4] == (sys.executable, "-I", "-S", "-c")
         assert argv[5:7] == (str(group / "cgroup.procs"), "bwrap")
-    backend._release_process(first)  # pylint: disable=protected-access
-    backend._release_process(second)  # pylint: disable=protected-access
+    await backend._release_process(first)  # pylint: disable=protected-access
+    await backend._release_process(second)  # pylint: disable=protected-access
     assert not any(group.exists() for group in groups)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["delayed_exit", "cancel", "busy", "permission", "kill_error"])
+async def test_cgroup_cleanup_waits_without_blocking_and_reports_failures(tmp_path, monkeypatch, outcome):
+    """Model kernel EBUSY until members exit, including repeated cancellation during cleanup."""
+    backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    group = tmp_path / "cgroup"
+    group.mkdir()
+    process = SimpleNamespace(pid=123, returncode=0)
+    backend._process_cgroups[process.pid] = group  # pylint: disable=protected-access
+    entered, empty = asyncio.Event(), asyncio.Event()
+    kills = []
+    original_rmdir, original_write = Path.rmdir, Path.write_text
+
+    def rmdir(path):
+        if path == group:
+            if outcome == "permission":
+                raise PermissionError(errno.EACCES, "permission denied")
+            if not empty.is_set():
+                entered.set()
+                raise OSError(errno.EBUSY, "members still exiting")
+        original_rmdir(path)
+
+    def write(path, data, **kwargs):
+        if path == group / "cgroup.kill":
+            kills.append(data)
+            if outcome == "kill_error":
+                raise PermissionError(errno.EACCES, "kill denied")
+            return len(data)
+        return original_write(path, data, **kwargs)
+
+    monkeypatch.setattr(Path, "rmdir", rmdir)
+    monkeypatch.setattr(Path, "write_text", write)
+    cleanup_timeout = 1 if outcome in ("delayed_exit", "cancel") else 0.03
+    monkeypatch.setattr("reme.utils.file_sandbox.path_bubble_backend._CGROUP_CLEANUP_TIMEOUT", cleanup_timeout)
+    monkeypatch.setattr(backend, "_kill_process", lambda _: None)
+    monkeypatch.setattr(backend, "_collect_output", AsyncMock(return_value=(b"ok", b"")))
+    task = asyncio.create_task(backend._communicate(process))  # pylint: disable=protected-access
+    if outcome in ("delayed_exit", "cancel"):
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        if outcome == "cancel":
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+        await asyncio.sleep(0.01)
+        assert not task.done()
+        empty.set()
+        if outcome == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=1)
+        else:
+            assert (await asyncio.wait_for(task, timeout=1)).stdout == b"ok"
+        assert not group.exists()
+        assert not backend._process_cgroups  # pylint: disable=protected-access
+    else:
+        with pytest.raises(RuntimeError, match="could not remove sandbox cgroup") as error:
+            await asyncio.wait_for(task, timeout=1)
+        assert error.value.__cause__.errno == (errno.EBUSY if outcome == "busy" else errno.EACCES)
+        assert group.exists()
+        assert backend._process_cgroups[process.pid] == group  # pylint: disable=protected-access
+    assert kills == ([] if outcome == "permission" else ["1"])
 
 
 @pytest.mark.asyncio
@@ -168,7 +273,8 @@ def test_path_bubble_backend_rejects_replaced_mount_source(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, monkeypatch):
+@pytest.mark.parametrize("memory_options", [{}, {"memory_limit_mib": 0}])
+async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, monkeypatch, memory_options):
     """Python execution uses the same backend and timeout units."""
     seen = {}
 
@@ -178,30 +284,15 @@ async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, mo
 
     monkeypatch.setattr(PathBubbleBackend, "exec_shell", fake_exec)
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="print('ok')", read_only_paths=[], writable_paths=[str(tmp_path)])
+    response = await step(code="print('ok')", read_only_paths=[], writable_paths=[str(tmp_path)], **memory_options)
 
     assert response.success is True
     assert response.answer == "ok\n"
     assert seen["command"] == [sys.executable, "-c", "print('ok')"]
     assert seen["cwd"] == str(tmp_path)
     assert seen["timeout"] == 60
-    assert seen["backend"]._memory_limit_mib == 4096  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_python_execute_passes_custom_memory_limit(tmp_path, monkeypatch):
-    """Job parameters reach the backend without changing path selection."""
-    seen = {}
-
-    async def fake_exec(self, _command, *, cwd=None, timeout=None):  # pylint: disable=unused-argument
-        seen["limit"] = self._memory_limit_mib  # pylint: disable=protected-access
-        return ExecResult(exit_code=0, stdout=b"", stderr=b"")
-
-    monkeypatch.setattr(PathBubbleBackend, "exec_shell", fake_exec)
-    step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="pass", read_only_paths=[], memory_limit_mib=0)
-    assert response.success is True
-    assert seen["limit"] == 0
+    expected_limit = memory_options.get("memory_limit_mib", 4096)
+    assert seen["backend"]._memory_limit_mib == expected_limit  # pylint: disable=protected-access
 
 
 @pytest.mark.asyncio

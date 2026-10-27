@@ -4,6 +4,8 @@ import asyncio
 import os
 import sys
 from abc import abstractmethod
+from collections import deque
+from pathlib import Path
 
 from agentscope.tool import ExecResult
 
@@ -38,6 +40,35 @@ class FileSandboxBackend(LocalProcessBackend):
         if len(set(paths)) != len(paths):
             raise ValueError("sandbox paths must not contain duplicates")
         self._path_identities = {path: self._identity(path) for path in paths}
+
+    @staticmethod
+    def _runtime_paths() -> tuple[set[str], set[str]]:
+        """Collect runtime symlinks and traversal paths without exposing parent trees."""
+        links = set()
+        metadata = set()
+        for runtime in (sys.prefix, sys.base_prefix, sys.executable):
+            pending = deque(Path(runtime).parts)
+            current = "/"
+            followed = 0
+            while pending:
+                part = pending.popleft()
+                if part == "/":
+                    current = "/"
+                    continue
+                if part == "..":
+                    current = os.path.dirname(current)
+                    continue
+                path = os.path.join(current, part)
+                if os.path.islink(path):
+                    followed += 1
+                    if followed > 40:
+                        raise RuntimeError(f"too many runtime symlinks: {runtime}")
+                    links.add(path)
+                    pending.extendleft(reversed(Path(os.readlink(path)).parts))
+                else:
+                    metadata.add(path)
+                    current = path
+        return links, metadata
 
     @staticmethod
     def _identity(path: str) -> tuple[int, int]:
