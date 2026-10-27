@@ -79,16 +79,13 @@ def derive_debug_cases(
     """Build deterministic, unscored smoke cases from normalized training data."""
 
     training_manifest = json.loads((training_root / "manifest.json").read_text(encoding="utf-8"))
-    source_cases = [
-        CaseSpec.model_validate_json(path.read_text(encoding="utf-8"))
-        for path in sorted((training_root / "cases").glob("*.json"))
-    ]
-    case_count = _debug_case_count(len(source_cases))
-    case_indices = _evenly_spaced_indices(len(source_cases), case_count)
-    selected = [source_cases[index] for index in case_indices]
+    source_paths = sorted((training_root / "cases").glob("*.json"))
+    case_count = _debug_case_count(len(source_paths))
+    case_indices = _evenly_spaced_indices(len(source_paths), case_count)
     debug_cases: list[CaseSpec] = []
     derivations: list[dict[str, object]] = []
-    for source_case_index, case in zip(case_indices, selected, strict=True):
+    for source_case_index in case_indices:
+        case = CaseSpec.model_validate_json(source_paths[source_case_index].read_text(encoding="utf-8"))
         eligible_indices = _eligible_session_indices(case)
         selected_positions = _evenly_spaced_indices(len(eligible_indices), sessions_per_case)
         session_indices = [eligible_indices[position] for position in selected_positions]
@@ -102,6 +99,9 @@ def derive_debug_cases(
                 update={
                     "case_id": debug_id,
                     "sessions": sessions,
+                    # Debug cases only smoke-test execution, not answer correctness.
+                    # Keep original query/evidence metadata intentionally; referenced
+                    # evidence sessions or messages may be absent after truncation.
                     "queries": case.queries[:1],
                     "metadata": {
                         **case.metadata,
