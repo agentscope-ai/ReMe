@@ -1021,3 +1021,66 @@ async def test_digest_validates_model_generated_historical_wikilinks(tmp_path: P
     assert "非 daily 节点" in rendered and "[[digest/wiki/相关概念.md" not in rendered
     assert "越界路径" in rendered and "../outside.md" not in rendered
     assert "[[daily/2026-07-21/论文解读1.md]]" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_indices", [{0}, {2}, {0, 1, 2}, set()])
+async def test_analysis_isolates_paper_failures(tmp_path, monkeypatch, failed_indices):
+    """Ordinary failures retain completed notes and do not skip later selections."""
+    papers = [_paper(f"2607.1000{i}") for i in range(3)]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_selected=[PaperPick(arxiv_id=p.arxiv_id, reasoning="test") for p in papers],
+        daily_paper_candidates=papers,
+    )
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    attempted = []
+
+    async def analyze_one(_downloader, paper, _selected, _used_titles):
+        index = papers.index(paper)
+        attempted.append(index)
+        if index in failed_indices:
+            raise ValueError("invalid structured note")
+        note_path = f"daily/2026-07-21/{paper.arxiv_id}.md"
+        await write_markdown(tmp_path / note_path, "retained evidence", {})
+        return AnalyzedPaper(
+            arxiv_id=paper.arxiv_id,
+            reasoning="test",
+            title="论文",
+            desc="test",
+            body="retained evidence",
+            note_path=note_path,
+            pdf_path=f"resource/papers/{paper.arxiv_id}.pdf",
+        )
+
+    monkeypatch.setattr(step, "_analyze_one", analyze_one)
+    await step(context)
+    assert attempted == [0, 1, 2]
+    assert len(context["daily_paper_analyses"]) == 3 - len(failed_indices)
+    metadata = context.response.metadata
+    assert context.response.success == (len(failed_indices) < 3)
+    assert metadata["failure_count"] == len(failed_indices)
+    assert metadata["analysis_count"] == 3 - len(failed_indices)
+    assert [item["arxiv_id"] for item in metadata["failed_papers"]] == [
+        papers[i].arxiv_id for i in sorted(failed_indices)
+    ]
+    assert all((tmp_path / path).is_file() for path in metadata["note_paths"])
+
+
+@pytest.mark.asyncio
+async def test_analysis_does_not_swallow_cancellation(tmp_path, monkeypatch):
+    """Cancellation stops the batch instead of reporting an ordinary failed paper."""
+    import asyncio
+
+    papers = [_paper(f"2607.1000{i}") for i in range(3)]
+    context = RuntimeContext(
+        daily_paper_selected=[PaperPick(arxiv_id=p.arxiv_id, reasoning="test") for p in papers],
+        daily_paper_candidates=papers,
+    )
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    analyze_one = AsyncMock(side_effect=asyncio.CancelledError)
+    monkeypatch.setattr(step, "_analyze_one", analyze_one)
+    with pytest.raises(asyncio.CancelledError):
+        await step(context)
+    assert analyze_one.await_count == 1
+    assert context["daily_paper_failures"] == []
