@@ -29,6 +29,28 @@ def _write_md(tmpdir: str, name: str, body: str) -> str:
 
 
 @pytest.mark.asyncio
+async def test_chunk_keeps_pre_read_mtime_when_source_changes(tmp_path, monkeypatch):
+    """A concurrent write must remain visible to the next filesystem scan."""
+    monkeypatch.chdir(tmp_path)
+    path = tmp_path / "changing.md"
+    path.write_text("", encoding="utf-8")
+    os.utime(path, (1000, 1000))
+    chunker = MarkdownFileChunker()
+
+    async def read_then_finish_write(_path):
+        path.write_text("Completed memory note.", encoding="utf-8")
+        os.utime(path, (2000, 2000))
+        return ""
+
+    monkeypatch.setattr(chunker, "_read_text_for_indexing", read_then_finish_write)
+    node, chunks = await chunker.chunk("changing.md")
+
+    assert chunks == []
+    assert node.st_mtime == 1000
+    assert path.stat().st_mtime != node.st_mtime
+
+
+@pytest.mark.asyncio
 async def test_parse_empty_file():
     """An empty .md → FileNode, no chunks, no links."""
 

@@ -1,0 +1,30 @@
+extends: benchmark
+plugins: [memlens]
+components:
+  as_llm:
+    default: &memory_model
+      backend: openai
+      model: ${LLM_MODEL_NAME:-qwen3.8-max}
+      stream: false
+      context_size: 200000
+      max_retries: 3
+      retry_delay: 60
+      client_kwargs: {timeout: 600, max_retries: 0}
+      extra_body: {enable_thinking: true}
+      parameters: {temperature: 0, thinking_enable: true, max_tokens: 65536}
+    bench:
+      <<: *memory_model
+      context_size: 400000
+      parameters: {temperature: 0, thinking_enable: true, max_tokens: 16384}
+    compressor:
+      <<: *memory_model
+  agent_wrapper:
+    default: &memory_agent
+      react_config: {max_iters: 30}
+      context_config: {trigger_ratio: 0.8, reserve_ratio: 0.1, tool_result_limit: 50000, max_image_num: 4096}
+      model_config: {max_retries: 0}
+    bench:
+      <<: *memory_agent
+  file_store:
+    default:
+      embedding_store: null
