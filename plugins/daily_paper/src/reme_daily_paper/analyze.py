@@ -195,21 +195,40 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] start papers={len(selected)}")
 
         analyses: list[AnalyzedPaper] = []
+        failures: list[dict[str, str]] = []
+        self._set_state("analyses", analyses)
+        self._set_state("failures", failures)
         used_titles: set[str] = set()
         async with ArxivPdfClient(
             timeout=float(self._value("pdf_timeout", 600.0)),
             max_bytes=int(self._value("max_pdf_bytes", 50 * 1024 * 1024)),
         ) as downloader:
             for item in selected:
-                analyses.append(
-                    await self._analyze_one(
+                try:
+                    analysis = await self._analyze_one(
                         downloader,
                         candidate_map[item.arxiv_id],
                         item,
                         used_titles,
-                    ),
+                    )
+                except Exception as exc:  # Cancellation must propagate, not become a paper failure.
+                    failures.append({"arxiv_id": item.arxiv_id, "error": f"{type(exc).__name__}: {exc}"})
+                    self.logger.warning(f"[{self.name}] paper failed arxiv_id={item.arxiv_id}: {exc}")
+                else:
+                    analyses.append(analysis)
+                self.context.response.metadata.update(
+                    {
+                        "analysis_count": len(analyses),
+                        "failure_count": len(failures),
+                        "failed_papers": list(failures),
+                        "note_paths": [paper.note_path for paper in analyses],
+                        "pdf_paths": [paper.pdf_path for paper in analyses],
+                    },
                 )
         self._set_state("analyses", analyses)
-        self.context.response.answer = f"Agent wrote {len(analyses)} detailed paper notes"
+        self.context.response.success = bool(analyses)
+        self.context.response.answer = (
+            f"Agent wrote {len(analyses)} detailed paper notes; {len(failures)} paper(s) failed"
+        )
         self.logger.info(f"[{self.name}] finish notes={len(analyses)}")
         return self.context.response
