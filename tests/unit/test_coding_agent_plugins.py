@@ -139,6 +139,44 @@ def test_claude_synchronous_capture_preserves_identical_replies_before_delayed_d
     assert len(list(adapter.queue_root(adapter.load_config()).rglob("*.done"))) == 2
 
 
+def test_qoder_capture_waits_for_delayed_identical_reply(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "qoder")
+    monkeypatch.setattr(adapter, "CAPTURE_SETTLE_SECONDS", 0.5)
+    config = adapter.load_config()
+    path = tmp_path / "transcript.jsonl"
+
+    first = transcript(adapter, path, [("first", "Saved.")])
+    root = adapter.capture(config, first)
+    first_pending = next(root.glob("*.json"))
+    adapter.write_json(first_pending.with_suffix(".done"), {})
+    first_pending.unlink()
+
+    second = transcript(adapter, path, [("first", "Saved."), ("second", "Saved.")])
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    delayed_reply = lines[-1]
+    path.write_text("".join(lines[:-1]), encoding="utf-8")
+
+    def append_delayed_reply():
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(delayed_reply)
+
+    captured = []
+    worker = threading.Thread(target=lambda: captured.append(adapter.capture(config, second)))
+    timer = threading.Timer(0.05, append_delayed_reply)
+    timer.start()
+    worker.start()
+    worker.join(3)
+    timer.join(3)
+
+    assert not worker.is_alive()
+    assert not timer.is_alive()
+    assert captured == [root]
+    pending = list(root.glob("*.json"))
+    assert len(pending) == 1
+    messages = json.loads(pending[0].read_text(encoding="utf-8"))["messages"]
+    assert [message["content"][0]["text"] for message in messages] == ["second", "Saved."]
+
+
 def test_claude_delivery_waits_for_parallel_synchronous_capture(adapter, tmp_path, monkeypatch):
     require_structured_transcript_host(adapter)
     write_config(adapter, {"memory_interval": 1})

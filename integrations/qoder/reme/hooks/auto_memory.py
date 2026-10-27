@@ -265,9 +265,15 @@ def capture(config: dict, payload: dict) -> Path | None:
     if root is None:
         return None
     deadline = time.monotonic() + CAPTURE_SETTLE_SECONDS
+    messages = []
     while True:
         messages = completed_turn(payload, root.name)
-        if len(messages) == 2 or time.monotonic() >= deadline:
+        if len(messages) == 2:
+            # An identical reply may still resolve to the previous turn while Qoder appends this turn.
+            key = digest(messages[-1]["id"])
+            if not (root / f"{key}.done").exists() and not (root / f"{key}.json").exists():
+                break
+        if time.monotonic() >= deadline:
             break
         time.sleep(0.1)
     if len(messages) != 2:
