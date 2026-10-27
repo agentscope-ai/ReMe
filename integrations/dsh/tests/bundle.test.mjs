@@ -30,6 +30,7 @@ test("declares one installable DeepSeek Harness plugin", async () => {
       "0.2.0-rc.2",
       "0.2.1-alpha.2",
       "0.2.1-alpha.4",
+      "0.2.1-rc.2",
     ]) {
       assert.ok(
         semver.satisfies(version, manifest.peerDependencies[dependency]),

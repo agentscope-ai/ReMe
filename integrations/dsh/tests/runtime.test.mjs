@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setImmediate as settle } from "node:timers/promises";
 import { ReMeRuntime } from "../dist/runtime.js";
 
 const CONFIG = {
+  endpoint: "http://127.0.0.1:2333",
   autoMemoryEnabled: true,
   autoMemoryInterval: 2,
+  autoMemoryRetryMs: 10,
+  autoMemoryRetryMaxMs: 40,
   autoDreamEnabled: false,
   shutdownTimeoutMs: 50,
   dreamIntervalMs: 0,
@@ -13,215 +20,525 @@ const CONFIG = {
   timezone: "Asia/Shanghai",
 };
 
-test("submits completed turns to auto-memory in background batches", async () => {
+function makeRuntime(
+  t,
+  client,
+  config = CONFIG,
+  logger = silentLogger(),
+  directory,
+) {
+  const ownsDirectory = directory === undefined;
+  directory ??= mkdtempSync(join(tmpdir(), "reme-dsh-runtime-"));
+  const current = typeof config === "function" ? config : () => config;
+  const runtime = new ReMeRuntime(
+    client,
+    () => ({ ...current(), autoMemoryQueueDir: directory }),
+    logger,
+  );
+  t.after(async () => {
+    await runtime.disposeAll();
+    if (ownsDirectory) rmSync(directory, { recursive: true, force: true });
+  });
+  return runtime;
+}
+
+test("persists partial turns and submits one batch at the interval", async (t) => {
   const calls = [];
-  const client = {
+  const runtime = makeRuntime(t, {
     async autoMemory(messages, sessionId) {
       calls.push({ messages, sessionId });
       return { ok: true };
     },
-  };
-  const runtime = new ReMeRuntime(client, CONFIG, silentLogger());
+  });
   const session = { id: "session-one" };
-
   completeTurn(runtime, session, 1, 10);
-  await runtime.stateFor(session).writes;
+  await runtime.drain();
   assert.equal(calls.length, 0);
-
+  assert.equal(runtime.snapshot().autoMemory.tasksRunning, 0);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
   completeTurn(runtime, session, 2, 20);
-  await runtime.stateFor(session).writes;
+  await runtime.drain();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].messages.length, 4);
   assert.match(calls[0].sessionId, /^dsh-[a-f0-9]{24}$/);
-  const status = runtime.snapshot();
-  assert.equal(status.autoMemory.queuedTurns, 0);
-  assert.equal(status.autoMemory.recentTasks[0].phase, "completed");
-  assert.equal(status.autoMemory.recentTasks[0].turns, 2);
-  assert.equal(status.autoMemory.recentTasks[0].messages, 4);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
 });
 
-test("requeues failed auto-memory batches and flushes them on disposal", async () => {
+test("backs off across new turns and drains every batch after recovery", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let available = false;
   let attempts = 0;
-  const client = {
+  const runtime = makeRuntime(t, {
     async autoMemory() {
-      attempts += 1;
-      return { ok: attempts > 1, error: "offline" };
+      attempts++;
+      return { ok: available, error: "offline" };
     },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    { ...CONFIG, autoMemoryInterval: 1 },
-    silentLogger(),
-  );
-  const session = { id: "retry-session" };
-  completeTurn(runtime, session, 1, 10);
-  await runtime.stateFor(session).writes;
-  assert.equal(runtime.stateFor(session).pendingTurns.length, 1);
-
-  await runtime.dispose(session);
-  assert.equal(attempts, 2);
-  assert.equal(runtime.states.has(session.id), false);
-});
-
-test("retries an in-flight failed batch before disposal completes", async () => {
-  let attempts = 0;
-  let markStarted;
-  let releaseFirst;
-  const started = new Promise((resolve) => {
-    markStarted = resolve;
   });
-  const firstRequest = new Promise((resolve) => {
-    releaseFirst = resolve;
-  });
-  const client = {
-    async autoMemory() {
-      attempts += 1;
-      if (attempts === 1) {
-        markStarted();
-        await firstRequest;
-        return { ok: false, error: "offline" };
-      }
-      return { ok: true };
-    },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    { ...CONFIG, autoMemoryInterval: 1 },
-    silentLogger(),
-  );
-  const session = { id: "in-flight-retry-session" };
-  completeTurn(runtime, session, 1, 10);
-  await started;
-
-  const disposal = runtime.dispose(session);
-  releaseFirst();
-  await disposal;
-
-  assert.equal(attempts, 2);
-  assert.equal(runtime.states.has(session.id), false);
-});
-
-test("splits auto-memory batches at workspace date boundaries", async () => {
-  const calls = [];
-  const client = {
-    async autoMemory(messages, _sessionId, options) {
-      calls.push({ messages, options });
-      return { ok: true };
-    },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    { ...CONFIG, autoMemoryInterval: 5 },
-    silentLogger(),
-  );
-  const session = { id: "midnight-session" };
-
-  completeTurn(runtime, session, 1, 10, Date.parse("2026-08-19T15:59:00Z"));
-  completeTurn(runtime, session, 2, 20, Date.parse("2026-08-19T16:01:00Z"));
-  await runtime.stateFor(session).writes;
-
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].options.date, "2026-08-19");
-  await runtime.dispose(session);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].options.date, "2026-08-20");
-});
-
-test("retries a failed partial prior-day batch after later activity", async () => {
-  const calls = [];
-  const client = {
-    async autoMemory(messages, _sessionId, options) {
-      calls.push({ messages, options });
-      return { ok: calls.length > 1, error: "offline" };
-    },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    { ...CONFIG, autoMemoryInterval: 5 },
-    silentLogger(),
-  );
-  const session = { id: "midnight-retry-session" };
-
-  completeTurn(runtime, session, 1, 10, Date.parse("2026-08-19T15:59:00Z"));
-  completeTurn(runtime, session, 2, 20, Date.parse("2026-08-19T16:01:00Z"));
-  await runtime.stateFor(session).writes;
-  assert.equal(calls.length, 1);
-  assert.equal(runtime.stateFor(session).pendingTurns.length, 2);
-
-  for (let turn = 3; turn <= 7; turn += 1) {
-    completeTurn(
-      runtime,
-      session,
-      turn,
-      turn * 10,
-      Date.parse(`2026-08-20T00:0${turn}:00Z`),
-    );
+  const session = { id: "outage" };
+  for (let turn = 1; turn <= 200; turn++) {
+    completeTurn(runtime, session, turn, turn * 10);
+    await runtime.drain();
   }
-  await runtime.stateFor(session).writes;
-
-  assert.equal(calls.length, 3);
-  assert.equal(calls[1].options.date, "2026-08-19");
-  assert.equal(calls[1].messages.length, 2);
-  assert.equal(calls[2].options.date, "2026-08-20");
-  assert.equal(calls[2].messages.length, 10);
-  assert.equal(runtime.stateFor(session).pendingTurns.length, 1);
-});
-
-test("bounds session disposal and aborts an unresponsive write", async () => {
-  let observedSignal;
-  const client = {
-    async autoMemory(_messages, _sessionId, options) {
-      observedSignal = options.signal;
-      return new Promise(() => {});
-    },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    {
-      ...CONFIG,
-      autoMemoryInterval: 1,
-      shutdownTimeoutMs: 20,
-    },
-    silentLogger(),
-  );
-  const session = { id: "stuck-session" };
-  completeTurn(runtime, session, 1, 10);
-
-  const started = Date.now();
-  await runtime.dispose(session);
-
-  assert.equal(observedSignal.aborted, true);
-  assert.ok(Date.now() - started < 500);
-  assert.equal(runtime.states.has(session.id), true);
-});
-
-test("retains a failed final batch for a later plugin-shutdown retry", async () => {
-  let attempts = 0;
-  const client = {
-    async autoMemory() {
-      attempts += 1;
-      return { ok: attempts > 2, error: "offline" };
-    },
-  };
-  const runtime = new ReMeRuntime(
-    client,
-    { ...CONFIG, autoMemoryInterval: 1 },
-    silentLogger(),
-  );
-  const session = { id: "retained-session" };
-  completeTurn(runtime, session, 1, 10);
-  await runtime.stateFor(session).writes;
-
-  await runtime.dispose(session);
+  assert.equal(attempts, 1);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 200);
+  assert.equal(runtime.states.get(session.id).length, 0);
+  t.mock.timers.tick(10);
+  await runtime.drain();
   assert.equal(attempts, 2);
-  assert.equal(runtime.states.has(session.id), true);
-
-  await runtime.disposeAll();
-  assert.equal(attempts, 3);
-  assert.equal(runtime.states.has(session.id), false);
+  available = true;
+  t.mock.timers.tick(19);
+  await settle();
+  assert.equal(attempts, 2);
+  t.mock.timers.tick(1);
+  await runtime.drain();
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+  assert.equal(attempts, 102);
 });
 
-test("runs only one auto-dream task at a time", async () => {
+for (const status of [413, 200]) {
+  test(`isolates a rejected batch (HTTP ${status}) while preserving its session's order`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    let accepted = false;
+    const calls = [];
+    const runtime = makeRuntime(
+      t,
+      {
+        async autoMemory(messages, _session, options) {
+          const text = messages[0].content[0].text;
+          calls.push({ text, requestId: options.requestId });
+          return { ok: accepted || text !== "question 101", status };
+        },
+      },
+      { ...CONFIG, autoMemoryInterval: 1 },
+    );
+    completeTurn(runtime, { id: "rejected" }, 101, 10);
+    t.mock.timers.tick(1);
+    completeTurn(runtime, { id: "rejected" }, 102, 20);
+    t.mock.timers.tick(1);
+    completeTurn(runtime, { id: "healthy" }, 201, 30);
+    await runtime.drain();
+    assert.deepEqual(
+      calls.map((call) => call.text),
+      ["question 101", "question 201"],
+    );
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 2);
+
+    t.mock.timers.tick(10);
+    await runtime.drain();
+    assert.deepEqual(calls[2], calls[0]);
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 2);
+    accepted = true;
+    t.mock.timers.tick(19);
+    await runtime.drain();
+    assert.equal(calls.length, 3);
+    t.mock.timers.tick(1);
+    await runtime.drain();
+    assert.deepEqual(
+      calls.slice(3).map((call) => call.text),
+      ["question 101", "question 102"],
+    );
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+  });
+}
+
+for (const status of [429, 503]) {
+  test(`backs off the whole endpoint for HTTP ${status}`, async (t) => {
+    t.mock.timers.enable({ apis: ["setTimeout"] });
+    let available = false;
+    let calls = 0;
+    const runtime = makeRuntime(
+      t,
+      {
+        async autoMemory() {
+          calls++;
+          return { ok: available, status };
+        },
+      },
+      { ...CONFIG, autoMemoryInterval: 1 },
+    );
+    completeTurn(runtime, { id: "first" }, 1, 10);
+    await runtime.drain();
+    completeTurn(runtime, { id: "second" }, 1, 10);
+    await runtime.drain();
+    assert.equal(calls, 1);
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 2);
+    available = true;
+    t.mock.timers.tick(10);
+    await runtime.drain();
+    assert.equal(calls, 3);
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+  });
+}
+
+test("retries ended sessions without another turn and releases session state", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let available = false;
+  const runtime = makeRuntime(t, {
+    async autoMemory() {
+      return { ok: available, error: "offline" };
+    },
+  });
+  const session = { id: "ended" };
+  completeTurn(runtime, session, 1, 10);
+  await runtime.dispose(session);
+  await runtime.drain();
+  assert.equal(runtime.states.has(session.id), false);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
+  available = true;
+  t.mock.timers.tick(10);
+  await runtime.drain();
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+});
+
+test("recovers queued and partial batches after restarting the Host", async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), "reme-dsh-restart-"));
+  const original = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        return { ok: false, error: "offline" };
+      },
+    },
+    CONFIG,
+    silentLogger(),
+    directory,
+  );
+  completeTurn(original, { id: "restart" }, 1, 10);
+  await original.disposeAll();
+  const calls = [];
+  const recovered = makeRuntime(
+    t,
+    {
+      async autoMemory(messages) {
+        calls.push(messages);
+        return { ok: true };
+      },
+    },
+    CONFIG,
+    silentLogger(),
+    directory,
+  );
+  recovered.start();
+  await recovered.drain();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, 2);
+  assert.equal(recovered.snapshot().autoMemory.queuedTurns, 0);
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+});
+
+test("keeps the same request ID and batch when retrying after a timeout", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const calls = [];
+  const runtime = makeRuntime(t, {
+    async autoMemory(messages, sessionId, options) {
+      calls.push({ messages, sessionId, requestId: options.requestId });
+      return { ok: calls.length > 1, error: "timeout" };
+    },
+  });
+  const session = { id: "timeout" };
+  completeTurn(runtime, session, 1, 10);
+  completeTurn(runtime, session, 2, 20);
+  await runtime.drain();
+  await runtime.dispose(session);
+  t.mock.timers.tick(10);
+  await runtime.drain();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0], calls[1]);
+  const tasks = runtime.snapshot().autoMemory.recentTasks;
+  assert.equal(new Set(tasks.map((task) => task.id)).size, tasks.length);
+});
+
+test("keeps counts accurate beyond the twenty-entry diagnostic history", async (t) => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        await gate;
+        return { ok: true };
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 1 },
+  );
+  const session = { id: "many-batches" };
+  for (let n = 1; n <= 25; n++) completeTurn(runtime, session, n, n * 10);
+  await settle();
+  const status = runtime.snapshot().autoMemory;
+  assert.equal(status.tasksRunning, 1);
+  assert.equal(status.tasksQueued, 24);
+  assert.equal(status.queuedTurns, 25);
+  release();
+  await runtime.drain();
+  assert.equal(runtime.snapshot().autoMemory.recentTasks.length, 20);
+});
+
+test("does not put service reply text or file names into diagnostic snapshots", async (t) => {
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        return {
+          ok: true,
+          answer: "PRIVATE-ANSWER",
+          metadata: { path: "PRIVATE-PATH" },
+        };
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 1 },
+  );
+  completeTurn(runtime, { id: "privacy" }, 1, 10);
+  await runtime.drain();
+  assert.doesNotMatch(JSON.stringify(runtime.snapshot()), /PRIVATE/);
+});
+
+test("keeps whitespace-bearing URL credentials out of snapshots and logs", async (t) => {
+  const logs = [];
+  const error = "refused http://alice:SECRET CANARY\n@localhost:2333";
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        throw new Error(error);
+      },
+      async autoDream() {
+        return { ok: false, error };
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 1 },
+    {
+      debug() {},
+      warn(...args) {
+        logs.push(args);
+      },
+    },
+  );
+  completeTurn(runtime, { id: "credentials" }, 1, 10);
+  await runtime.drain();
+  await runtime.runDream();
+  const snapshot = runtime.snapshot();
+  assert.equal(snapshot.autoMemory.recentTasks[0].phase, "failed");
+  assert.equal(snapshot.autoDream.lastResult, "failed");
+  assert.equal(logs.length, 2);
+  assert.doesNotMatch(
+    JSON.stringify({ snapshot, logs }),
+    /alice|SECRET|CANARY/,
+  );
+});
+
+test("splits dates and flushes a partial previous day without a new interval", async (t) => {
+  const calls = [];
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory(messages, _id, options) {
+        calls.push({ messages, date: options.date });
+        return { ok: true };
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 5 },
+  );
+  const session = { id: "midnight" };
+  completeTurn(runtime, session, 1, 10, Date.parse("2026-08-19T15:59:00Z"));
+  completeTurn(runtime, session, 2, 20, Date.parse("2026-08-19T16:01:00Z"));
+  await runtime.drain();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].date, "2026-08-19");
+  await runtime.dispose(session);
+  await runtime.drain();
+  assert.equal(calls[1].date, "2026-08-20");
+});
+
+test("aborts shutdown within its budget and leaves an unacknowledged batch on disk", async (t) => {
+  let signal;
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory(_messages, _id, options) {
+        signal = options.signal;
+        return new Promise(() => {});
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 1, shutdownTimeoutMs: 20 },
+  );
+  completeTurn(runtime, { id: "stuck" }, 1, 10);
+  await settle();
+  const started = Date.now();
+  await runtime.disposeAll();
+  assert.equal(signal.aborted, true);
+  assert.equal(runtime.snapshot().phase, "stopped");
+  assert.ok(Date.now() - started < 500);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
+});
+
+test("does not retry per ended session while its service is in backoff", async (t) => {
+  let calls = 0;
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        calls++;
+        return { ok: false };
+      },
+    },
+    { ...CONFIG, autoMemoryInterval: 1 },
+  );
+  completeTurn(runtime, { id: "first" }, 1, 10);
+  await runtime.drain();
+  for (let n = 0; n < 5; n++) {
+    const session = { id: "ended-" + n };
+    completeTurn(runtime, session, 1, 10);
+    await runtime.dispose(session);
+  }
+  assert.equal(calls, 1);
+});
+
+test("pauses further sends while disabled and resumes persisted work when enabled", async (t) => {
+  let config = { ...CONFIG, autoMemoryInterval: 1 };
+  let calls = 0;
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory() {
+        calls++;
+        return { ok: true };
+      },
+    },
+    () => config,
+  );
+  runtime.capture({ id: "partial" }, { type: "turn/start" });
+  runtime.capture(
+    { id: "partial" },
+    {
+      type: "user/message",
+      seq: 1,
+      data: { content: "unfinished", source: { kind: "user" } },
+    },
+  );
+  config = { ...config, autoMemoryEnabled: false };
+  runtime.reconfigure();
+  assert.equal(runtime.states.size, 0);
+  runtime.outbox.append(
+    config.endpoint,
+    "session",
+    "2026-10-21",
+    [{ id: "m", name: "user", role: "user", content: [] }],
+    1,
+  );
+  await runtime.drain();
+  assert.equal(calls, 0);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
+  config = { ...config, autoMemoryEnabled: true };
+  runtime.reconfigure();
+  await runtime.drain();
+  assert.equal(calls, 1);
+});
+
+test("a failed old destination does not block a newly configured service", async (t) => {
+  let config = { ...CONFIG, autoMemoryInterval: 1 };
+  const calls = [];
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory(_messages, _session, options) {
+        calls.push(options.endpoint);
+        return { ok: options.endpoint === "http://new.test" };
+      },
+    },
+    () => config,
+  );
+  completeTurn(runtime, { id: "old" }, 1, 10);
+  await runtime.drain();
+  config = { ...config, endpoint: "http://new.test" };
+  completeTurn(runtime, { id: "new" }, 1, 10);
+  await runtime.drain();
+  assert.deepEqual(calls, [CONFIG.endpoint, "http://new.test"]);
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
+});
+
+test("drains a new destination while the old request remains stalled", async (t) => {
+  let config = { ...CONFIG, autoMemoryInterval: 1 };
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  const active = new Map();
+  const maximum = new Map();
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory(_messages, _session, options) {
+        const endpoint = options.endpoint;
+        calls.push(endpoint);
+        active.set(endpoint, (active.get(endpoint) ?? 0) + 1);
+        maximum.set(
+          endpoint,
+          Math.max(maximum.get(endpoint) ?? 0, active.get(endpoint)),
+        );
+        await (endpoint === CONFIG.endpoint ? gate : settle());
+        active.set(endpoint, active.get(endpoint) - 1);
+        return { ok: true };
+      },
+    },
+    () => config,
+  );
+  try {
+    completeTurn(runtime, { id: "old" }, 1, 10);
+    await settle();
+    config = { ...config, endpoint: "http://new.test" };
+    runtime.reconfigure();
+    completeTurn(runtime, { id: "new" }, 1, 10);
+    completeTurn(runtime, { id: "new" }, 2, 20);
+    await settle();
+    assert.equal(runtime.snapshot().autoMemory.tasksRunning, 2);
+    await settle();
+    await settle();
+    assert.deepEqual(calls, [
+      CONFIG.endpoint,
+      "http://new.test",
+      "http://new.test",
+    ]);
+    assert.equal(runtime.snapshot().autoMemory.queuedTurns, 1);
+    assert.equal(runtime.snapshot().autoMemory.tasksRunning, 1);
+    assert.equal(runtime.snapshot().autoMemory.tasksQueued, 0);
+    assert.deepEqual([...maximum.values()], [1, 1]);
+  } finally {
+    release();
+    await runtime.drain();
+  }
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 0);
+});
+
+test("aborts all destination workers at the shutdown deadline without discarding batches", async (t) => {
+  let config = { ...CONFIG, autoMemoryInterval: 1, shutdownTimeoutMs: 20 };
+  const signals = [];
+  const runtime = makeRuntime(
+    t,
+    {
+      async autoMemory(_messages, _session, options) {
+        signals.push(options.signal);
+        return new Promise(() => {});
+      },
+    },
+    () => config,
+  );
+  completeTurn(runtime, { id: "old" }, 1, 10);
+  await settle();
+  config = { ...config, endpoint: "http://new.test" };
+  runtime.reconfigure();
+  completeTurn(runtime, { id: "new" }, 1, 10);
+  await settle();
+  assert.equal(signals.length, 2);
+  await runtime.disposeAll();
+  assert.ok(signals.every((signal) => signal.aborted));
+  assert.equal(runtime.snapshot().phase, "stopped");
+  assert.equal(runtime.snapshot().autoMemory.queuedTurns, 2);
+});
+
+test("runs only one auto-dream task at a time", async (t) => {
   let calls = 0;
   let release;
   const client = {
@@ -233,7 +550,7 @@ test("runs only one auto-dream task at a time", async () => {
       return { ok: true };
     },
   };
-  const runtime = new ReMeRuntime(client, CONFIG, silentLogger());
+  const runtime = makeRuntime(t, client, CONFIG, silentLogger());
   const first = runtime.runDream();
   const second = runtime.runDream();
   assert.equal(calls, 1);
@@ -242,9 +559,10 @@ test("runs only one auto-dream task at a time", async () => {
   assert.equal(calls, 1);
 });
 
-test("contains unexpected auto-dream client failures", async () => {
+test("contains unexpected auto-dream client failures", async (t) => {
   const warnings = [];
-  const runtime = new ReMeRuntime(
+  const runtime = makeRuntime(
+    t,
     {
       async autoDream() {
         throw new Error("broken transport");
@@ -266,10 +584,11 @@ test("contains unexpected auto-dream client failures", async () => {
   assert.match(runtime.snapshot().autoDream.lastError, /broken transport/);
 });
 
-test("applies changed batching and dream settings without replacing the runtime", async () => {
+test("applies changed batching and dream settings without replacing the runtime", async (t) => {
   const calls = [];
   let config = { ...CONFIG, autoMemoryInterval: 5, autoDreamEnabled: false };
-  const runtime = new ReMeRuntime(
+  const runtime = makeRuntime(
+    t,
     {
       async autoMemory(messages) {
         calls.push(messages);
@@ -294,7 +613,7 @@ test("applies changed batching and dream settings without replacing the runtime"
     dreamIntervalMs: 100000,
   };
   runtime.reconfigure();
-  await runtime.stateFor(session).writes;
+  await runtime.drain();
   assert.equal(calls.length, 1);
   assert.notEqual(runtime.dreamTimer, null);
   assert.equal(runtime.snapshot().autoDream.enabled, true);
@@ -302,7 +621,7 @@ test("applies changed batching and dream settings without replacing the runtime"
   await runtime.disposeAll();
 });
 
-test("keeps one auto-dream schedule when reconfigured during a run", async () => {
+test("keeps one auto-dream schedule when reconfigured during a run", async (t) => {
   let calls = 0;
   let releaseFirst;
   const firstRequest = new Promise((resolve) => {
@@ -314,7 +633,8 @@ test("keeps one auto-dream schedule when reconfigured during a run", async () =>
     dreamIntervalMs: 20,
     shutdownTimeoutMs: 100,
   };
-  const runtime = new ReMeRuntime(
+  const runtime = makeRuntime(
+    t,
     {
       async autoDream() {
         calls += 1;

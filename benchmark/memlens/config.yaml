@@ -1,0 +1,4 @@
+dataset: ${MEMLENS_DATA}
+output: ${EXPERIMENT_DIR}
+scenario_concurrency: 4
+query_concurrency: 16

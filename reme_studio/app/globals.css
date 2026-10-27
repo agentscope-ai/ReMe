@@ -1610,27 +1610,6 @@ textarea:focus-visible {
   margin: 8px 0 10px;
   font-size: 12px;
 }
-.component-row {
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid var(--line);
-}
-.component-row > span {
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-}
-.component-row small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 10px;
-}
-.component-row strong {
-  font-size: 12px;
-}
 .index-card {
   padding: 22px;
 }

@@ -3,6 +3,8 @@
 import base64
 import binascii
 import datetime
+import hashlib
+import json
 from pathlib import Path
 import re
 from urllib.parse import urlsplit
@@ -21,6 +23,7 @@ from ..file_io import validate_filename_component, validate_session_id
 from ..file_io._path import IMAGE_MIME_BY_EXT, _check_path_permission, resolve_path
 from ..index import normalize_posix_path
 from ...components import R
+from ...schema import Response
 from ...utils.wikilink_handler import WikilinkHandler
 
 _SESSION_ID_KEY = "session_id"
@@ -458,8 +461,68 @@ class AutoMemoryStep(BaseStep):
             content=[images[part] if part in images else TextBlock(text=part) for part in parts if part],
         )
 
-    # pylint: disable=too-many-return-statements
     async def execute(self):
+        """Replay completed request IDs without repeating the memory agent."""
+        assert self.context is not None
+        request_id = self.context.get("request_id")
+        if request_id is None:
+            return await self._execute()
+        if not isinstance(request_id, str) or not 1 <= len(request_id) <= 128:
+            self.context.response.success = False
+            self.context.response.answer = "Error: request_id must be a string of 1 to 128 characters"
+            return
+
+        payload = {
+            key: self.context.get(key) for key in ("session_id", "messages", "date", "memory_hint", "include_images")
+        }
+        if payload["messages"]:
+            # Keep caller-provided IDs/timestamps; parsing dictionaries would generate defaults on every retry.
+            payload["messages"] = [
+                message.model_dump(mode="json") if isinstance(message, Msg) else message
+                for message in payload["messages"]
+            ]
+        fingerprint = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode(),
+        ).hexdigest()
+        session_key = hashlib.sha256(str(payload["session_id"]).encode()).hexdigest()
+        request_key = hashlib.sha256(request_id.encode()).hexdigest()
+        directory = f"{self.config_value('metadata_dir')}/auto_memory_requests/{session_key}"
+        workspace = self.file_store.workspace_path
+        allowed = self.context.get("_allowed_paths")
+        lock_path = _checked_write_path(workspace, f"{directory}/.lock", allowed)
+        async with await get_path_lock(lock_path):
+            path = _checked_write_path(workspace, f"{directory}/{request_key}.json", allowed)
+            if path.exists():
+                record = json.loads(path.read_text(encoding="utf-8"))
+                if record["fingerprint"] != fingerprint:
+                    self.context.response.success = False
+                    self.context.response.answer = "Error: request_id was already used for different input"
+                    return
+                response = Response.model_validate(record["response"])
+                self.context.response.answer = response.answer
+                self.context.response.success = response.success
+                self.context.response.metadata.update(response.metadata)
+                self.context["changes"] = record["changes"]
+                return
+            await self._execute()
+            if self.context.response.success:
+                path = _checked_write_path(workspace, f"{directory}/{request_key}.json", allowed)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = _checked_write_path(workspace, f"{directory}/{request_key}.tmp", allowed)
+                await write_file_safe(
+                    temporary,
+                    json.dumps(
+                        {
+                            "fingerprint": fingerprint,
+                            "response": self.context.response.model_dump(mode="json"),
+                            "changes": self.context.get("changes") or [],
+                        },
+                    ),
+                )
+                temporary.replace(path)
+
+    # pylint: disable=too-many-return-statements
+    async def _execute(self):
         assert self.context is not None
         self.context["changes"] = []
         raw_messages = self.context.get("messages") or []

@@ -1,6 +1,5 @@
 """Zvec-backed file store: chunk JSONL stays authoritative; a zvec collection replaces the linear vector scan."""
 
-import hashlib
 import json
 import shutil
 import time
@@ -226,26 +225,6 @@ class ZvecLocalFileStore(LocalFileStore):
         self._indexed_ids = set()
 
     # -- persistence ------------------------------------------------------
-
-    def _chunks_embedding_digest(self) -> str:
-        """Order-independent digest of the live (chunk_id, embedding) set.
-
-        Hashes float16 canonical bytes (the chunk JSONL serialization dtype) so
-        the value is identical whether an embedding sits fresh in memory or has
-        round-tripped through the JSONL. Written into the sidecar at dump time
-        and recomputed from ``self.file_chunks`` at load time: a mismatch means
-        the collection belongs to a different chunk generation than the
-        authoritative JSONL.
-        """
-        digest = hashlib.sha256()
-        eligible = sorted(
-            cid for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
-        )
-        for cid in eligible:
-            digest.update(cid.encode("utf-8"))
-            digest.update(b"\x00")
-            digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
-        return digest.hexdigest()
 
     async def load(self) -> None:
         """Load chunks via the parent, then attach the zvec collection (open or rebuild)."""

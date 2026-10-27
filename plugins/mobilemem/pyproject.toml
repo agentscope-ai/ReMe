@@ -1,0 +1,25 @@
+[project]
+name = "reme-mobilemem"
+version = "0.1.0"
+description = "MobileMem-Omni native multimodal memory benchmark plugin for ReMe."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = ["reme-ai[as]>=0.4.1.11", "pillow>=10.0.0"]
+
+[project.entry-points."reme.plugins"]
+mobilemem = "reme_mobilemem"
+
+[project.entry-points."reme.configs"]
+mobilemem-benchmark = "reme_mobilemem:BENCHMARK_CONFIG"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["reme_mobilemem*"]
+
+[tool.setuptools.package-data]
+reme_mobilemem = ["plugin.yaml", "*.yaml"]
+
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"

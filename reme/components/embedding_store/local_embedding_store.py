@@ -7,12 +7,33 @@ from pathlib import Path
 
 import numpy as np
 
+from ._embedding_types import _EmbeddingError, _EmbeddingResult
 from .base_embedding_store import BaseEmbeddingStore
 from ..component_registry import R
 from ..as_embedding import BaseAsEmbedding
 
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 _MAX_VECTOR_SPACE_ATTEMPTS = 3
+
+
+# Match SDK/httpx transport exceptions without importing optional providers.
+_TRANSPORT_FAILURE_TYPES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "ConnectError",
+        "ConnectTimeout",
+        "PoolTimeout",
+        "ReadError",
+        "ReadTimeout",
+        "RemoteProtocolError",
+        "WriteError",
+        "WriteTimeout",
+    },
+)
+
+# A client retry budget only applies to the transport exceptions it retries.
+_SDK_TRANSPORT_RETRY_TYPES = frozenset({"APIConnectionError", "APITimeoutError"})
 
 
 @R.register("local")
@@ -162,7 +183,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def _compute_batch(self, batch: list[Miss], **kwargs) -> list[tuple[int, str, np.ndarray]]:
         texts = [text for _, text, _ in batch]
-        embeddings = await self._call_with_retry(texts, **kwargs)
+        result = await self._call_with_retry(texts, **kwargs)
+        embeddings = result.embeddings
         if not embeddings or len(embeddings) != len(texts):
             return []
         out: list[tuple[int, str, np.ndarray]] = []
@@ -178,70 +200,146 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
         if bad_dims:
             details = ", ".join(f"{count} with dim {dim}" for dim, count in sorted(bad_dims.items()))
             self.logger.error(f"Embedding dimension mismatch in batch: expected {self.dimensions}; rejected {details}")
-        if out:
-            self.is_healthy = True
-        else:
-            self.is_healthy = False
+        # Retain partial vectors without hiding the outage that ended isolation.
+        self.is_healthy = bool(out) and not result.terminal_failure
         return out
 
-    async def _call_with_retry(self, texts: list[str], **kwargs) -> list[list[float] | None] | None:
+    async def _call_with_retry(self, texts: list[str], **kwargs) -> _EmbeddingResult:
+        """Retry failures owned by the store and isolate input-length rejections."""
+        shortened = False
         for attempt in range(self.max_retries):
             try:
-                result = await self.as_embedding(texts, **kwargs)
-                if result and len(result) == len(texts):
-                    return result
-            except (TimeoutError, ConnectionError, OSError):
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(2**attempt)
+                embeddings = await self.as_embedding(texts, **kwargs)
+                if embeddings and len(embeddings) == len(texts):
+                    return _EmbeddingResult(embeddings)
             except Exception as error:
-                if self._is_rate_limited(error):
+                if self._is_transport_failure(error):
+                    # Preserve recovery where the provider has no matching retry policy;
+                    # otherwise leave its budget intact instead of adding another loop.
+                    if self._provider_owns_transport_retry(error):
+                        self.logger.exception(
+                            "Embedding request failed: transport error owned by the provider, not splitting",
+                        )
+                        break
+                    if attempt < self.max_retries - 1:
+                        await asyncio.sleep(2**attempt)
+                        continue
+                    self.logger.exception("Embedding request failed: transport error after exhausting retries")
+                    break
+
+                details = _EmbeddingError.from_exception(error)
+                if details.is_rate_limited:
                     if attempt < self.max_retries - 1:
                         delay = 2**attempt
                         self.logger.warning(f"Embedding rate limited; retrying in {delay:.1f}s")
                         await asyncio.sleep(delay)
                         continue
                     self.logger.exception("Embedding request failed after exhausting rate-limit retries")
+                    break
+                if details.is_insufficient_quota:
+                    if self.quota_retry_delay is not None and attempt < self.max_retries - 1:
+                        self.logger.warning(f"Embedding quota exhausted; retrying in {self.quota_retry_delay:.1f}s")
+                        await asyncio.sleep(self.quota_retry_delay)
+                        continue
+                    self.logger.exception("Embedding request failed: quota exhausted")
+                    break
+                if details.is_provider_wide:
+                    # Server-error retries belong to the wrapper/SDK, not to item isolation.
+                    self.logger.exception("Embedding request failed: provider-wide error, not splitting")
+                    break
+                if details.is_input_dependent:
+                    # Retry one item with half the character budget without changing its source text.
+                    # Require a remaining attempt so exhausted input failures stay non-terminal.
+                    if not shortened and len(texts) == 1 and attempt < self.max_retries - 1:
+                        shorter = self._truncate(texts[0], max_length=max(1, self.max_input_length // 2))
+                        if shorter != texts[0]:
+                            self.logger.warning(
+                                f"Embedding input rejected as too long; retrying with a smaller budget "
+                                f"(chars={len(texts[0])} -> {len(shorter)})",
+                            )
+                            texts = [shorter]
+                            shortened = True
+                            await asyncio.sleep(2**attempt)
+                            continue
+                    self.logger.exception("Embedding request failed: input-dependent error")
                     self.is_healthy = False
-                    return None
-                if (
-                    self.quota_retry_delay is not None
-                    and self._is_insufficient_quota(error)
-                    and attempt < self.max_retries - 1
-                ):
-                    self.logger.warning(
-                        f"Embedding quota exhausted; retrying in {self.quota_retry_delay:.1f}s",
-                    )
-                    await asyncio.sleep(self.quota_retry_delay)
-                    continue
-                self.logger.exception("Embedding request failed")
-                self.is_healthy = False
-                return None
+                    if len(texts) > 1:
+                        return await self._embed_individually(texts, **kwargs)
+                    return _EmbeddingResult()
+                self.logger.exception("Embedding request failed: unrecognized error, not splitting")
+                break
         self.is_healthy = False
-        return None
+        return _EmbeddingResult(terminal_failure=True)
+
+    async def _embed_individually(self, texts: list[str], **kwargs) -> _EmbeddingResult:
+        """Keep healthy siblings, stopping when a failure is no longer specific to an input."""
+        embeddings: list[list[float] | None] = []
+        for index, text in enumerate(texts):
+            result = await self._call_with_retry([text], **kwargs)
+            if result.embeddings:
+                embeddings.append(result.embeddings[0])
+                continue
+            self.logger.error(f"Embedding request failed for a single item (chars={len(text)})")
+            embeddings.append(None)
+            if result.terminal_failure:
+                self.logger.error(
+                    f"Stopping per-item isolation after {index + 1}/{len(texts)} items: "
+                    "the failure is not specific to any input",
+                )
+                embeddings.extend([None] * (len(texts) - index - 1))
+                return _EmbeddingResult(embeddings, terminal_failure=True)
+        return _EmbeddingResult(embeddings)
 
     @staticmethod
-    def _is_rate_limited(error: Exception) -> bool:
-        """Recognize an OpenAI-compatible 429 response without importing a provider SDK."""
-        if LocalEmbeddingStore._is_insufficient_quota(error):
-            return False
-        if getattr(error, "status_code", None) == 429:
+    def _is_transport_failure(error: Exception) -> bool:
+        """Recognize transport errors that must never trigger per-item isolation."""
+        if isinstance(error, (TimeoutError, ConnectionError, OSError)):
             return True
-        body = getattr(error, "body", None)
-        if not isinstance(body, dict):
+        return any(cls.__name__ in _TRANSPORT_FAILURE_TYPES for cls in type(error).__mro__)
+
+    def _provider_owns_transport_retry(self, error: Exception) -> bool:
+        """Require both a matching exception policy and an enabled retry budget."""
+        model = getattr(self.as_embedding, "model", None)
+        if model is None:
             return False
-        details = body.get("error", body)
-        return isinstance(details, dict) and details.get("code") == "rate_limit_exceeded"
+        policy = self._declared_retry_policy(model)
+        if policy:
+            max_retries = getattr(model, "max_retries", None)
+            if isinstance(max_retries, int) and max_retries > 0 and self._policy_covers(policy, error):
+                return True
+        return self._sdk_owns_transport_retry(model, error)
 
     @staticmethod
-    def _is_insufficient_quota(error: Exception) -> bool:
-        """Recognize OpenAI-compatible quota errors without importing a provider SDK."""
-        if getattr(error, "code", None) == "insufficient_quota":
-            return True
-        body = getattr(error, "body", None)
-        if not isinstance(body, dict):
+    def _declared_retry_policy(model) -> tuple[type[Exception], ...] | None:
+        """Return the model's declared retryable types, or ``None`` when it declares none."""
+        retryable = getattr(model, "_get_retryable_exceptions", None)
+        if not callable(retryable):
+            return None
+        try:
+            return tuple(retryable())  # pylint: disable=not-callable
+        except Exception:  # pragma: no cover - a broken policy owns nothing
+            return None
+
+    @staticmethod
+    def _policy_covers(policy: tuple[type[Exception], ...], error: Exception) -> bool:
+        """Return whether the declared policy actually retries this exception."""
+        try:
+            return isinstance(error, policy)
+        except TypeError:  # pragma: no cover - a malformed policy covers nothing
             return False
-        details = body.get("error", body)
-        return isinstance(details, dict) and details.get("code") == "insufficient_quota"
+
+    @staticmethod
+    def _sdk_owns_transport_retry(model, error: Exception) -> bool:
+        """Check the SDK's budget and supported transport errors independently of the model."""
+        if not LocalEmbeddingStore._is_transport_failure(error):
+            return False
+        client = getattr(model, "client", None)
+        if client is None:
+            return False
+        max_retries = getattr(client, "max_retries", None)
+        if not isinstance(max_retries, int) or max_retries <= 0:
+            return False
+        return any(cls.__name__ in _SDK_TRANSPORT_RETRY_TYPES for cls in type(error).__mro__)
 
     def _validate_dim(self, emb: np.ndarray) -> bool:
         """Return whether an embedding exactly matches the configured dimension."""

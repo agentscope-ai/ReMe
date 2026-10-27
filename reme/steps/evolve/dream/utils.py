@@ -134,19 +134,25 @@ def previous_dates(day: str, n_days: int) -> list[str]:
     return [(base - dt.timedelta(days=i)).isoformat() for i in range(1, max(n_days, 0) + 1)]
 
 
-def parse_structured_reply(text: str) -> dict:
-    """Parse a JSON/YAML object from an agent reply, including fenced blocks."""
+def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
+    """Parse a JSON/YAML object; strict mode rejects lossy fallbacks with diagnostics."""
     candidates = [text.strip()]
     candidates.extend(m.group(1).strip() for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", text, re.S | re.I))
+    error = "expected a JSON/YAML object"
     for raw in candidates:
         if not raw:
             continue
         try:
             data = yaml.safe_load(raw)
-        except yaml.YAMLError:
+        except yaml.YAMLError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if strict:
+                continue
             data = _parse_scalar_mapping(raw)
-        if isinstance(data, dict) and data:
+        if isinstance(data, dict) and (data or strict):
             return data
+    if strict:
+        raise ValueError(f"Invalid structured reply: {error}")
     return {}
 
 

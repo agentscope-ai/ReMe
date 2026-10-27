@@ -2,14 +2,14 @@
 
 import frontmatter
 
+from ._base import _FileIOStep
 from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
-from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("write_step")
-class WriteStep(BaseStep):
+class WriteStep(_FileIOStep):
     """Write (create or overwrite) a markdown file.
 
     Frontmatter accepts two reserved string fields (``name`` / ``description``)
@@ -25,13 +25,6 @@ class WriteStep(BaseStep):
     writes to the same file (multi-worker / multi-process safety is out of
     scope).
     """
-
-    def _fail(self, message: str, **meta) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        if meta:
-            self.context.response.metadata.update(meta)
 
     async def execute(self):  # pylint: disable=too-many-return-statements
         assert self.context is not None

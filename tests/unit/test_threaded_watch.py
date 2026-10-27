@@ -10,7 +10,10 @@ import pytest
 from watchfiles import Change
 
 from reme.components.application_context import ApplicationContext
+from reme.components.file_catalog import LocalFileCatalog
 from reme.components.runtime_context import RuntimeContext
+from reme.schema import FileNode
+from reme.steps.base_step import BaseStep
 from reme.steps.index import _threaded_watch
 from reme.steps.index._threaded_watch import watch_in_thread
 from reme.steps.index.watch_changes import WatchChangesStep
@@ -47,6 +50,78 @@ def test_watch_mode_defaults_and_validation():
     for value in ("invalid", "", None, True):
         with pytest.raises(ValueError, match="watch_mode"):
             WatchChangesStep(watch_mode=value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["watch", "awatch"])
+async def test_watcher_reconciles_startup_gap_on_first_idle_batch(tmp_path, monkeypatch, mode):
+    """Both watchers reconcile once even when no subsequent change arrives."""
+
+    async def idle_batches(*_paths, **kwargs):
+        assert kwargs["yield_on_timeout"] is True
+        yield set()
+        yield set()
+
+    monkeypatch.setattr("reme.steps.index.watch_changes.awatch", idle_batches)
+    monkeypatch.setattr("reme.steps.index.watch_changes.watch_in_thread", idle_batches)
+    step = _step(tmp_path, asyncio.Event(), mode=mode)
+    step.monitor_type = "file_store"
+    step.dispatch_step_specs = ["update_index_step"]
+
+    await step.execute()
+
+    step.dispatch_steps.assert_awaited_once_with(
+        [
+            {
+                "backend": "init_changes_step",
+                "monitor_type": "file_store",
+                "monitor_name": "default",
+                "recursive": True,
+            },
+        ],
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["watch", "awatch"])
+async def test_watcher_merges_startup_scan_and_first_change_batch(tmp_path, monkeypatch, mode):
+    """Overlapping events and missed additions/deletions dispatch once together."""
+    step = _step(tmp_path, asyncio.Event(), mode=mode)
+    catalog = LocalFileCatalog(app_context=step.app_context)
+    step.app_context.components["file_catalog"] = {"default": catalog}
+    await catalog.upsert([FileNode(path="daily/deleted.md", st_mtime=1)])
+    step.monitor_type = "file_catalog"
+    step.dispatch_step_specs = ["update_catalog_step"]
+    changed = tmp_path / "daily/changed.md"
+    missed = tmp_path / "daily/missed.md"
+
+    async def first_batch(*_paths, **_kwargs):
+        changed.write_text("new", encoding="utf-8")
+        missed.write_text("missed", encoding="utf-8")
+        yield {(Change.added, str(changed))}
+        yield set()
+
+    batches = []
+
+    async def dispatch(specs, **kwargs):
+        if specs[0] == "update_catalog_step":
+            batches.append(kwargs["changes"])
+            return []
+        return await BaseStep.dispatch_steps(step, specs, **kwargs)
+
+    monkeypatch.setattr("reme.steps.index.watch_changes.awatch", first_batch)
+    monkeypatch.setattr("reme.steps.index.watch_changes.watch_in_thread", first_batch)
+    step.dispatch_steps = dispatch
+    await step.execute()
+
+    assert len(batches) == 1
+    assert sorted((item["path"], item["change"]) for item in batches[0]) == sorted(
+        [
+            (str(changed), "added"),
+            (str(missed), "added"),
+            (str(tmp_path / "daily/deleted.md"), "deleted"),
+        ],
+    )
 
 
 @pytest.mark.asyncio

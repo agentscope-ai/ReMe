@@ -29,6 +29,11 @@ test("exports a Cordis schema that rejects invalid configuration", async () => {
 
   for (const input of [
     { endpoint: "not-a-url" },
+    { endpoint: "http://localhost?" },
+    { endpoint: "http://localhost#" },
+    { endpoint: "http://alice:SECRET@localhost" },
+    { endpoint: "http://localhost?token=SECRET" },
+    { endpoint: "http://localhost#search" },
     { endpoint: "http://localhost:bad-port" },
     { endpoint: "http://localhost:65536" },
     { endpoint: "http://[:::]" },
@@ -142,6 +147,11 @@ test("Loader keeps the previous live values when an update fails schema validati
     await entry.fiber.await();
     for (const patch of [
       { endpoint: "not-a-url" },
+      { endpoint: "http://localhost?" },
+      { endpoint: "http://localhost#" },
+      { endpoint: "http://alice:SECRET@localhost" },
+      { endpoint: "http://localhost?token=SECRET" },
+      { endpoint: "http://localhost#search" },
       { endpoint: "http://localhost:65536" },
       { endpoint: "http://999.0.0.1" },
       { dreamCron: "every night" },

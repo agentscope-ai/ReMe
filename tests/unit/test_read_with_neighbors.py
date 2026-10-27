@@ -13,11 +13,12 @@ so these tests focus on the *integration* layer:
 
 # pylint: disable=protected-access
 
-import asyncio
-import os
+from contextlib import chdir as temp_chdir
 import tempfile
 import warnings
 from pathlib import Path
+
+import pytest
 
 from reme.components.file_store import LocalFileStore
 from reme.schema import FileFrontMatter, FileNode
@@ -26,26 +27,6 @@ from reme.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
-
-
-def _run(coro):
-    asyncio.run(coro)
 
 
 async def _store_with(files: dict[str, dict]) -> LocalFileStore:
@@ -86,118 +67,104 @@ async def _read(store: LocalFileStore, *, step_kwargs: dict | None = None, **cal
 # -- off (default) -----------------------------------------------------------
 
 
-def test_read_without_neighbors_default():
+@pytest.mark.asyncio
+async def test_read_without_neighbors_default():
     """``with_neighbors`` defaults to off — no block, no metadata key."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc"},
-                    "B.md": {"body": "End node.", "name": "B Doc"},
-                },
-            )
-            resp = await _read(store, path="A.md")
-            assert resp.success is True
-            assert "Related neighbors" not in str(resp.answer)
-            assert "link_expansion" not in resp.metadata
-            await store.close()
-        print("✓ test_read_without_neighbors_default passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc"},
+                "B.md": {"body": "End node.", "name": "B Doc"},
+            },
+        )
+        resp = await _read(store, path="A.md")
+        assert resp.success is True
+        assert "Related neighbors" not in str(resp.answer)
+        assert "link_expansion" not in resp.metadata
+        await store.close()
 
 
 # -- on + has neighbors ------------------------------------------------------
 
 
-def test_read_with_neighbors_injects_block_and_metadata():
+@pytest.mark.asyncio
+async def test_read_with_neighbors_injects_block_and_metadata():
     """Block is appended; metadata carries the raw expansion dict."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc", "description": "alpha"},
-                    "B.md": {"body": "End node.", "name": "B Doc", "description": "beta"},
-                },
-            )
-            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="A.md")
-            assert resp.success is True
-            answer = str(resp.answer)
-            assert "Related neighbors" in answer
-            assert "outlinks=1" in answer
-            assert "inlinks=0" in answer
-            assert "B.md" in answer
-            assert 'name="B Doc"' in answer
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "A.md": {"body": "See [[B.md]] for details.", "name": "A Doc", "description": "alpha"},
+                "B.md": {"body": "End node.", "name": "B Doc", "description": "beta"},
+            },
+        )
+        resp = await _read(store, step_kwargs={"with_neighbors": True}, path="A.md")
+        assert resp.success is True
+        answer = str(resp.answer)
+        assert "Related neighbors" in answer
+        assert "outlinks=1" in answer
+        assert "inlinks=0" in answer
+        assert "B.md" in answer
+        assert 'name="B Doc"' in answer
 
-            expansion = resp.metadata.get("link_expansion")
-            assert expansion is not None
-            assert "A.md" in expansion
-            assert expansion["A.md"]["outlinks"][0]["path"] == "B.md"
-            assert expansion["A.md"]["outlinks"][0]["meta"] == {"name": "B Doc", "description": "beta"}
-            await store.close()
-        print("✓ test_read_with_neighbors_injects_block_and_metadata passed")
-
-    _run(run())
+        expansion = resp.metadata.get("link_expansion")
+        assert expansion is not None
+        assert "A.md" in expansion
+        assert expansion["A.md"]["outlinks"][0]["path"] == "B.md"
+        assert expansion["A.md"]["outlinks"][0]["meta"] == {"name": "B Doc", "description": "beta"}
+        await store.close()
 
 
-def test_read_with_neighbors_uses_posix_nested_path():
+@pytest.mark.asyncio
+async def test_read_with_neighbors_uses_posix_nested_path():
     """Nested graph keys use POSIX separators on every platform."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with(
-                {
-                    "notes/A.md": {"body": "See [[notes/B.md]].", "name": "A Doc"},
-                    "notes/B.md": {"body": "End node.", "name": "B Doc"},
-                },
-            )
-            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes/A.md")
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with(
+            {
+                "notes/A.md": {"body": "See [[notes/B.md]].", "name": "A Doc"},
+                "notes/B.md": {"body": "End node.", "name": "B Doc"},
+            },
+        )
+        resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes/A.md")
 
-            expansion = resp.metadata.get("link_expansion")
-            assert expansion is not None
-            assert "notes/A.md" in expansion
-            assert expansion["notes/A.md"]["outlinks"][0]["path"] == "notes/B.md"
-            await store.close()
-
-    _run(run())
+        expansion = resp.metadata.get("link_expansion")
+        assert expansion is not None
+        assert "notes/A.md" in expansion
+        assert expansion["notes/A.md"]["outlinks"][0]["path"] == "notes/B.md"
+        await store.close()
 
 
 # -- on + zero neighbors -----------------------------------------------------
 
 
-def test_read_with_neighbors_no_links_no_block():
+@pytest.mark.asyncio
+async def test_read_with_neighbors_no_links_no_block():
     """File with no out/in links → no block appended, no metadata key."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _store_with({"lonely.md": {"body": "no links here", "name": "Lonely"}})
-            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="lonely.md")
-            assert resp.success is True
-            assert "Related neighbors" not in str(resp.answer)
-            assert "link_expansion" not in resp.metadata
-            await store.close()
-        print("✓ test_read_with_neighbors_no_links_no_block passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _store_with({"lonely.md": {"body": "no links here", "name": "Lonely"}})
+        resp = await _read(store, step_kwargs={"with_neighbors": True}, path="lonely.md")
+        assert resp.success is True
+        assert "Related neighbors" not in str(resp.answer)
+        assert "link_expansion" not in resp.metadata
+        await store.close()
 
 
 # -- on + non-md -------------------------------------------------------------
 
 
-def test_read_with_neighbors_non_md_falls_through():
+@pytest.mark.asyncio
+async def test_read_with_neighbors_non_md_falls_through():
     """Non-md target: neighbor injection is skipped even when ``with_neighbors=True``."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            (Path(tmp) / "notes.txt").write_text("plain text body", encoding="utf-8")
-            store = LocalFileStore(name="t_read_neighbors_nonmd", embedding_store="")
-            await store.start()
-            resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes.txt")
-            assert resp.success is True
-            assert "Related neighbors" not in str(resp.answer)
-            assert "link_expansion" not in resp.metadata
-            await store.close()
-        print("✓ test_read_with_neighbors_non_md_falls_through passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        (Path(tmp) / "notes.txt").write_text("plain text body", encoding="utf-8")
+        store = LocalFileStore(name="t_read_neighbors_nonmd", embedding_store="")
+        await store.start()
+        resp = await _read(store, step_kwargs={"with_neighbors": True}, path="notes.txt")
+        assert resp.success is True
+        assert "Related neighbors" not in str(resp.answer)
+        assert "link_expansion" not in resp.metadata
+        await store.close()

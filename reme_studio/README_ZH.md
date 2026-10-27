@@ -357,8 +357,10 @@ npm run build:demo
 ```bash
 npm run format:check
 npm run lint
-npm run build
-npm run build:static
+npm run test:unit
+# 构建并验证 Sites、静态和演示分发：
+npm run test:build
+# 运行以上全部检查：
 npm test
 ```
 

@@ -7,7 +7,7 @@ from ...file_io import refresh_day_index
 from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
-from ....schema import DreamState
+from ....schema import DreamExtractOutput, DreamState
 from .utils import (
     clean_paths,
     daily_dir,
@@ -113,32 +113,43 @@ class DreamExtractStep(BaseStep):
             return self._finish(state, False, state.errors[-1])
 
         self.logger.info(f"[{self.name}] agent start changed={len(changed)} dates={len(dates)}")
-        raw_result, meta = "", {}
+        user_message = self.prompt_format(
+            "extract_user_message",
+            date=day,
+            dates_json=json.dumps(dates, ensure_ascii=False, indent=2),
+            hint=hint or "(none)",
+            max_units=max_units,
+            changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
+            material_blob=pack_paths(workspace, changed),
+        )
+        retry_feedback = ""
+        output_schema = DreamExtractOutput.model_json_schema()
+        output_schema["required"] = ["units"]
         for attempt in range(2):
             try:
                 result = await self.agent_wrapper.reply(
-                    self.prompt_format(
-                        "extract_user_message",
-                        date=day,
-                        dates_json=json.dumps(dates, ensure_ascii=False, indent=2),
-                        hint=hint or "(none)",
-                        max_units=max_units,
-                        changed_paths_json=json.dumps(changed, ensure_ascii=False, indent=2),
-                        material_blob=pack_paths(workspace, changed),
-                    ),
+                    user_message + retry_feedback,
                     system_prompt=self.prompt_format(
                         "extract_system_prompt",
                         workspace_dir=str(workspace),
                         buckets=", ".join(bucket.value for bucket in DreamBucketEnum),
                         max_units=max_units,
+                        output_schema_json=json.dumps(output_schema, ensure_ascii=False, indent=2),
                     ),
                     job_tools=list(_TOOLS),
                 )
                 self.logger.info(f"[{self.name}] agent done has_result={bool(result.get('result'))}")
                 raw_result = agent_reply_result_text(result)
-                meta = parse_structured_reply(raw_result)
+                state.extract_summary = raw_result
+                meta = parse_structured_reply(raw_result, strict=True)
+                self.clean_output(state, meta, max_units=max_units)
+                break
             except Exception as e:  # noqa: BLE001
                 if attempt == 0:
+                    retry_feedback = "\n\n" + self.prompt_format(
+                        "extract_retry_message",
+                        error=f"{type(e).__name__}: {e}",
+                    )
                     self.logger.warning(
                         f"[{self.name}] extract attempt 1 returned no usable receipt; retrying once: "
                         f"{type(e).__name__}: {e}",
@@ -150,20 +161,7 @@ class DreamExtractStep(BaseStep):
                 self.logger.error(f"[{self.name}] {error}")
                 return self._finish(state, False, error)
 
-            units = meta.get("units") if "units" in meta else meta.get("memory_units")
-            if isinstance(units, list):
-                break
-            if attempt == 0:
-                self.logger.warning(f"[{self.name}] extract attempt 1 returned an unusable receipt; retrying once")
-                continue
-            # Keep the warning-only result checkpointable after one retry so a bad source cannot loop forever.
-            warning = "dream extract skipped unusable agent receipt after retry; expected a units list"
-            state.warnings.append(warning)
-            self.logger.warning(f"[{self.name}] {warning}")
-
         self.logger.info(f"[{self.name}] parse done keys={','.join(sorted(meta.keys())) if meta else '(none)'}")
-        self.clean_output(state, meta, max_units=max_units)
-        state.extract_summary = raw_result
         answer = f"Extracted {len(state.units)} unit(s) from {len(changed)} changed file(s) across {len(dates)} day(s)"
         return self._finish(state, True, answer)
 
@@ -177,25 +175,34 @@ class DreamExtractStep(BaseStep):
         return out
 
     def clean_output(self, state: DreamState, meta: dict, max_units: int | None = None) -> None:
-        """Clean up output"""
+        """Validate the whole receipt before accepting any units or applying the cap."""
+        units = meta.get("units") if "units" in meta else meta.get("memory_units")
+        if not isinstance(units, list):
+            raise ValueError("expected a units list (use units: [] only when nothing is worth remembering)")
+        normalized = []
+        for raw in units:
+            if isinstance(raw, dict) and isinstance(raw.get("bucket"), str):
+                raw = {**raw, "bucket": raw["bucket"].strip()}
+            if (
+                isinstance(raw, dict)
+                and "bucket" in raw
+                and raw["bucket"] not in {bucket.value for bucket in DreamBucketEnum}
+            ):
+                self.logger.warning(
+                    f"[{self.name}] unit {raw.get('name')!r} emitted an unknown bucket; routing to wiki",
+                )
+                raw = {**raw, "bucket": DreamBucketEnum.WIKI.value}
+            normalized.append(raw)
+        output = DreamExtractOutput.model_validate({"units": normalized})
         allowed = set(state.changed_paths)
-        for raw in meta.get("units") or meta.get("memory_units") or []:
-            if max_units is not None and len(state.units) >= max_units:
-                break
-            if not isinstance(raw, dict):
-                continue
-            name = str(raw.get("name") or "").strip()
-            summary = str(raw.get("summary") or "").strip()
-            raw_bucket = str(raw.get("bucket") or "").strip()
-            paths = clean_paths(raw.get("paths"), allowed)
+        cleaned = []
+        for index, unit in enumerate(output.units):
+            name, summary = unit.name.strip(), unit.summary.strip()
+            paths = clean_paths(unit.paths, allowed)
             if not name or not summary or not paths:
-                continue
-            try:
-                bucket = DreamBucketEnum(raw_bucket).value
-            except ValueError:
-                self.logger.warning(f"[{self.name}] unit {name!r} emitted bucket {raw_bucket!r}; routing to wiki")
-                bucket = DreamBucketEnum.WIKI.value
-            state.units.append({"name": name, "bucket": bucket, "summary": summary, "paths": paths})
+                raise ValueError(f"units[{index}] requires non-empty name, summary, and paths from changed_paths")
+            cleaned.append({"name": name, "bucket": unit.bucket.value, "summary": summary, "paths": paths})
+        state.units.extend(cleaned if max_units is None else cleaned[: max(max_units - len(state.units), 0)])
 
     def _finish(self, state: DreamState, success: bool, answer: str):
         assert self.context is not None

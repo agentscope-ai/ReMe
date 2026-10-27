@@ -1,8 +1,8 @@
 """Write a daily markdown note by dispatching the generic ``write`` step."""
 
+from ._base import _FileIOStep
 from ._daily_index import parse_daily_date, refresh_day_index, validate_session_id
 from ._path import validate_filename_component
-from ..base_step import BaseStep
 from ..index import normalize_posix_path
 from ...components import R
 from ...steps.evolve import now
@@ -11,15 +11,8 @@ _RESERVED_METADATA_KEYS = {"name", "description", "session_id", "source_conversa
 
 
 @R.register("daily_write_step")
-class DailyWriteStep(BaseStep):
+class DailyWriteStep(_FileIOStep):
     """Write ``daily/<date>/<name>.md`` with conversation frontmatter."""
-
-    def _fail(self, message: str, **meta) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        if meta:
-            self.context.response.metadata.update(meta)
 
     def _session_dir(self) -> str:
         return normalize_posix_path(str(self.config_value("session_dir")))

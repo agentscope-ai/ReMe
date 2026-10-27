@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { apply, Config } from "../dist/index.js";
 import { hasGuidance } from "../dist/guidance.js";
 
@@ -28,7 +31,7 @@ test("recognizes guidance already stored by the previous DSH plugin", () => {
   );
 });
 
-test("composes root-agent guidance and reme_search on supported DSH releases", async () => {
+test("composes root-agent guidance and reme_search on supported DSH releases", async (t) => {
   const handlers = new Map();
   const tools = [];
   const cleanups = [];
@@ -58,7 +61,7 @@ test("composes root-agent guidance and reme_search on supported DSH releases", a
       handlers.set(name, handler);
     },
   };
-  apply(ctx, {
+  applyPlugin(t, ctx, {
     autoMemoryEnabled: false,
     autoDreamEnabled: false,
     language: "zh",
@@ -97,7 +100,7 @@ test("composes root-agent guidance and reme_search on supported DSH releases", a
   await Promise.all(cleanups.map((cleanup) => cleanup()));
 });
 
-test("keeps prompt injection and capture out of subagents by default", async () => {
+test("keeps prompt injection and capture out of subagents by default", async (t) => {
   const handlers = new Map();
   const ctx = {
     logger: { debug() {}, warn() {}, log() {} },
@@ -118,7 +121,7 @@ test("keeps prompt injection and capture out of subagents by default", async () 
       handlers.set(name, handler);
     },
   };
-  apply(ctx, { autoDreamEnabled: false });
+  applyPlugin(t, ctx, { autoDreamEnabled: false });
   let injected = false;
   handlers.get("agent/created")({
     agent: {
@@ -138,7 +141,7 @@ test("keeps prompt injection and capture out of subagents by default", async () 
   assert.equal(injected, false);
 });
 
-test("reads live DSH configuration for new sessions", async () => {
+test("reads live DSH configuration for new sessions", async (t) => {
   const handlers = new Map();
   const ctx = {
     fiber: { state: 0 },
@@ -165,7 +168,7 @@ test("reads live DSH configuration for new sessions", async () => {
     language: "zh",
   });
   assert.equal(config.issues, undefined);
-  apply(ctx, config.value);
+  applyPlugin(t, ctx, config.value);
   const injected = [];
   handlers.get("agent/created")({
     agent: {
@@ -204,7 +207,7 @@ test("reads live DSH configuration for new sessions", async () => {
   assert.match(injected[1].content[0].text, /Long-term Memory/);
 });
 
-test("session events read a validated configuration snapshot", () => {
+test("session events read a validated configuration snapshot", (t) => {
   const handlers = new Map();
   const ctx = {
     logger: { debug() {}, warn() {}, log() {} },
@@ -224,7 +227,7 @@ test("session events read a validated configuration snapshot", () => {
       handlers.set(name, handler);
     },
   };
-  apply(ctx, { autoMemoryEnabled: false, autoDreamEnabled: false });
+  applyPlugin(t, ctx, { autoMemoryEnabled: false, autoDreamEnabled: false });
   const original = Intl.DateTimeFormat.prototype.formatToParts;
   let scans = 0;
   Intl.DateTimeFormat.prototype.formatToParts = function (...args) {
@@ -243,3 +246,18 @@ test("session events read a validated configuration snapshot", () => {
     Intl.DateTimeFormat.prototype.formatToParts = original;
   }
 });
+
+function applyPlugin(t, ctx, input) {
+  const directory = mkdtempSync(join(tmpdir(), "reme-dsh-plugin-"));
+  let runtime;
+  const provide = ctx.provide;
+  ctx.provide = function (name, value) {
+    if (name === "remeMemory") runtime = value;
+    return provide.call(this, name, value);
+  };
+  t.after(async () => {
+    await runtime?.disposeAll();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  return apply(ctx, { ...input, autoMemoryQueueDir: directory });
+}

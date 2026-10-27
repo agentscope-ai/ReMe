@@ -5,6 +5,8 @@ import datetime
 import os
 from typing import Final
 
+from ._source_format import ALL_RETURNED_MESSAGE, NO_RESULTS_MESSAGE
+from ._tool_context import _ToolContextMixin
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date
 from ...components import R
@@ -35,10 +37,9 @@ def _filter_values(value: object) -> set:
 
 
 @R.register("search_step")
-class SearchStep(BaseStep):
+class SearchStep(_ToolContextMixin, BaseStep):
     """Hybrid search: run vector + keyword in parallel, fuse via RRF, filter, truncate."""
 
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
     SEARCH_SEEN_KEY: Final[str] = "search_seen_chunk_ids"
 
     def __init__(
@@ -97,14 +98,6 @@ class SearchStep(BaseStep):
     @staticmethod
     def _now_ts() -> float:
         return datetime.datetime.now().timestamp()
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        """Return the mutable state bucket for a tool context."""
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
 
     def _dedupe_tool_context(
         self,
@@ -203,6 +196,7 @@ class SearchStep(BaseStep):
 
     async def execute(self):
         assert self.context is not None
+        self.context.response.metadata.pop("empty_result", None)
         raw_query = self.context.get("query")
         query: str = "" if raw_query is None else str(raw_query).strip()
         limit: int = int(self.context.get("limit") or _default_limit())
@@ -349,6 +343,7 @@ class SearchStep(BaseStep):
                 )
             fused = [c for c in fused if c.score >= min_score]
 
+        pre_dedup_count = len(fused)
         dedup: dict | None = None
         if tool_context_id:
             fused, dedup = self._dedupe_tool_context(fused, tool_context_id, limit)
@@ -369,6 +364,11 @@ class SearchStep(BaseStep):
             answer_lines.extend(render_expansion_lines(link_expansion.get(c.path, {})))
 
         self.context.response.answer = "\n".join(answer_lines)
+        if not fused:
+            self.context.response.metadata["empty_result"] = {
+                "reason": "all_returned" if pre_dedup_count else "no_results",
+                "message": ALL_RETURNED_MESSAGE if pre_dedup_count else NO_RESULTS_MESSAGE,
+            }
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
         ]

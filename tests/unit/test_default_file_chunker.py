@@ -18,6 +18,7 @@ from reme.utils.wikilink_handler import WikilinkHandler
     "content",
     [
         "",
+        "你好世界\n测试内容",
         "# H\nline 1\nline 2\n",
         "---\nname: t\n---\n# H\nline 1\nline 2\n",
         "---\nname: t\n---\n\n\n# H\nline 1\nline 2\n",
@@ -37,6 +38,7 @@ def test_file_extensions_preserve_identical_plain_text(tmp_path, content, newlin
         node, chunks = asyncio.run(DefaultFileChunker().chunk(path))
 
         assert path.read_bytes() == source
+        assert node.path == str(path)
         assert node.front_matter == FileFrontMatter()
         assert node.links == []
         assert node.chunk_ids == [chunk.id for chunk in chunks]
@@ -95,93 +97,6 @@ def test_wikilinks_do_not_change_plain_text_boundaries(tmp_path, suffix):
     assert node.front_matter == FileFrontMatter()
 
 
-def test_parse_empty_file():
-    """Test parsing an empty file."""
-
-    async def run():
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker()
-            file_node, chunks = await chunker.chunk(temp_path)
-            assert file_node.path == temp_path
-            assert len(chunks) == 0
-            print("✓ test_parse_empty_file passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_parse_small_file():
-    """Test parsing a file smaller than chunk size."""
-
-    async def run():
-        content = "Hello World\nThis is a test\nLine 3"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker(chunk_byte_size=10000)
-            _, chunks = await chunker.chunk(temp_path)
-            assert len(chunks) == 1
-            assert chunks[0].start_line == 1
-            assert chunks[0].end_line == 3
-            assert chunks[0].text == content
-            print("✓ test_parse_small_file passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_parse_chunked_file():
-    """Test parsing a file that requires multiple chunks."""
-
-    async def run():
-        # Create content larger than chunk size
-        lines = ["A" * 100 for _ in range(200)]  # ~20200 bytes
-        content = "\n".join(lines)
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker(chunk_byte_size=5000, overlap_byte_size=100)
-            _, chunks = await chunker.chunk(temp_path)
-            assert len(chunks) > 1, f"Expected multiple chunks, got {len(chunks)}"
-            # Verify overlap by checking that consecutive chunks share some content
-            print(f"  Created {len(chunks)} chunks")
-            print("✓ test_parse_chunked_file passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-def test_parse_with_custom_encoding():
-    """Test parsing a file with different encodings."""
-
-    async def run():
-        content = "你好世界\n测试内容"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt", encoding="utf-8") as f:
-            f.write(content)
-            temp_path = f.name
-
-        try:
-            chunker = DefaultFileChunker(encoding="utf-8")
-            _, chunks = await chunker.chunk(temp_path)
-            assert len(chunks) >= 1
-            assert "你好世界" in chunks[0].text
-            print("✓ test_parse_with_custom_encoding passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
 def test_invalid_encoding_policy_is_validated():
     """Reject misspelled policies instead of silently changing decoding behavior."""
     try:
@@ -201,48 +116,44 @@ def test_constructor_preserves_positional_arguments():
     assert chunker.overlap_byte_size == 100
 
 
-def test_newlines_are_normalized_before_chunking():
+@pytest.mark.asyncio
+async def test_newlines_are_normalized_before_chunking():
     """Binary reads retain the universal-newline behavior of the old text reader."""
 
-    async def run():
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
-            f.write(b"alpha\r\nbeta\rgamma\n")
-            temp_path = f.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+        f.write(b"alpha\r\nbeta\rgamma\n")
+        temp_path = f.name
 
-        try:
-            chunker = DefaultFileChunker()
-            _, original_chunks = await chunker.chunk(temp_path)
-            with open(temp_path, "wb") as f:
-                f.write(b"alpha\nbeta\ngamma\n")
-            _, normalized_chunks = await chunker.chunk(temp_path)
+    try:
+        chunker = DefaultFileChunker()
+        _, original_chunks = await chunker.chunk(temp_path)
+        with open(temp_path, "wb") as f:
+            f.write(b"alpha\nbeta\ngamma\n")
+        _, normalized_chunks = await chunker.chunk(temp_path)
 
-            assert [chunk.text for chunk in original_chunks] == ["alpha\nbeta\ngamma\n"]
-            assert [chunk.id for chunk in original_chunks] == [chunk.id for chunk in normalized_chunks]
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
+        assert [chunk.text for chunk in original_chunks] == ["alpha\nbeta\ngamma\n"]
+        assert [chunk.id for chunk in original_chunks] == [chunk.id for chunk in normalized_chunks]
+    finally:
+        os.unlink(temp_path)
 
 
-def test_ascii_replacement_remains_encodable():
+@pytest.mark.asyncio
+async def test_ascii_replacement_remains_encodable():
     """Replacement mode must survive byte-based chunking with a single-byte codec."""
 
-    async def run():
-        source = b"valid\xffinvalid"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
-            f.write(source)
-            temp_path = f.name
+    source = b"valid\xffinvalid"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as f:
+        f.write(source)
+        temp_path = f.name
 
-        try:
-            _, chunks = await DefaultFileChunker(encoding="ascii").chunk(temp_path)
+    try:
+        _, chunks = await DefaultFileChunker(encoding="ascii").chunk(temp_path)
 
-            assert [chunk.text for chunk in chunks] == ["valid?invalid"]
-            with open(temp_path, "rb") as f:
-                assert f.read() == source
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
+        assert [chunk.text for chunk in chunks] == ["valid?invalid"]
+        with open(temp_path, "rb") as f:
+            assert f.read() == source
+    finally:
+        os.unlink(temp_path)
 
 
 def test_parse_links_bare():
@@ -253,7 +164,6 @@ def test_parse_links_bare():
     assert link.source_path == "src.md"
     assert link.target_path == "note"
     assert link.target_anchor is None
-    print("✓ test_parse_links_bare passed")
 
 
 def test_parse_links_with_anchor():
@@ -262,7 +172,6 @@ def test_parse_links_with_anchor():
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "section A"
-    print("✓ test_parse_links_with_anchor passed")
 
 
 def test_parse_links_alias_dropped():
@@ -271,7 +180,6 @@ def test_parse_links_alias_dropped():
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor is None
-    print("✓ test_parse_links_alias_dropped passed")
 
 
 def test_parse_links_anchor_and_alias():
@@ -280,7 +188,6 @@ def test_parse_links_anchor_and_alias():
     assert len(links) == 1
     assert links[0].target_path == "note"
     assert links[0].target_anchor == "sec"
-    print("✓ test_parse_links_anchor_and_alias passed")
 
 
 def test_parse_links_ignores_legacy_relation_wrappers():
@@ -304,7 +211,6 @@ def test_parse_links_multiple_on_one_line():
         ("x", None),
         ("y", "h"),
     ]
-    print("✓ test_parse_links_multiple_on_one_line passed")
 
 
 def test_parse_wikilink_line_ranges():
@@ -336,105 +242,75 @@ def test_parse_links_no_match():
     assert len(WikilinkHandler.extract_links("no link here :: foo", "src.md")) == 0
     assert len(WikilinkHandler.extract_links("plain text without brackets", "src.md")) == 0
     assert len(WikilinkHandler.extract_links("", "src.md")) == 0
-    print("✓ test_parse_links_no_match passed")
 
 
-def test_parse_links_in_file():
+@pytest.mark.asyncio
+async def test_parse_links_in_file():
     """Literal wikilinks and YAML remain text without populating node metadata."""
 
-    async def run():
-        content = (
-            "---\n"
-            "name: demo\n"
-            "---\n"
-            "\n"
-            "Intro paragraph with [[alpha]] and [[beta#h2]].\n"
-            "author:: [[Alice]]\n"
-            "[ref:: [[paper#chapter 1]]]\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
-            f.write(content)
-            temp_path = f.name
+    content = (
+        "---\n"
+        "name: demo\n"
+        "---\n"
+        "\n"
+        "Intro paragraph with [[alpha]] and [[beta#h2]].\n"
+        "author:: [[Alice]]\n"
+        "[ref:: [[paper#chapter 1]]]\n"
+    )
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+        f.write(content)
+        temp_path = f.name
 
-        try:
-            chunker = DefaultFileChunker()
-            file_node, chunks = await chunker.chunk(temp_path)
-            assert file_node.links == []
-            assert file_node.front_matter == FileFrontMatter()
-            assert len(chunks) == 1
-            assert chunks[0].text == content
-            print("✓ test_parse_links_in_file passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
+    try:
+        chunker = DefaultFileChunker()
+        file_node, chunks = await chunker.chunk(temp_path)
+        assert file_node.links == []
+        assert file_node.front_matter == FileFrontMatter()
+        assert len(chunks) == 1
+        assert chunks[0].text == content
+    finally:
+        os.unlink(temp_path)
 
 
-def test_parse_links_empty_when_no_content():
+@pytest.mark.asyncio
+async def test_parse_links_empty_when_no_content():
     """Empty file and front-matter-only file both yield no links."""
 
-    async def run():
-        # Empty file
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
-            empty_path = f.name
-        # Front-matter-only file
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
-            f.write("---\nname: x\n---\n")
-            fm_only_path = f.name
+    # Empty file
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+        empty_path = f.name
+    # Front-matter-only file
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".md") as f:
+        f.write("---\nname: x\n---\n")
+        fm_only_path = f.name
 
-        try:
-            chunker = DefaultFileChunker()
-            node1, _ = await chunker.chunk(empty_path)
-            node2, _ = await chunker.chunk(fm_only_path)
-            assert node1.links == []
-            assert node2.links == []
-            print("✓ test_parse_links_empty_when_no_content passed")
-        finally:
-            os.unlink(empty_path)
-            os.unlink(fm_only_path)
-
-    asyncio.run(run())
+    try:
+        chunker = DefaultFileChunker()
+        node1, _ = await chunker.chunk(empty_path)
+        node2, _ = await chunker.chunk(fm_only_path)
+        assert node1.links == []
+        assert node2.links == []
+    finally:
+        os.unlink(empty_path)
+        os.unlink(fm_only_path)
 
 
-def test_min_chunk_and_overlap_size():
+@pytest.mark.asyncio
+async def test_min_chunk_and_overlap_size():
     """Test that minimum chunk and overlap sizes are enforced."""
 
-    async def run():
-        # These values should be clamped to minimums
-        chunker = DefaultFileChunker(chunk_byte_size=1, overlap_byte_size=0)
-        assert chunker.chunk_byte_size == 100  # minimum
-        assert chunker.overlap_byte_size == 4  # minimum
+    # These values should be clamped to minimums
+    chunker = DefaultFileChunker(chunk_byte_size=1, overlap_byte_size=0)
+    assert chunker.chunk_byte_size == 100  # minimum
+    assert chunker.overlap_byte_size == 4  # minimum
 
-        content = "test"
-        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
-            f.write(content)
-            temp_path = f.name
+    content = "test"
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+        f.write(content)
+        temp_path = f.name
 
-        try:
-            _, chunks = await chunker.chunk(temp_path)
-            assert len(chunks) == 1
-            print("✓ test_min_chunk_and_overlap_size passed")
-        finally:
-            os.unlink(temp_path)
-
-    asyncio.run(run())
-
-
-if __name__ == "__main__":
-    test_parse_empty_file()
-    test_parse_small_file()
-    test_parse_chunked_file()
-    test_parse_with_custom_encoding()
-    test_parse_links_bare()
-    test_parse_links_with_anchor()
-    test_parse_links_alias_dropped()
-    test_parse_links_anchor_and_alias()
-    test_parse_links_ignores_legacy_relation_wrappers()
-    test_parse_links_multiple_on_one_line()
-    test_parse_wikilink_line_ranges()
-    test_parse_markdown_links_are_ignored()
-    test_parse_links_no_match()
-    test_parse_links_in_file()
-    test_parse_links_empty_when_no_content()
-    test_min_chunk_and_overlap_size()
-    print("\n所有测试通过!")
+    try:
+        _, chunks = await chunker.chunk(temp_path)
+        assert len(chunks) == 1
+    finally:
+        os.unlink(temp_path)
