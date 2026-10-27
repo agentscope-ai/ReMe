@@ -107,7 +107,21 @@ async def test_local_pipeline_timeout_and_cancellation(tmp_path, monkeypatch, ba
             assert "timed out after 100ms" in response.answer
         assert descendants
         assert processes[0].returncode is not None
-        assert all(not child.is_running() or child.status() == psutil.STATUS_ZOMBIE for child in descendants)
+
+        async def descendants_stopped():
+            # Pipe EOF can precede exit after SIGKILL, especially for orphaned background children.
+            pending = descendants.copy()
+            while pending:
+                for child in pending.copy():
+                    try:
+                        if not child.is_running() or child.status() == psutil.STATUS_ZOMBIE:
+                            pending.remove(child)
+                    except psutil.NoSuchProcess:
+                        pending.remove(child)
+                if pending:
+                    await asyncio.sleep(0.01)
+
+        await asyncio.wait_for(descendants_stopped(), timeout=1)
     finally:
         if not task.done():
             task.cancel()
