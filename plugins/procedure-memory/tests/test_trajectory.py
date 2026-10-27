@@ -35,6 +35,78 @@ def test_long_line_tokenization_is_bounded_by_segment_size(tmp_path, size, chars
     assert counted < len(text) * 8
 
 
+@pytest.mark.parametrize("line_count", [2500, 10000])
+@pytest.mark.parametrize("chars_per_token", [1, 4])
+def test_short_line_tokenization_work_is_linear(tmp_path, line_count, chars_per_token):
+    counted = 0
+
+    def count(text):
+        nonlocal counted
+        counted += len(text)
+        return (len(text) + chars_per_token - 1) // chars_per_token
+
+    text = ("x" * 78 + "\r\n") * line_count
+    path = tmp_path / "short.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=count)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < len(chunk["text"]) <= budget.limits["segment"] * chars_per_token for chunk in chunks)
+    assert all(chunk["text"].endswith("\r\n") for chunk in chunks)
+    assert [chunk["offset"] for chunk in chunks] == [
+        sum(len(previous["text"]) for previous in chunks[:n]) for n in range(len(chunks))
+    ]
+    assert counted < len(text) * 1.6
+
+
+@pytest.mark.parametrize("text", ["", "abc", "a\nb\nc\nd\n", "a\rb\rc\r", "a\r\nb\nc\rtail"])
+def test_batched_segments_preserve_line_boundaries(tmp_path, text):
+    path = tmp_path / "lines.log"
+    path.write_bytes(text.encode())
+    chunks = list(segments(path, "utf-8", TokenBudget(counter=len, segment=4)))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < len(chunk["text"]) <= 4 for chunk in chunks)
+    assert all(chunk["text"].endswith(("\r", "\n")) for chunk in chunks[:-1])
+
+
+@pytest.mark.parametrize("segment_limit", [4, 17, 63])
+def test_short_multibyte_lines_obey_exact_budget(tmp_path, segment_limit):
+    text = "你好🙂\r\n" * 100 + "末尾"
+    path = tmp_path / "short-unicode.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=lambda value: len(value.encode()), segment=segment_limit)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < budget.count(chunk["text"]) <= segment_limit for chunk in chunks)
+
+
+@pytest.mark.parametrize("text", ["a\n" * 200 + "你好🙂\r\n" * 200, "x" * 5000 + "\n" + "short\n" * 2000])
+def test_batches_handle_changing_token_density_and_line_size(tmp_path, text):
+    path = tmp_path / "mixed.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=lambda value: len(value.encode()), segment=127)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < budget.count(chunk["text"]) <= 127 for chunk in chunks)
+    assert [chunk["offset"] for chunk in chunks] == [
+        sum(len(previous["text"]) for previous in chunks[:n]) for n in range(len(chunks))
+    ]
+
+
+def test_line_boundary_is_rechecked_with_nonmonotonic_counter(tmp_path):
+    # A shorter prefix can cost more tokens when its ending changes.
+    def count(text):
+        return len(text) + (8 if text.endswith("\n") else 0)
+
+    text = "abc\n" * 20 + "tail"
+    path = tmp_path / "boundary.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=count, segment=10)
+    chunks = list(segments(path, "utf-8", budget))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert all(0 < budget.count(chunk["text"]) <= 10 for chunk in chunks)
+
+
 def test_multibyte_long_lines_remain_lossless(tmp_path):
     text = "leading\r\n" + "你好🙂" * 1000 + "\r\ntrailing\n"
     path = tmp_path / "unicode.log"

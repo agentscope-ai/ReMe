@@ -6,7 +6,7 @@ readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-dependencies = ["reme-ai>=0.4.1.12"]
+dependencies = ["reme-ai>=0.4.2.0"]
 
 [project.entry-points."reme.plugins"]
 procedure-memory = "reme_procedure_memory"

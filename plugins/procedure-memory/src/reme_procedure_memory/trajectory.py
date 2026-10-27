@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import tempfile
+from bisect import bisect_right
+from itertools import chain
 from pathlib import Path
 
 from reme.steps.file_io import validate_filename_component
@@ -13,7 +15,7 @@ from reme.steps.file_io._file_io import detect_file_encoding
 from .checkpoint import atomic_json, checked_path, digest, load_json
 
 SUPPORTED = {"", ".txt", ".md", ".markdown", ".json", ".jsonl", ".log"}
-SEGMENTATION_VERSION = 2
+SEGMENTATION_VERSION = 4
 
 
 def file_hash(path: Path, max_bytes: int) -> str:
@@ -124,28 +126,65 @@ async def prepare_text(path: Path) -> str:
 
 
 def segments(path: Path, encoding: str, budget):
-    """Keep line/record boundaries where possible; split long records without losing text."""
-    pending = ""
+    """Batch exact checks while keeping line boundaries and lossless, bounded output."""
+    parts = []
+    boundaries = []
+    size = 0
     offset = 0
     limit = budget.limits["segment"]
+    check_at = limit
+    checked_size = 0
     with path.open(encoding=encoding, errors="strict", newline="") as stream:
-        for line in stream:
-            if pending:
-                combined = pending + line
-                if budget.prefix(combined, limit) == len(combined):
-                    pending = combined
+        for line in chain(stream, ("",)):
+            if line:
+                parts.append(line)
+                size += len(line)
+                boundaries.append(size)
+                # Check just below the predicted capacity so near-full batches
+                # can be emitted without searching for a maximal prefix.
+                if size < check_at - max(1, check_at // 100):
                     continue
+            elif not size:
+                break
+
+            pending = "".join(parts)
+            if not line and size == checked_size:
                 yield {"offset": offset, "text": pending}
-                offset += len(pending)
-                pending = ""
+                break
             start = 0
-            while start < len(line):
-                end = budget.prefix(line, limit, start=start)
-                if start + end == len(line):
-                    pending = line[start:]
+            while start < len(pending):
+                remaining = len(pending) - start
+                if remaining <= check_at:
+                    count = budget.count(pending[start:])
+                    if count <= limit:
+                        if not line or count >= limit - max(1, limit // 100):
+                            yield {"offset": offset, "text": pending[start:]}
+                            offset += remaining
+                            start = len(pending)
+                        else:
+                            # Predict the next batch from the exact count. The
+                            # prediction only schedules checks, never accepts text.
+                            check_at = max(limit, remaining * limit // max(1, count))
+                        break
+                end = start + budget.prefix(pending, limit, start=start)
+                if end == len(pending):
+                    if not line:
+                        yield {"offset": offset, "text": pending[start:]}
+                    check_at = max(limit, remaining * 2)
                     break
-                yield {"offset": offset, "text": line[start : start + end]}
-                offset += end
-                start += end
-        if pending:
-            yield {"offset": offset, "text": pending}
+                # Prefer the last complete record within the exact token bound.
+                # A record larger than the budget is split at the checked prefix.
+                boundary = bisect_right(boundaries, end)
+                if boundary and boundaries[boundary - 1] > start:
+                    end = boundaries[boundary - 1]
+                    # Token counts need not be additive or monotonic at newlines.
+                    end = start + budget.prefix(pending[start:end], limit)
+                yield {"offset": offset, "text": pending[start:end]}
+                offset += end - start
+                start = end
+            parts = [pending[start:]]
+            boundaries = [value - start for value in boundaries if value > start]
+            size = len(pending) - start
+            checked_size = size
+            if not size:
+                check_at = limit

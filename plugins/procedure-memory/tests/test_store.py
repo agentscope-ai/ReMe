@@ -148,3 +148,31 @@ async def test_invalid_reindex_reports_without_modifying_files(runtime, experien
     assert result.metadata["errors"][0]["path"] == "procedures/invalid.json"
     assert corrupt.read_text() == '{"incomplete":true}'
     assert all(len(index.file_chunks) == 1 for index in store.views.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("alias", ["./procedures/repair-search-index.json", "procedures//repair-search-index.json"])
+async def test_update_alias_uses_one_file_identity(runtime, experience, alias):
+    _, store, scope = runtime
+    created = await store.apply_mutation("create", experience, scope)
+    update = {
+        "path": alias,
+        "expected_version": created["version"],
+        "operation_key": "alias-update",
+        "changes": {"content": "Updated repair advice"},
+    }
+    updated = await store.apply_mutation("update", update, scope)
+    assert updated["path"] == created["path"]
+    assert (await store.read_experience(alias))["path"] == created["path"]
+    assert await store.apply_mutation("update", {**update, "path": created["path"]}, scope) == updated
+    await store.sync_paths([alias, created["path"]])
+    for index in store.views.values():
+        assert [node.path for node in await index.get_nodes()] == [created["path"]]
+        assert len(index.file_chunks) == 1
+        chunk = next(iter(index.file_chunks.values()))
+        assert chunk.path == created["path"]
+        assert chunk.metadata["version"] == updated["version"]
+    result = await store.search("index", "when_to_use", vector_weight=0)
+    assert [hit["path"] for hit in result["results"]] == [created["path"]]
+    for journal in (store.state_root / "operations").glob("*.json"):
+        assert json.loads(journal.read_text())["path"] == created["path"]

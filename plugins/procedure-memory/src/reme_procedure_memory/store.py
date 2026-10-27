@@ -121,7 +121,7 @@ class ProcedureMemoryStore(BaseComponent):
         memory = ProcedureMemory.model_validate_json(raw)
         for source in memory.sources:
             self.source_path(source)
-        return {"path": relative, "version": digest(raw), "experience": memory.document()}
+        return {"path": self.relative(path), "version": digest(raw), "experience": memory.document()}
 
     async def read_experience(self, relative: str) -> dict:
         """Return the full four-field document with an optimistic content version."""
@@ -147,8 +147,16 @@ class ProcedureMemoryStore(BaseComponent):
         self.scopes[token] = {"source": source, "segment": segment}
         return token
 
+    def _normalize_operation(self, record: dict) -> None:
+        """Canonicalize legacy paths while preserving their original signature input."""
+        relative = self.relative(self.experience_path(record["path"]))
+        if relative != record["path"]:
+            record.setdefault("signature_path", record["path"])
+            record["path"] = relative
+
     def _remember_operation(self, journal: Path, record: dict) -> None:
         """Cache receipts and lookup keys, never the full experience payload."""
+        self._normalize_operation(record)
         name = journal.name
         self._operations[name] = {
             key: value for key, value in record.items() if key not in {"document", "previous", "signature"}
@@ -164,6 +172,7 @@ class ProcedureMemoryStore(BaseComponent):
             pending.add(name)
 
     def _write_operation(self, journal: Path, record: dict) -> None:
+        self._normalize_operation(record)
         atomic_json(journal, record)
         self._remember_operation(journal, record)
 
@@ -201,13 +210,24 @@ class ProcedureMemoryStore(BaseComponent):
         operation_key = arguments.get("operation_key")
         if not isinstance(operation_key, str) or not operation_key.strip() or len(operation_key) > 200:
             raise ValueError("operation_key must be a nonempty stable key of at most 200 characters")
+        if action == "update":
+            arguments = {**arguments, "path": self.relative(self.experience_path(arguments["path"]))}
         signature = digest(json_text({"action": action, "arguments": arguments}))
         operation_path = self.state_root / "operations" / f"{digest(json_text(scope) + operation_key)}.json"
         async with self.data_lock:
             await self._recover_unlocked()
             if operation_path.exists():
                 record = load_json(operation_path)
-                if record["signature"] != signature:
+                # Older journals signed the caller's unnormalized path. Keep
+                # their receipts retryable without changing operation keys.
+                self._normalize_operation(record)
+                legacy_arguments = (
+                    {**arguments, "path": record.get("signature_path", record["path"])}
+                    if action == "update" and arguments["path"] == record["path"]
+                    else arguments
+                )
+                legacy_signature = digest(json_text({"action": action, "arguments": legacy_arguments}))
+                if record["signature"] not in {signature, legacy_signature}:
                     raise ValueError("operation_key already belongs to different arguments; read completed operations")
                 if record["status"] not in {"indexed", "superseded"}:
                     raise ProcedureIndexError(
@@ -243,8 +263,8 @@ class ProcedureMemoryStore(BaseComponent):
             document = {key: arguments[key] for key in ("description", "when-to-use", "content")}
             document["sources"] = [scope["source"]]
         elif action == "update":
-            relative = arguments["path"]
-            existing = self._read(relative)
+            existing = self._read(arguments["path"])
+            relative = existing["path"]
             previous = arguments["expected_version"]
             if previous != existing["version"]:
                 raise ValueError("Version conflict; procedure_read the current experience before retrying")
@@ -280,6 +300,7 @@ class ProcedureMemoryStore(BaseComponent):
         }
 
     async def _commit_record(self, journal: Path, record: dict) -> None:
+        self._normalize_operation(record)
         path = self.experience_path(record["path"])
         current = digest(path.read_bytes()) if path.exists() else None
         if current != record["version"]:
@@ -304,6 +325,7 @@ class ProcedureMemoryStore(BaseComponent):
 
     def _mark_superseded(self, replacement: Path, record: dict) -> None:
         """Retire only the older intents named by an already durable replacement."""
+        self._normalize_operation(record)
         for name in record.get("supersedes", []):
             prior_path = replacement.parent / name
             if prior_path.parent != replacement.parent or prior_path.suffix != ".json":
@@ -362,6 +384,7 @@ class ProcedureMemoryStore(BaseComponent):
 
     async def _quarantine_unlocked(self, relative: str, error: str, *, persist: bool = True) -> None:
         """Remove only derived records, so neither view serves stale or partial content."""
+        relative = self.relative(self.experience_path(relative))
         self.pending_indexes[relative] = {
             "path": relative,
             "version": self._read(relative)["version"],
@@ -387,6 +410,7 @@ class ProcedureMemoryStore(BaseComponent):
     async def _sync_unlocked(self, paths: list[str], *, persist: bool = True) -> None:
         for relative in paths:
             result = self._read(relative)
+            relative = result["path"]
             memory = ProcedureMemory.model_validate(result["experience"])
             path = self.experience_path(relative)
             for view, store in self.views.items():
@@ -406,6 +430,7 @@ class ProcedureMemoryStore(BaseComponent):
         async with self.data_lock:
             await self._recover_unlocked()
             for relative in paths:
+                relative = self.relative(self.experience_path(relative))
                 try:
                     await self._sync_unlocked([relative])
                 except Exception as exc:

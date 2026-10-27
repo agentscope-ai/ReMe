@@ -805,3 +805,114 @@ async def test_recovery_reads_only_pending_history(runtime, experience, reject_p
         assert not result["index_complete"]
         assert len(result["results"]) == 1
     assert reads == [pending] * 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart", [False, True])
+async def test_alias_correction_supersedes_pending_payload(runtime, experience, reject_payload, app_factory, restart):
+    app, store, scope = runtime
+    reject_payload(store.views["when_to_use"].embedding_store)
+    with pytest.raises(RuntimeError, match="indexes pending"):
+        await store.apply_mutation("create", {**experience, "content": "unembeddable-payload"}, scope)
+    saved = await store.read_experience("procedures/repair-search-index.json")
+    corrected = await store.apply_mutation(
+        "update",
+        {
+            "path": "./" + saved["path"],
+            "expected_version": saved["version"],
+            "operation_key": "alias-repair",
+            "changes": {"content": "valid repair advice"},
+        },
+        scope,
+    )
+    assert corrected["path"] == saved["path"]
+    if restart:
+        await app.close()
+        _, store = await app_factory(workspace=store.workspace_path)
+    await store.reconcile()
+    records = store.operation_records("session/trajectories/input.log")
+    assert {record["path"] for record in records} == {saved["path"]}
+    assert {record["operation_key"]: record["status"] for record in records} == {
+        experience["operation_key"]: "superseded",
+        "alias-repair": "indexed",
+    }
+    assert (await store.search("index", "when_to_use_content"))["index_complete"]
+    for index in store.views.values():
+        assert [node.path for node in await index.get_nodes()] == [saved["path"]]
+
+
+@pytest.mark.asyncio
+async def test_legacy_alias_journal_recovers_and_remains_retryable(runtime, experience, app_factory):
+    from reme_procedure_memory.checkpoint import atomic_json, digest, json_text
+
+    app, store, scope = runtime
+    created = await store.apply_mutation("create", experience, scope)
+    arguments = {
+        "path": "./" + created["path"],
+        "expected_version": created["version"],
+        "operation_key": "legacy-update",
+        "changes": {"content": "legacy repair advice"},
+    }
+    updated = await store.apply_mutation("update", arguments, scope)
+    # Simulate a pre-fix journal interrupted after committing the file.
+    for journal in (store.state_root / "operations").glob("*.json"):
+        record = load_json(journal)
+        if record["operation_key"] == arguments["operation_key"]:
+            record["path"] = arguments["path"]
+            record["signature"] = digest(json_text({"action": "update", "arguments": arguments}))
+            record["status"] = "committed"
+            atomic_json(journal, record)
+    await app.close()
+    _, reopened = await app_factory(workspace=store.workspace_path)
+    scope = reopened.open_scope("session/trajectories/input.log", 0)
+    for path in (arguments["path"], created["path"]):
+        assert await reopened.apply_mutation("update", {**arguments, "path": path}, scope) == updated
+    with pytest.raises(ValueError, match="different arguments"):
+        await reopened.apply_mutation("update", {**arguments, "path": "procedures/another-file.json"}, scope)
+    await reopened.reconcile()
+    assert (await reopened.search("index", "when_to_use_content"))["index_complete"]
+    for index in reopened.views.values():
+        assert [node.path for node in await index.get_nodes()] == [created["path"]]
+
+
+@pytest.mark.asyncio
+async def test_legacy_pending_alias_is_superseded_after_restart(runtime, experience, app_factory, reject_payload):
+    from reme_procedure_memory.checkpoint import atomic_json, digest, json_text
+
+    app, store, scope = runtime
+    created = await store.apply_mutation("create", experience, scope)
+    reject_payload(store.views["when_to_use"].embedding_store)
+    arguments = {
+        "path": "./" + created["path"],
+        "expected_version": created["version"],
+        "operation_key": "legacy-pending",
+        "changes": {"content": "unembeddable-payload"},
+    }
+    with pytest.raises(RuntimeError, match="indexes pending"):
+        await store.apply_mutation("update", arguments, scope)
+    for journal in (store.state_root / "operations").glob("*.json"):
+        record = load_json(journal)
+        if record["operation_key"] == arguments["operation_key"]:
+            record["path"] = arguments["path"]
+            record["signature"] = digest(json_text({"action": "update", "arguments": arguments}))
+            atomic_json(journal, record)
+    await app.close()
+    _, reopened = await app_factory(workspace=store.workspace_path)
+    saved = await reopened.read_experience(created["path"])
+    scope = reopened.open_scope("session/trajectories/input.log", 0)
+    corrected = await reopened.apply_mutation(
+        "update",
+        {
+            "path": saved["path"],
+            "expected_version": saved["version"],
+            "operation_key": "repair-legacy",
+            "changes": {"content": "valid replacement"},
+        },
+        scope,
+    )
+    await reopened.reconcile()
+    old = await reopened.apply_mutation("update", arguments, scope)
+    assert old["path"] == corrected["path"] == created["path"]
+    assert old["status"] == "superseded"
+    assert old["superseded_by"] == "repair-legacy"
+    assert (await reopened.search("index", "when_to_use_content"))["index_complete"]
