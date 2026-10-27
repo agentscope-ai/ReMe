@@ -72,7 +72,13 @@ class DailyPaperDigestStep(DailyPaperStep):
         if self.agent_wrapper is None:
             raise RuntimeError("An agent_wrapper is required for the daily brief")
         analyses: list[AnalyzedPaper] = self._state("analyses") or []
-        if len(analyses) != PAPER_COUNT:
+        failures = self._state("failures") or []
+        if not analyses and failures:
+            self.context.response.success = False
+            self.context.response.answer = "Daily paper analysis failed for every selected paper; no brief generated"
+            self.context.response.metadata["partial"] = False
+            return self.context.response
+        if not analyses or len(analyses) + len(failures) != PAPER_COUNT:
             raise RuntimeError(
                 "Detailed paper notes are missing before digest generation",
             )
@@ -88,6 +94,7 @@ class DailyPaperDigestStep(DailyPaperStep):
                 "digest_user",
                 documents=json.dumps(documents, ensure_ascii=False, indent=2),
                 daily_dir=daily_dir,
+                paper_count=len(analyses),
             ),
             output_schema=DailyPaperMarkdownOutput,
             job_tools=list(self.kwargs.get("job_tools") or []),
@@ -121,6 +128,8 @@ class DailyPaperDigestStep(DailyPaperStep):
             body = self._validate_historical_wikilinks(body, run_day, digest_path)
             body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
             selected_ids = [item.arxiv_id for item in analyses]
+            if failures:
+                body += "\n\n## 未完成的论文\n\n" + "\n".join(f"- {item['arxiv_id']}" for item in failures)
             await write_markdown(
                 digest_path,
                 body,
@@ -131,6 +140,8 @@ class DailyPaperDigestStep(DailyPaperStep):
                     "kind": "daily-paper-brief",
                     "date": day,
                     "arxiv_ids": selected_ids,
+                    "partial": bool(failures),
+                    "failed_arxiv_ids": [item["arxiv_id"] for item in failures],
                     "selection_reasoning": [item.reasoning for item in analyses],
                     "source_notes": wikilinks,
                     "generated_at": utc_now_iso(),
@@ -156,10 +167,15 @@ class DailyPaperDigestStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] refresh index done date={day}")
 
         self.context.response.success = True
-        self.context.response.answer = f"Generated daily paper brief: {digest_rel}"
+        qualifier = f"partial ({len(analyses)}/{PAPER_COUNT} papers) " if failures else ""
+        self.context.response.answer = f"Generated {qualifier}daily paper brief: {digest_rel}"
         self.context.response.metadata.update(
             {
                 "date": day,
+                "partial": bool(failures),
+                "analysis_count": len(analyses),
+                "failure_count": len(failures),
+                "failed_papers": list(failures),
                 "week": self._state("week"),
                 "month": self._state("month"),
                 "selection_reasoning": [item.reasoning for item in analyses],

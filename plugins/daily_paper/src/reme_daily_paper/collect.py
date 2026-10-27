@@ -4,6 +4,8 @@ import asyncio
 import datetime as dt
 from pathlib import Path
 
+import frontmatter
+
 from .arxiv import ARXIV_ID_PATTERN
 from .base import DailyPaperStep, iter_note_metadata, now
 from .huggingface_papers import HuggingFacePapersClient
@@ -101,9 +103,21 @@ class DailyPaperCollectStep(DailyPaperStep):
                 self._set_state("skip", True)
                 self._set_state("digest_path", digest_rel)
                 self.context.response.success = True
-                self.context.response.answer = f"Skipped: daily paper brief already exists at {digest_rel}"
+                saved = frontmatter.load(digest_path)
+                partial = bool(saved.metadata.get("partial", False))
+                qualifier = "partial " if partial else ""
+                self.context.response.answer = (
+                    f"Skipped: {qualifier}daily paper brief already exists at {digest_rel}"
+                    + ("; use force=true to regenerate" if partial else "")
+                )
                 self.context.response.metadata.update(
-                    {"date": day, "digest_path": digest_rel, "skipped": True},
+                    {
+                        "date": day,
+                        "digest_path": digest_rel,
+                        "skipped": True,
+                        "partial": partial,
+                        "failed_arxiv_ids": saved.metadata.get("failed_arxiv_ids", []),
+                    },
                 )
                 self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")
                 return self.context.response

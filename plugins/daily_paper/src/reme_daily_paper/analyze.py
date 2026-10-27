@@ -4,6 +4,8 @@ import asyncio
 import json
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from .arxiv import ArxivPdfClient
 from .base import (
     PAPER_COUNT,
@@ -99,19 +101,33 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             f"chars={len(pdf_text)} truncated={truncated}",
         )
         self.logger.info(f"[{self.name}] agent start arxiv_id={paper.arxiv_id}")
-        result = await self.agent_wrapper.reply(
-            self.prompt_format(
-                "analyze_user",
-                paper_info=json.dumps(paper.model_dump(), ensure_ascii=False, indent=2),
-                selection_reason=selected.reasoning,
-                page_count=page_count,
-                truncated=str(truncated).lower(),
-                pdf_text=pdf_text,
-            ),
-            output_schema=DailyPaperMarkdownOutput,
+        prompt = self.prompt_format(
+            "analyze_user",
+            paper_info=json.dumps(paper.model_dump(), ensure_ascii=False, indent=2),
+            selection_reason=selected.reasoning,
+            page_count=page_count,
+            truncated=str(truncated).lower(),
+            pdf_text=pdf_text,
         )
+        # AgentScope is optional: other wrappers can report Pydantic validation failures.
+        recoverable = (ValidationError,)
+        try:
+            from agentscope.exception import StructuredOutputError
+        except ImportError:
+            pass
+        else:
+            recoverable += (StructuredOutputError,)
+        for attempt in range(2):
+            try:
+                result = await self.agent_wrapper.reply(prompt, output_schema=DailyPaperMarkdownOutput)
+                output = structured_output(result, DailyPaperMarkdownOutput)
+                break
+            except recoverable:
+                if attempt:
+                    raise
+                self.logger.warning(f"[{self.name}] retry shorter structured note arxiv_id={paper.arxiv_id}")
+                prompt += "\n\n" + self.prompt_format("analyze_short_retry")
         self.logger.info(f"[{self.name}] agent done arxiv_id={paper.arxiv_id}")
-        output = structured_output(result, DailyPaperMarkdownOutput)
         title = normalize_chinese_title(output.title, f"论文解读-{paper.arxiv_id}")
         day_dir = self.workspace_path / daily_dir / day
         existing_note = self._find_existing_note(day_dir, paper.arxiv_id)
