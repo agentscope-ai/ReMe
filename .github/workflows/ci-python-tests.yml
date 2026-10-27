@@ -42,12 +42,15 @@ jobs:
           pip install --no-deps -e plugins/auto-fin
           pip install -e plugins/daily_paper
           pip install -e plugins/lme -e plugins/beam
+          pip install "safecmd>=0.1.16,<0.2" shfmt-py
+          # Keep the checkout's ReMe instead of resolving the plugin's published ReMe dependency.
+          pip install --no-deps -e plugins/home
           pip install coverage
 
       - name: Run unit tests
         run: |
           python -c "import tokenizers; print('tokenizers', tokenizers.__version__)"
-          coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam \
+          coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam plugins/home/tests \
             -v \
             --tb=long \
             -s \
