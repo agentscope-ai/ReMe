@@ -86,6 +86,23 @@ three source notes, and rebuilds the daily index. The workflow then runs `auto_t
 frontmatter of all three analyses and the final brief. The normal background file watcher observes those source-file
 changes and refreshes derived indexes.
 
+## Partial results and recovery
+
+Each selected paper is analyzed independently. An ordinary failure is recorded and later papers are still attempted;
+cancellation propagates. Invalid structured output gets one additional request asking for a shorter note. This is a
+prompt-level size target, not a provider output-token guarantee; the SDK may try its own structured-output strategies
+within each request. Downloads and PDF extraction are not repeated by this recovery.
+
+With one or two successful notes, the workflow writes a partial brief using only those notes and lists the failed
+arXiv IDs. A generated partial brief has `success=true` and `metadata.partial=true`; `analysis_count`, `failure_count`,
+`failed_papers`, `note_paths`, and `pdf_paths` report the outcome. An all-failed batch has `success=false` and makes no
+brief-generation call. If brief generation itself fails, completed note paths remain in response metadata.
+
+Saved partial briefs follow the existing skip policy. A later call reports `partial=true` and the saved failed IDs;
+use `reme daily_paper date=YYYY-MM-DD force=true` to regenerate. This starts the usual selection pipeline again; it is
+not a failed-paper-only resume. Hosts should inspect `partial` rather than treating `success=true` as three successful
+analyses. The final tagging step can still report its own failure after a brief is written.
+
 ## Parameters
 
 | Parameter       | Default | Purpose                                                                           |

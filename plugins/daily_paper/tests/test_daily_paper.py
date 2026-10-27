@@ -628,6 +628,7 @@ def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
     prompt = step.prompt_format(
         "digest_user",
         documents="[]",
+        paper_count=3,
         daily_dir=str(step.config_value("daily_dir")).strip("/"),
     )
 
@@ -1084,3 +1085,49 @@ async def test_analysis_does_not_swallow_cancellation(tmp_path, monkeypatch):
         await step(context)
     assert analyze_one.await_count == 1
     assert context["daily_paper_failures"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [0, 1, 2, 3])
+async def test_digest_reports_partial_and_total_failure(tmp_path, count):
+    """Generate a useful brief from any successes and avoid a model call on total failure."""
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{i}",
+            reasoning="test",
+            title=f"论文{i}",
+            desc="test",
+            body="evidence",
+            note_path=f"daily/2026-07-21/论文{i}.md",
+            pdf_path=f"resource/papers/{i}.pdf",
+        )
+        for i in range(count)
+    ]
+    failures = [{"arxiv_id": f"2607.1000{i}", "error": "invalid output"} for i in range(count, 3)]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+        daily_paper_failures=failures,
+    )
+    agent = _QueuedAgentWrapper([{"title": "今日简报", "desc": "summary", "body": "Grounded brief"}])
+    await DailyPaperDigestStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        agent_wrapper=agent,
+    )(context)
+    assert context.response.success == bool(count)
+    if not count:
+        assert not agent.calls
+        assert not list(tmp_path.rglob("*.md"))
+        return
+    assert context.response.metadata["partial"] == (count < 3)
+    assert context.response.metadata["failure_count"] == 3 - count
+    assert context.response.metadata["note_paths"] == [item.note_path for item in analyses]
+    brief = frontmatter.load(tmp_path / context.response.metadata["digest_path"])
+    assert brief.metadata["failed_arxiv_ids"] == [item["arxiv_id"] for item in failures]
+    assert all(item["arxiv_id"] in brief.content for item in failures)
+    assert f"{count} 篇" in agent.calls[0]["inputs"]
+    if count < 3:
+        rerun = RuntimeContext(date="2026-07-21")
+        await DailyPaperCollectStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(rerun)
+        assert rerun.response.metadata["partial"] is True
+        assert "force=true" in rerun.response.answer

@@ -121,3 +121,18 @@ python -m pytest plugins/daily_paper -v
 ```
 
 单元测试 mock Hugging Face、arXiv 和 AgentScope 边界，不访问外部服务。
+
+
+## 部分结果与恢复
+
+每篇论文独立处理，普通错误会被记录，后续论文仍会继续；任务取消会向上传播。结构化输出无效时，
+最多额外请求一次更短的笔记，不重复下载和 PDF 提取。这只是提示词中的长度目标，不是服务端输出 token
+限制；每次请求内部仍可能使用 SDK 的结构化输出策略回退。
+
+成功一篇或两篇时，仅根据成功的笔记生成部分简报，并列出失败的 arXiv ID。此时 `success=true`，
+`metadata.partial=true`；`analysis_count`、`failure_count`、`failed_papers`、`note_paths` 和 `pdf_paths`
+提供结果明细。全部失败时 `success=false`，不调用简报模型。若简报本身生成失败，已完成笔记的路径仍保留在响应元数据中。
+
+已保存的部分简报沿用跳过策略；再次调用会返回 `partial=true` 和保存的失败 ID。使用
+`reme daily_paper date=YYYY-MM-DD force=true` 重新生成，会重新运行正常选题流程，而非仅恢复失败论文。
+调用方应检查 `partial`，不要把 `success=true` 理解为三篇论文全部成功。最终自动标签步骤仍可能报告自己的错误。
