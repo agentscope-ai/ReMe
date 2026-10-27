@@ -4,6 +4,7 @@
 
 import pytest
 
+from reme_procedure_memory import trajectory
 from reme_procedure_memory.checkpoint import atomic_json, digest, load_json
 from reme_procedure_memory.token_budget import TokenBudget
 from reme_procedure_memory.trajectory import prepare_text, segments
@@ -57,6 +58,83 @@ def test_short_line_tokenization_work_is_linear(tmp_path, line_count, chars_per_
         sum(len(previous["text"]) for previous in chunks[:n]) for n in range(len(chunks))
     ]
     assert counted < len(text) * 1.6
+
+
+def test_low_density_text_does_not_emit_the_calibration_sample(tmp_path):
+    text = ("x" * 78 + "\r\n") * 2500
+    path = tmp_path / "low-density.log"
+    path.write_bytes(text.encode())
+    budget = TokenBudget(counter=lambda value: (len(value) + 3) // 4)
+    assert list(segments(path, "utf-8", budget)) == [{"offset": 0, "text": text}]
+
+
+def test_final_partial_line_does_not_create_an_extra_segment(tmp_path):
+    text = "x" * 100 + "\ntail"
+    path = tmp_path / "final.log"
+    path.write_bytes(text.encode())
+    assert list(segments(path, "utf-8", TokenBudget(counter=len, segment=128))) == [{"offset": 0, "text": text}]
+
+
+@pytest.mark.parametrize("limit", [64, 257])
+@pytest.mark.parametrize("mode", ["bytes", "density_changes", "nonmonotonic", "zero"])
+def test_segmentation_counter_work_is_bounded_even_when_predictions_fail(tmp_path, limit, mode):
+    counted = 0
+
+    def exact_count(value):
+        if mode == "density_changes":
+            return sum(32 if char == "!" else 1 for char in value)
+        if mode == "nonmonotonic":
+            return len(value) + (limit // 2 if value.endswith(("\r", "\n")) else 0)
+        return 0 if mode == "zero" else len(value.encode())
+
+    def count(value):
+        nonlocal counted
+        counted += len(value)
+        return exact_count(value)
+
+    text = ("a\n" * 256 + "!" * 1024 + "你好🙂\r\n" * 128) * 3
+    path = tmp_path / "unpredictable.log"
+    path.write_bytes(text.encode())
+    chunks = list(segments(path, "utf-8", TokenBudget(counter=count, segment=limit)))
+    assert counted < 8 * len(text)
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    offset = 0
+    for chunk in chunks:
+        assert chunk["text"]
+        assert exact_count(chunk["text"]) <= limit
+        assert chunk["offset"] == offset
+        offset += len(chunk["text"])
+
+
+@pytest.mark.parametrize("window", [2, 7, 128])
+def test_candidate_window_is_bounded_for_large_budgets(tmp_path, monkeypatch, window):
+    monkeypatch.setattr(trajectory, "_MAX_SEGMENT_CHARS", window)
+    counted = 0
+
+    def count(value):
+        nonlocal counted
+        counted += len(value)
+        assert len(value) <= window
+        return len(value)
+
+    text = "x" * 10000 + "\r\n" + "你好🙂\r\n" * 100
+    path = tmp_path / "bounded-window.log"
+    path.write_bytes(text.encode())
+    chunks = list(segments(path, "utf-8", TokenBudget(counter=count, segment=100000)))
+    assert "".join(chunk["text"] for chunk in chunks) == text
+    assert counted == len(text)
+    assert all(
+        not (first["text"].endswith("\r") and second["text"].startswith("\n"))
+        for first, second in zip(chunks, chunks[1:])
+    )
+
+
+def test_segment_budget_must_hold_one_character(tmp_path):
+    path = tmp_path / "too-small.log"
+    path.write_text("🙂", encoding="utf-8")
+    budget = TokenBudget(counter=lambda value: len(value.encode()), segment=3)
+    with pytest.raises(ValueError, match="cannot hold one character"):
+        list(segments(path, "utf-8", budget))
 
 
 @pytest.mark.parametrize("text", ["", "abc", "a\nb\nc\nd\n", "a\rb\rc\r", "a\r\nb\nc\rtail"])

@@ -5,8 +5,6 @@ import json
 import os
 import shutil
 import tempfile
-from bisect import bisect_right
-from itertools import chain
 from pathlib import Path
 
 from reme.steps.file_io import validate_filename_component
@@ -15,7 +13,9 @@ from reme.steps.file_io._file_io import detect_file_encoding
 from .checkpoint import atomic_json, checked_path, digest, load_json
 
 SUPPORTED = {"", ".txt", ".md", ".markdown", ".json", ".jsonl", ".log"}
-SEGMENTATION_VERSION = 4
+SEGMENTATION_VERSION = 5
+_MAX_SEGMENT_CHARS = 1024 * 1024
+_DENSITY_SAMPLE_CHARS = 4096
 
 
 def file_hash(path: Path, max_bytes: int) -> str:
@@ -125,66 +125,64 @@ async def prepare_text(path: Path) -> str:
     return encoding
 
 
+def _segment_end(text: str, start: int, length: int) -> int:
+    """Prefer a line ending in the latter half without splitting CRLF when possible."""
+    end = start + length
+    if length > 1 and text[end - 1 : end + 1] == "\r\n":
+        end -= 1
+    lower = start + (length - 1) // 2
+    boundary = max(text.rfind("\n", lower, end), text.rfind("\r", lower, end))
+    return boundary + 1 if boundary >= lower else end
+
+
 def segments(path: Path, encoding: str, budget):
-    """Batch exact checks while keeping line boundaries and lossless, bounded output."""
-    parts = []
-    boundaries = []
-    size = 0
-    offset = 0
+    """Predict bounded candidates, check exactly once, and halve oversized candidates.
+
+    Probes shrink geometrically; the next prediction grows by at most twice the
+    emitted length. Including one initial density sample, total counter input is
+    less than 8N characters, even for nonmonotonic counts. Segments need not fill
+    the budget.
+    """
     limit = budget.limits["segment"]
-    check_at = limit
-    checked_size = 0
+    target_tokens = limit - limit // 20
+    target = min(limit, _MAX_SEGMENT_CHARS, _DENSITY_SAMPLE_CHARS)
+    calibrating = True
+    pending = ""
+    start = offset = 0
+    eof = False
     with path.open(encoding=encoding, errors="strict", newline="") as stream:
-        for line in chain(stream, ("",)):
-            if line:
-                parts.append(line)
-                size += len(line)
-                boundaries.append(size)
-                # Check just below the predicted capacity so near-full batches
-                # can be emitted without searching for a maximal prefix.
-                if size < check_at - max(1, check_at // 100):
-                    continue
-            elif not size:
+        while True:
+            # One character of lookahead keeps CRLF intact at window edges.
+            needed = target + 1 - (len(pending) - start)
+            if needed > 0 and not eof:
+                incoming = stream.read(needed)
+                pending = pending[start:] + incoming
+                start = 0
+                eof = len(incoming) < needed
+            if start == len(pending):
                 break
 
-            pending = "".join(parts)
-            if not line and size == checked_size:
-                yield {"offset": offset, "text": pending}
-                break
-            start = 0
-            while start < len(pending):
-                remaining = len(pending) - start
-                if remaining <= check_at:
-                    count = budget.count(pending[start:])
-                    if count <= limit:
-                        if not line or count >= limit - max(1, limit // 100):
-                            yield {"offset": offset, "text": pending[start:]}
-                            offset += remaining
-                            start = len(pending)
-                        else:
-                            # Predict the next batch from the exact count. The
-                            # prediction only schedules checks, never accepts text.
-                            check_at = max(limit, remaining * limit // max(1, count))
-                        break
-                end = start + budget.prefix(pending, limit, start=start)
-                if end == len(pending):
-                    if not line:
-                        yield {"offset": offset, "text": pending[start:]}
-                    check_at = max(limit, remaining * 2)
+            length = min(target, len(pending) - start)
+            while True:
+                end = start + length if eof and length == len(pending) - start else _segment_end(pending, start, length)
+                text = pending[start:end]
+                count = budget.count(text)
+                if count <= limit:
                     break
-                # Prefer the last complete record within the exact token bound.
-                # A record larger than the budget is split at the checked prefix.
-                boundary = bisect_right(boundaries, end)
-                if boundary and boundaries[boundary - 1] > start:
-                    end = boundaries[boundary - 1]
-                    # Token counts need not be additive or monotonic at newlines.
-                    end = start + budget.prefix(pending[start:end], limit)
-                yield {"offset": offset, "text": pending[start:end]}
-                offset += end - start
-                start = end
-            parts = [pending[start:]]
-            boundaries = [value - start for value in boundaries if value > start]
-            size = len(pending) - start
-            checked_size = size
-            if not size:
-                check_at = limit
+                length = len(text) // 2
+                if not length:
+                    raise ValueError("Token budget cannot hold one character")
+            predicted = min(_MAX_SEGMENT_CHARS, max(1, len(text) * target_tokens // max(1, count)))
+            if calibrating:
+                calibrating = False
+                # Calibrate once before emitting so a sparse first sample does
+                # not become an unnecessary model invocation of its own.
+                if predicted > len(text) and (not eof or end < len(pending)):
+                    target = predicted
+                    continue
+            yield {"offset": offset, "text": text}
+            offset += len(text)
+            start = end
+            # Density is only a scheduling hint. Capping growth also bounds the
+            # cost of mispredictions when token density changes abruptly.
+            target = min(predicted, len(text) * 2)

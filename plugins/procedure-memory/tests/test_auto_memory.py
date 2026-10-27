@@ -12,8 +12,8 @@ import pytest
 async def test_default_long_segments_and_internal_summary_slack(app_factory, tmp_path):
     app, store = await app_factory()
     source = tmp_path / "long.log"
-    first_segment = "x" * (96 * 1024 - 1) + "\n"
-    source.write_text(first_segment + "last segment")
+    text = "x" * (96 * 1024 - 1) + "\nlast segment"
+    source.write_text(text)
     seen = []
 
     async def reply(inputs, _options):
@@ -28,7 +28,10 @@ async def test_default_long_segments_and_internal_summary_slack(app_factory, tmp
     app.context.metadata["fake_reply"] = reply
     result = await app.context.jobs["procedure_auto_memory"](file=str(source), filename="long.log", request_id="long")
     assert result.success, result.answer
-    assert [data["trajectory_text"] for data in seen] == [first_segment, "last segment"]
+    assert len(seen) == 2
+    assert "".join(data["trajectory_text"] for data in seen) == text
+    assert all(0 < store.budget.count(data["trajectory_text"]) <= 98304 for data in seen)
+    assert [data["offset"] for data in seen] == [0, len(seen[0]["trajectory_text"])]
     assert store.budget.limits["summary"] == 8192
 
 
