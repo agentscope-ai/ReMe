@@ -9,11 +9,60 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import anyio
 import pytest
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
 from reme.utils.file_sandbox.path_seatbelt_backend import LaunchctlError, PathSeatbeltBackend
 from reme.utils.local_backend import LocalProcessBackend
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_name", ["fail_after", "move_on_after"])
+async def test_anyio_deadline_during_successful_seatbelt_bootout(tmp_path, monkeypatch, scope_name):
+    """A deadline during normal bootout must retain AnyIO's cancellation identity."""
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.sys.platform", "darwin")
+    monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
+    monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=True))
+    monkeypatch.setattr(backend, "_wait_status", AsyncMock(return_value=0))
+    booted_out = False
+    control = None
+    scope = None
+
+    async def launchctl(*args):
+        nonlocal booted_out, control
+        if args[0] == "bootstrap":
+            control = Path(args[-1]).parent
+        elif args[0] == "kickstart":
+            return "12345"
+        elif args[0] == "bootout":
+            assert control.exists()
+            # Expire only once the completed command enters normal cleanup.
+            scope.deadline = anyio.current_time()
+            await asyncio.sleep(0.02)
+            assert control.exists()
+            booted_out = True
+        else:
+            pytest.fail(f"Unexpected launchctl call: {args[0]}")
+        return ""
+
+    monkeypatch.setattr(backend, "_launchctl", launchctl)
+
+    async def run_scope():
+        nonlocal scope
+        with getattr(anyio, scope_name)(None) as active_scope:
+            scope = active_scope
+            await backend.exec_shell(["true"])
+
+    if scope_name == "fail_after":
+        with pytest.raises(TimeoutError):
+            await run_scope()
+    else:
+        await run_scope()
+    assert scope.cancelled_caught
+    assert booted_out
+    assert not control.exists()
 
 
 @pytest.mark.asyncio

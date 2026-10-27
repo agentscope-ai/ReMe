@@ -17,11 +17,11 @@ import psutil
 from agentscope.tool import ExecResult
 
 from .file_sandbox_backend import FileSandboxBackend, contains
+from ..async_utils import finish_cleanup
 from ..local_backend import (
     LocalProcessBackend,
     OutputLimitExceeded,
     capture_output,
-    finish_cleanup,
     output_limit_result,
 )
 

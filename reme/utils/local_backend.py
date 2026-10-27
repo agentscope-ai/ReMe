@@ -9,26 +9,10 @@ from collections.abc import Awaitable, Callable
 import psutil
 from agentscope.tool import ExecResult, LocalBackend
 
+from .async_utils import finish_cleanup
+
 _CLEANUP_TIMEOUT = 0.25
 OUTPUT_LIMIT_BYTES = 1024 * 1024
-
-
-async def finish_cleanup(operation: Awaitable):
-    """Finish cleanup before propagating any cancellation received while waiting."""
-    task = asyncio.ensure_future(operation)
-    cancelled = False
-    while True:
-        try:
-            result = await asyncio.shield(task)
-            break
-        except asyncio.CancelledError:
-            cancelled = True
-            if task.done():
-                result = task.result()
-                break
-    if cancelled:
-        raise asyncio.CancelledError
-    return result
 
 
 class OutputLimitExceeded(RuntimeError):

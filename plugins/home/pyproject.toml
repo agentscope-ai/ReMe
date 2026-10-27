@@ -5,7 +5,7 @@ description = "Local command execution jobs for ReMe."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "reme-ai[as]>=0.4.1.14",
+    "reme-ai[as]>=0.4.2.1",
     "safecmd>=0.1.16,<0.2",
 ]
 

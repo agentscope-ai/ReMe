@@ -3,10 +3,77 @@
 import asyncio
 import os
 
+import anyio
 import psutil
 import pytest
 
-from reme.utils.local_backend import LocalProcessBackend
+from reme.utils.local_backend import LocalProcessBackend, finish_cleanup
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancellations", [0, 1, 3])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_finish_cleanup_waits_and_retains_first_cancellation(cancellations, fail):
+    """Cleanup finishes through repeated cancellation and retains the caller's reason."""
+    started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def operation():
+        started.set()
+        try:
+            await release.wait()
+            if fail:
+                raise RuntimeError("cleanup failed")
+            return "complete"
+        finally:
+            finished.set()
+
+    task = asyncio.create_task(finish_cleanup(operation()))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        for index in range(cancellations):
+            task.cancel("original cancellation" if index == 0 else "cancel again")
+            await asyncio.sleep(0)
+        assert not task.done()
+        assert not finished.is_set()
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+    assert finished.is_set()
+    if cancellations:
+        with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+            task.result()
+    elif fail:
+        with pytest.raises(RuntimeError, match="cleanup failed"):
+            task.result()
+    else:
+        assert task.result() == "complete"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope_name", ["fail_after", "move_on_after"])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_finish_cleanup_preserves_anyio_cancel_scope(scope_name, fail):
+    """Cancellation first received during cleanup still belongs to its AnyIO scope."""
+    finished = asyncio.Event()
+
+    async def operation():
+        await asyncio.sleep(0.05)
+        finished.set()
+        if fail:
+            raise RuntimeError("cleanup failed after cancellation")
+
+    async def run_scope():
+        with getattr(anyio, scope_name)(0.01) as scope:
+            await finish_cleanup(operation())
+        assert scope.cancelled_caught
+
+    if scope_name == "fail_after":
+        with pytest.raises(TimeoutError):
+            await run_scope()
+    else:
+        await run_scope()
+    assert finished.is_set()
 
 
 @pytest.mark.asyncio

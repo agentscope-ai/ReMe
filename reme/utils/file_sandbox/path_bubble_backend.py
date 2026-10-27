@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 from .file_sandbox_backend import FileSandboxBackend, contains
-from ..local_backend import finish_cleanup
+from ..async_utils import finish_cleanup
 
 _CGROUP_CLEANUP_TIMEOUT = 0.25
 
@@ -48,28 +48,31 @@ class PathBubbleBackend(FileSandboxBackend):
             raise ValueError("command must not be empty")
         self._check_paths(cwd)
         args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-all", "--proc", "/proc", "--dev", "/dev"]
+        visible_paths = []
         for path in ("/usr", "/usr/local"):
             if os.path.isdir(path):
                 args.extend(("--ro-bind", path, path))
+                visible_paths.append(path)
         for path in ("/bin", "/sbin", "/lib", "/lib64"):
             if os.path.islink(path):
                 args.extend(("--symlink", os.readlink(path), path))
+                visible_paths.append(path)
             elif os.path.exists(path):
                 args.extend(("--ro-bind", path, path))
+                visible_paths.append(path)
         args.extend(("--dir", "/etc"))
         for path in ("/etc/passwd", "/etc/group", "/etc/nsswitch.conf", "/etc/hosts", "/etc/resolv.conf", "/etc/ssl"):
             if os.path.exists(path):
                 args.extend(("--ro-bind", path, path))
+                visible_paths.append(path)
         args.extend(("--tmpfs", "/tmp", "--tmpfs", "/run"))
         mounts = [(path, "--ro-bind") for path in self._read_only_paths]
         mounts += [(path, "--bind") for path in self._writable_paths]
         for path, mode in sorted(mounts, key=lambda item: (item[0].count("/"), item[0])):
             args.extend((mode, path, path))
+            visible_paths.append(path)
         # Existing mounts already preserve their internal links. Recreate only
         # runtime links missing from the sandbox, without mounting their parents.
-        visible_paths = [
-            args[index + 2] for index in range(len(args) - 2) if args[index] in {"--ro-bind", "--bind", "--symlink"}
-        ]
         links, _ = self._runtime_paths()
         for path in sorted(links):
             if not any(contains(root, path) for root in visible_paths):
