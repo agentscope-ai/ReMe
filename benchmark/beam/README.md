@@ -135,3 +135,33 @@ Memory Construction average token consumption (default agent, full build over 35
 | Agent | input tok/case | output tok/case | total tok/case |
 |---|---|---|---|
 | default | 31,943,817 | 1,417,061 | 33,360,878 |
+
+
+## Prepare a Home experiment
+
+`run_home.py` prepares all BEAM **100K** cases, the workspace, and committed candidate
+code. It exits after preparation; it does not evaluate cases or start optimization.
+Run from the repository root after obtaining the dataset described above:
+
+```bash
+reme plugins install plugins/home
+python benchmark/beam/run_home.py
+# Optional separate workspace (a successful preparation cannot be repeated):
+python benchmark/beam/run_home.py --workspace-dir /path/to/new-workspace
+```
+
+[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
+repository-relative regardless of the current working directory; `--config`
+accepts an alternative runner YAML file. The default workspace is
+`benchmark/beam/workspaces/home-100K`. The evaluated runtime loads `beam`;
+the host application loads `home`. `source_ref: HEAD` exports committed source
+only, excluding uncommitted modifications. Preparation failure rolls back its
+outputs; after success, another call fails instead of resetting the experiment.
+
+Python callers can use the same lifecycle:
+
+```python
+from benchmark.beam.run_home import run
+
+result = await run(workspace_dir="/path/to/new-workspace")
+```

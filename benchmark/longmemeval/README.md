@@ -108,3 +108,42 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only (reusing prebuilt
 | single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
 | temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
 | **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+
+
+## Prepare a Home experiment
+
+`run_home.py` prepares the fixed **group_1–group_5** training split (250 cases), the workspace, and committed candidate
+code. It exits after preparation; it does not evaluate cases or start optimization.
+Run from the repository root after obtaining the dataset described above:
+
+```bash
+reme plugins install plugins/home
+python benchmark/longmemeval/run_home.py
+# Optional separate workspace (a successful preparation cannot be repeated):
+python benchmark/longmemeval/run_home.py --workspace-dir /path/to/new-workspace
+```
+
+[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
+repository-relative regardless of the current working directory; `--config`
+accepts an alternative runner YAML file. The default workspace is
+`benchmark/longmemeval/workspaces/home-groups-1-5`. The evaluated runtime loads `lme`;
+the host application loads `home`. `source_ref: HEAD` exports committed source
+only, excluding uncommitted modifications. Preparation failure rolls back its
+outputs; after success, another call fails instead of resetting the experiment.
+
+Python callers can use the same lifecycle:
+
+```python
+from benchmark.longmemeval.run_home import run
+
+result = await run(workspace_dir="/path/to/new-workspace")
+```
+
+The 250 `benchmark.case_ids` in [config_home.yaml](config_home.yaml) are copied
+in order from groups 1–5 of `dataset/groups.json` at `dev_meta` commit
+`b53048e44833937df80a52fccceea78d054790e8`. The original splitter used seed 42
+and type-stratified allocation into ten 50-case groups; groups 6–10 remain held
+out. The runner reads the IDs directly from YAML without loading group files.
+[home_evidence_sessions.jsonl](home_evidence_sessions.jsonl) is a byte-for-byte
+copy of that revision's `dataset/longmemeval_evidence_sessions.jsonl`;
+reviewed evidence-session annotations are preserved during normalization.

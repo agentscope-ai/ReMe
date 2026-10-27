@@ -1,7 +1,7 @@
 [project]
 name = "reme-home"
 version = "0.1.0"
-description = "Local command execution jobs for ReMe."
+description = "Self-evolution workspace preparation and local command execution jobs for ReMe."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

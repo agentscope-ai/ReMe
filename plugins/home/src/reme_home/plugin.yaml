@@ -1,8 +1,37 @@
 backends:
+  home_preparation: reme_home.preparation:HomePreparation
+  home_prepare_step: reme_home.prepare_step:HomePrepareStep
+  home_workspace: reme_home.workspace:HomeWorkspace
   auto_bash_step: reme_home.auto_bash:AutoBashStep
 
 application_defaults:
+  components:
+    home.preparation:
+      default:
+        backend: home_preparation
+    home.workspace:
+      default:
+        backend: home_workspace
   jobs:
+    home_prepare:
+      backend: base
+      description: "Prepare experiment data and code once; failure rolls back, success forbids another call"
+      parameters:
+        type: object
+        properties:
+          spec_path:
+            type: string
+            description: "YAML preparation file inside the workspace"
+          spec:
+            type: object
+            description: "Preparation configuration, mutually exclusive with spec_path"
+        oneOf:
+          - required: [spec_path]
+            not: {required: [spec]}
+          - required: [spec]
+            not: {required: [spec_path]}
+      steps:
+        - backend: home_prepare_step
     auto_bash:
       backend: base
       description: "Run a shell command in the workspace; read-only mode is enabled by default"

@@ -1,0 +1,20 @@
+# Preparation only. Paths are relative to the ReMe repository root, not the cwd.
+workspace_dir: benchmark/beam/workspaces/home-100K
+preparation:
+  schema_version: 1
+  benchmark:
+    name: beam
+    source: benchmark/beam/dataset/BEAM
+    variant: 100K
+    all_cases: true
+  runtime:
+    source_repo: .
+    source_ref: HEAD  # Committed source only; resolved and saved as a full SHA.
+    config: benchmark.yaml
+    plugins: [beam]
+  candidate:
+    paths: [plugins/beam/src]
+  debug:
+    enabled: true
+    sessions_per_case: 3
+    messages_per_session: 6

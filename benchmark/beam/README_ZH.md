@@ -130,3 +130,23 @@ Memory Construction 平均 token 消耗（default agent，35 cases 全量构建�
 | Agent | input tok/case | output tok/case | total tok/case |
 |---|---|---|---|
 | default | 31,943,817 | 1,417,061 | 33,360,878 |
+
+
+## 准备 Home 实验
+
+安装 Home 插件后，在仓库根目录执行：
+
+```bash
+reme plugins install plugins/home
+python benchmark/beam/run_home.py
+```
+
+该入口只创建工作区、准备数据和代码，不运行评测或优化。
+参数见 [config_home.yaml](config_home.yaml)，路径相对仓库根目录；
+可通过 `--config` 更换配置，通过 `--workspace-dir` 指定新工作区。
+默认工作区为 `benchmark/beam/workspaces/home-100K`。
+代码从 `source_ref: HEAD` 对应的 Git 提交导出，不包含未提交修改。
+准备失败会回滚；成功后禁止再次准备同一工作区。
+Python 中也可调用 `await benchmark.beam.run_home.run(workspace_dir=...)`。
+
+默认选择 BEAM **100K 全部 case**。
