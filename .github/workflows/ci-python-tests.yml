@@ -48,6 +48,8 @@ jobs:
           pip install coverage
 
       - name: Run unit tests
+        env:
+          FASTMCP_MCP_CAMELCASE_COMPAT: "false"
         run: |
           python -c "import tokenizers; print('tokenizers', tokenizers.__version__)"
           coverage run -m pytest tests/unit plugins/auto-fin plugins/daily_paper plugins/lme plugins/beam plugins/home/tests \
