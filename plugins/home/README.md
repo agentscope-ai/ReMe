@@ -241,24 +241,25 @@ Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`:
 manifest.json
 summary.json
 cases/<case-id>/
-  execution.json
   memory_construction/
     result.json
     build.log
     reme_workspace.tar.gz
     reme_workspace/
-  evaluation.tar.gz
   queries/
-    answers.json
     result.json
     <query-id>/answer.log
 ```
 
 The memory tar is exported **before** queries, retains session Git checkpoints,
-and is independent of the post-query evaluation archive. Replayed runs keep an
+and is independent of the query execution state. Replayed runs keep an
 independent donor tar and inherited build log without charging construction
 tokens again. Answers are persisted before host judging. Per-query results keep
-reference/actual answers, scores, judge output, token usage and failures. Summary
+reference/actual answers, scores, compact judge output, reported answer token usage
+and failures. `queries/result.json` is the sole authoritative answer record;
+reconstructable prompts and repeated payloads are removed using the reviewed
+`dev_meta` rules. Construction results similarly compact redundant links, Job
+counts, token records and cumulative daily-index snapshots. Summary
 scores use the expected-query denominator; infrastructure/judge/artifact errors
 make the comparable mean unavailable while retaining the observed-score mean.
 The Job returns `success=false` for infrastructure/judge/artifact failures, while
@@ -273,8 +274,17 @@ their error text. Successful jobs returning empty answers still count as candida
 failures. The construction failure-rate tolerance applies only to candidate
 errors: infrastructure or unclassified failures always reject construction, even
 when another failed job was a candidate error.
-`valid_for_comparison` does not assert that an initial baseline covers the full
-dataset: the caller must also verify its code and complete case/query coverage.
+The manifest retains run identity, selection, mode and execution status. The
+summary retains only outcome counts, expected/scored query counts, score means,
+low-score cases, question-type statistics and compact case/query mappings.
+Candidate answer token summaries average only total tokens per model; detailed
+construction costs remain in construction results. Temporary post-query archives
+are discarded after extracting logs; separate execution, checksum and raw-answer
+JSON copies are not saved. See the
+[artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md) for the
+exact fields, rebuild helper and migration from the previous verbose format.
+Before comparing runs, verify completed scored execution, infrastructure outcomes,
+candidate code and complete case/query coverage.
 
 Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
 runs publish `partial_summary.json`, not a completed summary. New executions
@@ -292,8 +302,9 @@ returns `success=false` for candidate failures as well as infrastructure failure
 It cannot reuse construction. Case/query selections refer to the selected mode's
 dataset; omitted selections run all its cases/queries.
 Debug results retain execution counts and artifacts, but all mean scores are
-null and `valid_for_comparison=false`. `expected_scored_query_count` is zero,
-while `expected_query_count` still records the expected execution count.
+null. `scored_query_count` and `query_status_counts.unscored` are zero, while
+`expected_query_count` still records the expected execution count. Debug/scored
+mode is recorded in the manifest.
 The former `dataset_kind` input is rejected; use `debug` instead. Debug results
 must not be used to assess answer correctness or candidate quality. No real
 Docker/model evaluation is required by Home's isolated unit tests.

@@ -213,7 +213,7 @@ def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: di
         raise ValueError("reuse_construction_from must be inside home/evaluations")
     manifest = read_json(source / "manifest.json")
     summary = read_json(source / "summary.json")
-    if manifest.get("dataset_kind") != "training-set" or summary.get("status") != "completed":
+    if manifest.get("dataset_kind") != "training-set" or manifest.get("status", summary.get("status")) != "completed":
         raise ValueError("Reuse requires a completed training-set evaluation")
     for key in ("dataset", "construction_config"):
         if manifest.get("fingerprints", {}).get(key) != fingerprints[key]:

@@ -1,7 +1,6 @@
 """Home evaluation orchestration using the shared Docker pool and a host judge."""
 
 import asyncio
-from dataclasses import asdict
 import os
 import shutil
 import traceback
@@ -24,6 +23,7 @@ from .artifacts import (
     failure_kind,
 )
 from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code
+from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 
@@ -146,9 +146,9 @@ class HomeEvaluation(BaseComponent):
                 "execution_mode": "query_only_replay" if source else "full_validation",
                 "construction_source": source,
                 "fingerprints": fingerprints,
-                "options": spec.model_dump(mode="json"),
+                "options": spec.model_dump(mode="json", exclude={"case_ids", "query_ids", "reuse_construction_from"}),
                 "judge": self.judge.identity(dataset.dataset),
-                "judge_model": self.judge.identity(dataset.dataset)["model"],
+                "status": "running",
                 "started_at": utc_now().isoformat(),
             }
             run = self._allocate(branch, commit, manifest)
@@ -214,7 +214,15 @@ class HomeEvaluation(BaseComponent):
                         run / "cases" / plan.case_id / "failure.json",
                         {"stage": "artifacts", "error": result.error, "failure_kind": "infra_error"},
                     )
-                await self._score_case(run, by_id[plan.case_id], dataset.dataset, judge, semaphore, spec)
+                await self._score_case(
+                    run,
+                    by_id[plan.case_id],
+                    dataset.dataset,
+                    judge,
+                    semaphore,
+                    spec,
+                    (result.queries or {}).get("queries", []),
+                )
 
             results = await BenchmarkDockerPool(factory, concurrency=spec.concurrency).run(
                 plans,
@@ -224,9 +232,6 @@ class HomeEvaluation(BaseComponent):
             )
             # Pool teardown can attach late cleanup failures after callbacks.
             for result in results:
-                execution = asdict(result)
-                execution["workspace_snapshot"] = str(result.workspace_snapshot) if result.workspace_snapshot else None
-                write_json(run / "cases" / result.case_id / "execution.json", execution)
                 if result.error:
                     failure = run / "cases" / result.case_id / "failure.json"
                     if not failure.exists():
@@ -236,22 +241,24 @@ class HomeEvaluation(BaseComponent):
                         if previous.get("error") != result.error:
                             previous.update(cleanup_error=result.error, failure_kind="infra_error")
                             write_json(failure, previous)
-            summary = summarize(run, cases, status="completed", scoring_required=not spec.debug)
-            summary.update(
-                execution_complete=True,
-                execution_mode=manifest["execution_mode"],
-            )
+            summary = summarize(run, cases, scoring_required=not spec.debug)
             manifest.update(status="completed", finished_at=utc_now().isoformat())
             write_json(run / "manifest.json", manifest)
-            write_json(run / "summary.json", summary)
+            write_json(run / "summary.json", summary, compact_leaf_containers=True)
             return {
                 "result_dir": str(run),
                 "commit_sha": commit,
                 "execution_mode": manifest["execution_mode"],
+                "status": "completed",
                 **{key: value for key, value in summary.items() if key != "cases"},
             }
         except BaseException as error:
             if run is not None:
+                manifest.update(
+                    status="cancelled" if isinstance(error, asyncio.CancelledError) else "failed",
+                    finished_at=utc_now().isoformat(),
+                )
+                write_json(run / "manifest.json", manifest)
                 write_json(
                     run / "failure.json",
                     {
@@ -264,11 +271,9 @@ class HomeEvaluation(BaseComponent):
                 partial = summarize(
                     run,
                     cases,
-                    status="cancelled" if isinstance(error, asyncio.CancelledError) else "failed",
                     scoring_required=not spec.debug,
                 )
-                partial["execution_complete"] = False
-                write_json(run / "partial_summary.json", partial)
+                write_json(run / "partial_summary.json", partial, compact_leaf_containers=True)
             if isinstance(error, asyncio.CancelledError) or run is None:
                 raise
             raise RuntimeError(f"Evaluation failed; artifacts: {run}: {error}") from error
@@ -277,10 +282,25 @@ class HomeEvaluation(BaseComponent):
     async def _persist_case(run, case, result, source, spec):
         folder = run / "cases" / case.case_id
         memory = folder / "memory_construction"
-        execution = asdict(result)
-        execution["workspace_snapshot"] = str(result.workspace_snapshot) if result.workspace_snapshot else None
-        write_json(folder / "execution.json", execution)
-        write_json(folder / "queries/answers.json", result.queries or {"queries": []})
+        # Freeze every returned answer in the sole authoritative query file
+        # before extraction or judging can fail. Unjudged answers stay present.
+        by_id = {row.get("query_id"): row for row in (result.queries or {}).get("queries", [])}
+        rows = [
+            compact_query(
+                {
+                    **by_id[query.query_id],
+                    "query_id": query.query_id,
+                    "question": query.question,
+                    "golden_answer": query.golden_answer,
+                    "question_type": query.metadata.get("question_type"),
+                    "score": None,
+                    "judge_result": None,
+                },
+            )
+            for query in case.queries
+            if query.query_id in by_id
+        ]
+        write_json(folder / "queries/result.json", {"queries": rows}, compact_leaf_containers=True)
         if result.error:
             stage = result.failure_stage or "execution"
             exception = result.exception
@@ -309,7 +329,7 @@ class HomeEvaluation(BaseComponent):
             archive = memory / "reme_workspace.tar.gz"
             if archive.is_file():
                 construction["workspace_sha256"] = await blocking(file_sha256, archive)
-            write_json(memory / "result.json", construction)
+            write_json(memory / "result.json", compact_construction(construction), compact_leaf_containers=True)
         archive = memory / "reme_workspace.tar.gz"
         if archive.is_file():
             await blocking(inspect_archive, archive, spec.max_artifact_bytes, memory / "reme_workspace")
@@ -325,25 +345,21 @@ class HomeEvaluation(BaseComponent):
                     target = folder / "queries" / query.query_id / "answer.log"
                     target.parent.mkdir(parents=True, exist_ok=True)
                     await blocking(shutil.copyfile, log, target)
-            # Do not merge the container's queries tree: it could overwrite
-            # host-frozen answers.json or host-only judge results. The complete
-            # untrusted tree remains available in evaluation.tar.gz for inspection.
+            # Container results cannot overwrite host-frozen answers or scores.
             await blocking(shutil.rmtree, extracted)
-        integrity = {}
-        for relative in ("memory_construction/reme_workspace.tar.gz", "evaluation.tar.gz", "full.tar.gz"):
-            artifact = folder / relative
-            if artifact.is_file():
-                integrity[relative] = await blocking(file_sha256, artifact)
-        write_json(folder / "artifacts.json", {"sha256": integrity})
+            evaluation.unlink()
 
     @staticmethod
-    async def _score_case(run, case, dataset, judge, semaphore, spec):
+    async def _score_case(run, case, dataset, judge, semaphore, spec, answers):
         folder = run / "cases" / case.case_id
-        answers = read_json(folder / "queries/answers.json").get("queries", [])
         by_id = {row.get("query_id"): row for row in answers}
-        rows = []
+        rows = read_json(folder / "queries/result.json").get("queries", [])
+        positions = {row["query_id"]: index for index, row in enumerate(rows)}
+        case_failure = read_json(folder / "failure.json") if (folder / "failure.json").exists() else {}
         for query in case.queries:
             raw = by_id.get(query.query_id, {})
+            if not raw and case_failure:
+                continue  # Construction failures leave queries unassessed.
             row = {
                 **raw,
                 "query_id": query.query_id,
@@ -353,10 +369,9 @@ class HomeEvaluation(BaseComponent):
                 "score": None,
                 "judge_result": None,
             }
-            if not isinstance(row.get("answer"), str) or not row["answer"].strip() or row.get("error"):
+            if not isinstance(row.get("answer"), str) or not row["answer"].strip() or row.get("error") is not None:
                 row["error"] = row.get("error") or "No successful answer (construction or execution failed)"
                 row["failure_stage"] = "answer"
-                case_failure = read_json(folder / "failure.json") if (folder / "failure.json").exists() else {}
                 row["failure_kind"] = (
                     failure_kind(row["exception"], "answer")
                     if row.get("exception")
@@ -376,10 +391,14 @@ class HomeEvaluation(BaseComponent):
                         failure_kind="infra_error",
                         infrastructure_error=True,
                     )
-            rows.append(row)
+            compact = compact_query(row)
+            if query.query_id in positions:
+                rows[positions[query.query_id]] = compact
+            else:
+                rows.append(compact)
             # Publish each score; a later judge failure cannot erase frozen answers.
-            write_json(folder / "queries/result.json", {"queries": rows})
-            if row.get("error"):
-                write_json(folder / "queries" / query.query_id / "failure.json", row)
+            write_json(folder / "queries/result.json", {"queries": rows}, compact_leaf_containers=True)
+            if row.get("error") is not None:
+                write_json(folder / "queries" / query.query_id / "failure.json", compact, compact_leaf_containers=True)
                 if spec.fail_fast:
                     raise RuntimeError(f"Query {case.case_id}/{query.query_id} failed: {row['error']}")

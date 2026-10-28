@@ -95,7 +95,7 @@ class FakeWorker:
         files = {
             "reme_workspace/daily/note.md": "after-answer",
             "manifest.json": "{}",
-            "queries/answers.json": '{"queries": [{"query_id": "fact:1", "answer": "forged"}]}',
+            "queries/result.json": '{"queries": [{"query_id": "fact:1", "answer": "forged"}]}',
         }
         for query in self.queries:
             files[f"queries/{query.query_id}/answer.log"] = "answer log"
@@ -175,17 +175,22 @@ async def test_all_cases_and_artifacts_via_real_job(app, prepared):
     response = await app.run_job("home_evaluate", concurrency=1)
     assert response.success, response.answer
     result = response.answer
-    assert result["expected_case_count"] == result["scored_count"] == 2
+    assert result["case_count"] == result["scored_query_count"] == 2
     assert result["mean_query_score"] == result["observed_mean_query_score"] == 0.5
     run = Path(result["result_dir"])
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["case_ids"] == ["2", "1"]
+    assert {"case_ids", "query_ids", "reuse_construction_from"}.isdisjoint(manifest["options"])
+    assert "judge_model" not in manifest
     for case_id in ["1", "2"]:
         folder = run / "cases" / case_id
         assert (folder / "memory_construction/reme_workspace/daily/note.md").read_text() == case_id
         assert (folder / "memory_construction/build.log").is_file()
         assert (folder / "queries/fact:1/answer.log").is_file()
-        assert (folder / "evaluation.tar.gz").is_file()
+        assert not (folder / "evaluation.tar.gz").exists()
+        assert not (folder / "execution.json").exists()
+        assert not (folder / "artifacts.json").exists()
+        assert not (folder / "queries/answers.json").exists()
         assert not (folder / "failure.json").exists()
         row = json.loads((folder / "queries/result.json").read_text())["queries"][0]
         assert row["golden_answer"] == "hello" and row["score"] == 0.5
@@ -278,11 +283,19 @@ async def test_build_failure_retains_diagnostics_and_other_cases(app, prepared, 
     response = await app.run_job("home_evaluate")
     assert response.success, response.answer
     run = Path(response.answer["result_dir"])
-    assert response.answer["scored_count"] == 1
+    assert response.answer["scored_query_count"] == 1
     assert response.answer["mean_query_score"] == 0.25
     assert (run / "cases/1/full.tar.gz").is_file()
     assert (run / "cases/1/memory_construction/build.log").is_file()
     assert (run / "cases/1/failure.json").is_file()
+    summary = json.loads((run / "summary.json").read_text())
+    assert summary["cases"]["1"]["queries"] == {}
+    assert summary["query_status_counts"] == {
+        "completed": 1,
+        "candidate_failure": 0,
+        "infra_error": 0,
+        "unscored": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -295,8 +308,8 @@ async def test_judge_failure_preserves_answers_and_fail_fast_result(app, prepare
     response = await app.run_job("home_evaluate", case_ids=["1"])
     assert not response.success
     run = Path(response.answer["result_dir"])
-    assert not response.answer["scoring_complete"]
-    assert json.loads((run / "cases/1/queries/answers.json").read_text())["queries"][0]["answer"] == "hello"
+    assert response.answer["query_status_counts"]["unscored"] == 1
+    assert json.loads((run / "cases/1/queries/result.json").read_text())["queries"][0]["answer"] == "hello"
     assert (run / "cases/1/queries/fact:1/failure.json").is_file()
     failed = await app.run_job("home_evaluate", fail_fast=True)
     assert not failed.success
@@ -317,6 +330,8 @@ async def test_cancellation_closes_pool_and_retains_partial_run(app, prepared, m
         await task
     assert all(worker.closed for worker in factory.workers)
     assert list((prepared / "evaluations").glob("*/*/*/failure.json"))
+    manifest = json.loads(next((prepared / "evaluations").glob("*/*/*/manifest.json")).read_text())
+    assert manifest["status"] == "cancelled"
 
 
 @pytest.mark.asyncio
@@ -324,17 +339,17 @@ async def test_debug_skips_judge_and_invalid_export_keeps_answer(app, prepared, 
     response = await app.run_job("home_evaluate", debug=True)
     assert response.success, response.answer
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == 0
-    assert not response.answer["scoring_required"]
+    assert response.answer["scored_query_count"] == 0
     monkeypatch.setattr(FakeFactory, "bad_export", True)
     response = await app.run_job("home_evaluate", case_ids=["1"])
     assert not response.success
     run = Path(response.answer["result_dir"])
-    assert (run / "cases/1/queries/answers.json").is_file()
-    assert response.answer["scored_count"] == 1
+    assert (run / "cases/1/queries/result.json").is_file()
+    assert response.answer["scored_query_count"] == 1
     assert not list(prepared.rglob("escaped"))
     assert "artifact" in (run / "cases/1/failure.json").read_text()
     assert response.answer["mean_query_score"] is None
-    assert not response.answer["valid_for_comparison"]
+    assert response.answer["case_status_counts"]["infra_error"] == 1
 
 
 @pytest.mark.asyncio
@@ -358,13 +373,11 @@ async def test_mode_controls_data_scoring_and_fail_fast_defaults(app, prepared, 
     assert manifest["mode"] == ("debug" if debug else "scored")
     assert set(summary["cases"]) == ({"debug-1", "debug-2"} if debug else {"1", "2"})
     assert summary["expected_query_count"] == 2
-    assert summary["expected_scored_query_count"] == (0 if debug else 2)
-    assert summary["scoring_required"] is not debug
-    assert summary["scoring_complete"] is not debug
-    assert summary["valid_for_comparison"] is not debug
+    assert summary["scored_query_count"] == (0 if debug else 2)
+    assert manifest["status"] == "completed"
     assert summary["mean_query_score"] == (None if debug else 0.5)
     assert summary["observed_mean_query_score"] == (None if debug else 0.5)
-    assert summary["unscored_count"] == 0
+    assert summary["query_status_counts"]["unscored"] == 0
     for case in summary["cases"].values():
         assert case["mean_score"] == (None if debug else 0.5)
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == (0 if debug else 2)
@@ -390,11 +403,11 @@ async def test_debug_empty_answers_fail_without_scoring(app, prepared, monkeypat
     summary = json.loads((run / ("partial_summary.json" if fail_fast else "summary.json")).read_text())
     assert summary["mean_query_score"] is None
     assert summary["observed_mean_query_score"] is None
-    assert summary["expected_scored_query_count"] == 0
-    assert not summary["valid_for_comparison"]
+    assert summary["scored_query_count"] == 0
+    assert summary["query_status_counts"]["unscored"] == 0
     assert summary["case_status_counts"]["candidate_failure"] == 1
     assert summary["cases"]["debug-1"]["mean_score"] is None
-    assert (run / "cases/debug-1/queries/answers.json").is_file()
+    assert (run / "cases/debug-1/queries/result.json").is_file()
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == 0
 
 
@@ -503,7 +516,8 @@ async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
     assert wrapper.reply.await_count == 2
     run = Path(response.answer["result_dir"])
     result = json.loads((run / "cases/q1/queries/result.json").read_text())["queries"][0]
-    assert result["judge_result"]["metadata"]["answer_judgement"] == "yes"
+    assert result["judge_result"]["metadata"]["raw_answer_judgement"] == "yes"
+    assert "answer_judgement" not in result["judge_result"]["metadata"]
     assert result["score"] == 1
     manifest = json.loads((run / "manifest.json").read_text())
     assert manifest["judge"]["plugin"] == "lme-judge"
@@ -521,7 +535,7 @@ async def test_invalid_lme_judge_is_infra_error_after_one_retry(app, prepared):
     assert response.answer["mean_query_score"] is None
     assert wrapper.reply.await_count == 2
     run = Path(response.answer["result_dir"])
-    assert (run / "cases/q1/queries/answers.json").is_file()
+    assert (run / "cases/q1/queries/result.json").is_file()
 
 
 @pytest.mark.asyncio
@@ -680,7 +694,6 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
     code_failure = kind == "code"
     assert response.success is code_failure
     summary = response.answer
-    assert summary["valid_for_comparison"] is code_failure
     assert summary["case_status_counts"]["infra_error"] == (0 if code_failure else 1)
     assert summary["mean_query_score"] == (
         0.5 if code_failure and phase == "construction" else 0 if code_failure else None
@@ -692,3 +705,21 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
         if kind != "legacy":
             assert failure["exception"] == result["exception"]
     assert all(worker.closed for worker in FakeFactory.instances[-1].workers)
+
+
+@pytest.mark.asyncio
+async def test_late_cleanup_failure_survives_without_duplicate_execution_record(app, prepared, monkeypatch):
+    async def close(worker):
+        worker.closed = True
+        raise RuntimeError("late cleanup failure")
+
+    monkeypatch.setattr(FakeWorker, "close", close)
+    response = await app.run_job("home_evaluate", case_ids=["1"])
+    assert not response.success
+    assert response.answer["mean_query_score"] is None
+    assert response.answer["observed_mean_query_score"] == 0.5
+    folder = Path(response.answer["result_dir"]) / "cases/1"
+    failure = json.loads((folder / "failure.json").read_text())
+    assert failure["stage"] == "cleanup" and failure["failure_kind"] == "infra_error"
+    assert "late cleanup failure" in failure["error"]
+    assert not (folder / "execution.json").exists()

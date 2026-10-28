@@ -7,6 +7,9 @@ from pathlib import Path, PurePosixPath
 import shutil
 import tarfile
 import tempfile
+from uuid import uuid4
+
+from ..preparation.data.models import CaseSpec, QuerySpec
 
 from ..workspace import _validate_directory
 
@@ -32,19 +35,85 @@ def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def write_json(path: Path, value) -> None:
+def write_json(path: Path, value, *, compact_leaf_containers: bool = False) -> None:
     """Atomically replace a rebuildable or progressively published result."""
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(prefix=".result-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
+            if compact_leaf_containers:
+                stream.write(_dumps_compact_leaf_containers(value))
+            else:
+                json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, path)
     finally:
         Path(name).unlink(missing_ok=True)
+
+
+def _dumps_compact_leaf_containers(value) -> str:
+    """Pretty-print JSON while keeping small scalar-only containers on one line."""
+
+    def is_atom(item) -> bool:
+        return isinstance(item, (str, int, float, bool, type(None)))
+
+    strings: set[str] = set()
+
+    def collect_strings(item) -> None:
+        if isinstance(item, str):
+            strings.add(item)
+        elif isinstance(item, dict):
+            for key, child in item.items():
+                if isinstance(key, str):
+                    strings.add(key)
+                collect_strings(child)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                collect_strings(child)
+
+    collect_strings(value)
+    marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+    while any(item.startswith(marker_prefix) for item in strings):
+        marker_prefix = f"\0meta-reme-singleton-{uuid4().hex}-"
+
+    replacements: dict[str, str] = {}
+
+    def replace_leaf_containers(item):
+        if isinstance(item, dict):
+            if len(item) == 1 and is_atom(next(iter(item.values()))):
+                marker = f"{marker_prefix}{len(replacements)}"
+                replacements[marker] = json.dumps(
+                    item,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    allow_nan=False,
+                    separators=(",", ": "),
+                )
+                return marker
+            return {key: replace_leaf_containers(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            if 1 <= len(item) <= 2 and all(is_atom(child) for child in item):
+                marker = f"{marker_prefix}{len(replacements)}"
+                replacements[marker] = json.dumps(
+                    item,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    allow_nan=False,
+                    separators=(",", ": "),
+                )
+                return marker
+            children = [replace_leaf_containers(child) for child in item]
+            return children if isinstance(item, list) else tuple(children)
+        return item
+
+    transformed = replace_leaf_containers(value)
+    content = json.dumps(transformed, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False)
+    for marker, replacement in replacements.items():
+        encoded_marker = json.dumps(marker, ensure_ascii=False)
+        content = content.replace(encoded_marker, replacement)
+    return content
 
 
 def file_sha256(path: Path) -> str:
@@ -98,14 +167,19 @@ def average_tokens(queries: list[dict]) -> dict:
     """Average candidate answer total tokens over returned queries, like Meta-ReMe."""
     totals = {}
     for query in queries:
-        for model, usage in (query.get("answer_result") or {}).get("token_usage", {}).items():
+        usage_by_model = (query.get("answer_result") or {}).get("token_usage", {})
+        if not isinstance(usage_by_model, dict):
+            continue
+        for model, usage in usage_by_model.items():
+            if not isinstance(usage, dict):
+                continue
             total = usage.get("total_tokens")
-            if isinstance(total, int) and not isinstance(total, bool):
+            if isinstance(total, int) and not isinstance(total, bool) and total != 0:
                 totals[model] = totals.get(model, 0) + total
     return {model: round(total / len(queries), 3) for model, total in totals.items()} if queries else {}
 
 
-def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = True) -> dict:
+def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
     """Rebuild compact optimizer evidence with Meta-ReMe's expected-query denominator."""
     rows, all_scores, query_results = {}, [], []
     case_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
@@ -113,18 +187,19 @@ def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = T
     query_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
     stages = {"construction": 0, "query": 0}
     expected = sum(len(case.queries) for case in cases)
-    expected_scored = expected if scoring_required else 0
     for case in cases:
-        folder = run / "cases" / case.case_id
-        construction_path = folder / "memory_construction/result.json"
+        folder = contained(run, f"cases/{case.case_id}", directory=True)
+        construction_path = contained(folder, "memory_construction/result.json")
         construction = read_json(construction_path) if construction_path.is_file() else {}
-        query_path = folder / "queries/result.json"
+        query_path = contained(folder, "queries/result.json")
         queries = read_json(query_path).get("queries", []) if query_path.is_file() else []
         failure = read_json(folder / "failure.json") if (folder / "failure.json").is_file() else {}
+        if not construction and not queries and not failure:
+            continue
         scores = [query["score"] for query in queries if query.get("score") is not None]
         all_scores.extend(scores)
         query_results.extend(queries)
-        failed = sum(bool(query.get("error")) for query in queries)
+        failed = sum(query.get("error") is not None for query in queries)
         has_infra = failure.get("failure_kind") == "infra_error" or any(q.get("infrastructure_error") for q in queries)
         case_status = (
             "infra_error"
@@ -136,14 +211,16 @@ def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = T
         if construction_status == "reused":
             construction_status = "success"
         construction_counts[construction_status] += 1
-        stages["construction"] += construction_status == "failure"
+        jobs = [job for job in construction.get("jobs", []) if isinstance(job, dict)]
+        job_results = [job["result"] if isinstance(job.get("result"), dict) else {} for job in jobs]
+        construction_errors = sum(not result.get("success") for result in job_results)
+        stages["construction"] += construction_status == "failure" or bool(construction_errors)
         stages["query"] += bool(failed)
-        jobs = construction.get("jobs", [])
         compact_queries = {}
         for query in queries:
             query_status = (
                 "completed"
-                if not query.get("error")
+                if query.get("error") is None
                 else "infra_error" if query.get("infrastructure_error") else "candidate_failure"
             )
             query_counts[query_status] += 1
@@ -155,17 +232,19 @@ def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = T
         rows[case.case_id] = {
             "construction": {
                 "status": construction_status,
-                "success_job_count": sum(job.get("result", {}).get("success") is True for job in jobs),
-                "fail_job_count": sum(job.get("result", {}).get("success") is not True for job in jobs),
+                "success_job_count": len(jobs) - construction_errors,
+                "fail_job_count": construction_errors,
             },
-            "expected_query_count": len(case.queries),
-            "expected_scored_query_count": len(case.queries) if scoring_required else 0,
-            "scored_count": len(scores),
-            "query_error_count": failed,
             "mean_score": None if has_infra or not scoring_required else sum(scores) / len(case.queries),
             "average_query_total_token_usage": average_tokens(queries),
             "queries": compact_queries,
         }
+        if failure.get("stage") is not None:
+            rows[case.case_id]["stage"] = failure["stage"]
+        if construction_errors:
+            rows[case.case_id]["construction_error_count"] = construction_errors
+        if failed:
+            rows[case.case_id]["query_error_count"] = failed
     groups = {}
     for query in query_results:
         groups.setdefault(str(query.get("question_type") or "unknown"), []).append(query)
@@ -178,25 +257,18 @@ def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = T
             "average_query_total_token_usage": average_tokens(queries),
         }
     return {
-        "schema_version": 1,
-        "status": status,
-        "case_count": len(cases),
-        "expected_case_count": len(cases),
+        "case_count": len(rows),
         "case_status_counts": case_counts,
         "construction_status_counts": construction_counts,
         "failure_stage_case_counts": stages,
         "expected_query_count": expected,
-        "expected_scored_query_count": expected_scored,
-        "scoring_required": scoring_required,
-        "scored_count": len(all_scores),
         "scored_query_count": len(all_scores),
-        "unscored_count": expected_scored - len(all_scores),
-        "query_status_counts": {**query_counts, "unscored": expected_scored - len(all_scores)},
-        "query_error_count": query_counts["candidate_failure"] + query_counts["infra_error"],
-        "scoring_complete": scoring_required and len(all_scores) == expected_scored,
-        "valid_for_comparison": scoring_required and status == "completed" and not case_counts["infra_error"],
+        "query_status_counts": {
+            **query_counts,
+            "unscored": max(expected - len(all_scores), 0) if scoring_required else 0,
+        },
         "mean_query_score": (
-            sum(all_scores) / expected_scored if expected_scored and not case_counts["infra_error"] else None
+            sum(all_scores) / expected if scoring_required and expected and not case_counts["infra_error"] else None
         ),
         "observed_mean_query_score": sum(all_scores) / len(all_scores) if all_scores else None,
         "low_score_cases": [
@@ -211,6 +283,38 @@ def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = T
         "question_type_statistics": statistics,
         "cases": rows,
     }
+
+
+def rebuild_summary(run: Path) -> dict:
+    """Rebuild compact evidence from the manifest and authoritative phase results."""
+    manifest = read_json(run / "manifest.json")
+    cases = [
+        CaseSpec(
+            case_id=case_id,
+            sessions=[],
+            queries=[QuerySpec(query_id=query_id, question="", golden_answer=None) for query_id in query_ids],
+        )
+        for case_id, query_ids in manifest["query_ids"].items()
+    ]
+    by_id = {case.case_id: case for case in cases}
+    if manifest.get("status") == "completed":
+        for case_id in manifest["case_ids"]:
+            folder = contained(run, f"cases/{case_id}", directory=True)
+            read_json(contained(folder, "memory_construction/result.json"))
+            query_path = contained(folder, "queries/result.json")
+            queries = read_json(query_path)["queries"] if query_path.is_file() else []
+            actual_ids = [query["query_id"] for query in queries]
+            if actual_ids != manifest["query_ids"][case_id]:
+                if queries or not (folder / "failure.json").is_file():
+                    raise ValueError(f"Completed evaluation has incomplete query results: {case_id}")
+    summary = summarize(
+        run,
+        [by_id[case_id] for case_id in manifest["case_ids"]],
+        scoring_required=manifest.get("mode") != "debug",
+    )
+    name = "summary.json" if manifest.get("status") == "completed" else "partial_summary.json"
+    write_json(run / name, summary, compact_leaf_containers=True)
+    return summary
 
 
 INFRA_TYPES = {
