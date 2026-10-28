@@ -31,15 +31,15 @@ and concise documentation together.
 ## Repository Map
 
 - `reme/reme.py`: CLI entry point; dispatches `start`, `find_reme`, and client calls.
-- `reme/application.py`: application assembly, dependency ordering, job execution, and lifecycle.
+- `reme/app/application.py`: application assembly, dependency ordering, job execution, and lifecycle.
+- `reme/app/context.py`: application-wide wiring and in-memory shared state.
+- `reme/app/runtime_context.py`: request-scoped data, response, streaming queue, and stop event.
 - `reme/config/config_parser.py`: YAML/JSON loading, environment expansion, dot-notation parsing, and deep config
   merging.
 - `reme/config/default.yaml`: default service, jobs, steps, and components. Other files in
   `reme/config/` are named configuration variants.
-- `reme/schema/application_config.py`: typed application, component, and job configuration.
+- `reme/config/models.py`: typed application, component, and job configuration.
 - `reme/schema/`: request, response, streaming, memory, graph, and file contracts.
-- `reme/components/application_context.py`: application-wide wiring and in-memory shared state.
-- `reme/components/runtime_context.py`: request-scoped data, response, streaming queue, and stop event.
 - `reme/components/base_component.py`: component lifecycle, dependency binding, and workspace helpers.
 - `reme/components/component_registry.py`: the frozen built-in registry template and application-local registry factory.
 - `reme/components/job/`: base, stream, background, and cron job implementations.
@@ -63,6 +63,9 @@ and concise documentation together.
 - `docs/`: README-linked supporting pages and figures.
 - `github-pages/`: VitePress build shell, generated-content assembly, documentation checks, and GitHub Pages output. The
   canonical theme and guides remain under `docs/`; `.generated/` and `dist/` are disposable.
+
+`reme/application.py`, the two context modules under `reme/components/`, and
+`reme/schema/application_config.py` preserve the previous public imports as compatibility exports.
 
 ## Development Setup
 

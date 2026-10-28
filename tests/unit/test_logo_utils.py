@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from reme import application as application_module
+from reme.app import application as application_module
 from reme.application import Application
 from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
 from reme.schema import ApplicationConfig, ComponentConfig

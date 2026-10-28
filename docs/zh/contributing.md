@@ -77,7 +77,7 @@ CLI / Client -> Service -> Application -> Job -> Step -> Component / Workspace
 
 | 改动类型       | 主要位置                                              | 建议                                                                                                 |
 |----------------|-------------------------------------------------------|------------------------------------------------------------------------------------------------------|
-| 配置或启动行为 | `reme/config/`、`reme/application.py`、`reme/reme.py` | 保持默认配置可运行，避免破坏现有 CLI、HTTP 和 MCP 入口                                               |
+| 配置或启动行为 | `reme/config/`、`reme/app/application.py`、`reme/reme.py` | 保持默认配置可运行，避免破坏现有 CLI、HTTP 和 MCP 入口                                               |
 | 组件能力       | `reme/components/`                                    | 优先复用 `BaseComponent`、registry 和上下文对象                                                      |
 | Job 或 Step    | `reme/components/job/`、`reme/steps/`                 | 遵照 [ReMe 代码框架](./framework.md) 的 Job -> Step 范式，保持请求、响应 schema 清晰，并补充对应测试 |
 | 数据结构       | `reme/schema/`、`reme/enumeration/`                   | 注意序列化兼容性和已有 front matter、wikilink 语义                                                   |

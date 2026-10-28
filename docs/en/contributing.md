@@ -91,7 +91,7 @@ Choose the appropriate entry point for the type of change:
 
 | Change type                       | Primary location                                      | Guidance                                                                                                                                |
 |-----------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| Configuration or startup behavior | `reme/config/`, `reme/application.py`, `reme/reme.py` | Keep the default configuration runnable and avoid breaking existing CLI, HTTP, and MCP entry points.                                    |
+| Configuration or startup behavior | `reme/config/`, `reme/app/application.py`, `reme/reme.py` | Keep the default configuration runnable and avoid breaking existing CLI, HTTP, and MCP entry points.                                    |
 | Component capability              | `reme/components/`                                    | Reuse `BaseComponent`, the registry, and context objects.                                                                               |
 | Job or Step                       | `reme/components/job/`, `reme/steps/`                 | Follow the Job -> Step model in [ReMe Framework](./framework.md), keep request and response schemas clear, and add corresponding tests. |
 | Data structure                    | `reme/schema/`, `reme/enumeration/`                   | Preserve serialization compatibility and existing frontmatter and wikilink semantics.                                                   |

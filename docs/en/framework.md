@@ -28,7 +28,7 @@ already occurred and persists the information with long-term value.
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
     Client --> Service["Service<br/>HTTP / MCP"]
-    Service --> App["Application<br/>reme/application.py"]
+    Service --> App["Application<br/>reme/app/application.py"]
     App --> Jobs["Jobs<br/>base / stream / background / cron"]
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
@@ -42,28 +42,32 @@ Core layers:
 |-------------|----------------------------|---------------------------------------------------------------------------------------------------|
 | CLI         | `reme/reme.py`             | Parse commands; `start` launches the service; other actions call the service through a client.    |
 | Service     | `reme/components/service/` | Register Jobs as HTTP endpoints or MCP tools.                                                     |
-| Application | `reme/application.py`      | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
+| Application | `reme/app/application.py`  | Assemble configured objects, start them in dependency order, close them, and invoke Jobs.         |
 | Job         | `reme/components/job/`     | Orchestrate Steps and select normal, streaming, background, or scheduled execution.               |
 | Step        | `reme/steps/`              | Atomic business operations such as file I/O, retrieval, indexing, and self-evolution.             |
 | Component   | `reme/components/`         | Reusable infrastructure such as file_store, file_graph, keyword_index, and agent_wrapper.         |
-| Schema      | `reme/schema/`             | Data structures such as `Request`, `Response`, `FileChunk`, `FileNode`, and configuration models. |
-| Config      | `reme/config/`             | Default YAML configuration and command-line override parsing.                                     |
+| Schema      | `reme/schema/`             | Data structures such as `Request`, `Response`, `FileChunk`, and `FileNode`.                         |
+| Config      | `reme/config/`             | Typed configuration models, default YAML configuration, and command-line override parsing.        |
 
 ## 2. Directory Structure
 
 ```text
 reme/
   reme.py                    # CLI entry point
-  application.py             # Application assembly and lifecycle
+  app/
+    application.py           # Application assembly and lifecycle
+    context.py               # application-scoped wiring and shared state
+    runtime_context.py       # context for one Job execution
+  application.py             # compatibility import for Application
   plugin.py                  # installed plugin contract and entry-point loader
   config/
+    models.py                # ApplicationConfig / ComponentConfig / JobConfig
     default.yaml             # default service / jobs / components
     cookbook.yaml            # Auto Fin + Daily Paper + DingTalk composition
     config_parser.py         # config=, dot notation, and env placeholder parsing
   components/
     component_registry.py    # backend registry and application-local copies
     base_component.py        # ComponentMixin / BaseComponent / bind dependency declarations
-    runtime_context.py       # context for one Job execution
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
     service/                 # HTTP / MCP services
     client/                  # HTTP / MCP clients
@@ -90,6 +94,10 @@ integrations/
   claude_code/               # Claude Code adapter and marketplace
   hermes_agent/              # Hermes Agent memory-provider adapter
 ```
+
+Application and its contexts live in `reme/app/`; typed configuration models live in `reme/config/models.py`.
+The previous imports from `reme.application`, `reme.components.application_context`, `reme.components.runtime_context`,
+and `reme.schema.application_config` remain available and return the same classes.
 
 The default workspace directories are defined by `ApplicationConfig`:
 

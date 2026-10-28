@@ -271,4 +271,4 @@ Set `enable_serve: false` to keep a Job internal. Background and cron Jobs are n
 reme app_config
 ```
 
-The result is the merged, validated configuration with secrets redacted. Use it when diagnosing plugin or override precedence. The authoritative contracts remain `reme/schema/application_config.py` and `reme/config/default.yaml`.
+The result is the merged, validated configuration with secrets redacted. Use it when diagnosing plugin or override precedence. The authoritative contracts remain `reme/config/models.py` and `reme/config/default.yaml`.

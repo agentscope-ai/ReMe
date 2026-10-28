@@ -272,4 +272,4 @@ reme app_config
 
 返回的是已合并、已校验并隐藏密钥后的配置。排查覆盖顺序或插件配置时，应以它为准，而不是只查看某一个 YAML 文件。
 
-完整字段定义以 `reme/schema/application_config.py` 和 `reme/config/default.yaml` 为准。
+完整字段定义以 `reme/config/models.py` 和 `reme/config/default.yaml` 为准。

@@ -186,7 +186,7 @@ def test_application_reinitializes_logger_from_final_config(monkeypatch, tmp_pat
         calls.append(kwargs)
         return DummyLogger()
 
-    monkeypatch.setattr("reme.application.get_logger", fake_get_logger)
+    monkeypatch.setattr("reme.app.application.get_logger", fake_get_logger)
     monkeypatch.setattr("reme.components.base_component.get_logger", lambda **_kwargs: DummyLogger())
     monkeypatch.setattr(Application, "_init_service", lambda self: setattr(self.context, "service", None))
     monkeypatch.setattr(Application, "_init_components", lambda self: None)

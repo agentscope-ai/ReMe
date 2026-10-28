@@ -23,7 +23,7 @@ ReMe v4 聚焦长期记忆：把对话和资源沉淀为 `daily/`，再整理到
 flowchart LR
     CLI["reme CLI<br/>reme/reme.py"] --> Client["Client<br/>http / mcp"]
     Client --> Service["Service<br/>HTTP / MCP"]
-    Service --> App["Application<br/>reme/application.py"]
+    Service --> App["Application<br/>reme/app/application.py"]
     App --> Jobs["Jobs<br/>base / stream / background / cron"]
     Jobs --> Steps["Steps<br/>reme/steps/**"]
     Steps --> Ctx["RuntimeContext<br/>data + Response + stream queue"]
@@ -37,28 +37,32 @@ flowchart LR
 |-------------|----------------------------|---------------------------------------------------------------------------|
 | CLI         | `reme/reme.py`             | 解析命令；`start` 启动服务；其他 action 通过 client 调用服务              |
 | Service     | `reme/components/service/` | 把 Job 注册成 HTTP endpoint 或 MCP tool                                   |
-| Application | `reme/application.py`      | 读取配置后的对象装配、依赖拓扑启动、关闭、Job 调用                        |
+| Application | `reme/app/application.py`  | 读取配置后的对象装配、依赖拓扑启动、关闭、Job 调用                        |
 | Job         | `reme/components/job/`     | 编排一组 Step；决定同步、流式、后台、定时运行方式                         |
 | Step        | `reme/steps/`              | 业务原子操作，例如读写文件、检索、索引、自进化                            |
 | Component   | `reme/components/`         | 可复用基础设施，例如 file_store、file_graph、keyword_index、agent_wrapper |
-| Schema      | `reme/schema/`             | `Request`、`Response`、`FileChunk`、`FileNode`、配置模型等数据结构        |
-| Config      | `reme/config/`             | 默认 YAML 配置和命令行覆盖解析                                            |
+| Schema      | `reme/schema/`             | `Request`、`Response`、`FileChunk`、`FileNode` 等数据结构                  |
+| Config      | `reme/config/`             | 类型化配置模型、默认 YAML 配置和命令行覆盖解析                              |
 
 ## 2. 目录结构
 
 ```text
 reme/
   reme.py                    # CLI 入口
-  application.py             # Application 装配与生命周期
+  app/
+    application.py           # Application 装配与生命周期
+    context.py               # 应用级 wiring 与共享状态
+    runtime_context.py       # 单次 Job 执行上下文
+  application.py             # Application 的兼容导入
   plugin.py                  # 已安装插件契约与 entry-point loader
   config/
+    models.py                # ApplicationConfig / ComponentConfig / JobConfig
     default.yaml             # 默认 service / jobs / components
     cookbook.yaml            # Auto Fin + Daily Paper + 钉钉组合配置
     config_parser.py         # config=、dot notation、env 占位符解析
   components/
     component_registry.py    # backend 注册表及 Application 局部副本
     base_component.py        # ComponentMixin / BaseComponent / bind 依赖声明
-    runtime_context.py       # 单次 Job 执行上下文
     job/                     # BaseJob / StreamJob / BackgroundJob / CronJob
     service/                 # HTTP / MCP 服务
     client/                  # HTTP / MCP 客户端
@@ -85,6 +89,10 @@ integrations/
   claude_code/               # Claude Code 适配器及 marketplace
   hermes_agent/              # Hermes Agent memory provider 适配器
 ```
+
+Application 和两个 Context 归于 `reme/app/`，类型化配置模型归于 `reme/config/models.py`。
+原来的 `reme.application`、`reme.components.application_context`、`reme.components.runtime_context` 和
+`reme.schema.application_config` 导入仍然可用，并返回同一组类。
 
 默认 workspace 目录由 `ApplicationConfig` 定义：
 
