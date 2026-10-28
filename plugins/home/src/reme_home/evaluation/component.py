@@ -20,6 +20,7 @@ from .artifacts import (
     summarize,
     write_json,
     construction_exception,
+    answer_exception,
     failure_kind,
 )
 from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code
@@ -282,7 +283,13 @@ class HomeEvaluation(BaseComponent):
         write_json(folder / "queries/answers.json", result.queries or {"queries": []})
         if result.error:
             stage = result.failure_stage or "execution"
-            exception = result.exception or construction_exception(result.build or {})
+            exception = result.exception
+            if exception is None:
+                exception = (
+                    answer_exception(result.queries or {})
+                    if stage == "answer"
+                    else construction_exception(result.build or {})
+                )
             write_json(
                 folder / "failure.json",
                 {
@@ -353,7 +360,8 @@ class HomeEvaluation(BaseComponent):
                 row["failure_kind"] = (
                     failure_kind(row["exception"], "answer")
                     if row.get("exception")
-                    else case_failure.get("failure_kind") or failure_kind(None, "answer")
+                    else case_failure.get("failure_kind")
+                    or ("candidate_failure" if raw and not raw.get("error") else failure_kind(None, "answer"))
                 )
                 row["infrastructure_error"] = row["failure_kind"] == "infra_error"
             elif judge is not None:

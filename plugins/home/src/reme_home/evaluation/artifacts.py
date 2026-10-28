@@ -236,7 +236,14 @@ INFRA_TYPES = {
 
 def failure_kind(exception, stage: str) -> str:
     """Only candidate execution errors count against candidate scores."""
+    if stage not in {"construction", "answer"}:
+        return "infra_error"
     exception = exception if isinstance(exception, dict) else {}
+    if not isinstance(exception.get("type"), str) or not exception["type"]:
+        return "infra_error"  # Legacy/unknown failures cannot support a fair comparison.
+    causes = exception.get("causes", [])
+    if isinstance(causes, list) and any(failure_kind(cause, stage) == "infra_error" for cause in causes):
+        return "infra_error"
     status = exception.get("status_code")
     if isinstance(status, int) and (status in {408, 429} or status >= 500):
         return "infra_error"
@@ -247,13 +254,34 @@ def failure_kind(exception, stage: str) -> str:
         and any(word in name.lower() for word in ("connection", "network", "timeout", "protocol"))
     ):
         return "infra_error"
-    return "candidate_failure" if stage in {"construction", "answer"} else "infra_error"
+    return "candidate_failure"
+
+
+def _failure_exception(exceptions: list, stage: str):
+    """Infrastructure or unclassified failures take priority over code errors."""
+    return next(
+        (exception for exception in exceptions if failure_kind(exception, stage) == "infra_error"),
+        exceptions[0] if exceptions else None,
+    )
 
 
 def construction_exception(build: dict):
-    """Find the first failed construction result's structured exception."""
+    """Inspect every failed Job so an earlier code error cannot hide an outage."""
+    exceptions = []
     for job in build.get("jobs", []):
-        result = job.get("result", {})
-        if not result.get("success"):
-            return result.get("exception")
-    return build.get("exception")
+        result = job.get("result")
+        if not isinstance(result, dict):
+            exceptions.append(None)
+        elif not result.get("success"):
+            exceptions.append(result.get("exception"))
+    if build.get("exception"):
+        exceptions.append(build["exception"])
+    return _failure_exception(exceptions, "construction")
+
+
+def answer_exception(queries: dict):
+    """Select the representative error from failed answer results."""
+    return _failure_exception(
+        [row.get("exception") for row in queries.get("queries", []) if row.get("error")],
+        "answer",
+    )

@@ -40,12 +40,30 @@ def _exception_details(exc: BaseException) -> dict[str, Any]:
         "message": str(exc),
     }
     response = getattr(exc, "response", None)
-    status_code = getattr(response, "status_code", None)
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int):
+        status_code = getattr(response, "status_code", None)
     if isinstance(status_code, int):
         details["status_code"] = status_code
     error_number = getattr(exc, "errno", None)
     if isinstance(error_number, int):
         details["errno"] = error_number
+    causes = []
+    seen = {id(exc)}
+    current = exc
+    while True:
+        current = current.__cause__ or (None if current.__suppress_context__ else current.__context__)
+        if current is None or id(current) in seen:
+            break
+        seen.add(id(current))
+        cause = {"type": type(current).__name__, "module": type(current).__module__}
+        status = getattr(current, "status_code", None)
+        if not isinstance(status, int):
+            status = getattr(getattr(current, "response", None), "status_code", None)
+        if isinstance(status, int) and not isinstance(status, bool):
+            cause["status_code"] = status
+        causes.append(cause)
+    details["causes"] = causes
     return details
 
 
@@ -158,6 +176,9 @@ async def _run_job_on_app(app: Any, job: str, arguments: dict[str, Any]) -> dict
             "metadata": response.metadata,
             "error": None if response.success else str(response.answer),
         }
+        exception = response.metadata.get("reme.job_error")
+        if not response.success and isinstance(exception, dict):
+            result["exception"] = exception
     result["token_usage"] = token_usage
     result["job_call_counts"] = {name: count for name, count in job_call_counts.items() if count}
     return result

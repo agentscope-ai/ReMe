@@ -1,4 +1,4 @@
-"""Minimal AgentScope 2.0.9 DockerWorkspace for direct ReMe jobs.
+"""Minimal AgentScope 2.0.10 DockerWorkspace for direct ReMe jobs.
 
 The stock workspace builds and starts an MCP gateway. The benchmark harness
 uses only DockerBackend's exec/read/write primitives, so building that gateway

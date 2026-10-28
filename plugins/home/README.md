@@ -264,6 +264,15 @@ make the comparable mean unavailable while retaining the observed-score mean.
 The Job returns `success=false` for infrastructure/judge/artifact failures, while
 preserving its structured answer and result directory; candidate failures remain
 ordinary evaluation observations.
+Base jobs preserve structured exception types, HTTP status codes and causes in
+`Response.metadata["reme.job_error"]`; the Docker worker carries them into failure
+artifacts. Network/provider failures anywhere in the cause chain invalidate the
+comparison. Failed jobs without structured error details (including older
+candidates) are conservatively treated as infrastructure errors, without parsing
+their error text. Successful jobs returning empty answers still count as candidate
+failures. The construction failure-rate tolerance applies only to candidate
+errors: infrastructure or unclassified failures always reject construction, even
+when another failed job was a candidate error.
 `valid_for_comparison` does not assert that an initial baseline covers the full
 dataset: the caller must also verify its code and complete case/query coverage.
 

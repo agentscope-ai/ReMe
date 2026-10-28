@@ -56,6 +56,12 @@ post-query archive may contain changes made while answering.
 Candidate failures count as zero in the expected-query denominator.
 Infrastructure, artifact, or judge errors make the comparable mean unavailable;
 `observed_mean_query_score` reports the available scored observations separately.
+Failure artifacts retain structured exception types, HTTP status codes and cause
+chains from `Response.metadata["reme.job_error"]`. Infrastructure failures in any
+construction job or exception cause invalidate the comparison. Failed jobs without
+structured exception details are also treated as infrastructure errors; their
+text alone cannot establish a candidate failure. The construction failure-rate
+tolerance applies only to classified candidate errors.
 Check `valid_for_comparison`, failure details, and coverage before comparing runs.
 That flag alone does not establish a complete initial baseline: also verify the
 initial candidate commit and full training case/query coverage.

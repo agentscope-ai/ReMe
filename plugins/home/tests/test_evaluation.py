@@ -55,7 +55,10 @@ class FakeWorker:
         self.factory.events.append((self.case_id, "build", jobs))
         await asyncio.sleep(0)
         success = self.case_id != self.factory.fail_build
-        return {"success": success, "jobs": [{"job": job.job, "result": {"success": success}} for job in jobs]}
+        result = {"success": success}
+        if not success:
+            result["exception"] = {"type": "ValueError", "module": "builtins"}
+        return {"success": success, "jobs": [{"job": job.job, "result": dict(result)} for job in jobs]}
 
     async def run_queries(self, queries):
         self.queries = queries
@@ -464,6 +467,7 @@ def test_lme_adapter_cutoff_and_memory_checkpoints():
     assert jobs[1].memory_checkpoint == "session: past"
     assert evaluation_query("longmemeval", query).answer_arguments["query_time"] == "2024-01-02T00:00:00"
     build = {"success": False, "jobs": [{"result": {"success": n > 0}} for n in range(100)]}
+    build["jobs"][0]["result"]["exception"] = {"type": "ValueError", "module": "builtins"}
     assert accepts_build(build, 0.03)
     assert not accepts_build(build, 0.01)
 
@@ -602,3 +606,89 @@ async def test_startup_rejects_disabled_or_replaced_judge_job(app, tmp_path, ove
             await other.start()
     finally:
         await other.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["answer", "construction"])
+@pytest.mark.parametrize("kind", ["timeout", "wrapped_timeout", "http_429", "http_503", "code", "legacy"])
+async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monkeypatch, phase, kind):
+    from types import SimpleNamespace
+    import httpx
+    from deploy.benchmark_docker.worker import _run_job_on_app
+    from reme.components.job.base_job import BaseJob
+
+    async def failing_step(_context):
+        if kind == "timeout":
+            raise TimeoutError("model timed out")
+        if kind == "wrapped_timeout":
+            try:
+                raise TimeoutError("model timed out")
+            except TimeoutError as error:
+                raise RuntimeError("model invocation failed") from error
+        if kind.startswith("http_"):
+            request = httpx.Request("POST", "https://example.test")
+            response = httpx.Response(int(kind.split("_")[1]), request=request)
+            raise httpx.HTTPStatusError("model request failed", request=request, response=response)
+        raise ValueError("candidate bug")
+
+    candidate = BaseJob(name="candidate-error", app_context=app.context)
+    candidate._build_steps = lambda: [failing_step]
+    worker_app = SimpleNamespace(context=app.context, run_job=lambda _name, **kwargs: candidate(**kwargs))
+    result = await _run_job_on_app(worker_app, "candidate-error", {})
+    if kind == "legacy":
+        result.pop("exception")
+        result["metadata"] = {}
+    else:
+        assert result["exception"] == result["metadata"]["reme.job_error"]
+    result = json.loads(json.dumps(result))  # The real sandbox boundary is JSON.
+
+    if phase == "answer":
+
+        async def answer(worker, queries):
+            return {
+                "success": False,
+                "queries": [
+                    {
+                        "query_id": query.query_id,
+                        "answer": result["answer"],
+                        "answer_result": result,
+                        "error": result["error"],
+                        **({"exception": result["exception"]} if "exception" in result else {}),
+                    }
+                    for query in queries
+                ],
+            }
+
+        monkeypatch.setattr(FakeWorker, "run_queries", answer)
+    else:
+
+        async def build(worker, jobs):
+            # Two failures are below the 3% threshold. An earlier code failure
+            # must not conceal a later infrastructure/unclassified failure.
+            return {
+                "success": False,
+                "jobs": [
+                    {"result": {"success": False, "exception": {"type": "ValueError", "module": "builtins"}}},
+                    {"result": result},
+                    *[{"result": {"success": True}} for _ in range(98)],
+                ],
+            }
+
+        monkeypatch.setattr(FakeWorker, "run_build", build)
+
+    response = await app.run_job("home_evaluate", case_ids=["1"])
+    code_failure = kind == "code"
+    assert response.success is code_failure
+    summary = response.answer
+    assert summary["valid_for_comparison"] is code_failure
+    assert summary["case_status_counts"]["infra_error"] == (0 if code_failure else 1)
+    assert summary["mean_query_score"] == (
+        0.5 if code_failure and phase == "construction" else 0 if code_failure else None
+    )
+    run = Path(summary["result_dir"])
+    if not code_failure:
+        failure = json.loads((run / "cases/1/failure.json").read_text())
+        assert failure["failure_kind"] == "infra_error"
+        if kind != "legacy":
+            assert failure["exception"] == result["exception"]
+    assert all(worker.closed for worker in FakeFactory.instances[-1].workers)

@@ -27,7 +27,7 @@ class EvaluationSpec(SpecModel):
     debug: bool = False
     concurrency: int = Field(default=4, ge=1)
     timeout_seconds: float = Field(default=7200.0, gt=0, allow_inf_nan=False)
-    base_image: str = Field(default="reme-benchmark-base:agentscope-2.0.9", min_length=1)
+    base_image: str = Field(default="reme-benchmark-base:agentscope-2.0.10", min_length=1)
     fail_fast: bool = False
     max_construction_failure_rate: float = Field(default=0.03, ge=0, le=1, allow_inf_nan=False)
     max_artifact_bytes: int = Field(default=2_000_000_000, ge=1)

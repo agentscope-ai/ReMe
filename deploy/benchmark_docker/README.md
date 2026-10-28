@@ -2,14 +2,18 @@
 
 This package runs ReMe benchmark jobs directly inside isolated AgentScope
 Docker workspaces. It does not start the ReMe HTTP service. Use AgentScope
-**2.0.9** on the host and in the image.
+**2.0.10** on the host and in the image.
+
+Rebuild the base image when upgrading from the previous AgentScope 2.0.9 image;
+existing images must also use 2.0.10 to pass candidate validation. New runs use
+the `reme-benchmark-base:agentscope-2.0.10` tag by default, including Home evaluations.
 
 From the repository root:
 
 ```bash
 pip install -e '.[benchmark-docker]'
 docker build -f deploy/benchmark_docker/Dockerfile.base \
-  -t reme-benchmark-base:agentscope-2.0.9 .
+  -t reme-benchmark-base:agentscope-2.0.10 .
 ```
 
 `SourceCandidate` uploads an immutable source snapshot and installs the root
@@ -149,6 +153,6 @@ explicitly enabled:
 REME_DOCKER_INTEGRATION=1 pytest tests/integration/test_benchmark_docker.py -v
 ```
 
-The host must have AgentScope 2.0.9 and a working Docker daemon. To use an
+The host must have AgentScope 2.0.10 and a working Docker daemon. To use an
 already built base image, set `REME_BENCHMARK_TEST_IMAGE` to its tag; the tests
 do not remove a caller-supplied image.

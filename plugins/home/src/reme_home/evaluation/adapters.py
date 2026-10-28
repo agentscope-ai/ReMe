@@ -6,6 +6,7 @@ from typing import Any
 from deploy.benchmark_docker import EvaluationQuery, JobRequest
 
 from ..preparation.data.models import CaseSpec, QuerySpec, SessionSpec
+from .artifacts import construction_exception, failure_kind
 
 
 def session_time(session: SessionSpec) -> str:
@@ -64,4 +65,6 @@ def accepts_build(build: dict, threshold: float) -> bool:
     """Preserve Meta-ReMe's strict-below-threshold partial-construction rule."""
     jobs = build.get("jobs", [])
     failed = sum(not isinstance(job.get("result"), dict) or not job["result"].get("success") for job in jobs)
+    if failed and failure_kind(construction_exception(build), "construction") == "infra_error":
+        return False
     return failed / len(jobs) < threshold if failed else build.get("success") is True
