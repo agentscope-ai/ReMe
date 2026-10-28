@@ -59,6 +59,20 @@ async def test_prepared_operation_survives_write_crash(runtime, experience, monk
 
 
 @pytest.mark.asyncio
+async def test_restart_recovers_acknowledged_write_without_cache_flush(runtime, experience, app_factory):
+    _, store, scope = runtime
+    created = await store.apply_mutation("create", experience, scope)
+    # Reopen before the first application's close, as after losing its in-memory caches.
+    _, reopened = await app_factory(workspace=store.workspace_path)
+    for view in reopened.views:
+        results = (await reopened.search("repair", view))["results"]
+        assert [result["path"] for result in results] == [created["path"]]
+        assert results[0]["version"] == created["version"]
+    new_scope = reopened.open_scope("session/trajectories/input.log", 0)
+    assert await reopened.apply_mutation("create", experience, new_scope) == created
+
+
+@pytest.mark.asyncio
 async def test_restart_rebuilds_from_json(app_factory, experience, tmp_path):
     app, store = await app_factory()
     source = tmp_path / "a.txt"
@@ -121,15 +135,34 @@ async def test_resume_with_saved_tool_context(app_factory, experience, tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_reply_saved_before_checkpoint_advances(app_factory, tmp_path, monkeypatch):
-    app, store = await app_factory()
+@pytest.mark.parametrize("operation_count", [0, 20])
+async def test_reply_saved_before_checkpoint_advances(app_factory, tmp_path, monkeypatch, operation_count):
+    app, store = await app_factory(token_limits={"context": 8000, "reserve": 100})
+    context_checks = []
+    check_context = auto_memory.ProcedureAutoMemoryStep._check_context
+
+    def track_context(step, message, tools):
+        context_checks.append((step, message, tools))
+        check_context(step, message, tools)
+
+    monkeypatch.setattr(auto_memory.ProcedureAutoMemoryStep, "_check_context", track_context)
     source = tmp_path / "a.txt"
     source.write_text("evidence")
     calls = 0
 
-    async def reply(_inputs, _options):
+    async def reply(_inputs, options):
         nonlocal calls
         calls += 1
+        for number in range(operation_count):
+            result = await app.context.jobs["procedure_create"](
+                filename=f"experience-{number}.json",
+                description="Repair search",
+                **{"when-to-use": "After an index configuration change"},
+                content="Rebuild the index before searching",
+                operation_key=f"create-{number}",
+                **options["injected_job_kwargs"],
+            )
+            assert result.success
         return {"result": '{"summary":"saved reply","complete":true}'}
 
     app.context.metadata["fake_reply"] = reply
@@ -146,9 +179,21 @@ async def test_reply_saved_before_checkpoint_advances(app_factory, tmp_path, mon
     checkpoint = load_json(store.checkpoint_path("session/trajectories/a.txt"))
     assert checkpoint["next_segment"] == 0
     assert checkpoint["active"]["reply"]
+    assert len(store.operation_records("session/trajectories/a.txt", 0)) == operation_count
+    if operation_count:
+        step, message, tools = context_checks[0]
+        recovered_input = json.loads(message)
+        recovered_input["completed_operations"] = store.operation_records("session/trajectories/a.txt", 0)
+        with pytest.raises(ValueError, match="context budget"):
+            check_context(step, auto_memory.json_text(recovered_input), tools)
     monkeypatch.setattr(auto_memory, "atomic_json", original)
     assert (await job(file=str(source), filename="a.txt", request_id="checkpoint")).success
     assert calls == 1
+    assert len(context_checks) == 1
+    checkpoint = load_json(store.checkpoint_path("session/trajectories/a.txt"))
+    assert checkpoint["complete"]
+    assert checkpoint["next_segment"] == 1
+    assert checkpoint["summary"] == "saved reply"
 
 
 @pytest.mark.asyncio

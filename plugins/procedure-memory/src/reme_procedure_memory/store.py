@@ -88,6 +88,7 @@ class ProcedureMemoryStore(BaseComponent):
                 raise ValueError("Each procedure view requires both embedding_store and keyword_index")
         # A crash can lose cached index dumps, even for an acknowledged write.
         # Rebuild from user files at startup, never from cached chunks alone.
+        # Mutations update both views immediately; file stores save caches on close.
         async with self.data_lock:
             self._load_operations()
             await self._recover_unlocked()
@@ -280,11 +281,11 @@ class ProcedureMemoryStore(BaseComponent):
         else:
             raise ValueError("Unknown mutation action")
         memory = ProcedureMemory.model_validate(document)
+        payload = memory.document()
         for key in ("description", "when-to-use", "content"):
-            self.budget.check(key, memory.document()[key])
+            self.budget.check(key, payload[key])
         for source in memory.sources:
             self.source_path(source)
-        payload = memory.document()
         if len(json_text(payload).encode()) > self.max_file_bytes:
             raise ValueError("Experience exceeds max_file_bytes; sources have not been truncated")
         return {
@@ -310,7 +311,7 @@ class ProcedureMemoryStore(BaseComponent):
         record["status"] = "committed"
         self._write_operation(journal, record)
         try:
-            await self._sync_unlocked([record["path"]])
+            await self._sync_unlocked(record["path"])
         except Exception as exc:
             record["index_error"] = str(exc)
             self._write_operation(journal, record)
@@ -367,7 +368,7 @@ class ProcedureMemoryStore(BaseComponent):
         else:
             for relative in list(self.pending_indexes.keys() - attempted):
                 try:
-                    await self._sync_unlocked([relative])
+                    await self._sync_unlocked(relative)
                 except Exception as exc:
                     await self._quarantine_unlocked(relative, str(exc))
                 else:
@@ -382,7 +383,7 @@ class ProcedureMemoryStore(BaseComponent):
                     if record["path"] in self.pending_indexes:
                         raise ProcedureIndexError({**record, **self.pending_indexes[record["path"]]})
 
-    async def _quarantine_unlocked(self, relative: str, error: str, *, persist: bool = True) -> None:
+    async def _quarantine_unlocked(self, relative: str, error: str) -> None:
         """Remove only derived records, so neither view serves stale or partial content."""
         relative = self.relative(self.experience_path(relative))
         self.pending_indexes[relative] = {
@@ -394,8 +395,6 @@ class ProcedureMemoryStore(BaseComponent):
         try:
             for store in self.views.values():
                 await store.delete(relative)
-                if persist:
-                    await store.dump()
         except Exception as exc:
             self.index_error = str(exc)
             self.rebuild_pending = True
@@ -407,36 +406,19 @@ class ProcedureMemoryStore(BaseComponent):
         if not embedding.is_healthy:
             raise RuntimeError("Procedure vector index is unavailable; restore the embedding provider and retry")
 
-    async def _sync_unlocked(self, paths: list[str], *, persist: bool = True) -> None:
-        for relative in paths:
-            result = self._read(relative)
-            relative = result["path"]
-            memory = ProcedureMemory.model_validate(result["experience"])
-            path = self.experience_path(relative)
-            for view, store in self.views.items():
-                chunk = FileChunk(path=relative, text=memory.projection(view), metadata={"version": result["version"]})
-                chunk.set_hash_id()
-                node = FileNode(path=relative, st_mtime=path.stat().st_mtime)
-                await store.upsert([(node, [chunk])])
-                if chunk.embedding is None:
-                    self._check_embedding(store)
-                    raise RuntimeError(f"Missing vector for {relative} in {view}")
-        if persist:
-            for store in self.views.values():
-                await store.dump()
-
-    async def sync_paths(self, paths: list[str]) -> None:
-        """Synchronize complete projections, never chunking an experience."""
-        async with self.data_lock:
-            await self._recover_unlocked()
-            for relative in paths:
-                relative = self.relative(self.experience_path(relative))
-                try:
-                    await self._sync_unlocked([relative])
-                except Exception as exc:
-                    await self._quarantine_unlocked(relative, str(exc))
-                    raise ProcedureIndexError(self.pending_indexes[relative]) from exc
-                self.pending_indexes.pop(relative, None)
+    async def _sync_unlocked(self, relative: str) -> None:
+        result = self._read(relative)
+        relative = result["path"]
+        memory = ProcedureMemory.model_validate(result["experience"])
+        path = self.experience_path(relative)
+        for view, store in self.views.items():
+            chunk = FileChunk(path=relative, text=memory.projection(view), metadata={"version": result["version"]})
+            chunk.set_hash_id()
+            node = FileNode(path=relative, st_mtime=path.stat().st_mtime)
+            await store.upsert([(node, [chunk])])
+            if chunk.embedding is None:
+                self._check_embedding(store)
+                raise RuntimeError(f"Missing vector for {relative} in {view}")
 
     async def _rebuild_unlocked(self) -> dict:
         paths, errors = [], []
@@ -454,9 +436,9 @@ class ProcedureMemoryStore(BaseComponent):
             self.pending_indexes.clear()
             for relative in paths:
                 try:
-                    await self._sync_unlocked([relative], persist=False)
+                    await self._sync_unlocked(relative)
                 except Exception as exc:
-                    await self._quarantine_unlocked(relative, str(exc), persist=False)
+                    await self._quarantine_unlocked(relative, str(exc))
                     errors.append(dict(self.pending_indexes[relative]))
             for store in self.views.values():
                 await store.dump()
@@ -491,10 +473,12 @@ class ProcedureMemoryStore(BaseComponent):
             count = min(200, limit * 5)
             vector, keyword = [], []
             if await store.get_nodes():
-                vector = await store.vector_search(query, count, {})
-                if not vector:
-                    self._check_embedding(store)
-                keyword = await store.keyword_search(query, count, {})
+                if vector_weight > 0:
+                    vector = await store.vector_search(query, count, {})
+                    if not vector:
+                        self._check_embedding(store)
+                if vector_weight < 1:
+                    keyword = await store.keyword_search(query, count, {})
             scores = {}
             for hits, weight in ((vector, vector_weight), (keyword, 1 - vector_weight)):
                 if weight == 0:

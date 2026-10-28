@@ -89,7 +89,6 @@ class ProcedureAutoMemoryStep(ProcedureStep):
             scope = store.open_scope(source, number)
             try:
                 result = await self._extract(checkpoint, segment, scope)
-                store.budget.check("summary", result.summary)
                 try:
                     await store.reconcile(source=source, segment=number)
                 except ProcedureIndexError:
@@ -159,7 +158,6 @@ class ProcedureAutoMemoryStep(ProcedureStep):
                 "token_limits": store.budget.limits,
             },
         )
-        self._check_context(message, TOOLS)
         # Persisted input + tool journal form the recovery context even if the SDK
         # crashes before saving its own agent session. Do not assume identical output.
         checkpoint.active["input"] = message
@@ -170,10 +168,12 @@ class ProcedureAutoMemoryStep(ProcedureStep):
             raise ValueError("repair_attempts must be nonnegative")
         for attempt in range(attempts + 1):
             if raw is None:
+                tools = TOOLS if attempt == 0 else []
+                self._check_context(message, tools)
                 reply = await self.agent_wrapper.reply(
                     message,
                     system_prompt=self.get_prompt("system_prompt"),
-                    job_tools=TOOLS if attempt == 0 else [],
+                    job_tools=tools,
                     builtin_tools=[],
                     skills=[],
                     injected_job_kwargs={"_procedure_scope": scope},
@@ -207,6 +207,5 @@ class ProcedureAutoMemoryStep(ProcedureStep):
                         "summary_token_limit": store.budget.limits["summary"],
                     },
                 )
-                self._check_context(message, [])
                 raw = None
         raise RuntimeError("Unreachable summary repair state")

@@ -29,7 +29,7 @@ application_defaults:
         dimensions: 1024
         credential:
           api_key: ${EMBEDDING_API_KEY:-}
-          base_url: ${EMBEDDING_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+          base_url: ${EMBEDDING_BASE_URL}
     embedding_store:
       procedure:
         backend: local

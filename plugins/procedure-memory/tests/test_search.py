@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -44,6 +45,26 @@ async def test_weighted_rrf(runtime, experience, monkeypatch):
     results = (await store.search("repair", "when_to_use"))["results"]
     assert results[0]["path"] == chunks[0].path
     assert results[0]["score"] == pytest.approx(0.7 / 61 + 0.3 / 62)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vector_weight", [0, 1])
+async def test_disabled_search_channel_is_not_called(runtime, experience, monkeypatch, vector_weight):
+    _, store, scope = runtime
+    await store.apply_mutation("create", experience, scope)
+    index = store.views["when_to_use"]
+    chunks = list(index.file_chunks.values())
+    enabled = AsyncMock(return_value=chunks)
+    disabled = AsyncMock(side_effect=RuntimeError("disabled channel unavailable"))
+    monkeypatch.setattr(index, "vector_search", enabled if vector_weight == 1 else disabled)
+    monkeypatch.setattr(index, "keyword_search", enabled if vector_weight == 0 else disabled)
+
+    results = (await store.search("repair", "when_to_use", vector_weight=vector_weight))["results"]
+
+    enabled.assert_awaited_once()
+    disabled.assert_not_awaited()
+    assert results[0]["path"] == chunks[0].path
+    assert results[0]["score"] == pytest.approx(1 / 61)
 
 
 @pytest.mark.asyncio

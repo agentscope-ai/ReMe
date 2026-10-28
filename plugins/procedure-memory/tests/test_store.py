@@ -1,11 +1,46 @@
 """Experience writes, source merging, version checks and exact index projections."""
 
-# pylint: disable=missing-function-docstring
+# pylint: disable=missing-function-docstring,protected-access
 
 import asyncio
 import json
+from unittest.mock import AsyncMock
 
 import pytest
+
+
+@pytest.mark.asyncio
+async def test_writes_defer_cache_persistence_until_close(runtime, experience, monkeypatch):
+    app, store, scope = runtime
+    checkpoints = []
+    for index in store.views.values():
+        dump = AsyncMock(wraps=index.dump)
+        owned = AsyncMock(wraps=index._dump_owned_state)
+        monkeypatch.setattr(index, "dump", dump)
+        monkeypatch.setattr(index, "_dump_owned_state", owned)
+        checkpoints.append((dump, owned))
+
+    for number in range(32):
+        result = await store.apply_mutation(
+            "create",
+            {**experience, "filename": f"repair-{number}.json", "operation_key": f"create-{number}"},
+            scope,
+        )
+        assert result["status"] == "indexed"
+        assert json.loads((store.workspace_path / result["path"]).read_text())["content"] == experience["content"]
+    journals = list((store.state_root / "operations").glob("*.json"))
+    assert len(journals) == 32
+    assert all(json.loads(path.read_text())["status"] == "indexed" for path in journals)
+    for view in store.views:
+        results = (await store.search("repair", view, limit=200))["results"]
+        assert len(results) == 32
+    for dump, owned in checkpoints:
+        dump.assert_not_awaited()
+        owned.assert_not_awaited()
+
+    await app.close()
+    for _, owned in checkpoints:
+        owned.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -165,7 +200,6 @@ async def test_update_alias_uses_one_file_identity(runtime, experience, alias):
     assert updated["path"] == created["path"]
     assert (await store.read_experience(alias))["path"] == created["path"]
     assert await store.apply_mutation("update", {**update, "path": created["path"]}, scope) == updated
-    await store.sync_paths([alias, created["path"]])
     for index in store.views.values():
         assert [node.path for node in await index.get_nodes()] == [created["path"]]
         assert len(index.file_chunks) == 1

@@ -34,7 +34,8 @@ class FakeAgent(BaseAgentWrapper):
 
 
 @pytest.fixture
-def plugin():
+def plugin(monkeypatch):
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "http://localhost:8000/v1")
     return _load_plugin(
         "procedure-memory",
         EntryPoint(name="procedure-memory", value="reme_procedure_memory", group="reme.plugins"),
