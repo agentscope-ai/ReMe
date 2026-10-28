@@ -241,7 +241,6 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
                         "pdf_paths": [paper.pdf_path for paper in analyses],
                     },
                 )
-        self._set_state("analyses", analyses)
         self.context.response.success = bool(analyses)
         self.context.response.answer = (
             f"Agent wrote {len(analyses)} detailed paper notes; {len(failures)} paper(s) failed"

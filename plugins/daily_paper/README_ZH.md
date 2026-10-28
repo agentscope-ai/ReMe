@@ -131,7 +131,7 @@ python -m pytest plugins/daily_paper -v
 
 成功一篇或两篇时，仅根据成功的笔记生成部分简报，并列出失败的 arXiv ID。此时 `success=true`，
 `metadata.partial=true`；`analysis_count`、`failure_count`、`failed_papers`、`note_paths` 和 `pdf_paths`
-提供结果明细。全部失败时 `success=false`，不调用简报模型。若简报本身生成失败，已完成笔记的路径仍保留在响应元数据中。
+提供结果明细。全部失败时 `success=false`，不调用简报模型。若简报本身生成失败，已完成笔记的路径仍保留在响应元数据中。失败回答还会列出已完成笔记路径、失败的 arXiv ID 和简短错误原因，默认 CLI 和 MCP 调用方无需显示元数据即可获得恢复信息。
 
 已保存的部分简报沿用跳过策略；再次调用会返回 `partial=true` 和保存的失败 ID。使用
 `reme daily_paper date=YYYY-MM-DD force=true` 重新生成，会重新运行正常选题流程，而非仅恢复失败论文。

@@ -63,7 +63,37 @@ class DailyPaperDigestStep(DailyPaperStep):
 
         return _WIKILINK_RE.sub(replace, body)
 
+    def _failure(self, reason: str):
+        """Keep recovery information visible to callers that only display answer."""
+
+        def concise(value):
+            return " ".join(str(value).split())[:300]
+
+        lines = [f"Daily Paper failed: {concise(reason)}"]
+        analyses = self._state("analyses") or []
+        lines.append("Completed notes:")
+        lines.extend(f"- {item.note_path}" for item in analyses)
+        if not analyses:
+            lines.append("- None")
+        failures = self._state("failures") or []
+        if failures:
+            lines.append("Failed papers:")
+            lines.extend(f"- {item['arxiv_id']}: {concise(item['error'])}" for item in failures)
+        if digest_path := self._state("digest_path"):
+            lines.append(f"Brief already written: {digest_path}")
+        self.context.response.success = False
+        self.context.response.answer = "\n".join(lines)
+        return self.context.response
+
     async def execute(self):
+        """Render plugin failures before BaseJob replaces their recovery details."""
+        assert self.context is not None
+        try:
+            return await self._generate_digest()
+        except Exception as exc:  # Cancellation continues to propagate.
+            return self._failure(f"{type(exc).__name__}: {exc}")
+
+    async def _generate_digest(self):
         """Generate and persist the final brief from analyzed papers."""
         assert self.context is not None
         if self._skip():
@@ -73,11 +103,11 @@ class DailyPaperDigestStep(DailyPaperStep):
             raise RuntimeError("An agent_wrapper is required for the daily brief")
         analyses: list[AnalyzedPaper] = self._state("analyses") or []
         failures = self._state("failures") or []
+        partial = bool(failures)
+        failed_arxiv_ids = [item["arxiv_id"] for item in failures]
         if not analyses and failures:
-            self.context.response.success = False
-            self.context.response.answer = "Daily paper analysis failed for every selected paper; no brief generated"
             self.context.response.metadata["partial"] = False
-            return self.context.response
+            return self._failure("Every selected paper failed; no brief generated")
         if not analyses or len(analyses) + len(failures) != PAPER_COUNT:
             raise RuntimeError(
                 "Detailed paper notes are missing before digest generation",
@@ -128,8 +158,8 @@ class DailyPaperDigestStep(DailyPaperStep):
             body = self._validate_historical_wikilinks(body, run_day, digest_path)
             body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
             selected_ids = [item.arxiv_id for item in analyses]
-            if failures:
-                body += "\n\n## 未完成的论文\n\n" + "\n".join(f"- {item['arxiv_id']}" for item in failures)
+            if partial:
+                body += "\n\n## 未完成的论文\n\n" + "\n".join(f"- {arxiv_id}" for arxiv_id in failed_arxiv_ids)
             await write_markdown(
                 digest_path,
                 body,
@@ -140,8 +170,8 @@ class DailyPaperDigestStep(DailyPaperStep):
                     "kind": "daily-paper-brief",
                     "date": day,
                     "arxiv_ids": selected_ids,
-                    "partial": bool(failures),
-                    "failed_arxiv_ids": [item["arxiv_id"] for item in failures],
+                    "partial": partial,
+                    "failed_arxiv_ids": failed_arxiv_ids,
                     "selection_reasoning": [item.reasoning for item in analyses],
                     "source_notes": wikilinks,
                     "generated_at": utc_now_iso(),
@@ -167,12 +197,12 @@ class DailyPaperDigestStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] refresh index done date={day}")
 
         self.context.response.success = True
-        qualifier = f"partial ({len(analyses)}/{PAPER_COUNT} papers) " if failures else ""
+        qualifier = f"partial ({len(analyses)}/{PAPER_COUNT} papers) " if partial else ""
         self.context.response.answer = f"Generated {qualifier}daily paper brief: {digest_rel}"
         self.context.response.metadata.update(
             {
                 "date": day,
-                "partial": bool(failures),
+                "partial": partial,
                 "analysis_count": len(analyses),
                 "failure_count": len(failures),
                 "failed_papers": list(failures),

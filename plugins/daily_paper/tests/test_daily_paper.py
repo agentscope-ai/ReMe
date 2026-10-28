@@ -1131,3 +1131,90 @@ async def test_digest_reports_partial_and_total_failure(tmp_path, count):
         await DailyPaperCollectStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(rerun)
         assert rerun.response.metadata["partial"] is True
         assert "force=true" in rerun.response.answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("note_count", [0, 2])
+async def test_failure_recovery_details_reach_job_cli_and_mcp(tmp_path, capsys, note_count):
+    """Real job and service adapters expose recovery details without showing metadata."""
+    from types import SimpleNamespace
+
+    from fastmcp.exceptions import ToolError
+    from reme.components.job import BaseJob
+    from reme.components.service.cli_service import CliService
+    from reme.components.service.mcp_tools import add_mcp_job
+
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{i}",
+            reasoning="test",
+            title=f"论文{i}",
+            desc="test",
+            body="evidence",
+            note_path=f"daily/2026-07-21/论文{i}.md",
+            pdf_path=f"resource/papers/{i}.pdf",
+        )
+        for i in range(note_count)
+    ]
+    for item in analyses:
+        await write_markdown(tmp_path / item.note_path, item.body, {})
+    failures = [{"arxiv_id": f"2607.1000{i}", "error": "ValueError: invalid note"} for i in range(note_count, 3)]
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    agent = _QueuedAgentWrapper([])
+    agent.reply = AsyncMock(side_effect=RuntimeError("brief provider failed"))
+    job = BaseJob(
+        name="daily_paper",
+        app_context=app_context,
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+        daily_paper_failures=failures,
+    )
+    job.step_specs = [(DailyPaperDigestStep, {"app_context": app_context, "agent_wrapper": agent})]
+    response = await job()
+    assert response.success is False
+    expected = [item.note_path for item in analyses] + [item["arxiv_id"] for item in failures] + ["invalid note"]
+    if note_count:
+        expected.append("brief provider failed")
+    assert all(value in response.answer for value in expected)
+
+    async def run_job(_name, **kwargs):
+        return await job(**kwargs)
+
+    app = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), run_job=run_job)
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stopped:
+        await CliService(job="daily_paper")._run_job(app)  # pylint: disable=protected-access
+    assert stopped.value.code == 1
+    stderr = capsys.readouterr().err
+    assert all(value in stderr for value in expected)
+    app.close.assert_awaited_once()
+
+    for error_mode in (False, True):
+        registered = []
+        add_mcp_job(
+            SimpleNamespace(add_tool=registered.append),
+            job,
+            injected_job_kwargs={},
+            tool_error_on_failure=error_mode,
+        )
+        if error_mode:
+            with pytest.raises(ToolError) as error:
+                await registered[0].fn()
+            rendered = str(error.value)
+        else:
+            rendered = await registered[0].fn()
+        assert all(value in rendered for value in expected)
+    if not note_count:
+        agent.reply.assert_not_awaited()
+    assert all((tmp_path / item.note_path).is_file() for item in analyses)
+
+
+@pytest.mark.asyncio
+async def test_digest_failure_boundary_preserves_cancellation(tmp_path):
+    """The answer-rendering boundary must not turn cancellation into a failed response."""
+    import asyncio
+
+    step = DailyPaperDigestStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step._generate_digest = AsyncMock(side_effect=asyncio.CancelledError)  # pylint: disable=protected-access
+    with pytest.raises(asyncio.CancelledError):
+        await step(RuntimeContext())
