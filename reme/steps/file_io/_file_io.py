@@ -111,8 +111,10 @@ async def read_file_safe(
     """Read file in byte mode and decode using extension-aware strategy.
 
     Returns ``(text, encoding)``. With ``require_complete``, reject files above
-    the byte limit or reads that do not reach EOF, so a caller cannot write back
-    truncated contents during a read-modify-write operation.
+    the byte limit or reads that leave unread bytes at the EOF check. This only
+    prevents returning a truncated bounded read for write-back; it does not
+    support oversized-file editing, provide a stable snapshot against concurrent
+    changes, or make subsequent writes atomic.
     """
     stat = await aiofiles.os.stat(str(file_path))
     if require_complete and stat.st_size > max_bytes:
