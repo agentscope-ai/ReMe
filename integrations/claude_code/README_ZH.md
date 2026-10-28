@@ -99,7 +99,7 @@ MCP 和 Hook 从同一份用户配置读取地址。Hook 在下一次调用时�
 
 插件通过宿主管理的 stdio 连接进程转发 MCP，请确保启动宿主时的 `python3` 环境包含 FastMCP。
 如果 ReMe 服务运行在另一台机器或另一个 Python 环境，在宿主环境执行
-`python3 -m pip install "fastmcp>=3.1"`。Hook 本身仅使用标准库。
+`python3 -m pip install "fastmcp>=4.1.4,<5"`。Hook 本身仅使用标准库。
 
 ## 生命周期与失败行为
 

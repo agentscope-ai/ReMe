@@ -261,7 +261,7 @@ def test_qwen_tokenizer_dependency_is_optional() -> None:
     """Exact Qwen tokenization is opt-in and included in the full install."""
     config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     extras = config["project"]["optional-dependencies"]
-    assert extras["qwen-tokenizer"] == ["tokenizers>=0.21,<1"]
+    assert extras["qwen-tokenizer"] == ["tokenizers>=0.23.3,<1"]
     assert "tokenizers" not in {Requirement(value).name for value in config["project"]["dependencies"]}
     assert "tokenizers" not in {Requirement(value).name for value in extras["core"]}
     assert "reme-ai[qwen-tokenizer]" in extras["full"]

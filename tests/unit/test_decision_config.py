@@ -173,8 +173,8 @@ def test_extra_reuses_agentscope_pin():
     """Installing core and decision models together must not request different AgentScope versions."""
     config = tomllib.loads((Path(__file__).resolve().parents[2] / "pyproject.toml").read_text())
     extras = config["project"]["optional-dependencies"]
-    assert extras["decision"] == ["agentscope[classifier-jev]==2.0.10"]
-    assert extras["as"] == ["agentscope[model-ollama]==2.0.10"]
+    assert extras["decision"] == ["agentscope[classifier-jev]==2.0.11"]
+    assert extras["as"] == ["agentscope[model-ollama]==2.0.11"]
     assert "reme-ai[decision]" in extras["full"]
     assert "reme-ai[decision]" not in extras["core"]
 

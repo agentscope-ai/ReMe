@@ -62,6 +62,6 @@ jobs:
       - name: Verify minimum tokenizer version
         if: matrix.python-version == '3.11'
         run: |
-          python -m pip install "tokenizers==0.21.0"
+          python -m pip install "tokenizers==0.23.3"
           python -c "import tokenizers; print('tokenizers', tokenizers.__version__)"
           python -m pytest tests/unit/test_qwen_token_tools.py tests/unit/test_package_versions.py -q

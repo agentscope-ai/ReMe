@@ -119,7 +119,7 @@ components:
 
 ## 决策模型配置
 
-`as_decision_model` 是不依赖供应商的概率决策模型接口；当前的 `agentscope` 适配器通过 AgentScope `2.0.10` 调用 TypeSafe API。
+`as_decision_model` 是不依赖供应商的概率决策模型接口；当前的 `agentscope` 适配器通过 AgentScope `2.0.11` 调用 TypeSafe API。
 它接受共享的文本或 JSON object 与命名问题，返回二分类概率、选项分类或评分结果。
 
 安装可选依赖：

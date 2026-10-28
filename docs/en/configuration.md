@@ -116,7 +116,7 @@ as `auto_memory`, `auto_resource`, `auto_dream`, and proactive refresh do.
 ## Decision Model Configuration
 
 `as_decision_model` is a provider-independent interface for probabilistic decisions. The current `agentscope` adapter
-calls the TypeSafe API through AgentScope `2.0.10`. It evaluates named binary, choice, or score questions against shared text or a JSON object.
+calls the TypeSafe API through AgentScope `2.0.11`. It evaluates named binary, choice, or score questions against shared text or a JSON object.
 
 Install the optional dependencies:
 

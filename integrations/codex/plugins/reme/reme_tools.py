@@ -11,6 +11,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from fastmcp.resources import ResourceContent, ResourceResult
 from fastmcp.tools import ToolResult
+from mcp.types import ToolAnnotations
 from pydantic import Field
 
 from reme_config import load_config
@@ -82,7 +83,7 @@ def register_tools(server: FastMCP) -> None:
     status_html = (root / "ui/status.html").read_text(encoding="utf-8")
     plugin_version = json.loads((root / ".codex-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
 
-    @server.tool(name=SEARCH, title="Search ReMe memory", annotations={"readOnlyHint": True})
+    @server.tool(name=SEARCH, title="Search ReMe memory", annotations=ToolAnnotations(read_only_hint=True))
     async def search(
         query: Annotated[str, Field(min_length=1, description="Focused memory search query")],
         limit: Annotated[int | None, Field(ge=1, le=50)] = None,
@@ -119,7 +120,7 @@ def register_tools(server: FastMCP) -> None:
     @server.tool(
         name=STATUS,
         title="ReMe status",
-        annotations={"readOnlyHint": True},
+        annotations=ToolAnnotations(read_only_hint=True),
         app={"resourceUri": STATUS_URI, "visibility": ["app", "model"]},
     )
     async def status() -> ToolResult:
@@ -142,7 +143,7 @@ def register_tools(server: FastMCP) -> None:
     @server.tool(
         name=RUN_DREAM,
         title="Consolidate ReMe memory now",
-        annotations={"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
+        annotations=ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False),
     )
     async def run_dream(date: str = "", hint: str | None = None) -> str:
         """Only on user request: consolidate daily notes into digest files without changing the daily schedule."""

@@ -12,14 +12,14 @@ ReMe 可以自动记录、召回记忆，并每天整理。记忆文件保存在
 - **Codex CLI >= 0.159.2**：用于安装和命令行使用，运行 `codex --version` 查看版本。
 - **Codex 桌面端 >= 26.924.22138**：用于打开 MCP 设置表单和状态面板，可在 **关于（About）** 中查看版本。
   以上为本指南已验证的版本基线，更早版本未经验证。
-- 启动 Codex 的环境中，`python3` 需要是 Python 3.11+，并安装 `fastmcp>=3.4.2`。
+- 启动 Codex 的环境中，`python3` 需要是 Python 3.11+，并安装 `fastmcp>=4.1.4,<5`。
   即使 ReMe 在远程运行，Codex 所在机器也需要这个环境。检查命令：
 
   ```bash
   python3 -c "import sys, fastmcp; print(sys.version); print(fastmcp.__version__)"
   ```
 
-  如未安装，执行 `python3 -m pip install "fastmcp>=3.4.2"`。
+  如未安装，执行 `python3 -m pip install "fastmcp>=4.1.4,<5"`。
 - 按[配置指南](../../docs/zh/configuration.md)配置 ReMe 用于提取记忆的模型。默认 BM25 检索不需要 embedding 模型。
 - 准备本仓库的本地副本，用于安装。
 
