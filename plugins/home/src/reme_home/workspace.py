@@ -161,7 +161,7 @@ class HomeWorkspace(BaseComponent):
         _validate_directory(workspace, state)
         state.mkdir(parents=True, exist_ok=True)
         with _initialization_lock(state / "workspace.lock"):
-            from .preparation_transaction import recover_preparation  # pylint: disable=import-outside-toplevel
+            from .preparation.transaction import recover_preparation  # pylint: disable=import-outside-toplevel
 
             recover_preparation(root, state)
             self._initialize(root, state / "workspace.json")

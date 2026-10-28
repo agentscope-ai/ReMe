@@ -10,14 +10,21 @@ from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSan
 
 from reme.components.base_component import BaseComponent
 
-from .data_preparation.models import fingerprint, utc_now
-from .evaluation_adapters import accepts_build, build_jobs, evaluation_query
-from .evaluation_artifacts import contained, file_sha256, inspect_archive, read_json, summarize, write_json
-from .evaluation_inputs import load_inputs, reuse_inputs, snapshot_code
-from .evaluation_failures import construction_exception, failure_kind
-from .evaluation_judge import HomeJudge
-from .evaluation_spec import EvaluationSpec
-from .workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..preparation.data.models import fingerprint, utc_now
+from .adapters import accepts_build, build_jobs, evaluation_query
+from .artifacts import (
+    contained,
+    file_sha256,
+    inspect_archive,
+    read_json,
+    summarize,
+    write_json,
+    construction_exception,
+    failure_kind,
+)
+from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code
+from ..judge import HomeJudge
+from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 
 
 async def blocking(function, *args, **kwargs):
@@ -123,7 +130,7 @@ class HomeEvaluation(BaseComponent):
         environment = {**os.environ, **self.app_context.app_config.environment}
         prepared = await blocking(self._prepare, spec, environment)
         record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs = prepared
-        judge = self.judge if spec.dataset_kind == "training-set" else None
+        judge = None if spec.debug else self.judge
         run = None
         try:
             manifest = {
@@ -228,14 +235,11 @@ class HomeEvaluation(BaseComponent):
                         if previous.get("error") != result.error:
                             previous.update(cleanup_error=result.error, failure_kind="infra_error")
                             write_json(failure, previous)
-            summary = summarize(run, cases, status="completed")
+            summary = summarize(run, cases, status="completed", scoring_required=not spec.debug)
             summary.update(
                 execution_complete=True,
                 execution_mode=manifest["execution_mode"],
-                scoring_required=judge is not None,
             )
-            if judge is None:
-                summary["valid_for_comparison"] = False
             manifest.update(status="completed", finished_at=utc_now().isoformat())
             write_json(run / "manifest.json", manifest)
             write_json(run / "summary.json", summary)
@@ -260,6 +264,7 @@ class HomeEvaluation(BaseComponent):
                     run,
                     cases,
                     status="cancelled" if isinstance(error, asyncio.CancelledError) else "failed",
+                    scoring_required=not spec.debug,
                 )
                 partial["execution_complete"] = False
                 write_json(run / "partial_summary.json", partial)

@@ -1,10 +1,10 @@
 backends:
-  home_preparation: reme_home.preparation:HomePreparation
-  home_prepare_step: reme_home.prepare_step:HomePrepareStep
+  home_preparation: reme_home.preparation.component:HomePreparation
+  home_prepare_step: reme_home.preparation.component:HomePrepareStep
   home_workspace: reme_home.workspace:HomeWorkspace
-  home_judge: reme_home.evaluation_judge:HomeJudge
-  home_evaluation: reme_home.evaluation:HomeEvaluation
-  home_evaluate_step: reme_home.evaluate_step:HomeEvaluateStep
+  home_judge: reme_home.judge:HomeJudge
+  home_evaluation: reme_home.evaluation.component:HomeEvaluation
+  home_evaluate_step: reme_home.evaluation.step:HomeEvaluateStep
   auto_bash_step: reme_home.auto_bash:AutoBashStep
 
 application_defaults:
@@ -33,11 +33,16 @@ application_defaults:
           reuse_construction_from:
             type: [string, "null"]
             description: "Prior result directory inside home/evaluations; restores memory without rebuilding"
-          dataset_kind: {type: string, enum: [training-set, debug-cases]}
+          debug:
+            type: boolean
+            default: false
+            description: "Run prepared debug cases without judging; fail_fast defaults to true in this mode"
           concurrency: {type: integer, minimum: 1}
           timeout_seconds: {type: number, exclusiveMinimum: 0}
           base_image: {type: string}
-          fail_fast: {type: boolean}
+          fail_fast:
+            type: boolean
+            description: "Stop on the first failure; defaults to debug (false for scored runs, true for debug)"
           max_construction_failure_rate: {type: number, minimum: 0, maximum: 1}
           max_artifact_bytes: {type: integer, minimum: 1}
       steps:

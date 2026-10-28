@@ -2,8 +2,8 @@
 
 from reme.steps.base_step import BaseStep, Ref
 
-from .evaluation import HomeEvaluation
-from .evaluation_spec import EvaluationSpec
+from .component import HomeEvaluation
+from .inputs import EvaluationSpec
 
 
 class HomeEvaluateStep(BaseStep):
@@ -23,10 +23,14 @@ class HomeEvaluateStep(BaseStep):
             raise ValueError("code_ref is unsupported; commit candidate changes and evaluate the current HEAD")
         if "judge_concurrency" in self.context:
             raise ValueError("Use concurrency to control both case and judge concurrency")
+        if "dataset_kind" in self.context:
+            raise ValueError("Use debug=true for debug cases; omit debug or use false for training cases")
         result = await self.evaluation.evaluate(**arguments)
         self.context.response.answer = result
         # Candidate failures are evaluation observations; infrastructure failures
         # must remain visible to ordinary Job callers checking Response.success.
         self.context.response.success = result["case_status_counts"]["infra_error"] == 0
+        if arguments.get("debug"):
+            self.context.response.success &= result["case_status_counts"]["candidate_failure"] == 0
         self.context.response.metadata["result_dir"] = result["result_dir"]
         return self.context.response

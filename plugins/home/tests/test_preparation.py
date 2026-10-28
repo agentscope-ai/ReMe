@@ -13,9 +13,9 @@ import shutil
 import pytest
 import pytest_asyncio
 import yaml
-from reme_home.preparation_spec import PreparationSpec
-from reme_home.code_preparation import tree_fingerprint
-from reme_home.preparation_transaction import OUTPUTS, TRANSACTION, recover_preparation
+from reme_home.preparation.spec import PreparationSpec
+from reme_home.preparation.code import tree_fingerprint
+from reme_home.preparation.transaction import OUTPUTS, TRANSACTION, recover_preparation
 from reme_home.workspace import _initialization_lock
 
 from reme.application import Application
@@ -272,11 +272,14 @@ async def test_failures_restore_original_workspace_and_allow_retry(app, inputs, 
     with monkeypatch.context() as patch:
         if failure == "convert":
             patch.setattr(
-                "reme_home.preparation.prepare_dataset",
+                "reme_home.preparation.component.prepare_dataset",
                 lambda *a, **kw: (_ for _ in ()).throw(OSError("test")),
             )
         elif failure == "code":
-            patch.setattr("reme_home.preparation.prepare_code", lambda *a, **kw: (_ for _ in ()).throw(OSError("test")))
+            patch.setattr(
+                "reme_home.preparation.component.prepare_code",
+                lambda *a, **kw: (_ for _ in ()).throw(OSError("test")),
+            )
         elif failure == "docs":
             original_read = Path.read_bytes
 
@@ -297,7 +300,7 @@ async def test_failures_restore_original_workspace_and_allow_retry(app, inputs, 
                     raise OSError("test failure after rename")
                 return result
 
-            patch.setattr("reme_home.preparation_transaction.os.replace", replace)
+            patch.setattr("reme_home.preparation.transaction.os.replace", replace)
         response = await app.run_job("home_prepare", spec=spec)
     assert not response.success
     assert snapshot(root) == before
@@ -352,8 +355,8 @@ async def test_interrupted_publication_recovers_at_startup(app, inputs, monkeypa
                 raise RuntimeError("simulated crash")
             return original(source, destination)
 
-        patch.setattr("reme_home.preparation_transaction.os.replace", replace)
-        patch.setattr("reme_home.preparation.rollback", lambda *args: None)
+        patch.setattr("reme_home.preparation.transaction.os.replace", replace)
+        patch.setattr("reme_home.preparation.component.rollback", lambda *args: None)
         with pytest.raises(RuntimeError, match="simulated crash"):
             await preparation.prepare(spec=spec)
     workspace = app.context.components["home.workspace"]["default"]
@@ -376,7 +379,7 @@ async def test_success_survives_cleanup_failure_and_restart(app, inputs, monkeyp
                 raise OSError("cleanup")
             return original(path, *args, **kwargs)
 
-        patch.setattr("reme_home.preparation.shutil.rmtree", remove)
+        patch.setattr("reme_home.preparation.component.shutil.rmtree", remove)
         response = await app.run_job("home_prepare", spec=spec)
     assert response.success
     assert (root / "home/metadata" / TRANSACTION).exists()

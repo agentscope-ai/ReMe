@@ -11,14 +11,15 @@ from uuid import uuid4
 import yaml
 
 from reme.components.base_component import BaseComponent
+from reme.steps.base_step import BaseStep, Ref
 
-from .code_preparation import prepare_code
-from .data_preparation import prepare_dataset
-from .data_preparation.basic import derive_debug_cases
-from .data_preparation.models import fingerprint
-from .preparation_spec import PreparationSpec
-from .evaluation_judge import HomeJudge
-from .preparation_transaction import (
+from .code import prepare_code
+from .data import prepare_dataset
+from .data.basic import derive_debug_cases
+from .data.models import fingerprint
+from .spec import PreparationSpec
+from ..judge import HomeJudge
+from .transaction import (
     TRANSACTION,
     check_targets,
     publish,
@@ -27,7 +28,7 @@ from .preparation_transaction import (
     write_json,
     sync_directory,
 )
-from .workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 
 
 def _source_path(root: Path, value: str) -> Path:
@@ -181,3 +182,20 @@ class HomePreparation(BaseComponent):
         }
         write_json(transaction / "output-6", result)
         return result
+
+
+class HomePrepareStep(BaseStep):
+    """Accept a workspace YAML file or a Python configuration dictionary."""
+
+    preparation: HomePreparation = Ref(HomePreparation, "home.preparation")
+
+    async def execute(self):
+        """Prepare once and return the persisted completion information."""
+        if self.context.get("_allowed_paths") is not None:
+            raise ValueError("home_prepare requires unrestricted access to its workspace output directories")
+        result = await self.preparation.prepare(
+            spec=self.context.get("spec"),
+            spec_path=self.context.get("spec_path"),
+        )
+        self.context.response.answer = result
+        return self.context.response

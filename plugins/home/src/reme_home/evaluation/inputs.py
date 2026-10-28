@@ -1,17 +1,72 @@
 """Validate prepared inputs and snapshot committed candidates before execution."""
 
 from pathlib import Path
+from typing import Literal
+
 import shutil
 import subprocess
 import tempfile
 import tarfile
 
+from pydantic import Field, field_validator, model_validator
+
 from deploy.benchmark_docker import SourceSnapshot
 
-from .code_preparation import git, tree_fingerprint
-from .data_preparation.models import CaseSpec, DatasetManifest, fingerprint
-from .evaluation_artifacts import contained, file_sha256, inspect_archive, read_json
-from .evaluation_spec import EvaluationSpec
+from ..preparation.code import git, tree_fingerprint
+from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
+from .artifacts import contained, file_sha256, inspect_archive, read_json
+from ..preparation.spec import SpecModel
+
+
+class EvaluationSpec(SpecModel):
+    """Selections are injected by callers; omitted cases mean the whole dataset."""
+
+    case_ids: list[str] | None = None
+    query_ids: dict[str, list[str]] | None = None
+    reuse_construction_from: str | None = Field(default=None, min_length=1)
+    debug: bool = False
+    concurrency: int = Field(default=4, ge=1)
+    timeout_seconds: float = Field(default=7200.0, gt=0, allow_inf_nan=False)
+    base_image: str = Field(default="reme-benchmark-base:agentscope-2.0.9", min_length=1)
+    fail_fast: bool = False
+    max_construction_failure_rate: float = Field(default=0.03, ge=0, le=1, allow_inf_nan=False)
+    max_artifact_bytes: int = Field(default=2_000_000_000, ge=1)
+
+    @property
+    def dataset_kind(self) -> Literal["training-set", "debug-cases"]:
+        """Resolve the internal dataset location from the requested mode."""
+        return "debug-cases" if self.debug else "training-set"
+
+    @field_validator("case_ids")
+    @classmethod
+    def validate_cases(cls, value):
+        """An explicit selection must never silently expand or shrink."""
+        if value is not None and (
+            not value or any(not item.strip() for item in value) or len(set(value)) != len(value)
+        ):
+            raise ValueError("case_ids must be nonempty, unique strings, or null for all cases")
+        return value
+
+    @field_validator("query_ids")
+    @classmethod
+    def validate_queries(cls, value):
+        """Validate each explicit per-case query selection."""
+        if value is not None:
+            if not value:
+                raise ValueError("query_ids must not be empty")
+            for case_id, ids in value.items():
+                if not case_id.strip() or not ids or any(not item.strip() for item in ids) or len(set(ids)) != len(ids):
+                    raise ValueError("query_ids must contain nonempty unique selections")
+        return value
+
+    @model_validator(mode="after")
+    def resolve_mode(self):
+        """Debug stops on failure by default and never reuses scored evidence."""
+        if self.debug and self.reuse_construction_from:
+            raise ValueError("Construction reuse requires training-set")
+        if "fail_fast" not in self.model_fields_set:
+            self.fail_fast = self.debug
+        return self
 
 
 def entity_id(value: str) -> str:

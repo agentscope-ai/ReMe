@@ -60,6 +60,10 @@ Check `valid_for_comparison`, failure details, and coverage before comparing run
 That flag alone does not establish a complete initial baseline: also verify the
 initial candidate commit and full training case/query coverage.
 
-Debug runs test execution without host judging and cannot measure answer quality.
+Debug runs (`debug=true`) test execution without host judging and cannot measure
+answer quality. Run and case mean scores are null. `expected_query_count` counts
+queries expected to execute, while `expected_scored_query_count` is zero; no
+queries are awaiting a score. Debug results are always invalid for comparison,
+including partial or failed runs.
 Construction reuse does not reuse answers or scores: the current candidate
 answers again and the host judge scores those new answers.

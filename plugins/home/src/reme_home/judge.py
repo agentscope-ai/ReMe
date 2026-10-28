@@ -9,8 +9,8 @@ from pathlib import Path
 from reme.components.base_component import BaseComponent
 from reme.schema import ComponentConfig
 
-from .data_preparation.models import fingerprint
-from .evaluation_artifacts import contained, read_json
+from .preparation.data.models import fingerprint
+from .evaluation.artifacts import contained, read_json
 from .workspace import HomeWorkspace
 
 JUDGE_PLUGINS = {"beam": "beam-judge", "longmemeval": "lme-judge"}

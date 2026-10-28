@@ -5,7 +5,7 @@ from typing import Any
 
 from deploy.benchmark_docker import EvaluationQuery, JobRequest
 
-from .data_preparation.models import CaseSpec, QuerySpec, SessionSpec
+from ..preparation.data.models import CaseSpec, QuerySpec, SessionSpec
 
 
 def session_time(session: SessionSpec) -> str:

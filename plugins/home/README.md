@@ -3,6 +3,13 @@
 Adds a self-evolution workspace, the one-time `home_prepare` job, `home_evaluate`, and
 `auto_bash` through an independently enabled ReMe plugin.
 
+Source code is grouped by workflow under `src/reme_home/preparation/` and
+`src/reme_home/evaluation/`. Preparation contains its component and Step, config,
+code export, transaction recovery, and benchmark data adapters. Evaluation contains
+its component, Step, input validation, Docker request adapters, and artifacts with
+failure classification. Shared workspace and host judge components live at the
+package root.
+
 Install it into the same Python environment as ReMe:
 
 ```bash
@@ -262,13 +269,23 @@ dataset: the caller must also verify its code and complete case/query coverage.
 
 Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
 runs publish `partial_summary.json`, not a completed summary. New executions
-always allocate a new run; they never overwrite previous results. Default
+always allocate a new run; they never overwrite previous results. For scored runs, default
 `fail_fast=false` keeps independent cases running. The shared pool executes each
 case's build followed by queries, rather than Meta-ReMe's global construction
 barrier/query-stealing schedule. `max_construction_failure_rate` defaults to the
 old strict-below-3% rule; other pool callers retain strict build-success behavior.
 
-`dataset_kind="debug-cases"` runs smoke inputs without a judge. Debug results
+`debug=true` selects prepared debug cases and runs smoke inputs without a judge.
+It defaults to `fail_fast=true`; scored runs (`debug=false`, the default) use
+`fail_fast=false`. An explicitly supplied `fail_fast` overrides either default.
+Debug requires successful construction and nonempty, error-free answers, and
+returns `success=false` for candidate failures as well as infrastructure failures.
+It cannot reuse construction. Case/query selections refer to the selected mode's
+dataset; omitted selections run all its cases/queries.
+Debug results retain execution counts and artifacts, but all mean scores are
+null and `valid_for_comparison=false`. `expected_scored_query_count` is zero,
+while `expected_query_count` still records the expected execution count.
+The former `dataset_kind` input is rejected; use `debug` instead. Debug results
 must not be used to assess answer correctness or candidate quality. No real
 Docker/model evaluation is required by Home's isolated unit tests.
 

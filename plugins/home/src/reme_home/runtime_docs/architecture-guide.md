@@ -63,8 +63,10 @@ Run the initial full evaluation before changing the initial candidate.
 
 The host program can inject `case_ids` and a `query_ids` mapping into the Job.
 Omitted case IDs select all prepared cases; omitted query selections use every
-query in each selected case. Debug runs use `dataset_kind="debug-cases"` and
-check execution only, without judging answer correctness.
+query in each selected case. Debug runs use `debug=true` and
+check execution only, without judging answer correctness. They select prepared
+debug cases and default to `fail_fast=true`; scored runs default to false. An
+explicit `fail_fast` overrides the mode default. Debug cannot reuse construction.
 
 Setting `reuse_construction_from` restores a compatible completed run's pre-query
 memory tar, skips construction, and answers and scores again using current code.

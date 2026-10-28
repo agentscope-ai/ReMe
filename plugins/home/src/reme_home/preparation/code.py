@@ -7,7 +7,7 @@ import shutil
 import subprocess
 import tomllib
 
-from .preparation_spec import PreparationSpec, relative_path
+from .spec import PreparationSpec, relative_path
 
 
 def git(repository: Path, *arguments: str) -> str:

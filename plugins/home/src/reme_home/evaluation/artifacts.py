@@ -1,4 +1,4 @@
-"""Contained, atomic Home evaluation artifacts and safe archive inspection."""
+"""Safe evaluation artifacts, failure classification, and result summaries."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ import shutil
 import tarfile
 import tempfile
 
-from .workspace import _validate_directory
+from ..workspace import _validate_directory
 
 
 def contained(root: Path, value: str | Path, *, directory: bool = False) -> Path:
@@ -105,7 +105,7 @@ def average_tokens(queries: list[dict]) -> dict:
     return {model: round(total / len(queries), 3) for model, total in totals.items()} if queries else {}
 
 
-def summarize(run: Path, cases: list, *, status: str) -> dict:
+def summarize(run: Path, cases: list, *, status: str, scoring_required: bool = True) -> dict:
     """Rebuild compact optimizer evidence with Meta-ReMe's expected-query denominator."""
     rows, all_scores, query_results = {}, [], []
     case_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
@@ -113,6 +113,7 @@ def summarize(run: Path, cases: list, *, status: str) -> dict:
     query_counts = {"completed": 0, "candidate_failure": 0, "infra_error": 0}
     stages = {"construction": 0, "query": 0}
     expected = sum(len(case.queries) for case in cases)
+    expected_scored = expected if scoring_required else 0
     for case in cases:
         folder = run / "cases" / case.case_id
         construction_path = folder / "memory_construction/result.json"
@@ -158,9 +159,10 @@ def summarize(run: Path, cases: list, *, status: str) -> dict:
                 "fail_job_count": sum(job.get("result", {}).get("success") is not True for job in jobs),
             },
             "expected_query_count": len(case.queries),
+            "expected_scored_query_count": len(case.queries) if scoring_required else 0,
             "scored_count": len(scores),
             "query_error_count": failed,
-            "mean_score": None if has_infra else sum(scores) / len(case.queries),
+            "mean_score": None if has_infra or not scoring_required else sum(scores) / len(case.queries),
             "average_query_total_token_usage": average_tokens(queries),
             "queries": compact_queries,
         }
@@ -184,14 +186,18 @@ def summarize(run: Path, cases: list, *, status: str) -> dict:
         "construction_status_counts": construction_counts,
         "failure_stage_case_counts": stages,
         "expected_query_count": expected,
+        "expected_scored_query_count": expected_scored,
+        "scoring_required": scoring_required,
         "scored_count": len(all_scores),
         "scored_query_count": len(all_scores),
-        "unscored_count": expected - len(all_scores),
-        "query_status_counts": {**query_counts, "unscored": expected - len(all_scores)},
+        "unscored_count": expected_scored - len(all_scores),
+        "query_status_counts": {**query_counts, "unscored": expected_scored - len(all_scores)},
         "query_error_count": query_counts["candidate_failure"] + query_counts["infra_error"],
-        "scoring_complete": len(all_scores) == expected,
-        "valid_for_comparison": status == "completed" and not case_counts["infra_error"],
-        "mean_query_score": sum(all_scores) / expected if expected and not case_counts["infra_error"] else None,
+        "scoring_complete": scoring_required and len(all_scores) == expected_scored,
+        "valid_for_comparison": scoring_required and status == "completed" and not case_counts["infra_error"],
+        "mean_query_score": (
+            sum(all_scores) / expected_scored if expected_scored and not case_counts["infra_error"] else None
+        ),
         "observed_mean_query_score": sum(all_scores) / len(all_scores) if all_scores else None,
         "low_score_cases": [
             {key: row["mean_score"]}
@@ -205,3 +211,49 @@ def summarize(run: Path, cases: list, *, status: str) -> dict:
         "question_type_statistics": statistics,
         "cases": rows,
     }
+
+
+INFRA_TYPES = {
+    "APIConnectionError",
+    "APITimeoutError",
+    "ConnectError",
+    "ConnectionError",
+    "ConnectTimeout",
+    "NetworkError",
+    "PoolTimeout",
+    "RateLimitError",
+    "ReadError",
+    "ReadTimeout",
+    "RemoteProtocolError",
+    "ServiceUnavailableError",
+    "TimeoutError",
+    "TimeoutException",
+    "WriteError",
+    "WriteTimeout",
+    "SandboxCommandTimeoutError",
+}
+
+
+def failure_kind(exception, stage: str) -> str:
+    """Only candidate execution errors count against candidate scores."""
+    exception = exception if isinstance(exception, dict) else {}
+    status = exception.get("status_code")
+    if isinstance(status, int) and (status in {408, 429} or status >= 500):
+        return "infra_error"
+    name = str(exception.get("type", ""))
+    module = str(exception.get("module", ""))
+    if name in INFRA_TYPES or (
+        module.startswith(("httpx", "httpcore", "aiohttp", "requests", "urllib3"))
+        and any(word in name.lower() for word in ("connection", "network", "timeout", "protocol"))
+    ):
+        return "infra_error"
+    return "candidate_failure" if stage in {"construction", "answer"} else "infra_error"
+
+
+def construction_exception(build: dict):
+    """Find the first failed construction result's structured exception."""
+    for job in build.get("jobs", []):
+        result = job.get("result", {})
+        if not result.get("success"):
+            return result.get("exception")
+    return build.get("exception")

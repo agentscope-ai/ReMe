@@ -12,7 +12,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .workspace import _validate_directory
+from ..workspace import _validate_directory
 
 OUTPUTS = ("code/runtime", "code/repo", "datasets/training-set", "datasets/debug-cases", "domain_spec.yaml", "docs")
 TRANSACTION = "preparation-transaction"

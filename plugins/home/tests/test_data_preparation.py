@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-from reme_home.data_preparation.basic import derive_debug_cases, write_normalized_dataset
-from reme_home.data_preparation.models import CaseSpec, QuerySpec, SessionSpec
+from reme_home.preparation.data.basic import derive_debug_cases, write_normalized_dataset
+from reme_home.preparation.data.models import CaseSpec, QuerySpec, SessionSpec
 
 
 def test_debug_derivation_reads_only_selected_cases(tmp_path, monkeypatch):

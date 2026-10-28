@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
-from reme_home import evaluation
-from reme_home.evaluation_artifacts import inspect_archive
+from reme_home.evaluation import component as evaluation
+from reme_home.evaluation.artifacts import inspect_archive
 
 # Reuse the real Application, committed repository and tiny source-dataset fixtures.
 from test_preparation import (  # noqa: F401  # pylint: disable=unused-import
@@ -255,6 +255,10 @@ async def test_reuse_preflight_rejects_entire_request(app, prepared, mutation):
         {"code_ref": "HEAD"},
         {"code_ref": None},
         {"judge_concurrency": 2},
+        {"dataset_kind": "debug-cases"},
+        {"debug": "true"},
+        {"debug": True, "reuse_construction_from": "evaluations/prior"},
+        {"debug": True, "case_ids": ["1"]},
         {"_allowed_paths": []},
     ],
 )
@@ -314,7 +318,7 @@ async def test_cancellation_closes_pool_and_retains_partial_run(app, prepared, m
 
 @pytest.mark.asyncio
 async def test_debug_skips_judge_and_invalid_export_keeps_answer(app, prepared, monkeypatch):
-    response = await app.run_job("home_evaluate", dataset_kind="debug-cases")
+    response = await app.run_job("home_evaluate", debug=True)
     assert response.success, response.answer
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == 0
     assert not response.answer["scoring_required"]
@@ -331,6 +335,67 @@ async def test_debug_skips_judge_and_invalid_export_keeps_answer(app, prepared, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "debug,override,expected_fail_fast",
+    [(False, None, False), (True, None, True), (True, False, False), (False, True, True)],
+)
+async def test_mode_controls_data_scoring_and_fail_fast_defaults(app, prepared, debug, override, expected_fail_fast):
+    kwargs = {"debug": debug}
+    if override is not None:
+        kwargs["fail_fast"] = override
+    response = await app.run_job("home_evaluate", **kwargs)
+    assert response.success, response.answer
+    run = Path(response.answer["result_dir"])
+    manifest = json.loads((run / "manifest.json").read_text())
+    summary = json.loads((run / "summary.json").read_text())
+    assert manifest["options"]["fail_fast"] is expected_fail_fast
+    assert manifest["options"]["debug"] is debug
+    assert "dataset_kind" not in manifest["options"]
+    assert manifest["dataset_kind"] == ("debug-cases" if debug else "training-set")
+    assert manifest["mode"] == ("debug" if debug else "scored")
+    assert set(summary["cases"]) == ({"debug-1", "debug-2"} if debug else {"1", "2"})
+    assert summary["expected_query_count"] == 2
+    assert summary["expected_scored_query_count"] == (0 if debug else 2)
+    assert summary["scoring_required"] is not debug
+    assert summary["scoring_complete"] is not debug
+    assert summary["valid_for_comparison"] is not debug
+    assert summary["mean_query_score"] == (None if debug else 0.5)
+    assert summary["observed_mean_query_score"] == (None if debug else 0.5)
+    assert summary["unscored_count"] == 0
+    for case in summary["cases"].values():
+        assert case["mean_score"] == (None if debug else 0.5)
+    assert app.context.components["agent_wrapper"]["judge"].reply.await_count == (0 if debug else 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail_fast", [True, False])
+async def test_debug_empty_answers_fail_without_scoring(app, prepared, monkeypatch, fail_fast):
+    original = FakeWorker.run_queries
+
+    async def empty_answer(worker, queries):
+        result = await original(worker, queries)
+        for row in result["queries"]:
+            row["answer"] = "  "
+        return result
+
+    monkeypatch.setattr(FakeWorker, "run_queries", empty_answer)
+    response = await app.run_job("home_evaluate", debug=True, fail_fast=fail_fast, case_ids=["debug-1"])
+    assert not response.success
+    runs = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+    assert len(runs) == 1
+    run = runs[0].parent
+    summary = json.loads((run / ("partial_summary.json" if fail_fast else "summary.json")).read_text())
+    assert summary["mean_query_score"] is None
+    assert summary["observed_mean_query_score"] is None
+    assert summary["expected_scored_query_count"] == 0
+    assert not summary["valid_for_comparison"]
+    assert summary["case_status_counts"]["candidate_failure"] == 1
+    assert summary["cases"]["debug-1"]["mean_score"] is None
+    assert (run / "cases/debug-1/queries/answers.json").is_file()
+    assert app.context.components["agent_wrapper"]["judge"].reply.await_count == 0
+
+
+@pytest.mark.asyncio
 async def test_current_head_is_immutable_and_does_not_ship_judge(app, prepared):
     repo = prepared / "code/repo"
     (repo / "plugins/beam/src/reme_beam/__init__.py").write_text("value = 3\n", encoding="utf-8")
@@ -343,7 +408,7 @@ async def test_current_head_is_immutable_and_does_not_ship_judge(app, prepared):
     with tarfile.open(fileobj=io.BytesIO(snapshot.archive), mode="r:gz") as source:
         assert source.extractfile("plugins/beam/src/reme_beam/__init__.py").read() == b"value = 3\n"
         assert "plugins/beam/pyproject.toml" in source.getnames()
-        assert not any("evaluation_judge" in name or ".git" in Path(name).parts for name in source.getnames())
+        assert not any("reme_home" in Path(name).parts or ".git" in Path(name).parts for name in source.getnames())
     assert response.answer["commit_sha"] == current
 
 
@@ -376,8 +441,8 @@ async def test_modified_inputs_are_rejected_before_docker(app, prepared, mutatio
 
 
 def test_lme_adapter_cutoff_and_memory_checkpoints():
-    from reme_home.data_preparation.models import CaseSpec, QuerySpec, SessionSpec
-    from reme_home.evaluation_adapters import build_jobs, evaluation_query, accepts_build
+    from reme_home.preparation.data.models import CaseSpec, QuerySpec, SessionSpec
+    from reme_home.evaluation.adapters import build_jobs, evaluation_query, accepts_build
 
     query = QuerySpec(
         query_id="q",

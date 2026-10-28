@@ -7,8 +7,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
-from reme_home.preparation_spec import PreparationSpec
-from reme_home.evaluation_judge import JUDGE_PLUGINS
+from reme_home.preparation.spec import PreparationSpec
+from reme_home.judge import JUDGE_PLUGINS
 
 from reme.application import Application
 
