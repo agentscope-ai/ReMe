@@ -1,0 +1,32 @@
+"""Expose immutable batch evaluation through ReMe's normal Job lifecycle."""
+
+from reme.steps.base_step import BaseStep, Ref
+
+from .evaluation import HomeEvaluation
+from .evaluation_spec import EvaluationSpec
+
+
+class HomeEvaluateStep(BaseStep):
+    """Case IDs come from runtime inputs; no selection means all prepared cases."""
+
+    evaluation: HomeEvaluation = Ref(HomeEvaluation, "home.evaluation")
+
+    async def execute(self):
+        """Evaluate via the Docker pool and persist host-side scores and evidence."""
+        if self.context.get("_allowed_paths") is not None:
+            raise ValueError("home_evaluate requires unrestricted access to its workspace output directories")
+        arguments = {name: self.context.get(name) for name in EvaluationSpec.model_fields if name in self.context}
+        # Do not silently accept a removed toggle that conflicts with reuse paths.
+        if "eval_only" in self.context:
+            raise ValueError("Use reuse_construction_from instead of eval_only")
+        if "code_ref" in self.context:
+            raise ValueError("code_ref is unsupported; commit candidate changes and evaluate the current HEAD")
+        if "judge_concurrency" in self.context:
+            raise ValueError("Use concurrency to control both case and judge concurrency")
+        result = await self.evaluation.evaluate(**arguments)
+        self.context.response.answer = result
+        # Candidate failures are evaluation observations; infrastructure failures
+        # must remain visible to ordinary Job callers checking Response.success.
+        self.context.response.success = result["case_status_counts"]["infra_error"] == 0
+        self.context.response.metadata["result_dir"] = result["result_dir"]
+        return self.context.response

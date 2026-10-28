@@ -17,7 +17,7 @@ where = ["src"]
 include = ["reme_home*"]
 
 [tool.setuptools.package-data]
-reme_home = ["plugin.yaml"]
+reme_home = ["plugin.yaml", "runtime_docs/*.md"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"

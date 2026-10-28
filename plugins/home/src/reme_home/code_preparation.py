@@ -53,7 +53,14 @@ def _check_plugin(root: Path, name: str) -> None:
 
 
 def prepare_code(spec: PreparationSpec, source: Path, runtime: Path, candidate: Path) -> dict:
-    """Snapshot the committed runtime and candidate paths, retaining their mapping."""
+    """Export fixed ReMe sources and complete, independently versioned plugins.
+
+    Future evaluators must install plugins from the candidate, not the runtime.
+    Assemble an isolated evaluation tree from runtime plus candidate (excluding
+    .git), then resolve install_projects relative to that tree. candidate_paths
+    limits optimization scope; plugins are complete projects even when only src
+    is editable. The initial candidate commit supplies the original baseline.
+    """
     revision = git(source, "rev-parse", "--verify", "--end-of-options", spec.runtime.source_ref + "^{commit}")
     # Read object contents directly, bypassing archive attributes and checkout filters.
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
@@ -100,7 +107,8 @@ def prepare_code(spec: PreparationSpec, source: Path, runtime: Path, candidate: 
         if found != object_id or kind != "blob":
             raise ValueError(f"Invalid Git object: {name}")
         offset = boundary + 1
-        destination = runtime / name
+        # Keep each selected plugin only in repo, including packaging/config files.
+        destination = (candidate if name.parts[0] == "plugins" else runtime) / name
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(objects[offset : offset + int(size)])
         destination.chmod(0o755 if mode == "100755" else 0o644)
@@ -110,12 +118,16 @@ def prepare_code(spec: PreparationSpec, source: Path, runtime: Path, candidate: 
     if not (runtime / "reme/config" / spec.runtime.config).is_file():
         raise ValueError(f"Runtime configuration does not exist: {spec.runtime.config}")
     for name in spec.runtime.plugins:
-        _check_plugin(runtime, name)
+        _check_plugin(candidate, name)
     for name in spec.candidate.paths:
+        # Plugin candidates already include their full project. Core candidates
+        # still copy selected paths from the fixed ReMe runtime for later overlay.
+        if (candidate / name).exists():
+            continue
         original = runtime / name
         destination = candidate / name
         if not original.exists():
-            raise ValueError(f"Candidate path is absent from the selected runtime: {name}")
+            raise ValueError(f"Candidate path is absent from the selected source: {name}")
         destination.parent.mkdir(parents=True, exist_ok=True)
         if original.is_dir():
             shutil.copytree(original, destination)

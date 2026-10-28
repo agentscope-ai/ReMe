@@ -1,4 +1,8 @@
-"""Recoverable publication of Home preparation outputs under the workspace lock."""
+"""Recoverable publication under Home's lock.
+
+Every root argument is HomeWorkspace.home_path (workspace/home), not the outer
+ReMe workspace. Both outputs and recovery state stay inside this owned subtree.
+"""
 
 import json
 import os
@@ -10,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from .workspace import _validate_directory
 
-OUTPUTS = ("code/runtime", "code/repo", "datasets/training-set", "datasets/debug-cases", "domain_spec.yaml")
+OUTPUTS = ("code/runtime", "code/repo", "datasets/training-set", "datasets/debug-cases", "domain_spec.yaml", "docs")
 TRANSACTION = "preparation-transaction"
 
 
@@ -18,7 +22,7 @@ class Journal(BaseModel):
     """Only fixed output locations may be restored or removed during recovery."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 2
     existed: list[bool]
 
 
@@ -42,15 +46,18 @@ def write_json(path: Path, value: dict) -> None:
     sync_directory(path.parent)
 
 
-def targets(root: Path, state: Path) -> list[Path]:
+def targets(root: Path, state: Path, *, schema_version: int = 2) -> list[Path]:
     """Keep completion publication last."""
-    return [*[root / value for value in OUTPUTS], state / "preparation.json"]
+    # Version 1 journals predate docs publication; retain their original indices
+    # so an interrupted preparation can still be rolled back after an upgrade.
+    outputs = OUTPUTS[:-1] if schema_version == 1 else OUTPUTS
+    return [*[root / value for value in outputs], state / "preparation.json"]
 
 
-def check_targets(root: Path, state: Path) -> list[bool]:
+def check_targets(root: Path, state: Path, *, schema_version: int = 2) -> list[bool]:
     """Only the original empty Home skeleton can be replaced."""
     result = []
-    for path in targets(root, state):
+    for path in targets(root, state, schema_version=schema_version):
         _validate_directory(root, path.parent)
         if path.is_symlink():
             raise ValueError(f"Symbolic link at preparation output: {path}")
@@ -92,7 +99,7 @@ def rollback(root: Path, state: Path) -> None:
     if journal_path.is_symlink():
         raise ValueError("Invalid preparation transaction journal")
     journal = Journal.model_validate_json(journal_path.read_text(encoding="utf-8"))
-    locations = targets(root, state)
+    locations = targets(root, state, schema_version=journal.schema_version)
     if len(journal.existed) != len(locations):
         raise ValueError("Invalid preparation transaction output count")
     for index in reversed(range(len(locations))):
@@ -108,7 +115,7 @@ def rollback(root: Path, state: Path) -> None:
         elif not journal.existed[index] and not staged.exists():
             _remove(path)
         sync_directory(path.parent)
-    if check_targets(root, state) != journal.existed:
+    if check_targets(root, state, schema_version=journal.schema_version) != journal.existed:
         raise RuntimeError("Preparation rollback could not restore the original output locations")
     _remove(transaction)
     sync_directory(state)

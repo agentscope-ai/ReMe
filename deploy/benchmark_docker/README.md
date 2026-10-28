@@ -57,6 +57,18 @@ case's workspace **as it stood immediately after construction**, or provide
 `workspace_source` pointing at a host workspace directory or a saved archive.
 A reused workspace may be queried without additional build jobs.
 `export_workspace_to` persists a portable snapshot beyond the pool run.
+`run(..., on_case_finished=callback)` awaits an async `(plan, result)` callback
+after each case releases its worker, allowing incremental host-side persistence
+and judging. Final worker-close errors can still be attached afterward; reconcile
+returned results before publishing a completed summary. Callback errors abort the
+batch and trigger worker cleanup. `fail_fast=True` stops the batch on an execution
+failure. An optional `accept_build` predicate allows trusted callers to define
+partial-build acceptance; the default requires successful construction.
+`CasePlan.export_diagnostics_to` requests a best-effort full archive on execution
+failure before resetting a still-accessible worker. Interrupted containers may
+only retain a cached build log; failed diagnostic export never replaces the
+original error. `CaseResult.failure_stage` and `exception` identify execution
+failures separately from ordinary structured build/query results.
 To build memory once and query it in later runs using the same factory:
 
 ```python

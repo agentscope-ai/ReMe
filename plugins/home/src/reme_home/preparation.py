@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Event
 import shutil
 from datetime import datetime, timezone
+from importlib.resources import files
 from uuid import uuid4
 
 import yaml
@@ -16,6 +17,7 @@ from .data_preparation import prepare_dataset
 from .data_preparation.basic import derive_debug_cases
 from .data_preparation.models import fingerprint
 from .preparation_spec import PreparationSpec
+from .evaluation_judge import HomeJudge
 from .preparation_transaction import (
     TRANSACTION,
     check_targets,
@@ -48,6 +50,7 @@ class HomePreparation(BaseComponent):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.workspace = self.bind("default", HomeWorkspace, optional=False)
+        self.judge = self.bind("default", HomeJudge, optional=False)
         self._pending: set[asyncio.Task] = set()
 
     async def _close(self) -> None:
@@ -84,9 +87,10 @@ class HomePreparation(BaseComponent):
         """
         if not self.is_started:
             raise RuntimeError("Start the Home application before preparation")
-        root = self.workspace_path.resolve()
-        state = root / self.app_context.app_config.metadata_dir / "home"
-        _validate_directory(root, state)
+        workspace = self.workspace_path.resolve()
+        root = self.workspace.home_path
+        state = self.workspace.state_path
+        _validate_directory(workspace, state)
         with _initialization_lock(state / "workspace.lock"):
             recover_preparation(root, state)
             marker = state / "preparation.json"
@@ -95,16 +99,17 @@ class HomePreparation(BaseComponent):
             if (spec is None) == (spec_path is None):
                 raise ValueError("Provide exactly one of spec or spec_path")
             if spec_path is not None:
-                path = _source_path(root, spec_path)
-                if not path.is_relative_to(root) or not path.is_file():
+                path = _source_path(workspace, spec_path)
+                if not path.is_relative_to(workspace) or not path.is_file():
                     raise ValueError("spec_path must be a file inside the workspace")
                 spec = yaml.safe_load(path.read_text(encoding="utf-8"))
             config = PreparationSpec.model_validate(spec)
+            self.judge.require_benchmark(config.benchmark.name)
             # Resolve explicitly supplied source inputs before creating transaction state.
-            source = _source_path(root, config.benchmark.source)
-            repository = _source_path(root, config.runtime.source_repo)
+            source = _source_path(workspace, config.benchmark.source)
+            repository = _source_path(workspace, config.runtime.source_repo)
             evidence = (
-                _source_path(root, config.benchmark.evidence_source) if config.benchmark.evidence_source else None
+                _source_path(workspace, config.benchmark.evidence_source) if config.benchmark.evidence_source else None
             )
             config.benchmark.source = str(source)
             config.runtime.source_repo = str(repository)
@@ -161,6 +166,11 @@ class HomePreparation(BaseComponent):
         config.runtime.source_ref = code["source_commit"]
         domain = config.model_dump(mode="json")
         (transaction / "output-4").write_text(yaml.safe_dump(domain, sort_keys=False), encoding="utf-8")
+        docs = transaction / "output-5"
+        docs.mkdir()
+        resources = files("reme_home").joinpath("runtime_docs")
+        for name in ("architecture-guide.md", "validation-artifact-guide.md"):
+            (docs / name).write_bytes(resources.joinpath(name).read_bytes())
         result = {
             "schema_version": 1,
             "preparation_id": uuid4().hex,
@@ -169,5 +179,5 @@ class HomePreparation(BaseComponent):
             "dataset": dataset.model_dump(mode="json"),
             "code": code,
         }
-        write_json(transaction / "output-5", result)
+        write_json(transaction / "output-6", result)
         return result

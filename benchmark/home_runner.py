@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 import yaml
 from reme_home.preparation_spec import PreparationSpec
+from reme_home.evaluation_judge import JUDGE_PLUGINS
 
 from reme.application import Application
 
@@ -47,7 +48,7 @@ async def prepare(config_path: str | Path, *, workspace_dir: str | None = None) 
     workspace, spec = load_config(config_path, workspace_dir=workspace_dir)
     app = Application(
         workspace_dir=str(workspace),
-        plugins=["home"],
+        plugins=["home", JUDGE_PLUGINS[spec["benchmark"]["name"]]],
         service={"backend": "cli"},
         enable_logo=False,
         log_to_file=False,

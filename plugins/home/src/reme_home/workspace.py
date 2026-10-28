@@ -117,17 +117,28 @@ class HomeWorkspace(BaseComponent):
         super().__init__(**kwargs)
         self.manifest: WorkspaceManifest | None = None
 
+    @property
+    def home_path(self) -> Path:
+        """Root for every Home-owned output; future jobs/search must use this path."""
+        return self.workspace_path.resolve() / "home"
+
+    @property
+    def state_path(self) -> Path:
+        """Keep Home markers, locks and recovery state separate from ReMe metadata."""
+        return self.home_path / "metadata"
+
     async def _start(self) -> None:
         if self.app_context is None:
             raise RuntimeError("HomeWorkspace requires an ApplicationContext")
-        root = self.workspace_path.resolve()
+        workspace = self.workspace_path.resolve()
+        root = self.home_path
         config = self.app_context.app_config
-        metadata = root / config.metadata_dir
+        metadata = workspace / config.metadata_dir
         if (
             Path(config.metadata_dir).is_absolute()
-            or metadata == root
-            or not metadata.is_relative_to(root)
-            or ".." in metadata.relative_to(root).parts
+            or metadata == workspace
+            or not metadata.is_relative_to(workspace)
+            or ".." in metadata.relative_to(workspace).parts
         ):
             raise ValueError("Home metadata_dir must be a non-empty workspace-relative directory")
         for name in (
@@ -140,13 +151,14 @@ class HomeWorkspace(BaseComponent):
         ):
             if not name:
                 continue
-            configured = (root / name).resolve()
-            for directory in ROOT_DIRECTORIES:
-                managed = root / directory
-                if configured.is_relative_to(managed) or managed.is_relative_to(configured):
-                    raise ValueError(f"Home directory {directory!r} conflicts with ReMe directory {name!r}")
-        state = metadata / "home"
-        _validate_directory(root, state)
+            configured = (workspace / name).resolve()
+            if configured.is_relative_to(root) or root.is_relative_to(configured):
+                raise ValueError(f"Home directory 'home' conflicts with ReMe directory {name!r}")
+        legacy = metadata / "home/workspace.json"
+        if legacy.exists() or legacy.is_symlink():
+            raise ValueError("Legacy Home workspace layout detected; use a new workspace")
+        state = self.state_path
+        _validate_directory(workspace, state)
         state.mkdir(parents=True, exist_ok=True)
         with _initialization_lock(state / "workspace.lock"):
             from .preparation_transaction import recover_preparation  # pylint: disable=import-outside-toplevel

@@ -61,7 +61,7 @@ async def test_python_runner_starts_prepares_and_closes(tmp_path, monkeypatch, b
 
     monkeypatch.setattr(home_runner, "Application", factory)
     result = await module.run(workspace_dir=str(tmp_path / "experiment"))
-    assert observed["plugins"] == ["home"]
+    assert observed["plugins"] == ["home", "beam-judge" if benchmark == "beam" else "lme-judge"]
     assert observed["service"] == {"backend": "cli"}
     assert observed["workspace_dir"] == str(tmp_path / "experiment")
     application.start.assert_awaited_once()

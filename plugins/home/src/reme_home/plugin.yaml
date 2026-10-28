@@ -2,10 +2,19 @@ backends:
   home_preparation: reme_home.preparation:HomePreparation
   home_prepare_step: reme_home.prepare_step:HomePrepareStep
   home_workspace: reme_home.workspace:HomeWorkspace
+  home_judge: reme_home.evaluation_judge:HomeJudge
+  home_evaluation: reme_home.evaluation:HomeEvaluation
+  home_evaluate_step: reme_home.evaluate_step:HomeEvaluateStep
   auto_bash_step: reme_home.auto_bash:AutoBashStep
 
 application_defaults:
   components:
+    home.judge:
+      default:
+        backend: home_judge
+    home.evaluation:
+      default:
+        backend: home_evaluation
     home.preparation:
       default:
         backend: home_preparation
@@ -13,6 +22,26 @@ application_defaults:
       default:
         backend: home_workspace
   jobs:
+    home_evaluate:
+      backend: base
+      description: "Evaluate committed candidate code on prepared cases; optionally restore prior construction tar files"
+      parameters:
+        type: object
+        properties:
+          # case_ids/query_ids are internal runtime inputs, supplied by the host
+          # through injected_job_kwargs or run_job(), never model-selected tools.
+          reuse_construction_from:
+            type: [string, "null"]
+            description: "Prior result directory inside home/evaluations; restores memory without rebuilding"
+          dataset_kind: {type: string, enum: [training-set, debug-cases]}
+          concurrency: {type: integer, minimum: 1}
+          timeout_seconds: {type: number, exclusiveMinimum: 0}
+          base_image: {type: string}
+          fail_fast: {type: boolean}
+          max_construction_failure_rate: {type: number, minimum: 0, maximum: 1}
+          max_artifact_bytes: {type: integer, minimum: 1}
+      steps:
+        - backend: home_evaluate_step
     home_prepare:
       backend: base
       description: "Prepare experiment data and code once; failure rolls back, success forbids another call"

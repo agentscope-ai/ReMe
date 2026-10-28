@@ -82,7 +82,7 @@ class RuntimeSpec(SpecModel):
 
 
 class CandidateSpec(SpecModel):
-    """Repository paths copied into the independently versioned candidate."""
+    """Editable repository paths; selected plugins are exported as complete projects."""
 
     paths: list[str] = Field(min_length=1)
 

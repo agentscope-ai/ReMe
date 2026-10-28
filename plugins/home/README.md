@@ -1,15 +1,16 @@
 # Home plugin
 
-Adds a self-evolution workspace, the one-time `home_prepare` job, and
+Adds a self-evolution workspace, the one-time `home_prepare` job, `home_evaluate`, and
 `auto_bash` through an independently enabled ReMe plugin.
 
 Install it into the same Python environment as ReMe:
 
 ```bash
 reme plugins install plugins/home
+reme plugins install plugins/beam-judge  # Use plugins/lme-judge for LongMemEval.
 ```
 
-Enable it in an application config with `plugins: [home]`, then start the
+Enable it with the matching judge, e.g. `plugins: [home, beam-judge]`, then start the
 service and call its jobs from another terminal:
 
 ```bash
@@ -19,7 +20,7 @@ reme auto_bash command=pwd
 ```
 
 At application startup, Home automatically adds these directories inside the
-configured ReMe `workspace_dir`:
+configured ReMe `workspace_dir/home/`:
 
 ```text
 code/repo/
@@ -31,20 +32,21 @@ evaluations/
 sampling/plans/
 tmp/
 logs/
+metadata/
 ```
 
 ReMe's existing memory, resource, and session directories remain in place.
-On first initialization, each Home top-level directory must be absent or
+On first initialization, each managed directory under `home/` must be absent or
 completely empty (an empty child directory still counts as content). File
 conflicts, symbolic links in managed paths, and overlap with configured ReMe
 directories cause startup to fail without overwriting their contents.
 
-Home atomically publishes `{metadata_dir}/home/workspace.json` after creating
+Home atomically publishes `home/metadata/workspace.json` after creating
 the layout. It records layout schema version 1, a workspace UUID, and an aware
 creation timestamp. Subsequent starts validate this marker, preserve its identity
 and existing contents, and recreate missing directories. Recreating directories
 does not recover missing data. Invalid or unsupported markers fail explicitly.
-A process lock at `{metadata_dir}/home/workspace.lock` prevents concurrent
+A process lock at `home/metadata/workspace.lock` prevents concurrent
 initialization; the lock file remains on disk, but process exit releases the
 lock. A competing initializer can retry after the first finishes.
 
@@ -52,6 +54,9 @@ Failed initialization removes only newly created empty layout directories and
 temporary manifest files. Existing directories and files are preserved. After
 an abrupt process termination before the marker is published, inspect any
 nonempty Home directories before retrying; they are not automatically adopted.
+Older flat Home workspaces are rejected without moving or deleting files; use a new
+workspace for this layout. Relative input paths and `spec_path` still resolve against
+the outer ReMe workspace, not `home/`.
 Initialization creates the layout only: it does not install datasets, copy
 candidate code or documentation, initialize Git, or generate experiment/domain
 configuration, sampling state, or evaluation results.
@@ -114,7 +119,7 @@ Python uses the same Job and normal Application lifecycle; see
 ```python
 from reme.application import Application
 
-app = Application(workspace_dir="/experiments/run-1", plugins=["home"], service={"backend": "cli"})
+app = Application(workspace_dir="/experiments/run-1", plugins=["home", "beam-judge"], service={"backend": "cli"})
 try:
     await app.start()
     response = await app.run_job("home_prepare", spec=preparation_config)
@@ -124,7 +129,7 @@ finally:
     await app.close()
 ```
 
-The prepared workspace contains:
+All prepared outputs live under `workspace_dir/home/` (paths below are relative to `home/`):
 
 - `domain_spec.yaml`: resolved configuration, including actual selected case IDs
   and the full source commit SHA.
@@ -132,29 +137,140 @@ The prepared workspace contains:
   manifest with case IDs and content fingerprints.
 - `datasets/debug-cases/`: deterministic small smoke cases and their derivation
   record, or an empty `cases/` directory when debug derivation is disabled.
-- `code/runtime/`: committed ReMe sources, packaging files, configurations and
-  requested plugin projects. Uncommitted source edits are excluded.
-- `code/repo/`: an independent Git repository containing only the candidate
-  paths, retaining their original repository-relative locations. Future runners
-  overlay these paths onto a copy of `code/runtime/`; never edit the fixed base.
-- `{metadata_dir}/home/preparation.json`: completion record, config/data/code
+- `code/runtime/`: fixed committed ReMe sources, packaging files and configurations,
+  without plugin projects. Uncommitted source edits are excluded.
+- `code/repo/`: an independent Git repository containing complete selected plugin
+  projects (including packaging and configuration) and any selected ReMe core paths,
+  retaining repository-relative locations. `candidate.paths` defines the editable
+  scope, not the complete file inventory. The initial commit preserves the baseline.
+  Future runners assemble an isolated evaluation tree from runtime plus repo,
+  excluding `.git`; `install_projects` paths are relative to that tree. Install
+  plugins from the candidate, and never edit the fixed runtime.
+- `docs/architecture-guide.md` and `docs/validation-artifact-guide.md`: guides
+  shipped with the installed Home plugin, covering candidate development and
+  investigation of evaluation artifacts.
+- `metadata/preparation.json`: completion record, config/data/code
   fingerprints, initial candidate commit, plugin and installation plan.
 
-Before preparation, code directories must be empty, dataset directories may
+Before preparation, code and docs directories must be empty, dataset directories may
 contain only their empty `cases/` skeleton, and `domain_spec.yaml` must be absent.
-Candidate paths must be present in the exported runtime, cannot overlap, and may
+Candidate paths must be present in the selected source, cannot overlap, and may
 select ReMe core or plugin files. Runtime plugins are selected explicitly; the host plugin list is not copied. All selected source files must be regular Git blobs; symlinks and
 submodules are rejected. Source references are explicit Git revisions; this
 version does not support uncommitted working-tree snapshots or remote fetching.
 
 Preparation holds the same process lock as layout initialization. Inputs are
-staged beneath `{metadata_dir}/home/preparation-transaction/`, flushed, and
+staged beneath `home/metadata/preparation-transaction/`, flushed, and
 published with a durable rollback journal. Reported preparation failures restore
 pre-existing files and directories (filesystem timestamps are not part of
 the contract); the corrected request can be retried. Interrupted transactions
 are recovered at startup or before another preparation. A completed preparation
 rejects **every** later call, including identical parameters. There is no reset or
 force-overwrite option: use a new workspace for another experiment.
+
+## Evaluate prepared candidates
+
+`home_evaluate` runs committed candidate code through
+[the shared Docker pool](../../deploy/benchmark_docker/README.md), then scores
+answers through the host Application's `answer_judge` Job. Enable `beam-judge`
+for BEAM or `lme-judge` for LongMemEval. Home requires exactly one supported judge
+plugin; enabling additional benchmark judge plugins is an error. On a prepared
+workspace, startup checks that the judge matches the recorded benchmark. On a
+new workspace, `home_prepare` checks the match before preparing data or code.
+A disabled or replaced `answer_judge` Job is rejected.
+Install ReMe's `benchmark-docker` extra and build the documented base image first.
+The host and containers need the configured LLM/embedding environment; the host
+judge additionally uses `JUDGE_MODEL_NAME`. Install the corresponding judge plugin
+on the host. Its code and prompts come from the host installation, never the
+candidate repo; runs record a fingerprint of the judge code and configuration. Credentials are never written into
+the result manifest. No initial evaluation is triggered by `home_prepare`.
+
+Start a service with Home enabled, then call from another terminal:
+
+```bash
+reme start config=<your-config.yaml>
+# In another terminal: all prepared training cases, all their queries
+reme home_evaluate
+```
+
+Programs inject selections directly, without putting case IDs in the Job YAML:
+
+```python
+# app is already started with plugins=["home", "beam-judge"].
+result = await app.run_job("home_evaluate", case_ids=["1", "2"], concurrency=4)
+
+# Recover a prior pre-query memory snapshot, skip construction, answer and score again.
+replayed = await app.run_job(
+    "home_evaluate",
+    case_ids=["1"],
+    reuse_construction_from="evaluations/init/<commit-prefix>/<run-id>",
+)
+```
+
+Omitted/null `case_ids` selects the entire installed dataset, including when a
+reuse source is supplied. Empty, duplicate and unknown selections fail before
+Docker starts. Optional `query_ids` maps case IDs to nonempty query-ID lists;
+omitted entries run all queries for that case. Evaluation always uses the current
+HEAD of `home/code/repo` and records its commit in the results. Run the baseline
+before modifying the prepared candidate. Uncommitted modifications, staged changes
+and untracked files reject evaluation before Docker starts, as do changed fixed
+runtimes/datasets.
+The source snapshot combines fixed ReMe with complete plugins from the selected
+candidate commit; candidate core roots replace their baseline roots, including
+deleted files. Source snapshots exclude `.git` and credentials.
+
+`reuse_construction_from` must identify a completed training-set run inside this
+Home's `evaluations` directory, either absolutely or relative to `home/`. There
+is no `eval_only` toggle. Every selected case must have a successful construction
+and a compatible, checksum-verified tar; any missing/invalid case rejects the
+entire request without silently skipping or rebuilding it. Query-only replay
+uses current candidate code over the donor's memory, not donor answers/scores.
+The caller must establish construction equivalence when choosing reuse; this
+Job does not invoke a code-equivalence review agent. Runs record both commits.
+
+Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`:
+
+```text
+manifest.json
+summary.json
+cases/<case-id>/
+  execution.json
+  memory_construction/
+    result.json
+    build.log
+    reme_workspace.tar.gz
+    reme_workspace/
+  evaluation.tar.gz
+  queries/
+    answers.json
+    result.json
+    <query-id>/answer.log
+```
+
+The memory tar is exported **before** queries, retains session Git checkpoints,
+and is independent of the post-query evaluation archive. Replayed runs keep an
+independent donor tar and inherited build log without charging construction
+tokens again. Answers are persisted before host judging. Per-query results keep
+reference/actual answers, scores, judge output, token usage and failures. Summary
+scores use the expected-query denominator; infrastructure/judge/artifact errors
+make the comparable mean unavailable while retaining the observed-score mean.
+The Job returns `success=false` for infrastructure/judge/artifact failures, while
+preserving its structured answer and result directory; candidate failures remain
+ordinary evaluation observations.
+`valid_for_comparison` does not assert that an initial baseline covers the full
+dataset: the caller must also verify its code and complete case/query coverage.
+
+Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
+runs publish `partial_summary.json`, not a completed summary. New executions
+always allocate a new run; they never overwrite previous results. Default
+`fail_fast=false` keeps independent cases running. The shared pool executes each
+case's build followed by queries, rather than Meta-ReMe's global construction
+barrier/query-stealing schedule. `max_construction_failure_rate` defaults to the
+old strict-below-3% rule; other pool callers retain strict build-success behavior.
+
+`dataset_kind="debug-cases"` runs smoke inputs without a judge. Debug results
+must not be used to assess answer correctness or candidate quality. No real
+Docker/model evaluation is required by Home's isolated unit tests.
 
 Only Home's writers cooperate with this lock. Keep the preparation target
 locations exclusively owned by this task while preparing and recovering; other

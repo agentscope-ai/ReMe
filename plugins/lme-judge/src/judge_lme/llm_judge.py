@@ -55,13 +55,15 @@ class LmeAnswerJudgeStep(BaseStep):
             golden_answer=golden_answer,
             agent_answer=agent_answer,
         )
-        result = await self.agent_wrapper.reply(
-            user_prompt,
-            system_prompt=self.prompt_format(judge_prompt_key),
-        )
-
-        raw_answer = (result.get("result") or "").strip()
-        answer = self._normalize_judgement(raw_answer)
+        system_prompt = self.prompt_format(judge_prompt_key)
+        for _ in range(2):  # One initial attempt and at most one invalid-output retry.
+            result = await self.agent_wrapper.reply(user_prompt, system_prompt=system_prompt)
+            raw_answer = (result.get("result") or "").strip()
+            answer = self._normalize_judgement(raw_answer)
+            if answer in {"yes", "no"}:
+                break
+        else:
+            raise ValueError(f"LongMemEval judge returned an invalid yes/no judgement after 2 attempts: {raw_answer!r}")
 
         self.logger.info(f"[{self.name}] answer judgement: {answer}")
         self.context["answer_judgement"] = answer
