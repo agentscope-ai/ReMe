@@ -1175,7 +1175,9 @@ def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatc
                 step: int,
                 poll_delay_ms: int,
                 stop_event: asyncio.Event,
+                yield_on_timeout: bool,
             ) -> AsyncGenerator[set[tuple[Change, str]], None]:
+                assert yield_on_timeout is False
                 del paths, watch_filter, recursive, force_polling, debounce, step, poll_delay_ms
                 nodes = await store.get_nodes()
                 watcher_contents.append(
