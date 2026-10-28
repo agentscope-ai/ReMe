@@ -33,6 +33,8 @@ def add_mcp_job(
         return response.answer
 
     parameters = dict(job.parameters or {})
+    # MCP requires object inputs even when a job leaves its schema implicit.
+    parameters.setdefault("type", "object")
     injected_names = injected_job_kwargs.keys()
     if "properties" in parameters:
         parameters["properties"] = {
