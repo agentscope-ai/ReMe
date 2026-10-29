@@ -4,7 +4,6 @@ import asyncio
 import json
 from pathlib import Path
 
-from pydantic import ValidationError
 
 from .arxiv import ArxivPdfClient
 from .base import (
@@ -109,8 +108,8 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             truncated=str(truncated).lower(),
             pdf_text=pdf_text,
         )
-        # AgentScope is optional: other wrappers can report Pydantic validation failures.
-        recoverable = (ValidationError,)
+        # AgentScope is optional: Codex JSON parsing and Pydantic validation both raise ValueError.
+        recoverable = (ValueError,)
         try:
             from agentscope.exception import StructuredOutputError
         except ImportError:
