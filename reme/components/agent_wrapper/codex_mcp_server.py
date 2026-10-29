@@ -20,6 +20,7 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Expose selected ReMe jobs over FastMCP STDIO")
     parser.add_argument("--config", default="default", help="ReMe config name or file path")
     parser.add_argument("--workspace", help="Single-workspace directory for the legacy child service")
+    parser.add_argument("--workspace-alias", help="Configured alias retained by the legacy child service")
     parser.add_argument("--endpoint", help="Resident streamable-HTTP MCP endpoint for forwarding")
     parser.add_argument("--job", dest="jobs", action="append", required=True, help="ReMe job name; repeat as needed")
     parser.add_argument("--tool-context-id", default="", help="Context id injected into every job call")
@@ -161,9 +162,11 @@ def main() -> None:
         return
     if not args.workspace:
         raise ValueError("--workspace is required when --endpoint is not supplied")
+    workspace = str(Path(args.workspace).absolute())
+    workspace_dir = {args.workspace_alias: workspace} if args.workspace_alias else workspace
     config = resolve_app_config(
         config=args.config,
-        workspace_dir=str(Path(args.workspace).absolute()),
+        workspace_dir=workspace_dir,
         enable_logo=False,
         log_to_console=False,
         log_to_file=False,
