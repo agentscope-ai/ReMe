@@ -1,8 +1,14 @@
 # Preparation only. Paths are relative to the ReMe repository root, not the cwd.
 # Preserve dev_meta's fixed training split; groups 6-10 remain held out.
 workspace_dir: benchmark/longmemeval/workspaces/home-groups-1-5
+# Policy defaults for Home evaluation; each call still controls sampling=true/false.
+sampling_policy:
+  max_cases: 5
+  max_queries: null
+  temperature: 1.0
+  ewma_alpha: 0.3
+  uniform_exploration: 0.2
 preparation:
-  schema_version: 1
   benchmark:
     name: longmemeval
     source: benchmark/longmemeval/dataset/longmemeval_s_reme_cleaned.json

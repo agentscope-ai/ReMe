@@ -131,6 +131,12 @@ the host application loads `home`. `source_ref: HEAD` exports committed source
 only, excluding uncommitted modifications. Preparation failure rolls back its
 outputs; after success, another call fails instead of resetting the experiment.
 
+The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
+`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
+`uniform_exploration`. The runner validates these and passes them to the host
+`home.evaluation` Component. It still only prepares; it does not run evaluations.
+Each evaluation controls `sampling` and `record_history` separately.
+
 Python callers can use the same lifecycle:
 
 ```python

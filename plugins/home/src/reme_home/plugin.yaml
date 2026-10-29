@@ -1,20 +1,39 @@
 backends:
+  home_memory_inspection_step: reme_home.evaluation.memory_inspection_step:HomeMemoryInspectionStep
+  home_code: reme_home.code.component:HomeCode
+  home_code_step: reme_home.code.step:HomeCodeStep
+  home_bounded: reme_home.agent:BoundedAgentWrapper
   home_preparation: reme_home.preparation.component:HomePreparation
   home_prepare_step: reme_home.preparation.component:HomePrepareStep
   home_workspace: reme_home.workspace:HomeWorkspace
   home_judge: reme_home.judge:HomeJudge
   home_evaluation: reme_home.evaluation.component:HomeEvaluation
+  home_evaluation_history: reme_home.evaluation.history:HomeEvaluationHistory
   home_evaluate_step: reme_home.evaluation.step:HomeEvaluateStep
+  home_list_validation_results_step: reme_home.evaluation.inspection_step:HomeListValidationResultsStep
+  home_inspect_validation_step: reme_home.evaluation.inspection_step:HomeInspectValidationStep
   auto_bash_step: reme_home.auto_bash:AutoBashStep
 
 application_defaults:
   components:
+    home.code:
+      default:
+        backend: home_code
     home.judge:
       default:
         backend: home_judge
+    home.evaluation_history:
+      default:
+        backend: home_evaluation_history
     home.evaluation:
       default:
         backend: home_evaluation
+        sampling_policy:
+          max_cases: 5
+          max_queries: null
+          temperature: 1.0
+          ewma_alpha: 0.3
+          uniform_exploration: 0.2
     home.preparation:
       default:
         backend: home_preparation
@@ -22,12 +41,105 @@ application_defaults:
       default:
         backend: home_workspace
   jobs:
-    home_evaluate:
+    home_inspect_memory_history:
       backend: base
-      description: "Evaluate committed candidate code on prepared cases; optionally restore prior construction tar files"
+      description: "List a case's exported memory Git checkpoints, newest first; use home_inspect_validation to locate the case"
       parameters:
         type: object
+        additionalProperties: false
+        required: [validation_path, case_id]
         properties:
+          validation_path: {type: string, minLength: 1}
+          case_id: {type: string, minLength: 1}
+          path:
+            type: [string, "null"]
+            description: "Literal memory-workspace-relative file or directory to follow"
+          offset: {type: integer, minimum: 0, default: 0}
+          limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+      steps:
+        - backend: home_memory_inspection_step
+          operation: history
+    home_compare_memory:
+      backend: base
+      description: "Compare a case's memory checkpoints or committed final memory across evaluations; narrow path when output is truncated"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [validation_path, case_id]
+        properties:
+          validation_path: {type: string, minLength: 1}
+          case_id: {type: string, minLength: 1}
+          base_ref:
+            type: [string, "null"]
+            description: "Required within one evaluation; defaults to HEAD for cross-evaluation comparisons"
+          target_ref:
+            type: string
+            default: HEAD
+            description: "Target memory commit or revision; hexadecimal prefixes must be unique among HEAD-reachable commits"
+          target_validation_path:
+            type: [string, "null"]
+            description: "Optional other evaluation containing the same case"
+          path:
+            type: [string, "null"]
+            description: "Literal memory-workspace-relative file or directory"
+      steps:
+        - backend: home_memory_inspection_step
+          operation: compare
+    home_list_validation_results:
+      backend: base
+      description: "List evaluation runs including debug, failed and standalone runs; inspect a returned validation_path with home_inspect_validation"
+      parameters:
+        type: object
+        additionalProperties: false
+        properties:
+          branch_name:
+            type: [string, "null"]
+            description: "Filter by branch; with commit_sha defaults to the current candidate branch"
+          commit_sha:
+            type: [string, "null"]
+            pattern: "^[0-9a-fA-F]+$"
+            description: "Full commit SHA or hexadecimal prefix matching exactly one reachable commit on the selected branch"
+          offset: {type: integer, minimum: 0, default: 0}
+          limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+      steps:
+        - backend: home_list_validation_results_step
+    home_inspect_validation:
+      backend: base
+      description: "Read an evaluation's case summaries, a case's query summaries, or one query's answer/judge previews; follow next_offset and source paths for details"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [validation_path]
+        properties:
+          validation_path:
+            type: string
+            minLength: 1
+            description: "Result directory returned by home_evaluate or home_list_validation_results; absolute or relative to home/"
+          case_id:
+            type: [string, "null"]
+            description: "Selected case to inspect; omit to list cases"
+          query_id:
+            type: [string, "null"]
+            description: "Selected query to inspect in detail; requires case_id"
+          offset: {type: integer, minimum: 0, default: 0}
+          limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+      steps:
+        - backend: home_inspect_validation_step
+    home_evaluate:
+      backend: base
+      description: "Evaluate committed code; optionally sample cases/queries or restore prior construction tar files"
+      parameters:
+        type: object
+        additionalProperties: false
+        properties:
+          sampling:
+            type: boolean
+            default: false
+            description: "Adaptively select case/query IDs using the host sampling_policy; debug ignores this flag"
+          record_history:
+            type: boolean
+            default: true
+            description: "Register successful scored results and started rounds for optimization; false saves results without history or sampling updates; debug always skips history"
           # case_ids/query_ids are internal runtime inputs, supplied by the host
           # through injected_job_kwargs or run_job(), never model-selected tools.
           reuse_construction_from:
@@ -101,3 +213,191 @@ application_defaults:
           - command
       steps:
         - backend: auto_bash_step
+    home_code_status:
+      backend: base
+      description: Inspect candidate branch, commit and uncommitted files
+      parameters:
+        additionalProperties: false
+        properties: {}
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: status
+    home_list_candidate_branches:
+      backend: base
+      description: List the protected init branch and local candidate branches
+      parameters:
+        additionalProperties: false
+        properties: {}
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: list_branches
+    home_create_candidate_branch:
+      backend: base
+      description: Create and switch to a new candidate branch; requires clean code
+      parameters:
+        additionalProperties: false
+        properties:
+          branch_name:
+            maxLength: 100
+            minLength: 1
+            type: string
+        required:
+        - branch_name
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: create_branch
+    home_switch_candidate_branch:
+      backend: base
+      description: Switch to an existing local branch; requires clean code
+      parameters:
+        additionalProperties: false
+        properties:
+          branch_name:
+            maxLength: 100
+            minLength: 1
+            type: string
+        required:
+        - branch_name
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: switch_branch
+    home_merge_candidate_branch:
+      backend: base
+      description: Stage another candidate branch without committing; conflicts are aborted
+      parameters:
+        additionalProperties: false
+        properties:
+          branch_name:
+            maxLength: 100
+            minLength: 1
+            type: string
+        required:
+        - branch_name
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: merge_branch
+    home_commit_candidate:
+      backend: base
+      description: Commit all changes within candidate_paths; init and existing history are protected
+      parameters:
+        additionalProperties: false
+        properties:
+          message:
+            maxLength: 10000
+            minLength: 1
+            pattern: \S
+            type: string
+        required:
+        - message
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: commit
+    home_code_diff:
+      backend: base
+      description: Inspect tracked working changes against HEAD or compare immutable commits
+      parameters:
+        additionalProperties: false
+        properties:
+          base_revision:
+            anyOf:
+            - type: string
+            - type: 'null'
+            default: null
+          revision:
+            anyOf:
+            - type: string
+            - type: 'null'
+            default: null
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: diff
+    home_list_code_tree:
+      backend: base
+      description: List tracked regular files at a committed revision
+      parameters:
+        additionalProperties: false
+        properties:
+          revision:
+            default: HEAD
+            minLength: 1
+            type: string
+          path:
+            anyOf:
+            - type: string
+            - type: 'null'
+            default: null
+          max_results:
+            default: 500
+            maximum: 2000
+            minimum: 1
+            type: integer
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: list_code_tree
+    home_read_code_file:
+      backend: base
+      description: Read up to 300 lines from a committed code file
+      parameters:
+        additionalProperties: false
+        properties:
+          path:
+            minLength: 1
+            type: string
+          revision:
+            default: HEAD
+            minLength: 1
+            type: string
+          start_line:
+            default: 1
+            minimum: 1
+            type: integer
+          end_line:
+            anyOf:
+            - minimum: 1
+              type: integer
+            - type: 'null'
+            default: null
+        required:
+        - path
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: read_code_file
+    home_search_code:
+      backend: base
+      description: Search committed code with a bounded Python multiline regular expression
+      parameters:
+        additionalProperties: false
+        properties:
+          pattern:
+            maxLength: 500
+            minLength: 1
+            type: string
+          revision:
+            default: HEAD
+            minLength: 1
+            type: string
+          path:
+            anyOf:
+            - type: string
+            - type: 'null'
+            default: null
+          max_results:
+            default: 30
+            maximum: 30
+            minimum: 1
+            type: integer
+        required:
+        - pattern
+        type: object
+      steps:
+        - backend: home_code_step
+          operation: search_code

@@ -10,18 +10,35 @@ import tomllib
 from .spec import PreparationSpec, relative_path
 
 
-def git(repository: Path, *arguments: str) -> str:
+def git_bytes(repository: Path, *arguments: str) -> bytes:
     """Run bounded, noninteractive Git commands without a shell or user hooks."""
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
     result = subprocess.run(
-        ["git", "-c", "core.hooksPath=" + os.devnull, "-c", "commit.gpgSign=false", "-C", str(repository), *arguments],
+        [
+            "git",
+            "-c",
+            "core.hooksPath=" + os.devnull,
+            "-c",
+            "commit.gpgSign=false",
+            "-c",
+            "core.fsmonitor=false",
+            "-C",
+            str(repository),
+            *arguments,
+        ],
         check=True,
         capture_output=True,
         env=environment,
         timeout=120,
     )
-    return result.stdout.decode().strip()
+    return result.stdout
+
+
+def git(repository: Path, *arguments: str, strip: bool = True) -> str:
+    """Decode Git output, optionally preserving porcelain whitespace and path bytes."""
+    output = git_bytes(repository, *arguments).decode("utf-8")
+    return output.strip() if strip else output
 
 
 def tree_fingerprint(root: Path) -> str:

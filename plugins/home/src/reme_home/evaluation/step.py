@@ -7,14 +7,14 @@ from .inputs import EvaluationSpec
 
 
 class HomeEvaluateStep(BaseStep):
-    """Case IDs come from runtime inputs; no selection means all prepared cases."""
+    """One evaluation Job with optional host-configured adaptive sampling."""
 
     evaluation: HomeEvaluation = Ref(HomeEvaluation, "home.evaluation")
 
     async def execute(self):
         """Evaluate via the Docker pool and persist host-side scores and evidence."""
         if self.context.get("_allowed_paths") is not None:
-            raise ValueError("home_evaluate requires unrestricted access to its workspace output directories")
+            raise ValueError("Home evaluation Jobs require unrestricted access to their workspace output directories")
         arguments = {name: self.context.get(name) for name in EvaluationSpec.model_fields if name in self.context}
         # Do not silently accept a removed toggle that conflicts with reuse paths.
         if "eval_only" in self.context:

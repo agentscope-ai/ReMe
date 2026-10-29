@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+import yaml
 
 from reme.schema import Response
 
@@ -64,11 +65,48 @@ async def test_python_runner_starts_prepares_and_closes(tmp_path, monkeypatch, b
     assert observed["plugins"] == ["home", "beam-judge" if benchmark == "beam" else "lme-judge"]
     assert observed["service"] == {"backend": "cli"}
     assert observed["workspace_dir"] == str(tmp_path / "experiment")
+    assert observed["components"]["home.evaluation"]["default"]["sampling_policy"] == {
+        "max_cases": 5,
+        "max_queries": None,
+        "temperature": 1.0,
+        "ewma_alpha": 0.3,
+        "uniform_exploration": 0.2,
+    }
     application.start.assert_awaited_once()
     application.close.assert_awaited_once()
     assert application.run_job.await_count == 1
     assert application.run_job.call_args.args == ("home_prepare",)
     assert result["workspace_dir"] == str(tmp_path / "experiment")
+
+
+@pytest.mark.asyncio
+async def test_runner_validates_and_passes_custom_sampling_policy(tmp_path, monkeypatch):
+    """Partial policies merge typed defaults and never leak into preparation inputs."""
+    config = yaml.safe_load((ROOT / "benchmark/beam/config_home.yaml").read_text())
+    config["sampling_policy"] = {"max_cases": 2, "max_queries": 7}
+    path = tmp_path / "home.yaml"
+    path.write_text(yaml.safe_dump(config))
+    application = AsyncMock()
+    application.run_job.return_value = Response(answer={})
+    observed = {}
+
+    def factory(**kwargs):
+        observed.update(kwargs)
+        return application
+
+    monkeypatch.setattr(home_runner, "Application", factory)
+    await home_runner.prepare(path)
+    policy = observed["components"]["home.evaluation"]["default"]["sampling_policy"]
+    assert policy["max_cases"] == 2 and policy["max_queries"] == 7 and policy["ewma_alpha"] == 0.3
+    assert "sampling_policy" not in application.run_job.call_args.kwargs["spec"]
+    for invalid in ({"max_cases": 0}, {"unknown": 1}, {"max_queries": "7"}):
+        config["sampling_policy"] = invalid
+        path.write_text(yaml.safe_dump(config))
+        with pytest.raises(ValueError):
+            await home_runner.prepare(path)
+    assert application.start.await_count == 1
+    assert application.run_job.await_count == 1
+    assert application.run_job.call_args.args == ("home_prepare",)
 
 
 @pytest.mark.asyncio

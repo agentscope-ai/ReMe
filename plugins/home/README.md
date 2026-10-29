@@ -315,3 +315,394 @@ processes must not write there. Recovery requires a writable, functioning
 filesystem; if rollback fails, its journal remains for the next attempt and the
 Job reports the error. Calls with `_allowed_paths` restrictions are rejected
 because preparation owns multiple workspace output locations.
+
+## Bounded agent foundation
+
+`reme_home.agent.BoundedAgentWrapper` inherits ReMe's `AsAgentWrapper` and is
+registered as the `home_bounded` agent-wrapper backend when Home is enabled.
+It reuses ReMe's Job tools, hidden `injected_job_kwargs`, `tool_context_id`,
+built-in tools, permissions, model configuration, skills, token accounting and
+persisted sessions. No agent component or optimization run is enabled automatically.
+Configure a component explicitly, alongside the required model and Home plugins:
+
+```yaml
+components:
+  agent_wrapper:
+    investigator:
+      backend: home_bounded
+      as_llm: default
+      react_config:
+        max_iters: 40
+      time_budget_minutes: 30  # Optional advisory budget; null disables it.
+      job_tools: [home_evaluate]
+      injected_job_kwargs:
+        case_ids: ["1"]  # Hidden from the model and enforced by the host.
+```
+
+Call `reply()` or `reply_stream()` through the normal ReMe wrapper interface;
+call-time options override component defaults. Each built agent owns its own
+timer and request state. The internal `BoundedReActAgent` still subclasses the AS
+runtime to implement loop hooks; callers use `BoundedAgentWrapper` for ReMe wiring.
+The lower-level `BoundedReActAgent` and `RunTimeBudgetTimer` exports remain available.
+
+Each reply invocation starts and stops its advisory timer, including on errors and
+cancellation. Iteration reminders occur at 50%, 75%, 90% and 95%; coincident or
+skipped thresholds produce one reminder. Time reminders occur at 60%, 75%, 90%,
+100%, then each additional 10%, alternating temporary and retained messages. Time
+budgets do not cancel model calls or tools. Completed context replacements are
+counted in time reminders. Reminders use native AS hint blocks, preserving the
+reply's cumulative token usage across reasoning and tool calls. Use separate
+agent instances for concurrent work.
+
+The AgentScope loop owns the iteration cap and its single finalization call.
+For text reports, Home removes all tools from that call, retains the original
+task, and trims oldest messages if needed to fit the context budget. The final
+report is still attempted if its preceding context compression fails; ordinary
+compression errors outside finalization and cancellation continue to propagate.
+The final response is buffered until complete, including for streaming models; unsolicited
+tool calls are discarded. If finalization fails or returns no text, the reply
+explicitly identifies any retained prior model output as incomplete. Cancellation
+and provider interruption keep AgentScope's interruption behavior. Native
+structured-output requests retain the SDK's schema and grace-iteration behavior.
+Events and final-message token usage retain AgentScope's existing semantics.
+
+## Candidate versions and code inspection
+
+Home registers the `home.code` Component and ten ordinary Step-backed Jobs. They
+operate only on the prepared `home/code/repo`, sharing the preparation/evaluation
+process lock. Enable Home and prepare the workspace before calling them.
+
+| Job | Inputs and behavior |
+| --- | --- |
+| `home_code_status` | Current branch, full commit SHA, exact changed paths and pending merge state. |
+| `home_list_candidate_branches` | Local branches and candidates, excluding protected `init` from the candidate count. |
+| `home_create_candidate_branch` | `branch_name`: fork current HEAD and switch to a new candidate. |
+| `home_switch_candidate_branch` | `branch_name`: switch to an existing local branch, including `init`. |
+| `home_merge_candidate_branch` | `branch_name`: merge another candidate without committing; conflicts are aborted. |
+| `home_commit_candidate` | `message`: stage and commit all visible changes within prepared `candidate_paths`. |
+| `home_code_diff` | Omit inputs for tracked changes against HEAD; supply `base_revision` and `revision` to compare commits. With only `base_revision`, compare the working tree against that commit. |
+| `home_list_code_tree` | Optional `revision`, literal `path`, and `max_results` (default 500, maximum 2000). |
+| `home_read_code_file` | Required `path`; optional `revision`, one-based `start_line` and inclusive `end_line`. |
+| `home_search_code` | Required Python regex `pattern`; optional `revision`, literal `path`, and `max_results` (maximum 30). |
+
+Start the configured service in one terminal, then use a second terminal:
+
+```bash
+reme start config=/absolute/path/to/home.yaml
+```
+
+```bash
+reme home_code_status
+reme home_create_candidate_branch branch_name=retrieval-routing
+# Edit files under the prepared candidate_paths, then inspect and commit.
+reme home_code_diff
+reme home_commit_candidate message='Improve evidence routing'
+reme home_evaluate debug=true
+reme home_evaluate
+```
+
+Branch names must be single path-safe names without slashes. Creation, switching
+and merging require a clean checkout, including untracked files and pending
+merges. `init` must continue to point to the preparation's initial commit; commits
+and merges into it are rejected. Detached candidates, symlinks, submodules and
+changes outside `candidate_paths` are rejected by the managed mutation tools.
+Merges require an explicit later commit. No remote operations, branch deletion,
+amend, reset or rebase are exposed. Empty ordinary commits fail through Git.
+These guarantees apply to cooperating Home Jobs; do not grant an optimizer
+unrestricted shell writes or direct access to `.git` if it must obey this boundary.
+Cancellation waits for already-started Git work to finish before returning.
+
+Code-navigation Jobs resolve `revision` (default `HEAD`) to a full SHA once per
+call, read raw committed objects and never execute candidate code. Dirty working
+files and Git archive attributes do not affect these reads. Pin the same SHA
+across a diagnostic session through ReMe's hidden injection:
+
+```yaml
+job_tools: [home_list_code_tree, home_read_code_file, home_search_code]
+injected_job_kwargs:
+  revision: "<full-commit-sha>"
+```
+
+The wrapper hides injected fields from the model and rejects attempts to supply
+them. For comparisons, configure two agent invocations or two named Job aliases
+with separately pinned revisions. `HomeCodeStep` takes a fixed `operation` in
+Step configuration; repository location and operation are never model-selected.
+The Python entry point is `await home_code.run(operation, **arguments)`.
+
+Reads are limited to 300 lines and 100,000 content characters, with explicit
+truncation flags. Search accepts Python multiline regex, merges adjacent match
+contexts, and displays at most five lines per result block and 100,000 content
+characters. Files above 5 MB and searches above 100 MB are rejected; regex
+matching runs in a separate process with a ten-second timeout. Use narrower
+paths or line ranges to continue inspecting. These tool-operation timeouts are
+independent of the bounded agent's advisory time budget.
+
+Evaluation also checks the standalone repository identity and protected baseline
+before taking its existing clean-HEAD snapshot. Formal evaluation deduplication,
+automatic ancestor/donor selection and optimization scheduling remain separate
+policies; these Jobs do not enable an optimizer or change evaluation selection.
+
+## Evaluation sampling and history
+
+`home_evaluate` is the single evaluation Job. Set `sampling=true` for adaptive
+case/query selection, or leave it false for a full baseline or an explicit
+host-provided `case_ids`/`query_ids` selection. `sampling=true` conflicts with
+explicit selections in scored mode. `debug=true` ignores the sampling flag,
+uses debug cases and never reads, writes or registers evaluation history.
+The former `home_validate` Job is removed; use `home_evaluate sampling=true`.
+
+Selection and optimization-history recording are independent. `record_history`
+defaults to `true` for compatibility: a first full optimization baseline contributes
+observations even with `sampling=false`. Set `record_history=false` to score code
+without feeding optimization history. This still saves the manifest, scores and
+result artifacts, but never registers a history entry, increments either counter
+or updates sampling observations. Rebuilding history preserves that exclusion.
+Debug always skips history regardless of either flag.
+
+Evaluation parameters have distinct names and lifetimes:
+
+| Parameter | Where it belongs | Meaning |
+| --- | --- | --- |
+| `sampling` | Job input, default `false` | Enable adaptive selection for this invocation. |
+| `record_history` | Job input, default `true` | Record started rounds and successful results for optimization. |
+| `sampling_policy` | Component defaults or host Job input | Case/query limits and weighting settings. |
+
+Home registers these Component defaults automatically; override the policy in
+application configuration when needed:
+
+```yaml
+components:
+  home.evaluation:
+    default:
+      backend: home_evaluation
+      sampling_policy:
+        max_cases: 5
+        max_queries: null
+        temperature: 1.0
+        ewma_alpha: 0.3
+        uniform_exploration: 0.2
+```
+
+The Component policy is immutable. Each invocation validates its own policy,
+merging a partial `sampling_policy` over Component defaults and persisting the
+effective values with that run. Explicit null `max_queries` removes the query
+budget. The previous Component configuration key `sampling` is now
+`sampling_policy`; passing a policy object as the Job's boolean `sampling` fails.
+Normal ReMe Job defaults also work: set `sampling: true` and optionally
+`sampling_policy` directly under `jobs.home_evaluate`. Call-time values take
+precedence over same-named Job defaults; a call-time policy object replaces the
+Job-default policy object, then merges with Component defaults.
+
+With the configured service running, use a second terminal:
+
+```bash
+reme home_evaluate sampling=false          # Full baseline.
+reme home_evaluate sampling=false record_history=false  # Standalone full evaluation.
+reme home_evaluate sampling=true           # Adaptive formal evaluation.
+reme home_evaluate debug=true sampling=true  # Debug only; no history feedback.
+```
+
+Host Python callers can override the policy for one invocation without changing
+the next invocation's defaults:
+
+```python
+result = await app.run_job(
+    "home_evaluate",
+    sampling=True,
+    sampling_policy={"max_cases": 3, "max_queries": 12},
+)
+
+# Score specified prepared cases without affecting the optimizer's history.
+standalone = await app.run_job(
+    "home_evaluate",
+    sampling=False,
+    record_history=False,
+    case_ids=["case-a", "case-b"],  # Omit to run the full prepared dataset.
+)
+```
+
+`sampling_policy` and explicit case/query IDs stay out of the default agent tool
+schema. An optimizer that must obey a fixed budget should receive hidden,
+enforced values through the normal wrapper injection:
+
+```yaml
+job_tools: [home_evaluate]
+injected_job_kwargs:
+  sampling: true
+  record_history: true
+  sampling_policy:
+    max_cases: 3
+    max_queries: 12
+```
+
+The wrapper hides injected parameters and rejects model attempts to provide
+those keys. Use ordinary call arguments when the host should decide the mode
+per invocation; use injection when that decision must remain fixed for an agent.
+
+Case/query selection retains dev_meta b53048e4's EWMA loss, staleness, observation
+uncertainty, un-rechecked error priority, normalized adaptive/uniform mixture,
+weighted drawing without replacement and fair-share query budget allocation.
+Policy defaults are unchanged. Positive integer case/query limits, positive
+finite temperature, alpha in `(0, 1]` and uniform exploration in `[0, 1]` are
+validated. Seeds, draw weights, eligibility and exact selections are saved.
+An explicit construction donor uses the existing dev_meta eligibility rules and
+checksum checks. A later full rebuild considers the full training set again.
+
+### Successful evaluation history
+
+`reme_home.evaluation.history.HomeEvaluationHistory` is the dedicated
+`home.evaluation_history` Component, automatically bound by `HomeEvaluation`.
+It owns successful-result registration, lookup, deduplication, cache rebuilding
+and the observations used for the next draw. Steps remain invocation adapters;
+they do not own cross-evaluation state.
+
+A successful history entry requires `record_history=true` and a started, completed, scored training-set
+run with a full summary and no infrastructure errors, following the existing
+`Response.success` contract. Low or zero quality scores remain valid observations.
+Classified candidate failures retain the existing response semantics; only their
+actual numeric scores train EWMA. A run with any infrastructure error is entirely
+excluded, including scores from its healthy cases. Debug, cancelled, fail-fast
+and pre-start failures never enter successful history. A full summary is the durable
+completion boundary: cancelling the caller during subsequent history bookkeeping
+does not relabel that already-completed evaluation. Failed registration discards
+only derived caches so they can rebuild from the final source run status.
+
+```python
+history = app.context.components["home.evaluation_history"]["default"]
+results = history.list_results()  # Typed EvaluationRecord objects, chronological.
+result = history.get_result(results[-1].run_key)
+history.rebuild()                # Rebuild derived indexes from saved artifacts.
+```
+
+The Component owns the workspace lock for these synchronous filesystem methods;
+async host code can run them in a worker thread. Its compact catalog lives at
+`home/evaluations/history.json`. Each record points to its run via `run_key` and
+contains commit/branch identity, selected IDs, completion time and summary metrics;
+questions, answers and memory files stay in their original result directory.
+
+The separate startup ledger advances only after the first successfully initialized
+sandbox, including when a later worker or execution fails. Extra/replacement
+workers do not count twice. `home/sampling/state.json` distinguishes started
+`round` from `successful_round`. Only successful history advances the probability
+clock or changes EWMA; failed runs cannot age cases or alter the next draw's
+weights. Started plans live under
+`home/sampling/plans/<branch>/<commit-prefix>/<run-id>.json`. Their `round` is the
+startup ledger round; `selection_round` records the successful-history snapshot
+used for an adaptive draw.
+
+For `record_history=false`, full or explicit evaluation does not access the history
+manager. Adaptive selection can still read existing observations, while leaving
+them unchanged; its draw is saved locally as `manifest.selection_plan`, without
+a startup-ledger round or shared sampling plan. `manifest.options.record_history`
+persists the requested setting, and the response's `record_history` indicates
+whether the run participates in history (always false for debug). Legacy manifests
+without the setting retain the previous history behavior.
+
+Formal runs remain serialized by `home/metadata/validation.lock`; debug bypasses
+that lock. Missing caches reconstruct from started plans and successful scored
+artifacts. Older sampling caches are rebuilt under the success-only rule.
+`history.rebuild()` rewrites only the catalog and sampling cache. Preserve source
+manifests, plans and result artifacts when rebuilding; candidate code, datasets
+and memory files are never modified.
+
+## Evaluation result inspection
+
+Two read-only Jobs navigate saved evaluations independently of successful
+optimization history. They include debug, failed, cancelled, running and standalone
+(`record_history=false`) runs. Reads never register results, update sampling,
+rebuild summaries or write artifacts.
+
+`home_list_validation_results` accepts optional `branch_name` and `commit_sha`
+filters plus `offset=0`, `limit=20` (1–100). Without filters it lists all runs,
+newest first, with a stable path tie-breaker. It returns `row_count`, `rows` and
+`next_offset`, compact identity/options, saved summary counts and scores, failure
+previews and artifact paths. A malformed run is reported as a `read_error` row
+without stopping the unfiltered catalog.
+
+`commit_sha` accepts a full SHA or hexadecimal prefix. A prefix must match exactly
+one of **all commits reachable from the selected local branch**, including commits
+that have never been evaluated. Omitting `branch_name` with a commit filter uses
+the current candidate branch. Missing or ambiguous matches fail explicitly; the
+response includes the resolved branch and full SHA. A branch-only filter can also
+browse historical runs from a deleted branch.
+
+`home_inspect_validation` requires `validation_path` (absolute or relative to
+`home/`) and accepts optional `case_id`, `query_id`, `offset=0` and `limit=20`:
+
+| Selection | Returned rows |
+| --- | --- |
+| Run only | Case summaries, missing scores first, then low scores. |
+| Run and case | Query summaries in manifest order, plus independently paged failed construction Jobs. |
+| Run, case and query | One query's question, answer, rubric, score and judge/error previews. |
+
+`query_id` requires `case_id`; both must be selected by the run manifest. Cases or
+queries without published evidence are explicitly marked `missing`, with null
+scores. The tool uses a saved full summary, or an existing partial summary when
+the full summary is absent. Missing summaries are reported without reconstruction.
+Errors are previewed to 600 characters, and selected query fields to 2,000 each;
+truncated fields carry a marker. `rows_source`, JSON `pointer` values, and log and
+memory paths identify the original evidence. Failed construction Jobs have their
+own `row_count`, `rows`, `next_offset` under `construction.failed_jobs`; their
+pagination is independent of the query rows, using the supplied offset/limit.
+
+With the configured service running, use a second terminal:
+
+```bash
+reme home_list_validation_results branch_name=candidate commit_sha=abc123 limit=10
+reme home_inspect_validation validation_path=evaluations/candidate/abc1234/1
+reme home_inspect_validation validation_path=evaluations/candidate/abc1234/1 case_id=case-a query_id=query-a
+```
+
+Host callers use the same Jobs through `app.run_job()`. For a case-scoped agent,
+inject `validation_path` and `case_id` with `injected_job_kwargs`; the wrapper hides
+and enforces these values. Both Jobs reject path escapes and symlinks, and fail
+closed for restricted `_allowed_paths` contexts, like the other Home Jobs.
+
+### Memory checkpoint inspection
+
+Two read-only Jobs investigate a case's exported memory Git repository. Locate
+an evaluation and case with `home_list_validation_results` and
+`home_inspect_validation` first. Neither Job changes artifacts, Git refs, the
+index, evaluation history or sampling state.
+
+- `home_inspect_memory_history(validation_path, case_id, path=null, offset=0,
+  limit=20)` returns `status`, `workspace_exists`, `has_git_history`, `head`,
+  `repository`, and newest-first checkpoint `rows` with `row_count` and
+  `next_offset`. Limits are 1–100. Each row includes the full commit SHA, parents,
+  timestamp, subject (up to 2,000 characters) and a `session_id` when the subject
+  follows `session: <id>`. `path` follows a literal workspace-relative file or
+  directory. Missing exports, absent Git history and empty repositories have
+  distinct statuses; corrupt repositories fail explicitly.
+- `home_compare_memory(validation_path, case_id, base_ref=null,
+  target_ref="HEAD", target_validation_path=null, path=null)` compares two memory
+  commits. Within one evaluation, `base_ref` is required. For another evaluation,
+  supply `target_validation_path`; both sides then default to `HEAD`. The case
+  must be selected in both manifests. Returns resolved commits, candidate commit
+  identities, manifest fingerprints, added/removed/modified paths, content-tree
+  hashes, a unified `diff`, and `truncated`.
+
+References accept HEAD-relative expressions and hexadecimal SHA prefixes unique
+among commits reachable from that memory repository's HEAD. Resolved expressions
+must also be HEAD-reachable. This is independent of candidate-code branch history.
+Comparisons read committed regular files from Git objects, ignoring dirty or
+untracked checkout contents. File mode changes alone are not content differences.
+Binary changes are identified without printing their bytes. Each snapshot is
+limited to 2,000 files, 20 MB total and 5 MB per file; diff output is limited to
+100,000 characters. Narrow `path` if a limit is reached. Tree hashes describe the
+selected path scope. Linked Git storage, alternates, shallow/partial histories and
+symbolic links in Git metadata are rejected.
+
+After starting the service with the Home configuration, call from another terminal:
+
+```bash
+reme home_inspect_memory_history validation_path=evaluations/candidate/abcdef0/1 case_id=case1
+reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 case_id=case1 base_ref=HEAD~1
+reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 target_validation_path=evaluations/candidate/1234567/1 case_id=case1
+```
+
+`validation_path` is absolute or relative to `home/`; for example the relative
+form is `evaluations/candidate/abcdef0/1`. For agent tools, host `injected_job_kwargs` can pin
+`validation_path` and `case_id`; the wrapper hides injected fields and rejects
+model overrides. Like the other Home inspection Jobs, these Jobs reject
+`_allowed_paths` restrictions rather than bypassing them. Query-to-session evidence
+tracing and the case study agent are separate functionality.

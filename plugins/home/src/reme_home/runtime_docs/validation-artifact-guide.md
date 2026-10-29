@@ -120,3 +120,84 @@ structured exception details are treated as infrastructure errors. Construction
 failure-rate tolerance applies only to classified candidate errors.
 Construction reuse answers and judges again with the current candidate; it does
 not reuse donor answers or scores.
+
+## Evaluation history and adaptive sampling evidence
+
+`home_evaluate sampling=true` enables adaptive selection; false preserves full or
+explicit evaluation. Debug always bypasses history. `sampling_policy` is the
+host policy input, distinct from the boolean toggle. The effective policy is
+captured in `manifest.options` and the started plan.
+
+`record_history=true` (the default) includes a successful full baseline even when
+`sampling=false`. `record_history=false` runs the same scoring and artifact pipeline
+without registering results or advancing any optimization/sampling counters. The
+choice is stored in `manifest.options.record_history` and respected by history
+registration and rebuilding; a missing legacy setting means true. Debug always
+skips history. The response reports effective participation as `record_history`.
+An untracked adaptive run may read existing observations and saves its draw locally
+in `manifest.selection_plan`, without a shared started plan or ledger round.
+
+`home.evaluation_history` owns the successful-result catalog at
+`home/evaluations/history.json`. Entries require completed scored training runs
+with `success=true` (or equivalent legacy summary counts) and no infrastructure
+errors. Low scores remain useful. Failed/cancelled/debug/partial runs are excluded;
+a mixed run with an infrastructure failure contributes no quality observations.
+Source manifests, summaries and query results remain authoritative.
+
+`sandbox_started_at` marks the first successfully initialized sandbox. The
+history-enabled manifest's `sampling.plan_path` points to its policy, seed, weights, selection
+and started round under `home/sampling/plans/`. Pre-start failures have no marker
+or plan, and additional workers do not create extra rounds. The derived sampling
+cache separates started `round` and `successful_round`: only successful history
+advances staleness/recheck timing and trains EWMA. Adaptive plans preserve their
+probability clock in `selection_round`. Actual numeric scores alone count as
+quality observations; missing/unjudged answers never become zero scores.
+
+Missing caches and `HomeEvaluationHistory.rebuild()` reconstruct the catalog and
+sampling observations from saved evidence. Rebuilding never modifies datasets,
+candidate code or memory files. See the Home README for configuration, host
+per-call policy overrides and enforced agent injection examples.
+
+## Read-only evaluation inspection
+
+Use `home_list_validation_results` to find runs and pass a returned
+`validation_path` to `home_inspect_validation`. The catalog includes failed,
+debug, running and untracked runs, not only successful optimization history.
+Both Jobs page with `offset` and `limit` (default 20, maximum 100), returning
+`row_count`, `rows`, `next_offset`. Catalog filters are `branch_name` and
+`commit_sha`; a hexadecimal commit prefix must uniquely match among all commits
+reachable from the specified branch, or the current branch when omitted.
+
+Inspection without `case_id` returns case summaries; add `case_id` for query
+summaries and `query_id` for bounded answer/judge fields. Each row's JSON pointer
+is relative to `rows_source`. Failed construction Jobs have separate pagination
+and pointers relative to `construction.source`. Query fields are limited to
+2,000-character previews and errors to 600 characters. Follow returned source
+paths for complete evidence. Missing files/results remain explicit, with null
+scores, and partial summaries are used when full summaries are absent. Reads do
+not rebuild summaries or modify evaluation history, sampling state or artifacts.
+
+## Memory checkpoint tools
+
+After locating one case, call `home_inspect_memory_history` with its
+`validation_path` and `case_id` to page through exported memory checkpoints.
+Optional `path` follows a literal memory-workspace-relative file or directory.
+The response distinguishes a missing workspace, absent history and an empty
+repository; invalid history fails explicitly. Session IDs are extracted only
+from the established `session: <id>` commit-subject convention.
+
+Use `home_compare_memory` with `base_ref` and optional `target_ref` (default
+`HEAD`) to inspect how memory changed within that evaluation. Add
+`target_validation_path` to compare the same case across evaluations; both
+references then default to `HEAD`. References must resolve to commits reachable
+from each memory HEAD, and hexadecimal prefixes must be unique within that
+reachable history. Compare candidate identities and fingerprints before drawing
+cross-evaluation conclusions.
+
+Diffs describe committed tracked regular-file contents rather than dirty checkout
+files, untracked files or mode-only changes. Binary changes are identified without
+printing bytes. Narrow `path` when the 2,000-file, 20-MB snapshot, 5-MB file or
+100,000-character diff limit is reached. Hashes cover the selected path scope.
+These tools neither reconstruct missing exports nor modify Git/evaluation/history
+artifacts. Raw logs and source JSON remain available through the existing result
+inspection paths.

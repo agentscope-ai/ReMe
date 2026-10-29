@@ -272,8 +272,11 @@ class DockerReMeSandboxFactory:
         plugins: tuple[str, ...] | list[str] = (),
         command_timeout: float = 1800.0,
         workspace_builder: WorkspaceBuilder | None = None,
+        on_sandbox_started: Callable[[], None] | None = None,
     ) -> None:
         self.candidate = candidate
+        self._on_sandbox_started = on_sandbox_started
+        self._sandbox_started_reported = False
         self.env = dict(env or {})
         self.config = config
         self.plugins = tuple(plugins)
@@ -309,6 +312,9 @@ class DockerReMeSandboxFactory:
         )
         try:
             await case.initialize()
+            if self._on_sandbox_started is not None and not self._sandbox_started_reported:
+                self._on_sandbox_started()
+                self._sandbox_started_reported = True
         except BaseException as exc:
             await cleanup_on_error([(f"workspace {container_id!r}", workspace.close())], exc)
             raise

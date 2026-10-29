@@ -126,6 +126,8 @@ class FakeFactory:
 
     async def create_cases(self, ids, **kwargs):
         self.workers = [FakeWorker(self) for _ in ids]
+        if self.workers and self.kwargs.get("on_sandbox_started"):
+            self.kwargs["on_sandbox_started"]()
         return self.workers
 
 
@@ -209,6 +211,7 @@ async def test_reuse_tar_runs_current_candidate_without_building(app, prepared):
     baseline = await app.run_job("home_evaluate")
     assert baseline.success, baseline.answer
     repo = prepared / "code/repo"
+    assert (await app.run_job("home_create_candidate_branch", branch_name="new-answer")).success
     (repo / "plugins/beam/src/reme_beam/__init__.py").write_text("value = 2\n")
     command(repo, "add", ".")
     command(repo, "-c", "user.name=Fixture", "-c", "user.email=test@localhost", "commit", "-m", "new answer")
@@ -414,6 +417,7 @@ async def test_debug_empty_answers_fail_without_scoring(app, prepared, monkeypat
 @pytest.mark.asyncio
 async def test_current_head_is_immutable_and_does_not_ship_judge(app, prepared):
     repo = prepared / "code/repo"
+    assert (await app.run_job("home_create_candidate_branch", branch_name="changed")).success
     (repo / "plugins/beam/src/reme_beam/__init__.py").write_text("value = 3\n", encoding="utf-8")
     command(repo, "add", ".")
     command(repo, "-c", "user.name=Fixture", "-c", "user.email=test@localhost", "commit", "-m", "change")

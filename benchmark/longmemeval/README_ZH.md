@@ -120,6 +120,11 @@ python benchmark/longmemeval/run_home.py
 准备失败会回滚；成功后禁止再次准备同一工作区。
 Python 中也可调用 `await benchmark.longmemeval.run_home.run(workspace_dir=...)`。
 
+顶层 `sampling_policy` 配置采样默认值：`max_cases`、`max_queries`（null 表示不限）、
+`temperature`、`ewma_alpha` 和 `uniform_exploration`。入口校验后将其传给宿主
+`home.evaluation` Component，仍只准备、不执行评测；每次评测分别控制 `sampling`
+和 `record_history`。
+
 默认使用 `dev_meta` 已保存的 **group_1–group_5，共 250 个 case**，
 ID 已按原顺序直接写入 [config_home.yaml](config_home.yaml) 的 `benchmark.case_ids`，
 运行时无需读取分组文件，group_6–group_10 保持为留出集。

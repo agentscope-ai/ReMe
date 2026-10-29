@@ -4,6 +4,7 @@ import asyncio
 import os
 import shutil
 import traceback
+from contextlib import nullcontext
 
 from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
 
@@ -22,10 +23,12 @@ from .artifacts import (
     answer_exception,
     failure_kind,
 )
-from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code
+from .inputs import EvaluationSpec, load_inputs, reuse_inputs, snapshot_code, replay_sampling_eligibility
 from .compaction import compact_construction, compact_query
 from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
+from ..sampling import SamplingPolicy, create_sampling_plan
+from .history import HomeEvaluationHistory
 
 
 async def blocking(function, *args, **kwargs):
@@ -43,11 +46,15 @@ class HomeEvaluation(BaseComponent):
 
     component_type = "home.evaluation"
 
-    def __init__(self, **kwargs):
+    def __init__(self, sampling_policy: dict | None = None, **kwargs):
+        if "sampling" in kwargs:
+            raise ValueError("Use sampling_policy for Component defaults; sampling is a Job boolean")
         super().__init__(**kwargs)
         self.workspace = self.bind("default", HomeWorkspace, optional=False)
         self.judge = self.bind("default", HomeJudge, optional=False)
+        self.history = self.bind("default", HomeEvaluationHistory, optional=False)
         self._pending: set[asyncio.Task] = set()
+        self.sampling_policy = SamplingPolicy.model_validate(sampling_policy if sampling_policy is not None else {})
 
     async def _close(self):
         if self._pending:
@@ -58,7 +65,10 @@ class HomeEvaluation(BaseComponent):
         if not self.is_started:
             raise RuntimeError("Start the Home application before evaluation")
         spec = EvaluationSpec.model_validate(kwargs)
-        task = asyncio.create_task(self._evaluate(spec))
+        override = spec.sampling_policy.model_dump(exclude_unset=True) if spec.sampling_policy is not None else {}
+        policy = SamplingPolicy.model_validate({**self.sampling_policy.model_dump(), **override})
+        spec = spec.model_copy(update={"sampling_policy": policy})
+        task = asyncio.create_task(self._serialized_evaluate(spec))
         self._pending.add(task)
         try:
             return await asyncio.shield(task)
@@ -69,11 +79,40 @@ class HomeEvaluation(BaseComponent):
         finally:
             self._pending.discard(task)
 
+    async def _serialized_evaluate(self, spec):
+        """Match dev_meta's serialized formal validations; debug never owns sampling state."""
+        _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
+        lock = nullcontext() if spec.debug else _initialization_lock(self.workspace.state_path / "validation.lock")
+        with lock:
+            return await self._evaluate(spec)
+
     def _prepare(self, spec, environment):
         home = self.workspace.home_path
+        sampling_state = self.history.sampling_state() if spec.sampling and not spec.debug else None
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
             record, dataset, cases = load_inputs(home, spec)
+            plan = None
+            if spec.sampling and not spec.debug:
+                eligibility = replay_sampling_eligibility(home, spec, cases)
+                plan = create_sampling_plan(
+                    cases,
+                    sampling_state,
+                    spec.sampling_policy,
+                    eligible_query_ids=eligibility,
+                )
+                selected = {case.case_id: case for case in cases}
+                cases = []
+                for key in plan["case_ids"]:
+                    case = selected[key]
+                    queries = {query.query_id: query for query in case.queries}
+                    cases.append(
+                        case.model_copy(
+                            update={
+                                "queries": [queries[query_id] for query_id in plan["query_ids"][key]],
+                            },
+                        ),
+                    )
             judge_identity = self.judge.identity(dataset.dataset)
             snapshot, commit, branch = snapshot_code(home, record)
             fingerprints = {
@@ -102,7 +141,22 @@ class HomeEvaluation(BaseComponent):
                         if not isinstance(rubric, list) or not rubric:
                             raise ValueError(f"BEAM query {query.query_id} has no scoring rubric")
                     evaluation_query(dataset.dataset, query)
-            return record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs
+            return record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs, plan
+
+    def _sampling_started(self, run, manifest, plan, policy=None, *, record_history=True):
+        """The factory invokes this only after a real sandbox successfully initializes."""
+        if not record_history:
+            manifest["sandbox_started_at"] = utc_now().isoformat()
+            if plan is not None:
+                # Keep draw evidence local without claiming a started-history round.
+                manifest["selection_plan"] = plan
+            write_json(run / "manifest.json", manifest)
+            return
+        self.history.record_started(run, policy if policy is not None else self.sampling_policy, plan)
+        manifest.update(read_json(run / "manifest.json"))
+
+    def _finish_sampling(self, run):
+        self.history.record(run)
 
     def _allocate(self, branch, commit, manifest):
         """Allocate ascending IDs under a collision-safe commit prefix."""
@@ -130,7 +184,7 @@ class HomeEvaluation(BaseComponent):
     async def _evaluate(self, spec):
         environment = {**os.environ, **self.app_context.app_config.environment}
         prepared = await blocking(self._prepare, spec, environment)
-        record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs = prepared
+        record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs, sampling_plan = prepared
         judge = None if spec.debug else self.judge
         run = None
         try:
@@ -199,6 +253,17 @@ class HomeEvaluation(BaseComponent):
                 plugins=tuple(record["code"]["plugins"]),
                 command_timeout=spec.timeout_seconds,
                 env=environment,
+                on_sandbox_started=(
+                    None
+                    if spec.debug
+                    else lambda: self._sampling_started(
+                        run,
+                        manifest,
+                        sampling_plan,
+                        spec.sampling_policy,
+                        record_history=spec.record_history,
+                    )
+                ),
             )
             semaphore = asyncio.Semaphore(spec.concurrency)
             by_id = {case.case_id: case for case in cases}
@@ -242,20 +307,34 @@ class HomeEvaluation(BaseComponent):
                             previous.update(cleanup_error=result.error, failure_kind="infra_error")
                             write_json(failure, previous)
             summary = summarize(run, cases, scoring_required=not spec.debug)
-            manifest.update(status="completed", finished_at=utc_now().isoformat())
+            manifest.update(
+                status="completed",
+                success=summary["case_status_counts"]["infra_error"] == 0,
+                finished_at=utc_now().isoformat(),
+            )
             write_json(run / "manifest.json", manifest)
             write_json(run / "summary.json", summary, compact_leaf_containers=True)
+            if not spec.debug and spec.record_history:
+                await blocking(self._finish_sampling, run)
             return {
                 "result_dir": str(run),
                 "commit_sha": commit,
                 "execution_mode": manifest["execution_mode"],
+                "record_history": spec.record_history and not spec.debug,
                 "status": "completed",
                 **{key: value for key, value in summary.items() if key != "cases"},
             }
         except BaseException as error:
+            # A full summary is the durable completion boundary. Cancellation
+            # during drained history bookkeeping cancels the caller, not the
+            # already completed evaluation or its successful history entry.
+            registration_failed = run is not None and manifest.get("status") == "completed"
+            if isinstance(error, asyncio.CancelledError) and registration_failed:
+                raise
             if run is not None:
                 manifest.update(
                     status="cancelled" if isinstance(error, asyncio.CancelledError) else "failed",
+                    success=False,
                     finished_at=utc_now().isoformat(),
                 )
                 write_json(run / "manifest.json", manifest)
@@ -274,6 +353,11 @@ class HomeEvaluation(BaseComponent):
                     scoring_required=not spec.debug,
                 )
                 write_json(run / "partial_summary.json", partial, compact_leaf_containers=True)
+                if registration_failed and not spec.debug and spec.record_history:
+                    try:
+                        await blocking(self.history.invalidate)
+                    except Exception as cache_error:
+                        error.add_note(f"History cache invalidation failed: {cache_error}")
             if isinstance(error, asyncio.CancelledError) or run is None:
                 raise
             raise RuntimeError(f"Evaluation failed; artifacts: {run}: {error}") from error

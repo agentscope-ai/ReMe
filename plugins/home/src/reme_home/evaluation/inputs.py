@@ -16,6 +16,8 @@ from ..preparation.code import git, tree_fingerprint
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
 from ..preparation.spec import SpecModel
+from ..code.repository import validate_repository
+from ..sampling import SamplingPolicy
 
 
 class EvaluationSpec(SpecModel):
@@ -25,6 +27,9 @@ class EvaluationSpec(SpecModel):
     query_ids: dict[str, list[str]] | None = None
     reuse_construction_from: str | None = Field(default=None, min_length=1)
     debug: bool = False
+    sampling: bool = False
+    record_history: bool = True
+    sampling_policy: SamplingPolicy | None = None
     concurrency: int = Field(default=4, ge=1)
     timeout_seconds: float = Field(default=7200.0, gt=0, allow_inf_nan=False)
     base_image: str = Field(default="reme-benchmark-base:agentscope-2.0.10", min_length=1)
@@ -64,6 +69,8 @@ class EvaluationSpec(SpecModel):
         """Debug stops on failure by default and never reuses scored evidence."""
         if self.debug and self.reuse_construction_from:
             raise ValueError("Construction reuse requires training-set")
+        if self.sampling and not self.debug and (self.case_ids is not None or self.query_ids is not None):
+            raise ValueError("sampling=true selects case/query IDs automatically; omit explicit selections")
         if "fail_fast" not in self.model_fields_set:
             self.fail_fast = self.debug
         return self
@@ -119,7 +126,7 @@ def load_inputs(home: Path, spec: EvaluationSpec):
 
 def snapshot_code(home: Path, record: dict):
     """Combine fixed runtime with clean current HEAD; reject all uncommitted changes."""
-    repository = contained(home, "code/repo", directory=True)
+    repository, _ = validate_repository(home, record)
     runtime = contained(home, "code/runtime", directory=True)
     if tree_fingerprint(runtime) != record["code"]["runtime_fingerprint"]:
         raise ValueError("Fixed runtime has changed since preparation")
@@ -235,3 +242,49 @@ def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: di
     if errors:
         raise ValueError("Invalid construction snapshots: " + "; ".join(errors))
     return {"result_dir": str(source), "commit_sha": manifest["commit_sha"]}, archives
+
+
+def replay_sampling_eligibility(home: Path, spec: EvaluationSpec, cases: list[CaseSpec]) -> dict | None:
+    """Port dev_meta's replay eligibility without restricting future full rebuilds."""
+    if spec.reuse_construction_from is None:
+        return None
+    source = contained(home, spec.reuse_construction_from, directory=True)
+    evaluations = contained(home, "evaluations", directory=True)
+    if not source.is_relative_to(evaluations) or source == evaluations:
+        raise ValueError("reuse_construction_from must be inside home/evaluations")
+    manifest = read_json(contained(source, "manifest.json"))
+    summary = read_json(contained(source, "summary.json"))
+    if (
+        manifest.get("dataset_kind") != "training-set"
+        or manifest.get("mode") == "debug"
+        or (manifest.get("status", summary.get("status")) != "completed")
+    ):
+        raise ValueError("Replay sampling requires a completed scored training-set run")
+    case_ids = manifest.get("case_ids")
+    if not isinstance(case_ids, list) or not case_ids or len(set(case_ids)) != len(case_ids):
+        raise ValueError("Replay source must select unique nonempty cases")
+    reusable = set()
+    for case_id in case_ids:
+        entity_id(case_id)
+        folder = contained(source, f"cases/{case_id}", directory=True)
+        result_path = contained(folder, "memory_construction/result.json")
+        archive = contained(folder, "memory_construction/reme_workspace.tar.gz")
+        if not result_path.is_file() or not archive.is_file() or read_json(result_path).get("success") is not True:
+            continue
+        reusable.add(case_id)
+    if (len(case_ids) - len(reusable)) / len(case_ids) > 0.05:
+        raise ValueError("Replay source construction failure ratio exceeds 5%")
+    for case_id in reusable:
+        payload = read_json(contained(source, f"cases/{case_id}/queries/result.json"))
+        queries = payload.get("queries")
+        if not queries or not all(
+            isinstance(query, dict)
+            and query.get("error") is None
+            and isinstance(query.get("answer"), str)
+            and query["answer"].strip()
+            for query in queries
+        ):
+            raise ValueError(f"Replay source has no completed successful answers for {case_id}")
+    # A construction snapshot can answer new query subsets from the same case;
+    # dev_meta intentionally considers every installed query of a reusable case.
+    return {case.case_id: [query.query_id for query in case.queries] for case in cases if case.case_id in reusable}

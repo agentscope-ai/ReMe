@@ -76,3 +76,19 @@ flag. Host-installed benchmark judge plugins score answers outside Docker and
 outside the candidate repository.
 
 See `validation-artifact-guide.md` for saved evidence and score interpretation.
+
+## Candidate versions
+
+Use the Home code Jobs to list, create, switch, merge and commit candidates in
+`home/code/repo`. `init` is the protected preparation baseline. Branch operations
+require clean code; merges stay uncommitted for inspection. Commit all intended
+changes with `home_commit_candidate` before debug or scored evaluation. Mutations
+are limited to prepared `candidate_paths`; keep repository metadata and runtime
+outside the optimizer's write permissions.
+
+`home_list_code_tree`, `home_read_code_file` and `home_search_code` inspect raw
+committed files. Their `revision` defaults to current HEAD and returns a resolved
+SHA. For diagnosis or version comparisons, the host should inject a fixed SHA
+through `injected_job_kwargs` for each agent/Job alias, so subsequent checkout
+changes cannot affect the evidence. See the Home plugin README for inputs and
+output limits.
