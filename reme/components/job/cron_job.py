@@ -32,7 +32,8 @@ class CronJob(BackgroundJob):
         from croniter import croniter
 
         nxt = croniter(self.cron_expr, now).get_next(datetime.datetime)
-        return max(0.0, (nxt - now).total_seconds())
+        # A wait needs elapsed seconds, including any intervening UTC-offset change.
+        return max(0.0, nxt.timestamp() - now.timestamp())
 
     async def _execute_steps(self) -> Response:
         context = RuntimeContext(**self.kwargs)
