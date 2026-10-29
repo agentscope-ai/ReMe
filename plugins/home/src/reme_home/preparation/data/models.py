@@ -63,7 +63,8 @@ class CaseSpec(ContractModel):
 class DatasetManifest(ContractModel):
     """Selection identity, converter version and normalized content fingerprints."""
 
-    schema_version: int = Field(default=SCHEMA_VERSION, ge=1)
+    # Accept legacy files without emitting a version that has no reader dispatch.
+    schema_version: int = Field(default=SCHEMA_VERSION, ge=1, exclude=True)
     dataset: DatasetName
     converter_version: int = 1
     variant: str | None = None

@@ -109,7 +109,7 @@ class DebugSpec(SpecModel):
 class PreparationSpec(SpecModel):
     """Public Home preparation configuration, accepted as YAML or a dict."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1] = Field(default=1, exclude=True)
     benchmark: BenchmarkSpec
     runtime: RuntimeSpec
     candidate: CandidateSpec

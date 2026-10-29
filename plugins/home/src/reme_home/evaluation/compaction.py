@@ -10,10 +10,34 @@ from pathlib import PurePosixPath
 from typing import Any
 
 
+def round_scores(value: Any, *, score: bool = False) -> Any:
+    """Copy structured scores with four decimal places, preserving text and other numbers."""
+    if isinstance(value, dict):
+        return {
+            key: round_scores(
+                child,
+                score=score
+                or isinstance(key, str)
+                and (
+                    key in {"score", "precision", "recall", "f1", "tau_norm", "low_score_cases"}
+                    or key.endswith("_score")
+                ),
+            )
+            for key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [round_scores(child, score=score) for child in value]
+    return round(value, 4) if score and isinstance(value, float) else value
+
+
 def compact_query(result: dict) -> dict:
     """Copy and compact one authoritative query result."""
     result = deepcopy(result)
     _compact_query_result(result)
+    # Reference answers and provider raw text remain source evidence.
+    for key in ("score", "judge_result", "answer_result"):
+        if key in result:
+            result[key] = round_scores(result[key], score=key == "score")
     return result
 
 

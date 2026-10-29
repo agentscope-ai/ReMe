@@ -3,7 +3,9 @@
 from typing import Any
 
 from reme.components.agent_wrapper import AsAgentWrapper
+from reme.components.as_llm import BaseAsLLM
 
+from ..judge import HomeJudge
 from .bounded import BoundedReActAgent, RunTimeBudgetTimer
 
 
@@ -19,3 +21,22 @@ class BoundedAgentWrapper(AsAgentWrapper):
         budget = options.get("time_budget_minutes")
         timer = None if budget is None else RunTimeBudgetTimer(budget, agent_label=self.name)
         return BoundedReActAgent(run_time_budget_timer=timer, **kwargs)
+
+
+class CaseStudyAgentWrapper(BoundedAgentWrapper):
+    """Validate Home's host configuration before requiring the investigation model.
+
+    A configured model and the host judge start before this wrapper. Optional
+    model binding preserves Home's missing-judge diagnostic; startup still
+    rejects an absent investigation model after the judge is validated.
+    """
+
+    def __init__(self, as_llm: str = "judge", **kwargs):
+        super().__init__(as_llm="", **kwargs)
+        self.home_judge = self.bind("default", HomeJudge, optional=False)
+        self.as_llm = self.bind(as_llm, BaseAsLLM, optional=True)
+
+    async def _start(self):
+        await super()._start()
+        if self.as_llm is None:
+            raise ValueError("Case-study agent requires a configured as_llm component")

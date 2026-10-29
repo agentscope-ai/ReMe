@@ -1,6 +1,5 @@
 """Debug derivation reads only selected cases and preserves deterministic output."""
 
-import json
 from pathlib import Path
 
 from reme_home.preparation.data.basic import derive_debug_cases, write_normalized_dataset
@@ -47,9 +46,8 @@ def test_debug_derivation_reads_only_selected_cases(tmp_path, monkeypatch):
     assert reads == expected_paths
     assert manifest.case_ids == [f"debug-{index}" for index in expected_indices]
     assert manifest.query_count == 3
-    derivation = json.loads((output / "derivation.json").read_text())
-    assert [case["source_case_index"] for case in derivation["cases"]] == expected_indices
-    assert all(case["session_indices"] == [0, 2] for case in derivation["cases"])
+    assert not (output / "derivation.json").exists()
+    assert "schema_version" not in manifest.model_dump()
     for path in sorted((output / "cases").glob("*.json")):
         case = CaseSpec.model_validate_json(path.read_text())
         assert [session.session_id for session in case.sessions] == ["s0", "s2"]

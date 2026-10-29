@@ -140,10 +140,10 @@ All prepared outputs live under `workspace_dir/home/` (paths below are relative 
 
 - `domain_spec.yaml`: resolved configuration, including actual selected case IDs
   and the full source commit SHA.
-- `datasets/training-set/`: normalized Case/Session/Query JSON and a versioned
+- `datasets/training-set/`: normalized Case/Session/Query JSON and a
   manifest with case IDs and content fingerprints.
-- `datasets/debug-cases/`: deterministic small smoke cases and their derivation
-  record, or an empty `cases/` directory when debug derivation is disabled.
+- `datasets/debug-cases/`: deterministic small smoke cases with source case IDs
+  in their metadata, or an empty `cases/` directory when debug derivation is disabled.
 - `code/runtime/`: fixed committed ReMe sources, packaging files and configurations,
   without plugin projects. Uncommitted source edits are excluded.
 - `code/repo/`: an independent Git repository containing complete selected plugin
@@ -251,6 +251,9 @@ cases/<case-id>/
     <query-id>/answer.log
 ```
 
+Structured scores in query results and summaries use at most four decimal places.
+Raw judge text and reference answers are preserved.
+
 The memory tar is exported **before** queries, retains session Git checkpoints,
 and is independent of the query execution state. Replayed runs keep an
 independent donor tar and inherited build log without charging construction
@@ -322,8 +325,9 @@ because preparation owns multiple workspace output locations.
 registered as the `home_bounded` agent-wrapper backend when Home is enabled.
 It reuses ReMe's Job tools, hidden `injected_job_kwargs`, `tool_context_id`,
 built-in tools, permissions, model configuration, skills, token accounting and
-persisted sessions. No agent component or optimization run is enabled automatically.
-Configure a component explicitly, alongside the required model and Home plugins:
+persisted sessions. Home configures a wrapper for the single-case investigation
+Job below; no investigation or optimization runs automatically. Configure other
+agents explicitly, alongside the required model and Home plugins:
 
 ```yaml
 components:
@@ -571,14 +575,14 @@ only derived caches so they can rebuild from the final source run status.
 history = app.context.components["home.evaluation_history"]["default"]
 results = history.list_results()  # Typed EvaluationRecord objects, chronological.
 result = history.get_result(results[-1].run_key)
-history.rebuild()                # Rebuild derived indexes from saved artifacts.
+history.rebuild()                # Rebuild sampling observations from saved artifacts.
 ```
 
 The Component owns the workspace lock for these synchronous filesystem methods;
-async host code can run them in a worker thread. Its compact catalog lives at
-`home/evaluations/history.json`. Each record points to its run via `run_key` and
-contains commit/branch identity, selected IDs, completion time and summary metrics;
-questions, answers and memory files stay in their original result directory.
+async host code can run them in a worker thread. Successful results are discovered
+from each run's manifest and summary; no `history.json` index is written or read.
+Legacy index files are ignored and left untouched. Each returned record points to
+its run via `run_key`; questions, answers and memory files stay in that result directory.
 
 The separate startup ledger advances only after the first successfully initialized
 sandbox, including when a later worker or execution fails. Extra/replacement
@@ -660,11 +664,27 @@ closed for restricted `_allowed_paths` contexts, like the other Home Jobs.
 
 ### Memory checkpoint inspection
 
-Two read-only Jobs investigate a case's exported memory Git repository. Locate
+Read-only Jobs investigate a case's exported memory Git repository. Locate
 an evaluation and case with `home_list_validation_results` and
-`home_inspect_validation` first. Neither Job changes artifacts, Git refs, the
+`home_inspect_validation` first. These Jobs never change artifacts, Git refs, the
 index, evaluation history or sampling state.
 
+- `home_trace_query_evidence(validation_path, case_id, query_id,
+  evidence_session_ids=null)` joins a selected query to its source sessions and
+  memory checkpoints without calling a model. Dataset evidence annotations take
+  precedence over optional inferred session IDs, including an empty annotation.
+  Returns `query` (question, expected/actual answer, score, error and
+  `result_missing`), `evidence_source` (`independent_annotation`,
+  `diagnostician_inference`, or `unavailable`), `evidence_is_certain`,
+  `memory_status`, `sessions` (ID, checkpoint and changed files), and `paths` to
+  the normalized case, memory repository, query results and query artifacts.
+  A null checkpoint means no matching `session: <id>` commit was found; missing
+  results keep scores null. Answer/question previews are limited to 2,000
+  characters and errors to 600. At most 50 sessions and 50 changed files per
+  session are returned, with omitted counts when needed. Session text, diffs,
+  later history and full answer/judge results remain at the returned paths or
+  in the inspection/comparison Jobs below. Original transcripts and derived
+  memories can both be searchable; these coordinates alone do not prove a cause.
 - `home_inspect_memory_history(validation_path, case_id, path=null, offset=0,
   limit=20)` returns `status`, `workspace_exists`, `has_git_history`, `head`,
   `repository`, and newest-first checkpoint `rows` with `row_count` and
@@ -696,6 +716,7 @@ After starting the service with the Home configuration, call from another termin
 
 ```bash
 reme home_inspect_memory_history validation_path=evaluations/candidate/abcdef0/1 case_id=case1
+reme home_trace_query_evidence validation_path=evaluations/candidate/abcdef0/1 case_id=case1 query_id=query1
 reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 case_id=case1 base_ref=HEAD~1
 reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 target_validation_path=evaluations/candidate/1234567/1 case_id=case1
 ```
@@ -704,5 +725,69 @@ reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 target_
 form is `evaluations/candidate/abcdef0/1`. For agent tools, host `injected_job_kwargs` can pin
 `validation_path` and `case_id`; the wrapper hides injected fields and rejects
 model overrides. Like the other Home inspection Jobs, these Jobs reject
-`_allowed_paths` restrictions rather than bypassing them. Query-to-session evidence
-tracing and the case study agent are separate functionality.
+`_allowed_paths` restrictions rather than bypassing them. Use these tools directly
+or through the single-case investigator below.
+
+## Single-case investigation
+
+`home_case_study(validation_path, case_id, focus=...)` runs one fresh diagnostic
+agent. It follows dev_meta's case-study workflow: trace judging and answer
+failures backward through retrieval, memory construction, source sessions and
+the evaluated implementation. The text report cites evidence paths/lines or
+JSON fields and distinguishes supported causes, hypotheses and missing evidence;
+it does not prescribe fixes. There is no batch fan-out or parallel case-study
+dispatcher. Each invocation has its own agent state and timer.
+
+The `home_case_study` component uses `home_case_study_agent`, a thin subclass of
+the bounded wrapper, defaulting to
+the host's existing `as_llm: judge` model, 60 iterations and a 30-minute advisory
+budget, matching dev_meta's default budgets. Configure a separate host model by
+overriding `components.agent_wrapper.home_case_study.as_llm`. ReMe owns model
+startup, token accounting and saved session transcripts. The response answer is
+the report; metadata includes the validation, case, evaluated commit, session ID
+and `usage`. No case scratch directory or intermediate analysis files are created.
+
+The toolkit includes validation inspection, compact query-evidence tracing,
+memory history/comparison, and the three committed-code navigation Jobs.
+Validation/case selectors and the evaluated code revision are hidden and enforced
+by the host; memory comparison stays within the selected evaluation. General
+Read/Grep/Glob, Write/Edit, validation and code-mutation tools are not exposed.
+
+`AutoBash` and `python_execute` share a required OS sandbox. Commands have no
+static whitelist (`is_read_only=false`); filesystem permissions enforce access.
+Read-only roots are the selected case artifact directory, normalized source-case
+JSON, validation manifest, all of `home/code/`, and `home/docs/`. No host writable
+roots are granted. System/interpreter runtime paths and disposable backend
+temporary storage remain available. Direct code reads can see current worktree
+changes; use the revision-pinned Jobs to establish the evaluated behavior.
+`python_execute` accepts either `code` or an existing `file`, optional file-only
+`args`, and a `timeout` in seconds (default 60, maximum 600). It uses `python -I -B`
+and returns returncode/stdout/stderr/timed_out. Both executors reuse bounded output,
+timeouts, cancellation cleanup and network isolation from the platform backend.
+
+Linux requires Bubblewrap and, with the default 4096-MiB limit, a writable
+delegated cgroup v2. macOS requires Seatbelt (`sandbox-exec`); memory limits are
+not enforced there. The Job probes sandbox startup before calling the model and
+never falls back to an unrestricted executor. The command whitelist parser is
+not used by this agent. Sandbox policy, output-report token guidance and executor
+memory policy are host Step configuration, not model arguments:
+
+```yaml
+jobs:
+  home_case_study:
+    steps:
+      - backend: home_case_study_step
+        agent_wrapper: home_case_study
+        output_token_limit: 2500
+        # memory_limit_mib: 0  # Explicitly disable Linux cgroup memory limiting if needed.
+```
+
+With the configured service running, call from another terminal:
+
+```bash
+reme home_case_study validation_path=evaluations/candidate/abcdef0/1 case_id=case1 'focus=Trace low-scoring queries'
+```
+
+Calls with `_allowed_paths` restrictions fail closed, as other Home artifact
+Jobs do. Structured inspection tools run in the host with their existing
+containment checks; only Bash/Python subprocesses run inside the OS sandbox.

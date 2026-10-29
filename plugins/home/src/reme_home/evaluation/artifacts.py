@@ -12,6 +12,7 @@ from uuid import uuid4
 from ..preparation.data.models import CaseSpec, QuerySpec
 
 from ..workspace import _validate_directory
+from .compaction import round_scores
 
 
 def contained(root: Path, value: str | Path, *, directory: bool = False) -> Path:
@@ -216,7 +217,7 @@ def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
         construction_errors = sum(not result.get("success") for result in job_results)
         stages["construction"] += construction_status == "failure" or bool(construction_errors)
         stages["query"] += bool(failed)
-        compact_queries = {}
+        compact_queries, query_errors = {}, {}
         for query in queries:
             query_status = (
                 "completed"
@@ -227,8 +228,14 @@ def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
             compact_queries[query["query_id"]] = {
                 "question_type": query.get("question_type"),
                 "score": query.get("score"),
-                "status": query_status,
             }
+            if query_status != "completed":
+                error = str(query["error"])
+                query_errors[query["query_id"]] = {
+                    "failure_kind": query_status,
+                    "stage": query.get("failure_stage"),
+                    "error": error if len(error) <= 500 else error[:500] + "…",
+                }
         rows[case.case_id] = {
             "construction": {
                 "status": construction_status,
@@ -245,6 +252,7 @@ def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
             rows[case.case_id]["construction_error_count"] = construction_errors
         if failed:
             rows[case.case_id]["query_error_count"] = failed
+            rows[case.case_id]["query_errors"] = query_errors
     groups = {}
     for query in query_results:
         groups.setdefault(str(query.get("question_type") or "unknown"), []).append(query)
@@ -253,36 +261,39 @@ def summarize(run: Path, cases: list, *, scoring_required: bool = True) -> dict:
         scores = [query["score"] for query in queries if query.get("score") is not None]
         statistics[name] = {
             "query_count": len(queries),
-            "average_score": round(sum(scores) / len(scores), 3) if scores else None,
+            "average_score": sum(scores) / len(scores) if scores else None,
             "average_query_total_token_usage": average_tokens(queries),
         }
-    return {
-        "case_count": len(rows),
-        "case_status_counts": case_counts,
-        "construction_status_counts": construction_counts,
-        "failure_stage_case_counts": stages,
-        "expected_query_count": expected,
-        "scored_query_count": len(all_scores),
-        "query_status_counts": {
-            **query_counts,
-            "unscored": max(expected - len(all_scores), 0) if scoring_required else 0,
+    return round_scores(
+        {
+            "case_count": len(rows),
+            "scoring_enabled": scoring_required,
+            "case_status_counts": case_counts,
+            "construction_status_counts": construction_counts,
+            "failure_stage_case_counts": stages,
+            "expected_query_count": expected,
+            "scored_query_count": len(all_scores),
+            "query_status_counts": {
+                **query_counts,
+                "unscored": max(expected - len(all_scores), 0) if scoring_required else 0,
+            },
+            "mean_query_score": (
+                sum(all_scores) / expected if scoring_required and expected and not case_counts["infra_error"] else None
+            ),
+            "observed_mean_query_score": sum(all_scores) / len(all_scores) if all_scores else None,
+            "low_score_cases": [
+                {key: row["mean_score"]}
+                for key, row in sorted(
+                    rows.items(),
+                    key=lambda item: (item[1]["mean_score"] if item[1]["mean_score"] is not None else 2, item[0]),
+                )
+                if row["mean_score"] is not None
+                and any(query.get("score") is not None and query["score"] < 1 for query in row["queries"].values())
+            ],
+            "question_type_statistics": statistics,
+            "cases": rows,
         },
-        "mean_query_score": (
-            sum(all_scores) / expected if scoring_required and expected and not case_counts["infra_error"] else None
-        ),
-        "observed_mean_query_score": sum(all_scores) / len(all_scores) if all_scores else None,
-        "low_score_cases": [
-            {key: row["mean_score"]}
-            for key, row in sorted(
-                rows.items(),
-                key=lambda item: (item[1]["mean_score"] if item[1]["mean_score"] is not None else 2, item[0]),
-            )
-            if row["mean_score"] is not None
-            and any(query.get("score") is not None and query["score"] < 1 for query in row["queries"].values())
-        ],
-        "question_type_statistics": statistics,
-        "cases": rows,
-    }
+    )
 
 
 def rebuild_summary(run: Path) -> dict:

@@ -113,12 +113,9 @@ class HomeEvaluation(BaseComponent):
                             },
                         ),
                     )
-            judge_identity = self.judge.identity(dataset.dataset)
             snapshot, commit, branch = snapshot_code(home, record)
             fingerprints = {
                 "dataset": dataset.normalized_fingerprint,
-                "code": snapshot.sha256,
-                "trusted_judge": judge_identity["fingerprint"],
                 "construction_config": fingerprint(
                     {
                         "runtime": record["code"]["runtime_fingerprint"],
@@ -189,7 +186,6 @@ class HomeEvaluation(BaseComponent):
         run = None
         try:
             manifest = {
-                "schema_version": 1,
                 "branch_name": branch,
                 "commit_sha": commit,
                 "case_ids": [case.case_id for case in cases],
@@ -198,13 +194,17 @@ class HomeEvaluation(BaseComponent):
                 "dataset_kind": spec.dataset_kind,
                 "mode": "debug" if judge is None else "scored",
                 "execution_mode": "query_only_replay" if source else "full_validation",
-                "construction_source": source,
                 "fingerprints": fingerprints,
-                "options": spec.model_dump(mode="json", exclude={"case_ids", "query_ids", "reuse_construction_from"}),
+                "options": spec.model_dump(
+                    mode="json",
+                    exclude={"case_ids", "query_ids", "reuse_construction_from", "debug", "sampling_policy"},
+                ),
                 "judge": self.judge.identity(dataset.dataset),
                 "status": "running",
                 "started_at": utc_now().isoformat(),
             }
+            if source is not None:
+                manifest["construction_source"] = source
             run = self._allocate(branch, commit, manifest)
             plans = []
             for case in cases:

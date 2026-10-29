@@ -104,7 +104,7 @@ def load_inputs(home: Path, spec: EvaluationSpec):
         raise ValueError("Prepared dataset no longer matches its manifest")
     if manifest.case_count != len(cases) or manifest.query_count != sum(len(c.queries) for c in cases.values()):
         raise ValueError("Prepared dataset counts do not match its manifest")
-    if spec.dataset_kind == "training-set" and manifest.model_dump(mode="json") != record["dataset"]:
+    if spec.dataset_kind == "training-set" and manifest != DatasetManifest.model_validate(record["dataset"]):
         raise ValueError("Prepared training manifest has changed")
     selected = spec.case_ids if spec.case_ids is not None else list(cases)
     if not selected or set(selected) - cases.keys():

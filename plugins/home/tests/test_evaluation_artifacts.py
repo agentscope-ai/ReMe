@@ -13,6 +13,77 @@ from reme_home.evaluation.compaction import compact_construction, compact_query
 from reme_home.preparation.data.models import CaseSpec, QuerySpec
 
 
+def test_scores_are_rounded_without_changing_reference_text_or_token_metrics(tmp_path):
+    raw = {
+        "query_id": "q",
+        "question": "?",
+        "golden_answer": {"score": 0.123456789},
+        "answer": "0.123456789",
+        "score": 1 / 3,
+        "error": None,
+        "judge_result": {
+            "success": True,
+            "metadata": {
+                "llm_judge_score": 1 / 3,
+                "event_ordering": {"precision": 1 / 3, "f1": 2 / 3, "count": 2},
+                "raw_answer_judgement": "0.333333333",
+            },
+        },
+    }
+    result = compact_query(raw)
+    assert result["score"] == result["judge_result"]["metadata"]["llm_judge_score"] == 0.3333
+    assert raw["score"] == 1 / 3
+    assert result["judge_result"]["metadata"]["event_ordering"] == {"precision": 0.3333, "f1": 0.6667, "count": 2}
+    assert result["golden_answer"] == raw["golden_answer"]
+    assert result["answer"] == raw["answer"]
+    assert result["judge_result"]["metadata"]["raw_answer_judgement"] == "0.333333333"
+    case = CaseSpec(case_id="c", sessions=[], queries=[QuerySpec(query_id="q", question="?", golden_answer=None)])
+    write_json(tmp_path / "cases/c/memory_construction/result.json", {"status": "success", "jobs": []})
+    # Legacy long-precision query files also produce short-precision summaries.
+    write_json(tmp_path / "cases/c/queries/result.json", {"queries": [raw]})
+    summary = summarize(tmp_path, [case])
+    assert summary["mean_query_score"] == summary["observed_mean_query_score"] == 0.3333
+    assert summary["low_score_cases"] == [{"c": 0.3333}]
+    assert summary["cases"]["c"]["mean_score"] == summary["cases"]["c"]["queries"]["q"]["score"] == 0.3333
+    assert summary["question_type_statistics"]["unknown"]["average_score"] == 0.3333
+
+
+@pytest.mark.parametrize("scoring_enabled", [True, False])
+def test_summary_separates_query_errors_from_scores(tmp_path, scoring_enabled):
+    ids = ["zero", "unscored", "candidate", "infra"]
+    case = CaseSpec(
+        case_id="c",
+        sessions=[],
+        queries=[QuerySpec(query_id=value, question="?", golden_answer=None) for value in ids],
+    )
+    queries = [
+        {"query_id": "zero", "score": 0},
+        {"query_id": "unscored", "score": None},
+        {"query_id": "candidate", "score": None, "error": "bad answer", "failure_stage": "answer"},
+        {
+            "query_id": "infra",
+            "score": None,
+            "error": "x" * 600,
+            "failure_stage": "judge",
+            "infrastructure_error": True,
+        },
+    ]
+    write_json(tmp_path / "cases/c/memory_construction/result.json", {"status": "success", "jobs": []})
+    source = tmp_path / "cases/c/queries/result.json"
+    write_json(source, {"queries": queries})
+    summary = summarize(tmp_path, [case], scoring_required=scoring_enabled)
+    assert summary["scoring_enabled"] is scoring_enabled
+    row = summary["cases"]["c"]
+    assert all("status" not in query for query in row["queries"].values())
+    assert row["queries"]["zero"]["score"] == 0
+    assert row["queries"]["unscored"]["score"] is None
+    assert row["query_errors"] == {
+        "candidate": {"failure_kind": "candidate_failure", "stage": "answer", "error": "bad answer"},
+        "infra": {"failure_kind": "infra_error", "stage": "judge", "error": "x" * 500 + "…"},
+    }
+    assert read_json(source) == {"queries": queries}
+
+
 def test_query_compaction_preserves_evidence_without_duplicate_prompts_or_costs():
     raw = {
         "question": "What happened?",
@@ -195,13 +266,14 @@ def test_summary_matches_reviewed_dev_meta_fields_and_denominators(tmp_path):
     summary = summarize(tmp_path, cases)
     assert summary == {
         "case_count": 2,
+        "scoring_enabled": True,
         "case_status_counts": {"completed": 0, "candidate_failure": 2, "infra_error": 0},
         "construction_status_counts": {"success": 0, "partial_success": 1, "failure": 1},
         "failure_stage_case_counts": {"construction": 2, "query": 1},
         "expected_query_count": 3,
         "scored_query_count": 1,
         "query_status_counts": {"completed": 1, "candidate_failure": 1, "infra_error": 0, "unscored": 2},
-        "mean_query_score": 0.5 / 3,
+        "mean_query_score": 0.1667,
         "observed_mean_query_score": 0.5,
         "low_score_cases": [{"one": 0.25}],
         "question_type_statistics": {
@@ -213,9 +285,10 @@ def test_summary_matches_reviewed_dev_meta_fields_and_denominators(tmp_path):
                 "mean_score": 0.25,
                 "average_query_total_token_usage": {"answer": 6.0},
                 "queries": {
-                    "q1": {"question_type": "fact", "score": 0.5, "status": "completed"},
-                    "q2": {"question_type": "fact", "score": None, "status": "candidate_failure"},
+                    "q1": {"question_type": "fact", "score": 0.5},
+                    "q2": {"question_type": "fact", "score": None},
                 },
+                "query_errors": {"q2": {"failure_kind": "candidate_failure", "stage": None, "error": "candidate bug"}},
                 "construction_error_count": 1,
                 "query_error_count": 1,
             },

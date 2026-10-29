@@ -83,7 +83,6 @@ def derive_debug_cases(
     case_count = _debug_case_count(len(source_paths))
     case_indices = _evenly_spaced_indices(len(source_paths), case_count)
     debug_cases: list[CaseSpec] = []
-    derivations: list[dict[str, object]] = []
     for source_case_index in case_indices:
         case = CaseSpec.model_validate_json(source_paths[source_case_index].read_text(encoding="utf-8"))
         eligible_indices = _eligible_session_indices(case)
@@ -111,37 +110,7 @@ def derive_debug_cases(
                 },
             ),
         )
-        derivations.append(
-            {
-                "debug_case_id": debug_id,
-                "source_case_id": case.case_id,
-                "source_case_index": source_case_index,
-                "session_indices": session_indices,
-                "messages_per_session": messages_per_session,
-            },
-        )
-    manifest = write_normalized_dataset(output, str(training_manifest["dataset"]), "debug", debug_cases)
-    (output / "derivation.json").write_bytes(
-        canonical_json_bytes(
-            {
-                "schema_version": 1,
-                "training_fingerprint": training_manifest["normalized_fingerprint"],
-                "rules": {
-                    "case_selection_ratio": 0.1,
-                    "minimum_case_count": 2,
-                    "derived_case_count": case_count,
-                    "sessions_per_case": sessions_per_case,
-                    "messages_per_session": messages_per_session,
-                    "case_selection": "evenly_spaced_in_normalized_order",
-                    "session_selection": "evenly_spaced",
-                    "message_selection": "prefix",
-                },
-                "cases": derivations,
-            },
-        )
-        + b"\n",
-    )
-    return manifest
+    return write_normalized_dataset(output, str(training_manifest["dataset"]), "debug", debug_cases)
 
 
 def _debug_case_count(training_case_count: int) -> int:

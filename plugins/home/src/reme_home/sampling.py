@@ -87,7 +87,6 @@ def create_sampling_plan(
     if not selected_cases:
         raise ValueError("sampling budget selected no executable case/query pairs")
     return {
-        "schema_version": 1,
         "mode": "sampled",
         "round": round_id,
         "seed": seed,

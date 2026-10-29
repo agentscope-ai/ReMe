@@ -370,19 +370,24 @@ async def test_mode_controls_data_scoring_and_fail_fast_defaults(app, prepared, 
     manifest = json.loads((run / "manifest.json").read_text())
     summary = json.loads((run / "summary.json").read_text())
     assert manifest["options"]["fail_fast"] is expected_fail_fast
-    assert manifest["options"]["debug"] is debug
+    assert "debug" not in manifest["options"]
+    assert "schema_version" not in manifest
+    assert set(manifest["fingerprints"]) == {"dataset", "construction_config"}
     assert "dataset_kind" not in manifest["options"]
     assert manifest["dataset_kind"] == ("debug-cases" if debug else "training-set")
     assert manifest["mode"] == ("debug" if debug else "scored")
     assert set(summary["cases"]) == ({"debug-1", "debug-2"} if debug else {"1", "2"})
     assert summary["expected_query_count"] == 2
     assert summary["scored_query_count"] == (0 if debug else 2)
+    assert summary["scoring_enabled"] is not debug
     assert manifest["status"] == "completed"
     assert summary["mean_query_score"] == (None if debug else 0.5)
     assert summary["observed_mean_query_score"] == (None if debug else 0.5)
     assert summary["query_status_counts"]["unscored"] == 0
     for case in summary["cases"].values():
         assert case["mean_score"] == (None if debug else 0.5)
+        assert "query_errors" not in case
+        assert all("status" not in query for query in case["queries"].values())
     assert app.context.components["agent_wrapper"]["judge"].reply.await_count == (0 if debug else 2)
 
 
@@ -727,3 +732,22 @@ async def test_late_cleanup_failure_survives_without_duplicate_execution_record(
     assert failure["stage"] == "cleanup" and failure["failure_kind"] == "infra_error"
     assert "late cleanup failure" in failure["error"]
     assert not (folder / "execution.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_evaluation_reads_legacy_dataset_versions_without_rewriting_them(app, prepared):
+    paths = [prepared / "datasets/training-set/manifest.json", prepared / "metadata/preparation.json"]
+    for path in paths:
+        payload = json.loads(path.read_text())
+        payload["schema_version"] = 1
+        if path.name == "preparation.json":
+            payload["dataset"]["schema_version"] = 1
+        path.write_text(json.dumps(payload))
+    original = [path.read_bytes() for path in paths]
+    response = await app.run_job("home_evaluate")
+    assert response.success, response.answer
+    assert [path.read_bytes() for path in paths] == original
+    run = Path(response.answer["result_dir"])
+    manifest = json.loads((run / "manifest.json").read_text())
+    assert "schema_version" not in manifest and "construction_source" not in manifest
+    assert set(manifest["fingerprints"]) == {"dataset", "construction_config"}

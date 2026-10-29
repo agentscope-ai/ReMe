@@ -42,9 +42,13 @@ async def test_history_catalog_keeps_successful_low_scores_and_deduplicates(app,
     before = manager.sampling_state()
     assert manager.record(run) == results[0]
     assert len(manager.list_results()) == 1 and manager.sampling_state() == before
-    payload = json.loads((prepared / "evaluations/history.json").read_text())
-    assert payload["results"][0]["run_key"] == results[0].run_key
-    assert "golden_answer" not in json.dumps(payload)
+    assert not (prepared / "evaluations/history.json").exists()
+    # A stale or corrupt legacy index cannot hide authoritative results.
+    legacy = prepared / "evaluations/history.json"
+    legacy.write_text("obsolete index")
+    assert manager.list_results() == results
+    assert manager.rebuild() == results
+    assert legacy.read_text() == "obsolete index"
     debug = await app.run_job("home_evaluate", sampling=True, debug=True)
     assert debug.success and manager.record(Path(debug.answer["result_dir"])) is None
     assert manager.list_results() == results
@@ -106,13 +110,12 @@ async def test_history_and_observations_rebuild_without_touching_artifacts(app, 
     expected, observations = manager.list_results(), manager.sampling_state()
     source = Path(sampled.answer["result_dir"]) / "summary.json"
     original = source.read_bytes()
-    (prepared / "evaluations/history.json").unlink()
     (prepared / "sampling/state.json").unlink()
     assert manager.list_results() == expected
     assert manager.sampling_state() == observations
     assert manager.rebuild() == expected
     assert source.read_bytes() == original
-    assert (prepared / "evaluations/history.json").is_file()
+    assert not (prepared / "evaluations/history.json").exists()
     assert (prepared / "sampling/state.json").is_file()
 
 
@@ -124,7 +127,9 @@ async def test_call_policy_merges_component_defaults_without_mutating_them(app, 
     assert response.success, response.answer
     options = manifest(response)["options"]
     assert options["sampling"] is True
-    assert options["sampling_policy"] == {
+    assert "sampling_policy" not in options
+    plan = json.loads((prepared / manifest(response)["sampling"]["plan_path"]).read_text())
+    assert plan["policy"] == {
         "max_cases": 1,
         "max_queries": 2,
         "temperature": 0.7,
@@ -135,7 +140,8 @@ async def test_call_policy_merges_component_defaults_without_mutating_them(app, 
     following = await app.run_job("home_evaluate", sampling=True)
     assert following.success and following.answer["case_count"] == 2
     assert evaluator.sampling_policy.max_cases == 2
-    assert manifest(following)["options"]["sampling_policy"]["max_cases"] == 2
+    plan = json.loads((prepared / manifest(following)["sampling"]["plan_path"]).read_text())
+    assert plan["policy"]["max_cases"] == 2
     for kwargs in (
         {"sampling": "true"},
         {"sampling": {"max_cases": 1}},
@@ -182,7 +188,7 @@ async def test_standalone_full_evaluation_preserves_history_and_rebuild_excludes
     if baseline:
         assert (await app.run_job("home_evaluate")).success
     records, observations = manager.list_results(), manager.sampling_state()
-    cache_paths = [prepared / name for name in ("evaluations/history.json", "sampling/state.json")]
+    cache_paths = [prepared / name for name in ("sampling/state.json",)]
     caches = [path.read_bytes() if path.exists() else None for path in cache_paths]
     response = await app.run_job("home_evaluate", sampling=False, record_history=False)
     assert response.success, response.answer
@@ -251,7 +257,7 @@ async def test_untracked_failures_preserve_existing_history(app, prepared, monke
     assert (await app.run_job("home_evaluate")).success
     manager = history(app)
     records, observations = manager.list_results(), manager.sampling_state()
-    paths = [prepared / name for name in ("evaluations/history.json", "sampling/state.json")]
+    paths = [prepared / name for name in ("sampling/state.json",)]
     caches = [path.read_bytes() for path in paths]
     if failure == "infra":
         monkeypatch.setattr(FakeFactory, "bad_export", True)
@@ -293,7 +299,8 @@ async def test_legacy_cache_rebuild_and_explicit_null_query_budget(app, prepared
     evaluator.sampling_policy = SamplingPolicy(max_cases=2, max_queries=1)
     result = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_queries": None})
     assert result.success and result.answer["scored_query_count"] == 2
-    assert manifest(result)["options"]["sampling_policy"]["max_queries"] is None
+    plan = json.loads((prepared / manifest(result)["sampling"]["plan_path"]).read_text())
+    assert plan["policy"]["max_queries"] is None
     assert evaluator.sampling_policy.max_queries == 1
     manager = history(app)
     observations = manager.sampling_state()
@@ -340,12 +347,12 @@ async def test_cancellation_after_durable_completion_keeps_history_consistent(ap
 @pytest.mark.asyncio
 async def test_registration_failure_invalidates_only_caches(app, prepared, monkeypatch):
     manager = history(app)
-    original = manager._index
+    original = manager.record
 
-    def fail():
-        raise OSError("history index could not be loaded")
+    def fail(*args):
+        raise OSError("sampling observations could not be saved")
 
-    monkeypatch.setattr(manager, "_index", fail)
+    monkeypatch.setattr(manager, "record", fail)
     response = await app.run_job("home_evaluate")
     assert not response.success
     runs = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
@@ -356,5 +363,5 @@ async def test_registration_failure_invalidates_only_caches(app, prepared, monke
     assert (run / "summary.json").is_file() and (run / "cases/1/queries/result.json").is_file()
     assert not (prepared / "sampling/state.json").exists()
     assert read_state(prepared)["round"] == 1 and read_state(prepared)["successful_round"] == 0
-    monkeypatch.setattr(manager, "_index", original)
+    monkeypatch.setattr(manager, "record", original)
     assert manager.list_results() == [] and not manager.sampling_state()["cases"]

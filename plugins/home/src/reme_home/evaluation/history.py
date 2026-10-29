@@ -1,10 +1,8 @@
 """Successful evaluation history and rebuildable sampling evidence owned by Home."""
 
 from pathlib import Path
-from typing import Mapping, Literal
+from typing import Mapping
 import math
-
-from pydantic import Field
 
 from reme.components.base_component import BaseComponent
 
@@ -31,13 +29,6 @@ class EvaluationRecord(SpecModel):
     candidate_failure_count: int
     scored_query_count: int
     mean_query_score: float | None
-
-
-class HistoryIndex(SpecModel):
-    """A disposable index; manifests, summaries and plans remain authoritative."""
-
-    schema_version: Literal[1] = 1
-    results: list[EvaluationRecord] = Field(default_factory=list)
 
 
 def successful_result(home: Path, run: Path) -> tuple[dict, dict] | None:
@@ -129,7 +120,6 @@ def start_validation(home: Path, run: Path, policy: SamplingPolicy, plan: dict |
         dict(plan)
         if plan is not None
         else {
-            "schema_version": 1,
             "mode": "explicit",
             "case_ids": manifest["case_ids"],
             "query_ids": manifest["query_ids"],
@@ -278,17 +268,15 @@ class HomeEvaluationHistory(BaseComponent):
             raise ValueError("Expected one evaluation result directory")
         return run
 
-    def _index(self, *, rebuild: bool = False) -> HistoryIndex:
+    def _records(self) -> list[EvaluationRecord]:
+        """Read source artifacts directly; legacy history.json files are ignored."""
         home = self.workspace.home_path
-        path = contained(home, "evaluations/history.json")
-        if path.exists() and not rebuild:
-            return HistoryIndex.model_validate(read_json(path))
         records = []
         for manifest in contained(home, "evaluations", directory=True).glob("*/*/*/manifest.json"):
             record = result_record(home, contained(home, manifest.parent, directory=True))
             if record is not None:
                 records.append(record)
-        return HistoryIndex(results=sorted(records, key=lambda record: (record.round, record.run_key)))
+        return sorted(records, key=lambda record: (record.round, record.run_key))
 
     def sampling_state(self) -> dict:
         """Return owned, reconstructed-on-demand observations for the next draw."""
@@ -309,18 +297,13 @@ class HomeEvaluationHistory(BaseComponent):
             record = result_record(home, run)
             if record is None:
                 return None
-            index = self._index()
-            by_key = {item.run_key: item for item in index.results}
-            by_key[record.run_key] = record
             update_sampling_state(home, run)
-            index = HistoryIndex(results=sorted(by_key.values(), key=lambda item: (item.round, item.run_key)))
-            write_json(contained(home, "evaluations/history.json"), index.model_dump(mode="json"))
             return record
 
     def list_results(self) -> list[EvaluationRecord]:
         """Return successful results in chronological order, including low-scoring candidates."""
         with self._history_lock():
-            return self._index().results
+            return self._records()
 
     def get_result(self, run_key: str) -> EvaluationRecord:
         """Look up a successful result by its stable workspace-relative identity."""
@@ -333,13 +316,10 @@ class HomeEvaluationHistory(BaseComponent):
         """Rebuild only derived indexes and sampling observations; never rewrite source evidence."""
         with self._history_lock():
             home = self.workspace.home_path
-            index = self._index(rebuild=True)
             rebuild_sampling_state(home)
-            write_json(contained(home, "evaluations/history.json"), index.model_dump(mode="json"))
-            return index.results
+            return self._records()
 
     def invalidate(self) -> None:
         """Discard only derived caches after an unsuccessful registration; retain all source evidence."""
         with self._history_lock():
-            for name in ("evaluations/history.json", "sampling/state.json"):
-                contained(self.workspace.home_path, name).unlink(missing_ok=True)
+            contained(self.workspace.home_path, "sampling/state.json").unlink(missing_ok=True)

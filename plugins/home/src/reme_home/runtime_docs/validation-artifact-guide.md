@@ -44,6 +44,16 @@ by a sibling session ID. Recognized cumulative daily-index `notes` snapshots bec
 records become `0`. Detailed construction costs stay in this case artifact.
 Small scalar containers are written on one line, following `dev_meta` formatting.
 
+Structured scores in query results and summaries use at most four decimal places.
+Reference answers, raw judge strings and non-score metrics retain their original values.
+
+New run manifests omit the unused schema version, duplicate code and judge fingerprints,
+`options.debug` (use `dataset_kind`/`mode`), and duplicate sampling policy (use the plan).
+The remaining `fingerprints.dataset` and `fingerprints.construction_config` guard memory
+reuse compatibility; `judge.fingerprint` identifies the trusted scoring implementation.
+Legacy manifests remain readable. Workspace markers, preparation recovery journals and
+sampling state retain versions used for validation, rollback and migration.
+
 ## Summary fields
 
 The run summary contains only:
@@ -51,24 +61,29 @@ The run summary contains only:
 - `case_count`, `case_status_counts`, `construction_status_counts`, and
   `failure_stage_case_counts` (construction/query; tolerated construction failures
   still count as construction errors).
-- `expected_query_count`, `scored_query_count`, and `query_status_counts`
+- `scoring_enabled`, `expected_query_count`, `scored_query_count`, and `query_status_counts`
   (completed, candidate failure, infrastructure error, unscored).
 - `mean_query_score`, `observed_mean_query_score`, `low_score_cases`,
   `question_type_statistics`, and `cases`.
 
 Each `cases[case_id]` contains construction `status`, `success_job_count` and
 `fail_job_count`; `mean_score`; `average_query_total_token_usage`; and a `queries`
-map. Each query entry contains only `question_type`, `score` and `status`.
+map. Each query entry contains only `question_type` and `score`. Failed queries
+also appear in `query_errors`, keyed by query ID, with `failure_kind`
+(`candidate_failure` or `infra_error`), `stage` (null if unavailable), and an
+error excerpt limited to 500 characters plus a truncation marker. Full errors
+remain in the phase artifacts. A null score alone does not identify a failure:
+successful queries also remain unscored when `scoring_enabled` is false.
 `stage`, `construction_error_count` and `query_error_count` appear only when
 applicable. There is no redundant case status or per-case coverage accounting.
-Questions, answers, errors, Job details and construction token usage stay in
+Questions, answers, full errors, Job details and construction token usage stay in
 phase artifacts, outside the summary.
 
 Token summaries contain only average candidate answer **total** tokens per model,
 divided by all returned queries, including failures and queries without reported
 usage. Zero and unknown token totals are omitted. Judge/construction costs and
 input/output token breakdowns are not aggregated. Question-type statistics contain
-query count, average of available scores (rounded to three decimals), and the same
+query count, average of available scores (rounded to four decimals), and the same
 answer token averages across cases. Missing/empty types form `unknown`.
 
 Candidate failures count as zero in the expected-query score denominator.
@@ -126,7 +141,7 @@ not reuse donor answers or scores.
 `home_evaluate sampling=true` enables adaptive selection; false preserves full or
 explicit evaluation. Debug always bypasses history. `sampling_policy` is the
 host policy input, distinct from the boolean toggle. The effective policy is
-captured in `manifest.options` and the started plan.
+captured in the started plan, or `manifest.selection_plan` for untracked adaptive runs.
 
 `record_history=true` (the default) includes a successful full baseline even when
 `sampling=false`. `record_history=false` runs the same scoring and artifact pipeline
@@ -137,8 +152,9 @@ skips history. The response reports effective participation as `record_history`.
 An untracked adaptive run may read existing observations and saves its draw locally
 in `manifest.selection_plan`, without a shared started plan or ledger round.
 
-`home.evaluation_history` owns the successful-result catalog at
-`home/evaluations/history.json`. Entries require completed scored training runs
+`home.evaluation_history` discovers successful results directly from run manifests
+and summaries. No `history.json` index is generated or read; legacy copies are ignored.
+Entries require completed scored training runs
 with `success=true` (or equivalent legacy summary counts) and no infrastructure
 errors. Low scores remain useful. Failed/cancelled/debug/partial runs are excluded;
 a mixed run with an infrastructure failure contributes no quality observations.
@@ -153,8 +169,8 @@ advances staleness/recheck timing and trains EWMA. Adaptive plans preserve their
 probability clock in `selection_round`. Actual numeric scores alone count as
 quality observations; missing/unjudged answers never become zero scores.
 
-Missing caches and `HomeEvaluationHistory.rebuild()` reconstruct the catalog and
-sampling observations from saved evidence. Rebuilding never modifies datasets,
+Missing sampling caches and `HomeEvaluationHistory.rebuild()` reconstruct
+sampling observations from saved evidence. Result listings always scan the source artifacts. Rebuilding never modifies datasets,
 candidate code or memory files. See the Home README for configuration, host
 per-call policy overrides and enforced agent injection examples.
 
@@ -179,6 +195,24 @@ not rebuild summaries or modify evaluation history, sampling state or artifacts.
 
 ## Memory checkpoint tools
 
+Start a failed-query investigation with
+`home_trace_query_evidence(validation_path, case_id, query_id)`.
+It returns compact question/answer/score/error previews, source evidence session
+IDs, matching Git checkpoints, changed files and paths to complete evidence. It
+does not call a model or include transcripts, diffs or judge-result bodies.
+Dataset `evidence_session_ids` annotations take precedence; only when absent may
+you supply inferred `evidence_session_ids`. Respect `evidence_source` and
+`evidence_is_certain`: inferred or uncertain sessions are leads, not established
+causes. No annotation or supplied IDs yields `evidence_source: unavailable`.
+Missing query results are explicit and scores remain null. `memory_status`
+distinguishes unavailable histories; a null session checkpoint means no matching
+commit was found. Question/answer previews have a 2,000-character limit, errors
+600, and session/changed-file lists 50 entries with omitted counts. Follow
+`paths.source_case`, `paths.query_result` and `paths.query_artifacts` for details;
+use the tools below for history and focused diffs. Both original transcripts and
+derived memory may be searchable, so absence from a summary alone proves no
+retrieval failure.
+
 After locating one case, call `home_inspect_memory_history` with its
 `validation_path` and `case_id` to page through exported memory checkpoints.
 Optional `path` follows a literal memory-workspace-relative file or directory.
@@ -201,3 +235,20 @@ printing bytes. Narrow `path` when the 2,000-file, 20-MB snapshot, 5-MB file or
 These tools neither reconstruct missing exports nor modify Git/evaluation/history
 artifacts. Raw logs and source JSON remain available through the existing result
 inspection paths.
+
+## Single-case diagnostic agent
+
+Call `home_case_study(validation_path, case_id, focus=...)` to investigate exactly
+one case. It returns a text report with evidence citations and uncertainty, using
+fresh agent state, bounded iterations and advisory time reminders. There is no
+parallel case dispatcher. Scope and evaluated code revision are host-injected
+into the structured tools. AutoBash and Python share a mandatory read-only file
+sandbox covering the selected case artifacts, source JSON, validation manifest,
+home/docs and all home/code, plus required system runtimes. Neither executor has
+host-writable roots or a case scratch directory. They allow analysis commands
+and Python rather than a static command whitelist. The directly readable code
+worktree can differ from the evaluated commit; use pinned code tools to verify
+version-sensitive claims. No write/edit, validation or code-mutation tools are
+exposed. Sandbox startup failure prevents model execution; it never falls back
+to an unrestricted process. See the Home README for model, budget and platform
+sandbox configuration.

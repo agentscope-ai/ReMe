@@ -1,4 +1,7 @@
 backends:
+  home_case_study_step: reme_home.agent.case_study:HomeCaseStudyStep
+  home_case_study_agent: reme_home.agent.wrapper:CaseStudyAgentWrapper
+  home_trace_query_evidence_step: reme_home.evaluation.evidence_step:HomeTraceQueryEvidenceStep
   home_memory_inspection_step: reme_home.evaluation.memory_inspection_step:HomeMemoryInspectionStep
   home_code: reme_home.code.component:HomeCode
   home_code_step: reme_home.code.step:HomeCodeStep
@@ -16,6 +19,13 @@ backends:
 
 application_defaults:
   components:
+    agent_wrapper:
+      home_case_study:
+        backend: home_case_study_agent
+        as_llm: judge
+        time_budget_minutes: 30
+        react_config:
+          max_iters: 60
     home.code:
       default:
         backend: home_code
@@ -41,6 +51,38 @@ application_defaults:
       default:
         backend: home_workspace
   jobs:
+    home_case_study:
+      backend: base
+      description: "Investigate one validation case with read-only sandboxed Bash/Python and commit-pinned evidence tools; return an evidence-supported diagnostic report"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [validation_path, case_id]
+        properties:
+          validation_path: {type: string, minLength: 1}
+          case_id: {type: string, minLength: 1}
+          focus: {type: string, minLength: 1, description: "Questions or failure mechanisms to prioritize"}
+      steps:
+        - backend: home_case_study_step
+          agent_wrapper: home_case_study
+          output_token_limit: 2500
+    home_trace_query_evidence:
+      backend: base
+      description: "Locate a selected query's source evidence sessions, memory checkpoints and answer/score previews; use home_compare_memory and returned paths for details"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [validation_path, case_id, query_id]
+        properties:
+          validation_path: {type: string, minLength: 1}
+          case_id: {type: string, minLength: 1}
+          query_id: {type: string, minLength: 1}
+          evidence_session_ids:
+            type: [array, "null"]
+            items: {type: string, minLength: 1}
+            description: "Optional inferred session IDs, used only when the query has no dataset annotation"
+      steps:
+        - backend: home_trace_query_evidence_step
     home_inspect_memory_history:
       backend: base
       description: "List a case's exported memory Git checkpoints, newest first; use home_inspect_validation to locate the case"

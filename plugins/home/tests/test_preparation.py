@@ -149,7 +149,7 @@ async def test_python_job_prepares_once(app, inputs):
     case = json.loads((root / "home/datasets/training-set/cases/000000.json").read_text())
     assert case["sessions"][0]["messages"][0]["id"] == "1"
     assert case["queries"][0]["metadata"]["evidence_session_ids"] == ["beam_100K_2_batch1"]
-    assert (root / "home/datasets/debug-cases/derivation.json").is_file()
+    assert not (root / "home/datasets/debug-cases/derivation.json").exists()
     docs = root / "home/docs"
     resources = resource_files("reme_home").joinpath("runtime_docs")
     assert sorted(path.name for path in docs.iterdir()) == ["architecture-guide.md", "validation-artifact-guide.md"]

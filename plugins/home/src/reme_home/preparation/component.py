@@ -173,7 +173,6 @@ class HomePreparation(BaseComponent):
         for name in ("architecture-guide.md", "validation-artifact-guide.md"):
             (docs / name).write_bytes(resources.joinpath(name).read_bytes())
         result = {
-            "schema_version": 1,
             "preparation_id": uuid4().hex,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "config_fingerprint": fingerprint(domain),

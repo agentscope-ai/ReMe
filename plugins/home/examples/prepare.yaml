@@ -1,4 +1,3 @@
-schema_version: 1
 benchmark:
   name: beam
   variant: 100K
