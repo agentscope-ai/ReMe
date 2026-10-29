@@ -1,3 +1,15 @@
+integrate_resume_message: |
+  An earlier Dream integration attempt was interrupted or failed. Digest writes may already have landed without a
+  saved completion receipt. Inspect the existing digest and reconcile this unit before writing. Reuse existing
+  content and do not append duplicate evidence or create a duplicate node. Verify that the unit is fully integrated
+  before returning a successful receipt; do not assume that a changed file means the work is complete.
+  Files possibly written by earlier attempts: {possible_paths_json}
+
+integrate_resume_message_zh: |
+  上一次 Dream 整合曾中断或失败，digest 文件可能已写入，但尚未保存完成回执。请在写入前检查已有 digest 并核对本 unit。
+  复用已有内容，不要重复追加证据或创建重复节点。确认本 unit 已完整整合后再返回成功回执，不能仅凭文件有变化就认定完成。
+  上一次尝试可能写入的文件：{possible_paths_json}
+
 integrate_system_prompt_procedure: |
   You are the dream unit integration agent for the procedure bucket. The unit
   is a how-to-do-X abstraction: steps, methods, recipes, runbooks, executable

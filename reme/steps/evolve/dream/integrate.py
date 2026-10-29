@@ -9,6 +9,7 @@ from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
 from ....schema import IntegrateOutcome
+from .checkpoint import CheckpointStore, integration_lock
 from .utils import llm_available, pack_paths, parse_structured_reply, state_from_context, store_state, workspace_dir
 
 _TOOLS = ("node_search", "read", "frontmatter_read", "write", "edit", "frontmatter_update")
@@ -62,13 +63,8 @@ class DreamIntegrateStep(BaseStep):
         if not state.units:
             self.logger.info(f"[{self.name}] skip no units")
             return self._finish(state, not state.errors, "No dream units to integrate")
-        if not llm_available(self):
-            err = "no llm configured; dream integrate requires an LLM"
-            state.errors.append(err)
-            state.failed_units = state.units
-            state.failed_paths = sorted({p for u in state.units for p in u.get("paths", [])})
-            self.logger.warning(f"[{self.name}] skip no llm units={len(state.units)}")
-            return self._finish(state, False, err)
+        if not isinstance(self.context.get("_dream_checkpoint"), CheckpointStore) and not llm_available(self):
+            return self._missing_llm(state, state.units)
 
         async with self._integration_lock():
             return await self._execute_locked(state)
@@ -76,6 +72,12 @@ class DreamIntegrateStep(BaseStep):
     async def _execute_locked(self, state):
         """Integrate units while serializing digest writes for this Application."""
 
+        checkpoint = self.context.get("_dream_checkpoint")
+        if isinstance(checkpoint, CheckpointStore):
+            state = checkpoint.refresh()
+            pending = [unit for i, unit in enumerate(state.units) if i not in checkpoint.record.completed]
+            if pending and not llm_available(self):
+                return self._missing_llm(state, pending)
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         digest_dir = self.config_value("digest_dir")
         self.logger.info(f"[{self.name}] start units={len(state.units)} workspace={workspace} digest_dir={digest_dir}")
@@ -85,12 +87,47 @@ class DreamIntegrateStep(BaseStep):
         # Compare the whole run so retries and later units updating a newly
         # created file still emit one "added" change for the final file.
         before = _snapshot_digest(workspace, digest_dir)
+        interrupted_index = None
+        if isinstance(checkpoint, CheckpointStore) and checkpoint.record.active is not None:
+            interrupted_index = checkpoint.record.active
+            # Preserve ambiguous writes even if an earlier unit now needs rechecking first.
+            _record_modified_paths(state, _changed_digest_paths(checkpoint.record.active_before, before))
         for i, unit in enumerate(state.units, start=1):
-            await self._integrate_one(state, unit, i, workspace, digest_dir)
+            recovery_note = ""
+            if isinstance(checkpoint, CheckpointStore):
+                record = checkpoint.record
+                if i - 1 in record.completed:
+                    self.logger.info(f"[{self.name}] resume skip completed unit {i}/{len(state.units)}")
+                    continue
+                interrupted = interrupted_index == i - 1
+                possible_writes = list(state.modified_paths)
+                if interrupted or checkpoint.resumed:
+                    recovery_note = "\n\n" + self.prompt_format(
+                        "integrate_resume_message",
+                        possible_paths_json=json.dumps(sorted(set(possible_writes)), ensure_ascii=False),
+                    )
+                    self.logger.info(f"[{self.name}] resume reconcile pending unit {i}/{len(state.units)}")
+                record.active = i - 1
+                record.active_before = _snapshot_digest(workspace, digest_dir)
+                checkpoint.save(state)
+            failures = len(state.failed_units)
+            await self._integrate_one(state, unit, i, workspace, digest_dir, recovery_note=recovery_note)
+            if isinstance(checkpoint, CheckpointStore):
+                if len(state.failed_units) == failures:
+                    checkpoint.complete(i - 1, state)
+                checkpoint.record.active = None
+                checkpoint.record.active_before = {}
+                checkpoint.save(state)
+                self.logger.info(
+                    f"[{self.name}] progress checkpoint saved: "
+                    f"{len(checkpoint.record.completed)}/{len(state.units)} units completed",
+                )
         after = _snapshot_digest(workspace, digest_dir)
+        changed_paths = set(_changed_digest_paths(before, after)) | set(state.modified_paths)
         self.context["changes"] = [
-            {"change": "modified" if path in before else "added", "path": path}
-            for path in _changed_digest_paths(before, after)
+            {"change": "added" if path in state.nodes_created or path not in before else "modified", "path": path}
+            for path in sorted(changed_paths)
+            if (workspace / path).is_file()
         ]
         state.failed_paths = sorted(set(state.failed_paths))
         answer = (
@@ -99,20 +136,29 @@ class DreamIntegrateStep(BaseStep):
         )
         return self._finish(state, not state.failed_units, answer)
 
+    def _missing_llm(self, state, pending):
+        """Keep pending sources eligible without invalidating already completed progress."""
+        err = "no llm configured; dream integrate requires an LLM"
+        state.errors.append(err)
+        state.failed_units = pending
+        state.failed_paths = sorted({p for unit in pending for p in unit.get("paths", [])})
+        self.logger.warning(f"[{self.name}] skip no llm units={len(pending)}")
+        return self._finish(state, False, err)
+
     def _integration_lock(self) -> asyncio.Lock:
         """Return the Application-wide lock used by AutoDream integration."""
-        if self.app_context is None:
-            raise RuntimeError("dream_integrate_step requires app_context")
-        key = "dream_integration_lock"
-        lock = self.app_context.metadata.get(key)
-        if lock is None:
-            lock = asyncio.Lock()
-            self.app_context.metadata[key] = lock
-        if not isinstance(lock, asyncio.Lock):
-            raise TypeError(f"app_context.metadata[{key!r}] must be an asyncio.Lock")
-        return lock
+        return integration_lock(self)
 
-    async def _integrate_one(self, state, unit: dict, index: int, workspace: Path, digest_dir: str) -> None:
+    async def _integrate_one(
+        self,
+        state,
+        unit: dict,
+        index: int,
+        workspace: Path,
+        digest_dir: str,
+        *,
+        recovery_note: str = "",
+    ) -> None:
         try:
             bucket = DreamBucketEnum(str(unit.get("bucket") or "")).value
         except ValueError:
@@ -137,7 +183,8 @@ class DreamIntegrateStep(BaseStep):
                         unit_summary=unit.get("summary", ""),
                         unit_paths_json=json.dumps(paths, ensure_ascii=False, indent=2),
                         material_blob=pack_paths(workspace, paths),
-                    ),
+                    )
+                    + recovery_note,
                     system_prompt=self.prompt_format(
                         f"integrate_system_prompt_{bucket}",
                         workspace_dir=str(workspace),
@@ -151,13 +198,17 @@ class DreamIntegrateStep(BaseStep):
                 changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
-                if len(changed) == 1 and self._valid_target(
-                    workspace,
-                    digest_dir,
-                    bucket,
-                    changed[0],
-                    action="CREATE" if created else "UPDATED",
-                    existed_before=changed[0] in unit_before,
+                if (
+                    not recovery_note
+                    and len(changed) == 1
+                    and self._valid_target(
+                        workspace,
+                        digest_dir,
+                        bucket,
+                        changed[0],
+                        action="CREATE" if created else "UPDATED",
+                        existed_before=changed[0] in unit_before,
+                    )
                 ):
                     self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(
@@ -193,13 +244,17 @@ class DreamIntegrateStep(BaseStep):
                 changed = _changed_digest_paths(before, after)
                 _record_modified_paths(state, changed)
                 created = len(changed) == 1 and changed[0] not in unit_before
-                if len(changed) == 1 and self._valid_target(
-                    workspace,
-                    digest_dir,
-                    bucket,
-                    changed[0],
-                    action="CREATE" if created else "UPDATED",
-                    existed_before=changed[0] in unit_before,
+                if (
+                    not recovery_note
+                    and len(changed) == 1
+                    and self._valid_target(
+                        workspace,
+                        digest_dir,
+                        bucket,
+                        changed[0],
+                        action="CREATE" if created else "UPDATED",
+                        existed_before=changed[0] in unit_before,
+                    )
                 ):
                     self._record_recovered(state, unit, bucket, paths, changed[0], created, e)
                     self.logger.warning(

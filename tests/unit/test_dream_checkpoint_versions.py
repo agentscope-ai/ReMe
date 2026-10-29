@@ -153,7 +153,7 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
     index = f"daily/{DAY}.md"
     (tmp_path / index).write_text("day index")
 
-    def agent_for(app, write_attempt):
+    def agent_for(app, write_attempt, *, valid_receipt=False):
         calls = {"extract": 0, "integrate": 0}
 
         async def reply(_message, **kwargs):
@@ -167,6 +167,8 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
             if calls["integrate"] == write_attempt:
                 written = await app.run_job("write", path=TARGET, content=OLD)
                 assert written.success, written.answer
+                if valid_receipt:
+                    return {"result": json.dumps({"action": "CREATE", "target_path": TARGET})}
             return {"result": "{}"}
 
         agent = AsyncMock(spec=BaseAgentWrapper)
@@ -217,7 +219,7 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
         catalog = app.context.components["file_catalog"]["dream"]
         if recover_on_attempt is None:
             assert {n.path: n.st_mtime for n in await catalog.get_nodes()} == previous
-        agent, calls = agent_for(app, 1)
+        agent, calls = agent_for(app, 1, valid_receipt=True)
         response = await app.run_job(
             "auto_dream",
             date=DAY,
@@ -226,7 +228,7 @@ async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older
             as_llm=Mock(spec=ChatModelBase),
         )
         assert response.success, response.answer
-        assert calls == {"extract": int(recover_on_attempt is None), "integrate": int(recover_on_attempt is None)}
+        assert calls == {"extract": 0, "integrate": int(recover_on_attempt is None)}
         assert {SOURCE, index} <= {n.path for n in await catalog.get_nodes()}
         assert OLD in (tmp_path / TARGET).read_text()
         assert source.read_text() == original
