@@ -11,7 +11,8 @@ import yaml
 from reme.application import Application
 from reme.components import ApplicationContext
 from reme.config import resolve_app_config
-from reme.schema import ApplicationConfig
+from reme.enumeration import ComponentEnum
+from reme.schema import ApplicationConfig, FileNode
 
 
 def test_string_workspace_normalizes_to_default_alias(tmp_path):
@@ -202,3 +203,58 @@ def test_default_workspace_matches_directory_creation_source(tmp_path):
     assert app.config.workspace_dir == app.config.workspaces["main"]
     assert app.context.workspace.workspace_path == tmp_path / "main"
     assert (tmp_path / "main" / "daily").is_dir()
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ["metadata_dir", "session_dir", "mem_session_dir", "resource_dir", "daily_dir", "digest_dir"],
+)
+def test_multi_workspace_rejects_derived_directory_outside_root(tmp_path, field_name):
+    with pytest.raises(ValidationError, match="workspace"):
+        ApplicationConfig(
+            workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+            **{field_name: str(tmp_path / "shared")},
+        )
+
+
+def test_multi_workspace_rejects_derived_directory_escape(tmp_path):
+    with pytest.raises(ValidationError, match="must stay inside the workspace"):
+        ApplicationConfig(
+            workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+            metadata_dir="../shared",
+        )
+
+
+def test_single_workspace_keeps_absolute_derived_directory(tmp_path):
+    external = tmp_path / "external-metadata"
+    config = ApplicationConfig(workspace_dir=str(tmp_path / "single"), metadata_dir=str(external))
+    context = ApplicationContext(**config.model_dump())
+
+    assert context.workspace.metadata_path == external
+
+
+def _graph_app(tmp_path):
+    return Application(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "cli"},
+        components={"file_graph": {"default": {"backend": "local"}}},
+    )
+
+
+@pytest.mark.asyncio
+async def test_workspace_graph_contents_stay_isolated_across_restart(tmp_path):
+    app = _graph_app(tmp_path)
+    async with app:
+        for alias, path in (("alpha", "daily/alpha-private.md"), ("beta", "daily/beta-note.md")):
+            graph = app.context.workspaces[alias].get_component(ComponentEnum.FILE_GRAPH, "default")
+            await graph.upsert_nodes([FileNode(path=path, st_mtime=1.0)])
+
+    reopened = _graph_app(tmp_path)
+    async with reopened:
+        alpha = reopened.context.workspaces["alpha"].get_component(ComponentEnum.FILE_GRAPH, "default")
+        beta = reopened.context.workspaces["beta"].get_component(ComponentEnum.FILE_GRAPH, "default")
+        assert [node.path for node in await alpha.get_nodes()] == ["daily/alpha-private.md"]
+        assert [node.path for node in await beta.get_nodes()] == ["daily/beta-note.md"]

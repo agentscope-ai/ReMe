@@ -114,6 +114,23 @@ class ApplicationConfig(BaseModel):
     def derive_default_workspace(self):
         """Normalize every workspace_dir form to an ordered mapping; the first entry is the default."""
         self.workspaces = dict(self.workspaces) or {DEFAULT_WORKSPACE_ALIAS: self.workspace_dir}
+        if len(self.workspaces) > 1:
+            for alias, workspace in self.workspaces.items():
+                root = Path(workspace).resolve(strict=False)
+                for field_name in (
+                    "metadata_dir",
+                    "session_dir",
+                    "mem_session_dir",
+                    "resource_dir",
+                    "daily_dir",
+                    "digest_dir",
+                ):
+                    subdir = getattr(self, field_name)
+                    if subdir and not (root / subdir).resolve(strict=False).is_relative_to(root):
+                        raise ValueError(
+                            f"{field_name} for workspace {alias!r} must stay inside the workspace "
+                            "in multi-workspace configurations",
+                        )
         return self
 
     @field_validator("components", mode="before")
