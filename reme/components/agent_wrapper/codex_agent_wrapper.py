@@ -257,6 +257,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     @staticmethod
     def _validate_resident_jobs(service, jobs) -> None:
+        if not service.tool_error_on_failure:
+            raise ValueError("Multi-workspace Codex job_tools require resident MCP tool_error_on_failure=true")
         unavailable = [
             job.name
             for job in jobs
@@ -293,11 +295,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 "--workspace",
                 str(self.workspace_path),
             ]
+            if workspaces:
+                alias = str(kwargs.get("workspace") or next(iter(workspaces)))
+                args.extend(["--workspace-alias", alias])
         for name in job_names:
             args.extend(["--job", name])
         args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
         injected_job_kwargs = dict(kwargs.get("injected_job_kwargs") or {})
-        if multi_workspace and (workspace := kwargs.get("workspace")):
+        if workspaces and (workspace := kwargs.get("workspace")):
             injected_job_kwargs["workspace"] = workspace
         if injected_job_kwargs:
             args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])

@@ -331,7 +331,7 @@ async def test_codex_bridge_uses_resident_mcp_endpoint(tmp_path):
     from reme.components.service import HttpService
 
     context = _context(tmp_path)
-    context.service = HttpService(app_context=context)
+    context.service = HttpService(app_context=context, tool_error_on_failure=True)
     context.jobs = {"search_job": _job(context, "search_job")}
     wrapper = CodexAgentWrapper(app_context=context)
 
@@ -452,13 +452,21 @@ async def test_codex_thread_cwd_follows_bound_workspace(tmp_path):
 # ----- Codex bridge: real child-process execution ----------------------------
 
 
-def _codex_test_app(tmp_path):
+def _codex_test_app(tmp_path, workspace_dir=None):
+    if workspace_dir is None:
+        workspace_dir = {"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")}
     return Application(
-        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+        workspace_dir=workspace_dir,
         enable_logo=False,
         log_to_console=False,
         log_to_file=False,
-        service={"backend": "http", "host": "127.0.0.1", "port": 0, "web_enabled": False},
+        service={
+            "backend": "http",
+            "host": "127.0.0.1",
+            "port": 0,
+            "web_enabled": False,
+            "tool_error_on_failure": True,
+        },
         components={
             "tokenizer": {"default": {"backend": "regex"}},
             "file_store": {"default": {"backend": "local", "embedding_store": "", "tag_index": ""}},
@@ -551,6 +559,13 @@ async def test_codex_bridge_reads_resident_parent_state(tmp_path):
                     client.call_tool("write_note", {"path": "daily/bridge.md", "content": "via-bridge-beta"}),
                     timeout=30,
                 )
+                failure = await client.call_tool(
+                    "write_note",
+                    {"path": "../escape.md", "content": "must-not-write"},
+                    raise_on_error=False,
+                )
+                assert failure.is_error
+            assert not (tmp_path / "escape.md").exists()
             assert "parent-resident-beta" in str(read.content[0].text)
             assert "via-bridge-beta" in (tmp_path / "beta" / "daily" / "bridge.md").read_text(encoding="utf-8")
             assert not (tmp_path / "alpha" / "daily" / "bridge.md").exists()
@@ -574,8 +589,37 @@ async def test_codex_bridge_reads_resident_parent_state(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("named_alias", [False, True])
+async def test_codex_legacy_bridge_preserves_single_workspace_binding(tmp_path, named_alias):
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    alias = "alice" if named_alias else "default"
+    root = tmp_path / alias
+    workspace_dir = {alias: str(root)} if named_alias else str(root)
+    app = _codex_test_app(tmp_path, workspace_dir=workspace_dir)
+    wrapper = CodexAgentWrapper(app_context=app.context)
+    server_config = wrapper._mcp_server_config({"job_tools": ["write_note"], "workspace": alias})
+    transport = StdioTransport(
+        command=server_config["command"],
+        args=server_config["args"],
+        cwd=server_config["cwd"],
+        keep_alive=False,
+        env=dict(os.environ),
+    )
+
+    async with Client(transport, timeout=None, init_timeout=30) as client:
+        await asyncio.wait_for(
+            client.call_tool("write_note", {"path": "daily/legacy.md", "content": alias}),
+            timeout=30,
+        )
+    assert alias in (root / "daily" / "legacy.md").read_text(encoding="utf-8")
+    await wrapper.close()
+
+
+@pytest.mark.asyncio
 async def test_codex_multi_workspace_rejects_unsupported_job_transport(tmp_path):
-    from reme.components.service import CliService
+    from reme.components.service import CliService, HttpService
 
     context = _context(tmp_path)
     context.service = CliService(app_context=context)
@@ -588,4 +632,7 @@ async def test_codex_multi_workspace_rejects_unsupported_job_transport(tmp_path)
         wrapper._mcp_server_config(
             {"job_tools": ["search_job"], "workspace": "beta", "mcp_config": "custom.yaml"},
         )
+    context.service = HttpService(app_context=context, tool_error_on_failure=False)
+    with pytest.raises(ValueError, match="tool_error_on_failure=true"):
+        wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
     await wrapper.close()
