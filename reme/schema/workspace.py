@@ -14,7 +14,14 @@ class WorkspaceAgentState:
     """Session execution state owned by one agent wrapper within one workspace."""
 
     thread_tool_contexts: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceCodexThreadState:
+    """Authoritative Codex thread ownership shared by every wrapper in a workspace."""
+
     owned_thread_ids: set[str] | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 @dataclass(frozen=True)
@@ -33,6 +40,7 @@ class WorkspaceContext:
     tool_contexts: dict[str, Any] = field(default_factory=dict)
     search_call_budgets: dict[str, Any] = field(default_factory=dict)
     agent_states: dict[str, WorkspaceAgentState] = field(default_factory=dict)
+    codex_thread_state: WorkspaceCodexThreadState = field(default_factory=WorkspaceCodexThreadState)
     locks: dict[str, asyncio.Lock] = field(default_factory=dict)
 
     def agent_state(self, wrapper_name: str) -> WorkspaceAgentState:

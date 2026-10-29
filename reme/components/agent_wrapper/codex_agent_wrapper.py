@@ -394,7 +394,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 **common,
             )
         if fork_session or not thread_id:
-            self._record_thread_ownership(alias, thread.id)
+            await self._record_thread_ownership(alias, thread.id)
         tool_contexts[thread.id] = requested_tool_context
         return thread
 
@@ -426,32 +426,51 @@ class CodexAgentWrapper(BaseAgentWrapper):
             return None
         return workspace.mem_session_path / "codex" / "owned_threads.json"
 
-    def _owned_thread_ids(self, alias: str) -> set[str]:
-        """Load the persisted ids into the owning workspace's agent state."""
-        state = self._agent_state(alias)
-        if state is not None and state.owned_thread_ids is not None:
-            return state.owned_thread_ids
-        ids: set[str] = set()
-        path = self._thread_ownership_path(alias)
-        if path is not None and path.is_file():
-            try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
-                ids = {str(thread_id) for thread_id in raw.get("thread_ids", [])}
-            except (OSError, ValueError, AttributeError) as exc:
-                self.logger.warning(f"Ignoring unreadable Codex thread ownership file {path}: {exc}")
-        if state is not None:
-            state.owned_thread_ids = ids
-        return ids
+    def _codex_thread_state(self, alias: str):
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        return workspaces[self._normalize_thread_alias(alias)].codex_thread_state
 
-    def _record_thread_ownership(self, alias: str, thread_id: str) -> None:
+    async def _owned_thread_ids(self, alias: str) -> set[str]:
+        """Load ownership through the single authoritative state of each workspace."""
+        state = self._codex_thread_state(alias)
+        if state is None:
+            return set()
+        async with state.lock:
+            if state.owned_thread_ids is not None:
+                return state.owned_thread_ids
+            ids: set[str] = set()
+            path = self._thread_ownership_path(alias)
+            if path is not None and path.is_file():
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    ids = {str(thread_id) for thread_id in raw.get("thread_ids", [])}
+                except (OSError, ValueError, AttributeError) as exc:
+                    self.logger.warning(f"Ignoring unreadable Codex thread ownership file {path}: {exc}")
+            state.owned_thread_ids = ids
+            return ids
+
+    async def _record_thread_ownership(self, alias: str, thread_id: str) -> None:
         alias = self._normalize_thread_alias(alias)
+        state = self._codex_thread_state(alias)
         path = self._thread_ownership_path(alias)
-        ids = self._owned_thread_ids(alias)
-        if path is None or thread_id in ids:
+        if state is None or path is None:
             return
-        ids.add(thread_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"thread_ids": sorted(ids)}, indent=1), encoding="utf-8")
+        ids = await self._owned_thread_ids(alias)
+        async with state.lock:
+            if thread_id in ids:
+                return
+            updated = {*ids, thread_id}
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                    json.dump({"thread_ids": sorted(updated)}, stream, indent=1)
+                os.replace(raw_path, path)
+            finally:
+                Path(raw_path).unlink(missing_ok=True)
+            ids.add(thread_id)
 
     async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
         """Reject resume/fork/compact of a thread owned by another workspace.
@@ -464,7 +483,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             return
         alias = self._normalize_thread_alias(alias)
         for owner_alias in workspaces:
-            if owner_alias != alias and thread_id in self._owned_thread_ids(owner_alias):
+            if owner_alias != alias and thread_id in await self._owned_thread_ids(owner_alias):
                 raise ValueError(
                     f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
                     f"it cannot be used from workspace {alias!r}",

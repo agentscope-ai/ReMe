@@ -162,8 +162,8 @@ async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
     assert set(alpha_state.thread_tool_contexts) == {"thread-1"}
     assert set(beta_state.thread_tool_contexts) == {"thread-2"}
     assert not wrapper._thread_tool_contexts
-    assert alpha_state.owned_thread_ids == {"thread-1"}
-    assert beta_state.owned_thread_ids == {"thread-2"}
+    assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {"thread-1"}
+    assert context.workspaces["beta"].codex_thread_state.owned_thread_ids == {"thread-2"}
 
 
 @pytest.mark.asyncio
@@ -201,6 +201,33 @@ async def test_codex_thread_ownership_persists_across_restart(tmp_path):
     assert thread.id == "thread-1"
     # Threads recorded nowhere pass through and let the SDK decide.
     await restarted._open_thread(codex, {"session_id": "thread-elsewhere", "workspace": "beta"})
+
+
+@pytest.mark.asyncio
+async def test_codex_thread_ownership_is_shared_and_atomic_across_wrappers(tmp_path):
+    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
+    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context)
+    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context)
+
+    assert await wrapper_b._owned_thread_ids("alpha") == set()
+    await wrapper_a._record_thread_ownership("alpha", "alpha-thread")
+    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+        await wrapper_b._check_thread_ownership("alpha-thread", "beta")
+
+    await wrapper_b._record_thread_ownership("alpha", "second-alpha-thread")
+    ownership = tmp_path / "alpha" / "mem_session" / "codex" / "owned_threads.json"
+    assert set(json.loads(ownership.read_text(encoding="utf-8"))["thread_ids"]) == {
+        "alpha-thread",
+        "second-alpha-thread",
+    }
+    assert not list(ownership.parent.glob("*.tmp"))
+
+    restarted_context = ApplicationContext(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+    )
+    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
+    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+        await restarted._check_thread_ownership("alpha-thread", "beta")
 
 
 # ----- Background/cron binding -----------------------------------------------
