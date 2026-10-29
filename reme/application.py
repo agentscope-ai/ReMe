@@ -227,15 +227,21 @@ class Application(BaseComponent):
 
     async def _close_started_components(self) -> None:
         """Close resources while the caller serializes component mutations."""
+        cancelled_error: asyncio.CancelledError | None = None
         for c in reversed(self._started_components):
             try:
                 await c.close()
+            except asyncio.CancelledError as exc:
+                if cancelled_error is None:
+                    cancelled_error = exc
             except Exception as e:
                 self.logger.exception(f"Failed to close {component_type_name(c.component_type)}:{c.name}: {e}")
         self._started_components.clear()
         if self.context.thread_pool is not None:
             self.context.thread_pool.shutdown(wait=True)
             self.context.thread_pool = None
+        if cancelled_error is not None:
+            raise cancelled_error
 
     async def update_component(self, component_enum: ComponentType, name: str, /, **kwargs) -> BaseComponent:
         """Update an existing component by type/name; never creates missing components."""

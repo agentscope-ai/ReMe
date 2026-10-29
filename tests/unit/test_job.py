@@ -11,7 +11,7 @@ import pytest
 from reme.enumeration import ComponentEnum
 from reme.application import Application
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
@@ -487,5 +487,61 @@ def test_application_start_failure_propagates_and_closes_started_components():
 
         assert good.closed is True
         assert not app._started_components
+
+    asyncio.run(run())
+
+
+def test_cancelled_application_close_finishes_remaining_cleanup(tmp_path):
+    """Cancellation still closes other components and shuts down the owned pool."""
+
+    async def run():
+        closing = asyncio.Event()
+        closed = []
+
+        class ShutdownComponent(BaseComponent):
+            component_type = ComponentEnum.FILE_CHUNKER
+
+            async def _close(self):
+                try:
+                    if self.name == "b":
+                        closing.set()
+                        await asyncio.Event().wait()
+                finally:
+                    closed.append(self.name)
+
+        with R.preserve(allow_mutation=True):
+            R.register(ShutdownComponent, "test_shutdown")
+            app = Application(
+                workspace_dir=str(tmp_path),
+                enable_logo=False,
+                log_to_console=False,
+                log_to_file=False,
+                thread_pool_max_workers=1,
+                service={"backend": "cli"},
+                components={"file_chunker": {name: {"backend": "test_shutdown"} for name in ("a", "b")}},
+            )
+
+        await app.start()
+        pool = app.context.thread_pool
+        assert pool is not None
+        close_task = asyncio.create_task(app.close())
+        try:
+            await asyncio.wait_for(closing.wait(), timeout=5)
+            close_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await close_task
+
+            assert closed == ["b", "a"]
+            assert all(not component.is_started for component in app.context.components["file_chunker"].values())
+            assert not app.is_started
+            assert app.context.thread_pool is None
+            with pytest.raises(RuntimeError, match="cannot schedule new futures after shutdown"):
+                pool.submit(lambda: None)
+        finally:
+            close_task.cancel()
+            await asyncio.gather(close_task, return_exceptions=True)
+            for component in app.context.components["file_chunker"].values():
+                await component.close()
+            pool.shutdown(wait=True)
 
     asyncio.run(run())
