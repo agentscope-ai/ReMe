@@ -1,5 +1,6 @@
-"""Sequential case-local investigations using ReMe Jobs and sandboxed command tools."""
+"""Concurrent case-local investigations using ReMe Jobs and sandboxed command tools."""
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -276,7 +277,7 @@ class HomeCaseStudyStep(BaseStep):
     agent_wrapper: BoundedAgentWrapper = Ref(BoundedAgentWrapper, "agent_wrapper")
 
     async def execute(self):
-        """Validate the whole batch, then isolate each sequential investigation and failure."""
+        """Validate the whole batch, then run bounded concurrent, isolated investigations."""
         if self.context.get("_allowed_paths") is not None:
             raise ValueError("Home case study requires unrestricted access to its managed artifacts")
         if not self.workspace.is_started or not self.agent_wrapper.is_started:
@@ -297,6 +298,9 @@ class HomeCaseStudyStep(BaseStep):
         output_limit = self.kwargs.get("output_token_limit", 2500)
         if isinstance(output_limit, bool) or not isinstance(output_limit, int) or output_limit < 1:
             raise ValueError("output_token_limit must be a positive integer")
+        concurrency = self.kwargs.get("concurrency", 4)
+        if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
+            raise ValueError("concurrency must be a positive integer")
         prompts = yaml.safe_load(PROMPT.read_text(encoding="utf-8"))
         if not isinstance(prompts, dict) or any(
             not isinstance(prompts.get(key), str) or not prompts[key].strip()
@@ -315,22 +319,33 @@ class HomeCaseStudyStep(BaseStep):
             response.metadata.update(validation_path=scopes[0]["validation_path"], case_id=spec.case_ids[0])
             response.metadata.update({key: result[key] for key in ("session_id", "usage") if key in result})
             return response
-        results = []
-        response.answer = {"results": results}
-        for scope in scopes:
-            try:
-                result = await self._investigate(scope, spec.focus, prompts, output_limit)
-                results.append(
-                    {
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def investigate(scope):
+            async with semaphore:
+                try:
+                    result = await self._investigate(scope, spec.focus, prompts, output_limit)
+                    return {
                         "case_id": scope["case_id"],
                         "success": True,
                         "report": result["result"],
                         **{key: result[key] for key in ("session_id", "usage") if key in result},
-                    },
-                )
-            except Exception as exc:  # A failed investigator must not discard or cancel sibling reports.
-                self.logger.exception(f"Case-study investigation failed: case_id={scope['case_id']}")
-                results.append({"case_id": scope["case_id"], "success": False, "error": f"{type(exc).__name__}: {exc}"})
+                    }
+                except Exception as exc:  # One failed investigator must not cancel sibling reports.
+                    self.logger.exception(f"Case-study investigation failed: case_id={scope['case_id']}")
+                    return {"case_id": scope["case_id"], "success": False, "error": f"{type(exc).__name__}: {exc}"}
+
+        tasks = [asyncio.create_task(investigate(scope)) for scope in scopes]
+        try:
+            # Preserve input order even when investigators complete out of order.
+            results = await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            # Include queued cases and wait for running agents/executors to finish cancellation cleanup.
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        response.answer = {"results": results}
         response.success = all(item["success"] for item in results)
         # Failed or unreported calls have unknown usage; never present a partial sum as a full total.
         response.metadata["usage"] = (

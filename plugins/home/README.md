@@ -736,14 +736,18 @@ or through the case-study batch Job below.
 
 `home_case_study(evaluation_path, case_ids, focus=...)` investigates up to eight
 unique case IDs in input order, sharing the evaluation and unchanged focus.
-Cases run sequentially, each with fresh agent state, sandbox and timer. The
+Cases run concurrently, each with fresh agent state, sandbox and timer. The
+host Step setting `concurrency` defaults to 4, matching dev_meta, and must be a
+positive integer; set it to 1 for sequential execution. Results preserve input
+order regardless of completion order. Cancelling the batch cancels running and
+queued cases and waits for their cleanup before returning. The
 whole selection is validated before model calls; a case execution failure is
 returned individually without cancelling later cases. It follows dev_meta's
 case-study workflow: trace judging and answer failures backward through retrieval,
 memory construction, source sessions and
 the evaluated implementation. The text report cites evidence paths/lines or
 JSON fields and distinguishes supported causes, hypotheses and missing evidence;
-it does not prescribe fixes. There is no parallel case-study dispatcher.
+it does not prescribe fixes.
 
 The `home_case_study` component uses `home_case_study_agent`, a thin subclass of
 the bounded wrapper, defaulting to the dedicated `as_llm: home_case_study`
@@ -785,7 +789,7 @@ Linux requires Bubblewrap and, with the default 4096-MiB limit, a writable
 delegated cgroup v2. macOS requires Seatbelt (`sandbox-exec`); memory limits are
 not enforced there. The Job probes sandbox startup before calling the model and
 never falls back to an unrestricted executor. The command whitelist parser is
-not used by this agent. Sandbox policy, output-report token guidance and executor
+not used by this agent. Batch concurrency, sandbox policy, output-report token guidance and executor
 memory policy are host Step configuration, not model arguments:
 
 ```yaml
@@ -794,6 +798,7 @@ jobs:
     steps:
       - backend: home_case_study_step
         agent_wrapper: home_case_study
+        concurrency: 4
         output_token_limit: 2500
         # memory_limit_mib: 0  # Explicitly disable Linux cgroup memory limiting if needed.
 ```

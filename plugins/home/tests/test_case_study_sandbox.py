@@ -64,8 +64,10 @@ def test_failed_macos_lookup_adds_no_grant(tmp_path, monkeypatch, result):
 
 
 @pytest.mark.asyncio
-async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch):
+@pytest.mark.parametrize("same_prefix", [True, False], ids=["same-prefix", "different-prefix"])
+async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch, same_prefix):
     monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(sys, "base_prefix", sys.prefix if same_prefix else str(tmp_path / "base-python"))
     monkeypatch.setattr(sandbox, "create_file_sandbox_backend", PathBubbleBackend)
     adapted = sandbox.create_case_study_sandbox(
         cwd=tmp_path,
@@ -84,9 +86,10 @@ async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch):
     assert "--clearenv" in argv and "--unshare-all" in argv
     assert argv.index("--") < argv.index("/usr/bin/env")
     assert "GIT_CONFIG_NOSYSTEM=1" in argv and "GIT_CONFIG_GLOBAL=/dev/null" in argv
-    assert adapted.environment["PATH"].split(":")[:2] == list(
+    python_paths = list(
         dict.fromkeys([str(sandbox.Path(sys.prefix) / "bin"), str(sandbox.Path(sys.base_prefix) / "bin")]),
     )
+    assert adapted.environment["PATH"].split(":")[: len(python_paths)] == python_paths
     assert backend._writable_paths == []
     assert await adapted.getcwd() == str(tmp_path)
     backend.exec_shell.side_effect = asyncio.CancelledError

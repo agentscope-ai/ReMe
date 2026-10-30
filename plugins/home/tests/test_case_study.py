@@ -1,4 +1,4 @@
-"""Single case investigations use normal ReMe lifecycle and sandboxed executors."""
+"""Concurrent case investigations use normal ReMe lifecycle and sandboxed executors."""
 
 # pylint: disable=missing-function-docstring,missing-class-docstring,redefined-outer-name
 # pylint: disable=unused-argument,protected-access
@@ -380,7 +380,8 @@ async def test_batch_shares_focus_but_isolates_agents_tools_and_sandboxes(app, p
     assert response.metadata["usage"]["total_tokens"] == 20
     assert len(model.calls) == 4
     for i, case_id in enumerate(["case2", first]):
-        calls = model.calls[i * 2 : i * 2 + 2]
+        calls = [call for call in model.calls if f"Case: {case_id};" in str(call["messages"])]
+        assert len(calls) == 2
         assert "Shared hypothesis" in str(calls[0]["messages"])
         outputs = [b for m in calls[1]["messages"] for b in m.content if b.type == "tool_result"]
         evidence = json.loads(outputs[0].output[0].text)
@@ -420,16 +421,136 @@ async def test_entire_batch_is_validated_before_spending_model_tokens(app, batch
 
 
 @pytest.mark.asyncio
-async def test_batch_cancellation_propagates_without_starting_next_case(app, batch_run, sandbox, monkeypatch):
+async def test_batch_child_cancellation_cleans_up_siblings(app, batch_run, sandbox, monkeypatch):
     run, first, _query_id, _commit = batch_run
+    both_started = asyncio.Event()
+    cleaned = []
+    started = []
 
-    async def cancel(*args, **kwargs):
-        raise asyncio.CancelledError
+    async def cancel(self, scope, *args):
+        case_id = scope["case_id"]
+        started.append(case_id)
+        if len(started) == 2:
+            both_started.set()
+        try:
+            await both_started.wait()
+            if case_id == first:
+                raise asyncio.CancelledError
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned.append(case_id)
 
-    monkeypatch.setattr(app.context.components["agent_wrapper"]["home_case_study"], "reply", cancel)
+    monkeypatch.setattr(case_study.HomeCaseStudyStep, "_investigate", cancel)
     with pytest.raises(asyncio.CancelledError):
-        await app.run_job("home_case_study", evaluation_path=str(run), case_ids=[first, "case2"])
-    assert len(sandbox) == 1
+        await asyncio.wait_for(
+            app.run_job("home_case_study", evaluation_path=str(run), case_ids=[first, "case2"]),
+            timeout=5,
+        )
+    assert set(cleaned) == {first, "case2"}
+
+
+@pytest.fixture
+def many_case_run(batch_run, case_run):
+    run, first, query_id, _commit = batch_run
+    source = case_run[-1]
+    manifest = json.loads((run / "manifest.json").read_text())
+    for case_id in ["case3", "case4", "case5", "case6"]:
+        case = json.loads(source.read_text())
+        case["case_id"] = case_id
+        write_json(source.parent / f"batch-{case_id}.json", case)
+        shutil.copytree(run / f"cases/{first}", run / f"cases/{case_id}")
+        manifest["case_ids"].append(case_id)
+        manifest["query_ids"][case_id] = [query_id]
+    write_json(run / "manifest.json", manifest)
+    return run, manifest["case_ids"]
+
+
+@pytest.mark.parametrize("concurrency", [1, 2, 4])
+@pytest.mark.asyncio
+async def test_batch_bounds_concurrency_and_preserves_order(app, many_case_run, monkeypatch, concurrency):
+    run, case_ids = many_case_run
+    params = app.context.jobs["home_case_study"].step_specs[0][1]
+    assert params["concurrency"] == 4
+    params["concurrency"] = concurrency
+    started = asyncio.Queue()
+    gates = {case_id: asyncio.Event() for case_id in case_ids}
+    active = set()
+    completed = []
+    peak = 0
+
+    async def investigate(self, scope, focus, prompts, output_limit):
+        nonlocal peak
+        case_id = scope["case_id"]
+        active.add(case_id)
+        peak = max(peak, len(active))
+        started.put_nowait(case_id)
+        try:
+            await gates[case_id].wait()
+            completed.append(case_id)
+            if case_id == case_ids[1]:
+                raise RuntimeError("one investigator failed")
+            return {"result": f"report {case_id}"}
+        finally:
+            active.remove(case_id)
+
+    monkeypatch.setattr(case_study.HomeCaseStudyStep, "_investigate", investigate)
+    task = asyncio.create_task(app.run_job("home_case_study", evaluation_path=str(run), case_ids=case_ids))
+    try:
+        running = [await asyncio.wait_for(started.get(), timeout=5) for _ in range(concurrency)]
+        assert started.empty() and len(active) == concurrency
+        for index in range(len(case_ids)):
+            case_id = running.pop()  # Finish newer cases first to force out-of-order completion.
+            gates[case_id].set()
+            if index < len(case_ids) - concurrency:
+                running.append(await asyncio.wait_for(started.get(), timeout=5))
+        response = await asyncio.wait_for(task, timeout=5)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+    assert peak == concurrency and not active
+    assert completed != case_ids if concurrency > 1 else completed == case_ids
+    assert not response.success and response.metadata["usage"] is None
+    results = response.answer["results"]
+    assert [item["case_id"] for item in results] == case_ids
+    assert "one investigator failed" in results[1]["error"]
+    assert all(item["success"] for index, item in enumerate(results) if index != 1)
+
+
+@pytest.mark.asyncio
+async def test_batch_cancellation_cleans_running_and_queued_cases(app, many_case_run, monkeypatch):
+    run, case_ids = many_case_run
+    started = asyncio.Queue()
+    cleaned = []
+
+    async def wait_for_cancel(self, scope, *args):
+        case_id = scope["case_id"]
+        started.put_nowait(case_id)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await asyncio.sleep(0)
+            cleaned.append(case_id)
+
+    monkeypatch.setattr(case_study.HomeCaseStudyStep, "_investigate", wait_for_cancel)
+    task = asyncio.create_task(app.run_job("home_case_study", evaluation_path=str(run), case_ids=case_ids))
+    try:
+        running = [await asyncio.wait_for(started.get(), timeout=5) for _ in range(4)]
+    finally:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=5)
+    assert started.empty() and set(cleaned) == set(running)
+
+
+@pytest.mark.parametrize("concurrency", [0, -1, True, 1.5, "4", None])
+@pytest.mark.asyncio
+async def test_invalid_concurrency_rejected_before_agents_start(app, batch_run, sandbox, concurrency):
+    run, first, _query_id, _commit = batch_run
+    app.context.jobs["home_case_study"].step_specs[0][1]["concurrency"] = concurrency
+    response = await app.run_job("home_case_study", evaluation_path=str(run), case_ids=[first, "case2"])
+    assert not response.success and "concurrency must be a positive integer" in response.answer
+    assert not sandbox
 
 
 @pytest.mark.parametrize(
