@@ -21,9 +21,12 @@ from reme_guidance import memory_guidance  # noqa: E402
 from reme_mcp import call  # noqa: E402
 from reme_state import digest, log_status, queue_root  # noqa: E402
 
+sys.stdout.reconfigure(encoding="utf-8")
+
 HOME_ENV = reme_config.HOME_ENV
 HOST = "codex"
 CAPTURE_WAIT_SECONDS = 10
+CAPTURE_SETTLE_SECONDS = 3.0
 
 
 def clean_text(value: str) -> str:
@@ -37,9 +40,12 @@ def transcript_messages(path: Path, *, root_only: bool = True):
     """Read current completed-item events, excluding reasoning and response-item duplicates."""
     with path.open(encoding="utf-8") as handle:
         for index, line in enumerate(handle):
-            if not line.endswith("\n"):
-                break
-            record = json.loads(line)
+            try:
+                record = json.loads(line.rstrip("\r\n"))
+            except (json.JSONDecodeError, UnicodeError):
+                if not line.endswith("\n"):
+                    return
+                continue
             if not isinstance(record, dict):
                 continue
             payload = record.get("payload")
@@ -76,26 +82,45 @@ def transcript_messages(path: Path, *, root_only: bool = True):
             }
 
 
-def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> list[dict]:
-    """Match this Stop's final reply to its native user turn, even after another turn starts."""
+def _completed_turn(
+    payload: dict,
+    session: str,
+    *,
+    root_only: bool,
+    allow_fallback: bool,
+) -> list[dict]:
+    """Build a turn, optionally falling back after the caller's bounded retry window."""
     final, transcript, turn_id = (
         payload.get("last_assistant_message"),
         payload.get("transcript_path"),
         payload.get("turn_id"),
     )
-    if not all(isinstance(value, str) and value.strip() for value in (final, transcript, turn_id)):
+    if not all(isinstance(value, str) and value.strip() for value in (transcript, turn_id)):
+        return []
+    if final is not None and not isinstance(final, str):
         return []
     path = Path(transcript).expanduser()
     if root_only and "subagents" in path.parts:
         return []
+    try:
+        messages = list(transcript_messages(path, root_only=root_only))
+    except FileNotFoundError:
+        return []
+    final_text = clean_text(final) if isinstance(final, str) else ""
+    turn_messages = [message for message in messages if message["turn_id"] == turn_id]
     user, pair = None, []
-    for message in transcript_messages(path, root_only=root_only):
-        if message["turn_id"] != turn_id:
-            continue
+    for message in turn_messages:
         if message["role"] == "user":
             user = message
-        elif user and message["text"] == clean_text(final):
+        elif user and final_text and message["text"] == final_text:
             pair = [user, message]
+    if not pair and allow_fallback and final_text:
+        user = None
+        for message in turn_messages:
+            if message["role"] == "user":
+                user = message
+            elif user and message["role"] == "assistant":
+                pair = [user, message]
     return [
         {
             "id": f"{HOST}-{digest(session + ':' + message['id'])}",
@@ -106,6 +131,30 @@ def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> li
         }
         for message in pair
     ]
+
+
+def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> list[dict]:
+    """Match this Stop's final reply to its native user turn without accepting an early fallback."""
+    return _completed_turn(payload, session, root_only=root_only, allow_fallback=False)
+
+
+def completed_turn_with_retry(
+    payload: dict,
+    session: str,
+    *,
+    root_only: bool = True,
+    timeout: float | None = None,
+) -> list[dict]:
+    """Allow Codex a short window to finish writing the current transcript turn."""
+    deadline = time.monotonic() + max(0, CAPTURE_SETTLE_SECONDS if timeout is None else timeout)
+    while True:
+        messages = completed_turn(payload, session, root_only=root_only)
+        if len(messages) == 2:
+            return messages
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _completed_turn(payload, session, root_only=root_only, allow_fallback=True)
+        time.sleep(min(0.1, remaining))
 
 
 def session_queue(config: dict, payload: dict) -> Path | None:
@@ -122,7 +171,7 @@ def capture(config: dict, payload: dict) -> Path | None:
     root = session_queue(config, payload)
     if root is None:
         return None
-    messages = completed_turn(payload, root.name, root_only=config["rootAgentsOnly"])
+    messages = completed_turn_with_retry(payload, root.name, root_only=config["rootAgentsOnly"])
     if len(messages) != 2:
         log_status("capture_skipped", config=config)
         return None
@@ -132,7 +181,7 @@ def capture(config: dict, payload: dict) -> Path | None:
         day = instant.astimezone(ZoneInfo(config["timezone"])).date().isoformat()
         write_json(
             root / f"{key}.json",
-            {"session_id": root.name, "turn_id": payload["turn_id"], "messages": messages, "date": day},
+            {"session_id": root.name, "turn_id": payload.get("turn_id"), "messages": messages, "date": day},
         )
         log_status("memory_queued", config=config, turns=1)
     return root
@@ -225,7 +274,7 @@ def recall(config: dict, payload: dict) -> dict:
                     f"{text}\n</reme-context>"
                 )
         except (OSError, ValueError, RuntimeError) as exc:
-            log_status("recall_failed", exc, config=config)
+            log_status("recall_failed", exc.__cause__ or exc, config=config)
     else:
         log_status("recall_disabled", config=config)
     return {"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": context}}
