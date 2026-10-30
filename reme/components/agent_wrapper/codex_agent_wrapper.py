@@ -178,7 +178,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         fd, raw_path = tempfile.mkstemp(prefix="config-", suffix=".json", dir=snapshot_dir)
         try:
-            os.fchmod(fd, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
         except BaseException:
@@ -541,8 +542,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
             for workspace in (_context_workspaces(self.app_context) or {}).values():
                 if state := workspace.agent_states.get(self.name):
                     state.thread_tool_contexts.clear()
-            if codex is not None:
-                await codex.close()
+            try:
+                if codex is not None:
+                    await codex.close()
+            finally:
+                if self._mcp_snapshot_path is not None:
+                    self._mcp_snapshot_path.unlink(missing_ok=True)
+                    self._mcp_snapshot_path = None
 
     async def _prune_thread_tool_contexts(self, codex: AsyncCodex, alias: str = "") -> None:
         """Forget tool constraints only after the server confirms a thread is unloaded."""

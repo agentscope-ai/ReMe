@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import stat
 from types import SimpleNamespace
 
 import pytest
@@ -18,7 +19,7 @@ from reme.components.job import BackgroundJob
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import Response
+from reme.schema import ApplicationConfig, Response
 
 # A fresh bridge imports ReMe before replying to initialize; keep this separate
 # from the 10-second budget for requests to an already initialized server.
