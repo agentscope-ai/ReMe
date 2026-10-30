@@ -399,8 +399,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 thread_source=thread_source,
                 **common,
             )
-        if fork_session or not thread_id:
-            await self._record_thread_ownership(alias, thread.id)
+        await self._record_thread_ownership(alias, thread.id)
         tool_contexts[thread.id] = requested_tool_context
         return thread
 
@@ -458,25 +457,40 @@ class CodexAgentWrapper(BaseAgentWrapper):
             return ids
 
     async def _record_thread_ownership(self, alias: str, thread_id: str) -> None:
-        alias = self._normalize_thread_alias(alias)
-        state = self._codex_thread_state(alias)
-        path = self._thread_ownership_path(alias)
-        if state is None or path is None:
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
             return
-        ids = await self._owned_thread_ids(alias)
-        async with state.lock:
-            if thread_id in ids:
+        alias = self._normalize_thread_alias(alias)
+        async with self.app_context.codex_thread_ownership_lock:
+            for owner_alias in workspaces:
+                if thread_id not in await self._owned_thread_ids(owner_alias):
+                    continue
+                if owner_alias == alias:
+                    return
+                raise ValueError(
+                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
+                    f"it cannot be used from workspace {alias!r}",
+                )
+
+            state = self._codex_thread_state(alias)
+            ids = await self._owned_thread_ids(alias)
+            path = self._thread_ownership_path(alias)
+            if path is None:
+                ids.add(thread_id)
                 return
-            updated = {*ids, thread_id}
-            path.parent.mkdir(parents=True, exist_ok=True)
-            fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                    json.dump({"thread_ids": sorted(updated)}, stream, indent=1)
-                os.replace(raw_path, path)
-            finally:
-                Path(raw_path).unlink(missing_ok=True)
-            ids.add(thread_id)
+            async with state.lock:
+                if thread_id in ids:
+                    return
+                updated = {*ids, thread_id}
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                        json.dump({"thread_ids": sorted(updated)}, stream, indent=1)
+                    os.replace(raw_path, path)
+                finally:
+                    Path(raw_path).unlink(missing_ok=True)
+                ids.add(thread_id)
 
     async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
         """Reject resume/fork/compact of a thread owned by another workspace.
@@ -642,6 +656,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             thread = await codex.thread_resume(session_id)
             try:
                 await thread.compact()
+                await self._record_thread_ownership(str(workspace or ""), thread.id)
             finally:
                 if self._release_threads:
                     await self._release_thread(codex, thread.id)

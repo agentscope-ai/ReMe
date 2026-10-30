@@ -93,7 +93,8 @@ workspace_dir:
 
 第一个 entry 是默认 workspace；每个别名在启动时都会在自己的根目录下创建相同的子目录布局
 （`metadata_dir`、`session_dir` 等上述目录）。别名必须非空，且解析后的目录必须互不相同、不能互相包含。
-单个字符串保持原有行为，内部归一化为 `default` 别名。
+单个字符串保持原有行为，内部归一化为 `default` 别名。多 workspace 配置还要求 `mem_session_dir` 非空，
+以确保重启后仍能强制执行 agent thread 的归属隔离。
 
 Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
 `reme read_note path=daily/note.md workspace=scratch`；缺省绑定默认 workspace，未知别名会直接报错。

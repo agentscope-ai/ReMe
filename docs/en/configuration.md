@@ -90,7 +90,8 @@ workspace_dir:
 The first entry is the default workspace; every alias gets the same subdirectory layout (`metadata_dir`,
 `session_dir`, and the others above) materialized under its own root at startup. Aliases must be non-empty, and
 resolved directories must be distinct and must not contain one another. A single string keeps the existing
-behavior and is normalized internally to a `default` alias.
+behavior and is normalized internally to a `default` alias. Multi-workspace configurations also require a non-empty
+`mem_session_dir` so agent thread ownership remains enforceable after restart.
 
 Job calls accept an optional `workspace` field naming the alias to bind, for example
 `reme read_note path=daily/note.md workspace=scratch`; omitting it binds the default workspace, and an unknown
