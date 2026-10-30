@@ -4,6 +4,7 @@ import asyncio
 import json
 from pathlib import Path
 
+
 from .arxiv import ArxivPdfClient
 from .base import (
     PAPER_COUNT,
@@ -12,8 +13,7 @@ from .base import (
     normalize_chinese_title,
     replace_surrogates,
     resolve_unique_note_path,
-    strip_frontmatter,
-    structured_output,
+    markdown_output,
     utc_now_iso,
     write_markdown,
 )
@@ -99,19 +99,33 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
             f"chars={len(pdf_text)} truncated={truncated}",
         )
         self.logger.info(f"[{self.name}] agent start arxiv_id={paper.arxiv_id}")
-        result = await self.agent_wrapper.reply(
-            self.prompt_format(
-                "analyze_user",
-                paper_info=json.dumps(paper.model_dump(), ensure_ascii=False, indent=2),
-                selection_reason=selected.reasoning,
-                page_count=page_count,
-                truncated=str(truncated).lower(),
-                pdf_text=pdf_text,
-            ),
-            output_schema=DailyPaperMarkdownOutput,
+        prompt = self.prompt_format(
+            "analyze_user",
+            paper_info=json.dumps(paper.model_dump(), ensure_ascii=False, indent=2),
+            selection_reason=selected.reasoning,
+            page_count=page_count,
+            truncated=str(truncated).lower(),
+            pdf_text=pdf_text,
         )
+        # AgentScope is optional: Codex JSON parsing and Pydantic validation both raise ValueError.
+        recoverable = (ValueError,)
+        try:
+            from agentscope.exception import StructuredOutputError
+        except ImportError:
+            pass
+        else:
+            recoverable += (StructuredOutputError,)
+        for attempt in range(2):
+            try:
+                result = await self.agent_wrapper.reply(prompt, output_schema=DailyPaperMarkdownOutput)
+                output = markdown_output(result)
+                break
+            except recoverable:
+                if attempt:
+                    raise
+                self.logger.warning(f"[{self.name}] retry shorter structured note arxiv_id={paper.arxiv_id}")
+                prompt += "\n\n" + self.prompt_format("analyze_short_retry")
         self.logger.info(f"[{self.name}] agent done arxiv_id={paper.arxiv_id}")
-        output = structured_output(result, DailyPaperMarkdownOutput)
         title = normalize_chinese_title(output.title, f"论文解读-{paper.arxiv_id}")
         day_dir = self.workspace_path / daily_dir / day
         existing_note = self._find_existing_note(day_dir, paper.arxiv_id)
@@ -126,10 +140,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         )
         used_titles.add(title)
         note_rel = note_path.relative_to(self.workspace_path).as_posix()
-        desc = replace_surrogates(output.desc.strip())
-        body = replace_surrogates(strip_frontmatter(output.body))
-        if not desc or not body:
-            raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
+        desc, body = output.desc, output.body
         await write_markdown(
             note_path,
             body,
@@ -194,21 +205,39 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         self.logger.info(f"[{self.name}] start papers={len(selected)}")
 
         analyses: list[AnalyzedPaper] = []
+        failures: list[dict[str, str]] = []
+        self._set_state("analyses", analyses)
+        self._set_state("failures", failures)
         used_titles: set[str] = set()
         async with ArxivPdfClient(
             timeout=float(self._value("pdf_timeout", 600.0)),
             max_bytes=int(self._value("max_pdf_bytes", 50 * 1024 * 1024)),
         ) as downloader:
             for item in selected:
-                analyses.append(
-                    await self._analyze_one(
+                try:
+                    analysis = await self._analyze_one(
                         downloader,
                         candidate_map[item.arxiv_id],
                         item,
                         used_titles,
-                    ),
+                    )
+                except Exception as exc:  # Cancellation must propagate, not become a paper failure.
+                    failures.append({"arxiv_id": item.arxiv_id, "error": f"{type(exc).__name__}: {exc}"})
+                    self.logger.warning(f"[{self.name}] paper failed arxiv_id={item.arxiv_id}: {exc}")
+                else:
+                    analyses.append(analysis)
+                self.context.response.metadata.update(
+                    {
+                        "analysis_count": len(analyses),
+                        "failure_count": len(failures),
+                        "failed_papers": list(failures),
+                        "note_paths": [paper.note_path for paper in analyses],
+                        "pdf_paths": [paper.pdf_path for paper in analyses],
+                    },
                 )
-        self._set_state("analyses", analyses)
-        self.context.response.answer = f"Agent wrote {len(analyses)} detailed paper notes"
+        self.context.response.success = bool(analyses)
+        self.context.response.answer = (
+            f"Agent wrote {len(analyses)} detailed paper notes; {len(failures)} paper(s) failed"
+        )
         self.logger.info(f"[{self.name}] finish notes={len(analyses)}")
         return self.context.response

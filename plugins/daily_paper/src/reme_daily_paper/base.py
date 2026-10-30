@@ -16,10 +16,12 @@ from pydantic import BaseModel
 from reme.steps import BaseStep
 from reme.steps.file_io import get_path_lock, validate_filename_component
 
+from .schema import DailyPaperMarkdownOutput
+
 # Number of papers selected, analyzed, and digested each run. Shared across steps.
 PAPER_COUNT = 3
 _STATE_PREFIX = "daily_paper_"
-_FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---\s*\n", re.DOTALL)
+_FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---(?:\s*\n|$)", re.DOTALL)
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CHINESE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -54,6 +56,16 @@ def _replace_surrogates_recursive(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_replace_surrogates_recursive(item) for item in value)
     return value
+
+
+def markdown_output(result: dict[str, Any]) -> DailyPaperMarkdownOutput:
+    """Clean and validate usable Markdown before callers persist or retry it."""
+    output = structured_output(result, DailyPaperMarkdownOutput)
+    desc = replace_surrogates(output.desc.strip())
+    body = replace_surrogates(strip_frontmatter(output.body))
+    if not desc or not body:
+        raise ValueError("Agent returned an empty Markdown description or body")
+    return output.model_copy(update={"desc": desc, "body": body})
 
 
 def normalize_chinese_title(raw: str, fallback: str) -> str:

@@ -623,6 +623,7 @@ def test_digest_prompt_uses_configured_daily_directory(tmp_path: Path):
     prompt = step.prompt_format(
         "digest_user",
         documents="[]",
+        paper_count=3,
         daily_dir=str(step.config_value("daily_dir")).strip("/"),
     )
 
@@ -1016,3 +1017,234 @@ async def test_digest_validates_model_generated_historical_wikilinks(tmp_path: P
     assert "非 daily 节点" in rendered and "[[digest/wiki/相关概念.md" not in rendered
     assert "越界路径" in rendered and "../outside.md" not in rendered
     assert "[[daily/2026-07-21/论文解读1.md]]" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_indices", [{0}, {2}, {0, 1, 2}, set()])
+async def test_analysis_isolates_paper_failures(tmp_path, monkeypatch, failed_indices):
+    """Ordinary failures retain completed notes and do not skip later selections."""
+    papers = [_paper(f"2607.1000{i}") for i in range(3)]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_selected=[PaperPick(arxiv_id=p.arxiv_id, reasoning="test") for p in papers],
+        daily_paper_candidates=papers,
+    )
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    attempted = []
+
+    async def analyze_one(_downloader, paper, _selected, _used_titles):
+        index = papers.index(paper)
+        attempted.append(index)
+        if index in failed_indices:
+            raise ValueError("invalid structured note")
+        note_path = f"daily/2026-07-21/{paper.arxiv_id}.md"
+        await write_markdown(tmp_path / note_path, "retained evidence", {})
+        return AnalyzedPaper(
+            arxiv_id=paper.arxiv_id,
+            reasoning="test",
+            title="论文",
+            desc="test",
+            body="retained evidence",
+            note_path=note_path,
+            pdf_path=f"resource/papers/{paper.arxiv_id}.pdf",
+        )
+
+    monkeypatch.setattr(step, "_analyze_one", analyze_one)
+    await step(context)
+    assert attempted == [0, 1, 2]
+    assert len(context["daily_paper_analyses"]) == 3 - len(failed_indices)
+    metadata = context.response.metadata
+    assert context.response.success == (len(failed_indices) < 3)
+    assert metadata["failure_count"] == len(failed_indices)
+    assert metadata["analysis_count"] == 3 - len(failed_indices)
+    assert [item["arxiv_id"] for item in metadata["failed_papers"]] == [
+        papers[i].arxiv_id for i in sorted(failed_indices)
+    ]
+    assert all((tmp_path / path).is_file() for path in metadata["note_paths"])
+
+
+@pytest.mark.asyncio
+async def test_analysis_does_not_swallow_cancellation(tmp_path, monkeypatch):
+    """Cancellation stops the batch instead of reporting an ordinary failed paper."""
+    import asyncio
+
+    papers = [_paper(f"2607.1000{i}") for i in range(3)]
+    context = RuntimeContext(
+        daily_paper_selected=[PaperPick(arxiv_id=p.arxiv_id, reasoning="test") for p in papers],
+        daily_paper_candidates=papers,
+    )
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    analyze_one = AsyncMock(side_effect=asyncio.CancelledError)
+    monkeypatch.setattr(step, "_analyze_one", analyze_one)
+    with pytest.raises(asyncio.CancelledError):
+        await step(context)
+    assert analyze_one.await_count == 1
+    assert context["daily_paper_failures"] == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [0, 1, 2, 3])
+async def test_digest_reports_partial_and_total_failure(tmp_path, count):
+    """Generate a useful brief from any successes and avoid a model call on total failure."""
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{i}",
+            reasoning="test",
+            title=f"论文{i}",
+            desc="test",
+            body="evidence",
+            note_path=f"daily/2026-07-21/论文{i}.md",
+            pdf_path=f"resource/papers/{i}.pdf",
+        )
+        for i in range(count)
+    ]
+    failures = [{"arxiv_id": f"2607.1000{i}", "error": "invalid output"} for i in range(count, 3)]
+    context = RuntimeContext(
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+        daily_paper_failures=failures,
+    )
+    agent = _QueuedAgentWrapper([{"title": "今日简报", "desc": "summary", "body": "Grounded brief"}])
+    await DailyPaperDigestStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        agent_wrapper=agent,
+    )(context)
+    assert context.response.success == bool(count)
+    if not count:
+        assert not agent.calls
+        assert not list(tmp_path.rglob("*.md"))
+        return
+    assert context.response.metadata["partial"] == (count < 3)
+    assert context.response.metadata["failure_count"] == 3 - count
+    assert context.response.metadata["note_paths"] == [item.note_path for item in analyses]
+    brief = frontmatter.load(tmp_path / context.response.metadata["digest_path"])
+    assert brief.metadata["failed_arxiv_ids"] == [item["arxiv_id"] for item in failures]
+    assert all(item["arxiv_id"] in brief.content for item in failures)
+    assert f"{count} 篇" in agent.calls[0]["inputs"]
+    if count < 3:
+        rerun = RuntimeContext(date="2026-07-21")
+        await DailyPaperCollectStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))(rerun)
+        assert rerun.response.metadata["partial"] is True
+        assert "force=true" in rerun.response.answer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("note_count", [0, 2])
+async def test_failure_recovery_details_reach_job_cli_and_mcp(tmp_path, capsys, note_count):
+    """Real job and service adapters expose recovery details without showing metadata."""
+    from types import SimpleNamespace
+
+    from fastmcp.exceptions import ToolError
+    from reme.components.job import BaseJob
+    from reme.components.service.cli_service import CliService
+    from reme.components.service.mcp_tools import add_mcp_job
+
+    analyses = [
+        AnalyzedPaper(
+            arxiv_id=f"2607.1000{i}",
+            reasoning="test",
+            title=f"论文{i}",
+            desc="test",
+            body="evidence",
+            note_path=f"daily/2026-07-21/论文{i}.md",
+            pdf_path=f"resource/papers/{i}.pdf",
+        )
+        for i in range(note_count)
+    ]
+    for item in analyses:
+        await write_markdown(tmp_path / item.note_path, item.body, {})
+    failures = [{"arxiv_id": f"2607.1000{i}", "error": "ValueError: invalid note"} for i in range(note_count, 3)]
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    agent = _QueuedAgentWrapper([])
+    agent.reply = AsyncMock(side_effect=RuntimeError("brief provider failed"))
+    job = BaseJob(
+        name="daily_paper",
+        app_context=app_context,
+        daily_paper_run_date="2026-07-21",
+        daily_paper_analyses=analyses,
+        daily_paper_failures=failures,
+    )
+    job.step_specs = [(DailyPaperDigestStep, {"app_context": app_context, "agent_wrapper": agent})]
+    response = await job()
+    assert response.success is False
+    expected = [item.note_path for item in analyses] + [item["arxiv_id"] for item in failures] + ["invalid note"]
+    if note_count:
+        expected.append("brief provider failed")
+    assert all(value in response.answer for value in expected)
+
+    async def run_job(_name, **kwargs):
+        return await job(**kwargs)
+
+    app = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), run_job=run_job)
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stopped:
+        await CliService(job="daily_paper")._run_job(app)  # pylint: disable=protected-access
+    assert stopped.value.code == 1
+    stderr = capsys.readouterr().err
+    assert all(value in stderr for value in expected)
+    app.close.assert_awaited_once()
+
+    for error_mode in (False, True):
+        registered = []
+        add_mcp_job(
+            SimpleNamespace(add_tool=registered.append),
+            job,
+            injected_job_kwargs={},
+            tool_error_on_failure=error_mode,
+        )
+        if error_mode:
+            with pytest.raises(ToolError) as error:
+                await registered[0].fn()
+            rendered = str(error.value)
+        else:
+            rendered = await registered[0].fn()
+        assert all(value in rendered for value in expected)
+    if not note_count:
+        agent.reply.assert_not_awaited()
+    assert all((tmp_path / item.note_path).is_file() for item in analyses)
+
+
+@pytest.mark.asyncio
+async def test_digest_failure_boundary_preserves_cancellation(tmp_path):
+    """The answer-rendering boundary must not turn cancellation into a failed response."""
+    import asyncio
+
+    step = DailyPaperDigestStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step._generate_digest = AsyncMock(side_effect=asyncio.CancelledError)  # pylint: disable=protected-access
+    with pytest.raises(asyncio.CancelledError):
+        await step(RuntimeContext())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"title": "论文", "desc": " ", "body": "content"},
+        {"title": "论文", "desc": "summary", "body": "\n "},
+        {"title": "论文", "desc": "summary", "body": "---\ntitle: generated\n---\n"},
+    ],
+)
+@pytest.mark.parametrize("recover", [True, False])
+async def test_blank_note_retries_once_before_writing(tmp_path, monkeypatch, invalid, recover):
+    """Blank or frontmatter-only content uses the same bounded shorter-note recovery."""
+    from types import SimpleNamespace
+
+    valid = {"title": "论文", "desc": " summary ", "body": "---\ntitle: model\n---\nEvidence"}
+    agent = _QueuedAgentWrapper([invalid, valid if recover else invalid])
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_wrapper=agent)
+    step.context = RuntimeContext(daily_paper_run_date="2026-07-21")
+    monkeypatch.setattr(step, "_extract_pdf_text_sync", lambda *_: ("evidence", 1, False))
+    downloader = SimpleNamespace(download=AsyncMock())
+    paper = _paper("2607.10001")
+    pick = PaperPick(arxiv_id=paper.arxiv_id, reasoning="test")
+    if recover:
+        result = await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
+        assert result.desc == "summary" and result.body == "Evidence"
+        assert (tmp_path / result.note_path).is_file()
+    else:
+        with pytest.raises(ValueError, match="empty Markdown"):
+            await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
+        assert not list(tmp_path.rglob("*.md"))
+    assert len(agent.calls) == 2
+    assert step.prompt_format("analyze_short_retry") in agent.calls[1]["inputs"]
+    downloader.download.assert_awaited_once()
