@@ -92,7 +92,7 @@ class MCPClient(BaseClient):
         yield self._extract_text(result)
 
     async def list_actions(self) -> list[dict]:
-        """Return raw MCP Tool dumps; each dict gets an `action` key (the tool name)."""
+        """Return MCP tool descriptors using the SDK's snake_case field names."""
         if self.client is None:
             raise RuntimeError("Client not initialized. Call _start() first.")
         tools = await self.client.list_tools()

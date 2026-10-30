@@ -67,6 +67,42 @@ jobs:
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c "import reme"
 
+      - name: Build and verify Home plugin distribution
+        run: |
+          python -m build --outdir dist/home plugins/home
+          python -m twine check dist/home/*
+          REME_WHEEL="$(pwd)/$(ls dist/reme/reme_ai-[0-9]*.whl)"
+          HOME_WHEEL="$(pwd)/$(ls dist/home/reme_home-[0-9]*.whl)"
+          python -m venv "${RUNNER_TEMP}/reme-home-package-smoke"
+          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]" "${HOME_WHEEL}"
+          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -m pip check
+          cd "${RUNNER_TEMP}"
+          "${RUNNER_TEMP}/reme-home-package-smoke/bin/python" -I - <<'PY'
+          from pathlib import Path
+          import sys
+          import reme
+          import reme_home
+          from reme.enumeration import ComponentEnum
+          from reme.plugin import resolve_plugin_runtime
+          from reme_home import AutoBashStep
+
+          for module in (reme, reme_home):
+              assert Path(module.__file__).is_relative_to(sys.prefix), module.__file__
+          runtime = resolve_plugin_runtime({"plugins": ["home"]})
+          assert runtime.registry.get(ComponentEnum.STEP, "auto_bash_step") is AutoBashStep
+          assert runtime.config["jobs"]["auto_bash"]["steps"] == [{"backend": "auto_bash_step"}]
+          PY
+
+      - name: Reject incompatible published ReMe for Home
+        run: |
+          HOME_WHEEL="$(pwd)/$(ls dist/home/reme_home-[0-9]*.whl)"
+          if python -m pip install --dry-run --ignore-installed "${HOME_WHEEL}" "reme-ai[as]==0.4.2.0" > "${RUNNER_TEMP}/home-incompatible.log" 2>&1; then
+            echo 'Home must not install with the published ReMe 0.4.2.0 wheel.'
+            exit 1
+          fi
+          cat "${RUNNER_TEMP}/home-incompatible.log"
+          grep -q 'ResolutionImpossible' "${RUNNER_TEMP}/home-incompatible.log"
+
       - name: Verify released core dependencies
         if: inputs.upload_artifacts
         run: |

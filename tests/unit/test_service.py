@@ -14,6 +14,12 @@ from reme.constants import REME_SERVICE_INFO
 from reme.schema import Response
 
 
+@pytest.fixture(autouse=True)
+def _isolate_service_info(monkeypatch):
+    """Restore discovery state after service lifespans modify the environment."""
+    monkeypatch.setenv(REME_SERVICE_INFO, "")
+
+
 def _dummy_app():
     """Minimal object needed by MCPService.build_service."""
 
@@ -91,14 +97,32 @@ def test_explicit_service_jobs_reject_missing_disabled_and_unsupported_jobs(opti
         stream_service.add_jobs(_app_with_jobs(stream=StreamJob(name="stream")))
 
 
-def test_mcp_service_registers_job_with_empty_parameters():
-    """Empty job parameters must remain a dict for FastMCP FunctionTool validation."""
-    service = MCPService()
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service_class", [MCPService, HttpService])
+@pytest.mark.parametrize("mode", ["auto", "legacy"])
+@pytest.mark.parametrize("parameters", [None, {}, {"properties": {"query": {"type": "string"}}}])
+async def test_mcp_services_list_and_call_jobs_without_explicit_object_schema(service_class, mode, parameters):
+    """Optional job schemas must not break discovery or calls in either protocol era."""
+    from fastmcp import Client
+
+    service = service_class()
     service.build_service(_dummy_app())
 
-    job = BaseJob(name="empty_params", parameters={})
-
+    job = BaseJob(name="optional_params", parameters=parameters)
+    original_parameters = dict(job.parameters)
     assert service.add_job(job) is True
+    assert service.add_job(BaseJob(name="typed_params", parameters={"type": "object"})) is True
+
+    server = service.service if isinstance(service, MCPService) else service.mcp_server
+    async with Client(server, mode=mode) as client:
+        tools = {tool.name: tool for tool in await client.list_tools()}
+        assert set(tools) == {"optional_params", "typed_params"}
+        assert tools[job.name].input_schema == {"type": "object", **original_parameters}
+        assert tools["typed_params"].input_schema == {"type": "object"}
+        assert not (await client.call_tool(job.name, {"query": "hello"})).is_error
+        assert not (await client.call_tool("typed_params", {})).is_error
+
+    assert job.parameters == original_parameters
 
 
 def test_mcp_service_reports_stream_job_skipped():

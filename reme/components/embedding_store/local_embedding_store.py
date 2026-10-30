@@ -15,6 +15,10 @@ from ..as_embedding import BaseAsEmbedding
 Miss = tuple[int, str, str]  # (result_index, text, cache_key)
 _MAX_VECTOR_SPACE_ATTEMPTS = 3
 
+# Each input-length rejection may be retried with a strictly smaller request, up to this
+# many rounds (also bounded by the remaining retry budget).
+_MAX_INPUT_SHRINK_ROUNDS = 3
+
 
 # Match SDK/httpx transport exceptions without importing optional providers.
 _TRANSPORT_FAILURE_TYPES = frozenset(
@@ -206,7 +210,7 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
 
     async def _call_with_retry(self, texts: list[str], **kwargs) -> _EmbeddingResult:
         """Retry failures owned by the store and isolate input-length rejections."""
-        shortened = False
+        shrink_rounds = 0
         for attempt in range(self.max_retries):
             try:
                 embeddings = await self.as_embedding(texts, **kwargs)
@@ -248,18 +252,22 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                     self.logger.exception("Embedding request failed: provider-wide error, not splitting")
                     break
                 if details.is_input_dependent:
-                    # Retry one item with half the character budget without changing its source text.
-                    # Require a remaining attempt so exhausted input failures stay non-terminal.
-                    if not shortened and len(texts) == 1 and attempt < self.max_retries - 1:
-                        shorter = self._truncate(texts[0], max_length=max(1, self.max_input_length // 2))
-                        if shorter != texts[0]:
+                    # Retry the item with a strictly smaller request derived from the text the
+                    # provider just rejected. A remaining attempt is required so exhausted input
+                    # failures stay non-terminal, and the shrinking rounds are bounded.
+                    can_shrink = (
+                        len(texts) == 1 and attempt < self.max_retries - 1 and shrink_rounds < _MAX_INPUT_SHRINK_ROUNDS
+                    )
+                    if can_shrink:
+                        shorter = self._shrink_rejected_input(texts[0])
+                        if shorter is not None:
+                            shrink_rounds += 1
                             self.logger.warning(
-                                f"Embedding input rejected as too long; retrying with a smaller budget "
-                                f"(chars={len(texts[0])} -> {len(shorter)})",
+                                f"Embedding input rejected as too long; retrying with a smaller request "
+                                f"(chars={len(texts[0])} -> {len(shorter)}, "
+                                f"round {shrink_rounds}/{_MAX_INPUT_SHRINK_ROUNDS})",
                             )
                             texts = [shorter]
-                            shortened = True
-                            await asyncio.sleep(2**attempt)
                             continue
                     self.logger.exception("Embedding request failed: input-dependent error")
                     self.is_healthy = False
@@ -270,6 +278,21 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
                 break
         self.is_healthy = False
         return _EmbeddingResult(terminal_failure=True)
+
+    @staticmethod
+    def _shrink_rejected_input(text: str) -> str | None:
+        """Return a strictly smaller request, or ``None`` when there is none.
+
+        The rejected text is the only reliable starting point: a budget derived
+        from the configured ``max_input_length`` can still sit above the
+        provider's real per-item limit, or leave an already short input
+        untouched so nothing is re-sent. Halving the *current* request keeps
+        every round an actual reduction, and the caller bounds the number of
+        rounds so an impossible limit cannot spin.
+        """
+        if len(text) <= 1:
+            return None
+        return text[: len(text) // 2]
 
     async def _embed_individually(self, texts: list[str], **kwargs) -> _EmbeddingResult:
         """Keep healthy siblings, stopping when a failure is no longer specific to an input."""

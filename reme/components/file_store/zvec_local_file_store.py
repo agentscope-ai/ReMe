@@ -51,7 +51,7 @@ class ZvecLocalFileStore(LocalFileStore):
 
     zvec is imported lazily inside ``__init__`` so that merely importing this
     module does not require the optional dependency; the backend targets the
-    zvec version declared in ``pyproject.toml`` (``zvec>=0.6.0``).
+    zvec version declared in ``pyproject.toml`` (``zvec>=0.8.0``).
     """
 
     def __init__(
@@ -75,7 +75,7 @@ class ZvecLocalFileStore(LocalFileStore):
             import zvec
         except ImportError as e:
             raise ImportError(
-                "zvec is required for ZvecLocalFileStore. Install with `pip install 'zvec>=0.6.0'`.",
+                "zvec is required for ZvecLocalFileStore. Install with `pip install 'zvec>=0.8.0'`.",
             ) from e
         return zvec
 

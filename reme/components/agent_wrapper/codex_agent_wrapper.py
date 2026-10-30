@@ -175,7 +175,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         fd, raw_path = tempfile.mkstemp(prefix="config-", suffix=".json", dir=snapshot_dir)
         try:
-            os.fchmod(fd, 0o600)
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
         except BaseException:

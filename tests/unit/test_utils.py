@@ -38,6 +38,42 @@ def test_batch_cosine_similarity_pairwise_matrix():
     np.testing.assert_allclose(result[1], [0.0, 2**-0.5])
 
 
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+def test_batch_cosine_similarity_zero_vectors(dtype):
+    """Zero rows and columns have finite zero scores, including stored float16 embeddings."""
+    left = np.array([[0, 0], [1, 0], [0, 1]], dtype=dtype)
+    right = np.array([[1, 0], [0, 0], [-1, 0]], dtype=dtype)
+
+    with np.errstate(invalid="raise", divide="raise"):
+        result = batch_cosine_similarity(left, right)
+        reverse = batch_cosine_similarity(right, left)
+        zeros = batch_cosine_similarity(np.zeros((2, 2), dtype=dtype), right)
+        all_zeros = batch_cosine_similarity(np.zeros((2, 2), dtype=dtype), np.zeros((3, 2), dtype=dtype))
+
+    assert result.dtype == dtype
+    np.testing.assert_array_equal(result, [[0, 0, 0], [1, 0, -1], [0, 0, 0]])
+    np.testing.assert_array_equal(reverse, result.T)
+    np.testing.assert_array_equal(zeros, np.zeros((2, 3)))
+    np.testing.assert_array_equal(all_zeros, np.zeros((2, 3)))
+
+
+@pytest.mark.parametrize("left_rows,right_rows", [(0, 2), (2, 0), (0, 0)])
+def test_batch_cosine_similarity_empty_batches(left_rows, right_rows):
+    """Empty batches retain the pairwise output shape."""
+    result = batch_cosine_similarity(
+        np.zeros((left_rows, 2), dtype=np.float16),
+        np.zeros((right_rows, 2), dtype=np.float16),
+    )
+    assert result.shape == (left_rows, right_rows)
+    assert result.dtype == np.float16
+
+
+def test_batch_cosine_similarity_rejects_mismatched_dimensions():
+    """Batched embeddings must share their feature dimension."""
+    with pytest.raises(ValueError, match="Embedding dimensions must match"):
+        batch_cosine_similarity(np.zeros((2, 2)), np.zeros((2, 3)))
+
+
 def test_cosine_similarity_rejects_mismatched_lengths():
     """Single-vector cosine validates dimensions before computing."""
     with pytest.raises(ValueError, match="Vectors must have same length"):

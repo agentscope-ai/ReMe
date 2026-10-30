@@ -53,6 +53,10 @@ MCP does not expose Stream Jobs.
 
 ## MCP
 
+ReMe 0.4.2.2 uses FastMCP 4 and MCP Python SDK 2. Upgrade ReMe and host-side MCP bridges together;
+standalone bridge environments require `fastmcp>=4.1.4,<5`. CLI tool catalogs use SDK 2 snake_case fields,
+including `input_schema`, `output_schema`, and annotation hints. Update consumers that read the old camelCase fields.
+
 The default HTTP service mounts streamable HTTP MCP at `/mcp`:
 
 ```yaml

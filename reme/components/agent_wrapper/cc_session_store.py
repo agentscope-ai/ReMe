@@ -104,7 +104,7 @@ class CcFileSessionStore:
         if not session_dir.is_dir():
             return []
         return [
-            str(path.relative_to(session_dir).with_suffix(""))
+            path.relative_to(session_dir).with_suffix("").as_posix()
             for path in session_dir.rglob("*.jsonl")
             if path.is_file()
         ]

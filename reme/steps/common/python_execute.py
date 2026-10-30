@@ -1,27 +1,19 @@
 """Execute Python code and return printed stdout."""
 
-import asyncio
 import sys
-from dataclasses import dataclass
 from typing import Any
 
+from ...utils.local_backend import LocalProcessBackend, ProcessTimeout
 from ..base_step import BaseStep
 from ...components import R
+from .file_sandbox import file_sandbox_for_step
 
 DEFAULT_TIMEOUT = 60.0
 
 
-@dataclass(frozen=True)
-class _PythonResult:
-    stdout: str
-    stderr: str
-    returncode: int | None
-    timed_out: bool = False
-
-
 @R.register("python_execute_step")
 class PythonExecuteStep(BaseStep):
-    """Run Python code in a subprocess and return stdout as the response answer."""
+    """Run Python code and return stdout, limiting each output stream to 1 MiB."""
 
     async def execute(self):
         assert self.context is not None
@@ -39,57 +31,38 @@ class PythonExecuteStep(BaseStep):
             self.context.response.answer = timeout_error
             return self.context.response
 
-        result = await self._run_python(code, timeout)
-        if result.timed_out:
+        timed_out = False
+        try:
+            backend = file_sandbox_for_step(self)
+            result = await (backend or LocalProcessBackend()).exec_shell(
+                [sys.executable, "-c", code],
+                cwd=str(self.workspace_path),
+                timeout=timeout,
+                **({"raise_errors": True} if backend is None else {}),
+            )
+        except ProcessTimeout as exc:
+            result, timed_out = exc.result, True
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
+            self.context.response.success = False
+            self.context.response.answer = str(exc)
+            return self.context.response
+        timed_out = timed_out or (result.exit_code == -1 and result.stderr == b"timed out")
+        stdout = result.stdout.decode(errors="replace")
+        stderr = result.stderr.decode(errors="replace")
+        if timed_out:
             self.context.response.success = False
             self.context.response.answer = f"Python execution timed out after {timeout:g}s"
-            self.context.response.metadata.update(
-                {
-                    "returncode": result.returncode,
-                    "stderr": result.stderr,
-                    "python_timeout": timeout,
-                },
-            )
-            return self.context.response
-
-        stdout = result.stdout or ""
-        stderr = result.stderr or ""
-        self.context.response.success = result.returncode == 0
-        self.context.response.answer = stdout if stdout or result.returncode == 0 else stderr
+        else:
+            self.context.response.success = result.exit_code == 0
+            self.context.response.answer = stdout if stdout or result.exit_code == 0 else stderr
         self.context.response.metadata.update(
             {
-                "returncode": result.returncode,
+                "returncode": result.exit_code,
                 "stderr": stderr,
                 "python_timeout": timeout,
             },
         )
         return self.context.response
-
-    async def _run_python(self, code: str, timeout: float) -> _PythonResult:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-c",
-            code,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=self.workspace_path,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-            return _PythonResult(
-                stdout=stdout.decode(),
-                stderr=stderr.decode(),
-                returncode=process.returncode,
-            )
-        except TimeoutError:
-            process.kill()
-            stdout, stderr = await process.communicate()
-            return _PythonResult(
-                stdout=stdout.decode(),
-                stderr=stderr.decode(),
-                returncode=process.returncode,
-                timed_out=True,
-            )
 
     @staticmethod
     def _parse_timeout(raw: Any) -> tuple[float, str]:

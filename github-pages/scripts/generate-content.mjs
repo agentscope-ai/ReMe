@@ -14,6 +14,8 @@ const externalDocuments = [
   ["zh/integrations/claude-code.md", "integrations/claude_code/README_ZH.md"],
   ["en/integrations/codex.md", "integrations/codex/README.md"],
   ["zh/integrations/codex.md", "integrations/codex/README_ZH.md"],
+  ["en/integrations/qoder.md", "integrations/qoder/README.md"],
+  ["zh/integrations/qoder.md", "integrations/qoder/README_ZH.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/dsh.md", "integrations/dsh/README_ZH.md"],
   ["en/integrations/dsh.md", "integrations/dsh/README.md"],
@@ -71,6 +73,12 @@ const externalDocumentRewrites = {
     ["(../../docs/zh/configuration.md)", "(/zh/configuration)"],
     ["(./figures/README.md)", "(https://github.com/agentscope-ai/ReMe/blob/main/integrations/codex/figures/README.md)"],
     ["(./figures/", "(/figures/codex/"],
+  ],
+  "integrations/qoder/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/qoder)"],
+  ],
+  "integrations/qoder/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/qoder)"],
   ],
   "integrations/dsh/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/dsh)"],

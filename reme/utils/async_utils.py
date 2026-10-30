@@ -1,16 +1,21 @@
 """Small asyncio helpers."""
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any, TypeVar
 
 T = TypeVar("T")
 
 
+async def finish_cleanup(operation: Awaitable[T]) -> T:
+    """Finish cleanup before propagating any cancellation received while waiting."""
+    return await wait_for_completion(asyncio.ensure_future(operation))
+
+
 async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
     """Finish a side-effecting thread call, including through repeated cancellation."""
-    return await wait_for_completion(asyncio.create_task(asyncio.to_thread(func, *args)))
+    return await finish_cleanup(asyncio.to_thread(func, *args))
 
 
 async def wait_for_completion(task: asyncio.Future[T]) -> T:

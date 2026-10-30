@@ -107,7 +107,7 @@ sends old pending conversations to the new service. Remove a field to restore it
 
 The plugin uses a host-managed stdio process to forward MCP. Start the host with a `python3`
 environment containing FastMCP. If ReMe runs on another machine or in another Python environment,
-run `python3 -m pip install "fastmcp>=3.1"` in the host environment. Hooks use only the standard library.
+run `python3 -m pip install "fastmcp>=4.1.4,<5"` in the host environment. Hooks use only the standard library.
 
 ## Lifecycle and failure behavior
 

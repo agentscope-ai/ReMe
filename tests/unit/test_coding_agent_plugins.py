@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {
     "claude-code": ROOT / "integrations/claude_code/reme",
     "codex": ROOT / "integrations/codex/plugins/reme",
+    "qoder": ROOT / "integrations/qoder/reme",
 }
 
 
@@ -28,6 +29,7 @@ def adapter(request, tmp_path, monkeypatch):
     spec.loader.exec_module(module)
     monkeypatch.setenv(module.HOME_ENV, str(tmp_path / "host"))
     monkeypatch.setattr(module, "CAPTURE_WAIT_SECONDS", 0)
+    monkeypatch.setattr(module, "CAPTURE_SETTLE_SECONDS", 0, raising=False)
     return module
 
 
@@ -64,12 +66,22 @@ def option(adapter, key):
     return CODEX_KEYS.get(key, key) if adapter.HOST == "codex" else key
 
 
+def require_host(adapter, host):
+    if adapter.HOST != host:
+        pytest.skip(f"{host}-specific contract")
+
+
+def require_structured_transcript_host(adapter):
+    if adapter.HOST not in {"claude-code", "qoder"}:
+        pytest.skip("structured-transcript host contract")
+
+
 def transcript(adapter, path, pairs, *, extra=None):
     rows = []
     for index, (user, assistant) in enumerate(pairs):
         stamp = f"2026-09-28T01:{index:02d}:00+00:00"
         for role, text in (("user", user), ("assistant", assistant)):
-            if adapter.HOST == "claude-code":
+            if adapter.HOST in {"claude-code", "qoder"}:
                 row = {
                     "type": role,
                     "uuid": f"{index}-{role}",
@@ -102,8 +114,8 @@ def transcript(adapter, path, pairs, *, extra=None):
     }
 
 
-@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 def test_claude_synchronous_capture_preserves_identical_replies_before_delayed_delivery(adapter, tmp_path, monkeypatch):
+    require_structured_transcript_host(adapter)
     write_config(adapter, {"memory_interval": 1})
     path = tmp_path / "transcript.jsonl"
     first = transcript(adapter, path, [("Remember Postgres.", "好的")])
@@ -127,8 +139,46 @@ def test_claude_synchronous_capture_preserves_identical_replies_before_delayed_d
     assert len(list(adapter.queue_root(adapter.load_config()).rglob("*.done"))) == 2
 
 
-@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
+def test_qoder_capture_waits_for_delayed_identical_reply(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "qoder")
+    monkeypatch.setattr(adapter, "CAPTURE_SETTLE_SECONDS", 0.5)
+    config = adapter.load_config()
+    path = tmp_path / "transcript.jsonl"
+
+    first = transcript(adapter, path, [("first", "Saved.")])
+    root = adapter.capture(config, first)
+    first_pending = next(root.glob("*.json"))
+    adapter.write_json(first_pending.with_suffix(".done"), {})
+    first_pending.unlink()
+
+    second = transcript(adapter, path, [("first", "Saved."), ("second", "Saved.")])
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    delayed_reply = lines[-1]
+    path.write_text("".join(lines[:-1]), encoding="utf-8")
+
+    def append_delayed_reply():
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(delayed_reply)
+
+    captured = []
+    worker = threading.Thread(target=lambda: captured.append(adapter.capture(config, second)))
+    timer = threading.Timer(0.05, append_delayed_reply)
+    timer.start()
+    worker.start()
+    worker.join(3)
+    timer.join(3)
+
+    assert not worker.is_alive()
+    assert not timer.is_alive()
+    assert captured == [root]
+    pending = list(root.glob("*.json"))
+    assert len(pending) == 1
+    messages = json.loads(pending[0].read_text(encoding="utf-8"))["messages"]
+    assert [message["content"][0]["text"] for message in messages] == ["second", "Saved."]
+
+
 def test_claude_delivery_waits_for_parallel_synchronous_capture(adapter, tmp_path, monkeypatch):
+    require_structured_transcript_host(adapter)
     write_config(adapter, {"memory_interval": 1})
     payload = transcript(adapter, tmp_path / "transcript.jsonl", [("Remember Postgres.", "好的")])
     entered, delivered = threading.Event(), threading.Event()
@@ -175,7 +225,7 @@ def stop(adapter, payload):
 
 def test_native_manifests_resolve_within_their_own_plugin():
     for host, root in PLUGINS.items():
-        kind = "claude" if host == "claude-code" else "codex"
+        kind = "claude" if host == "claude-code" else host
         manifest = json.loads((root / f".{kind}-plugin/plugin.json").read_text())
         assert manifest["name"] == root.name == "reme"
         assert (root / ".mcp.json").is_file()
@@ -184,14 +234,21 @@ def test_native_manifests_resolve_within_their_own_plugin():
         assert mcp["command"] == "python3"
         if host == "claude-code":
             assert mcp["args"] == ["${CLAUDE_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
+        elif host == "qoder":
+            assert mcp["args"] == ["${QODER_PLUGIN_ROOT}/hooks/mcp_bridge.py"]
         else:
             assert mcp["args"] == ["mcp_server.py"]
             assert (root / "mcp_server.py").is_file()
             assert (root / manifest["hooks"]).is_file()
             assert mcp["cwd"] == "."
             assert "CODEX_HOME" in mcp["env_vars"]
-        if host == "claude-code":
+        if host in {"claude-code", "qoder"}:
             assert (root / "hooks/mcp_bridge.py").is_file()
+        if host == "qoder":
+            assert manifest["hooks"] == "./hooks/hooks.json"
+            assert manifest["mcpServers"] == "./.mcp.json"
+            assert manifest["skills"] == "./skills/"
+            assert (root / manifest["hooks"]).is_file()
         hooks = json.loads((root / "hooks/hooks.json").read_text())["hooks"]
         assert ("SubagentStop" in hooks) is (host == "codex")
         for event, groups in hooks.items():
@@ -199,13 +256,26 @@ def test_native_manifests_resolve_within_their_own_plugin():
             assert '"${' in hook["command"]  # Paths with spaces survive native substitution.
             if event in {"Stop", "SubagentStop"}:
                 assert hook["command"].endswith(" --capture-only") and not hook.get("async", False)
-                assert groups[0]["hooks"][1]["async"]
-                assert "--capture-only" not in groups[0]["hooks"][1]["command"]
+                delivery_group = groups[1] if len(groups) > 1 else groups[0]
+                delivery = delivery_group["hooks"][-1]
+                assert delivery_group.get("async", False) or delivery.get("async", False)
+                assert "--capture-only" not in delivery["command"]
             else:
-                assert hook.get("async", False) is (event == "SessionStart")
+                assert (groups[0].get("async", False) or hook.get("async", False)) is (event == "SessionStart")
             assert (root / "hooks/auto_memory.py").is_file()
-    market = json.loads((ROOT / "integrations/codex/.agents/plugins/marketplace.json").read_text())
-    assert (ROOT / "integrations/codex" / market["plugins"][0]["source"]["path"]).resolve() == PLUGINS["codex"]
+    marketplaces = {
+        "claude-code": (
+            ROOT / "integrations/claude_code",
+            ROOT / "integrations/claude_code/.claude-plugin/marketplace.json",
+        ),
+        "codex": (ROOT / "integrations/codex", ROOT / "integrations/codex/.agents/plugins/marketplace.json"),
+        "qoder": (ROOT / "integrations/qoder", ROOT / "integrations/qoder/marketplace.json"),
+    }
+    for host, (base, path) in marketplaces.items():
+        market = json.loads(path.read_text())
+        source = market["plugins"][0]["source"]
+        source_path = source["path"] if isinstance(source, dict) else source
+        assert (base / source_path).resolve() == PLUGINS[host]
 
 
 def test_defaults_and_mcp_endpoint_agree(adapter):
@@ -258,17 +328,19 @@ def test_custom_mcp_path_and_http_prefix(adapter):
         adapter,
         {
             "mcp_url": "https://example.com/tools/reme",
-            **({"api_url": "https://example.com/jobs/reme/"} if adapter.HOST == "claude-code" else {}),
+            **({"api_url": "https://example.com/jobs/reme/"} if adapter.HOST in {"claude-code", "qoder"} else {}),
         },
     )
     expected = (
-        "https://example.com/jobs/reme" if adapter.HOST == "claude-code" else "mcp:https://example.com/tools/reme"
+        "https://example.com/jobs/reme"
+        if adapter.HOST in {"claude-code", "qoder"}
+        else "mcp:https://example.com/tools/reme"
     )
     assert adapter.load_config()["endpoint"] == expected
 
 
-@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 def test_claude_custom_mcp_path_still_requires_http_base(adapter):
+    require_structured_transcript_host(adapter)
     write_config(adapter, {"mcp_url": "https://example.com/tools"})
     with pytest.raises(ValueError):
         adapter.load_config()
@@ -287,8 +359,8 @@ def test_config_edit_takes_effect_on_next_hook(adapter, monkeypatch):
     assert call.call_args.args[0]["endpoint"] == "http://127.0.0.1:2444"
 
 
-@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 def test_mcp_bridge_uses_persistent_configuration(adapter, monkeypatch):
+    require_structured_transcript_host(adapter)
     import fastmcp.server
     import fastmcp.server.providers.proxy
 
@@ -343,9 +415,9 @@ def test_capture_excludes_tools_and_recalled_context(adapter, tmp_path):
     assert all(message["id"].startswith(adapter.HOST + "-") for message in pair)
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 @pytest.mark.parametrize("final_phase", [None, "final_answer"])
 def test_codex_completed_items_capture_only_final_text_and_deduplicate(adapter, tmp_path, monkeypatch, final_phase):
+    require_host(adapter, "codex")
     path = tmp_path / "rollout.jsonl"
 
     def completed(item):
@@ -421,6 +493,7 @@ def test_stop_matches_its_reply_when_next_turn_is_already_in_transcript(adapter,
 
 
 def test_missing_or_unfinished_reply_is_not_recorded(adapter, tmp_path):
+    require_structured_transcript_host(adapter)
     payload = transcript(adapter, tmp_path / "transcript.jsonl", [("question", "finished")])
     payload["last_assistant_message"] = "not in transcript yet"
     assert adapter.completed_turn(payload, "session") == []
@@ -486,9 +559,10 @@ def test_disabling_memory_leaves_pending_queue_untouched(adapter, tmp_path, monk
     assert len(list(adapter.queue_root(config).rglob("*.json"))) == 1
 
 
-@pytest.mark.parametrize("adapter", ["claude-code"], indirect=True)
 @pytest.mark.parametrize("response", [{"success": False}, {}, [], {"success": "true"}])
 def test_http_job_failure_is_never_acknowledged(adapter, monkeypatch, response):
+    require_structured_transcript_host(adapter)
+
     def urlopen(request, timeout):
         assert request.method == "POST"
         assert timeout == 2
@@ -615,8 +689,8 @@ def test_endpoint_changes_never_send_old_queue_to_new_service(adapter, tmp_path,
     assert len(list(root.glob("*.json"))) == 1
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_endpoint_switch_between_capture_and_delivery_never_recaptures(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "codex")
     first_url, second_url = "http://first.test/mcp", "http://second.test/mcp"
     write_config(adapter, {"mcpUrl": first_url, "autoMemoryInterval": 1})
     first_config = adapter.load_config()
@@ -642,7 +716,6 @@ def test_codex_endpoint_switch_between_capture_and_delivery_never_recaptures(ada
     assert not pending.exists()
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 @pytest.mark.parametrize("event", ["Stop", "SubagentStop"])
 @pytest.mark.parametrize("transcript_state", ["deleted", "changed"])
 def test_codex_delivery_uses_captured_data_without_reading_transcript(
@@ -652,6 +725,7 @@ def test_codex_delivery_uses_captured_data_without_reading_transcript(
     event,
     transcript_state,
 ):
+    require_host(adapter, "codex")
     write_config(adapter, {"autoMemoryInterval": 1, "rootAgentsOnly": event == "Stop"})
     path = tmp_path / "rollout.jsonl"
     payload = transcript(adapter, path, [("Original captured fact.", "Saved.")])
@@ -674,8 +748,8 @@ def test_codex_delivery_uses_captured_data_without_reading_transcript(
     ]
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_delivery_waits_only_until_its_captured_turn_is_available(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "codex")
     write_config(adapter, {"autoMemoryInterval": 1})
     payload = transcript(adapter, tmp_path / "rollout.jsonl", [("Original fact.", "Saved.")])
     entered, delivered = threading.Event(), threading.Event()
@@ -711,8 +785,8 @@ def test_codex_delivery_waits_only_until_its_captured_turn_is_available(adapter,
     assert not worker.is_alive() and not errors  # Exit immediately instead of waiting the full five seconds.
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_old_queue_without_turn_metadata_retries_on_session_start(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "codex")
     payload = transcript(adapter, tmp_path / "rollout.jsonl", [("Previously queued fact.", "Saved.")])
     root = adapter.capture(adapter.load_config(), payload)
     pending = next(root.glob("*.json"))
@@ -727,8 +801,8 @@ def test_codex_old_queue_without_turn_metadata_retries_on_session_start(adapter,
     assert not pending.exists()
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_matches_turn_id_even_when_final_replies_are_identical(adapter, tmp_path):
+    require_host(adapter, "codex")
     payload = transcript(adapter, tmp_path / "rollout.jsonl", [("first", "Saved."), ("second", "Saved.")])
     payload["turn_id"] = "turn-0"
     pair = adapter.completed_turn(payload, "session")
@@ -737,8 +811,8 @@ def test_codex_matches_turn_id_even_when_final_replies_are_identical(adapter, tm
     assert adapter.completed_turn(payload, "session") == []
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_localized_guidance_survives_disabled_and_failed_recall(adapter, monkeypatch):
+    require_host(adapter, "codex")
     write_config(adapter, {"language": "zh", "auto_recall": False})
     call = Mock()
     monkeypatch.setattr(adapter, "call", call)
@@ -755,8 +829,8 @@ def test_codex_localized_guidance_survives_disabled_and_failed_recall(adapter, m
     assert "recall_failed" in (adapter.data_dir() / "hooks.log").read_text()
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_capture_precedes_background_work_and_does_not_log_content(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "codex")
     write_config(adapter, {"autoMemoryInterval": 1})
     call = Mock(return_value={"success": True})
     monkeypatch.setattr(adapter, "call", call)
@@ -772,9 +846,9 @@ def test_codex_capture_precedes_background_work_and_does_not_log_content(adapter
     assert "private" not in log and "Saved." not in log
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 @pytest.mark.parametrize("source", ["subagent", {"subagent": {"thread_spawn": {"parent_thread_id": "root"}}}])
 def test_codex_subagent_prompts_do_not_trigger_recall(adapter, tmp_path, monkeypatch, source):
+    require_host(adapter, "codex")
     path = tmp_path / "rollout.jsonl"
     path.write_text(json.dumps({"type": "session_meta", "payload": {"source": source}}) + "\n")
     call = Mock()
@@ -788,8 +862,8 @@ def test_codex_subagent_prompts_do_not_trigger_recall(adapter, tmp_path, monkeyp
     call.assert_not_called()
 
 
-@pytest.mark.parametrize("adapter", ["codex"], indirect=True)
 def test_codex_subagent_recording_is_an_explicit_opt_in(adapter, tmp_path, monkeypatch):
+    require_host(adapter, "codex")
     path = tmp_path / "child.jsonl"
     payload = transcript(adapter, path, [("child task", "child result")])
     payload.update(hook_event_name="SubagentStop", agent_id="child", agent_transcript_path=str(path))

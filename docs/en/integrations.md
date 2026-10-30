@@ -17,6 +17,7 @@ ReMe keeps memory in an independent service and a user-owned workspace. Multiple
 | DeepSeek Harness | [`@agentscope-ai/reme-dsh-plugin`](./integrations/dsh.md) profile bundle |
 | OpenClaw | [`@agentscope-ai/reme-openclaw-plugin`](./integrations/openclaw.md) |
 | Claude Code | [Start ReMe, then install the plugin](./integrations/claude-code.md) |
+| Qoder | [Start ReMe, then install the plugin](./integrations/qoder.md) |
 | Hermes Agent | Memory provider adapter |
 | Codex | [Start ReMe, then install the plugin](./integrations/codex.md) |
 | Other coding agents | `reme_memory` Skill or MCP |
@@ -88,6 +89,16 @@ Start the ReMe HTTP service, install the [ReMe plugin in Codex](./integrations/c
 hooks in `/hooks`. Open a new conversation to use automatic recall, recording, and the plugin's memory tools.
 This host also uses the plugin installation flow. Each host keeps its own plugin configuration and retry
 queue; the ReMe service owns memory storage and consolidation.
+
+## Qoder
+
+Start the ReMe HTTP service, then install the [ReMe plugin in Qoder](./integrations/qoder.md). The
+plugin bundles lifecycle hooks, an MCP bridge, and the `reme-memory` skill. Qoder loads all bundled
+components as one user-scoped plugin; no manual `settings.json` hooks are required.
+
+Qoder transcripts use the same user/assistant JSONL shape as Claude Code. The bundled adapter
+captures completed turns, queues failed writes for retry, and submits them through the configured
+HTTP Job API. Keep the ReMe service running while using the plugin.
 
 ## Hermes Agent
 

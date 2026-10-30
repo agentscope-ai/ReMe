@@ -33,7 +33,7 @@ def batch_cosine_similarity(nd_array1: np.ndarray, nd_array2: np.ndarray) -> np.
     norms1 = np.linalg.norm(nd_array1, axis=1)
     norms2 = np.linalg.norm(nd_array2, axis=1)
     norm_products = np.outer(norms1, norms2)
-    # Guard against zero-norm rows to keep division finite.
-    norm_products = np.where(norm_products == 0, 1e-10, norm_products)
+    # Use a representable denominator even in float16; zero rows have zero dot products.
+    norm_products = np.where(norm_products == 0, 1, norm_products)
 
     return dot_products / norm_products

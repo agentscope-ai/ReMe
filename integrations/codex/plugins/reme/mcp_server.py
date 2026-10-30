@@ -198,7 +198,7 @@ def create_server() -> FastMCP:
                 },
                 "required": ["schema", "values"],
             },
-            annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+            annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
         ),
     )
     server.add_tool(
@@ -217,10 +217,10 @@ def create_server() -> FastMCP:
             },
             output_schema={"type": "object", "properties": {"values": SCHEMA}, "required": ["values"]},
             annotations=ToolAnnotations(
-                readOnlyHint=False,
-                destructiveHint=False,
-                idempotentHint=True,
-                openWorldHint=False,
+                read_only_hint=False,
+                destructive_hint=False,
+                idempotent_hint=True,
+                open_world_hint=False,
             ),
         ),
     )
