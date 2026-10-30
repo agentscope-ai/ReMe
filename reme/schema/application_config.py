@@ -115,6 +115,8 @@ class ApplicationConfig(BaseModel):
         """Normalize every workspace_dir form to an ordered mapping; the first entry is the default."""
         self.workspaces = dict(self.workspaces) or {DEFAULT_WORKSPACE_ALIAS: self.workspace_dir}
         if len(self.workspaces) > 1:
+            if not self.mem_session_dir.strip():
+                raise ValueError("mem_session_dir must be non-empty in multi-workspace configurations")
             for alias, workspace in self.workspaces.items():
                 root = Path(workspace).resolve(strict=False)
                 for field_name in (

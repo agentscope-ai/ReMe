@@ -230,6 +230,89 @@ async def test_codex_thread_ownership_is_shared_and_atomic_across_wrappers(tmp_p
         await restarted._check_thread_ownership("alpha-thread", "beta")
 
 
+@pytest.mark.asyncio
+async def test_codex_resume_and_compact_claim_external_threads(tmp_path, monkeypatch):
+    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
+    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context, release_threads=False)
+    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context, release_threads=False)
+
+    class FakeCodex:
+        """Resume an existing external thread."""
+
+        async def thread_resume(self, thread_id, **_kwargs):
+            return SimpleNamespace(id=thread_id)
+
+    await wrapper_a._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "alpha"})
+    assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {"external-thread"}
+    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+        await wrapper_b._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "beta"})
+
+    class CompactThread:
+        """Minimal native compaction double."""
+
+        id = "compact-thread"
+
+        async def compact(self):
+            return None
+
+    compact_codex = SimpleNamespace(thread_resume=lambda _thread_id: None)
+
+    async def resume_compact(_thread_id):
+        return CompactThread()
+
+    compact_codex.thread_resume = resume_compact
+
+    async def get_compact_codex():
+        return compact_codex
+
+    monkeypatch.setattr(wrapper_a, "_get_codex", get_compact_codex)
+    await wrapper_a.compact_session("compact-thread", workspace="alpha")
+    assert "compact-thread" in context.workspaces["alpha"].codex_thread_state.owned_thread_ids
+
+    restarted_context = ApplicationContext(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+    )
+    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
+    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+        await restarted._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "beta"})
+
+
+@pytest.mark.asyncio
+async def test_codex_concurrent_first_resume_has_one_owner(tmp_path):
+    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
+    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context)
+    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context)
+
+    class FakeCodex:
+        """Yield between resume and ownership registration to force interleaving."""
+
+        async def thread_resume(self, thread_id, **_kwargs):
+            await asyncio.sleep(0)
+            return SimpleNamespace(id=thread_id)
+
+    results = await asyncio.gather(
+        wrapper_a._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": "alpha"}),
+        wrapper_b._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": "beta"}),
+        return_exceptions=True,
+    )
+    assert len([result for result in results if not isinstance(result, Exception)]) == 1
+    assert len([result for result in results if isinstance(result, ValueError)]) == 1
+
+    owners = [
+        alias
+        for alias, workspace in context.workspaces.items()
+        if "shared-external" in (workspace.codex_thread_state.owned_thread_ids or set())
+    ]
+    assert len(owners) == 1
+    other = "beta" if owners[0] == "alpha" else "alpha"
+    restarted_context = ApplicationContext(
+        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+    )
+    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
+    with pytest.raises(ValueError, match="belongs to workspace"):
+        await restarted._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": other})
+
+
 # ----- Background/cron binding -----------------------------------------------
 
 
@@ -437,15 +520,19 @@ async def test_codex_thread_cwd_follows_bound_workspace(tmp_path):
     class FakeCodex:
         """Capture thread_start parameters without an app-server."""
 
+        next_id = 1
+
         async def thread_start(self, **kwargs):
             observed.update(kwargs)
-            return SimpleNamespace(id="thread-1")
+            self.next_id += 1
+            return SimpleNamespace(id=f"thread-{self.next_id - 1}")
 
-    await wrapper._open_thread(FakeCodex(), {"workspace": "beta"})
+    codex = FakeCodex()
+    await wrapper._open_thread(codex, {"workspace": "beta"})
     assert observed["cwd"] == str(tmp_path / "beta")
 
     observed.clear()
-    await wrapper._open_thread(FakeCodex(), {})
+    await wrapper._open_thread(codex, {})
     assert observed["cwd"] != str(tmp_path / "beta")
 
 

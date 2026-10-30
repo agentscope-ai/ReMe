@@ -225,6 +225,17 @@ def test_multi_workspace_rejects_derived_directory_escape(tmp_path):
         )
 
 
+def test_multi_workspace_requires_session_ownership_storage(tmp_path):
+    with pytest.raises(ValidationError, match="mem_session_dir must be non-empty"):
+        ApplicationConfig(
+            workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+            mem_session_dir="",
+        )
+
+    config = ApplicationConfig(workspace_dir=str(tmp_path / "single"), mem_session_dir="")
+    assert config.mem_session_dir == ""
+
+
 def test_single_workspace_keeps_absolute_derived_directory(tmp_path):
     external = tmp_path / "external-metadata"
     config = ApplicationConfig(workspace_dir=str(tmp_path / "single"), metadata_dir=str(external))

@@ -1,5 +1,6 @@
 """Application context: shared state container for components, jobs, and service."""
 
+import asyncio
 from collections.abc import Iterator, MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
@@ -66,6 +67,7 @@ class ApplicationContext:
         self._components = _LegacyComponentView(self)
         self.jobs: dict[str, "BaseJob"] = {}
         self.thread_pool: ThreadPoolExecutor | None = None
+        self.codex_thread_ownership_lock = asyncio.Lock()
         self.metadata: dict[str, Any] = {}
 
     @property
