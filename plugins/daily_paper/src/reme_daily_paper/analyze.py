@@ -10,11 +10,10 @@ from .base import (
     PAPER_COUNT,
     DailyPaperStep,
     iter_note_metadata,
+    markdown_output,
     normalize_chinese_title,
     replace_surrogates,
     reserve_unique_note_path,
-    strip_frontmatter,
-    structured_output,
     utc_now_iso,
     write_markdown,
 )
@@ -119,7 +118,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         for attempt in range(2):
             try:
                 result = await self.agent_wrapper.reply(prompt, output_schema=DailyPaperMarkdownOutput)
-                output = structured_output(result, DailyPaperMarkdownOutput)
+                output = markdown_output(result)
                 break
             except recoverable:
                 if attempt:
@@ -141,10 +140,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         ) as (title, note_path):
             used_titles.add(title)
             note_rel = note_path.relative_to(self.workspace_path).as_posix()
-            desc = replace_surrogates(output.desc.strip())
-            body = replace_surrogates(strip_frontmatter(output.body))
-            if not desc or not body:
-                raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
+            desc, body = output.desc, output.body
             await write_markdown(
                 note_path,
                 body,

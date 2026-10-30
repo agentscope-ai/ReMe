@@ -1218,3 +1218,38 @@ async def test_digest_failure_boundary_preserves_cancellation(tmp_path):
     step._generate_digest = AsyncMock(side_effect=asyncio.CancelledError)  # pylint: disable=protected-access
     with pytest.raises(asyncio.CancelledError):
         await step(RuntimeContext())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"title": "论文", "desc": " ", "body": "content"},
+        {"title": "论文", "desc": "summary", "body": "\n "},
+        {"title": "论文", "desc": "summary", "body": "---\ntitle: generated\n---\n"},
+    ],
+)
+@pytest.mark.parametrize("recover", [True, False])
+async def test_blank_note_retries_once_before_writing(tmp_path, monkeypatch, invalid, recover):
+    """Blank or frontmatter-only content uses the same bounded shorter-note recovery."""
+    from types import SimpleNamespace
+
+    valid = {"title": "论文", "desc": " summary ", "body": "---\ntitle: model\n---\nEvidence"}
+    agent = _QueuedAgentWrapper([invalid, valid if recover else invalid])
+    step = DailyPaperAnalyzeStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), agent_wrapper=agent)
+    step.context = RuntimeContext(daily_paper_run_date="2026-07-21")
+    monkeypatch.setattr(step, "_extract_pdf_text_sync", lambda *_: ("evidence", 1, False))
+    downloader = SimpleNamespace(download=AsyncMock())
+    paper = _paper("2607.10001")
+    pick = PaperPick(arxiv_id=paper.arxiv_id, reasoning="test")
+    if recover:
+        result = await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
+        assert result.desc == "summary" and result.body == "Evidence"
+        assert (tmp_path / result.note_path).is_file()
+    else:
+        with pytest.raises(ValueError, match="empty Markdown"):
+            await step._analyze_one(downloader, paper, pick, set())  # pylint: disable=protected-access
+        assert not list(tmp_path.rglob("*.md"))
+    assert len(agent.calls) == 2
+    assert step.prompt_format("analyze_short_retry") in agent.calls[1]["inputs"]
+    downloader.download.assert_awaited_once()
