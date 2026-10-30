@@ -127,9 +127,6 @@ class MarkdownFileChunker(DefaultFileChunker):
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
         self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
-    async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
-        return await self._chunk_in_worker(path, self._chunk_sync)
-
     def _chunk_sync(self, file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
         text = self._read_text_for_indexing(file_path)
         front_matter, content, line_offset = self._parse_front_matter(text)

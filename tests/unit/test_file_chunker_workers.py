@@ -152,21 +152,50 @@ async def test_cancellation_drains_worker_and_preserves_admission(tmp_path: Path
         with patch.object(chunker, "_chunk_sync", side_effect=blocking_parse):
             first = asyncio.create_task(chunker.chunk(path))
             await _wait_started(entered)
-            first.cancel()
+            first.cancel("original cancellation")
             second = asyncio.create_task(chunker.chunk(path))
             await asyncio.sleep(0.01)
-            first.cancel()
+            first.cancel("second cancellation")
             await asyncio.sleep(0.01)
             try:
                 assert not first.done()
                 assert len(calls) == 1
             finally:
                 release.set()
-                with pytest.raises(asyncio.CancelledError):
+                with pytest.raises(asyncio.CancelledError, match="original cancellation"):
                     await first
                 await second
     assert chunker._worker is None
     assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_relative_delete_alias_removes_indexed_content(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A relative-first alias batch resolves against the workspace, not the working directory."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(tmp_path)
+    source = workspace / "source.txt"
+    source.write_text("unique searchable content")
+    context = ApplicationContext(workspace_dir=str(workspace))
+    chunker = DefaultFileChunker(app_context=context)
+    context.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+    async with LocalFileStore(embedding_store="") as store, chunker:
+        await store.upsert([await chunker.chunk(source)])
+        assert await store.keyword_search("unique", limit=10, search_filter={})
+        source.unlink()
+        step = UpdateIndexStep(file_store=store, persist=False, app_context=context)
+        response = await step(
+            RuntimeContext(
+                changes=[
+                    {"change": "deleted", "path": "source.txt"},
+                    {"change": "deleted", "path": str(source)},
+                ],
+            ),
+        )
+        assert response.success is True
+        assert await store.get_nodes() == []
+        assert not await store.keyword_search("unique", limit=10, search_filter={})
 
 
 @pytest.mark.asyncio

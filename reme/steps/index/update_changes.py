@@ -103,12 +103,7 @@ class ChangeApplyStep(BaseStep):
             for result in batch_results:
                 if result.get(_SOURCE_CHANGE_RETRY_MARKER, False):
                     retryable.append(result)
-            if not retryable:
-                for result in batch_results:
-                    result.pop(_SOURCE_CHANGE_RETRY_MARKER, None)
-                results.extend(batch_results)
-                break
-            if not recover_source_changes:
+            if not retryable or not recover_source_changes:
                 for result in batch_results:
                     result.pop(_SOURCE_CHANGE_RETRY_MARKER, None)
                 results.extend(batch_results)
@@ -374,7 +369,7 @@ class ChangeApplyStep(BaseStep):
             await asyncio.sleep(0)
             batch = deleted[start : start + self.batch_max_files]
             try:
-                await self.delete_paths([self.to_workspace_relative(p) for p in batch])
+                await self.delete_paths([self.to_workspace_relative(self._to_abs_path(p)) for p in batch])
                 results.extend({"change": "deleted", "path": p, "success": True} for p in batch)
             except Exception as e:
                 self.logger.exception(f"Failed to delete {len(batch)} file(s) from {self.target_name}")
@@ -492,18 +487,7 @@ class UpdateIndexStep(ChangeApplyStep):
                         self._source_versions[node.path],
                         self._to_abs_path(node.path).stat(),
                     )
-                except FileChangedDuringChunkingError as exc:
-                    if retry_source_changes:
-                        retry_paths.append(path)
-                    else:
-                        result_by_path[path] = {
-                            "change": change.name,
-                            "path": path,
-                            "success": False,
-                            "error": str(exc),
-                            _SOURCE_CHANGE_RETRY_MARKER: True,
-                        }
-                except FileNotFoundError as exc:
+                except (FileChangedDuringChunkingError, FileNotFoundError) as exc:
                     if retry_source_changes:
                         retry_paths.append(path)
                     else:

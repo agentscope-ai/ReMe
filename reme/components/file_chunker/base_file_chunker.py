@@ -7,31 +7,13 @@ import threading
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Callable
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
+from ...utils.async_utils import wait_for_completion
 from ...utils.file_utils import check_file_version
-
-WorkResult = TypeVar("WorkResult")
-
-
-async def _finish_work(future: asyncio.Future[WorkResult]) -> WorkResult:
-    """Defer cancellation until submitted work finishes, then discard its result."""
-    cancellation: asyncio.CancelledError | None = None
-    while not future.done():
-        try:
-            await asyncio.shield(future)
-        except asyncio.CancelledError as exc:
-            cancellation = exc
-        except Exception:
-            break
-    if cancellation is not None:
-        if not future.cancelled():
-            future.exception()
-        raise cancellation
-    return future.result()
 
 
 class BaseFileChunker(BaseComponent):
@@ -62,7 +44,7 @@ class BaseFileChunker(BaseComponent):
         with self._worker_state_lock:
             self._worker_closing = True
             self._worker_generation += 1
-        await _finish_work(asyncio.create_task(self._close_worker()))
+        await wait_for_completion(asyncio.create_task(self._close_worker()))
 
     async def _close_worker(self) -> None:
         await self._acquire_worker_lock()
@@ -127,7 +109,7 @@ class BaseFileChunker(BaseComponent):
             rel_path,
             chunk,
         )
-        result, version = await _finish_work(future)
+        result, version = await wait_for_completion(future)
         with self._worker_state_lock:
             if self._worker_closing or generation != self._worker_generation:
                 raise RuntimeError("File chunker closed while parsing")

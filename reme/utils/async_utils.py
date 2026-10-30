@@ -3,12 +3,18 @@
 import asyncio
 from collections.abc import Callable
 from contextlib import suppress
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
 async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
     """Finish a side-effecting thread call, including through repeated cancellation."""
-    task = asyncio.create_task(asyncio.to_thread(func, *args))
+    return await wait_for_completion(asyncio.create_task(asyncio.to_thread(func, *args)))
+
+
+async def wait_for_completion(task: asyncio.Future[T]) -> T:
+    """Wait for work to finish before propagating the first cancellation."""
     cancellation: asyncio.CancelledError | None = None
     while not task.done():
         try:
@@ -21,7 +27,7 @@ async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
                 raise
             break
     if cancellation is not None:
-        with suppress(Exception):
+        with suppress(Exception, asyncio.CancelledError):
             task.result()
         raise cancellation
     return task.result()
