@@ -1,12 +1,16 @@
 """Application configuration models."""
 
+from collections.abc import Mapping
+from itertools import combinations
 import os
 from pathlib import Path
 from pathlib import PurePosixPath, PureWindowsPath
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..enumeration import component_type_name
+
+DEFAULT_WORKSPACE_ALIAS = "default"
 
 
 class ComponentConfig(BaseModel):
@@ -37,8 +41,17 @@ class ApplicationConfig(BaseModel):
     )
     workspace_dir: str = Field(
         default=".reme",
-        description="Workspace root directory for runtime files",
+        description=(
+            "Workspace root directory for runtime files. Accepts a single path or an ordered mapping of "
+            "alias to path; the mapping form normalizes to the first entry here and exposes all entries "
+            "through the derived workspaces mapping."
+        ),
         validate_default=True,
+    )
+    workspaces: dict[str, str] = Field(
+        default_factory=dict,
+        exclude=True,
+        description="Ordered alias-to-absolute-path workspaces derived from workspace_dir",
     )
     metadata_dir: str = Field(default="metadata", description="Subdirectory for ReMe persistent state")
     session_dir: str = Field(default="session", description="Subdirectory for persisted agent sessions")
@@ -61,6 +74,66 @@ class ApplicationConfig(BaseModel):
         default_factory=dict,
         description="Component registry keyed by type then name",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_workspace_mapping(cls, data):
+        """Resolve a mapping workspace_dir, keeping its first entry as the default workspace."""
+        if not isinstance(data, dict):
+            return data
+        if "workspaces" in data:
+            raise ValueError("workspaces is derived from workspace_dir; do not supply it")
+        raw = data.get("workspace_dir")
+        if not isinstance(raw, Mapping):
+            return data
+        if not raw:
+            raise ValueError("workspace_dir mapping must contain at least one workspace")
+        resolved: dict[str, str] = {}
+        for key, path in raw.items():
+            if not isinstance(key, str):
+                raise ValueError(f"workspace_dir aliases must be strings: {key!r}")
+            alias = key.strip()
+            if not alias:
+                raise ValueError("workspace_dir aliases must be non-empty")
+            if alias in resolved:
+                raise ValueError(f"workspace_dir aliases collide after normalization: {alias!r}")
+            if not isinstance(path, str) or not path.strip():
+                raise ValueError(f"workspace_dir[{key!r}] must be a non-empty path string: {path!r}")
+            resolved[alias] = str(Path(path).expanduser().resolve(strict=False))
+        directories = list(resolved.values())
+        if len(set(directories)) != len(directories):
+            raise ValueError(f"workspace_dir aliases must point to distinct directories: {resolved}")
+        for first, second in combinations(map(Path, directories), 2):
+            if first.is_relative_to(second) or second.is_relative_to(first):
+                raise ValueError(
+                    f"workspace_dir directories must not overlap: {str(first)!r} and {str(second)!r}",
+                )
+        return {**data, "workspace_dir": directories[0], "workspaces": resolved}
+
+    @model_validator(mode="after")
+    def derive_default_workspace(self):
+        """Normalize every workspace_dir form to an ordered mapping; the first entry is the default."""
+        self.workspaces = dict(self.workspaces) or {DEFAULT_WORKSPACE_ALIAS: self.workspace_dir}
+        if len(self.workspaces) > 1:
+            if not self.mem_session_dir.strip():
+                raise ValueError("mem_session_dir must be non-empty in multi-workspace configurations")
+            for alias, workspace in self.workspaces.items():
+                root = Path(workspace).resolve(strict=False)
+                for field_name in (
+                    "metadata_dir",
+                    "session_dir",
+                    "mem_session_dir",
+                    "resource_dir",
+                    "daily_dir",
+                    "digest_dir",
+                ):
+                    subdir = getattr(self, field_name)
+                    if subdir and not (root / subdir).resolve(strict=False).is_relative_to(root):
+                        raise ValueError(
+                            f"{field_name} for workspace {alias!r} must stay inside the workspace "
+                            "in multi-workspace configurations",
+                        )
+        return self
 
     @field_validator("components", mode="before")
     @classmethod

@@ -12,6 +12,7 @@ from watchfiles import Change
 from ._change_batch import bucket_changes
 from ..base_step import BaseStep
 from ...components import R
+from ...components.base_component import _context_workspaces
 from ...components.file_chunker import BaseFileChunker
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
@@ -364,8 +365,14 @@ class UpdateIndexStep(ChangeApplyStep):
         return await chunker.chunk(path)
 
     def _resolve_chunker(self, path: Path) -> BaseFileChunker:
-        """Resolve a file chunker for a given path."""
-        chunkers: dict[str, BaseFileChunker] = self.app_context.components[ComponentEnum.FILE_CHUNKER]
+        """Resolve a file chunker for a given path, bound to this call's workspace."""
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if bound is not None:
+            chunkers: dict[str, BaseFileChunker] = bound.components.get(ComponentEnum.FILE_CHUNKER, {})
+        elif _context_workspaces(self.app_context) is None:
+            chunkers = self.app_context.components[ComponentEnum.FILE_CHUNKER]
+        else:
+            raise RuntimeError("A workspace binding is required to resolve file chunkers")
         suffix = path.suffix.lstrip(".").lower()
         for candidate in chunkers.values():
             if suffix and suffix in {ext.lower().lstrip(".") for ext in candidate.supported_extensions}:

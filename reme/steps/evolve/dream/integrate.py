@@ -100,9 +100,16 @@ class DreamIntegrateStep(BaseStep):
         return self._finish(state, not state.failed_units, answer)
 
     def _integration_lock(self) -> asyncio.Lock:
-        """Return the Application-wide lock used by AutoDream integration."""
+        """Return the workspace-scoped lock used by AutoDream integration.
+
+        Bound calls lock per workspace so integrations in different workspaces
+        never block each other; standalone contexts keep the app-wide lock.
+        """
         if self.app_context is None:
             raise RuntimeError("dream_integrate_step requires app_context")
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if bound is not None:
+            return bound.lock("dream_integration")
         key = "dream_integration_lock"
         lock = self.app_context.metadata.get(key)
         if lock is None:
@@ -145,6 +152,7 @@ class DreamIntegrateStep(BaseStep):
                         bucket=bucket,
                     ),
                     job_tools=list(_TOOLS),
+                    **self._workspace_forward_kwargs(),
                 )
             except Exception as e:  # noqa: BLE001
                 after = _snapshot_digest(workspace, digest_dir)

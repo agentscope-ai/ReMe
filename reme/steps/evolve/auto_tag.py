@@ -119,6 +119,7 @@ class AutoTagStep(BaseStep):
             ),
             job_tools=self.tools,
             injected_job_kwargs=tool_context,
+            **self._workspace_forward_kwargs(),
         )
 
         path = self.workspace_path / target.path

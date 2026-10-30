@@ -21,6 +21,7 @@ import time
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
 from ....components import R
+from ....components.base_component import _context_workspaces
 from ....enumeration import ComponentEnum
 from ....schema import ProactiveState, ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
@@ -340,7 +341,14 @@ class ProactiveTopicsStep(BaseStep):
     async def _digest_titles(self) -> list[str]:
         if self.app_context is None or self.digest_compare_limit <= 0:
             return []
-        catalog = self.app_context.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        if _context_workspaces(self.app_context) is not None:
+            if bound is None:
+                raise RuntimeError("A workspace binding is required to resolve the digest catalog")
+            catalog = bound.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
+        else:
+            # Test doubles and standalone-style contexts without the workspace layer.
+            catalog = self.app_context.components.get(ComponentEnum.FILE_CATALOG, {}).get("digest")
         if catalog is None:
             return []
         try:
@@ -358,7 +366,7 @@ class ProactiveTopicsStep(BaseStep):
         name = self.kwargs.get("as_embedding", "default")
         if self.app_context is None:
             return None
-        return self.app_context.components.get(ComponentEnum.AS_EMBEDDING, {}).get(name)
+        return self.app_context.shared_components.get(ComponentEnum.AS_EMBEDDING, {}).get(name)
 
     async def _semantic_verdict(
         self,

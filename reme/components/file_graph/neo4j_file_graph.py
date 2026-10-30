@@ -68,6 +68,8 @@ class Neo4jFileGraph(BaseFileGraph):
         database: target db name (default ``neo4j``)
     """
 
+    supports_multi_workspace = False
+
     def __init__(
         self,
         uri: str = "bolt://localhost:7687",

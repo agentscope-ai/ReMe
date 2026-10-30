@@ -13,6 +13,8 @@ from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 class LocalFileGraph(BaseFileGraph):
     """Dict-backed file graph; uses FileLink.target_path for adjacency."""
 
+    workspace_scoped = True
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._nodes: dict[str, FileNode] = {}

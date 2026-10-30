@@ -5,7 +5,6 @@ import heapq
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from inspect import getattr_static
-from pathlib import Path
 from typing import Any, AsyncGenerator, TypeVar
 
 from . import __version__
@@ -18,7 +17,8 @@ from .schema import ComponentConfig, Response, StreamChunk
 from .utils import execute_stream_task, print_logo, get_logger
 
 T = TypeVar("T", bound=BaseComponent)
-_NodeKey = tuple[str, str]
+# (component type, component name, workspace alias); "" marks shared instances.
+_NodeKey = tuple[str, str, str]
 _UNSET = object()
 
 
@@ -54,20 +54,11 @@ class Application(BaseComponent):
     # ----- Wiring (called once during __init__) --------------------------
 
     def _setup_workspace_directories(self) -> None:
-        """Ensure the workspace root and configured subdirectories exist on disk."""
-        cfg = self.config
-        workspace_path = Path(cfg.workspace_dir).absolute()
-        workspace_path.mkdir(parents=True, exist_ok=True)
-        for subdir in [
-            cfg.metadata_dir,
-            cfg.session_dir,
-            cfg.mem_session_dir,
-            cfg.resource_dir,
-            cfg.daily_dir,
-            cfg.digest_dir,
-        ]:
-            if subdir:
-                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
+        """Ensure every configured workspace root and its configured subdirectories exist on disk."""
+        for workspace in self.context.workspaces.values():
+            workspace.workspace_path.mkdir(parents=True, exist_ok=True)
+            for subdir in workspace.storage_dirs():
+                subdir.mkdir(parents=True, exist_ok=True)
 
     def _init_service(self) -> None:
         """Instantiate the single service backend declared in config.service."""
@@ -79,17 +70,35 @@ class Application(BaseComponent):
         )
 
     def _init_components(self) -> None:
-        """Instantiate every component declared under config.components."""
+        """Instantiate declared components; workspace-scoped ones once per alias."""
+        multi_workspace = len(self.context.workspaces) > 1
         for ctype, group in self.config.components.items():
-            self.context.components[ctype] = {}
             for name, cfg in group.items():
-                self.context.components[ctype][name] = self._instantiate(
-                    ctype,
-                    cfg,
-                    label=f"Component '{name}'",
-                    expected_type=BaseComponent,
-                    name=name,
-                )
+                label = f"Component '{name}'"
+                backend_cls = self._backend_class(ctype, cfg, label)
+                if multi_workspace and not backend_cls.supports_multi_workspace:
+                    raise ValueError(
+                        f"{label} backend '{cfg.backend}' does not support multi-workspace configurations",
+                    )
+                if backend_cls.workspace_scoped:
+                    for alias, workspace in self.context.workspaces.items():
+                        instance = self._instantiate(
+                            ctype,
+                            cfg,
+                            label=label,
+                            expected_type=BaseComponent,
+                            name=name,
+                            workspace_alias=alias,
+                        )
+                        workspace.components.setdefault(ctype, {})[name] = instance
+                else:
+                    self.context.shared_components.setdefault(ctype, {})[name] = self._instantiate(
+                        ctype,
+                        cfg,
+                        label=label,
+                        expected_type=BaseComponent,
+                        name=name,
+                    )
 
     def _init_jobs(self) -> None:
         """Instantiate every job declared under config.jobs."""
@@ -102,6 +111,15 @@ class Application(BaseComponent):
                 name=name,
             )
 
+    def _backend_class(self, ctype: ComponentType, cfg: ComponentConfig, label: str) -> type[T]:
+        """Resolve cfg.backend to a registered class without instantiating it."""
+        if not cfg.backend:
+            raise ValueError(f"{label} is missing the required 'backend' field")
+        backend_cls = self.context.registry.get(ctype, cfg.backend)
+        if backend_cls is None:
+            raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
+        return backend_cls
+
     def _instantiate(
         self,
         ctype: ComponentType,
@@ -110,6 +128,7 @@ class Application(BaseComponent):
         label: str,
         expected_type: type[T],
         name: str | None = None,
+        workspace_alias: str | None = None,
     ) -> T:
         """Resolve cfg.backend through the registry and construct the instance.
 
@@ -118,17 +137,16 @@ class Application(BaseComponent):
         registered under the wrong component type.
         `name` is forwarded to the constructor for named components/jobs;
         leave it None for the service, which is keyed solely by type.
+        `workspace_alias` binds workspace-scoped instances to one workspace.
         """
-        if not cfg.backend:
-            raise ValueError(f"{label} is missing the required 'backend' field")
-        backend_cls = self.context.registry.get(ctype, cfg.backend)
-        if backend_cls is None:
-            raise ValueError(f"Unregistered backend '{cfg.backend}' for {label}")
+        backend_cls = self._backend_class(ctype, cfg, label)
 
         params = cfg.model_dump()
         params["app_context"] = self.context
         if name is not None:
             params.setdefault("name", name)
+        if workspace_alias is not None:
+            params["workspace_alias"] = workspace_alias
         instance = backend_cls(**params)
         if not isinstance(instance, expected_type):
             got, want = type(instance).__name__, expected_type.__name__
@@ -137,16 +155,29 @@ class Application(BaseComponent):
 
     # ----- Dependency ordering ------------------------------------------
 
+    def _component_nodes(
+        self,
+        replacement: tuple[_NodeKey, BaseComponent] | None = None,
+    ) -> dict[_NodeKey, BaseComponent]:
+        """One node per component instance; scoped components contribute one node per alias."""
+        nodes: dict[_NodeKey, BaseComponent] = {}
+        for alias, workspace in self.context.workspaces.items():
+            for ctype, group in workspace.components.items():
+                for name, instance in group.items():
+                    nodes[(ctype, name, alias)] = instance
+        for ctype, group in self.context.shared_components.items():
+            for name, comp in group.items():
+                nodes[(ctype, name, "")] = comp
+        if replacement is not None:
+            nodes[replacement[0]] = replacement[1]
+        return nodes
+
     def _topological_order(
         self,
         replacement: tuple[_NodeKey, BaseComponent] | None = None,
     ) -> list[BaseComponent]:
         """Return components in dependency order via Kahn's algorithm; raise on missing dep or cycle."""
-        nodes: dict[_NodeKey, BaseComponent] = {
-            (ctype, name): comp for ctype, group in self.context.components.items() for name, comp in group.items()
-        }
-        if replacement is not None:
-            nodes[replacement[0]] = replacement[1]
+        nodes = self._component_nodes(replacement)
         in_degree, dependents = self._build_dependency_graph(nodes)
 
         ready = [k for k, d in in_degree.items() if d == 0]
@@ -169,13 +200,30 @@ class Application(BaseComponent):
     def _build_dependency_graph(
         nodes: dict[_NodeKey, BaseComponent],
     ) -> tuple[dict[_NodeKey, int], dict[_NodeKey, list[_NodeKey]]]:
-        """Compute in-degree and adjacency lists; raise if a required dep is missing."""
+        """Compute in-degree and adjacency lists; raise if a required dep is missing.
+
+        Scoped instances depend on the same-alias instance of a scoped
+        dependency, falling back to shared ("" alias) instances, then to the
+        dependency's default-alias instance for shared dependents.
+        """
         in_degree: dict[_NodeKey, int] = dict.fromkeys(nodes, 0)
         dependents: dict[_NodeKey, list[_NodeKey]] = {k: [] for k in nodes}
         for key, comp in nodes.items():
             for dep in comp.dependencies:
-                dep_key = (dep.ctype, dep.name)
-                if dep_key in nodes:
+                dep_key = next(
+                    (
+                        candidate
+                        for candidate in (
+                            (dep.ctype, dep.name, key[2]),
+                            (dep.ctype, dep.name, ""),
+                        )
+                        if candidate in nodes
+                    ),
+                    None,
+                )
+                if dep_key is None:
+                    dep_key = next((k for k in nodes if k[:2] == (dep.ctype, dep.name)), None)
+                if dep_key is not None:
                     dependents[dep_key].append(key)
                     in_degree[key] += 1
                 elif not dep.optional:
@@ -241,11 +289,10 @@ class Application(BaseComponent):
         """Update an existing component by type/name; never creates missing components."""
         async with self._component_mutation_lock:
             component_type = component_type_name(component_enum)
-            group = self.context.components.get(component_type)
-            if not group or name not in group:
+            component = self.context.get_component(component_type, name)
+            if component is None:
                 raise KeyError(f"Component '{name}' not found in {component_type}")
 
-            component = group[name]
             # Validate fields without evaluating lazy properties before injection.
             for key in kwargs:
                 if getattr_static(component, key, _UNSET) is _UNSET and not hasattr(component, key):
@@ -253,6 +300,18 @@ class Application(BaseComponent):
             for key, value in kwargs.items():
                 setattr(component, key, value)
             return component
+
+    def _all_component_instances(self) -> list[BaseComponent]:
+        """Every component instance: plain entries plus all alias instances of scoped components."""
+        instances: dict[int, BaseComponent] = {}
+        for workspace in self.context.workspaces.values():
+            for group in workspace.components.values():
+                for instance in group.values():
+                    instances[id(instance)] = instance
+        for group in self.context.shared_components.values():
+            for component in group.values():
+                instances[id(component)] = component
+        return list(instances.values())
 
     def _replacement_shutdown_order(
         self,
@@ -264,9 +323,7 @@ class Application(BaseComponent):
         started_ids = {id(component) for component in self._started_components}
         started_ids.discard(id(old_component))
         started_ids.add(id(replacement))
-        component_ids = {
-            id(component) for components in self.context.components.values() for component in components.values()
-        }
+        component_ids = {id(component) for component in self._all_component_instances()}
         non_components = [
             component
             for component in self._started_components
@@ -299,8 +356,23 @@ class Application(BaseComponent):
         """
         async with self._component_mutation_lock:
             component_type = component_type_name(component_enum)
-            group = self.context.components.get(component_type)
             config_group = self.config.components.get(component_type)
+            scoped_instances = {
+                alias: workspace.components[component_type][name]
+                for alias, workspace in self.context.workspaces.items()
+                if name in workspace.components.get(component_type, {})
+            }
+            if len(scoped_instances) > 1:
+                raise NotImplementedError(
+                    f"replace_component does not support workspace-scoped component "
+                    f"'{component_type}:{name}' in multi-workspace configurations",
+                )
+            alias = next(iter(scoped_instances), None)
+            group = (
+                self.context.workspaces[alias].components.get(component_type)
+                if alias is not None
+                else self.context.shared_components.get(component_type)
+            )
             if not group or name not in group or config_group is None:
                 raise KeyError(f"Component '{name}' not found in {component_type}")
 
@@ -316,6 +388,7 @@ class Application(BaseComponent):
                 label=f"Component '{name}'",
                 expected_type=BaseComponent,
                 name=name,
+                workspace_alias=alias,
             )
             # Validate fields without evaluating lazy properties before injection.
             for key, value in (runtime_updates or {}).items():
@@ -325,14 +398,12 @@ class Application(BaseComponent):
                     )
                 setattr(replacement, key, value)
 
-            node_key = (component_type, name)
+            node_key = (component_type, name, alias or "")
             replacement_order = Application._topological_order(self, replacement=(node_key, replacement))
             was_started = old_component.is_started
 
             consumers: list[tuple[BaseComponent, str]] = []
-            candidates: list[BaseComponent] = [
-                component for components in self.context.components.values() for component in components.values()
-            ]
+            candidates: list[BaseComponent] = self._all_component_instances()
             candidates.extend(self.context.jobs.values())
             if self.context.service is not None:
                 candidates.append(self.context.service)
@@ -357,6 +428,8 @@ class Application(BaseComponent):
             # Commit the new generation synchronously so observers cannot see
             # a context with only some dependency references updated.
             group[name] = replacement
+            if alias is not None:
+                self.context.workspaces[alias].components[component_type][name] = replacement
             config_group[name] = replacement_config
             for consumer, attr in consumers:
                 consumer.__dict__[attr] = replacement

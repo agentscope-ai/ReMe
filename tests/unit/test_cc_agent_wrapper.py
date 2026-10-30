@@ -379,7 +379,7 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
         observed["build"] = (inputs, kwargs)
         return FakeAgent(), inputs
 
-    async def dump_state(state):
+    async def dump_state(state, _kwargs=None):
         observed["state"] = state
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
@@ -387,7 +387,7 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
 
     await wrapper.compact_session("session-1")
 
-    assert observed["build"] == (None, {"resume": "session-1"})
+    assert observed["build"] == (None, {"resume": "session-1", "workspace": "default"})
     assert observed["config"].trigger_ratio == 1e-9
     assert observed["state"] is FakeAgent.state
 

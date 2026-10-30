@@ -1,9 +1,13 @@
 """Per-request runtime context shared across steps and jobs."""
 
 import asyncio
+from typing import TYPE_CHECKING
 
 from ..enumeration import ChunkEnum
 from ..schema import Response, StreamChunk
+
+if TYPE_CHECKING:
+    from ..schema import WorkspaceContext
 
 
 class RuntimeContext:
@@ -11,6 +15,8 @@ class RuntimeContext:
 
     Holds the response object, an optional stream queue, a stop event, and a
     free-form data dict accessible via mapping-style operators (``ctx[key]``).
+    ``workspace`` binds the whole execution to one configured workspace; job
+    entry points resolve the request's workspace alias into it.
     """
 
     def __init__(
@@ -18,11 +24,13 @@ class RuntimeContext:
         response: Response | None = None,
         stream_queue: asyncio.Queue | None = None,
         stop_event: asyncio.Event | None = None,
+        workspace: "WorkspaceContext | None" = None,
         **kwargs,
     ):
         self.response: Response = response or Response()
         self.stream_queue: asyncio.Queue | None = stream_queue
         self.stop_event: asyncio.Event | None = stop_event
+        self.workspace: "WorkspaceContext | None" = workspace
         self.data: dict = kwargs
 
     # ----- Data dict access ----------------------------------------------

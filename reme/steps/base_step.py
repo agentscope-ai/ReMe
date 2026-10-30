@@ -7,7 +7,7 @@ from typing import Any, TYPE_CHECKING
 from agentscope.model import ChatModelBase
 
 from ..components.agent_wrapper.base_agent_wrapper import BaseAgentWrapper
-from ..components.base_component import ComponentMixin
+from ..components.base_component import ComponentMixin, _context_workspaces
 from ..components.component_registry import R
 from ..components.file_catalog import BaseFileCatalog
 from ..components.file_store import BaseFileStore
@@ -87,7 +87,19 @@ class Ref:
             if self.optional:
                 return None
             raise RuntimeError(f"app_context is not set when resolving '{self.key}'")
-        comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
+        if (workspaces := _context_workspaces(obj.app_context)) is not None:
+            context = obj.context
+            bound = getattr(context, "workspace", None) if context is not None else None
+            is_scoped = any(name in workspace.components.get(self.comp_enum, {}) for workspace in workspaces.values())
+            if is_scoped:
+                if bound is None:
+                    raise RuntimeError(f"A workspace binding is required when resolving '{self.key}'")
+                comp = bound.get_component(self.comp_enum, name)
+            else:
+                comp = obj.app_context.shared_components.get(self.comp_enum, {}).get(name)
+        else:
+            # Test doubles and standalone-style contexts without the workspace layer.
+            comp = obj.app_context.components.get(self.comp_enum, {}).get(name)
         if comp is None:
             if self.optional:
                 return None
@@ -149,6 +161,8 @@ class BaseStep(ComponentMixin, ABC):
             del self.__dict__[key]
         self.context = RuntimeContext.from_context(context, **kwargs)
         assert self.context is not None
+        if (workspaces := _context_workspaces(self.app_context)) is not None and self.context.workspace is None:
+            self.context.workspace = next(iter(workspaces.values()))
         if self.input_mapping:
             self.context.apply_mapping(self.input_mapping)
         result = await self.execute()
@@ -189,11 +203,36 @@ class BaseStep(ComponentMixin, ABC):
         return self.app_context.jobs.get(name)
 
     async def run_job(self, name: str, /, **kwargs) -> Response:
-        """Execute a job by name and kwargs, return the final response."""
+        """Execute a job by name and kwargs, return the final response.
+
+        Nested calls inherit the current call's workspace binding unless the
+        caller selects a workspace explicitly.
+        """
         job: "BaseJob | None" = self.get_job(name)
         if job is None:
             raise RuntimeError(f"Job {name} not found")
+        if alias := self._bound_workspace_alias():
+            kwargs.setdefault("workspace", alias)
         return await job(**kwargs)
+
+    def _bound_workspace_alias(self) -> str:
+        """Alias of the current call's workspace binding ("" only when unbound).
+
+        Execution bindings are explicit end to end: the default alias is a
+        real binding and is forwarded like any other, so a nested job's own
+        configured workspace cannot silently override the caller's binding.
+        """
+        bound = getattr(self.context, "workspace", None) if self.context is not None else None
+        return bound.alias if bound is not None else ""
+
+    def _workspace_forward_kwargs(self) -> dict:
+        """Forward the current call's resolved workspace binding to agent wrapper calls.
+
+        Every resolved binding is forwarded, including the default alias, so
+        agent tool paths execute against the caller's workspace.
+        """
+        alias = self._bound_workspace_alias()
+        return {"workspace": alias} if alias else {}
 
     def _resolve_dispatch_step(self, raw: _DispatchStep):
         """Resolve a dispatch step spec to (step class, init params)."""

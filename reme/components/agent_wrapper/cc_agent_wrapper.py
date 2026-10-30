@@ -43,10 +43,15 @@ class CcAgentWrapper(BaseAgentWrapper):
 
     @property
     def session_path(self) -> Path:
-        """Directory used for persisted Claude Code sessions."""
+        """Directory used for persisted Claude Code sessions in the default workspace."""
+        return self._session_path_for({})
+
+    def _session_path_for(self, kwargs) -> Path:
+        """Session directory under the workspace this call is bound to."""
+        root = self._call_workspace_path(kwargs)
         if self.app_context is None:
-            return self.workspace_path / "mem_session"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir
+            return root / "mem_session"
+        return root / self.app_context.app_config.mem_session_dir
 
     def _ensure_claude_skill_dir(self, config_dir: Path, skills: list[str] | str) -> None:
         """Add selected project skills to Claude Code discovery locations."""
@@ -83,11 +88,16 @@ class CcAgentWrapper(BaseAgentWrapper):
         job: "BaseJob",
         tool_context_id: str | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
+        workspace: str | None = None,
     ):
         from claude_agent_sdk import SdkMcpTool
 
         injected = cls._resolve_injected_job_kwargs(
-            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+            {
+                "tool_context_id": tool_context_id,
+                "injected_job_kwargs": injected_job_kwargs,
+                "workspace": workspace,
+            },
         )
 
         async def run_job(args):
@@ -187,9 +197,10 @@ class CcAgentWrapper(BaseAgentWrapper):
             )
         opts.env.update(extra_env_dict)
         self._add_bash_proxy_hook(opts)
-        self.session_path.mkdir(parents=True, exist_ok=True)
-        opts.cwd = opts.cwd or self.cwd
-        claude_config_dir = self.session_path / "claude_config"
+        session_path = self._session_path_for(kwargs)
+        session_path.mkdir(parents=True, exist_ok=True)
+        opts.cwd = opts.cwd or self._call_cwd(kwargs)
+        claude_config_dir = session_path / "claude_config"
         opts.env.setdefault("CLAUDE_CONFIG_DIR", str(claude_config_dir))
         if selected_skills is not None:
             self._ensure_claude_skill_dir(claude_config_dir, selected_skills)
@@ -203,7 +214,12 @@ class CcAgentWrapper(BaseAgentWrapper):
             if self.MCP_SERVER_NAME in opts.mcp_servers:
                 raise ValueError(f"mcp_servers already contains reserved server name {self.MCP_SERVER_NAME!r}")
             sdk_tools = [
-                self._make_tool(job, kwargs.get("tool_context_id"), kwargs.get("injected_job_kwargs"))
+                self._make_tool(
+                    job,
+                    kwargs.get("tool_context_id"),
+                    kwargs.get("injected_job_kwargs"),
+                    workspace=kwargs.get("workspace"),
+                )
                 for job in resolved_jobs
             ]
             opts.mcp_servers[self.MCP_SERVER_NAME] = create_sdk_mcp_server(

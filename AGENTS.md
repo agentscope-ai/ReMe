@@ -132,8 +132,12 @@ Treat Step instances as invocation-scoped:
 - `self.context.response.answer`, `success`, and `metadata` are request-scoped output. Because the same response travels
   through the Step chain, later Steps may consume metadata produced earlier, but it is not application-lifetime or
   durable storage.
-- `self.app_context.metadata` holds in-memory state shared across Job/Step invocations for the life of one
-  `Application`, such as counters, tool-context state, session maps, or locks.
+- `self.app_context.metadata` holds application-lifetime operational state shared across Job/Step invocations,
+  such as counters. `ApplicationContext.shared_components` owns genuinely shared components; its `components`
+  compatibility view also exposes default-workspace instances to legacy callers.
+- Each `WorkspaceContext` owns its paths, stateful components, tool contexts, search budgets, agent session state,
+  and locks. `RuntimeContext.workspace` is the explicit binding used by workspace-bound execution; internal Steps
+  must not resolve a default workspace repeatedly or use the compatibility component view.
 - Workspace files or a dedicated Component/store hold durable state that must survive restart.
 
 Use narrow, namespaced keys in `app_context.metadata` and protect shared mutable values against concurrent access. The
@@ -144,8 +148,9 @@ dedicated lifecycle, locking, or persistence, promote it to a typed context fiel
 
 Additional Step contracts:
 
-- `Ref` dependencies resolve in this order: Step kwargs, current `RuntimeContext`, then the named application component.
-  The value is cached only on the current Step instance and cleared before each call.
+- `Ref` dependencies resolve in this order: Step kwargs, current `RuntimeContext`, then the bound workspace for scoped
+  components or the application shared-component registry for shared components. The value is cached only on the
+  current Step instance and cleared before each call.
 - `input_mapping` and `output_mapping` copy keys within `RuntimeContext.data`; missing sources are ignored.
 - Dispatched Steps receive the current `RuntimeContext`, so their data and response are shared.
 - Base jobs convert uncaught Step errors into `Response(success=False)`; stream jobs emit an error chunk and always a

@@ -86,6 +86,8 @@ class LocalFileStore(BaseFileStore):
     at least one of embedding / keyword must be present.
     """
 
+    workspace_scoped = True
+
     def __init__(
         self,
         embedding_store: str = "default",

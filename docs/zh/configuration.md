@@ -83,6 +83,49 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
 
+`workspace_dir` 也接受"别名到路径"的有序映射，便于一个配置服务多个 workspace，例如在 YAML 配置文件中：
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+第一个 entry 是默认 workspace；每个别名在启动时都会在自己的根目录下创建相同的子目录布局
+（`metadata_dir`、`session_dir` 等上述目录）。别名必须非空，且解析后的目录必须互不相同、不能互相包含。
+单个字符串保持原有行为，内部归一化为 `default` 别名。多 workspace 配置还要求 `mem_session_dir` 非空，
+以确保重启后仍能强制执行 agent thread 的归属隔离。
+
+Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
+`reme read_note path=daily/note.md workspace=scratch`；缺省绑定默认 workspace，未知别名会直接报错。
+绑定仅在单次调用内生效：workspace 相关的状态组件（file store、索引、graph、catalog）按别名解析到各自实例，
+共享组件（模型、tokenizer 等）保持单实例。无法隔离 workspace 的外部有状态后端（目前是 `neo4j` file graph）
+在多 workspace 配置下会在启动时被拒绝。
+
+绑定会经嵌套 Job 调用和 agent 工具调用（`job_tools`）传播，作为模型无法覆盖的服务端约束。
+多 workspace 下的 Codex `job_tools` 需要启用 MCP 且配置 `tool_error_on_failure: true` 的常驻 HTTP 服务，
+且所选 Job 必须由该服务暴露；其 STDIO bridge 转发到该服务，不会创建另一个 Application，并会将失败的
+Job 保留为 tool error。多 workspace 与 one-shot CLI 的组合暂不支持；`mcp_config` 仅在单 workspace 的
+Codex job tools 中保留原有语义。
+
+Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # 监控默认 workspace；workspace 缺省为第一个别名
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+两点作用域说明：Claude Code 集成从全局 `~/.claude/projects` 目录读取 transcript
+（这是 Claude Code 源端的固有限制，ReMe 自己的副本按 workspace 隔离）；token 用量统计保持 Application 级，
+不随 workspace 拆分。
+
 ## Job 启停
 
 `jobs.<name>.enabled` 默认为 `true`，适用于所有 Job 类型。禁用的 Job 保留配置，但不启动、不暴露接口，

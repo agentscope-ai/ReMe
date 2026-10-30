@@ -25,6 +25,7 @@ from .response import Response
 from .stream_chunk import StreamChunk
 from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
+from .workspace import WorkspaceContext
 
 __all__ = [
     "CallDecision",
@@ -57,4 +58,5 @@ __all__ = [
     "TraverseGraph",
     "TraverseGraphEdge",
     "TraverseGraphNode",
+    "WorkspaceContext",
 ]

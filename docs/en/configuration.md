@@ -78,6 +78,54 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
+`workspace_dir` also accepts an ordered mapping of alias to path for hosts that serve several workspaces from one
+configuration, for example in a YAML config file:
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+The first entry is the default workspace; every alias gets the same subdirectory layout (`metadata_dir`,
+`session_dir`, and the others above) materialized under its own root at startup. Aliases must be non-empty, and
+resolved directories must be distinct and must not contain one another. A single string keeps the existing
+behavior and is normalized internally to a `default` alias. Multi-workspace configurations also require a non-empty
+`mem_session_dir` so agent thread ownership remains enforceable after restart.
+
+Job calls accept an optional `workspace` field naming the alias to bind, for example
+`reme read_note path=daily/note.md workspace=scratch`; omitting it binds the default workspace, and an unknown
+alias fails fast. The binding is scoped to that call: workspace-aware state (file stores, indexes, graphs,
+catalogs) resolves to per-alias instances, while shared components (models, tokenizers) stay single-instance.
+External stateful backends that cannot isolate workspaces (currently the `neo4j` file graph) are rejected at
+startup in multi-workspace configurations.
+
+The binding propagates through nested job calls and agent tool calls (`job_tools`) as a server-owned constraint
+that models cannot override. For Codex with multiple workspaces, `job_tools` requires the resident HTTP service
+with MCP enabled and `tool_error_on_failure: true`; the selected jobs must be exposed by that service. Its STDIO
+bridge forwards to this service without creating another Application and preserves failed Jobs as tool errors.
+The multi-workspace one-shot CLI combination is not supported; `mcp_config` retains its legacy meaning only for
+single-workspace Codex job tools.
+
+Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
+explicit per-alias variants:
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # watches the default workspace; workspace defaults to the first alias
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+Two scoping notes: the Claude Code integration reads transcripts from the global `~/.claude/projects` directory
+(a Claude Code-side limitation — only ReMe's own copies are workspace-scoped), and token usage accounting remains
+application-level across workspaces.
+
 ## Enabling jobs
 
 `jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not

@@ -37,6 +37,8 @@ from ...utils.async_utils import complete_in_thread
 class BM25Index(BaseKeywordIndex):
     """BM25 inverted index with lazy deletion and on-disk persistence."""
 
+    workspace_scoped = True
+
     def __init__(self, k1: float = 1.5, b: float = 0.75, index_version: str = "v1", **kwargs):
         super().__init__(**kwargs)
         self.k1 = k1

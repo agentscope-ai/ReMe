@@ -237,7 +237,11 @@ class SearchStep(_ToolContextMixin, BaseStep):
             maximum = int(max_search_calls)
             if maximum < 1:
                 raise ValueError("max_search_calls must be positive")
-            budgets = self.app_context.metadata.setdefault("__search_call_budgets", {})
+            bound = getattr(self.context, "workspace", None) if self.context is not None else None
+            if bound is not None:
+                budgets = bound.search_call_budgets
+            else:
+                budgets = self.app_context.metadata.setdefault("__search_call_budgets", {})
             budget = budgets.setdefault(tool_context_id, {"count": 0, "lock": asyncio.Lock()})
             async with budget["lock"]:
                 if budget["count"] >= maximum:

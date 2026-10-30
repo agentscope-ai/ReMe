@@ -16,9 +16,12 @@ import tempfile
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
+from ..base_component import _context_workspaces
 from ..component_registry import R
+from ...constants import normalize_connect_host
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, TokenUsage
+from ...schema.workspace import WorkspaceAgentState
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
@@ -115,8 +118,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         self._codex: AsyncCodex | None = None
         self._release_threads = release_threads
         self._turn_lock = asyncio.Lock()
-        self._mcp_snapshot_path: Path | None = None
         self._thread_tool_contexts: dict[str, str] = {}
+        self._mcp_snapshot_path: Path | None = None
 
     @property
     def session_path(self) -> Path:
@@ -124,13 +127,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if self._codex_home:
             path = Path(self._codex_home).expanduser()
             return path if path.is_absolute() else self.workspace_path / path
-        if self.app_context is None:
-            return self.workspace_path / "mem_session" / "codex"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
-
-    @property
-    def wrapper_session_path(self) -> Path:
-        """ReMe-owned session data, kept separate from a shared OAuth CODEX_HOME."""
         if self.app_context is None:
             return self.workspace_path / "mem_session" / "codex"
         return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
@@ -153,6 +149,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 raise FileExistsError(f"Codex skill conflict: {target} already exists and was preserved")
             relative_source = os.path.relpath(source, target.parent)
             target.symlink_to(relative_source, target_is_directory=True)
+
+    @property
+    def wrapper_session_path(self) -> Path:
+        """ReMe-owned session data, kept separate from a shared OAuth CODEX_HOME."""
+        if self.app_context is None:
+            return self.workspace_path / "mem_session" / "codex"
+        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
 
     def _explicit_mcp_config(self, kwargs: dict[str, Any]) -> str | None:
         value = kwargs.get("mcp_config") if "mcp_config" in kwargs else self.mcp_config
@@ -240,6 +243,31 @@ class CodexAgentWrapper(BaseAgentWrapper):
             names = ", ".join(invalid)
             raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
 
+    def _resident_mcp_endpoint(self) -> str:
+        from ..service import HttpService, MCPService
+
+        service = self.app_context.service if self.app_context is not None else None
+        if isinstance(service, HttpService) and service.mcp_enabled:
+            return f"http://{normalize_connect_host(service.host)}:{service.port}{service.mcp_path}"
+        if isinstance(service, MCPService) and service.transport == "streamable-http":
+            return f"http://{normalize_connect_host(service.host)}:{service.port}/mcp"
+        raise RuntimeError(
+            "Multi-workspace Codex job_tools require a resident HTTP MCP service; "
+            "one-shot CLI and other service backends are not supported for this combination",
+        )
+
+    @staticmethod
+    def _validate_resident_jobs(service, jobs) -> None:
+        if not service.tool_error_on_failure:
+            raise ValueError("Multi-workspace Codex job_tools require resident MCP tool_error_on_failure=true")
+        unavailable = [
+            job.name
+            for job in jobs
+            if not job.enabled or not job.enable_serve or (service.jobs is not None and job.name not in service.jobs)
+        ]
+        if unavailable:
+            raise ValueError(f"Codex job_tools must be exposed by the resident MCP service: {', '.join(unavailable)}")
+
     def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
         from ..job import BackgroundJob, StreamJob
 
@@ -251,19 +279,33 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if unsupported:
             raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
 
-        config_source = self._mcp_config_source(kwargs)
-        args = [
-            "-m",
-            "reme.components.agent_wrapper.codex_mcp_server",
-            "--config",
-            config_source,
-            "--workspace",
-            str(self.workspace_path),
-        ]
+        workspaces = _context_workspaces(self.app_context)
+        multi_workspace = workspaces is not None and len(workspaces) > 1
+        if multi_workspace:
+            if self._explicit_mcp_config(kwargs) is not None:
+                raise ValueError("mcp_config is only supported for single-workspace Codex job_tools")
+            endpoint = self._resident_mcp_endpoint()
+            self._validate_resident_jobs(self.app_context.service, jobs)
+            args = ["-m", "reme.components.agent_wrapper.codex_mcp_server", "--endpoint", endpoint]
+        else:
+            args = [
+                "-m",
+                "reme.components.agent_wrapper.codex_mcp_server",
+                "--config",
+                self._mcp_config_source(kwargs),
+                "--workspace",
+                str(self.workspace_path),
+            ]
+            if workspaces:
+                alias = str(kwargs.get("workspace") or next(iter(workspaces)))
+                args.extend(["--workspace-alias", alias])
         for name in job_names:
             args.extend(["--job", name])
         args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
-        if injected_job_kwargs := dict(kwargs.get("injected_job_kwargs") or {}):
+        injected_job_kwargs = dict(kwargs.get("injected_job_kwargs") or {})
+        if workspaces and (workspace := kwargs.get("workspace")):
+            injected_job_kwargs["workspace"] = workspace
+        if injected_job_kwargs:
             args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])
         return {
             "command": sys.executable,
@@ -300,6 +342,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
+        alias = str(kwargs.get("workspace") or "")
+        tool_contexts = self._tool_contexts(alias)
         resume = kwargs.get("resume") or ""
         session_id = kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
@@ -308,8 +352,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork_session = bool(kwargs.get("fork_session", False))
         if fork_session and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
-        if self._release_threads and self._thread_tool_contexts:
-            await self._prune_thread_tool_contexts(codex)
+        if thread_id:
+            await self._check_thread_ownership(thread_id, alias)
+        if self._release_threads and tool_contexts:
+            await self._prune_thread_tool_contexts(codex, alias)
         requested_tool_context = json.dumps(
             {
                 "tool_context_id": str(kwargs.get("tool_context_id") or ""),
@@ -318,15 +364,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
             sort_keys=True,
             default=str,
         )
-        if not fork_session and thread_id in self._thread_tool_contexts:
-            if requested_tool_context != self._thread_tool_contexts[thread_id]:
+        if not fork_session and thread_id in tool_contexts:
+            if requested_tool_context != tool_contexts[thread_id]:
                 raise ValueError("tool_context_id and injected_job_kwargs cannot change when resuming a Codex thread")
 
         common = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),
             "base_instructions": kwargs.get("base_instructions"),
             "config": self._thread_config(kwargs),
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
@@ -353,8 +399,115 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 thread_source=thread_source,
                 **common,
             )
-        self._thread_tool_contexts[thread.id] = requested_tool_context
+        await self._record_thread_ownership(alias, thread.id)
+        tool_contexts[thread.id] = requested_tool_context
         return thread
+
+    # ----- Thread ownership (per-workspace, persisted) ---------------------
+
+    def _agent_state(self, alias: str) -> WorkspaceAgentState | None:
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        return workspaces[self._normalize_thread_alias(alias)].agent_state(self.name)
+
+    def _tool_contexts(self, alias: str) -> dict[str, str]:
+        state = self._agent_state(alias)
+        return state.thread_tool_contexts if state is not None else self._thread_tool_contexts
+
+    def _normalize_thread_alias(self, alias: str) -> str:
+        """Map an omitted alias to the default while preserving explicit aliases."""
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces and not alias:
+            return next(iter(workspaces))
+        return alias
+
+    def _thread_ownership_path(self, alias: str) -> Path | None:
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        workspace = workspaces.get(alias)
+        if workspace is None or workspace.mem_session_path is None:
+            return None
+        return workspace.mem_session_path / "codex" / "owned_threads.json"
+
+    def _codex_thread_state(self, alias: str):
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        return workspaces[self._normalize_thread_alias(alias)].codex_thread_state
+
+    async def _owned_thread_ids(self, alias: str) -> set[str]:
+        """Load ownership through the single authoritative state of each workspace."""
+        state = self._codex_thread_state(alias)
+        if state is None:
+            return set()
+        async with state.lock:
+            if state.owned_thread_ids is not None:
+                return state.owned_thread_ids
+            ids: set[str] = set()
+            path = self._thread_ownership_path(alias)
+            if path is not None and path.is_file():
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    ids = {str(thread_id) for thread_id in raw.get("thread_ids", [])}
+                except (OSError, ValueError, AttributeError) as exc:
+                    self.logger.warning(f"Ignoring unreadable Codex thread ownership file {path}: {exc}")
+            state.owned_thread_ids = ids
+            return ids
+
+    async def _record_thread_ownership(self, alias: str, thread_id: str) -> None:
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return
+        alias = self._normalize_thread_alias(alias)
+        async with self.app_context.codex_thread_ownership_lock:
+            for owner_alias in workspaces:
+                if thread_id not in await self._owned_thread_ids(owner_alias):
+                    continue
+                if owner_alias == alias:
+                    return
+                raise ValueError(
+                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
+                    f"it cannot be used from workspace {alias!r}",
+                )
+
+            state = self._codex_thread_state(alias)
+            ids = await self._owned_thread_ids(alias)
+            path = self._thread_ownership_path(alias)
+            if path is None:
+                ids.add(thread_id)
+                return
+            async with state.lock:
+                if thread_id in ids:
+                    return
+                updated = {*ids, thread_id}
+                path.parent.mkdir(parents=True, exist_ok=True)
+                fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                        json.dump({"thread_ids": sorted(updated)}, stream, indent=1)
+                    os.replace(raw_path, path)
+                finally:
+                    Path(raw_path).unlink(missing_ok=True)
+                ids.add(thread_id)
+
+    async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
+        """Reject resume/fork/compact of a thread owned by another workspace.
+
+        Threads recorded nowhere predate ownership tracking or came from other
+        tools; they pass through and let the SDK decide.
+        """
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return
+        alias = self._normalize_thread_alias(alias)
+        for owner_alias in workspaces:
+            if owner_alias != alias and thread_id in await self._owned_thread_ids(owner_alias):
+                raise ValueError(
+                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
+                    f"it cannot be used from workspace {alias!r}",
+                )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
@@ -362,7 +515,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         return {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
             "model": kwargs.get("model"),
             "output_schema": kwargs.get("output_schema"),
@@ -396,10 +549,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return codex
 
     async def _close(self) -> None:
-        """Close the persistent app-server and remove its private config snapshot."""
+        """Close the persistent app-server and clear session execution guards."""
         async with self._turn_lock:
             codex, self._codex = self._codex, None
             self._thread_tool_contexts.clear()
+            for workspace in (_context_workspaces(self.app_context) or {}).values():
+                if state := workspace.agent_states.get(self.name):
+                    state.thread_tool_contexts.clear()
             try:
                 if codex is not None:
                     await codex.close()
@@ -408,8 +564,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     self._mcp_snapshot_path.unlink(missing_ok=True)
                     self._mcp_snapshot_path = None
 
-    async def _prune_thread_tool_contexts(self, codex: AsyncCodex) -> None:
+    async def _prune_thread_tool_contexts(self, codex: AsyncCodex, alias: str = "") -> None:
         """Forget tool constraints only after the server confirms a thread is unloaded."""
+        tool_contexts = self._tool_contexts(alias)
         try:
             from openai_codex.generated.v2_all import ThreadLoadedListResponse
 
@@ -428,9 +585,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
         except Exception as exc:  # pylint: disable=broad-exception-caught
             self.logger.warning(f"Failed to list loaded Codex threads: {exc}")
             return
-        self._thread_tool_contexts = {
-            thread_id: context for thread_id, context in self._thread_tool_contexts.items() if thread_id in loaded_ids
-        }
+        retained = {thread_id: context for thread_id, context in tool_contexts.items() if thread_id in loaded_ids}
+        tool_contexts.clear()
+        tool_contexts.update(retained)
 
     async def _release_thread(self, codex: AsyncCodex, thread_id: str) -> None:
         """Unsubscribe so the app-server can unload the thread once it is idle."""
@@ -490,14 +647,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 raise ValueError("Codex returned invalid JSON for the requested output_schema") from exc
         return response
 
-    async def compact_session(self, session_id: str) -> None:
-        """Start native compaction of a Codex thread."""
+    async def compact_session(self, session_id: str, workspace: str | None = None) -> None:
+        """Start native compaction of a Codex thread owned by the bound workspace."""
         await self.start()
         async with self._turn_lock:
+            await self._check_thread_ownership(session_id, str(workspace or ""))
             codex = await self._get_codex()
             thread = await codex.thread_resume(session_id)
             try:
                 await thread.compact()
+                await self._record_thread_ownership(str(workspace or ""), thread.id)
             finally:
                 if self._release_threads:
                     await self._release_thread(codex, thread.id)

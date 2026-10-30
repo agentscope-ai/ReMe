@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from ..base_component import BaseComponent
+from ..base_component import BaseComponent, _context_workspaces
 from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...enumeration import ComponentEnum
@@ -90,12 +90,32 @@ class BaseJob(BaseComponent):
         if not self.enabled:
             raise ValueError(f"Job '{self.name}' is disabled")
 
+    def _bind_workspace(self, merged: dict):
+        """Consume the optional ``workspace`` alias and resolve the bound workspace.
+
+        The alias never reaches step payloads. An unknown alias fails fast,
+        matching disabled-job and missing-job behavior at this boundary.
+        """
+        alias = merged.pop("workspace", None)
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces is None:
+            if alias is not None:
+                raise ValueError(f"workspace={alias!r} requires an application with configured workspaces")
+            return None
+        if alias is None:
+            return next(iter(workspaces.values()))
+        workspace = workspaces.get(alias)
+        if workspace is None:
+            raise ValueError(f"Unknown workspace {alias!r}; configured: {sorted(workspaces)}")
+        return workspace
+
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
         self.check_enabled()
         self._record_call()
         merged = {**self.kwargs, **kwargs}
-        context = RuntimeContext(**merged)
+        workspace = self._bind_workspace(merged)
+        context = RuntimeContext(workspace=workspace, **merged)
         try:
             for step in self._build_steps():
                 await step(context)
