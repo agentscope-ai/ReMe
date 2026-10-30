@@ -29,6 +29,7 @@ from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from ..sampling import SamplingPolicy, create_sampling_plan
 from .history import HomeEvaluationHistory
+from .repetition import previous_candidate_result
 
 
 async def blocking(function, *args, **kwargs):
@@ -88,12 +89,44 @@ class HomeEvaluation(BaseComponent):
 
     def _prepare(self, spec, environment):
         home = self.workspace.home_path
-        sampling_state = self.history.sampling_state() if spec.sampling and not spec.debug else None
+        recovery_plan = None
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
             record, dataset, cases = load_inputs(home, spec)
-            plan = None
-            if spec.sampling and not spec.debug:
+            snapshot, commit, branch = snapshot_code(home, record)
+            previous = None if spec.debug else previous_candidate_result(home, commit)
+            if previous is not None:
+                manifest = read_json(contained(home, previous / "manifest.json"))
+                recovery_spec = EvaluationSpec.model_validate(
+                    {
+                        **spec.model_dump(),
+                        "sampling": False,
+                        "case_ids": manifest["case_ids"],
+                        "query_ids": manifest["query_ids"],
+                    },
+                )
+                if (
+                    recovery_spec.case_ids is None
+                    or recovery_spec.query_ids is None
+                    or set(recovery_spec.query_ids) != set(recovery_spec.case_ids)
+                ):
+                    raise ValueError("Recovery requires saved case IDs and query IDs for every case")
+                # Validate saved IDs against the prepared dataset, including queries
+                # outside the caller's new selection. Never silently drop a case.
+                record, dataset, cases = load_inputs(home, recovery_spec)
+                recovery_plan = {
+                    "mode": "explicit",
+                    "case_ids": manifest["case_ids"],
+                    "query_ids": manifest["query_ids"],
+                    "policy": spec.sampling_policy.model_dump(),
+                    "recovery_from": previous.relative_to(home).as_posix(),
+                }
+        sampling_state = (
+            self.history.sampling_state() if spec.sampling and not spec.debug and previous is None else None
+        )
+        with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            plan = recovery_plan
+            if spec.sampling and not spec.debug and previous is None:
                 eligibility = replay_sampling_eligibility(home, spec, cases)
                 plan = create_sampling_plan(
                     cases,
@@ -113,7 +146,6 @@ class HomeEvaluation(BaseComponent):
                             },
                         ),
                     )
-            snapshot, commit, branch = snapshot_code(home, record)
             fingerprints = {
                 "dataset": dataset.normalized_fingerprint,
                 "construction_config": fingerprint(

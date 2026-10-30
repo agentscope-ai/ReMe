@@ -10,6 +10,7 @@ from reme_home.evaluation.history import HomeEvaluationHistory, EvaluationRecord
 from reme_home.sampling import SamplingPolicy, create_sampling_plan
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    commit_candidate,
     home_application,
     preparation_inputs,
     prepared_home,
@@ -89,6 +90,7 @@ async def test_failed_run_does_not_change_next_probabilities_or_successful_histo
         return workers
 
     monkeypatch.setattr(FakeFactory, "create_cases", create)
+    commit_candidate(prepared)
     failed = await app.run_job("home_evaluate", concurrency=1)
     assert not failed.success
     assert failed.answer["scored_query_count"] == 1  # Its healthy case is also excluded from feedback.
@@ -104,6 +106,7 @@ async def test_failed_run_does_not_change_next_probabilities_or_successful_histo
 @pytest.mark.asyncio
 async def test_history_and_observations_rebuild_without_touching_artifacts(app, prepared):
     baseline = await app.run_job("home_evaluate")
+    commit_candidate(prepared)
     sampled = await app.run_job("home_evaluate", sampling=True, sampling_policy={"max_cases": 1})
     assert baseline.success and sampled.success
     manager = history(app)
@@ -137,6 +140,7 @@ async def test_call_policy_merges_component_defaults_without_mutating_them(app, 
         "uniform_exploration": 0.2,
     }
     assert response.answer["case_count"] == 1
+    commit_candidate(prepared)
     following = await app.run_job("home_evaluate", sampling=True)
     assert following.success and following.answer["case_count"] == 2
     assert evaluator.sampling_policy.max_cases == 2
@@ -160,6 +164,7 @@ async def test_job_defaults_and_hidden_agent_injection_use_one_job(app, prepared
     job.kwargs.update(sampling=True, sampling_policy={"max_cases": 1})
     default = await app.run_job("home_evaluate")
     assert default.success and default.answer["case_count"] == 1
+    commit_candidate(prepared)
     explicit = await app.run_job("home_evaluate", sampling=False)
     assert explicit.success and explicit.answer["case_count"] == 2
     tool = AsAgentWrapper._make_tool(
@@ -170,6 +175,7 @@ async def test_job_defaults_and_hidden_agent_injection_use_one_job(app, prepared
         },
     )
     assert "sampling" not in tool.input_schema["properties"]
+    commit_candidate(prepared)
     await tool.call()
     records = history(app).list_results()
     assert records[-1].case_count == records[-1].scored_query_count == 1
@@ -190,6 +196,8 @@ async def test_standalone_full_evaluation_preserves_history_and_rebuild_excludes
     records, observations = manager.list_results(), manager.sampling_state()
     cache_paths = [prepared / name for name in ("sampling/state.json",)]
     caches = [path.read_bytes() if path.exists() else None for path in cache_paths]
+    if baseline:
+        commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=False, record_history=False)
     assert response.success, response.answer
     assert response.answer["case_count"] == response.answer["scored_query_count"] == 2
@@ -205,6 +213,7 @@ async def test_standalone_full_evaluation_preserves_history_and_rebuild_excludes
     assert [path.read_bytes() if path.exists() else None for path in cache_paths] == caches
     assert manager.list_results() == records and manager.sampling_state() == observations
     assert manager.rebuild() == records and manager.sampling_state() == observations
+    commit_candidate(prepared)
     following = await app.run_job("home_evaluate")
     assert following.success and following.answer["record_history"] is True
     state = read_state(prepared)
@@ -236,6 +245,7 @@ async def test_sampling_and_history_are_independent_and_selection_evidence_is_lo
     assert (await app.run_job("home_evaluate")).success
     manager = history(app)
     records, observations = manager.list_results(), manager.sampling_state()
+    commit_candidate(prepared)
     response = await app.run_job(
         "home_evaluate",
         sampling=True,
@@ -269,6 +279,7 @@ async def test_untracked_failures_preserve_existing_history(app, prepared, monke
             raise ConnectionError("pool failed after first initialized sandbox")
 
         monkeypatch.setattr(FakeFactory, "create_cases", fail)
+    commit_candidate(prepared)
     response = await app.run_job("home_evaluate", record_history=False)
     assert not response.success
     assert [path.read_bytes() for path in paths] == caches
@@ -283,10 +294,12 @@ async def test_history_job_defaults_and_agent_injection_are_enforced(app, prepar
     job.kwargs["record_history"] = False
     standalone = await app.run_job("home_evaluate")
     assert standalone.success and not history(app).list_results()
+    commit_candidate(prepared)
     baseline = await app.run_job("home_evaluate", sampling=False, record_history=True)
     assert baseline.success and baseline.answer["case_count"] == 2
     tool = AsAgentWrapper._make_tool(job, injected_job_kwargs={"record_history": True})
     assert "record_history" not in tool.input_schema["properties"]
+    commit_candidate(prepared)
     await tool.call()
     assert len(history(app).list_results()) == 2
     with pytest.raises(ValueError, match="injected"):

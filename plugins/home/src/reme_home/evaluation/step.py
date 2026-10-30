@@ -4,6 +4,7 @@ from reme.steps.base_step import BaseStep, Ref
 
 from .component import HomeEvaluation
 from .inputs import EvaluationSpec
+from .repetition import UnchangedCandidateError
 
 
 class HomeEvaluateStep(BaseStep):
@@ -25,7 +26,18 @@ class HomeEvaluateStep(BaseStep):
             raise ValueError("Use concurrency to control both case and judge concurrency")
         if "dataset_kind" in self.context:
             raise ValueError("Use debug=true for debug cases; omit debug or use false for training cases")
-        result = await self.evaluation.evaluate(**arguments)
+        try:
+            result = await self.evaluation.evaluate(**arguments)
+        except UnchangedCandidateError as error:
+            self.context.response.answer = {
+                "status": "rejected",
+                "error_code": "UNCHANGED_CANDIDATE",
+                "error": str(error),
+                "result_dir": str(error.path),
+            }
+            self.context.response.success = False
+            self.context.response.metadata["result_dir"] = str(error.path)
+            return self.context.response
         self.context.response.answer = result
         # Candidate failures are evaluation observations; infrastructure failures
         # must remain visible to ordinary Job callers checking Response.success.

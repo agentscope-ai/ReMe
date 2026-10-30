@@ -197,7 +197,7 @@ application_defaults:
         - backend: home_inspect_validation_step
     home_evaluate:
       backend: base
-      description: "Evaluate committed code; optionally sample cases/queries or restore prior construction tar files"
+      description: "Evaluate changed committed code; unchanged scored candidates are rejected, except same-commit infrastructure retries. Optionally sample cases/queries or restore prior construction tar files"
       parameters:
         type: object
         additionalProperties: false

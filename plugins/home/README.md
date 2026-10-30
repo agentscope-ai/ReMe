@@ -455,6 +455,30 @@ explicit selections in scored mode. `debug=true` ignores the sampling flag,
 uses debug cases and never reads, writes or registers evaluation history.
 The former `home_validate` Job is removed; use `home_evaluate sampling=true`.
 
+Scored evaluations reject a Git tree already evaluated anywhere in this workspace,
+including another branch or an empty commit. This applies to full, sampled and
+construction-replay runs, even with `record_history=false`. Changing selections or
+evaluation options does not bypass the check. The error points to the previous
+result; inspect it and commit a code change before evaluating again. The Job returns
+`success=false` with an answer containing `status="rejected"`,
+`error_code="UNCHANGED_CANDIDATE"`, `error` and the previous `result_dir`.
+`metadata.result_dir` also points to that result. Debug runs neither trigger nor
+participate in this check.
+
+An infrastructure failure or interrupted attempt can retry the exact same commit
+with a new run ID; the previous artifacts remain intact. Recovery uses exactly the
+failed attempt's case/query IDs and order, even if the caller changes sampling,
+budgets or explicit selections. It reruns the selected batch rather than only
+failed queries, and records an explicit selection plan with `recovery_from`
+pointing to the prior run. Other execution options are not frozen; construction
+reuse still follows `reuse_construction_from`. Candidate-code failures
+and valid low scores require a code change. A completed summary with infrastructure
+errors allows retry even when other cases succeeded; an incomplete attempt with
+candidate-failure evidence and no infrastructure failure does not. An empty commit
+cannot convert a recoverable attempt into a new candidate. The guard reads saved
+artifacts under the formal evaluation lock and does not depend on sampling caches
+or successful-history registration.
+
 Selection and optimization-history recording are independent. `record_history`
 defaults to `true` for compatibility: a first full optimization baseline contributes
 observations even with `sampling=false`. Set `record_history=false` to score code
@@ -497,7 +521,8 @@ Normal ReMe Job defaults also work: set `sampling: true` and optionally
 precedence over same-named Job defaults; a call-time policy object replaces the
 Job-default policy object, then merges with Component defaults.
 
-With the configured service running, use a second terminal:
+With the configured service running, use a second terminal. These are alternative
+invocations; commit a code change between scored evaluations:
 
 ```bash
 reme home_evaluate sampling=false          # Full baseline.
@@ -516,7 +541,8 @@ result = await app.run_job(
     sampling_policy={"max_cases": 3, "max_queries": 12},
 )
 
-# Score specified prepared cases without affecting the optimizer's history.
+# After committing a code change, score specified prepared cases without
+# affecting the optimizer's history.
 standalone = await app.run_job(
     "home_evaluate",
     sampling=False,

@@ -14,6 +14,7 @@ from reme_home.preparation.data.models import CaseSpec, QuerySpec
 from reme_home.workspace import _initialization_lock
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    commit_candidate,
     home_application,
     preparation_inputs,
     prepared_home,
@@ -127,6 +128,7 @@ async def test_baseline_then_adaptive_job_updates_only_selected_cases(app, prepa
     evaluation.sampling_policy = sampling.SamplingPolicy(max_cases=1, max_queries=1, ewma_alpha=0.5)
     app.context.components["agent_wrapper"]["judge"].reply.return_value = {"result": '{"score": 1}'}
     before = copy.deepcopy(state(prepared))
+    commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=True)
     assert response.success, response.answer
     run = Path(response.answer["result_dir"])
@@ -170,6 +172,7 @@ async def test_debug_never_reads_or_changes_sampling_state(app, prepared):
 @pytest.mark.parametrize("failure", ["dirty", "factory_constructor", "startup", "selection", "replay"])
 async def test_prestart_failure_never_counts(app, prepared, monkeypatch, failure):
     await app.run_job("home_evaluate")
+    commit_candidate(prepared)
     previous = (prepared / "sampling/state.json").read_bytes()
     plans = sorted((prepared / "sampling/plans").rglob("*.json"))
     options = {}
@@ -263,6 +266,7 @@ async def test_started_cancellation_retains_round_but_no_partial_quality(app, pr
 async def test_replay_sampling_is_limited_to_donor_cases(app, prepared):
     baseline = await app.run_job("home_evaluate", case_ids=["1"])
     assert baseline.success, baseline.answer
+    commit_candidate(prepared)
     app.context.components["home.evaluation"]["default"].sampling_policy = sampling.SamplingPolicy(max_cases=1)
     response = await app.run_job("home_evaluate", sampling=True, reuse_construction_from=baseline.answer["result_dir"])
     assert response.success, response.answer
@@ -271,6 +275,7 @@ async def test_replay_sampling_is_limited_to_donor_cases(app, prepared):
     plan = json.loads((prepared / manifest["sampling"]["plan_path"]).read_text())
     assert plan["eligibility"] == {"1": ["fact:1"]}
     # The next full rebuild must see the entire training set again.
+    commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=True)
     manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
     plan = json.loads((prepared / manifest["sampling"]["plan_path"]).read_text())
@@ -287,6 +292,7 @@ async def test_sampling_cache_rebuild_and_new_round_after_reopen(app, prepared):
     assert not (prepared / "sampling/state.json").exists()  # Rebuilding reads never claim a new round.
     with _initialization_lock(prepared / "metadata/workspace.lock"):
         assert history_module.rebuild_sampling_state(prepared) == expected
+    commit_candidate(prepared)
     result = await app.run_job("home_evaluate", sampling=True)
     assert result.success, result.answer
     assert state(prepared)["round"] == 2

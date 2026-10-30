@@ -34,6 +34,19 @@ def archive(path, files):
     return path
 
 
+def commit_candidate(home):
+    """Advance a real editable tree between distinct formal test evaluations."""
+    repo = home / "code/repo"
+    if command(repo, "branch", "--show-current") == "init":
+        command(repo, "switch", "-c", "test-candidate")
+    record = json.loads((home / "metadata/preparation.json").read_text())
+    root = repo / record["code"]["candidate_paths"][0]
+    path = root if root.is_file() else next(root.rglob("*.py"))
+    path.write_text(path.read_text() + "\n# Next test candidate.\n")
+    command(repo, "add", ".")
+    command(repo, "-c", "user.name=Fixture", "-c", "user.email=test@localhost", "commit", "-m", "next candidate")
+
+
 class FakeWorker:
     def __init__(self, factory):
         self.factory = factory
@@ -203,7 +216,8 @@ async def test_all_cases_and_artifacts_via_real_job(app, prepared):
         assert events.index("snapshot") < events.index("answer")
     assert all(worker.closed for worker in factory.workers)
     second = await app.run_job("home_evaluate", case_ids=["1"])
-    assert second.success and Path(second.answer["result_dir"]).name == "2"
+    assert not second.success and "already been evaluated" in str(second.answer)
+    assert len(FakeFactory.instances) == 1
 
 
 @pytest.mark.asyncio
