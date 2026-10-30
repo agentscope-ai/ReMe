@@ -11,10 +11,9 @@ from reme.steps.file_io import refresh_day_index
 from .base import (
     PAPER_COUNT,
     DailyPaperStep,
+    markdown_output,
     normalize_chinese_title,
     reserve_unique_note_path,
-    strip_frontmatter,
-    structured_output,
     utc_now_iso,
     write_markdown,
 )
@@ -136,10 +135,8 @@ class DailyPaperDigestStep(DailyPaperStep):
             },
         )
         self.logger.info(f"[{self.name}] agent done notes={len(analyses)}")
-        output = structured_output(result, DailyPaperMarkdownOutput)
-        body = strip_frontmatter(output.body)
-        if not output.desc.strip() or not body:
-            raise ValueError("Agent returned an empty daily paper brief")
+        output = markdown_output(result)
+        body = output.body
 
         day = run_day.isoformat()
         title = normalize_chinese_title(output.title, f"每日论文简报-{day}")
