@@ -9,6 +9,7 @@ import pytest
 from reme.application import Application
 from reme.components import ApplicationContext
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
+from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.component_registry import R
 from reme.components.job import BaseJob
@@ -61,6 +62,17 @@ async def test_default_binding_reaches_real_agent_tool_call(tmp_path):
     # Model-supplied workspace arguments are rejected at the same boundary.
     with pytest.raises(ValueError, match="cannot be provided by the model"):
         await tool._func(workspace="beta")
+
+
+@pytest.mark.parametrize("wrapper_cls", [AsAgentWrapper, CcAgentWrapper, CodexAgentWrapper])
+def test_agent_entry_resolves_default_workspace_for_job_tools(tmp_path, wrapper_cls):
+    context = _context(tmp_path)
+    wrapper = wrapper_cls(app_context=context)
+
+    merged = wrapper._merged_kwargs({})
+    assert merged["workspace"] == "alpha"
+    assert wrapper._resolve_injected_job_kwargs(merged)["workspace"] == "alpha"
+    assert wrapper._merged_kwargs({"workspace": "beta"})["workspace"] == "beta"
 
 
 def test_call_cwd_resolves_relative_against_bound_workspace(tmp_path):

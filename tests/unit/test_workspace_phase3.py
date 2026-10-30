@@ -5,6 +5,7 @@
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -670,6 +671,80 @@ async def test_codex_bridge_reads_resident_parent_state(tmp_path):
             async with Client(invalid_transport, timeout=None, init_timeout=30) as client:
                 with pytest.raises(Exception, match="Unknown workspace 'nope'"):
                     await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
+        finally:
+            await _stop_resident_http(server, task)
+    await wrapper.close()
+
+
+@pytest.mark.asyncio
+async def test_codex_reply_defaults_workspace_for_real_job_tools(tmp_path, monkeypatch):
+    from fastmcp import Client
+    from fastmcp.client import StdioTransport
+
+    @dataclass
+    class TurnResult:
+        """Serializable fake turn result."""
+
+        final_response: str
+        usage: object = None
+
+    class FakeThread:
+        """Execute the configured job tool through the real STDIO bridge."""
+
+        def __init__(self, thread_id, config):
+            self.id = thread_id
+            self.config = config
+
+        async def run(self, _inputs, **_kwargs):
+            server = next(iter(self.config["mcp_servers"].values()))
+            transport = StdioTransport(
+                command=server["command"],
+                args=server["args"],
+                cwd=server["cwd"],
+                keep_alive=False,
+                env=dict(os.environ),
+            )
+            arguments = {"path": f"daily/reply-{self.id}.md", "content": self.id}
+            if self.id == "thread-override":
+                arguments["workspace"] = "beta"
+            async with Client(transport, timeout=None, init_timeout=30) as client:
+                await client.call_tool("write_note", arguments)
+            return TurnResult(final_response="done")
+
+    class FakeCodex:
+        """Create threads with deterministic IDs."""
+
+        def __init__(self):
+            self.next_id = 0
+
+        async def thread_start(self, **kwargs):
+            self.next_id += 1
+            thread_id = "thread-override" if self.next_id == 3 else f"thread-{self.next_id}"
+            return FakeThread(thread_id, kwargs["config"])
+
+    app = _codex_test_app(tmp_path)
+    app.context.jobs["write_note"].kwargs["workspace"] = "beta"
+    wrapper = CodexAgentWrapper(app_context=app.context, release_threads=False)
+    codex = FakeCodex()
+
+    async def get_codex():
+        return codex
+
+    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
+    async with app:
+        server, task = await _start_resident_http(app)
+        try:
+            await wrapper.reply("default", job_tools=["write_note"])
+            assert (tmp_path / "alpha" / "daily" / "reply-thread-1.md").is_file()
+            assert not (tmp_path / "beta" / "daily" / "reply-thread-1.md").exists()
+
+            await wrapper.reply("explicit", job_tools=["write_note"], workspace="alpha")
+            assert (tmp_path / "alpha" / "daily" / "reply-thread-2.md").is_file()
+            assert not (tmp_path / "beta" / "daily" / "reply-thread-2.md").exists()
+
+            with pytest.raises(Exception):
+                await wrapper.reply("override", job_tools=["write_note"])
+            assert not (tmp_path / "beta" / "daily" / "reply-thread-override.md").exists()
         finally:
             await _stop_resident_http(server, task)
     await wrapper.close()

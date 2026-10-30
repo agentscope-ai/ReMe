@@ -242,6 +242,8 @@ class BaseAgentWrapper(BaseComponent):
     def _merged_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Merge component defaults with call-time kwargs; call-time values win."""
         merged = {**self.kwargs, **kwargs}
+        if (workspaces := _context_workspaces(self.app_context)) and not merged.get("workspace"):
+            merged["workspace"] = next(iter(workspaces))
         if "output_schema" in merged:
             merged["output_schema"] = self._normalize_output_schema(merged["output_schema"])
         return merged
