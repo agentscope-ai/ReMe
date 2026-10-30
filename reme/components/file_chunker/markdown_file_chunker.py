@@ -16,6 +16,7 @@ the single source of truth for ``[[...]]`` syntax.
 """
 
 import re
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,9 @@ from ...utils.wikilink_handler import WikilinkHandler
 _ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
 _SETEXT_HEADING_RE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+# MarkdownRenderer changes mistletoe's process-wide token registry.
+_RENDERER_LOCK = threading.Lock()
 
 
 @dataclass
@@ -123,12 +127,8 @@ class MarkdownFileChunker(DefaultFileChunker):
         self.include_frontmatter_in_metadata = include_frontmatter_in_metadata
         self.include_frontmatter_keys_in_metadata = list(include_frontmatter_keys_in_metadata or [])
 
-    async def chunk(self, path: str | Path) -> tuple[FileNode, list[FileChunk]]:
-        file_path = Path(path)
-        rel_path = self.to_workspace_relative(path)
-        # A write during the read must stay detectable by the next scan.
-        stat = file_path.stat()
-        text = await self._read_text_for_indexing(file_path)
+    def _chunk_sync(self, file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+        text = self._read_text_for_indexing(file_path)
         front_matter, content, line_offset = self._parse_front_matter(text)
 
         chunks: list[FileChunk] = []
@@ -144,7 +144,7 @@ class MarkdownFileChunker(DefaultFileChunker):
                 from mistletoe.markdown_renderer import MarkdownRenderer
                 from mistletoe.block_token import Document
 
-                with MarkdownRenderer() as renderer:
+                with _RENDERER_LOCK, MarkdownRenderer() as renderer:
                     tree = self._build_tree(Document(content), renderer, line_offset=line_offset)
                     chunks = self._chunk_node(tree, (), rel_path, renderer)
             if self.include_frontmatter_in_metadata:
@@ -159,7 +159,7 @@ class MarkdownFileChunker(DefaultFileChunker):
 
         node = FileNode(
             path=rel_path,
-            st_mtime=stat.st_mtime,
+            st_mtime=file_path.stat().st_mtime,
             chunk_ids=[chunk.id for chunk in chunks],
             links=links,
             front_matter=front_matter,

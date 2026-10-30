@@ -1,0 +1,412 @@
+{
+  "plain.txt": {
+    "node": {
+      "path": "plain.txt",
+      "links": [],
+      "chunk_ids": [
+        "27beade9f75899604a5c33dc2a2cad48c68782309d1961d34aa416fa4a9f44e8",
+        "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "5fec11d28b94df329491529d38cc187104d52ea3500622503103a89feae73a23"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": ""
+      }
+    },
+    "chunks": [
+      {
+        "id": "27beade9f75899604a5c33dc2a2cad48c68782309d1961d34aa416fa4a9f44e8",
+        "text": "first\nabc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc ab",
+        "embedding": null,
+        "metadata": {},
+        "path": "plain.txt",
+        "start_line": 1,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "text": "c abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc ab",
+        "embedding": null,
+        "metadata": {},
+        "path": "plain.txt",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "text": "c abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc ab",
+        "embedding": null,
+        "metadata": {},
+        "path": "plain.txt",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "339017807ea80235b88b9a55e5f38a0eef93d0e5515ef7b5ae5d5586551f38c7",
+        "text": "c abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc abc ab",
+        "embedding": null,
+        "metadata": {},
+        "path": "plain.txt",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "5fec11d28b94df329491529d38cc187104d52ea3500622503103a89feae73a23",
+        "text": "c abc ",
+        "embedding": null,
+        "metadata": {},
+        "path": "plain.txt",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      }
+    ]
+  },
+  "note.md": {
+    "node": {
+      "path": "note.md",
+      "links": [
+        {
+          "source_path": "note.md",
+          "target_path": "other.md",
+          "target_anchor": null
+        }
+      ],
+      "chunk_ids": [
+        "c135f79d777949fa45848ad6302adcf6368a348910b2bcc4d99369b1acee75c3",
+        "03ee7e6359843ec17c78ecc037d232e473d1b6b750ea544a0b1333a479a35f9c",
+        "f74ee6f8929ad297e613b0341f0307ff1c9ff9656ec0b28b53de9ae58373c2d7"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": "",
+        "title": "Example",
+        "tags": [
+          "one",
+          "two"
+        ]
+      }
+    },
+    "chunks": [
+      {
+        "id": "c135f79d777949fa45848ad6302adcf6368a348910b2bcc4d99369b1acee75c3",
+        "text": "# First\n\nbody [[other.md]]",
+        "embedding": null,
+        "metadata": {
+          "title": "Example",
+          "tags": [
+            "one",
+            "two"
+          ]
+        },
+        "path": "note.md",
+        "start_line": 5,
+        "end_line": 7,
+        "scores": {}
+      },
+      {
+        "id": "03ee7e6359843ec17c78ecc037d232e473d1b6b750ea544a0b1333a479a35f9c",
+        "text": "# First\n\n## Second",
+        "embedding": null,
+        "metadata": {
+          "title": "Example",
+          "tags": [
+            "one",
+            "two"
+          ]
+        },
+        "path": "note.md",
+        "start_line": 9,
+        "end_line": 9,
+        "scores": {}
+      },
+      {
+        "id": "f74ee6f8929ad297e613b0341f0307ff1c9ff9656ec0b28b53de9ae58373c2d7",
+        "text": "text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text text",
+        "embedding": null,
+        "metadata": {
+          "title": "Example",
+          "tags": [
+            "one",
+            "two"
+          ]
+        },
+        "path": "note.md",
+        "start_line": 11,
+        "end_line": 11,
+        "scores": {}
+      }
+    ]
+  },
+  "fallback.md": {
+    "node": {
+      "path": "fallback.md",
+      "links": [],
+      "chunk_ids": [
+        "22b74c7a4dcd76d21c6aa9b3717065fb8328a8d77215fb7cb37003a9ecafbbab",
+        "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "2560053ffa2a0c6decb9265aa1e33c0b264792535d3c9cf2a7b3a992084ccd19"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": ""
+      }
+    },
+    "chunks": [
+      {
+        "id": "22b74c7a4dcd76d21c6aa9b3717065fb8328a8d77215fb7cb37003a9ecafbbab",
+        "text": "# First\ntext text text text text text text text text text text text text text text text text text te",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 1,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "text": "xt text text text text text text text text text text text text text text text text text text text te",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "text": "xt text text text text text text text text text text text text text text text text text text text te",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "text": "xt text text text text text text text text text text text text text text text text text text text te",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "adfc277818b38936075c7aaf1fbc53d397ac6f9c2818dfa507d4598d67c2f203",
+        "text": "xt text text text text text text text text text text text text text text text text text text text te",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      },
+      {
+        "id": "2560053ffa2a0c6decb9265aa1e33c0b264792535d3c9cf2a7b3a992084ccd19",
+        "text": "xt text ",
+        "embedding": null,
+        "metadata": {},
+        "path": "fallback.md",
+        "start_line": 2,
+        "end_line": 2,
+        "scores": {}
+      }
+    ]
+  },
+  "data.json": {
+    "node": {
+      "path": "data.json",
+      "links": [],
+      "chunk_ids": [
+        "cacaea11e2cb2ee3a14b64163ef61cb4033f937a9e1926b8e5c59f938ab883a1",
+        "562530d77b54d6f7ea397db77ca543023f6f082bc9a2d17d0693a9057f6f9c76",
+        "147aa7fe035030c8a7632aefa473adbbe447bcb4ded262234c53c65c120eb799",
+        "79cbd086821831544adee04ddc6e61d4ea8a052c21941710c754f8a8248eed62",
+        "352cc7ee59226ac87644680d8c33f239bc5a8a30b0d088383ebfbf4559ba5bba",
+        "04c5f9658b948d4f9f8eb9cb98f2096e1dd6507b4429211925a7eb5f4aed0f7e"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": ""
+      }
+    },
+    "chunks": [
+      {
+        "id": "cacaea11e2cb2ee3a14b64163ef61cb4033f937a9e1926b8e5c59f938ab883a1",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 0}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 4,
+        "end_line": 5,
+        "scores": {}
+      },
+      {
+        "id": "562530d77b54d6f7ea397db77ca543023f6f082bc9a2d17d0693a9057f6f9c76",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 1}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 8,
+        "end_line": 9,
+        "scores": {}
+      },
+      {
+        "id": "147aa7fe035030c8a7632aefa473adbbe447bcb4ded262234c53c65c120eb799",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 2}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 12,
+        "end_line": 13,
+        "scores": {}
+      },
+      {
+        "id": "79cbd086821831544adee04ddc6e61d4ea8a052c21941710c754f8a8248eed62",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 3}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 16,
+        "end_line": 17,
+        "scores": {}
+      },
+      {
+        "id": "352cc7ee59226ac87644680d8c33f239bc5a8a30b0d088383ebfbf4559ba5bba",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 4}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 20,
+        "end_line": 21,
+        "scores": {}
+      },
+      {
+        "id": "04c5f9658b948d4f9f8eb9cb98f2096e1dd6507b4429211925a7eb5f4aed0f7e",
+        "text": "{\"items\": [{\"name\": \"abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabc\", \"n\": 5}]}",
+        "embedding": null,
+        "metadata": {},
+        "path": "data.json",
+        "start_line": 24,
+        "end_line": 25,
+        "scores": {}
+      }
+    ]
+  },
+  "bad.json": {
+    "node": {
+      "path": "bad.json",
+      "links": [],
+      "chunk_ids": [
+        "e974bca33c3651cf36a114da6f575a5af54134648f0368b34b9e1d2bc52acbb3"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": ""
+      }
+    },
+    "chunks": [
+      {
+        "id": "e974bca33c3651cf36a114da6f575a5af54134648f0368b34b9e1d2bc52acbb3",
+        "text": "{invalid\ntext\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "bad.json",
+        "start_line": 1,
+        "end_line": 3,
+        "scores": {}
+      }
+    ]
+  },
+  "events.jsonl": {
+    "node": {
+      "path": "events.jsonl",
+      "links": [],
+      "chunk_ids": [
+        "fe4880a04aedd78ae5743cb495b0d9d8500ab9d3ba79515f4230e1b2f5f7889f",
+        "7725431a86471c427c1a123803ccb0218fec1fd05877a6a70902380d50999fc6",
+        "48c0edd450850c2382a954df3a907b6ee87f210de7a21a6341797438a30dfd3b",
+        "116a24007dabf192a80d4d011a8cbbcf29d6831cc4a0c5941233fadac054e634",
+        "c91f51a356df943b80ba09cf654f1a042aa08bbe8912f393f13ac99211b19b93",
+        "489e1d724b739ddc864755e3d8e9a8d0c669dd1962102d525056ea265f8915a3"
+      ],
+      "front_matter": {
+        "name": "",
+        "description": ""
+      }
+    },
+    "chunks": [
+      {
+        "id": "fe4880a04aedd78ae5743cb495b0d9d8500ab9d3ba79515f4230e1b2f5f7889f",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 1,
+        "end_line": 3,
+        "scores": {}
+      },
+      {
+        "id": "7725431a86471c427c1a123803ccb0218fec1fd05877a6a70902380d50999fc6",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 3,
+        "end_line": 5,
+        "scores": {}
+      },
+      {
+        "id": "48c0edd450850c2382a954df3a907b6ee87f210de7a21a6341797438a30dfd3b",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 5,
+        "end_line": 7,
+        "scores": {}
+      },
+      {
+        "id": "116a24007dabf192a80d4d011a8cbbcf29d6831cc4a0c5941233fadac054e634",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 7,
+        "end_line": 9,
+        "scores": {}
+      },
+      {
+        "id": "c91f51a356df943b80ba09cf654f1a042aa08bbe8912f393f13ac99211b19b93",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 9,
+        "end_line": 11,
+        "scores": {}
+      },
+      {
+        "id": "489e1d724b739ddc864755e3d8e9a8d0c669dd1962102d525056ea265f8915a3",
+        "text": "{\"value\": \"alpha\"}\n{\"value\": \"alpha\"}\n",
+        "embedding": null,
+        "metadata": {},
+        "path": "events.jsonl",
+        "start_line": 11,
+        "end_line": 12,
+        "scores": {}
+      }
+    ]
+  }
+}
