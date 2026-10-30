@@ -38,24 +38,62 @@ const releases = [
     schema: "3.18.5-alpha.2",
   },
   { dsh: "0.2.1-rc.2", cordis: "4.0.5", loader: "1.0.6", schema: "3.18.5" },
+  {
+    dsh: "0.2.2-alpha.2",
+    cordis: "4.0.6-alpha.1",
+    loader: "1.0.7-alpha.1",
+    schema: "3.18.6-alpha.1",
+  },
 ];
 
-async function run(command, args, cwd) {
+// `npm` is `npm.cmd` on Windows, which execFile cannot launch directly; the
+// script runs the npm CLI through node instead, using the path npm exported to
+// this process.
+const npmCommand = process.env.npm_execpath
+  ? [process.execPath, [process.env.npm_execpath]]
+  : ["npm", []];
+
+async function run(command, args, cwd, label = "command") {
   try {
     return await execFileAsync(command, args, {
       cwd,
       maxBuffer: 10 * 1024 * 1024,
     });
   } catch (error) {
-    process.stderr.write(error.stdout || "");
-    process.stderr.write(error.stderr || "");
-    throw error;
+    const stdout = String(error.stdout ?? "");
+    const stderr = String(error.stderr ?? "");
+    const combined = `${stdout}\n${stderr}`;
+    // The raw TAP buffer is far too large for a CI log and hides which step
+    // failed. Report the failing cases and a short tail instead.
+    const failures = combined
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => /^not ok \d+ - /.test(line) || line.startsWith("✖ "))
+      .slice(0, 20);
+    const tail = combined.trim().split("\n").slice(-40).join("\n");
+    process.stderr.write(
+      `\n[test-package] ${label} failed (exit ${error.code ?? "error"})\n`,
+    );
+    if (failures.length > 0)
+      process.stderr.write(
+        `[test-package] failing tests:\n${failures.join("\n")}\n`,
+      );
+    if (tail) process.stderr.write(`[test-package] last output:\n${tail}\n`);
+    // A short error keeps Node's unhandled-rejection dump readable; the large
+    // stdout/stderr buffers stay out of it.
+    const failure = new Error(`${label} failed: ${error.message}`);
+    failure.code = error.code;
+    throw failure;
   }
 }
 
+/** Run the npm CLI on the platform this check runs on. */
+function runNpm(args, cwd, label = "npm") {
+  return run(npmCommand[0], [...npmCommand[1], ...args], cwd, label);
+}
+
 try {
-  const { stdout } = await run(
-    "npm",
+  const { stdout } = await runNpm(
     [
       "pack",
       "--json",
@@ -64,6 +102,7 @@ try {
       temporaryDirectory,
     ],
     root,
+    "npm pack",
   );
   const [result] = JSON.parse(stdout);
   const files = new Set(result.files.map(({ path: file }) => file));
@@ -72,6 +111,7 @@ try {
     "dist/client.js",
     "cordis.patch.yml",
     "README.md",
+    "docs/environment.md",
     "figures/reme-status-overview.png",
   ]) {
     assert.ok(files.has(file), `missing ${file}`);
@@ -112,8 +152,7 @@ try {
       JSON.stringify({ private: true, type: "module", dependencies }),
     );
     // Install as a consumer with normal peer resolution, then check the shipped artifact.
-    await run(
-      "npm",
+    await runNpm(
       [
         "install",
         "--ignore-scripts",
@@ -123,6 +162,7 @@ try {
         "--fetch-timeout=30000",
       ],
       consumer,
+      `install DSH ${release.dsh}`,
     );
     await run(
       process.execPath,
@@ -136,6 +176,7 @@ try {
     `,
       ],
       consumer,
+      `import DSH ${release.dsh}`,
     );
 
     const installed = path.join(consumer, "node_modules", manifest.name);
@@ -156,8 +197,9 @@ try {
       process.execPath,
       ["--test", ...testFiles],
       installed,
+      `tests DSH ${release.dsh}`,
     );
-    await run("npm", ["run", "build"], installed);
+    await runNpm(["run", "build"], installed, `build DSH ${release.dsh}`);
     const count = /# tests (\d+)/.exec(tested.stdout)?.[1];
     process.stdout.write(
       `DSH ${release.dsh}: packed import, source build, and ${count} tests passed\n`,

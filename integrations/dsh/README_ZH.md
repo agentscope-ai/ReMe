@@ -26,8 +26,8 @@ DSH 启动新会话时，插件向根 Agent 注入一段“如何使用长期记
 ## 2. 环境要求
 
 - ReMe Python 服务已安装，且配置中提供 `search`、`auto_memory` 和 `auto_dream` Job。
-- DeepSeek Harness `0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2`、`0.2.1-alpha.4` 或 `0.2.1-rc.2`。
-- Node.js `^22.19.0` 或 `>=24.0.0`，与当前 DSH 的 engine 范围一致。
+- DeepSeek Harness `0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-alpha.2`、`0.2.1-alpha.4`、`0.2.1-rc.2` 或 `0.2.2-alpha.2`。
+- Node.js `^22.19.0` 或 `>=24.0.0`，与当前 DSH 的 engine 范围一致（DSH `0.2.2` 需要 Node 24.9 以上）。
 - DSH 页面能够访问 ReMe HTTP 地址；跨机器部署时还要允许 DSH 页面所在的浏览器 Origin。
 
 ReMe HTTP 服务默认监听 `http://127.0.0.1:2333`，不使用 API Key 认证。因此不建议未经网络隔离直接暴露到公网。
@@ -115,25 +115,41 @@ dsh web --no-open --port 3090
 
 截图中的测试配置使用 `http://127.0.0.1:3457`、English 指引、默认搜索数量 5、搜索超时 10 秒，并启用了自动记忆和“Exclude subagents”。完整字段如下：
 
-| 界面含义             | 配置键                 | 默认值                  | 说明                                                                       |
-| -------------------- | ---------------------- | ----------------------- | -------------------------------------------------------------------------- |
-| 服务地址             | `endpoint`             | `http://127.0.0.1:2333` | DSH 访问的绝对 HTTP(S) 地址，不支持 URL 内嵌凭据、查询参数或片段。         |
-| 记忆指引语言         | `language`             | `en`                    | `en` 或 `zh`；决定新会话中注入的指引语言。                                 |
-| 默认搜索数量         | `searchLimit`          | `5`                     | `reme_search` 未传 `limit` 时的默认结果上限，范围 1–50。                   |
-| 搜索超时（毫秒）     | `requestTimeoutMs`     | `10000`                 | `search` 请求的超时，范围 1,000–120,000。                                  |
-| 自动记录已完成的对话 | `autoMemoryEnabled`    | `true`                  | 是否捕获完成的用户/助手回合并提交给 `auto_memory`。                        |
-| 排除子 Agent         | `rootAgentsOnly`       | `true`                  | 开启时，只为根 Agent 注入指引并捕获对话。                                  |
-| 自动记忆提交间隔     | `autoMemoryInterval`   | `5`                     | 每完成多少轮对话提交一次，范围 1–1,000。退出时插件会在时间预算内尽力排空。 |
-| 自动整理记忆         | `autoDreamEnabled`     | `true`                  | 是否按照每日计划调用 `auto_dream`。                                        |
-| 整理计划             | `dreamCron`            | `0 23 * * *`            | 五段 cron 表达式，按 `timezone` 解释；默认每天 23:00。                     |
-| 整理指引             | `dreamHint`            | 空                      | 可选的整理提示，原样交给 `auto_dream`。                                    |
-| 工作区时区           | `timezone`             | `Asia/Shanghai`         | 有效的 IANA 时区，用于每日批次和 cron 计划。                               |
-| 后台任务超时（毫秒） | `backgroundTimeoutMs`  | `3600000`               | `auto_memory` 和 `auto_dream` 的最大等待时间。                             |
-| 退出等待（毫秒）     | `shutdownTimeoutMs`    | `5000`                  | DSH 退出时等待后台任务排空的时间预算。                                     |
-| 失败重试间隔（毫秒） | `autoMemoryRetryMs`    | `1000`                  | 首次失败后的等待时间，连续失败时翻倍。                                     |
-| 最大重试间隔（毫秒） | `autoMemoryRetryMaxMs` | `60000`                 | 重试等待时间的上限。                                                       |
+| 界面含义             | 配置键                 | 默认值                  | 说明                                                                                               |
+| -------------------- | ---------------------- | ----------------------- | -------------------------------------------------------------------------------------------------- |
+| 服务地址             | `endpoint`             | `http://127.0.0.1:2333` | DSH 访问的绝对 HTTP(S) 地址，不支持 URL 内嵌凭据、查询参数或片段。                                 |
+| 服务令牌（可选）     | `authToken`            | 空                      | 自部署网关的 Bearer 令牌；仅通过 profile 配置（表单中不显示），明文保存，仅建议内网/受信环境使用。 |
+| 记忆指引语言         | `language`             | `en`                    | `en` 或 `zh`；决定新会话中注入的指引语言。                                                         |
+| 默认搜索数量         | `searchLimit`          | `5`                     | `reme_search` 未传 `limit` 时的默认结果上限，范围 1–50。                                           |
+| 搜索超时（毫秒）     | `requestTimeoutMs`     | `10000`                 | `search` 请求的超时，范围 1,000–120,000。                                                          |
+| 自动记录已完成的对话 | `autoMemoryEnabled`    | `true`                  | 是否捕获完成的用户/助手回合并提交给 `auto_memory`。                                                |
+| 排除子 Agent         | `rootAgentsOnly`       | `true`                  | 开启时，只为根 Agent 注入指引并捕获对话。                                                          |
+| 自动记忆提交间隔     | `autoMemoryInterval`   | `5`                     | 每完成多少轮对话提交一次，范围 1–1,000。退出时插件会在时间预算内尽力排空。                         |
+| 自动整理记忆         | `autoDreamEnabled`     | `true`                  | 是否按照每日计划调用 `auto_dream`。                                                                |
+| 整理计划             | `dreamCron`            | `0 23 * * *`            | 五段 cron 表达式，按 `timezone` 解释；默认每天 23:00。                                             |
+| 整理指引             | `dreamHint`            | 空                      | 可选的整理提示，原样交给 `auto_dream`。                                                            |
+| 工作区时区           | `timezone`             | `Asia/Shanghai`         | 有效的 IANA 时区，用于每日批次和 cron 计划。                                                       |
+| 后台任务超时（毫秒） | `backgroundTimeoutMs`  | `3600000`               | `auto_memory` 和 `auto_dream` 的最大等待时间。                                                     |
+| 退出等待（毫秒）     | `shutdownTimeoutMs`    | `5000`                  | DSH 退出时等待后台任务排空的时间预算。                                                             |
+| 失败重试间隔（毫秒） | `autoMemoryRetryMs`    | `1000`                  | 首次失败后的等待时间，连续失败时翻倍。                                                             |
+| 最大重试间隔（毫秒） | `autoMemoryRetryMaxMs` | `60000`                 | 重试等待时间的上限。                                                                               |
 
 部署层还支持 `REME_URL`，或组合使用 `REME_HOST` 与 `REME_PORT`。仅供定时器测试的 `dreamIntervalMs` 不出现在用户设置中。
+
+## 4.1 环境管理（Environment 标签）
+
+**插件 → ReMe 插件包 → reme-memory → 配置 → 环境管理** 把「找 Python、装 ReMe、写凭据、启停服务」收进插件本体，无需另开终端；
+这些操作都发生在运行 DSH 的那台机器上：
+
+| 步骤             | 做什么                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| 本地 Python 环境 | 发现 PEP 514 注册表、`py` 启动器、`PATH` 与 conda 解释器，标注来源与 `reme-ai` 状态，选中即写入 `pythonPath` |
+| ReMe 依赖        | 检测 `reme-ai`、`[core]` 依赖与 `reme` CLI；可一键安装/升级 `reme-ai[core]`，日志实时可见、可取消            |
+| ReMe 参数        | 编辑 workspace 的 `.env`：密钥只保存在该文件、界面仅显示掩码；提供 LLM 连通性测试                            |
+| 服务控制         | 启停本机 ReMe 服务，显示 PID、版本与日志                                                                     |
+
+解释器发现与推荐规则、依赖安装、`.env` 校验、连接测试、服务生命周期、平台支持与故障排查见
+[环境管理指南](https://github.com/agentscope-ai/ReMe/blob/main/integrations/dsh/docs/environment_ZH.md)。
 
 ## 5. 普通对话中的 memory 上下文注入
 

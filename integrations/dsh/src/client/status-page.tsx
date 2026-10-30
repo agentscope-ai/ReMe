@@ -294,10 +294,12 @@ export function ReMeStatusPage({
   rpc,
   t,
 }: ReMeStatusPageProps): JSX.Element | null {
-  const snapshot = useSyncExternalStore(
-    (listener) => scope.subscribe(listener),
-    () => scope.getSnapshot(),
+  const subscribe = useCallback(
+    (listener: () => void) => scope.subscribe(listener),
+    [scope],
   );
+  const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const settings = snapshot.value;
   const [tab, setTab] = useState<StatusTab>("overview");
   const [data, setData] = useState<StatusData>({ loading: true, error: "" });
@@ -1186,6 +1188,9 @@ function diagnosticClient(settings: ReMeSettings): ReMeClient {
     endpoint: settings.endpoint,
     requestTimeoutMs: settings.requestTimeoutMs,
     backgroundTimeoutMs: settings.backgroundTimeoutMs,
+    // The memory runtime authenticates, so diagnostics must too; otherwise a
+    // gateway-protected service shows 401s that look like a broken workspace.
+    authToken: settings.authToken,
   });
 }
 

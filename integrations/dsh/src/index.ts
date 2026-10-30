@@ -6,6 +6,8 @@ import type {} from "@deepseek-ai/dsh-session";
 import { ReMeClient } from "./reme/client.js";
 
 import { resolveConfig } from "./config.js";
+import { ReMeEnvGateway } from "./environment/host/gateway.js";
+import { ReMeEnvManager } from "./environment/host/manager.js";
 import { hasGuidance, memoryGuidance, REME_PLUGIN_SOURCE } from "./guidance.js";
 import { ReMeRuntime } from "./runtime.js";
 import { ReMeStatusGateway } from "./status-gateway.js";
@@ -25,7 +27,31 @@ export function apply(ctx: Context, input: ReMeConfigInput = {}): void {
     return () => runtime.disposeAll();
   }, "remeMemory.lifecycle()");
   ctx.provide("remeMemory", runtime);
+  const envManager = new ReMeEnvManager();
+  ctx.provide("remeEnv", envManager);
+  // The manager owns the bounded operations it started (pip installs), so it
+  // releases them when this plugin unloads. The detached ReMe service is not
+  // part of that lifetime: it is meant to outlive DSH.
+  ctx.effect(() => () => envManager.dispose(), "remeMemory.envLifetime()");
   void ctx.plugin(ReMeStatusGateway);
+  void ctx.plugin(ReMeEnvGateway);
+  ctx.effect(() => {
+    const live = current();
+    if (live.autoStart)
+      void envManager
+        .autoStart({
+          endpoint: live.endpoint,
+          pythonPath: live.pythonPath,
+          workspaceDir: live.remeWorkspaceDir,
+          authToken: live.authToken,
+        })
+        .catch((error: unknown) => {
+          ctx.logger.warn("remeMemory.envAutoStart failed", {
+            error: String(error),
+          });
+        });
+    return () => {};
+  }, "remeMemory.envAutoStart()");
   ctx.effect(
     () => registerReMeTools(ctx, client, current),
     "remeMemory.tools()",

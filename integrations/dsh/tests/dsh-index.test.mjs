@@ -39,7 +39,7 @@ test("composes root-agent guidance and reme_search on supported DSH releases", a
     fiber: { state: 0 },
     logger: { debug() {}, warn() {}, log() {} },
     provide(name, value) {
-      assert.equal(name, "remeMemory");
+      assert.ok(name === "remeMemory" || name === "remeEnv");
       assert.ok(value);
     },
     plugin() {
@@ -261,3 +261,56 @@ function applyPlugin(t, ctx, input) {
   });
   return apply(ctx, { ...input, autoMemoryQueueDir: directory });
 }
+
+test("disposes the environment manager when the plugin unloads", async (t) => {
+  const effects = [];
+  const provided = {};
+  const directory = mkdtempSync(join(tmpdir(), "reme-dsh-dispose-"));
+  t.after(async () => {
+    // Stop the runtime before removing the queue directory it reads on shutdown.
+    await provided.remeMemory?.disposeAll();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const ctx = {
+    fiber: { state: 0 },
+    logger: { debug() {}, warn() {}, log() {} },
+    provide(name, value) {
+      provided[name] = value;
+    },
+    plugin() {
+      return Promise.resolve();
+    },
+    inject() {},
+    effect(execute, label) {
+      effects.push({ label, cleanup: execute() });
+      return () => {};
+    },
+    tools: {
+      register() {
+        return () => {};
+      },
+    },
+    on() {},
+  };
+  apply(ctx, {
+    autoMemoryEnabled: false,
+    autoDreamEnabled: false,
+    autoMemoryQueueDir: directory,
+  });
+
+  const manager = provided.remeEnv;
+  assert.ok(manager, "the environment manager is provided to the context");
+  let disposed = 0;
+  manager.dispose = () => {
+    disposed += 1;
+  };
+
+  // The plugin owns the lifetime of the installs it started, so unloading it
+  // must reach the manager rather than leaving pip running.
+  const lifetime = effects.find(
+    (entry) => entry.label === "remeMemory.envLifetime()",
+  );
+  assert.ok(lifetime?.cleanup, "the env lifetime effect registers a cleanup");
+  lifetime.cleanup();
+  assert.equal(disposed, 1);
+});

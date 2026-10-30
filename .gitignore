@@ -45,6 +45,9 @@ tmp*/
 temp*/
 .trash/
 
+# Local tool indexes (rebuildable, machine-local)
+.codegraph/
+
 # ReMe runtime data
 .reme/
 reme_workspace/

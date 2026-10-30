@@ -19,6 +19,28 @@ export const Config = z.object({
     "ReMe HTTP service URL",
     assertEndpoint,
   ),
+  authToken: z
+    .string()
+    .default("")
+    .description(
+      "Optional bearer token for a self-hosted gateway in front of ReMe",
+    )
+    .volatile(),
+  pythonPath: z
+    .string()
+    .default("")
+    .description("Local Python interpreter selected in environment management")
+    .volatile(),
+  remeWorkspaceDir: z
+    .string()
+    .default("")
+    .description("ReMe workspace directory (empty means ~/.reme)")
+    .volatile(),
+  autoStart: z
+    .boolean()
+    .default(false)
+    .description("Start a stopped local ReMe service when DSH starts")
+    .volatile(),
   requestTimeoutMs: z.natural().min(1000).max(120000).default(10000).volatile(),
   backgroundTimeoutMs: z
     .natural()
@@ -86,6 +108,10 @@ function checkedString(
 
 const DEFAULT_CONFIG: Readonly<ReMeConfig> = Object.freeze({
   endpoint: "http://127.0.0.1:2333",
+  authToken: "",
+  pythonPath: "",
+  remeWorkspaceDir: "",
+  autoStart: false,
   requestTimeoutMs: 10000,
   backgroundTimeoutMs: 3600000,
   shutdownTimeoutMs: 5000,
@@ -138,6 +164,19 @@ export function resolveConfig(
 
   config.endpoint = stripTrailingSlashes(String(config.endpoint));
   assertEndpoint(config.endpoint);
+  config.authToken =
+    typeof config.authToken === "string" ? config.authToken.trim() : "";
+  if (config.authToken && !/^[\x21-\x7e]{1,512}$/.test(config.authToken))
+    throw new TypeError(
+      "ReMe auth token must be 1-512 visible ASCII characters without newlines",
+    );
+  config.pythonPath =
+    typeof config.pythonPath === "string" ? config.pythonPath.trim() : "";
+  config.remeWorkspaceDir =
+    typeof config.remeWorkspaceDir === "string"
+      ? config.remeWorkspaceDir.trim()
+      : "";
+  config.autoStart = config.autoStart === true;
   const home = env.DSH_HOME?.trim() || `${homedir()}/.dsh`;
   const queueDir = config.autoMemoryQueueDir || `${home}/reme-memory/outbox`;
   config.autoMemoryQueueDir = resolve(

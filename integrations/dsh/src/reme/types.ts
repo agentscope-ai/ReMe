@@ -3,6 +3,11 @@ export interface ReMeClientConfig {
   endpoint: string;
   requestTimeoutMs: number;
   backgroundTimeoutMs: number;
+  /**
+   * Shared secret sent as `Authorization: Bearer` to this endpoint only. Empty
+   * or absent means the service runs without authentication.
+   */
+  authToken?: string;
 }
 
 /** Normalized response returned by the ReMe HTTP client. */
