@@ -82,8 +82,14 @@ def transcript_messages(path: Path, *, root_only: bool = True):
             }
 
 
-def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> list[dict]:
-    """Match this Stop's final reply to its native user turn, even after another turn starts."""
+def _completed_turn(
+    payload: dict,
+    session: str,
+    *,
+    root_only: bool,
+    allow_fallback: bool,
+) -> list[dict]:
+    """Build a turn, optionally falling back after the caller's bounded retry window."""
     final, transcript, turn_id = (
         payload.get("last_assistant_message"),
         payload.get("transcript_path"),
@@ -108,7 +114,7 @@ def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> li
             user = message
         elif user and final_text and message["text"] == final_text:
             pair = [user, message]
-    if not pair:
+    if not pair and allow_fallback and final_text:
         user = None
         for message in turn_messages:
             if message["role"] == "user":
@@ -127,6 +133,11 @@ def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> li
     ]
 
 
+def completed_turn(payload: dict, session: str, *, root_only: bool = True) -> list[dict]:
+    """Match this Stop's final reply to its native user turn without accepting an early fallback."""
+    return _completed_turn(payload, session, root_only=root_only, allow_fallback=False)
+
+
 def completed_turn_with_retry(
     payload: dict,
     session: str,
@@ -138,9 +149,12 @@ def completed_turn_with_retry(
     deadline = time.monotonic() + max(0, CAPTURE_SETTLE_SECONDS if timeout is None else timeout)
     while True:
         messages = completed_turn(payload, session, root_only=root_only)
-        if len(messages) == 2 or time.monotonic() >= deadline:
+        if len(messages) == 2:
             return messages
-        time.sleep(min(0.1, deadline - time.monotonic()))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return _completed_turn(payload, session, root_only=root_only, allow_fallback=True)
+        time.sleep(min(0.1, remaining))
 
 
 def session_queue(config: dict, payload: dict) -> Path | None:
@@ -152,20 +166,10 @@ def session_queue(config: dict, payload: dict) -> Path | None:
     return queue_root(config) / session
 
 
-def delivery_session_id(payload: dict) -> str | None:
-    """Use the stable native id for the session store while keeping queue paths private."""
-    native_id = payload.get("agent_id") or payload.get("session_id")
-    if not isinstance(native_id, str) or not native_id:
-        return None
-    safe = re.sub(r'[<>:"/\\|?*]', "-", native_id)[:120]
-    return f"{HOST}-{safe}"
-
-
 def capture(config: dict, payload: dict) -> Path | None:
     """Persist a completed turn before any network request."""
     root = session_queue(config, payload)
-    session_id = delivery_session_id(payload)
-    if root is None or session_id is None:
+    if root is None:
         return None
     messages = completed_turn_with_retry(payload, root.name, root_only=config["rootAgentsOnly"])
     if len(messages) != 2:
@@ -177,7 +181,7 @@ def capture(config: dict, payload: dict) -> Path | None:
         day = instant.astimezone(ZoneInfo(config["timezone"])).date().isoformat()
         write_json(
             root / f"{key}.json",
-            {"session_id": session_id, "turn_id": payload.get("turn_id"), "messages": messages, "date": day},
+            {"session_id": root.name, "turn_id": payload.get("turn_id"), "messages": messages, "date": day},
         )
         log_status("memory_queued", config=config, turns=1)
     return root
