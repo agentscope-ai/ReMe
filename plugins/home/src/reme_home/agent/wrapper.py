@@ -1,6 +1,10 @@
 """ReMe agent wrapper with Home's bounded investigation runtime."""
 
+import json
 from typing import Any
+
+from agentscope.message import TextBlock, ToolResultState
+from agentscope.tool import FunctionTool, ToolChunk
 
 from reme.components.agent_wrapper import AsAgentWrapper
 from reme.components.as_llm import BaseAsLLM
@@ -31,7 +35,7 @@ class CaseStudyAgentWrapper(BoundedAgentWrapper):
     rejects an absent investigation model after the judge is validated.
     """
 
-    def __init__(self, as_llm: str = "judge", **kwargs):
+    def __init__(self, as_llm: str = "home_case_study", **kwargs):
         super().__init__(as_llm="", **kwargs)
         self.home_judge = self.bind("default", HomeJudge, optional=False)
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=True)
@@ -40,3 +44,22 @@ class CaseStudyAgentWrapper(BoundedAgentWrapper):
         await super()._start()
         if self.as_llm is None:
             raise ValueError("Case-study agent requires a configured as_llm component")
+
+    @classmethod
+    def _make_tool(cls, job, tool_context_id=None, injected_job_kwargs=None):
+        """Expose structured investigation evidence as JSON without changing core Job tools."""
+        injected = cls._resolve_injected_job_kwargs(
+            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+        )
+
+        async def run_job(**kwargs):
+            response = await job(**cls._merge_injected_job_kwargs(kwargs, injected))
+            answer = response.answer
+            text = json.dumps(answer, ensure_ascii=False) if isinstance(answer, (dict, list)) else str(answer)
+            state = ToolResultState.SUCCESS if response.success else ToolResultState.ERROR
+            return ToolChunk(content=[TextBlock(text=text)], state=state)
+
+        tool = FunctionTool(func=run_job, name=job.name, description=job.description, is_concurrency_safe=False)
+        if parameters := cls._strip_injected_parameters(job.parameters, injected):
+            tool.input_schema = parameters
+        return tool

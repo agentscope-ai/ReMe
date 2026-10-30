@@ -199,7 +199,12 @@ Start a failed-query investigation with
 `home_trace_query_evidence(validation_path, case_id, query_id)`.
 It returns compact question/answer/score/error previews, source evidence session
 IDs, matching Git checkpoints, changed files and paths to complete evidence. It
-does not call a model or include transcripts, diffs or judge-result bodies.
+does not call a model or include transcripts, diffs or full judge-result bodies.
+`locations` contains JSON Pointers into the source case and saved query result;
+each session's `source_pointer` locates it in the source case. `query.expected_kind`
+distinguishes reference answers from BEAM rubric lists. Optional `criteria` pairs
+saved rubric judgments only when counts match (up to 20, with 600-character
+requirement/reason previews); missing judgments are never inferred.
 Dataset `evidence_session_ids` annotations take precedence; only when absent may
 you supply inferred `evidence_session_ids`. Respect `evidence_source` and
 `evidence_is_certain`: inferred or uncertain sessions are leads, not established
@@ -238,10 +243,15 @@ inspection paths.
 
 ## Single-case diagnostic agent
 
-Call `home_case_study(validation_path, case_id, focus=...)` to investigate exactly
-one case. It returns a text report with evidence citations and uncertainty, using
-fresh agent state, bounded iterations and advisory time reminders. There is no
-parallel case dispatcher. Scope and evaluated code revision are host-injected
+Call `home_case_study(evaluation_path, case_ids, focus=...)` for up to eight
+unique cases sharing one focus and evaluation. Cases run sequentially and results
+preserve input order. Each gets fresh agent state, bounded iterations and advisory
+time reminders. The answer contains `results`, with a report/session/usage or error
+for each case; a failed case does not cancel the rest. Response success is false
+if any case fails. Metadata includes `evaluation_path`, evaluated commit and total
+usage (null if any call fails or usage is unavailable). `validation_path` remains
+a path alias; legacy `case_id` calls retain a text report. Do not combine aliases.
+Other inspection tools still use `validation_path`. There is no parallel case dispatcher. Scope and evaluated code revision are host-injected
 into the structured tools. AutoBash and Python share a mandatory read-only file
 sandbox covering the selected case artifacts, source JSON, validation manifest,
 home/docs and all home/code, plus required system runtimes. Neither executor has
@@ -250,5 +260,16 @@ and Python rather than a static command whitelist. The directly readable code
 worktree can differ from the evaluated commit; use pinned code tools to verify
 version-sensitive claims. No write/edit, validation or code-mutation tools are
 exposed. Sandbox startup failure prevents model execution; it never falls back
-to an unrestricted process. See the Home README for model, budget and platform
+to an unrestricted process. Startup checks Python, source/manifest reads and
+`git show` at the evaluated commit before spending model tokens. macOS grants
+read-only access to the selected Xcode/Command Line Tools runtime and sets
+`DEVELOPER_DIR`; Linux keeps Bubblewrap isolation and searches the virtual
+environment and base interpreter's `bin` directories for tools.
+
+Code tools accept candidate-repository-relative paths, not absolute artifact or
+documentation paths. Omit `path` to list/search the root. Read logs, source JSON,
+memory and home/docs with AutoBash or Python. Memory diffs require `base_ref`
+and a different `target_ref` from the memory history. Keep stderr visible and use
+`set -o pipefail` for shell pipelines: a failed/denied read is not evidence of
+missing content. See the Home README for model, budget and platform
 sandbox configuration.

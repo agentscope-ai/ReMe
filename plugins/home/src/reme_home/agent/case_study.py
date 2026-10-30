@@ -1,14 +1,15 @@
-"""One case-local investigation using ReMe Jobs and sandboxed command tools."""
+"""Sequential case-local investigations using ReMe Jobs and sandboxed command tools."""
 
+import json
 import sys
 from pathlib import Path
 
 from agentscope.tool import FunctionTool, Toolkit
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 import yaml
 
+from reme.schema.token_usage import TokenUsage
 from reme.steps.base_step import BaseStep, Ref
-from reme.utils.file_sandbox import create_file_sandbox_backend
 
 from ..auto_bash import AutoBash
 from ..code.repository import resolve_revision, validate_repository
@@ -19,9 +20,11 @@ from ..evaluation.inputs import entity_id
 from ..evaluation.memory_inspection_step import _repository
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace
+from .sandbox import create_case_study_sandbox
 from .wrapper import BoundedAgentWrapper
 
 PROMPT = Path(__file__).with_suffix(".yaml")
+DEFAULT_FOCUS = "Investigate the failed or low-scoring queries and their earliest supported causes."
 CASE_TOOLS = (
     "home_inspect_validation",
     "home_trace_query_evidence",
@@ -29,6 +32,33 @@ CASE_TOOLS = (
     "home_compare_memory",
 )
 CODE_TOOLS = ("home_list_code_tree", "home_search_code", "home_read_code_file")
+_SANDBOX_PROBE = """\
+import json
+import pathlib
+import subprocess
+import sys
+
+scope = json.loads(sys.argv[1])
+with open(scope['source_case'], 'rb') as stream:
+    stream.read(1)
+with open(pathlib.Path(scope['validation_path']) / 'manifest.json', 'rb') as stream:
+    stream.read(1)
+subprocess.run([
+    '/bin/bash', '--noprofile', '--norc', '-c',
+    'git -C "$1" --no-pager -c core.fsmonitor=false -c log.showSignature=false '
+    'show --no-ext-diff --no-textconv --no-patch --format=%H "$2"',
+    'probe', scope['code_repository'], scope['candidate_commit'],
+], check=True)
+"""
+
+
+async def probe_sandbox(backend, scope):
+    """Verify the same interpreter, shell, Git and evidence access used by the investigation."""
+    return await backend.exec_shell(
+        [sys.executable, "-I", "-B", "-c", _SANDBOX_PROBE, json.dumps(scope)],
+        cwd=scope["case_path"],
+        timeout=10,
+    )
 
 
 class CaseStudyInput(SpecModel):
@@ -37,7 +67,7 @@ class CaseStudyInput(SpecModel):
     validation_path: str = Field(min_length=1)
     case_id: str = Field(min_length=1)
     focus: str = Field(
-        default="Investigate the failed or low-scoring queries and their earliest supported causes.",
+        default=DEFAULT_FOCUS,
         min_length=1,
     )
 
@@ -46,6 +76,39 @@ class CaseStudyInput(SpecModel):
     def validate_case(cls, value):
         """Keep the case inside its manifest-selected artifact directory."""
         return entity_id(value)
+
+
+class CaseStudyBatchInput(SpecModel):
+    """Share one evaluation and focus across an ordered, bounded case selection."""
+
+    evaluation_path: str = Field(min_length=1)
+    case_ids: list[str] = Field(min_length=1, max_length=8)
+    focus: str = Field(default=DEFAULT_FOCUS, min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy(cls, value):
+        """Accept old single-case arguments without accepting ambiguous combinations."""
+        if not isinstance(value, dict):
+            return value
+        value = dict(value)
+        for old, new in (("validation_path", "evaluation_path"), ("case_id", "case_ids")):
+            if old in value:
+                if new in value:
+                    raise ValueError(f"Provide {new} or {old}, not both")
+                item = value.pop(old)
+                value[new] = [item] if old == "case_id" else item
+        return value
+
+    @field_validator("case_ids")
+    @classmethod
+    def validate_cases(cls, values):
+        """Reject unsafe or duplicate selectors before any agent runs."""
+        for value in values:
+            entity_id(value)
+        if len(set(values)) != len(values):
+            raise ValueError("case_ids must not contain duplicates")
+        return values
 
 
 def prepare_scope(home, spec):
@@ -91,6 +154,11 @@ def python_tool(backend, cwd):
     ) -> dict:
         """Execute code or file, exclusively; print results to stdout. No host path is writable.
 
+        Read case JSON, memory files and documentation here, not with home_read_code_file.
+        For example code="import json; print(json.load(open('/allowed/result.json'))['queries'][0])".
+        In code mode do not pass args; in file mode pass file and args, without code.
+        Check returncode and stderr: a denied or failed read is not evidence that content is absent.
+
         Args:
             code: Python source, mutually exclusive with file.
             timeout: Execution timeout in seconds, greater than zero and at most 600.
@@ -135,10 +203,64 @@ def create_toolkit(wrapper, scope, backend):
         )
         if name == "home_compare_memory":
             injected["target_validation_path"] = None
-        tools.append(wrapper._make_tool(job, injected_job_kwargs=injected))  # pylint: disable=protected-access
+        tool = wrapper._make_tool(  # pylint: disable=protected-access
+            job,
+            injected_job_kwargs=injected,
+        )
+        if name in CODE_TOOLS:
+            tool.description += (
+                " Reads candidate source at the host-pinned evaluated commit, not artifact or documentation files."
+                " Paths are repository-relative, for example plugins/beam/src/reme_beam/agentic_answer.yaml;"
+                " omit path to search/list the root, never use '.' or an absolute path."
+                " Read memory, logs, JSON and home/docs with AutoBash or python_execute instead."
+            )
+        if "path" in tool.input_schema.get("properties", {}):
+            description = (
+                "Required candidate-repository-relative file path, never absolute."
+                if name == "home_read_code_file"
+                else "Literal repository-relative path, never absolute; omit for the whole repository, not '' or '.'."
+            )
+            tool.input_schema["properties"]["path"] = {
+                **tool.input_schema["properties"]["path"],
+                "description": description,
+            }
+        if name == "home_trace_query_evidence":
+            tool.description += (
+                " For a selected query, start here. locations are JSON Pointers into paths.source_case/query_result;"
+                " session source_pointer locates messages in source_case. criteria previews saved rubric judgments"
+                " when available. Hit counts and memory coordinates do not prove what reached the answerer."
+            )
+        if name == "home_inspect_memory_history":
+            tool.description += " path filters files within the memory repository; omit it to list all checkpoints."
+        if name == "home_compare_memory":
+            tool.input_schema["required"] = list(dict.fromkeys([*tool.input_schema.get("required", []), "base_ref"]))
+            tool.input_schema["properties"]["base_ref"] = {
+                "type": "string",
+                "minLength": 1,
+                "description": (
+                    "Required earlier memory commit from home_inspect_memory_history;"
+                    " compare with a different target_ref."
+                ),
+            }
+            tool.description += (
+                " Same-case comparison only: supply base_ref and target_ref from home_inspect_memory_history."
+                ' Example: {"base_ref": "<earlier commit>", "target_ref": "<later commit>", "path": "daily"}.'
+                " Identical refs have no changes; omit path for the whole memory tree."
+            )
+        tools.append(tool)
+    bash = AutoBash(cwd=scope["case_path"], backend=backend, is_read_only=False)
+    bash.description = (
+        "Read case artifacts, memory, logs and home/docs with shell commands inside the OS file sandbox."
+        " No command whitelist; host paths are read-only and network is denied."
+        " Use absolute allowed paths, e.g. cat '<case_path>/queries/<query_id>/answer.log', or"
+        " git -C '<memory_repository>' show '<commit>:daily/note.md'."
+        " Prefer pinned code tools for evaluated candidate source. Keep stderr visible; for pipelines use"
+        " set -o pipefail so a failed read is not hidden by head/grep. A failed read does not prove absence."
+        " timeout is in milliseconds."
+    )
     tools.extend(
         [
-            AutoBash(cwd=scope["case_path"], backend=backend, is_read_only=False),
+            bash,
             python_tool(backend, scope["case_path"]),
         ],
     )
@@ -148,36 +270,30 @@ def create_toolkit(wrapper, scope, backend):
 
 
 class HomeCaseStudyStep(BaseStep):
-    """Run one fresh agent through the application's bounded wrapper and model lifecycle."""
+    """Run ordered cases with fresh agents through the normal ReMe lifecycle."""
 
     workspace: HomeWorkspace = Ref(HomeWorkspace, "home.workspace")
     agent_wrapper: BoundedAgentWrapper = Ref(BoundedAgentWrapper, "agent_wrapper")
 
     async def execute(self):
-        """Prepare scope, require isolation, then return the case report and framework token usage."""
+        """Validate the whole batch, then isolate each sequential investigation and failure."""
         if self.context.get("_allowed_paths") is not None:
             raise ValueError("Home case study requires unrestricted access to its managed artifacts")
         if not self.workspace.is_started or not self.agent_wrapper.is_started:
             raise RuntimeError("Start the Home workspace and case-study agent wrapper first")
-        spec = CaseStudyInput.model_validate(
-            {key: self.context[key] for key in CaseStudyInput.model_fields if key in self.context},
-        )
-        scope = await blocking(prepare_scope, self.workspace.home_path, spec)
-        backend = create_file_sandbox_backend(
-            cwd=scope["case_path"],
-            read_only_paths=scope["read_only_paths"],
-            writable_paths=[],
-            memory_limit_mib=self.kwargs.get("memory_limit_mib"),
-        )
-        # Fail before spending model tokens if the OS sandbox or its runtime cannot start.
-        probe = await backend.exec_shell(
-            [sys.executable, "-I", "-B", "-c", "pass"],
-            cwd=scope["case_path"],
-            timeout=10,
-        )
-        if not probe.ok():
-            raise RuntimeError("Case-study sandbox unavailable: " + probe.stderr.decode(errors="replace"))
-        toolkit = create_toolkit(self.agent_wrapper, scope, backend)
+        fields = (*CaseStudyBatchInput.model_fields, "validation_path", "case_id")
+        spec = CaseStudyBatchInput.model_validate({key: self.context[key] for key in fields if key in self.context})
+        scopes = []
+        for case_id in spec.case_ids:
+            scopes.append(
+                await blocking(
+                    prepare_scope,
+                    self.workspace.home_path,
+                    CaseStudyInput(validation_path=spec.evaluation_path, case_id=case_id, focus=spec.focus),
+                ),
+            )
+        if len({scope["candidate_commit"] for scope in scopes}) != 1:
+            raise ValueError("Evaluation candidate commit changed while preparing case scopes")
         output_limit = self.kwargs.get("output_token_limit", 2500)
         if isinstance(output_limit, bool) or not isinstance(output_limit, int) or output_limit < 1:
             raise ValueError("output_token_limit must be a positive integer")
@@ -187,9 +303,58 @@ class HomeCaseStudyStep(BaseStep):
             for key in ("system_prompt", "task_prompt")
         ):
             raise ValueError("Case-study YAML requires nonempty system_prompt and task_prompt strings")
+        response = self.context.response
+        response.metadata.update(
+            evaluation_path=scopes[0]["validation_path"],
+            candidate_commit=scopes[0]["candidate_commit"],
+        )
+        # Preserve the original text response and error handling for singular callers.
+        if "case_id" in self.context:
+            result = await self._investigate(scopes[0], spec.focus, prompts, output_limit)
+            response.answer = result["result"]
+            response.metadata.update(validation_path=scopes[0]["validation_path"], case_id=spec.case_ids[0])
+            response.metadata.update({key: result[key] for key in ("session_id", "usage") if key in result})
+            return response
+        results = []
+        response.answer = {"results": results}
+        for scope in scopes:
+            try:
+                result = await self._investigate(scope, spec.focus, prompts, output_limit)
+                results.append(
+                    {
+                        "case_id": scope["case_id"],
+                        "success": True,
+                        "report": result["result"],
+                        **{key: result[key] for key in ("session_id", "usage") if key in result},
+                    },
+                )
+            except Exception as exc:  # A failed investigator must not discard or cancel sibling reports.
+                self.logger.exception(f"Case-study investigation failed: case_id={scope['case_id']}")
+                results.append({"case_id": scope["case_id"], "success": False, "error": f"{type(exc).__name__}: {exc}"})
+        response.success = all(item["success"] for item in results)
+        # Failed or unreported calls have unknown usage; never present a partial sum as a full total.
+        response.metadata["usage"] = (
+            TokenUsage.combine([TokenUsage.model_validate(item["usage"]) for item in results]).model_dump()
+            if all(item.get("usage") is not None for item in results)
+            else None
+        )
+        return response
+
+    async def _investigate(self, scope, focus, prompts, output_limit):
+        """Build a fresh case-scoped toolkit and SDK agent for exactly one case."""
+        backend = create_case_study_sandbox(
+            cwd=scope["case_path"],
+            read_only_paths=scope["read_only_paths"],
+            writable_paths=[],
+            memory_limit_mib=self.kwargs.get("memory_limit_mib"),
+        )
+        probe = await probe_sandbox(backend, scope)
+        if not probe.ok():
+            raise RuntimeError("Case-study sandbox unavailable: " + probe.stderr.decode(errors="replace"))
+        toolkit = create_toolkit(self.agent_wrapper, scope, backend)
         prompt = prompts["system_prompt"].format(**scope, output_token_limit=output_limit)
-        result = await self.agent_wrapper.reply(
-            prompts["task_prompt"].format(focus=spec.focus),
+        return await self.agent_wrapper.reply(
+            prompts["task_prompt"].format(focus=focus),
             system_prompt=prompt,
             toolkit=toolkit,
             builtin_tools=[],
@@ -201,9 +366,3 @@ class HomeCaseStudyStep(BaseStep):
             output_schema=None,
             permission_mode="bypass",
         )
-        self.context.response.answer = result["result"]
-        self.context.response.metadata.update(
-            {key: scope[key] for key in ("validation_path", "case_id", "candidate_commit")},
-        )
-        self.context.response.metadata.update({key: result[key] for key in ("session_id", "usage") if key in result})
-        return self.context.response

@@ -19,10 +19,23 @@ backends:
 
 application_defaults:
   components:
+    as_llm:
+      home_case_study:
+        backend: ${LLM_BACKEND:-openai}
+        model: qwen3.7-max
+        stream: false
+        context_size: 200000
+        max_retries: 3
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
     agent_wrapper:
       home_case_study:
         backend: home_case_study_agent
-        as_llm: judge
+        as_llm: home_case_study
         time_budget_minutes: 30
         react_config:
           max_iters: 60
@@ -53,15 +66,29 @@ application_defaults:
   jobs:
     home_case_study:
       backend: base
-      description: "Investigate one validation case with read-only sandboxed Bash/Python and commit-pinned evidence tools; return an evidence-supported diagnostic report"
+      description: "Investigate up to eight ordered evaluation cases sequentially with a shared focus; each case uses a fresh read-only sandboxed agent and returns its own report or error"
       parameters:
         type: object
         additionalProperties: false
-        required: [validation_path, case_id]
+        allOf:
+          - oneOf:
+              - required: [evaluation_path]
+              - required: [validation_path]
+          - oneOf:
+              - required: [case_ids]
+              - required: [case_id]
         properties:
-          validation_path: {type: string, minLength: 1}
-          case_id: {type: string, minLength: 1}
-          focus: {type: string, minLength: 1, description: "Questions or failure mechanisms to prioritize"}
+          evaluation_path: {type: string, minLength: 1, description: "Shared evaluation result directory"}
+          case_ids:
+            type: array
+            minItems: 1
+            maxItems: 8
+            uniqueItems: true
+            items: {type: string, minLength: 1}
+            description: "Ordered case IDs; results preserve this order, with one isolated agent per case"
+          focus: {type: string, minLength: 1, description: "Shared diagnostic request applied unchanged to every selected case"}
+          validation_path: {type: string, minLength: 1, description: "Deprecated alias for evaluation_path; do not supply both"}
+          case_id: {type: string, minLength: 1, description: "Legacy single-case selector returning a text report; do not combine with case_ids"}
       steps:
         - backend: home_case_study_step
           agent_wrapper: home_case_study

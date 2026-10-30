@@ -63,6 +63,7 @@ def test_compact_annotation_root_checkpoint_and_read_only(query_evidence):
     assert result["query"] == {
         "question": "What is the fact?",
         "expected": "old fact",
+        "expected_kind": "reference_answer",
         "actual": "new fact",
         "score": 0,
         "error": None,
@@ -71,10 +72,17 @@ def test_compact_annotation_root_checkpoint_and_read_only(query_evidence):
     assert result["evidence_source"] == "independent_annotation"
     assert result["evidence_is_certain"] is False and result["memory_status"] == "available"
     assert result["sessions"] == [
-        {"id": "session1", "checkpoint": first, "changed_files": ["memory/note.md", "removed.txt"]},
+        {
+            "id": "session1",
+            "source_pointer": "/sessions/0",
+            "checkpoint": first,
+            "changed_files": ["memory/note.md", "removed.txt"],
+        },
     ]
     assert result["paths"]["source_case"] == str(source)
     assert result["paths"]["memory_repository"] == str(repo)
+    assert result["locations"] == {"source_query": "/queries/0", "saved_query": "/queries/0"}
+    assert "criteria" not in result
     assert "source transcript" not in json.dumps(result) and "judge_result" not in json.dumps(result)
     assert snapshot(home) == before
 
@@ -94,7 +102,12 @@ def test_inference_missing_checkpoint_and_debug_dataset(query_evidence):
     assert result["paths"]["source_case"] == str(debug_source)
     assert result["sessions"][0]["checkpoint"] == second
     assert result["sessions"][0]["changed_files"] == ["added.bin", "memory/note.md", "removed.txt"]
-    assert result["sessions"][1] == {"id": "not-constructed", "checkpoint": None, "changed_files": []}
+    assert result["sessions"][1] == {
+        "id": "not-constructed",
+        "source_pointer": "/sessions/2",
+        "checkpoint": None,
+        "changed_files": [],
+    }
     assert trace(home, run)["evidence_source"] == "unavailable"
     with pytest.raises(ValueError, match="not present"):
         trace(home, run, evidence_session_ids=["unknown"])
@@ -122,6 +135,7 @@ def test_missing_history_and_results(query_evidence, state):
     (run / "cases/case1/queries/result.json").unlink()
     result = trace(home, run)
     assert result["memory_status"] == state and result["sessions"][0]["checkpoint"] is None
+    assert result["locations"]["saved_query"] is None and "criteria" not in result
     assert result["query"]["result_missing"] and result["query"]["score"] is None
     assert result["query"]["actual"] is None and result["query"]["expected"] == "old fact"
 
@@ -219,3 +233,59 @@ async def test_registered_job_and_restricted_scope(app, prepared, query_evidence
     )
     assert not response.success and "unrestricted" in str(response.answer)
     assert snapshot(prepared) == before
+
+
+@pytest.mark.parametrize("count", [2, 1, 25])
+def test_rubric_judgments_and_independent_source_pointers(query_evidence, count):
+    home, run, _repo, _first, _second, source, case = query_evidence
+    case["queries"].insert(0, {"query_id": "other"})
+    case["sessions"].insert(0, {"session_id": "other-session"})
+    case["queries"][1]["metadata"]["rubric"] = ["required" + str(i) for i in range(25 if count == 25 else 2)]
+    write_json(source, case)
+    result_path = run / "cases/case1/queries/result.json"
+    judged = [{"score": 0.5, "reason": "r" * 1000} for _ in range(count)]
+    write_json(
+        result_path,
+        {
+            "queries": [
+                {
+                    "query_id": "q1",
+                    "judge_result": {
+                        "metadata": {"llm_judge_responses": judged},
+                    },
+                },
+            ],
+        },
+    )
+    result = trace(home, run)
+    assert result["locations"] == {
+        "source_query": "/queries/1",
+        "saved_query": "/queries/0",
+        "rubric": "/queries/1/metadata/rubric",
+    }
+    assert result["sessions"][0]["source_pointer"] == "/sessions/1"
+    if count == 1:
+        assert "criteria" not in result  # Do not silently pair incomplete judgments.
+    else:
+        assert len(result["criteria"]) == min(count, 20)
+        item = result["criteria"][0]
+        assert item["requirement"] == "required0" and len(item["reason"]) < 700
+        value = json.loads(result_path.read_text())
+        for segment in item["pointer"].strip("/").split("/"):
+            value = value[int(segment)] if isinstance(value, list) else value[segment]
+        assert value == judged[0]
+        if count == 25:
+            assert result["omitted_criterion_count"] == 5
+
+
+def test_beam_rubric_fallback_uses_explicit_dataset_contract(query_evidence):
+    home, run, _repo, _first, _second, source, case = query_evidence
+    case["queries"][0]["golden_answer"] = ["required fact"]
+    write_json(source, case)
+    manifest = json.loads((run / "manifest.json").read_text())
+    manifest["dataset"] = "beam"
+    write_json(run / "manifest.json", manifest)
+    result = trace(home, run)
+    assert result["query"]["expected_kind"] == "rubric"
+    assert result["locations"]["rubric"] == "/queries/0/golden_answer"
+    assert "criteria" not in result  # A rubric is not a saved judgment.

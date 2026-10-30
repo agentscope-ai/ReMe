@@ -674,14 +674,18 @@ index, evaluation history or sampling state.
   memory checkpoints without calling a model. Dataset evidence annotations take
   precedence over optional inferred session IDs, including an empty annotation.
   Returns `query` (question, expected/actual answer, score, error and
-  `result_missing`), `evidence_source` (`independent_annotation`,
+  `result_missing` and `expected_kind`), `locations` with JSON Pointers into source
+  and saved query files, optional `criteria` previews of saved rubric judgments,
+  `evidence_source` (`independent_annotation`,
   `diagnostician_inference`, or `unavailable`), `evidence_is_certain`,
-  `memory_status`, `sessions` (ID, checkpoint and changed files), and `paths` to
+  `memory_status`, `sessions` (ID, source JSON Pointer, checkpoint and changed files), and `paths` to
   the normalized case, memory repository, query results and query artifacts.
   A null checkpoint means no matching `session: <id>` commit was found; missing
   results keep scores null. Answer/question previews are limited to 2,000
   characters and errors to 600. At most 50 sessions and 50 changed files per
-  session are returned, with omitted counts when needed. Session text, diffs,
+  session are returned, with omitted counts when needed. Criterion previews are
+  limited to 20 entries and 600 characters per requirement/reason; absent or
+  mismatched rubric judgments are not paired. Session text, diffs,
   later history and full answer/judge results remain at the returned paths or
   in the inspection/comparison Jobs below. Original transcripts and derived
   memories can both be searchable; these coordinates alone do not prove a cause.
@@ -726,26 +730,38 @@ form is `evaluations/candidate/abcdef0/1`. For agent tools, host `injected_job_k
 `validation_path` and `case_id`; the wrapper hides injected fields and rejects
 model overrides. Like the other Home inspection Jobs, these Jobs reject
 `_allowed_paths` restrictions rather than bypassing them. Use these tools directly
-or through the single-case investigator below.
+or through the case-study batch Job below.
 
-## Single-case investigation
+## Case-study batches
 
-`home_case_study(validation_path, case_id, focus=...)` runs one fresh diagnostic
-agent. It follows dev_meta's case-study workflow: trace judging and answer
-failures backward through retrieval, memory construction, source sessions and
+`home_case_study(evaluation_path, case_ids, focus=...)` investigates up to eight
+unique case IDs in input order, sharing the evaluation and unchanged focus.
+Cases run sequentially, each with fresh agent state, sandbox and timer. The
+whole selection is validated before model calls; a case execution failure is
+returned individually without cancelling later cases. It follows dev_meta's
+case-study workflow: trace judging and answer failures backward through retrieval,
+memory construction, source sessions and
 the evaluated implementation. The text report cites evidence paths/lines or
 JSON fields and distinguishes supported causes, hypotheses and missing evidence;
-it does not prescribe fixes. There is no batch fan-out or parallel case-study
-dispatcher. Each invocation has its own agent state and timer.
+it does not prescribe fixes. There is no parallel case-study dispatcher.
 
 The `home_case_study` component uses `home_case_study_agent`, a thin subclass of
-the bounded wrapper, defaulting to
-the host's existing `as_llm: judge` model, 60 iterations and a 30-minute advisory
-budget, matching dev_meta's default budgets. Configure a separate host model by
-overriding `components.agent_wrapper.home_case_study.as_llm`. ReMe owns model
+the bounded wrapper, defaulting to the dedicated `as_llm: home_case_study`
+component with model `qwen3.7-max`, 60 iterations and a 30-minute advisory
+budget, matching dev_meta's default budgets. It uses `LLM_BACKEND`, `LLM_API_KEY`
+and `LLM_BASE_URL` without changing the evaluation judge's model. Override
+`components.as_llm.home_case_study.model` to choose another model, or
+`components.agent_wrapper.home_case_study.as_llm` to select another host component. ReMe owns model
 startup, token accounting and saved session transcripts. The response answer is
-the report; metadata includes the validation, case, evaluated commit, session ID
-and `usage`. No case scratch directory or intermediate analysis files are created.
+`{"results": [...]}`; each item contains `case_id`, `success`, and either `report`
+with its session ID/usage or `error`. Metadata includes `evaluation_path`, the
+evaluated commit and total `usage` (null if any case fails or usage is unavailable).
+Response success is false if any case fails; completed sibling reports remain
+available. No case scratch directory or intermediate analysis files are created.
+
+`validation_path` remains an alias for `evaluation_path`. Legacy `case_id` calls
+still return a text report with per-case metadata. Do not supply both path names
+or both case selectors. Other inspection Jobs retain their `validation_path` argument.
 
 The toolkit includes validation inspection, compact query-evidence tracing,
 memory history/comparison, and the three committed-code navigation Jobs.
@@ -785,7 +801,7 @@ jobs:
 With the configured service running, call from another terminal:
 
 ```bash
-reme home_case_study validation_path=evaluations/candidate/abcdef0/1 case_id=case1 'focus=Trace low-scoring queries'
+reme home_case_study evaluation_path=evaluations/candidate/abcdef0/1 'case_ids=["case1","case2"]' 'focus=Trace low-scoring queries'
 ```
 
 Calls with `_allowed_paths` restrictions fail closed, as other Home artifact
