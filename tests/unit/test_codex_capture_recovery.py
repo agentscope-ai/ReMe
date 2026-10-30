@@ -49,7 +49,7 @@ def test_accepts_unterminated_final_transcript_line(codex_hook, tmp_path):
 
 
 def test_uses_last_same_turn_assistant_when_stop_text_differs(codex_hook, tmp_path):
-    """Fall back to the last same-turn agent message when Stop text differs."""
+    """Fall back only after the retry window when completed Stop text differs."""
     path = tmp_path / "rollout.jsonl"
     rows = [
         completed("turn-one", "UserMessage", "question"),
@@ -62,11 +62,11 @@ def test_uses_last_same_turn_assistant_when_stop_text_differs(codex_hook, tmp_pa
         "last_assistant_message": "rendered final answer",
         "turn_id": "turn-one",
     }
-    pair = codex_hook.completed_turn(payload, "session")
+    assert codex_hook.completed_turn(payload, "session") == []
+    pair = codex_hook.completed_turn_with_retry(payload, "session", timeout=0)
     assert [message["content"][0]["text"] for message in pair] == ["question", "final answer"]
     payload["last_assistant_message"] = None
-    pair = codex_hook.completed_turn(payload, "session")
-    assert [message["content"][0]["text"] for message in pair] == ["question", "final answer"]
+    assert codex_hook.completed_turn_with_retry(payload, "session", timeout=0) == []
 
 
 def test_does_not_cross_turns_when_turn_id_is_unknown(codex_hook, tmp_path):
@@ -99,8 +99,29 @@ def test_capture_retries_turn_materialization(codex_hook, monkeypatch):
     assert codex_hook.completed_turn_with_retry({}, "session", timeout=0.2) == pair
 
 
-def test_capture_delivers_with_native_session_id(codex_hook, tmp_path):
-    """Deliver with the native session ID rather than the queue hash."""
+def test_capture_waits_for_final_item_instead_of_accepting_phase_less_progress(codex_hook, tmp_path, monkeypatch):
+    """Do not accept a phase-less intermediate item while the final reply may still be pending."""
+    path = tmp_path / "rollout.jsonl"
+    question = completed("turn-one", "UserMessage", "question")
+    progress = completed("turn-one", "AgentMessage", "progress")
+    final = completed("turn-one", "AgentMessage", "final answer")
+    path.write_text("".join(json.dumps(row) + "\n" for row in (question, progress)), encoding="utf-8")
+    payload = {
+        "transcript_path": str(path),
+        "last_assistant_message": "final answer",
+        "turn_id": "turn-one",
+    }
+
+    def append_final(_seconds):
+        path.write_text("".join(json.dumps(row) + "\n" for row in (question, progress, final)), encoding="utf-8")
+
+    monkeypatch.setattr(codex_hook.time, "sleep", append_final)
+    pair = codex_hook.completed_turn_with_retry(payload, "session", timeout=0.2)
+    assert [message["content"][0]["text"] for message in pair] == ["question", "final answer"]
+
+
+def test_capture_preserves_queue_session_id(codex_hook, tmp_path):
+    """Keep the queue hash as the delivered session identity."""
     path = tmp_path / "rollout.jsonl"
     rows = [completed("turn-one", "UserMessage", "question"), completed("turn-one", "AgentMessage", "answer")]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
@@ -113,4 +134,4 @@ def test_capture_delivers_with_native_session_id(codex_hook, tmp_path):
     }
     root = codex_hook.capture(codex_hook.load_config(), payload)
     queued = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
-    assert queued["session_id"] == "codex-01a1766c-4b23-7df3-914c-32d0020e7285"
+    assert queued["session_id"] == root.name
