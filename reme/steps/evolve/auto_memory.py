@@ -320,10 +320,13 @@ class AutoMemoryStep(BaseStep):
                 by_id[msg.id] = msg
             for msg in messages:
                 by_id[msg.id] = msg
-            merged = sorted(by_id.values(), key=lambda m: m.created_at)
+            merged = [_sanitize_msg_for_save(msg) for msg in sorted(by_id.values(), key=lambda m: m.created_at)]
 
+            # An unchanged ID does not imply unchanged persisted content. Compare
+            # sanitized records so identical retries with omitted image/tool data
+            # retain the append fast path, while corrections force a rewrite.
             can_append = 0 < len(existing) <= len(merged) and all(
-                merged[i].id == existing[i].id for i in range(len(existing))
+                merged[i].model_dump() == existing[i].model_dump() for i in range(len(existing))
             )
 
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -333,7 +336,7 @@ class AutoMemoryStep(BaseStep):
                 if new_msgs:
                     async with aiofiles.open(path, "a", encoding="utf-8") as f:
                         for msg in new_msgs:
-                            await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                            await f.write(msg.model_dump_json() + "\n")
                     self.logger.info(
                         f"[{self.name}] save session appended session_id={session_id!r} "
                         f"existing={len(existing)} appended={len(new_msgs)} total={len(merged)}",
@@ -346,7 +349,7 @@ class AutoMemoryStep(BaseStep):
             else:
                 async with aiofiles.open(path, "w", encoding="utf-8") as f:
                     for msg in merged:
-                        await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                        await f.write(msg.model_dump_json() + "\n")
                 self.logger.info(
                     f"[{self.name}] save session rewrote session_id={session_id!r} "
                     f"existing={len(existing)} total={len(merged)}",

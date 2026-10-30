@@ -5,7 +5,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock
 import pytest
 
 from reme.steps.evolve import auto_memory
@@ -197,3 +197,48 @@ async def test_concurrent_append_survives_rewrite_race(step, monkeypatch):
 
     _assert_transcript(step._session_path(_SESSION), ["m0", "m_mid", "m1", "m2"])
     _assert_serialized(interleaving)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("append_new", [False, True])
+@pytest.mark.parametrize("field", ["content", "metadata", "created_at"])
+async def test_existing_message_updates_are_persisted(step, append_new, field):
+    original = _msg("m0", "2026-10-01T10:00:00")
+    await step._save_session_messages(_SESSION, [original])
+    updates = {
+        "content": [TextBlock(text="corrected observation")],
+        "metadata": {"corrected": True},
+        "created_at": "2026-10-01T10:00:30",
+    }
+    corrected = original.model_copy(update={field: updates[field]})
+    messages = [corrected]
+    if append_new:
+        messages.append(_msg("m1", "2026-10-01T10:01:00"))
+
+    await step._save_session_messages(_SESSION, messages)
+
+    saved = [Msg.model_validate_json(line) for line in step._session_path(_SESSION).read_text().splitlines()]
+    assert [message.model_dump() for message in saved] == [message.model_dump() for message in messages]
+
+
+@pytest.mark.asyncio
+async def test_identical_retry_with_sanitized_content_does_not_rewrite(step, monkeypatch):
+    message = _msg("m0", "2026-10-01T10:00:00")
+    message.content.append(DataBlock(source=Base64Source(media_type="image/png", data="aW1hZ2U=")))
+    await step._save_session_messages(_SESSION, [message])
+    original = step._session_path(_SESSION).read_bytes()
+    real_open = auto_memory.aiofiles.open
+    write_modes = []
+
+    def record_open(path, mode="r", **kwargs):
+        if mode in ("a", "w"):
+            write_modes.append(mode)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(auto_memory.aiofiles, "open", record_open)
+    await step._save_session_messages(_SESSION, [message])
+    assert not write_modes
+    assert step._session_path(_SESSION).read_bytes() == original
+    await step._save_session_messages(_SESSION, [message, _msg("m1", "2026-10-01T10:01:00")])
+    assert write_modes == ["a"]
+    assert len(message.content) == 2

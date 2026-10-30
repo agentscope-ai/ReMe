@@ -414,7 +414,7 @@ async def test_history_merge_keeps_main_source_contract(setup, enabled, history)
     elif history == "backfill":
         messages, expected = [older, original], _saved_line(older) + initial
     elif history == "same-id":
-        messages, expected = [replacement], initial
+        messages, expected = [replacement], _saved_line(replacement)
     else:
         messages, expected = [older, replacement], _saved_line(older) + _saved_line(replacement)
     before = [message.model_dump() for message in messages]
