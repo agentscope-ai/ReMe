@@ -77,6 +77,7 @@ jobs:
         file_catalog: dream
         scan_days: 2
         max_units: 5
+        max_chars_per_batch: 40000
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream
@@ -162,11 +163,16 @@ jobs:
           type: integer
           description: "maximum number of extracted memory units"
           default: 5
+        max_chars_per_batch:
+          type: integer
+          description: "estimated bytes of changed file content per extraction call, taken from file size; it excludes prompt overhead and a single oversized file still gets its own call, so it is a batching budget rather than a hard request limit"
+          default: 40000
     steps:
       - backend: dream_extract_step
         file_catalog: dream
         scan_days: 2
         max_units: 5
+        max_chars_per_batch: 40000
       - backend: dream_integrate_step
       - backend: dream_finish_step
         file_catalog: dream

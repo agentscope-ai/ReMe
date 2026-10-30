@@ -27,7 +27,12 @@ from reme.steps.evolve.auto_tag import AutoTagStep
 from reme.steps.evolve.dream.extract import DreamExtractStep
 from reme.steps.evolve.dream.finish import DreamFinishStep
 from reme.steps.evolve.dream.integrate import DreamIntegrateStep, _snapshot_digest
-from reme.steps.evolve.dream.utils import parse_structured_reply, recent_dates, scan_day_files
+from reme.steps.evolve.dream.utils import (  # noqa: E501
+    batch_paths,
+    parse_structured_reply,
+    recent_dates,
+    scan_day_files,
+)
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 
 _MALFORMED_EXTRACT_REPLY = (
@@ -44,10 +49,11 @@ def _touch(path: Path, text: str = "x") -> Path:
 
 
 class _Catalog(BaseFileCatalog):
-    def __init__(self):
+    def __init__(self, nodes=()):
         super().__init__()
         self.upserts = []
         self.dumps = 0
+        self.nodes = list(nodes)
 
     async def upsert(self, nodes):
         self.upserts.extend(nodes)
@@ -56,7 +62,7 @@ class _Catalog(BaseFileCatalog):
         return None
 
     async def get_nodes(self, paths=None):
-        return []
+        return list(self.nodes)
 
     async def dump(self):
         self.dumps += 1
@@ -1032,3 +1038,454 @@ async def test_dream_initializes_started_provider_before_availability_check(tmp_
     finally:
         await agent.close()
         await llm.close()
+
+
+# ---------------------------------------------------------------------------
+# Dream extract batching (#659): oversized material must never be sent in one
+# call, and nothing may be silently dropped.
+# ---------------------------------------------------------------------------
+
+
+def test_batch_paths_partitions_without_dropping(tmp_path):
+    """Every path lands in exactly one batch and same-day files stay together."""
+    day1 = [f"daily/2026-05-28/f{i}.md" for i in range(3)]
+    day2 = [f"daily/2026-05-27/g{i}.md" for i in range(2)]
+    for rel in [*day1, *day2]:
+        _touch(tmp_path / rel, "x" * 1000)
+
+    batches = batch_paths(tmp_path, [*day1, *day2], max_chars=4000)
+
+    assert [sorted(b) for b in batches] == [sorted(day1), sorted(day2)]
+    flat = [rel for batch in batches for rel in batch]
+    assert sorted(flat) == sorted([*day1, *day2])
+    assert len(flat) == len(set(flat))
+
+
+def test_batch_paths_keeps_oversize_file_alone(tmp_path):
+    """A single file larger than the budget gets its own batch, never dropped."""
+    _touch(tmp_path / "daily/2026-05-28/huge.md", "x" * 9000)
+    _touch(tmp_path / "daily/2026-05-28/small.md", "x" * 100)
+
+    batches = batch_paths(
+        tmp_path,
+        ["daily/2026-05-28/huge.md", "daily/2026-05-28/small.md"],
+        max_chars=1000,
+    )
+
+    assert ["daily/2026-05-28/huge.md"] in [list(b) for b in batches]
+    flat = [rel for batch in batches for rel in batch]
+    assert sorted(flat) == ["daily/2026-05-28/huge.md", "daily/2026-05-28/small.md"]
+
+
+async def _run_dream_extract(tmp_path, agent, *, catalog=None, **kwargs):
+    step = DreamExtractStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        agent_wrapper=agent,
+        **kwargs,
+    )
+    with (
+        patch("reme.steps.evolve.dream.extract.refresh_day_index", return_value={}),
+        patch("reme.steps.evolve.dream.extract.llm_available", return_value=True),
+    ):
+        return await step(
+            RuntimeContext(
+                date="2026-05-28",
+                file_catalog=catalog or _Catalog(),
+                file_store=_FileStore(tmp_path),
+            ),
+        )
+
+
+@pytest.mark.asyncio
+async def test_extract_splits_oversized_material_across_calls(tmp_path):
+    """8 changed files must not be packed into a single extraction request."""
+    day1 = [f"daily/2026-05-28/f{i}.md" for i in range(4)]
+    day2 = [f"daily/2026-05-27/g{i}.md" for i in range(4)]
+    for rel in [*day1, *day2]:
+        _touch(tmp_path / rel, "x" * 1000)
+
+    agent = _SequenceAgent({"result": '{"units": []}'}, {"result": '{"units": []}'})
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=4000,
+    )
+
+    assert response.success is True
+    assert agent.calls == 2
+    seen = [rel for message, _kwargs in agent.requests for rel in [*day1, *day2] if rel in message]
+    assert sorted(seen) == sorted([*day1, *day2])
+    assert not response.metadata["dream"]["failed_paths"]
+
+
+@pytest.mark.asyncio
+async def test_extract_bisects_a_failing_batch(tmp_path):
+    """A transport failure splits the batch instead of retrying a larger prompt."""
+    day1 = [f"daily/2026-05-28/f{i}.md" for i in range(2)]
+    for rel in day1:
+        _touch(tmp_path / rel, "x" * 1000)
+
+    agent = _SequenceAgent(
+        RuntimeError("prompt too large"),
+        {"result": '{"units": []}'},
+        {"result": '{"units": []}'},
+    )
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=9000,
+    )
+
+    assert agent.calls == 3
+    assert response.success is True
+    assert not response.metadata["dream"]["failed_paths"]
+
+
+@pytest.mark.asyncio
+async def test_extract_isolates_one_offending_file(tmp_path):
+    """A file that always fails only blocks itself, not the whole run."""
+    day1 = [f"daily/2026-05-28/f{i}.md" for i in range(2)]
+    for rel in day1:
+        _touch(tmp_path / rel, "x" * 1000)
+
+    good = {
+        "result": json.dumps(
+            {
+                "units": [
+                    {
+                        "name": "kept",
+                        "bucket": "wiki",
+                        "summary": "kept unit",
+                        "paths": ["daily/2026-05-28/f0.md"],
+                    },
+                ],
+            },
+        ),
+    }
+    agent = _SequenceAgent(
+        RuntimeError("prompt too large"),
+        good,
+        RuntimeError("engine crashed"),
+    )
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=9000,
+    )
+
+    dream = response.metadata["dream"]
+    assert [u["name"] for u in dream["units"]] == ["kept"]
+    assert dream["failed_paths"] == ["daily/2026-05-28/f1.md"]
+    assert response.success is False
+
+
+@pytest.mark.asyncio
+async def test_extract_merges_same_name_units_across_batches(tmp_path):
+    """The same abstraction surfaced by two batches becomes one unit."""
+    _touch(tmp_path / "daily/2026-05-28/a.md", "x" * 1000)
+    _touch(tmp_path / "daily/2026-05-27/b.md", "x" * 1000)
+
+    first = {
+        "result": json.dumps(
+            {
+                "units": [
+                    {
+                        "name": "ci-submodules",
+                        "bucket": "procedure",
+                        "summary": "short",
+                        "paths": ["daily/2026-05-27/b.md"],
+                    },
+                ],
+            },
+        ),
+    }
+    second = {
+        "result": json.dumps(
+            {
+                "units": [
+                    {
+                        "name": "CI-Submodules",
+                        "bucket": "procedure",
+                        "summary": "a much longer summary",
+                        "paths": ["daily/2026-05-28/a.md"],
+                    },
+                ],
+            },
+        ),
+    }
+    agent = _SequenceAgent(first, second)
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=1200,
+    )
+
+    units = response.metadata["dream"]["units"]
+    assert agent.calls == 2
+    assert len(units) == 1
+    assert units[0]["paths"] == ["daily/2026-05-27/b.md", "daily/2026-05-28/a.md"]
+    assert units[0]["summary"] == "a much longer summary"
+
+
+@pytest.mark.asyncio
+async def test_extract_single_small_input_stays_one_call(tmp_path):
+    """Batching must not change behaviour for inputs that already fit."""
+    _touch(tmp_path / "daily/2026-05-28/only.md", "x" * 100)
+    agent = _SequenceAgent({"result": '{"units": []}'})
+
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=1,
+        max_units=5,
+        max_chars_per_batch=40000,
+    )
+
+    assert response.success is True
+    assert agent.calls == 1
+
+
+class _BatchAwareAgent(BaseAgentWrapper):
+    """Answer whatever batch it receives with units for that batch's own paths."""
+
+    def __init__(self, units_per_path: dict[str, int]):
+        super().__init__()
+        self.units_per_path = units_per_path
+        self.calls = 0
+        self.requests = []
+
+    async def reply(self, _message, **_kwargs):
+        self.calls += 1
+        self.requests.append((_message, _kwargs))
+        units = []
+        for path, count in self.units_per_path.items():
+            if path not in _message:
+                continue
+            units.extend(
+                {
+                    "name": f"{Path(path).stem}-{index}",
+                    "bucket": "wiki",
+                    "summary": f"unit {index} for {path}",
+                    "paths": [path],
+                }
+                for index in range(count)
+            )
+        return {"result": json.dumps({"units": units})}
+
+
+@pytest.mark.asyncio
+async def test_extract_uses_one_unit_budget_across_batches(tmp_path):
+    """Two batches of 3 + 2 units keep all 5 under one global budget.
+
+    Regression for a double subtraction: the loop passed the remaining
+    allowance as the batch cap and ``clean_output`` subtracted the already
+    accepted units again, so later batches were silently truncated to nothing.
+    """
+    first_path = "daily/2026-05-28/a.md"
+    second_path = "daily/2026-05-27/b.md"
+    _touch(tmp_path / first_path, "x" * 1000)
+    _touch(tmp_path / second_path, "x" * 1000)
+
+    agent = _BatchAwareAgent({first_path: 3, second_path: 2})
+
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=1200,
+    )
+
+    units = response.metadata["dream"]["units"]
+    assert agent.calls == 2
+    assert len(units) == 5, sorted(unit["name"] for unit in units)
+
+
+async def _finish_dream(response, catalog):
+    """Run the finish step on the state the extract step produced."""
+    finish = await DreamFinishStep()(
+        RuntimeContext(
+            dream=response.metadata["dream"],
+            file_catalog=catalog,
+        ),
+    )
+    return finish.metadata["dream"]
+
+
+@pytest.mark.asyncio
+async def test_extract_keeps_a_bisected_half_inside_the_same_budget(tmp_path):
+    """Bisection must not hand out an extra allowance on top of the global cap.
+
+    The parent call fails, so the batch is really split: the first child keeps
+    its units and the second is capped by what is left.
+    """
+    first_path = "daily/2026-05-28/a.md"
+    second_path = "daily/2026-05-27/b.md"
+    _touch(tmp_path / first_path, "x" * 1000)
+    _touch(tmp_path / second_path, "x" * 1000)
+
+    agent = _LateFailAgent({first_path: 3, second_path: 2})
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=4,
+        max_chars_per_batch=4000,
+    )
+
+    units = response.metadata["dream"]["units"]
+    assert agent.calls == 3, "the failing parent must really be split into two children"
+    assert len(units) == 4, sorted(unit["name"] for unit in units)
+
+
+@pytest.mark.asyncio
+async def test_extract_defers_batches_that_never_reach_the_model(tmp_path):
+    """A batch skipped after the budget fills must not be checkpointed.
+
+    Regression: the loop broke once ``max_units`` was reached but the unseen
+    paths stayed in ``changed_paths`` and were not marked failed, so the finish
+    step checkpointed files that were never sent to the model and a later scan
+    skipped them.
+    """
+    first_path = "daily/2026-05-28/a.md"
+    second_path = "daily/2026-05-27/b.md"
+    _touch(tmp_path / first_path, "x" * 1000)
+    _touch(tmp_path / second_path, "x" * 1000)
+
+    agent = _BatchAwareAgent({first_path: 5, second_path: 5})
+
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=1200,
+    )
+
+    assert agent.calls == 1
+    sent = agent.requests[0][0]
+    unseen = second_path if first_path in sent else first_path
+    seen = first_path if unseen == second_path else second_path
+
+    dream = await _finish_dream(response, _Catalog())
+
+    assert seen in set(dream["checkpoint_paths"])
+    assert unseen not in set(dream["checkpoint_paths"]), "a file never sent to the model must stay eligible"
+
+
+class _LateFailAgent(_BatchAwareAgent):
+    """Fail the first (whole-batch) call, then answer whatever batch it receives."""
+
+    async def reply(self, _message, **kwargs):
+        if self.calls == 0:
+            self.calls += 1
+            self.requests.append((_message, kwargs))
+            raise RuntimeError("prompt too large")
+        return await super().reply(_message, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_extract_does_not_mark_a_path_skipped_after_a_parent_failure(tmp_path):
+    """A path whose batch never reaches the model must stay rescan-eligible.
+
+    Regression: the whole batch was recorded as processed *before* the agent
+    call, so a failed parent plus a child skipped for budget kept the skipped
+    half marked and the finish step checkpointed a file the model never saw.
+    """
+    first_path = "daily/2026-05-28/a.md"
+    second_path = "daily/2026-05-27/b.md"
+    _touch(tmp_path / first_path, "x" * 1000)
+    _touch(tmp_path / second_path, "x" * 1000)
+
+    agent = _LateFailAgent({first_path: 3, second_path: 3})
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        scan_days=2,
+        max_units=3,
+        max_chars_per_batch=4000,
+    )
+
+    assert agent.calls == 2, "the parent fails once and one child fills the budget"
+    sent = agent.requests[1][0]
+    unseen = second_path if first_path in sent else first_path
+    seen = first_path if unseen == second_path else second_path
+    assert unseen not in response.metadata["dream"]["processed_paths"]
+
+    dream = await _finish_dream(response, _Catalog())
+
+    assert seen in set(dream["checkpoint_paths"])
+    assert unseen not in set(dream["checkpoint_paths"]), "a file never sent to the model must stay eligible"
+    assert unseen in dream["deferred_paths"]
+
+
+@pytest.mark.asyncio
+async def test_finish_defers_the_day_index_of_a_deferred_day(tmp_path):
+    """A deferred day must not get its index upserted into the catalog.
+
+    Regression: ``supplemental`` day indexes bypassed the deferred filter, so a
+    day whose files never reached the model still landed in the catalog and
+    lost its retry eligibility.
+    """
+    first_path = "daily/2026-05-28/a.md"
+    second_path = "daily/2026-05-27/b.md"
+    first_index, second_index = "daily/2026-05-28.md", "daily/2026-05-27.md"
+    _touch(tmp_path / first_path, "x" * 1000)
+    _touch(tmp_path / second_path, "x" * 1000)
+    _touch(tmp_path / first_index, "index")
+    _touch(tmp_path / second_index, "index")
+
+    catalog = _Catalog(
+        [FileNode(path=rel, st_mtime=(tmp_path / rel).stat().st_mtime) for rel in (first_index, second_index)],
+    )
+    agent = _BatchAwareAgent({first_path: 5, second_path: 5})
+    response = await _run_dream_extract(
+        tmp_path,
+        agent,
+        catalog=catalog,
+        scan_days=2,
+        max_units=5,
+        max_chars_per_batch=1200,
+    )
+
+    assert agent.calls == 1, "the first batch fills the budget and the second is deferred"
+    sent = agent.requests[0][0]
+    unseen_day, seen_day = ("2026-05-27", "2026-05-28") if first_path in sent else ("2026-05-28", "2026-05-27")
+
+    dream = await _finish_dream(response, catalog)
+
+    assert any(path.startswith(f"daily/{unseen_day}/") for path in dream["deferred_paths"])
+    upserted = {node.path for node in catalog.upserts}
+    assert f"daily/{seen_day}.md" in upserted
+    assert f"daily/{unseen_day}.md" not in upserted, "a deferred day index must not be upserted"
+
+
+@pytest.mark.asyncio
+async def test_extract_with_zero_budget_defers_every_changed_path(tmp_path):
+    """``max_units=0`` must not look like legacy state and checkpoint everything.
+
+    Regression: with no extraction call at all ``processed_paths`` stayed
+    ``None``, which the finish step read as "state written by an older version"
+    and then checkpointed every changed path although the model never ran.
+    """
+    path, index = "daily/2026-05-28/a.md", "daily/2026-05-28.md"
+    _touch(tmp_path / path, "x" * 1000)
+    _touch(tmp_path / index, "index")
+
+    catalog = _Catalog([FileNode(path=index, st_mtime=(tmp_path / index).stat().st_mtime)])
+    response = await _run_dream_extract(tmp_path, _BatchAwareAgent({path: 1}), catalog=catalog, max_units=0)
+
+    assert response.metadata["dream"]["processed_paths"] == []
+    dream = await _finish_dream(response, catalog)
+
+    assert dream["checkpoint_paths"] == []
+    assert path in dream["deferred_paths"]
+    assert not catalog.upserts, "nothing may be catalogued when the model never ran"

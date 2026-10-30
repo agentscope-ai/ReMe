@@ -24,13 +24,32 @@ class DreamFinishStep(BaseStep):
             raise RuntimeError("dream_finish_step requires file_catalog")
 
         failed_paths = set(state.failed_paths)
-        checkpoint = [p for p in state.changed_paths if p not in failed_paths]
+        processed_paths = None if state.processed_paths is None else set(state.processed_paths)
+        if processed_paths is None:
+            # State written before processed paths were tracked: keep the old
+            # behaviour rather than leaving everything uncheckpointed.
+            checkpoint = [p for p in state.changed_paths if p not in failed_paths]
+            state.deferred_paths = []
+        else:
+            checkpoint = [p for p in state.changed_paths if p in processed_paths and p not in failed_paths]
+            state.deferred_paths = [p for p in state.changed_paths if p not in processed_paths]
         day_index_paths = [f"{state.daily_dir}/{day}.md" for day in (state.dates or [state.date]) if day]
-        supplemental = [p for p in day_index_paths if p and p not in failed_paths]
+        deferred = set(state.deferred_paths)
+        supplemental = []
+        for index_path in day_index_paths:
+            if index_path in failed_paths or index_path in deferred:
+                continue
+            day_prefix = f"{state.daily_dir}/{Path(index_path).stem}/"
+            if any(path.startswith(day_prefix) for path in deferred):
+                # The day's notes were never sent to the model, so its index
+                # must stay out of the catalog and be retried later.
+                continue
+            supplemental.append(index_path)
         upsert_paths = list(dict.fromkeys([*checkpoint, *supplemental]))
         self.logger.info(
             f"[{self.name}] start changed={len(state.changed_paths)} failed_paths={len(state.failed_paths)} "
-            f"checkpoint={len(checkpoint)} day_indexes={len(day_index_paths)} "
+            f"deferred={len(state.deferred_paths)} checkpoint={len(checkpoint)} "
+            f"day_indexes={len(day_index_paths)} "
             f"deleted={len(state.deleted_paths)} persist={self.persist}",
         )
         upserts = self._nodes(workspace, upsert_paths, state.existing)
@@ -93,6 +112,11 @@ def render_summary(state: DreamState) -> str:
         ),
         f"- Catalog: checkpointed {len(state.checkpoint_paths)} changed path(s)",
     ]
+    if state.deferred_paths:
+        lines.append(
+            f"- Deferred: {len(state.deferred_paths)} changed path(s) not sent this run "
+            f"({', '.join(state.deferred_paths)})",
+        )
     if state.nodes_created:
         lines.append(f"- Created: {', '.join(state.nodes_created)}")
     if state.nodes_updated:
