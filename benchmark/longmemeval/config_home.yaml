@@ -1,6 +1,9 @@
-# Preparation only. Paths are relative to the ReMe repository root, not the cwd.
+# Preparation by default; --optimize applies these settings to the prepared workspace.
+# Paths are relative to the ReMe repository root, not the cwd.
 # Preserve dev_meta's fixed training split; groups 6-10 remain held out.
 workspace_dir: benchmark/longmemeval/workspaces/home-groups-1-5
+# Formal optimizer evaluations; charged once the first sandbox starts, excluding init/debug.
+max_validations: 10
 # Policy defaults for Home evaluation; each call still controls sampling=true/false.
 sampling_policy:
   max_cases: 5

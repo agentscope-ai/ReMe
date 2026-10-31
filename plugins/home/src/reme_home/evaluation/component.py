@@ -29,6 +29,7 @@ from ..judge import HomeJudge
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from ..sampling import SamplingPolicy, create_sampling_plan
 from .history import HomeEvaluationHistory
+from .budget import validation_budget_status
 from .repetition import previous_candidate_result
 
 
@@ -85,7 +86,25 @@ class HomeEvaluation(BaseComponent):
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         lock = nullcontext() if spec.debug else _initialization_lock(self.workspace.state_path / "validation.lock")
         with lock:
-            return await self._evaluate(spec)
+            budgeted = spec.max_validations is not None and not spec.debug
+            if budgeted:
+                budget = await blocking(validation_budget_status, self.workspace.home_path, spec.max_validations)
+                if budget["remaining_validations"] < 1:
+                    return {
+                        "status": "rejected",
+                        "error_code": "VALIDATION_BUDGET_EXHAUSTED",
+                        "error": "Optimizer validation budget is exhausted; no sandbox was started.",
+                        "validation_budget": budget,
+                        "result_dir": None,
+                    }
+            result = await self._evaluate(spec)
+            if budgeted:
+                result["validation_budget"] = await blocking(
+                    validation_budget_status,
+                    self.workspace.home_path,
+                    spec.max_validations,
+                )
+            return result
 
     def _prepare(self, spec, environment):
         home = self.workspace.home_path

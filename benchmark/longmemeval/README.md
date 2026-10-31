@@ -137,6 +137,27 @@ The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`
 `home.evaluation` Component. It still only prepares; it does not run evaluations.
 Each evaluation controls `sampling` and `record_history` separately.
 
+The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
+advisory time between completed formal evaluations. It defaults to 150 minutes;
+set a positive number to change it or null to disable timed reminders.
+
+The top-level `max_validations` sets the optimizer's formal-evaluation budget
+(positive integer, default 10). A slot is consumed at first sandbox startup,
+including later failures or cancellations; initial baseline and debug are excluded.
+
+After preparation, run local one-shot optimization with the same configuration:
+
+```bash
+python benchmark/longmemeval/run_home.py --optimize
+# Use the same --config and --workspace-dir overrides as preparation, if supplied.
+python benchmark/longmemeval/run_home.py --optimize --instruction "Improve retrieval quality"
+```
+
+This starts a fresh application, applies both budgets and the sampling policy,
+runs `home_optimize`, and closes the application. It does not repeat preparation.
+Python callers can use `await optimize(config_path, workspace_dir=...)` from the
+same module. The default `run()` and CLI behavior remain preparation only.
+
 Python callers can use the same lifecycle:
 
 ```python

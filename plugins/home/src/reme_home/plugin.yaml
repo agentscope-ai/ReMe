@@ -1,4 +1,8 @@
 backends:
+  home_optimizer_agent: reme_home.agent.optimizer:OptimizerAgentWrapper
+  home_diagnose_step: reme_home.agent.diagnostic:HomeDiagnoseStep
+  home_optimize_step: reme_home.agent.optimizer:HomeOptimizeStep
+  home_workflow_agent: reme_home.agent.wrapper:CaseStudyAgentWrapper
   home_case_study_step: reme_home.agent.case_study:HomeCaseStudyStep
   home_case_study_agent: reme_home.agent.wrapper:CaseStudyAgentWrapper
   home_trace_query_evidence_step: reme_home.evaluation.evidence_step:HomeTraceQueryEvidenceStep
@@ -20,6 +24,30 @@ backends:
 application_defaults:
   components:
     as_llm:
+      home_optimizer:
+        backend: ${LLM_BACKEND:-openai}
+        model: qwen3.8-max
+        stream: false
+        context_size: 160000
+        max_retries: 3
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
+      home_diagnostic:
+        backend: ${LLM_BACKEND:-openai}
+        model: qwen3.8-max
+        stream: false
+        context_size: 128000
+        max_retries: 3
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
       home_case_study:
         backend: ${LLM_BACKEND:-openai}
         model: qwen3.7-max
@@ -33,6 +61,22 @@ application_defaults:
           max_tokens: 65536
           thinking_enable: false
     agent_wrapper:
+      home_optimizer:
+        backend: home_optimizer_agent
+        max_validations: 10
+        as_llm: home_optimizer
+        validation_cycle_time_budget_minutes: 150
+        context_config:
+          trigger_ratio: 0.85
+          reserve_ratio: 0.15
+        react_config:
+          max_iters: 3000
+      home_diagnostic:
+        backend: home_workflow_agent
+        as_llm: home_diagnostic
+        time_budget_minutes: 60
+        react_config:
+          max_iters: 80
       home_case_study:
         backend: home_case_study_agent
         as_llm: home_case_study
@@ -64,6 +108,41 @@ application_defaults:
       default:
         backend: home_workspace
   jobs:
+    home_diagnose:
+      backend: base
+      description: "Diagnose explicit evaluation runs with a fresh read-only agent; aggregate case studies and return evidence-supported root causes without prescribing fixes"
+      parameters:
+        type: object
+        additionalProperties: false
+        required: [evaluation_paths]
+        properties:
+          evaluation_paths:
+            type: array
+            minItems: 1
+            uniqueItems: true
+            items: {type: string, minLength: 1}
+            description: "Explicit evaluation result directories, absolute or relative to home/"
+          instruction:
+            type: string
+            minLength: 1
+            description: "Diagnostic question or suspected regression"
+      steps:
+        - backend: home_diagnose_step
+          agent_wrapper: home_diagnostic
+    home_optimize:
+      backend: base
+      description: "Check or run the full initial baseline, then diagnose, edit, commit, debug and evaluate candidates; verify the final clean checkout against saved formal evidence"
+      parameters:
+        type: object
+        additionalProperties: false
+        properties:
+          instruction:
+            type: string
+            minLength: 1
+            description: "Optimization focus; runtime, selection and sandbox settings are host-owned"
+      steps:
+        - backend: home_optimize_step
+          agent_wrapper: home_optimizer
     home_case_study:
       backend: base
       description: "Investigate up to eight evaluation cases concurrently with a shared focus; each case uses a fresh read-only sandboxed agent and returns its own report or error in input order"
@@ -227,6 +306,10 @@ application_defaults:
             description: "Stop on the first failure; defaults to debug (false for scored runs, true for debug)"
           max_construction_failure_rate: {type: number, minimum: 0, maximum: 1}
           max_artifact_bytes: {type: integer, minimum: 1}
+          max_validations:
+            type: [integer, "null"]
+            minimum: 1
+            description: "Optional host formal-evaluation budget; optimizer injects its configured limit"
       steps:
         - backend: home_evaluate_step
     home_prepare:

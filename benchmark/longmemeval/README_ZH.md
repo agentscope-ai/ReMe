@@ -125,6 +125,23 @@ Python 中也可调用 `await benchmark.longmemeval.run_home.run(workspace_dir=.
 `home.evaluation` Component，仍只准备、不执行评测；每次评测分别控制 `sampling`
 和 `record_history`。
 
+顶层 `validation_cycle_time_budget_minutes` 配置宿主 optimizer 两次已完成正式评测之间的
+建议用时，默认 150 分钟；可改为其他正数，或设为 null 关闭时间提醒。
+
+顶层 `max_validations` 配置 optimizer 的正式评测次数预算，必须为正整数，默认 10。
+首次成功启动 sandbox 时扣一次，之后失败或取消也不退还；初始 baseline 和 debug 不计入。
+
+准备完成后，用同一份配置进行本地一次性优化：
+
+```bash
+python benchmark/longmemeval/run_home.py --optimize
+```
+
+若准备时指定了 `--config` 或 `--workspace-dir`，优化时传入相同参数。
+可用 `--instruction "优化检索质量"` 指定目标。该入口将配置中的两个预算和采样策略
+应用到实际 `home_optimize` 调用，不重复准备；Python 可调用同模块的 `await optimize(...)`。
+不加 `--optimize` 时仍只准备。
+
 默认使用 `dev_meta` 已保存的 **group_1–group_5，共 250 个 case**，
 ID 已按原顺序直接写入 [config_home.yaml](config_home.yaml) 的 `benchmark.case_ids`，
 运行时无需读取分组文件，group_6–group_10 保持为留出集。

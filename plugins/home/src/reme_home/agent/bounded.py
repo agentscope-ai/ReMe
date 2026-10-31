@@ -116,7 +116,8 @@ def _format_minutes(minutes: float) -> str:
     """Format a timer duration compactly."""
 
     if minutes < 1:
-        return f"{max(0, round(minutes * 60))} seconds"
+        seconds = max(0, round(minutes * 60))
+        return f"{seconds} {'second' if seconds == 1 else 'seconds'}"
     rounded = round(minutes, 1)
     value = int(rounded) if rounded.is_integer() else rounded
     unit = "minute" if value == 1 else "minutes"

@@ -838,3 +838,150 @@ reme home_case_study evaluation_path=evaluations/candidate/abcdef0/1 'case_ids=[
 Calls with `_allowed_paths` restrictions fail closed, as other Home artifact
 Jobs do. Structured inspection tools run in the host with their existing
 containment checks; only Bash/Python subprocesses run inside the OS sandbox.
+
+## Diagnostic and optimizer agents
+
+`home_diagnose` and `home_optimize` provide the minimal Meta-ReMe workflow using
+Home's existing Jobs. Enable Home with a benchmark judge and prepare the
+workspace first. Start the configured service in one terminal:
+
+```bash
+reme start config=/absolute/path/to/home.yaml
+```
+
+Call from another terminal:
+
+```bash
+reme home_diagnose 'evaluation_paths=["evaluations/init/abcdef0/1"]' 'instruction=Explain the lowest-scoring cases'
+reme home_optimize 'instruction=Improve evidence retrieval while reducing query tokens'
+```
+
+Diagnosis requires explicit, unique result directories, including failed runs
+with saved evidence. Each call creates a fresh diagnostic agent, delegates deep
+case investigation to `home_case_study`, and returns ranked, evidence-supported
+causes without prescribing fixes. An optimizer invocation automatically injects
+its available caller messages and compression summary; the model cannot supply
+or override that trajectory. Standalone calls record an empty trajectory.
+Reports and trajectories are saved under `home/logs/diagnostic-reports/` and
+`home/logs/diagnostic-trajectories/` with their evidence paths and session IDs.
+
+Optimization reuses a completed full initial baseline covering every prepared
+training case and query, with no infrastructure errors. Otherwise it runs that
+baseline first, requiring clean `init` to be checked out. It never switches away
+from an existing candidate to repair a missing baseline. Baseline observations
+feed sampling history. Candidate execution failures retain Home's existing
+failure thresholds; low scores are valid evidence. Infrastructure failures stop
+baseline startup and are distinguished from candidate defects during iteration.
+
+The optimizer diagnoses, edits declared `candidate_paths`, commits through
+managed Git Jobs, runs debug until execution passes, then evaluates using the
+host's adaptive sampling policy. Formal evaluations always rebuild memory.
+The agent cannot change execution settings, selections, sampling mode, or
+construction reuse through its evaluation tool; only `debug` is model-selected.
+Normal `home_evaluate` callers retain their existing interface and replay support.
+Unchanged candidates and infrastructure retries follow the existing repetition
+rules. There is no admission gate, architecture agent,
+construction-equivalence reviewer, or query-only optimizer policy in this workflow.
+
+Both agents share the case-study OS sandbox implementation. All file tools,
+Bash and Python use it, including file metadata and Edit/Write checks. Evidence,
+fixed runtime and Git metadata are read-only. Each call receives a private
+scratch directory under `home/tmp/`; only the optimizer additionally receives
+writes to declared candidate roots. Network is denied. Diagnostic writes are
+limited to scratch. Host Jobs alone write reports, evaluation artifacts and Git
+metadata. Sandbox startup is probed before model calls and never falls back to
+unrestricted execution. Declared write roots must exist and remain real paths.
+Only one optimizer can run per Home workspace; cancellation releases its lock
+after nested tool cleanup. Separate diagnostic calls and case studies may run
+concurrently with fresh state.
+
+The final optimizer response must identify `branch_name`, full `commit_sha`,
+`evaluation_path` and `report`. The host verifies a clean checkout at that exact
+branch/commit and a matching completed, scored, end-to-end evaluation without
+infrastructure failures. Sampled formal evidence qualifies; debug or query-only
+evidence does not. Keeping the initial baseline is valid. Invalid final claims
+fail while preserving changes and the raw report in
+`home/logs/optimization-reports/`. The host verifies provenance rather than
+ranking candidates by a single average score.
+
+Dedicated `as_llm` and `agent_wrapper` components are named `home_optimizer` and
+`home_diagnostic`; override them through ordinary application configuration.
+Both default to `qwen3.8-max`, with context sizes 160,000 and 128,000, respectively.
+The optimizer has 3,000 iterations and a 150-minute advisory validation-cycle timer;
+configure `components.agent_wrapper.home_optimizer.validation_cycle_time_budget_minutes`
+(null disables timed reminders). The previous `time_budget_minutes` setting is a
+fallback when the cycle setting is absent. Diagnosis retains 80 iterations and
+a 60-minute whole-invocation timer. Neither timer enforces a time limit.
+
+The optimizer follows dev_meta b53048e4: before reasoning it checks 50%, 75%, 90%,
+then 100% and each additional 10% of the cycle budget. Reminders include elapsed
+time, budget percentage, completed context compressions and guidance to finish
+editing, commit, pass the smoke test and begin validation. Temporary and durable
+reminders alternate, beginning with temporary. The cycle includes nested diagnosis,
+debug and evaluation time. Only a new counted formal evaluation returning
+`success` or `completed` resets the clock, thresholds, alternation and compression
+count; scores and candidate failures do not control reset. As in dev_meta, a
+completed result can reset even when its case results contain infrastructure errors;
+an incomplete failure, rejected call, cancellation, debug or pre-sandbox failure
+cannot. The initial full baseline precedes the first optimizer cycle and is excluded
+from its formal-validation numbering. A durable hint records the completed
+validation number and commit prefix, expires that cycle's old timer reminders and
+announces the next cycle with the remaining formal-validation count.
+Persisted old reminders are retained as in dev_meta.
+Hints use AgentScope's current reply message so accumulated token usage is retained.
+Evaluation tools queue transitions in request state; the optimizer injects them
+before the next reasoning call, after all tool results have been written. Thus a
+transition never separates an API tool call from its matching result.
+
+`components.agent_wrapper.home_optimizer.max_validations` defaults to 10, matching
+dev_meta. `get_validation_budget` reports consumed and remaining slots, the search
+phase and next-candidate guidance. A non-init formal run consumes one slot when
+its first sandbox initializes successfully, including runs that later fail or are
+cancelled. Initial baselines, debug, rejected calls and pre-start failures are free.
+Accounting reuses persistent started-run evidence and survives optimizer restarts;
+removing the rebuildable sampling cache does not restore the budget. The evaluator
+checks the limit while holding the formal-validation lock, before starting another
+run. At exhaustion it returns `VALIDATION_BUDGET_EXHAUSTED`; the optimizer selects
+from existing evidence. The first `max_validations // 2` starts favor structural
+exploration; later starts favor evidence-driven refinement. This guidance is advisory.
+Ordinary `home_evaluate` calls remain unbounded unless the host supplies
+`max_validations`; all recorded non-init formal starts in that workspace count.
+
+Sessions and model usage follow ReMe's wrapper conventions; each nested call reports its own usage.
+The optimizer follows dev_meta's compression recovery policy. Recoverable model
+or summary-output failures leave context intact below the emergency ratio
+`(trigger_ratio + 1) / 2`. At or above that ratio (90% for an 80% trigger), old
+messages are atomically saved under `logs/context-offloads/`; recent context and
+the existing summary are retained, with a reminder pointing to the readable JSON
+file. This fallback makes no additional model call and counts as one completed
+compression. Cancellation, invalid configuration and uncompressible system prompts
+still propagate during normal operation. Diagnostic and case-study agents retain
+their existing compression behavior. Bounded draft notebook tools are not included.
+
+Host-only execution settings belong in the optimizer Step; model, iteration and
+timer settings belong in its wrapper. For example:
+
+```yaml
+jobs:
+  home_optimize:
+    steps:
+      - backend: home_optimize_step
+        agent_wrapper: home_optimizer
+        evaluation_options:
+          concurrency: 4
+          timeout_seconds: 7200
+          max_construction_failure_rate: 0.03
+        # memory_limit_mib: 0
+components:
+  agent_wrapper:
+    home_optimizer:
+      react_config:
+        max_iters: 3000
+      validation_cycle_time_budget_minutes: 150
+      max_validations: 10
+```
+
+`evaluation_options` also accepts `base_image`, `fail_fast` and
+`max_artifact_bytes`. Omit `fail_fast` to retain Home's debug/scored defaults.
+Restricted `_allowed_paths` calls fail closed. No real model or Docker benchmark
+is required by the isolated workflow tests.

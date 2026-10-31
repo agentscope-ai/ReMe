@@ -39,6 +39,9 @@ class HomeEvaluateStep(BaseStep):
             self.context.response.metadata["result_dir"] = str(error.path)
             return self.context.response
         self.context.response.answer = result
+        if result.get("status") == "rejected":
+            self.context.response.success = False
+            return self.context.response
         # Candidate failures are evaluation observations; infrastructure failures
         # must remain visible to ordinary Job callers checking Response.success.
         self.context.response.success = result["case_status_counts"]["infra_error"] == 0
