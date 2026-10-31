@@ -8,6 +8,7 @@ on:
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
       - 'pyproject.toml'
+      - 'plugins/procedure-memory/**'
       - 'README.md'
       - 'reme/**'
       - 'plugins/home/**'
@@ -21,6 +22,7 @@ on:
       - '.github/workflows/_build-python-packages.yml'
       - '.github/workflows/release-python.yml'
       - 'pyproject.toml'
+      - 'plugins/procedure-memory/**'
       - 'README.md'
       - 'reme/**'
       - 'plugins/home/**'
@@ -40,3 +42,42 @@ jobs:
   distributions:
     name: Build and verify distributions
     uses: ./.github/workflows/_build-python-packages.yml
+
+  procedure-memory-minimum-core:
+    name: Procedure memory / minimum released core
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.11'
+
+      - name: Install plugin against its minimum released core
+        run: |
+          MINIMUM_CORE="$(python - <<'PY'
+          import tomllib
+          from pathlib import Path
+
+          config = tomllib.loads(Path("plugins/procedure-memory/pyproject.toml").read_text())
+          requirement, = config["project"]["dependencies"]
+          assert requirement.startswith("reme-ai>=")
+          print(requirement.replace(">=", "==", 1))
+          PY
+          )"
+          python -m pip install "${MINIMUM_CORE}" 'reme-ai[as]' ./plugins/procedure-memory
+
+      - name: Load installed plugin outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -I - <<'PY'
+          from reme.plugin import PluginManager
+          from reme_procedure_memory.token_budget import TokenBudget
+
+          manager = PluginManager.discover(["procedure-memory"])
+          assert len(manager.plugins[0].backends) == 7
+          assert TokenBudget(counter=len).count("smoke") == 5
+          PY
