@@ -146,7 +146,7 @@ class SourceCandidate:
     """
 
     snapshot: SourceSnapshot
-    base_image: str = "reme-benchmark-base:agentscope-2.0.9"
+    base_image: str = "reme-benchmark-base:agentscope-2.0.10"
     install_projects: tuple[str, ...] = (".",)
 
     def __post_init__(self) -> None:

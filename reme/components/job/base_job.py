@@ -13,23 +13,43 @@ if TYPE_CHECKING:
     from ...steps import BaseStep
 
 
-def _describe_exception(exc: BaseException) -> str:
-    """Render an exception and its causes without dropping empty messages."""
-    parts: list[str] = []
+def _exception_chain(exc: BaseException):
+    """Walk explicit causes or unsuppressed contexts without following cycles."""
     current: BaseException | None = exc
     seen: set[int] = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        message = str(current).strip()
-        name = type(current).__name__
-        parts.append(f"{name}: {message}" if message else name)
+        yield current
         if current.__cause__ is not None:
             current = current.__cause__
         elif not current.__suppress_context__:
             current = current.__context__
         else:
             current = None
+
+
+def _describe_exception(exc: BaseException) -> str:
+    """Render an exception and its causes without dropping empty messages."""
+    parts = []
+    for current in _exception_chain(exc):
+        message = str(current).strip()
+        name = type(current).__name__
+        parts.append(f"{name}: {message}" if message else name)
     return " <- ".join(parts)
+
+
+def _exception_details(exc: BaseException) -> dict:
+    """Expose classification fields only, without requests, headers or bodies."""
+    chain = []
+    for current in _exception_chain(exc):
+        details = {"type": type(current).__name__, "module": type(current).__module__}
+        status = getattr(current, "status_code", None)
+        if not isinstance(status, int):
+            status = getattr(getattr(current, "response", None), "status_code", None)
+        if isinstance(status, int) and not isinstance(status, bool):
+            details["status_code"] = status
+        chain.append(details)
+    return {**chain[0], "causes": chain[1:]}
 
 
 @R.register("base")
@@ -103,4 +123,5 @@ class BaseJob(BaseComponent):
             self.logger.exception(f"Failed to execute job: {e}")
             context.response.success = False
             context.response.answer = _describe_exception(e)
+            context.response.metadata["reme.job_error"] = _exception_details(e)
         return context.response

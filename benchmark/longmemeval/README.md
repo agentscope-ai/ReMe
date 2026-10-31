@@ -108,3 +108,69 @@ agentscope==2.0.4.post1, conda reme env, 32 workers, eval-only (reusing prebuilt
 | single-session-user | 0.986 | 27,433 | 359 | 27,792 | 2.60 |
 | temporal-reasoning | 0.902 | 62,674 | 985 | 63,659 | 4.97 |
 | **OVERALL** | **0.894** | **43,448** | **876** | **44,324** | **3.69** |
+
+
+## Prepare a Home experiment
+
+`run_home.py` prepares the fixed **group_1–group_5** training split (250 cases), the workspace, and committed candidate
+code. It exits after preparation; it does not evaluate cases or start optimization.
+Run from the repository root after obtaining the dataset described above:
+
+```bash
+reme plugins install plugins/home
+python benchmark/longmemeval/run_home.py
+# Optional separate workspace (a successful preparation cannot be repeated):
+python benchmark/longmemeval/run_home.py --workspace-dir /path/to/new-workspace
+```
+
+[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
+repository-relative regardless of the current working directory; `--config`
+accepts an alternative runner YAML file. The default workspace is
+`benchmark/longmemeval/workspaces/home-groups-1-5`. The evaluated runtime loads `lme`;
+the host application loads `home`. `source_ref: HEAD` exports committed source
+only, excluding uncommitted modifications. Preparation failure rolls back its
+outputs; after success, another call fails instead of resetting the experiment.
+
+The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
+`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
+`uniform_exploration`. The runner validates these and passes them to the host
+`home.evaluation` Component. It still only prepares; it does not run evaluations.
+Each evaluation controls `sampling` and `record_history` separately.
+
+The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
+advisory time between completed formal evaluations. It defaults to 150 minutes;
+set a positive number to change it or null to disable timed reminders.
+
+The top-level `max_validations` sets the optimizer's formal-evaluation budget
+(positive integer, default 10). A slot is consumed at first sandbox startup,
+including later failures or cancellations; initial baseline and debug are excluded.
+
+After preparation, run local one-shot optimization with the same configuration:
+
+```bash
+python benchmark/longmemeval/run_home.py --optimize
+# Use the same --config and --workspace-dir overrides as preparation, if supplied.
+python benchmark/longmemeval/run_home.py --optimize --instruction "Improve retrieval quality"
+```
+
+This starts a fresh application, applies both budgets and the sampling policy,
+runs `home_optimize`, and closes the application. It does not repeat preparation.
+Python callers can use `await optimize(config_path, workspace_dir=...)` from the
+same module. The default `run()` and CLI behavior remain preparation only.
+
+Python callers can use the same lifecycle:
+
+```python
+from benchmark.longmemeval.run_home import run
+
+result = await run(workspace_dir="/path/to/new-workspace")
+```
+
+The 250 `benchmark.case_ids` in [config_home.yaml](config_home.yaml) are copied
+in order from groups 1–5 of `dataset/groups.json` at `dev_meta` commit
+`b53048e44833937df80a52fccceea78d054790e8`. The original splitter used seed 42
+and type-stratified allocation into ten 50-case groups; groups 6–10 remain held
+out. The runner reads the IDs directly from YAML without loading group files.
+[home_evidence_sessions.jsonl](home_evidence_sessions.jsonl) is a byte-for-byte
+copy of that revision's `dataset/longmemeval_evidence_sessions.jsonl`;
+reviewed evidence-session annotations are preserved during normalization.

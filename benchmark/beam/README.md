@@ -135,3 +135,60 @@ Memory Construction average token consumption (default agent, full build over 35
 | Agent | input tok/case | output tok/case | total tok/case |
 |---|---|---|---|
 | default | 31,943,817 | 1,417,061 | 33,360,878 |
+
+
+## Prepare a Home experiment
+
+`run_home.py` prepares all BEAM **100K** cases, the workspace, and committed candidate
+code. It exits after preparation; it does not evaluate cases or start optimization.
+Run from the repository root after obtaining the dataset described above:
+
+```bash
+reme plugins install plugins/home
+python benchmark/beam/run_home.py
+# Optional separate workspace (a successful preparation cannot be repeated):
+python benchmark/beam/run_home.py --workspace-dir /path/to/new-workspace
+```
+
+[config_home.yaml](config_home.yaml) controls the preparation. Its paths are
+repository-relative regardless of the current working directory; `--config`
+accepts an alternative runner YAML file. The default workspace is
+`benchmark/beam/workspaces/home-100K`. The evaluated runtime loads `beam`;
+the host application loads `home`. `source_ref: HEAD` exports committed source
+only, excluding uncommitted modifications. Preparation failure rolls back its
+outputs; after success, another call fails instead of resetting the experiment.
+
+The top-level `sampling_policy` configures Home evaluation defaults: `max_cases`,
+`max_queries` (null means unlimited), `temperature`, `ewma_alpha` and
+`uniform_exploration`. The runner validates these and passes them to the host
+`home.evaluation` Component. It still only prepares; it does not run evaluations.
+Each evaluation controls `sampling` and `record_history` separately.
+
+The top-level `validation_cycle_time_budget_minutes` configures the host optimizer's
+advisory time between completed formal evaluations. It defaults to 150 minutes;
+set a positive number to change it or null to disable timed reminders.
+
+The top-level `max_validations` sets the optimizer's formal-evaluation budget
+(positive integer, default 10). A slot is consumed at first sandbox startup,
+including later failures or cancellations; initial baseline and debug are excluded.
+
+After preparation, run local one-shot optimization with the same configuration:
+
+```bash
+python benchmark/beam/run_home.py --optimize
+# Use the same --config and --workspace-dir overrides as preparation, if supplied.
+python benchmark/beam/run_home.py --optimize --instruction "Improve retrieval quality"
+```
+
+This starts a fresh application, applies both budgets and the sampling policy,
+runs `home_optimize`, and closes the application. It does not repeat preparation.
+Python callers can use `await optimize(config_path, workspace_dir=...)` from the
+same module. The default `run()` and CLI behavior remain preparation only.
+
+Python callers can use the same lifecycle:
+
+```python
+from benchmark.beam.run_home import run
+
+result = await run(workspace_dir="/path/to/new-workspace")
+```

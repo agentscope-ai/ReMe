@@ -774,7 +774,7 @@ class FakeBackend:
             output = json.dumps(
                 {
                     "reme": "/workspace/candidate/reme/__init__.py",
-                    "agentscope": "2.0.9",
+                    "agentscope": "2.0.10",
                     "plugins": {"lme": "/workspace/candidate/plugins/lme/src/reme_lme/__init__.py"},
                 },
             ).encode()

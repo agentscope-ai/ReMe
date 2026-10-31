@@ -225,3 +225,55 @@ async def test_real_docker_prebuilt_image(base_image, tmp_path):
         assert not _container_exists(container_name)
     finally:
         _docker("image", "rm", image)
+
+
+@pytest.mark.asyncio
+async def test_real_docker_preserves_caught_job_errors(base_image, tmp_path):
+    """Structured errors survive BaseJob capture and the container JSON boundary."""
+    source = _candidate_source(tmp_path)
+    (source / "reme/steps/smoke_failure.py").write_text(
+        "from reme.steps.base_step import BaseStep\n"
+        "from reme.components.component_registry import R\n"
+        '@R.register("smoke_failure_step")\n'
+        "class SmokeFailureStep(BaseStep):\n"
+        "    async def execute(self):\n"
+        '        if self.context.get("wrapped"):\n'
+        "            try:\n"
+        '                raise TimeoutError("model timed out")\n'
+        "            except TimeoutError as error:\n"
+        '                raise RuntimeError("model call failed") from error\n'
+        '        raise ValueError("candidate error")\n',
+        encoding="utf-8",
+    )
+    with (source / "reme/steps/__init__.py").open("a", encoding="utf-8") as stream:
+        stream.write("\nfrom . import smoke_failure\n")
+    (source / "smoke.yaml").write_text(
+        SMOKE_CONFIG + "\n  smoke_failure:\n    backend: base\n    steps:\n      - backend: smoke_failure_step\n",
+        encoding="utf-8",
+    )
+    factory = DockerReMeSandboxFactory(
+        SourceCandidate(SourceSnapshot.from_directory(source), base_image=base_image),
+        config="/workspace/candidate/smoke.yaml",
+    )
+    async with await factory.create_case("error-smoke") as case:
+        build = await case.run_build([JobRequest("smoke_failure", {"wrapped": True})])
+        assert not build["success"]
+        error = build["jobs"][0]["result"]["exception"]
+        assert error["type"] == "RuntimeError"
+        assert error["causes"] == [{"type": "TimeoutError", "module": "builtins"}]
+        queries = await case.run_queries(
+            [
+                EvaluationQuery("code-error", "fail", None, answer_job="smoke_failure"),
+                EvaluationQuery(
+                    "infra-error",
+                    "fail",
+                    None,
+                    answer_job="smoke_failure",
+                    answer_arguments={"wrapped": True},
+                ),
+            ],
+        )
+        assert not queries["success"]
+        for row, name in zip(queries["queries"], ["ValueError", "RuntimeError"], strict=True):
+            assert row["exception"]["type"] == name
+            assert row["exception"] == row["answer_result"]["metadata"]["reme.job_error"]

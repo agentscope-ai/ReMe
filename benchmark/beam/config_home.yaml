@@ -1,0 +1,29 @@
+# Preparation by default; --optimize applies these settings to the prepared workspace.
+# Paths are relative to the ReMe repository root, not the cwd.
+workspace_dir: benchmark/beam/workspaces/home-100K
+# Formal optimizer evaluations; charged once the first sandbox starts, excluding init/debug.
+max_validations: 10
+# Target minutes between completed formal optimizer evaluations; null disables timed reminders.
+validation_cycle_time_budget_minutes: 150
+# Policy defaults for Home evaluation; each call still controls sampling=true/false.
+sampling_policy:
+  max_cases: 5
+  max_queries: null
+  temperature: 1.0
+  ewma_alpha: 0.3
+  uniform_exploration: 0.2
+preparation:
+  benchmark:
+    name: beam
+    source: benchmark/beam/dataset/BEAM
+    variant: 100K
+    all_cases: true
+  runtime:
+    source_repo: .
+    source_ref: HEAD  # Committed source only; resolved and saved as a full SHA.
+    config: benchmark.yaml
+    plugins: [beam]
+  debug:
+    enabled: true
+    sessions_per_case: 3
+    messages_per_session: 6

@@ -1,5 +1,5 @@
 # Build from repository root:
-# docker build -f deploy/benchmark_docker/Dockerfile.base -t reme-benchmark-base:agentscope-2.0.9 .
+# docker build -f deploy/benchmark_docker/Dockerfile.base -t reme-benchmark-base:agentscope-2.0.10 .
 FROM python:3.11-slim
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -18,7 +18,7 @@ RUN mkdir reme \
     && printf '__version__ = "0.0.0"\n' > reme/__init__.py \
     && python -m pip install '.[core]' \
     && python -m pip uninstall -y reme-ai \
-    && python -c 'import agentscope; assert agentscope.__version__ == "2.0.9"' \
+    && python -c 'import agentscope; assert agentscope.__version__ == "2.0.10"' \
     && rm -rf /tmp/reme-dependencies
 
 WORKDIR /workspace

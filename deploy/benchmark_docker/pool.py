@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
@@ -30,6 +31,7 @@ class CasePlan:
     export_workspace_to: str | Path | None = None
     export_build_log_to: str | Path | None = None
     export_evaluation_to: str | Path | None = None
+    export_diagnostics_to: str | Path | None = None
 
 
 @dataclass(slots=True)
@@ -42,6 +44,8 @@ class CaseResult:
     workspace_snapshot: Path | None = None
     build_log: str | None = None
     error: str | None = None
+    failure_stage: str | None = None
+    exception: dict[str, Any] | None = None
 
     @property
     def success(self) -> bool:
@@ -79,7 +83,14 @@ class BenchmarkDockerPool:
         self.factory = factory
         self.concurrency = concurrency
 
-    async def run(self, plans: list[CasePlan]) -> list[CaseResult]:
+    async def run(
+        self,
+        plans: list[CasePlan],
+        *,
+        on_case_finished: Callable[[CasePlan, CaseResult], Awaitable[None]] | None = None,
+        accept_build: Callable[[dict[str, Any]], bool] | None = None,
+        fail_fast: bool = False,
+    ) -> list[CaseResult]:
         """Return results in input order, closing every container on exit."""
         if not plans:
             return []
@@ -105,8 +116,7 @@ class BenchmarkDockerPool:
                 # a container. The graph check above rules out deadlocks.
                 tasks: dict[str, asyncio.Task[CaseResult]] = {}
 
-                async def execute(plan: CasePlan) -> CaseResult:
-                    result = CaseResult(plan.case_id)
+                async def execute(plan: CasePlan, result: CaseResult) -> CaseResult:
                     source = plan.workspace_source
                     if plan.reuse_workspace_from is not None:
                         parent = await tasks[plan.reuse_workspace_from]
@@ -121,43 +131,83 @@ class BenchmarkDockerPool:
                         return CaseResult(plan.case_id, error=slots.exhaustion_error)
                     worker_results.setdefault(id(worker), []).append(result)
 
+                    operation = "prepare"
                     try:
                         await worker.reset_case(plan.case_id)
                         if source is not None:
+                            operation = "restore"
                             await worker.upload_workspace(source)
                         if plan.build_jobs:
+                            operation = "construction"
                             try:
                                 result.build = await worker.run_build(list(plan.build_jobs))
                             except Exception as exc:
                                 result.error = format_error(exc)
+                                result.failure_stage = operation
+                                result.exception = {"type": type(exc).__name__, "module": type(exc).__module__}
                                 await self._retain_failed_build_log(worker, plan, result)
                                 return result
-                            if not result.build.get("success"):
+                            accepted = accept_build(result.build) if accept_build else result.build.get("success")
+                            if not accepted:
                                 result.error = "build failed"
+                                result.failure_stage = operation
                                 await self._retain_failed_build_log(worker, plan, result)
                                 return result
                             if plan.export_build_log_to is not None:
+                                operation = "artifacts"
                                 await worker.export_build_log(plan.export_build_log_to)
                         # Capture before queries, since answering may change the
                         # workspace. Dependents receive construction state.
                         if plan.export_workspace_to is not None or plan.case_id in reused_case_ids:
+                            operation = "artifacts"
                             destination = plan.export_workspace_to or snapshot_root / f"{plan.case_id}.tar.gz"
                             result.workspace_snapshot = await worker.export_workspace(destination)
                         if plan.queries:
+                            operation = "answer"
                             result.queries = await worker.run_queries(list(plan.queries))
                             if not result.queries.get("success"):
                                 result.error = "query failed"
+                                result.failure_stage = operation
                         if plan.export_evaluation_to is not None:
+                            operation = "artifacts"
                             await worker.export_evaluation(plan.export_evaluation_to)
                         return result
                     except Exception as exc:  # Keep other cases running and release this worker.
                         result.error = format_error(exc)
+                        result.failure_stage = operation
+                        result.exception = {"type": type(exc).__name__, "module": type(exc).__module__}
                         return result
                     finally:
+                        if result.error and plan.export_diagnostics_to is not None and worker.reusable:
+                            try:
+                                await worker.export_full(plan.export_diagnostics_to)
+                            except Exception as exc:
+                                result.error += f"; diagnostic export failed: {format_error(exc)}"
                         await self._release_worker(worker, result, slots)
 
+                async def run_plan(plan: CasePlan) -> CaseResult:
+                    result = CaseResult(plan.case_id)
+                    try:
+                        result = await execute(plan, result)
+                    except asyncio.CancelledError:
+                        result.error = result.error or "interrupted"
+                        raise
+                    finally:
+                        if on_case_finished is not None:
+                            await on_case_finished(plan, result)
+                    failed = not result.success
+                    if accept_build is not None and result.build is not None:
+                        failed = (
+                            result.error is not None
+                            or not accept_build(result.build)
+                            or (result.queries is not None and not result.queries.get("success"))
+                        )
+                    if fail_fast and failed:
+                        raise RuntimeError(f"case {plan.case_id!r} failed: {result.error or 'execution failed'}")
+                    return result
+
                 for plan in plans:
-                    tasks[plan.case_id] = asyncio.create_task(execute(plan))
+                    tasks[plan.case_id] = asyncio.create_task(run_plan(plan))
                 try:
                     results = await asyncio.gather(*(tasks[plan.case_id] for plan in plans))
                 finally:

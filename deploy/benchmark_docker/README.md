@@ -2,14 +2,18 @@
 
 This package runs ReMe benchmark jobs directly inside isolated AgentScope
 Docker workspaces. It does not start the ReMe HTTP service. Use AgentScope
-**2.0.9** on the host and in the image.
+**2.0.10** on the host and in the image.
+
+Rebuild the base image when upgrading from the previous AgentScope 2.0.9 image;
+existing images must also use 2.0.10 to pass candidate validation. New runs use
+the `reme-benchmark-base:agentscope-2.0.10` tag by default, including Home evaluations.
 
 From the repository root:
 
 ```bash
 pip install -e '.[benchmark-docker]'
 docker build -f deploy/benchmark_docker/Dockerfile.base \
-  -t reme-benchmark-base:agentscope-2.0.9 .
+  -t reme-benchmark-base:agentscope-2.0.10 .
 ```
 
 `SourceCandidate` uploads an immutable source snapshot and installs the root
@@ -57,6 +61,18 @@ case's workspace **as it stood immediately after construction**, or provide
 `workspace_source` pointing at a host workspace directory or a saved archive.
 A reused workspace may be queried without additional build jobs.
 `export_workspace_to` persists a portable snapshot beyond the pool run.
+`run(..., on_case_finished=callback)` awaits an async `(plan, result)` callback
+after each case releases its worker, allowing incremental host-side persistence
+and judging. Final worker-close errors can still be attached afterward; reconcile
+returned results before publishing a completed summary. Callback errors abort the
+batch and trigger worker cleanup. `fail_fast=True` stops the batch on an execution
+failure. An optional `accept_build` predicate allows trusted callers to define
+partial-build acceptance; the default requires successful construction.
+`CasePlan.export_diagnostics_to` requests a best-effort full archive on execution
+failure before resetting a still-accessible worker. Interrupted containers may
+only retain a cached build log; failed diagnostic export never replaces the
+original error. `CaseResult.failure_stage` and `exception` identify execution
+failures separately from ordinary structured build/query results.
 To build memory once and query it in later runs using the same factory:
 
 ```python
@@ -137,6 +153,6 @@ explicitly enabled:
 REME_DOCKER_INTEGRATION=1 pytest tests/integration/test_benchmark_docker.py -v
 ```
 
-The host must have AgentScope 2.0.9 and a working Docker daemon. To use an
+The host must have AgentScope 2.0.10 and a working Docker daemon. To use an
 already built base image, set `REME_BENCHMARK_TEST_IMAGE` to its tag; the tests
 do not remove a caller-supplied image.
