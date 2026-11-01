@@ -24,6 +24,30 @@ backends:
 application_defaults:
   components:
     as_llm:
+      home_construction_equivalence:
+        backend: ${LLM_BACKEND:-openai}
+        model: qwen3.8-max
+        stream: false
+        context_size: 128000
+        max_retries: 3
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
+      home_candidate_gate:
+        backend: ${LLM_BACKEND:-openai}
+        model: qwen3.8-max
+        stream: false
+        context_size: 128000
+        max_retries: 3
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        parameters:
+          max_tokens: 65536
+          thinking_enable: false
       home_optimizer:
         backend: ${LLM_BACKEND:-openai}
         model: qwen3.8-max
@@ -61,6 +85,16 @@ application_defaults:
           max_tokens: 65536
           thinking_enable: false
     agent_wrapper:
+      home_construction_equivalence:
+        backend: home_workflow_agent
+        as_llm: home_construction_equivalence
+        react_config:
+          max_iters: 100
+      home_candidate_gate:
+        backend: home_workflow_agent
+        as_llm: home_candidate_gate
+        react_config:
+          max_iters: 60
       home_optimizer:
         backend: home_optimizer_agent
         max_validations: 10
@@ -276,7 +310,7 @@ application_defaults:
         - backend: home_inspect_validation_step
     home_evaluate:
       backend: base
-      description: "Evaluate changed committed code; unchanged scored candidates are rejected, except same-commit infrastructure retries. Optionally sample cases/queries or restore prior construction tar files"
+      description: "Evaluate committed code; sampled/budgeted runs automatically review construction equivalence and select 60% replay when unchanged. Unchanged scored candidates are rejected, except infrastructure retries"
       parameters:
         type: object
         additionalProperties: false
@@ -309,7 +343,7 @@ application_defaults:
           max_validations:
             type: [integer, "null"]
             minimum: 1
-            description: "Optional host formal-evaluation budget; optimizer injects its configured limit"
+            description: "Host formal-evaluation budget; early new candidates pass admission review; optimizer injects its limit"
       steps:
         - backend: home_evaluate_step
     home_prepare:

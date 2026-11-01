@@ -232,8 +232,9 @@ is no `eval_only` toggle. Every selected case must have a successful constructio
 and a compatible, checksum-verified tar; any missing/invalid case rejects the
 entire request without silently skipping or rebuilding it. Query-only replay
 uses current candidate code over the donor's memory, not donor answers/scores.
-The caller must establish construction equivalence when choosing reuse; this
-Job does not invoke a code-equivalence review agent. Runs record both commits.
+For explicit `reuse_construction_from`, the caller must establish construction
+equivalence. Automatic sampled/budgeted selection instead invokes the host's
+equivalence reviewer and 60% replay policy. Runs record both commits.
 
 Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`:
 
@@ -875,13 +876,95 @@ baseline startup and are distinguished from candidate defects during iteration.
 
 The optimizer diagnoses, edits declared `candidate_paths`, commits through
 managed Git Jobs, runs debug until execution passes, then evaluates using the
-host's adaptive sampling policy. Formal evaluations always rebuild memory.
+host's adaptive sampling policy. The host automatically chooses whether to
+rebuild memory or replay compatible construction snapshots, as described below.
 The agent cannot change execution settings, selections, sampling mode, or
 construction reuse through its evaluation tool; only `debug` is model-selected.
 Normal `home_evaluate` callers retain their existing interface and replay support.
 Unchanged candidates and infrastructure retries follow the existing repetition
-rules. There is no admission gate, architecture agent,
-construction-equivalence reviewer, or query-only optimizer policy in this workflow.
+rules. There is no architecture agent in this workflow.
+
+Sampled or budgeted formal evaluations automatically find the nearest ancestor
+commit with a completed scored training run and reusable construction snapshots.
+The host checks dataset/runtime/config/model fingerprints, archive integrity,
+successful source answers and the existing 5% construction-failure limit. Invalid
+sources are skipped while looking for an older usable ancestor. The
+`home_construction_equivalence` agent compares the exact source and candidate
+commits. If construction is unchanged, the host draws once: 60% query-only replay,
+40% full construction and evaluation. Changed or uncertain construction always
+rebuilds. Substantive changes to `auto_memory.py` or its YAML/hyphenated variants
+conservatively force rebuilding without a model call, matching dev_meta.
+
+The optimizer cannot request query-only evaluation, choose a source, alter the
+probability or bypass review. Its evaluation tool still exposes only `debug`.
+Baseline and debug always rebuild; ordinary unsampled, unbudgeted calls and
+explicit host `reuse_construction_from` calls retain their existing interfaces.
+Replay sampling stays within reusable source cases and may select new queries
+from those cases. Full rebuild sampling considers all prepared cases. An
+infrastructure retry preserves the previous mode, source and frozen selection
+without another review or probability draw. Both full and automatically reviewed
+query-only results can support the optimizer's final selection; the initial
+baseline must still be full and cover all cases/queries.
+
+The equivalence agent receives one read-only export under
+`home/tmp/construction-equivalence-*/`: both pinned source trees, their complete
+diff, a copy of the fixed runtime and configuration, and only the chosen source's
+pre-query construction workspaces, build logs and minimal construction metadata.
+Git metadata is removed from exported workspaces. It cannot read live code,
+datasets, query results, scores, other evaluations, optimizer trajectory or host
+logs. Read, Glob, Grep and Bash all use the OS sandbox; there are no writable
+paths, Home Job tools or network access. Reports are host-written under
+`home/logs/construction-equivalence/`. Temporary exports, including partial copies,
+are deleted when review finishes, fails or is cancelled. Reports retain commit and
+source-evaluation provenance; `source_path` records the temporary location used
+during review and is no longer available afterward. Model or malformed-report failures are
+recorded and force a full rebuild; sandbox setup failure stops evaluation.
+Reviewer shell commands receive an explicit minimal environment instead of
+inheriting host model credentials or other environment values.
+Cancellation propagates, and a branch/commit change during review fails before
+sampling or spending a validation slot.
+
+Evaluation manifests and responses retain `automatic_construction_reuse`,
+including source/base/candidate commits, the equivalence report and, when drawn,
+the probability, random draw and selected mode. Configure the reviewer through
+`components.as_llm.home_construction_equivalence` (default `qwen3.8-max`, 128,000
+context tokens) and
+`components.agent_wrapper.home_construction_equivalence.react_config.max_iters`
+(default 100). Optional
+`components.home.evaluation.default.construction_equivalence_memory_limit_mib`
+uses the existing OS sandbox memory-limit contract.
+
+During the first `max_validations // 2` non-init formal starts, a fresh
+`home_candidate_gate` agent reviews each new candidate before sampling or starting
+an evaluation sandbox. It compares the candidate with its nearest previously
+evaluated ancestor (falling back to `init`). It accepts runtime mechanism changes
+and concrete execution, safety or contract fixes; it rejects prompt/parameter-only
+tuning, cosmetic changes and dead code during this early exploration phase.
+Ambiguous evidence is accepted. Baselines, debug, infrastructure retries and later
+refinement bypass admission. Ordinary unbudgeted `home_evaluate` calls remain
+ungated; supplying `max_validations` enables the same admission policy.
+
+The reviewer receives only read-only source exports of the two exact commits and
+their complete diff under `home/tmp/candidate-gate-*/`. Its Read, Glob, Grep and
+Bash tools all use the OS sandbox, with no writable project paths or network.
+The live candidate repository, Git metadata, fixed runtime, datasets, evaluations,
+logs and optimizer trajectory are not granted. It cannot invoke Home Jobs.
+Sandbox setup failure stops evaluation; model or malformed-report failures are
+recorded and allow evaluation, following dev_meta's admission fallback policy.
+Cancellation propagates. A candidate branch/commit change during review requires
+a retry rather than evaluating unreviewed code.
+
+`CANDIDATE_GATE_REJECTED` returns the reason and review path without drawing a
+sample, allocating evaluation artifacts or spending a validation slot. Host-written
+reports under `home/logs/candidate-gates/` retain both commits, decision, reason,
+session and usage; accepted reviews are also linked from evaluation manifests.
+Source exports, including partial copies, are deleted on completion, failure or
+cancellation; the report's `source_path` records their former temporary location.
+Configure the model via `components.as_llm.home_candidate_gate` and the 60-iteration
+default via `components.agent_wrapper.home_candidate_gate.react_config.max_iters`.
+The model defaults to `qwen3.8-max` with a 128,000-token context. Optional
+`components.home.evaluation.default.candidate_gate_memory_limit_mib` uses the
+existing OS sandbox memory-limit contract.
 
 Both agents share the case-study OS sandbox implementation. All file tools,
 Bash and Python use it, including file metadata and Edit/Write checks. Evidence,
@@ -898,8 +981,9 @@ concurrently with fresh state.
 The final optimizer response must identify `branch_name`, full `commit_sha`,
 `evaluation_path` and `report`. The host verifies a clean checkout at that exact
 branch/commit and a matching completed, scored, end-to-end evaluation without
-infrastructure failures. Sampled formal evidence qualifies; debug or query-only
-evidence does not. Keeping the initial baseline is valid. Invalid final claims
+infrastructure failures. Sampled formal evidence and host-selected,
+construction-equivalent query-only evidence qualify; debug evidence does not.
+Keeping the initial baseline is valid. Invalid final claims
 fail while preserving changes and the raw report in
 `home/logs/optimization-reports/`. The host verifies provenance rather than
 ranking candidates by a single average score.

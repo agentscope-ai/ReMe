@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import shutil
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -128,6 +129,8 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
     )
     set_model(app, "home_diagnostic", diagnostic)
     set_model(app, "home_case_study", ScriptedModel())
+    gate = ScriptedModel(final='{"decision":"accept","reason":"Changes runtime behavior."}')
+    set_model(app, "home_candidate_gate", gate)
     optimizer = TimedModel(
         [
             ("get_validation_budget", {}),
@@ -168,6 +171,8 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
     assert "sampled coverage" in response.answer["report"]
     assert read_json(Path(response.metadata["optimization_report_path"]))["status"] == "completed"
     assert len(diagnostic.calls) == 2
+    assert len(gate.calls) == 1
+    assert read_json(next((home / "logs/candidate-gates").glob("*.json")))["decision"] == "accept"
     source = next((home / "logs/diagnostic-trajectories").glob("*.json"))
     trace = read_json(source)
     assert trace["session_id"] and any("Improve general retrieval" in str(msg) for msg in trace["messages"])
@@ -435,6 +440,16 @@ async def test_metadata_link_rejected_before_opening_any_lock(app, prepared, tmp
 
 @pytest.mark.asyncio
 async def test_workflow_sandbox_enforces_read_write_and_git_boundaries(tmp_path):
+    if sys.platform.startswith("linux"):
+        sandbox_command = "bwrap"
+    elif sys.platform == "darwin":
+        sandbox_command = "sandbox-exec"
+    else:
+        pytest.skip(f"No file sandbox backend for {sys.platform}")
+        return
+    if shutil.which(sandbox_command) is None:
+        pytest.skip(f"Sandbox boundary test requires {sandbox_command} on PATH")
+
     home = tmp_path / "home"
     repo = home / "repo"
     candidate = repo / "src"

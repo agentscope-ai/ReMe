@@ -1,6 +1,7 @@
 """Bounded navigation of immutable Git objects, independent of the checkout."""
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -45,6 +46,32 @@ def blob(repository: Path, oid: str) -> bytes:
     if int(git(repository, "cat-file", "-s", oid)) > MAX_FILE_BYTES:
         raise ValueError("Code file exceeds 5 MB; narrow the path")
     return git_bytes(repository, "cat-file", "blob", oid)
+
+
+def export_blob(repository: Path, oid: str, destination: Path) -> None:
+    """Stream a raw Git blob to a new export file, independently of browsing limits."""
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    with destination.open("xb") as output:
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "core.hooksPath=" + os.devnull,
+                "-c",
+                "core.fsmonitor=false",
+                "-C",
+                str(repository),
+                "cat-file",
+                "blob",
+                oid,
+            ],
+            stdout=output,
+            stderr=subprocess.PIPE,
+            check=True,
+            env=environment,
+            timeout=120,
+        )
 
 
 def list_code_tree(

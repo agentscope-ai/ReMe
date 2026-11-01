@@ -267,10 +267,32 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         "success": True,
         "mode": "scored",
         "dataset_kind": "training-set",
-        "execution_mode": "full_validation",
     }
     if any(manifest.get(key) != value for key, value in required.items()):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
+    mode = manifest.get("execution_mode")
+    if mode != "full_validation":
+        reuse = manifest.get("automatic_construction_reuse", {})
+        report = reuse.get("equivalence_report", {})
+        source = manifest.get("construction_source", {})
+        if baseline or not all(
+            (
+                mode == "query_only_replay",
+                reuse.get("selected") is True,
+                reuse.get("policy") == "automatic_60_percent",
+                reuse.get("candidate_commit") == commit,
+                reuse.get("branch_name") == manifest.get("branch_name"),
+                report.get("candidate_commit") == commit,
+                report.get("decision") == "construction_unchanged",
+                bool(source.get("commit_sha")),
+                bool(source.get("result_dir")),
+                report.get("base_commit") == reuse.get("base_commit"),
+                source.get("commit_sha") == report.get("base_commit"),
+                source.get("result_dir") == report.get("source_validation"),
+                source.get("result_dir") == reuse.get("source_validation"),
+            ),
+        ):
+            raise ValueError("Query-only evidence requires host-selected, construction-equivalent replay")
     if (
         not manifest.get("sandbox_started_at")
         or not summary.get("case_count")
@@ -366,7 +388,7 @@ def validation_budget_tool(home, max_validations):
 
 
 def evaluation_tool(wrapper, options, *, home, timer=None, max_validations=10):
-    """Only debug mode is model-selected; all formal runs rebuild construction."""
+    """Only debug mode is model-selected; the host decides construction replay."""
     job = required_job(wrapper, "home_evaluate")
     validate_max_validations(max_validations)
 

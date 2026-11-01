@@ -163,6 +163,12 @@ async def prepared_home(app, inputs, monkeypatch):
     # Run the real judge Job and Step; mock only its model-facing wrapper.
     wrapper = app.context.components["agent_wrapper"]["judge"]
     monkeypatch.setattr(wrapper, "reply", AsyncMock(return_value={"result": '{"score": 0.5}'}))
+    reviewer = app.context.components["agent_wrapper"]["home_construction_equivalence"]
+    monkeypatch.setattr(
+        reviewer,
+        "reply",
+        AsyncMock(return_value={"result": '{"decision":"construction_changed","reason":"Fixture rebuild"}'}),
+    )
     return Path(app.config.workspace_dir) / "home"
 
 

@@ -187,6 +187,7 @@ class WorkflowSandbox(BackendBase):
             read_only_paths=self.scope["read_only_paths"],
             writable_paths=self.scope["writable_paths"],
             memory_limit_mib=self.memory_limit_mib,
+            **({"clean_environment": True} if self.scope.get("clean_environment") else {}),
         )
 
     async def getcwd(self):

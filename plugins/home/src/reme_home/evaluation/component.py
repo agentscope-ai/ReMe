@@ -10,7 +10,7 @@ from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSan
 
 from reme.components.base_component import BaseComponent
 
-from ..preparation.data.models import fingerprint, utc_now
+from ..preparation.data.models import utc_now
 from .adapters import accepts_build, build_jobs, evaluation_query
 from .artifacts import (
     contained,
@@ -31,6 +31,7 @@ from ..sampling import SamplingPolicy, create_sampling_plan
 from .history import HomeEvaluationHistory
 from .budget import validation_budget_status
 from .repetition import previous_candidate_result
+from .reuse import automatic_reuse, construction_fingerprints, reuse_context
 
 
 async def blocking(function, *args, **kwargs):
@@ -49,12 +50,16 @@ class HomeEvaluation(BaseComponent):
     component_type = "home.evaluation"
 
     def __init__(self, sampling_policy: dict | None = None, **kwargs):
+        from ..agent.wrapper import BoundedAgentWrapper
+
         if "sampling" in kwargs:
             raise ValueError("Use sampling_policy for Component defaults; sampling is a Job boolean")
         super().__init__(**kwargs)
         self.workspace = self.bind("default", HomeWorkspace, optional=False)
         self.judge = self.bind("default", HomeJudge, optional=False)
         self.history = self.bind("default", HomeEvaluationHistory, optional=False)
+        self.candidate_gate = self.bind("home_candidate_gate", BoundedAgentWrapper, optional=False)
+        self.construction_equivalence = self.bind("home_construction_equivalence", BoundedAgentWrapper, optional=False)
         self._pending: set[asyncio.Task] = set()
         self.sampling_policy = SamplingPolicy.model_validate(sampling_policy if sampling_policy is not None else {})
 
@@ -97,7 +102,41 @@ class HomeEvaluation(BaseComponent):
                         "validation_budget": budget,
                         "result_dir": None,
                     }
-            result = await self._evaluate(spec)
+            admission = None
+            if budgeted and budget["used_validations"] < budget["gated_validation_count"]:
+                from ..agent.candidate_gate import admission_context, review_candidate
+
+                with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    context = await blocking(admission_context, self.workspace.home_path)
+                if context is not None:
+                    admission = await review_candidate(
+                        self.candidate_gate,
+                        self.workspace.home_path,
+                        context,
+                        budget,
+                        memory_limit_mib=self.kwargs.get("candidate_gate_memory_limit_mib"),
+                    )
+                    if admission["decision"] == "reject":
+                        return {
+                            "status": "rejected",
+                            "error_code": "CANDIDATE_GATE_REJECTED",
+                            "error": admission["reason"],
+                            "candidate_gate": admission,
+                            "validation_budget": budget,
+                            "result_dir": None,
+                        }
+            reuse = None
+            if not spec.debug and spec.reuse_construction_from is None and (spec.sampling or budgeted):
+                environment = {**os.environ, **self.app_context.app_config.environment}
+                with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+                    prepared = await blocking(reuse_context, self.workspace.home_path, spec, environment)
+                reuse = await automatic_reuse(
+                    self.construction_equivalence,
+                    self.workspace.home_path,
+                    prepared,
+                    memory_limit_mib=self.kwargs.get("construction_equivalence_memory_limit_mib"),
+                )
+            result = await self._evaluate(spec, admission, reuse)
             if budgeted:
                 result["validation_budget"] = await blocking(
                     validation_budget_status,
@@ -106,13 +145,22 @@ class HomeEvaluation(BaseComponent):
                 )
             return result
 
-    def _prepare(self, spec, environment):
+    def _prepare(self, spec, environment, admission=None, reuse=None):
         home = self.workspace.home_path
         recovery_plan = None
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         with _initialization_lock(self.workspace.state_path / "workspace.lock"):
+            if reuse is not None and reuse["selected"]:
+                spec = spec.model_copy(update={"reuse_construction_from": reuse["source_validation"]})
             record, dataset, cases = load_inputs(home, spec)
             snapshot, commit, branch = snapshot_code(home, record)
+            if admission is not None and (commit, branch) != (
+                admission["candidate_commit"],
+                admission["branch_name"],
+            ):
+                raise ValueError("Candidate changed during admission review; retry evaluation on the reviewed commit")
+            if reuse is not None and (commit, branch) != (reuse["candidate_commit"], reuse["branch_name"]):
+                raise ValueError("Candidate changed during equivalence review; retry evaluation on the reviewed commit")
             previous = None if spec.debug else previous_candidate_result(home, commit)
             if previous is not None:
                 manifest = read_json(contained(home, previous / "manifest.json"))
@@ -165,20 +213,7 @@ class HomeEvaluation(BaseComponent):
                             },
                         ),
                     )
-            fingerprints = {
-                "dataset": dataset.normalized_fingerprint,
-                "construction_config": fingerprint(
-                    {
-                        "runtime": record["code"]["runtime_fingerprint"],
-                        "config": record["code"]["config"],
-                        "plugins": record["code"]["plugins"],
-                        "image": spec.base_image,
-                        "models": {
-                            k: v for k, v in environment.items() if "MODEL" in k and "KEY" not in k and "JUDGE" not in k
-                        },
-                    },
-                ),
-            }
+            fingerprints = construction_fingerprints(record, dataset, spec, environment)
             source, archives = reuse_inputs(home, spec, cases, fingerprints)
             # Validate adapters before allocating results or starting containers.
             jobs = {case.case_id: build_jobs(dataset.dataset, case) for case in cases} if source is None else {}
@@ -229,9 +264,9 @@ class HomeEvaluation(BaseComponent):
             write_json(run / "manifest.json", manifest)
             return run
 
-    async def _evaluate(self, spec):
+    async def _evaluate(self, spec, admission=None, reuse=None):
         environment = {**os.environ, **self.app_context.app_config.environment}
-        prepared = await blocking(self._prepare, spec, environment)
+        prepared = await blocking(self._prepare, spec, environment, admission, reuse)
         record, dataset, cases, snapshot, commit, branch, fingerprints, source, archives, jobs, sampling_plan = prepared
         judge = None if spec.debug else self.judge
         run = None
@@ -256,6 +291,10 @@ class HomeEvaluation(BaseComponent):
             }
             if source is not None:
                 manifest["construction_source"] = source
+            if admission is not None:
+                manifest["candidate_gate"] = admission
+            if reuse is not None:
+                manifest["automatic_construction_reuse"] = reuse
             run = self._allocate(branch, commit, manifest)
             plans = []
             for case in cases:
@@ -373,6 +412,8 @@ class HomeEvaluation(BaseComponent):
                 "execution_mode": manifest["execution_mode"],
                 "record_history": spec.record_history and not spec.debug,
                 "status": "completed",
+                **({"candidate_gate": admission} if admission is not None else {}),
+                **({"automatic_construction_reuse": reuse} if reuse is not None else {}),
                 **{key: value for key, value in summary.items() if key != "cases"},
             }
         except BaseException as error:

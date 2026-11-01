@@ -34,9 +34,10 @@ class CaseStudySandbox:
 
     os_name = "posix"
 
-    def __init__(self, backend, environment):
+    def __init__(self, backend, environment, *, clean_environment=False):
         self.backend = backend
         self.environment = dict(environment)
+        self.clean_environment = clean_environment
 
     async def getcwd(self):
         """Preserve the backend's contained working directory."""
@@ -47,16 +48,22 @@ class CaseStudySandbox:
         if not command:
             raise ValueError("command must not be empty")
         return await self.backend.exec_shell(
-            ["/usr/bin/env", *[f"{name}={value}" for name, value in self.environment.items()], *command],
+            [
+                "/usr/bin/env",
+                *(["-i"] if self.clean_environment else []),
+                *[f"{name}={value}" for name, value in self.environment.items()],
+                *command,
+            ],
             cwd=cwd,
             timeout=timeout,
         )
 
 
-def create_case_study_sandbox(*, read_only_paths, **kwargs):
+def create_case_study_sandbox(*, read_only_paths, clean_environment=False, **kwargs):
     """Explicitly grant Home's Git runtime while preserving core isolation and resource limits."""
     roots = list(read_only_paths)
-    developer = _developer_directory()
+    # Pinned review exports require no Git executable or developer-tree access.
+    developer = None if clean_environment else _developer_directory()
     if developer and not any(Path(developer).is_relative_to(root) for root in roots):
         roots.append(developer)
     binary_paths = [str(Path(sys.prefix) / "bin"), str(Path(sys.base_prefix) / "bin")]
@@ -72,5 +79,7 @@ def create_case_study_sandbox(*, read_only_paths, **kwargs):
     }
     if developer:
         environment["DEVELOPER_DIR"] = developer
+    if clean_environment:
+        environment["HOME"] = str(kwargs["cwd"])
     backend = create_file_sandbox_backend(read_only_paths=roots, **kwargs)
-    return CaseStudySandbox(backend, environment)
+    return CaseStudySandbox(backend, environment, clean_environment=clean_environment)
