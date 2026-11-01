@@ -16,7 +16,10 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
 )
+
+pytestmark = pytest.mark.usefixtures("rebuild_review")
 
 
 def seed_history(home, keys):

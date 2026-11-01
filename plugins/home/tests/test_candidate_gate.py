@@ -6,8 +6,10 @@ import asyncio
 from pathlib import Path
 import sys
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.model import ChatUsage, StructuredResponse
 from agentscope.tool import LocalBackend
 from reme_home.agent import candidate_gate, workflow_common
 from reme_home.evaluation.artifacts import read_json
@@ -20,6 +22,8 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
+    os_sandbox_available,
 )
 from test_workflows import ScriptedModel, set_model
 
@@ -99,6 +103,7 @@ async def test_gate_before_sampling_preserves_budget_and_pins_code(app, prepared
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("rebuild_review")
 async def test_baseline_debug_unbudgeted_and_late_phase_skip_gate(app, prepared, monkeypatch):
     async def unexpected(*args, **kwargs):
         raise AssertionError("Gate must be skipped")
@@ -162,6 +167,29 @@ async def test_model_failure_allows_validation_with_saved_diagnostics(app, prepa
 
 
 @pytest.mark.asyncio
+async def test_corrected_gate_rejects_before_spending_budget(app, prepared, sandbox):
+    commit_candidate(prepared)
+    model = ScriptedModel(final="Reject this candidate: only prompt tuning.")
+    model.generate_structured_output = AsyncMock(
+        return_value=StructuredResponse(
+            content={"decision": "reject", "reason": "Only prompt tuning"},
+            usage=ChatUsage(input_tokens=7, output_tokens=11, time=0),
+        ),
+    )
+    set_model(app, "home_candidate_gate", model)
+    response = await app.run_job("home_evaluate", max_validations=10)
+    assert not response.success
+    assert response.answer["error_code"] == "CANDIDATE_GATE_REJECTED"
+    report = read_json(Path(response.answer["candidate_gate"]["review_path"]))
+    assert report["decision"] == "reject" and "review_failed" not in report
+    assert report["usage"]["input_tokens"] == 9 and report["usage"]["output_tokens"] == 14
+    assert report["session_id"] and not Path(report["source_path"]).exists()
+    assert validation_budget_status(prepared, 10)["used_validations"] == 0
+    assert not FakeFactory.instances
+    model.generate_structured_output.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_sandbox_setup_failure_never_calls_model_or_evaluates(app, prepared, monkeypatch):
     commit_candidate(prepared)
     model = ScriptedModel()
@@ -214,6 +242,7 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("os_sandbox_available")
 async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(app, prepared, tmp_path):
     commit_candidate(prepared)
     context = candidate_gate.admission_context(prepared)

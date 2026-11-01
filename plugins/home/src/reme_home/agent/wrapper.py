@@ -11,6 +11,7 @@ from reme.components.as_llm import BaseAsLLM
 
 from ..judge import HomeJudge
 from .bounded import BoundedReActAgent, RunTimeBudgetTimer
+from .structured_report import StructuredReportAgent
 
 
 class BoundedAgentWrapper(AsAgentWrapper):
@@ -24,6 +25,9 @@ class BoundedAgentWrapper(AsAgentWrapper):
     def _create_agent(self, *, options: dict[str, Any], **kwargs: Any) -> BoundedReActAgent:
         budget = options.get("time_budget_minutes")
         timer = None if budget is None else RunTimeBudgetTimer(budget, agent_label=self.name)
+        report_model = options.get("_structured_report_model")
+        if report_model is not None:
+            return StructuredReportAgent(report_model=report_model, run_time_budget_timer=timer, **kwargs)
         return BoundedReActAgent(run_time_budget_timer=timer, **kwargs)
 
 

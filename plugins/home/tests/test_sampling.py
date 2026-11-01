@@ -18,7 +18,10 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
 )
+
+pytestmark = pytest.mark.usefixtures("rebuild_review")
 
 
 def cases():
@@ -277,6 +280,7 @@ async def test_replay_sampling_is_limited_to_donor_cases(app, prepared):
     # The next full rebuild must see the entire training set again.
     commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=True)
+    assert response.success, response.answer
     manifest = json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
     plan = json.loads((prepared / manifest["sampling"]["plan_path"]).read_text())
     assert set(plan["case_draw_weights"]) == {"1", "2"} and plan["eligibility"] is None

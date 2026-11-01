@@ -100,6 +100,7 @@ async def _review_construction(wrapper, home, context, scope, memory_limit_mib):
             session_id=None,
             fork_session=False,
             output_schema=None,
+            _structured_report_model=ConstructionEquivalenceReport,
             permission_mode="bypass",
         )
         report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})

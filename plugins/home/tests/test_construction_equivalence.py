@@ -11,6 +11,7 @@ from types import MethodType, SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from agentscope.model import ChatUsage, StructuredResponse
 from agentscope.tool import LocalBackend
 from reme_home.agent import candidate_gate, construction_equivalence, optimizer, workflow_common
 from reme_home.code.snapshot import read_code_file
@@ -26,6 +27,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    os_sandbox_available,
 )
 from test_workflows import ScriptedModel, final_report, set_model
 
@@ -54,6 +56,30 @@ def real_reviewer(app, prepared, monkeypatch):
 
 def force_draw(monkeypatch, draw):
     monkeypatch.setattr(reuse.random, "SystemRandom", lambda: SimpleNamespace(random=lambda: draw))
+
+
+@pytest.mark.asyncio
+async def test_corrected_equivalence_authorizes_replay(app, prepared, reviewer, sandbox, monkeypatch):
+    assert (await app.run_job("home_evaluate")).success
+    commit_candidate(prepared)
+    model = ScriptedModel(final="Construction is unchanged: only query behavior changes.")
+    model.generate_structured_output = AsyncMock(
+        return_value=StructuredResponse(
+            content={"decision": "construction_unchanged", "reason": "Only query behavior changes"},
+            usage=ChatUsage(input_tokens=7, output_tokens=11, time=0),
+        ),
+    )
+    set_model(app, "home_construction_equivalence", model)
+    force_draw(monkeypatch, 0.1)
+    response = await app.run_job("home_evaluate", sampling=True)
+    assert response.success, response.answer
+    assert response.answer["execution_mode"] == "query_only_replay"
+    report = response.answer["automatic_construction_reuse"]["equivalence_report"]
+    assert report["decision"] == "construction_unchanged" and "review_failed" not in report
+    assert report["usage"]["input_tokens"] == 9 and report["usage"]["output_tokens"] == 14
+    assert read_json(Path(report["review_path"]))["session_id"]
+    assert not Path(report["source_path"]).exists()
+    model.generate_structured_output.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -509,6 +535,7 @@ async def test_optimizer_final_selection_accepts_automatic_replay(app, prepared,
 
 
 @pytest.mark.asyncio
+@pytest.mark.usefixtures("os_sandbox_available")
 async def test_real_equivalence_sandbox_allows_only_copied_construction_and_source(
     app,
     prepared,

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from agentscope.message import ToolResultState
 from reme_home.evaluation.history import HomeEvaluationHistory, EvaluationRecord, read_state
 from reme_home.sampling import SamplingPolicy, create_sampling_plan
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
@@ -14,9 +15,12 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     home_application,
     preparation_inputs,
     prepared_home,
+    rebuild_review,
 )
 
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
+
+pytestmark = pytest.mark.usefixtures("rebuild_review")
 
 
 def history(app):
@@ -176,7 +180,8 @@ async def test_job_defaults_and_hidden_agent_injection_use_one_job(app, prepared
     )
     assert "sampling" not in tool.input_schema["properties"]
     commit_candidate(prepared)
-    await tool.call()
+    result = await tool.call()
+    assert result.state == ToolResultState.SUCCESS, result
     records = history(app).list_results()
     assert records[-1].case_count == records[-1].scored_query_count == 1
     assert len(records) == 3

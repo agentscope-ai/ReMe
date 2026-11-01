@@ -124,6 +124,7 @@ async def _review_candidate(wrapper, home, context, budget, scope, memory_limit_
             session_id=None,
             fork_session=False,
             output_schema=None,
+            _structured_report_model=CandidateGateReport,
             permission_mode="bypass",
         )
         report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})

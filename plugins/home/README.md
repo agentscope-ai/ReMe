@@ -919,6 +919,14 @@ are deleted when review finishes, fails or is cancelled. Reports retain commit a
 source-evaluation provenance; `source_path` records the temporary location used
 during review and is no longer available afterward. Model or malformed-report failures are
 recorded and force a full rebuild; sandbox setup failure stops evaluation.
+Both construction-equivalence and candidate-admission reports accept JSON wrapped
+in prose or a code fence, ignore think blocks, and repair trailing commas outside
+strings. If parsing or schema validation still fails, the reviewer makes one
+format-only structured-output call with thinking disabled and no tools. This call
+retains the system prompt, compression summary and investigation history, including
+the invalid final reply. Successful corrections are saved in the session and their
+token usage is included in the report. If correction fails, the existing fallback
+applies: construction is rebuilt or candidate admission allows evaluation.
 Reviewer shell commands receive an explicit minimal environment instead of
 inheriting host model credentials or other environment values.
 Cancellation propagates, and a branch/commit change during review fails before

@@ -6,6 +6,8 @@ import asyncio
 import io
 import json
 from pathlib import Path
+import shutil
+import sys
 import tarfile
 from unittest.mock import AsyncMock
 
@@ -21,6 +23,31 @@ from test_preparation import (  # noqa: F401  # pylint: disable=unused-import
     preparation_inputs,
     command,
 )
+
+
+@pytest.fixture
+def rebuild_review(monkeypatch):
+    """Keep evaluation bookkeeping tests independent of review models and OS sandboxes."""
+    from reme_home.agent import construction_equivalence
+
+    async def review(wrapper, home, context, spec, cases, fingerprints, *, memory_limit_mib=None):
+        return {**context, "decision": "construction_changed", "reason": "Fixture rebuild"}
+
+    monkeypatch.setattr(construction_equivalence, "review_construction", review)
+
+
+@pytest.fixture
+def os_sandbox_available():
+    """Skip real boundary tests only when the platform or executable is unsupported."""
+    if sys.platform.startswith("linux"):
+        executable = "bwrap"
+    elif sys.platform == "darwin":
+        executable = "sandbox-exec"
+    else:
+        pytest.skip(f"No file sandbox backend for {sys.platform}")
+        return
+    if shutil.which(executable) is None:
+        pytest.skip(f"Sandbox boundary test requires {executable} on PATH")
 
 
 def archive(path, files):
