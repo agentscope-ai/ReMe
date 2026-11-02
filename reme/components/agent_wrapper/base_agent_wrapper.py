@@ -70,17 +70,20 @@ class BaseAgentWrapper(BaseComponent):
         return workspaces[alias].workspace_path
 
     def _call_cwd(self, kwargs: dict[str, Any]) -> Path:
-        """Working directory for this call: explicit cwd config wins, then the bound workspace.
+        """Working directory for this call.
 
-        A relative configured cwd resolves against the bound workspace;
-        an absolute path keeps its explicit meaning.
+        An explicit cwd wins. A relative one resolves against the bound
+        workspace; an absolute path keeps its explicit meaning. Otherwise an
+        explicitly selected workspace selects that workspace root. The default
+        alias injected for job tools is not an explicit selection, so a
+        single-workspace call keeps the project root.
         """
         if self._cwd:
             cwd = Path(self._cwd)
             if cwd.is_absolute():
                 return cwd
             return self._call_workspace_path(kwargs) / cwd
-        if kwargs.get("workspace"):
+        if kwargs.get("workspace") and kwargs.get("_workspace_explicit", True):
             return self._call_workspace_path(kwargs)
         return self.cwd
 
@@ -240,10 +243,18 @@ class BaseAgentWrapper(BaseComponent):
         return resolved
 
     def _merged_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Merge component defaults with call-time kwargs; call-time values win."""
+        """Merge component defaults with call-time kwargs; call-time values win.
+
+        An omitted workspace becomes the default alias so job tools keep an
+        explicit binding. ``_workspace_explicit`` records whether the caller or
+        the component config selected that alias; cwd resolution uses it to
+        keep the historical project root when the alias was only filled in.
+        """
         merged = {**self.kwargs, **kwargs}
-        if (workspaces := _context_workspaces(self.app_context)) and not merged.get("workspace"):
+        explicit_workspace = bool(merged.get("workspace"))
+        if (workspaces := _context_workspaces(self.app_context)) and not explicit_workspace:
             merged["workspace"] = next(iter(workspaces))
+        merged["_workspace_explicit"] = explicit_workspace
         if "output_schema" in merged:
             merged["output_schema"] = self._normalize_output_schema(merged["output_schema"])
         return merged

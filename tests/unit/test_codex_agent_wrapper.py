@@ -14,6 +14,7 @@ import pytest
 from openai_codex.generated.v2_all import TokenUsageBreakdown
 from pydantic import BaseModel
 
+from reme.components import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
 from reme.components.job import BackgroundJob
 from reme.components.outbound_proxy import FixedHttpOutboundProxy
@@ -719,6 +720,63 @@ async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, mo
     assert observed_schemas == [_StructuredModel.model_json_schema()]
     assert len(clients) == 1
     assert close_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reply_keeps_project_root_cwd_without_explicit_workspace(tmp_path, monkeypatch):
+    """A single-workspace reply delivers the project root to the SDK.
+
+    The default alias is still injected for job tools. Naming that alias, or
+    choosing another workspace, selects that workspace directory instead.
+    """
+    project = tmp_path / "project"
+    workspace = project / ".reme"
+    context = ApplicationContext(workspace_dir=str(workspace))
+    wrapper = CodexAgentWrapper(
+        app_context=context,
+        project_path="..",
+        auth_mode="oauth",
+        release_threads=False,
+    )
+    observed = {"thread": [], "turn": []}
+
+    class FakeThread:
+        id = "thread-1"
+
+        async def run(self, _inputs, **kwargs):
+            observed["turn"].append(kwargs["cwd"])
+            return _TurnResult(final_response="ok")
+
+    class FakeCodex:
+        def __init__(self, _config):
+            pass
+
+        async def account(self):
+            return SimpleNamespace(account=SimpleNamespace())
+
+        async def close(self):
+            return None
+
+        async def thread_start(self, **kwargs):
+            observed["thread"].append(kwargs["cwd"])
+            return FakeThread()
+
+    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
+
+    merged = wrapper._merged_kwargs({})  # pylint: disable=protected-access
+    assert merged["workspace"] == "default"
+    assert wrapper._resolve_injected_job_kwargs(merged)["workspace"] == "default"  # pylint: disable=protected-access
+
+    await wrapper.reply("hello")
+    await wrapper.reply("again", workspace="default")
+    await wrapper.close()
+
+    project_cwd = str(wrapper.project_path)
+    workspace_cwd = str(context.workspaces["default"].workspace_path)
+    assert wrapper.cwd == wrapper.project_path
+    assert project_cwd != workspace_cwd
+    assert observed["thread"] == [project_cwd, workspace_cwd]
+    assert observed["turn"] == [project_cwd, workspace_cwd]
 
 
 @pytest.mark.asyncio

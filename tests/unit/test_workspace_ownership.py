@@ -89,6 +89,8 @@ def test_call_cwd_resolves_relative_against_bound_workspace(tmp_path):
     default_wrapper = CodexAgentWrapper(app_context=context)
     assert default_wrapper._call_cwd({"workspace": "beta"}) == tmp_path / "beta"
     assert default_wrapper._call_cwd({}) != tmp_path / "beta"  # project path, not a workspace
+    # Filling in the default alias for job tools does not switch a relative cwd.
+    assert wrapper._call_cwd(wrapper._merged_kwargs({})) == tmp_path / "alpha" / "relative" / "sub"
 
 
 def test_dream_integration_lock_is_workspace_scoped(tmp_path):
