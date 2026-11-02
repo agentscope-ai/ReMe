@@ -6,8 +6,9 @@ local ReMe service — the work that otherwise needs several terminals.
 
 Open it from **Plugins → ReMe bundle → reme-memory → Configure → Environment**.
 
-The tab manages a **loopback** endpoint (`http://127.0.0.1:…` or `http://localhost:…`). With a remote service
-URL it only reports whether that URL answers, and hides the local steps.
+The tab manages a **loopback** endpoint at the origin root (`http://127.0.0.1:…` or `http://localhost:…`). Any
+other service URL — a remote host, or a gateway mounted under a path prefix — is only reported as answering or
+not, and hides the local steps.
 
 Everything the tab reports comes from the DSH **Host**, not from the browser: Python discovery, file access,
 the LLM probe and the service health check all run on the Host machine. A browser on another machine therefore
@@ -74,15 +75,17 @@ The installation is a Host-owned job:
   switch is dropped instead of showing another interpreter's job.
 - A successful install re-checks `reme-ai` for that interpreter, so the dependency card and **Start service**
   follow the install without a manual **Check**.
-- **Cancel** stops pip and its build children, and the interpreter stays locked until the process has actually
-  exited. A process that ignores the request is force-killed; if even that is not confirmed, the job stays
-  _cancelling_ and the interpreter stays locked, because a second installation must not run while the first is
-  still unaccounted for. The tab keeps showing the job instead of reporting a completed cancellation.
+- **Cancel** stops pip and its build children, and the interpreter stays locked until the whole managed process
+  group has exited. If pip exits while a build child keeps running, the group is force-killed and the job waits
+  for the group to empty. If even that is not confirmed, the job stays _cancelling_ and the interpreter stays
+  locked, because a second installation must not run while the first is still unaccounted for. The tab keeps
+  showing the job instead of reporting a completed cancellation.
 - The log is written to `$DSH_HOME/reme-memory/install-<job>.log` and its tail is shown in place. Each install
   opens a new file and only the newest 20 are kept; the long-lived service log rotates to `service.log.1` once it
   passes 5 MB.
 - When the plugin unloads, running jobs are stopped through the same path: a graceful signal first, then a
-  force-kill, so a pip that ignores `SIGTERM` cannot outlive the Host.
+  force-kill, and the managed process group is watched until it is empty, so a pip that ignores `SIGTERM` — or a
+  build child that outlives pip — cannot outlive the Host.
 
 ## Workspace `.env`
 
@@ -123,8 +126,9 @@ DSH settings.
 - ReMe reaches xAI through its gRPC SDK, so the xAI probe is a REST-level approximation of that channel.
 - The probe reads the `.env` on disk, so a configuration that is only picked in the form is not tested before the
   file is saved; the button says so while it waits.
-- Drafts are bound to the workspace they were typed in: switching the workspace drops them, so a key typed for
-  one workspace cannot be saved into another.
+- The draft, the save message and the LLM-test result belong to the workspace they were produced for: switching
+  the workspace disposes the section's state, so neither a key typed for one workspace nor a success reported for
+  it can be carried into another.
 
 ## Connection testing
 
