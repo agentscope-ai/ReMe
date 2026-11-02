@@ -12,7 +12,7 @@ from typing import Callable
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
 from ...schema import FileChunk, FileNode
-from ...utils.async_utils import wait_for_completion
+from ...utils.async_utils import finish_cleanup
 from ...utils.file_utils import check_file_version
 
 
@@ -44,7 +44,7 @@ class BaseFileChunker(BaseComponent):
         with self._worker_state_lock:
             self._worker_closing = True
             self._worker_generation += 1
-        await wait_for_completion(asyncio.create_task(self._close_worker()))
+        await finish_cleanup(asyncio.create_task(self._close_worker()))
 
     async def _close_worker(self) -> None:
         await self._acquire_worker_lock()
@@ -109,7 +109,7 @@ class BaseFileChunker(BaseComponent):
             rel_path,
             chunk,
         )
-        result, version = await wait_for_completion(future)
+        result, version = await finish_cleanup(future)
         with self._worker_state_lock:
             if self._worker_closing or generation != self._worker_generation:
                 raise RuntimeError("File chunker closed while parsing")

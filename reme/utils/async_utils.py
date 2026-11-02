@@ -10,16 +10,7 @@ T = TypeVar("T")
 
 async def finish_cleanup(operation: Awaitable[T]) -> T:
     """Finish cleanup before propagating any cancellation received while waiting."""
-    return await wait_for_completion(asyncio.ensure_future(operation))
-
-
-async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
-    """Finish a side-effecting thread call, including through repeated cancellation."""
-    return await finish_cleanup(asyncio.to_thread(func, *args))
-
-
-async def wait_for_completion(task: asyncio.Future[T]) -> T:
-    """Wait for work to finish before propagating the first cancellation."""
+    task = asyncio.ensure_future(operation)
     cancellation: asyncio.CancelledError | None = None
     while not task.done():
         try:
@@ -36,3 +27,8 @@ async def wait_for_completion(task: asyncio.Future[T]) -> T:
             task.result()
         raise cancellation
     return task.result()
+
+
+async def complete_in_thread(func: Callable[..., Any], /, *args) -> Any:
+    """Finish a side-effecting thread call, including through repeated cancellation."""
+    return await finish_cleanup(asyncio.to_thread(func, *args))

@@ -263,26 +263,15 @@ class ChangeApplyStep(BaseStep):
             try:
                 self.logger.debug(f"Processing {change.name} file: {path}")
                 return await self.build_item(abs_path), size_bytes
-            except FileChangedDuringChunkingError as e:
+            except (FileChangedDuringChunkingError, FileNotFoundError) as e:
                 if attempt < self.source_change_retries:
-                    self.logger.debug(f"Source changed while processing {path}; retrying")
+                    reason = "changed" if isinstance(e, FileChangedDuringChunkingError) else "disappeared"
+                    self.logger.debug(f"Source {reason} while processing {path}; retrying")
                     continue
-                self.logger.exception(f"Failed to process {path}")
-                results.append(
-                    {
-                        "change": change.name,
-                        "path": path,
-                        "success": False,
-                        "error": str(e),
-                        _SOURCE_CHANGE_RETRY_MARKER: True,
-                    },
-                )
-                return None
-            except FileNotFoundError as e:
-                if attempt < self.source_change_retries:
-                    self.logger.debug(f"Source disappeared while processing {path}; retrying")
-                    continue
-                self.logger.debug(f"Source disappeared while processing {path}; reconciling its current state")
+                if isinstance(e, FileChangedDuringChunkingError):
+                    self.logger.exception(f"Failed to process {path}")
+                else:
+                    self.logger.debug(f"Source disappeared while processing {path}; reconciling its current state")
                 results.append(
                     {
                         "change": change.name,
@@ -418,31 +407,8 @@ class UpdateIndexStep(ChangeApplyStep):
     reads_file_content = True
     source_change_retries: int = 1
 
-    def __init__(
-        self,
-        persist: bool | None = None,
-        batch_max_files: int = 100,
-        batch_available_memory_ratio: float = 0.10,
-        batch_memory_target_bytes: int = 512 * 1024 * 1024,
-        batch_memory_expansion_factor: float = 8.0,
-        file_memory_overhead_bytes: int = 32 * 1024,
-        chunk_memory_overhead_bytes: int = 4 * 1024,
-        estimated_chunk_bytes: int = 10_000,
-        float16_bytes: int = 2,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(
-            persist=persist,
-            batch_max_files=batch_max_files,
-            batch_available_memory_ratio=batch_available_memory_ratio,
-            batch_memory_target_bytes=batch_memory_target_bytes,
-            batch_memory_expansion_factor=batch_memory_expansion_factor,
-            file_memory_overhead_bytes=file_memory_overhead_bytes,
-            chunk_memory_overhead_bytes=chunk_memory_overhead_bytes,
-            estimated_chunk_bytes=estimated_chunk_bytes,
-            float16_bytes=float16_bytes,
-            **kwargs,
-        )
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
         self._source_versions: dict[str, os.stat_result] = {}
 
     def _change_path_key(self, path: str) -> str:
