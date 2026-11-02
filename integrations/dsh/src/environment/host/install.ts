@@ -505,8 +505,9 @@ export class InstallJobs {
    * The group id is the leader's pid, and the force-kill is sent in the short
    * window right after its exit was observed; a pathological pid reuse inside
    * that window is inherent to signalling a process group. The liveness probe
-   * uses signal 0, which also counts an unreaped zombie as present, so a dead
-   * group can take one extra poll to be seen as empty.
+   * uses signal 0, which also counts an unreaped zombie as present: the group
+   * keeps reading as non-empty until the zombie is reaped, so a dead group can
+   * take more than one poll to be seen as empty.
    */
   private awaitGroupExit(job: Job, code: number | null): void {
     this.clearGroupTimer(job);

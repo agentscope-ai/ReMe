@@ -6,7 +6,7 @@ export const envEn = {
   disconnected: "Not connected",
   retest: "Test connection",
   remoteNotice:
-    "This service URL is not a loopback origin root, so only its connection is probed. A gateway mounted under a path prefix cannot be managed locally.",
+    "This service URL is not a loopback URL at the origin root, so only its connection is probed. A gateway mounted under a path prefix cannot be managed locally.",
   pythonTitle: "Local Python",
   pythonHint:
     "ReMe requires Python 3.11 or newer. Pick the interpreter that a local service should use.",
