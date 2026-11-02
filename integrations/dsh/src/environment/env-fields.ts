@@ -1,36 +1,25 @@
 /**
  * The `.env` keys the Environment tab manages, and the rules for updating them.
  *
- * This module is the single source of truth for the managed keys, for which of
- * them are write-only secrets, and for what an empty draft means. The Host and
- * the browser both derive their behaviour from it, so the two can never drift
- * apart about the same file.
+ * This module is the single source of truth for the managed keys and for which
+ * of them are write-only secrets. An empty secret draft means "leave blank to
+ * keep" and an empty non-secret draft is an explicit clear; both rules are
+ * derived from the `secret` flag alone, so a key cannot carry a rule that
+ * contradicts its own kind. The Host and the browser both derive their
+ * behaviour from it, so the two can never drift apart about the same file.
  *
  * It stays browser-safe: no node built-in is imported here, and the browser
  * bundle must stay loadable without one.
  */
 
-/** What an empty draft for one managed key means. */
-export type EnvEmptyRule =
-  /**
-   * "Leave blank to keep": an empty draft writes nothing, so the stored value
-   * survives. A credential is write-only — the stored value never rides a
-   * response — so emptying the control cannot mean "delete my key".
-   */
-  | "keep"
-  /**
-   * An explicit clear: an empty draft writes an empty value, so the key is
-   * removed from the effective configuration.
-   */
-  | "clear";
-
 export interface EnvFieldMeta {
   /** The `.env` key. */
   key: string;
-  /** True for write-only credentials; the stored value never rides a response. */
+  /**
+   * True for write-only credentials; the stored value never rides a response.
+   * An empty draft for such a key writes nothing.
+   */
   secret: boolean;
-  /** What an empty draft means for this key. */
-  empty: EnvEmptyRule;
   /**
    * Value written when the key is unset and must not stay empty.
    *
@@ -48,19 +37,18 @@ export interface EnvFieldMeta {
  * and the browser form list the same keys in the same order.
  */
 export const ENV_FIELDS: readonly EnvFieldMeta[] = [
-  { key: "LLM_BACKEND", secret: false, empty: "clear" },
-  { key: "LLM_MODEL_NAME", secret: false, empty: "clear" },
-  { key: "LLM_API_KEY", secret: true, empty: "keep" },
-  { key: "LLM_BASE_URL", secret: false, empty: "clear" },
-  { key: "EMBEDDING_BACKEND", secret: false, empty: "clear" },
-  { key: "EMBEDDING_MODEL_NAME", secret: false, empty: "clear" },
+  { key: "LLM_BACKEND", secret: false },
+  { key: "LLM_MODEL_NAME", secret: false },
+  { key: "LLM_API_KEY", secret: true },
+  { key: "LLM_BASE_URL", secret: false },
+  { key: "EMBEDDING_BACKEND", secret: false },
+  { key: "EMBEDDING_MODEL_NAME", secret: false },
   {
     key: "EMBEDDING_API_KEY",
     secret: true,
-    empty: "keep",
     disabledValue: "EMPTY",
   },
-  { key: "EMBEDDING_BASE_URL", secret: false, empty: "clear" },
+  { key: "EMBEDDING_BASE_URL", secret: false },
 ];
 
 /** Every key the Environment tab manages. */
@@ -125,8 +113,10 @@ export function envUpdates(
       continue;
     }
     if (typed === "") {
-      if (field.empty === "keep") {
-        // "Leave blank to keep": the stored credential survives.
+      // "Leave blank to keep": a secret is write-only, so an empty draft
+      // cannot mean "delete my key"; it writes nothing and the stored
+      // credential survives.
+      if (field.secret) {
         if (field.disabledValue && !isSet)
           updates[field.key] = field.disabledValue;
         continue;

@@ -39,12 +39,13 @@ test("only the two credentials are secret", () => {
     assert.equal(SECRET_KEYS.has(key), key.endsWith("API_KEY"), key);
 });
 
-test("the metadata of a key carries its flag and its empty rule", () => {
+test("the metadata of a key carries its secret flag and placeholder", () => {
+  // What an empty draft means is not metadata: it follows the `secret` flag
+  // alone, which the update rules below apply.
   assert.equal(envFieldMeta("LLM_API_KEY")?.secret, true);
-  assert.equal(envFieldMeta("LLM_API_KEY")?.empty, "keep");
   assert.equal(envFieldMeta("LLM_BASE_URL")?.secret, false);
-  assert.equal(envFieldMeta("LLM_BASE_URL")?.empty, "clear");
   assert.equal(envFieldMeta("EMBEDDING_API_KEY")?.disabledValue, "EMPTY");
+  assert.equal(envFieldMeta("LLM_BASE_URL")?.disabledValue, undefined);
   assert.equal(envFieldMeta("NOT_MANAGED"), undefined);
 });
 

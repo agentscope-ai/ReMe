@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   SETTINGS_SPECS,
-  SETTING_FIELDS,
   timeFromCron,
   validTimezone,
 } from "../dist/client/settings-specs.js";
@@ -20,12 +19,17 @@ const parse = (field, text) => {
   return write === undefined ? "invalid" : write;
 };
 
-test("one spec per setting, in display order", () => {
-  assert.deepEqual(
-    SETTINGS_SPECS.map((item) => item.field),
-    [...SETTING_FIELDS],
+test("the one spec table defines every setting exactly once", () => {
+  // One table is the only definition: the exported field list and the
+  // `SettingField` union are derived from it, so there is no second list to
+  // drift. What remains worth asserting is that the table itself is sound.
+  const fields = SETTINGS_SPECS.map((item) => item.field);
+  assert.equal(
+    new Set(fields).size,
+    fields.length,
+    "a setting is defined twice",
   );
-  assert.equal(SETTINGS_SPECS.length, 15);
+  assert.equal(fields.length, 15);
 });
 
 test("numbers accept a bounded whole number and clear on empty", () => {
