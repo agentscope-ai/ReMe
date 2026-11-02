@@ -27,15 +27,15 @@ class BaseClient(BaseComponent):
     def _resolve_service_address(self, host: str | None, port: int | None) -> tuple[str, int]:
         """Resolve explicit, discovered, or default network coordinates."""
         if not (host and port):
+            fallback_host, fallback_port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
             if service_info := os.environ.get(REME_SERVICE_INFO):
                 try:
                     data = json.loads(service_info)
-                    host, port = data["host"], data["port"]
+                    fallback_host, fallback_port = data["host"], data["port"]
                 except Exception:
                     self.logger.warning(f"Invalid service info: {service_info}")
-                    host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
-            else:
-                host, port = REME_DEFAULT_HOST, REME_DEFAULT_PORT
+            host = host or fallback_host
+            port = port or fallback_port
         return normalize_connect_host(host), port
 
     async def _start(self) -> None:
