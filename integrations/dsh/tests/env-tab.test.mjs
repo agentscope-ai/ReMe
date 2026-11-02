@@ -335,11 +335,19 @@ test("drops .env drafts when the workspace changes", async (t) => {
   });
   assert.equal(apiKey().props.value, "sk-typed-for-first-workspace");
 
+  // The tab remounts the section for the new workspace, which disposes the
+  // previous section's state — including the draft typed for it.
   await act(async () => {
     setValue({ remeWorkspaceDir: "/tmp/second-workspace" });
   });
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await act(async () => {
+    buttonByText(renderer, envZh.expand).props.onClick();
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
   });
   // The draft belonged to the first workspace and is gone with it, so a save
   // cannot carry a key typed for one workspace into another.
@@ -406,6 +414,40 @@ test("a remote endpoint never runs the local setup steps", async (t) => {
     methods.includes("remeEnv/health"),
     "a remote endpoint is only health-checked",
   );
+  for (const local of [
+    "remeEnv/python",
+    "remeEnv/checkReme",
+    "remeEnv/readEnv",
+    "remeEnv/serviceStatus",
+  ])
+    assert.equal(methods.includes(local), false, `${local} must not run`);
+});
+
+test("a prefixed loopback endpoint is probed, never launched locally", async (t) => {
+  const endpoint = "http://127.0.0.1:2333/reme";
+  const { calls, restore } = await mount(
+    { endpoint },
+    {
+      responses: {
+        "remeEnv/health": {
+          endpoint,
+          ok: true,
+          version: "0.4.0.9",
+          error: "",
+          checkedAt: new Date().toISOString(),
+        },
+      },
+    },
+  );
+  t.after(restore);
+  const methods = calls.rpc.map((call) => call.method);
+  // A gateway mounted under a path prefix keeps its connection probe...
+  assert.ok(
+    methods.includes("remeEnv/health"),
+    "the prefixed endpoint is still health-checked",
+  );
+  // ...but the plugin cannot launch a service at that prefix: the launch only
+  // configures host and port, so the startup health check would never pass.
   for (const local of [
     "remeEnv/python",
     "remeEnv/checkReme",
@@ -526,8 +568,16 @@ test("an aborted LLM test releases its button", async (t) => {
   });
   assert.ok(texts(renderer.toJSON()).join(" ").includes(envZh.testingLlm));
 
+  // Switching workspaces disposes the running probe with its section instead
+  // of leaving the new workspace's button on "Testing…".
   await act(async () => {
     setValue({ remeWorkspaceDir: "/tmp/second-workspace" });
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  await act(async () => {
+    buttonByText(renderer, envZh.expand).props.onClick();
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 20));

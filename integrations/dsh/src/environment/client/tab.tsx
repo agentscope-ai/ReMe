@@ -18,7 +18,7 @@ import {
   useService,
   type ConnectionState,
 } from "./service.js";
-import { WorkspaceSection, useWorkspace } from "./workspace.js";
+import { WorkspaceSection } from "./workspace.js";
 
 export { envEn, envZh } from "./locales.js";
 export type { EnvTranslator } from "./locales.js";
@@ -167,12 +167,6 @@ export function ReMeEnvironmentTab({
       python.refresh();
     },
   });
-  const workspace = useWorkspace(rpc, {
-    workspaceDir,
-    writable: snapshot.writable,
-    enabled: local,
-    onWorkspaceDir: (dir) => writeSetting("remeWorkspaceDir", dir),
-  });
   const service = useService(rpc, {
     t,
     endpoint,
@@ -318,10 +312,13 @@ export function ReMeEnvironmentTab({
             dependency={dependency}
           />
           <WorkspaceSection
+            key={workspaceDir}
             t={t}
-            workspace={workspace}
+            rpc={rpc}
+            workspaceDir={workspaceDir}
             pythonPath={python.selectedPath}
             writable={snapshot.writable}
+            onWorkspaceDir={(dir) => writeSetting("remeWorkspaceDir", dir)}
           />
           <ServiceSection
             t={t}

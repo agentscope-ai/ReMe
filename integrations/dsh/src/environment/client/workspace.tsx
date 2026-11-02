@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { StatusRpc } from "../../client/status-page.js";
 import { safeError } from "../../endpoint.js";
 import {
@@ -104,8 +104,8 @@ const ENV_GROUP_TITLES: EnvKey[] = ["llmGroup", "embeddingGroup"];
 /**
  * The `.env` parameters this tab renders, derived from the shared metadata.
  *
- * The shared list owns which keys exist, in which order, which of them are
- * secrets and what an empty draft means; the wording comes from
+ * The shared list owns which keys exist, in which order and which of them are
+ * secrets — and therefore what an empty draft means; the wording comes from
  * `ENV_FIELD_COPY`. A managed key without a copy would be missing from the
  * form, which `tests/env-form.test.mjs` refuses.
  */
@@ -177,8 +177,6 @@ interface EnvState {
   phase: "loading" | "ready" | "error";
   data?: EnvSummary;
   error?: string;
-  /** Workspace this summary was read for; a mismatch makes it stale. */
-  entriesFor?: string;
 }
 
 interface SaveResult {
@@ -194,13 +192,6 @@ interface SaveResult {
 interface LlmTestState {
   phase: "idle" | "running" | "ok" | "fail";
   result?: LlmTestResult;
-}
-
-interface Draft {
-  /** Workspace the drafts belong to; a mismatch means they are stale. */
-  dir: string;
-  /** Only keys the user touched, so an untouched file stays untouched. */
-  values: Record<string, string>;
 }
 
 export interface WorkspaceState {
@@ -219,53 +210,58 @@ export interface WorkspaceState {
   testLlm(pythonPath: string): Promise<void>;
 }
 
+interface WorkspaceOptions {
+  workspaceDir: string;
+  writable: boolean;
+  onWorkspaceDir(dir: string): Promise<unknown>;
+}
+
 /**
- * The workspace section's asynchronous state: one `.env` read per workspace,
- * and drafts bound to the workspace they were typed in.
+ * The workspace section's asynchronous state: one `.env` read, one draft, one
+ * save result and one LLM probe, all belonging to the workspace directory the
+ * section was mounted for.
+ *
+ * The section is mounted with the workspace directory as its React key, so a
+ * workspace switch disposes this state (and aborts its probe) instead of
+ * invalidating each piece field by field.
  */
-export function useWorkspace(
+function useWorkspace(
   rpc: StatusRpc,
-  options: {
-    workspaceDir: string;
-    writable: boolean;
-    /** False for a remote endpoint, whose local steps are hidden. */
-    enabled?: boolean;
-    onWorkspaceDir(dir: string): Promise<unknown>;
-  },
+  options: WorkspaceOptions,
 ): WorkspaceState {
-  const { workspaceDir, writable, enabled = true, onWorkspaceDir } = options;
+  const { workspaceDir, writable, onWorkspaceDir } = options;
   const [env, setEnv] = useState<EnvState>({ phase: "loading" });
-  const [draft, setDraft] = useState<Draft>({ dir: "", values: {} });
+  const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<SaveResult>({ kind: "" });
   const [llmTest, setLlmTest] = useState<LlmTestState>({ phase: "idle" });
   const [tick, setTick] = useState(0);
   const [workspaceInput, setWorkspaceInput] = useState<string | undefined>();
-  // Read by a save that resolves after a workspace switch, so the answer for
-  // the previous workspace is dropped instead of shown against the new one.
-  const latestDir = useRef(workspaceDir);
   const llmController = useRef<AbortController | undefined>(undefined);
   // A mirror of the draft. A save resolves against the draft as it is at that
   // moment, so the answer cannot depend on a React state updater that runs
   // later — and the draft may have moved on while the save was in flight.
-  const draftRef = useRef<Draft>({ dir: "", values: {} });
+  const draftRef = useRef<Record<string, string>>({});
+  // False once the section unmounted, so a save that resolves afterwards does
+  // not write into a disposed component.
+  const alive = useRef(true);
 
   /** Set the draft and keep the mirror in step with it. */
-  const applyDraft = useCallback((next: Draft) => {
+  const applyDraft = useCallback((next: Record<string, string>) => {
     draftRef.current = next;
     setDraft(next);
   }, []);
 
   useEffect(() => {
-    latestDir.current = workspaceDir;
-    // A probe for the previous workspace must not land on the new one.
-    llmController.current?.abort();
-  }, [workspaceDir]);
-
-  useEffect(() => () => llmController.current?.abort(), []);
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      // A probe for this workspace must not outlive its section.
+      llmController.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
-    if (!enabled) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -276,103 +272,74 @@ export function useWorkspace(
           controller.signal,
         );
         if (controller.signal.aborted) return;
-        setEnv({
-          phase: "ready",
-          data: parseEnvSummary(value),
-          entriesFor: workspaceDir,
-        });
+        setEnv({ phase: "ready", data: parseEnvSummary(value) });
       } catch (error) {
         if (!controller.signal.aborted)
-          setEnv({
-            phase: "error",
-            error: safeError(error),
-            entriesFor: workspaceDir,
-          });
+          setEnv({ phase: "error", error: safeError(error) });
       }
     })();
     return () => controller.abort();
-  }, [rpc, workspaceDir, tick, enabled]);
+  }, [rpc, workspaceDir, tick]);
 
-  // A workspace switch drops drafts typed for the previous workspace, so a key
-  // typed for one workspace can never be written into another. The read is
-  // scoped the same way: a summary for another workspace is not this view.
-  const values = useMemo(
-    () => (draft.dir === workspaceDir ? draft.values : {}),
-    [draft, workspaceDir],
-  );
-  const view = useMemo(
-    () =>
-      env.entriesFor === workspaceDir
-        ? env
-        : { phase: "loading" as const, data: undefined, error: undefined },
-    [env, workspaceDir],
-  );
   const entry = useCallback(
-    (key: string) => view.data?.entries.find((item) => item.key === key),
-    [view.data],
+    (key: string) => env.data?.entries.find((item) => item.key === key),
+    [env.data],
   );
   const value = useCallback(
     (key: string) => {
-      const typed = values[key];
+      const typed = draft[key];
       if (typed !== undefined) return typed;
       const stored = entry(key);
       return stored?.secret ? "" : stored?.value ?? "";
     },
-    [entry, values],
+    [draft, entry],
   );
   const edit = useCallback(
     (key: string, next: string) => {
       // The mirror is the freshest copy of the draft, so two edits in one
       // tick cannot overwrite each other.
-      const current = draftRef.current;
-      const base = current.dir === workspaceDir ? current.values : {};
-      applyDraft({ dir: workspaceDir, values: { ...base, [key]: next } });
+      applyDraft({ ...draftRef.current, [key]: next });
       setResult({ kind: "" });
     },
-    [applyDraft, workspaceDir],
+    [applyDraft],
   );
 
   const save = useCallback(async () => {
-    const dir = workspaceDir;
+    if (!env.data || saving) return;
     // The submission is the draft as it stands now, not as it stood when the
     // button was rendered.
-    const current = draftRef.current;
-    const pending = current.dir === dir ? current.values : {};
-    if (!view.data || saving) return;
+    const pending = draftRef.current;
     // Only touched keys travel: an untouched key keeps its stored value, an
     // empty touched value is an explicit clear, and a blank secret keeps the
     // stored credential. The shared metadata owns those rules.
-    const payload = envUpdates(pending, storedValues(view.data));
+    const payload = envUpdates(pending, storedValues(env.data));
     setSaving(true);
     setResult({ kind: "" });
     try {
       const summary = parseEnvSummary(
-        await envCall(rpc, "writeEnv", { workspaceDir: dir, values: payload }),
+        await envCall(rpc, "writeEnv", { workspaceDir, values: payload }),
       );
-      if (latestDir.current !== dir) return;
-      setEnv({ phase: "ready", data: summary, entriesFor: dir });
+      if (!alive.current) return;
+      setEnv({ phase: "ready", data: summary });
       // The save resolves the edits it carried; a value typed while it was in
       // flight stays in the draft.
-      const latest = draftRef.current;
-      const remaining =
-        latest.dir === dir ? remainingEdits(latest.values, pending) : {};
-      if (latest.dir === dir) applyDraft({ dir, values: remaining });
+      const remaining = remainingEdits(draftRef.current, pending);
+      applyDraft(remaining);
       setResult({
         kind: "saved",
         pending: Object.keys(remaining).length > 0,
       });
     } catch (error) {
-      if (latestDir.current !== dir) return;
+      if (!alive.current) return;
       setResult({ kind: "failed", message: safeError(error) });
     } finally {
-      setSaving(false);
+      if (alive.current) setSaving(false);
     }
-  }, [applyDraft, rpc, saving, view.data, workspaceDir]);
+  }, [applyDraft, env.data, rpc, saving, workspaceDir]);
 
   const testLlm = useCallback(
     async (pythonPath: string) => {
       if (!pythonPath || llmTest.phase === "running") return;
-      const dir = workspaceDir;
       llmController.current?.abort();
       const controller = new AbortController();
       llmController.current = controller;
@@ -382,14 +349,14 @@ export function useWorkspace(
           await envCall(
             rpc,
             "testLlm",
-            { workspaceDir: dir, pythonPath },
+            { workspaceDir, pythonPath },
             controller.signal,
           ),
         );
-        if (controller.signal.aborted || latestDir.current !== dir) return;
+        if (controller.signal.aborted) return;
         setLlmTest({ phase: data.ok ? "ok" : "fail", result: data });
       } catch (error) {
-        if (controller.signal.aborted || latestDir.current !== dir) return;
+        if (controller.signal.aborted) return;
         setLlmTest({
           phase: "fail",
           result: {
@@ -402,7 +369,8 @@ export function useWorkspace(
       } finally {
         // An aborted probe never settles into a result; without this the
         // button would stay disabled on "Testing…" until the tab remounts.
-        if (controller.signal.aborted) setLlmTest({ phase: "idle" });
+        if (controller.signal.aborted && alive.current)
+          setLlmTest({ phase: "idle" });
       }
     },
     [llmTest.phase, rpc, workspaceDir],
@@ -413,6 +381,7 @@ export function useWorkspace(
     const next = workspaceInput ?? workspaceDir;
     setWorkspaceInput(undefined);
     const saved = await onWorkspaceDir(next.trim()).catch(() => false);
+    if (!alive.current) return;
     // A rejected save is reported by the settings writer; do not reload the
     // old directory as if the new one had been accepted.
     if (saved === false) return;
@@ -420,7 +389,7 @@ export function useWorkspace(
   }, [onWorkspaceDir, workspaceDir, workspaceInput, writable]);
 
   return {
-    env: view,
+    env,
     workspaceInput,
     workspaceDraft: workspaceInput ?? workspaceDir,
     editWorkspace: setWorkspaceInput,
@@ -500,19 +469,36 @@ function envChoices(list: readonly string[], current: string): string[] {
   return current && !list.includes(current) ? [...list, current] : [...list];
 }
 
+export interface WorkspaceSectionProps {
+  t: EnvTranslator;
+  rpc: StatusRpc;
+  /** The workspace whose `.env` this section reads; also its React key. */
+  workspaceDir: string;
+  pythonPath: string;
+  writable: boolean;
+  /** Persist a new workspace directory; resolves false when refused. */
+  onWorkspaceDir(dir: string): Promise<unknown>;
+}
+
 /** Step 3: the workspace `.env` ReMe reads when the service starts. */
 export function WorkspaceSection({
   t,
-  workspace,
+  rpc,
+  workspaceDir,
   pythonPath,
   writable,
-}: {
-  t: EnvTranslator;
-  workspace: WorkspaceState;
-  pythonPath: string;
-  writable: boolean;
-}): JSX.Element {
+  onWorkspaceDir,
+}: WorkspaceSectionProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  // The section owns the workspace state, and the tab mounts it with
+  // `key={workspaceDir}`, so switching workspaces disposes the previous
+  // drafts, save message and LLM-test result instead of invalidating them
+  // field by field.
+  const workspace = useWorkspace(rpc, {
+    workspaceDir,
+    writable,
+    onWorkspaceDir,
+  });
   const { env, llmTest, result } = workspace;
   // The probe reads the saved .env, so a configuration that is only picked in
   // the form would be tested against the one still on disk. The button waits

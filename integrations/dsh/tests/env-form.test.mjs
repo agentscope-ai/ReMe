@@ -6,7 +6,6 @@ import { act, create } from "react-test-renderer";
 
 import {
   ENV_GROUPS,
-  useWorkspace,
   WorkspaceSection,
 } from "../dist/environment/client/workspace.js";
 import { envZh, fill } from "../dist/environment/client/locales.js";
@@ -89,19 +88,18 @@ function textOf(value) {
   return typeof value === "string" ? value : "";
 }
 
-/** The `.env` form, driven by the real hook and the real section. */
-function Harness({ rpc }) {
-  const workspace = useWorkspace(rpc, {
-    workspaceDir: WORKSPACE,
-    writable: true,
-    enabled: true,
-    onWorkspaceDir: async () => true,
-  });
+/** The `.env` form, driven by the real section and its own workspace hook. */
+function Harness({ rpc, workspaceDir = WORKSPACE }) {
   return React.createElement(WorkspaceSection, {
+    // The tab mounts the section with the workspace as its key, so a switch
+    // disposes the previous workspace's state.
+    key: workspaceDir,
     t,
-    workspace,
+    rpc,
+    workspaceDir,
     pythonPath: "C:\\env\\python.exe",
     writable: true,
+    onWorkspaceDir: async () => true,
   });
 }
 
@@ -207,6 +205,15 @@ function statusText(renderer) {
   );
   if (!found.length) return "";
   return textOf(found[0].props.children);
+}
+
+/** Every success message on screen, in render order. */
+function successTexts(renderer) {
+  return renderer.root
+    .findAll((node) =>
+      String(node.props.className ?? "").includes("reme-settings-success"),
+    )
+    .map((node) => textOf(node.props.children));
 }
 
 function writeCall(calls) {
@@ -354,4 +361,93 @@ test("a save without newer edits reports a clean form", async (t) => {
   await waitFor(() => statusText(renderer) !== "");
 
   assert.equal(statusText(renderer), fill(envZh.savedEnv, { path: ENV_PATH }));
+});
+
+const OTHER_WORKSPACE = "D:\\Other\\.reme";
+const OTHER_ENV_PATH = `${OTHER_WORKSPACE}\\.env`;
+
+/** The summary of another workspace, so a switch is visible in the form. */
+const OTHER_SUMMARY = {
+  ...SUMMARY,
+  workspaceDir: OTHER_WORKSPACE,
+  envPath: OTHER_ENV_PATH,
+  entries: SUMMARY.entries.map((entry) =>
+    entry.key === "LLM_MODEL_NAME"
+      ? { ...entry, value: "other-model", masked: "other-model" }
+      : entry,
+  ),
+};
+
+/** A Host whose `.env` reads answer for the workspace they were asked about. */
+function switchingRpc() {
+  return {
+    call: async (_path, method, payload) => {
+      const input = payload?.args?.input ?? {};
+      if (method === "remeEnv/readEnv")
+        return {
+          ok: true,
+          value:
+            input.workspaceDir === OTHER_WORKSPACE ? OTHER_SUMMARY : SUMMARY,
+        };
+      if (method === "remeEnv/writeEnv") return { ok: true, value: SUMMARY };
+      if (method === "remeEnv/testLlm")
+        return {
+          ok: true,
+          value: { ok: true, status: 200, latencyMs: 12, error: "" },
+        };
+      return { ok: true, value: null };
+    },
+  };
+}
+
+test("a workspace switch drops the completed save and LLM-test results", async (t) => {
+  const rpc = switchingRpc();
+  let renderer;
+  await act(async () => {
+    renderer = create(React.createElement(Harness, { rpc }));
+  });
+  t.after(() => act(() => renderer.unmount()));
+  await act(async () => {
+    buttonByText(renderer, envZh.expand).props.onClick();
+  });
+  await waitFor(() => fieldValue(renderer, "model") === "qwen3.7-plus");
+
+  // A completed save and a successful probe, both for the first workspace.
+  await act(async () => {
+    fieldInput(renderer, "model").props.onChange({
+      target: { value: "model-b" },
+    });
+  });
+  await act(async () => {
+    buttonByText(renderer, envZh.saveEnv).props.onClick();
+  });
+  await waitFor(() =>
+    successTexts(renderer).includes(fill(envZh.savedEnv, { path: ENV_PATH })),
+  );
+  await act(async () => {
+    buttonByText(renderer, envZh.testLlmButton).props.onClick();
+  });
+  await waitFor(() =>
+    successTexts(renderer).includes(fill(envZh.llmOk, { ms: 12 })),
+  );
+
+  // The tab remounts the section with the new workspace as its key.
+  await act(async () => {
+    renderer.update(
+      React.createElement(Harness, { rpc, workspaceDir: OTHER_WORKSPACE }),
+    );
+  });
+  await act(async () => {
+    buttonByText(renderer, envZh.expand).props.onClick();
+  });
+  await waitFor(() => fieldValue(renderer, "model") === "other-model");
+
+  // Neither result belonged to this workspace, so neither is shown.
+  assert.deepEqual(successTexts(renderer), []);
+  // The form shows this workspace's file, not the previous workspace's.
+  const shown = (text) =>
+    renderer.root.findAll((node) => textOf(node.props.children).includes(text))
+      .length;
+  assert.ok(shown(OTHER_ENV_PATH) > 0, "the new .env path is on screen");
+  assert.equal(shown(ENV_PATH), 0, "the previous .env path is gone");
 });
