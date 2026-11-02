@@ -2,9 +2,11 @@
 
 import hashlib
 import json
+import os
 import sys
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,6 +18,46 @@ from benchmark.beam import run_home as beam_runner
 from benchmark.longmemeval import run_home as lme_runner
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture(autouse=True)
+def isolated_runner_environment(tmp_path, monkeypatch):
+    """Never load developer credentials while exercising benchmark lifecycles."""
+    for benchmark in ("beam", "longmemeval"):
+        for runner in ("run_home", "run_home_eval"):
+            module = import_module(f"benchmark.{benchmark}.{runner}")
+            monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("benchmark", ["beam", "longmemeval"])
+@pytest.mark.parametrize("runner", ["run_home", "run_home_eval"])
+@pytest.mark.parametrize("env_file", [True, False])
+async def test_credentials_loaded_before_application(tmp_path, monkeypatch, benchmark, runner, env_file):
+    """Load repository .env without overriding exports, independently of cwd."""
+    module = import_module(f"benchmark.{benchmark}.{runner}")
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "exported-key")
+    if env_file:
+        (tmp_path / ".env").write_text("LLM_API_KEY=file-key\nEMBEDDING_API_KEY=embedding-key\n")
+    cwd = tmp_path / "elsewhere"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    if runner == "run_home_eval":
+        config = SimpleNamespace(benchmark=SimpleNamespace(name=benchmark))
+        monkeypatch.setattr(module, "load_request", lambda *args, **kwargs: (config, tmp_path, None, None))
+
+    class ApplicationReached(Exception):
+        """Stop before creating any application resources."""
+
+    def factory(**_kwargs):
+        assert os.environ["LLM_API_KEY"] == "exported-key"
+        assert os.environ.get("EMBEDDING_API_KEY") == ("embedding-key" if env_file else None)
+        raise ApplicationReached
+
+    monkeypatch.setattr(module, "Application", factory)
+    with pytest.raises(ApplicationReached):
+        await module.run()
 
 
 def test_preserved_lme_split_and_evidence():

@@ -27,9 +27,15 @@ from test_preparation import (  # noqa: F401  # pylint: disable=unused-import
     snapshot,
 )
 
-from benchmark import home_eval
 from reme.schema import Response
 from reme.components.agent_wrapper import AsAgentWrapper
+
+
+@pytest.fixture(params=["beam", "longmemeval"])
+def home_eval(request, tmp_path, monkeypatch):
+    module = import_module(f"benchmark.{request.param}.run_home_eval")
+    monkeypatch.setattr(module, "PROJECT_ROOT", tmp_path)
+    return module
 
 
 def write_config(tmp_path, app, spec, commit):
@@ -54,7 +60,12 @@ async def prepare_source(app, inputs):
 
 
 @pytest.mark.asyncio
-async def test_import_historical_commit_ignores_dirty_checkout_and_missing_original_repo(app, inputs, tmp_path):
+async def test_import_historical_commit_ignores_dirty_checkout_and_missing_original_repo(
+    home_eval,
+    app,
+    inputs,
+    tmp_path,
+):
     home, _ = await prepare_source(app, inputs)
     repo = home / "code/repo"
     command(repo, "switch", "-c", "candidate")
@@ -72,7 +83,7 @@ async def test_import_historical_commit_ignores_dirty_checkout_and_missing_origi
     path, _ = write_config(tmp_path, app, spec, selected[:10])
     before = snapshot(home)
 
-    result = await home_eval.run(path, prepare_only=True)
+    result = await home_eval.run_evaluation(path, prepare_only=True)
 
     assert result["source_commit_sha"] == selected
     target = Path(result["test_workspace"]) / "home"
@@ -88,10 +99,16 @@ async def test_import_historical_commit_ignores_dirty_checkout_and_missing_origi
 
 
 @pytest.mark.asyncio
-async def test_reopen_scores_all_queries_without_optimizer_history_and_closes(app, inputs, tmp_path, monkeypatch):
+async def test_reopen_scores_all_queries_without_optimizer_history_and_closes(
+    home_eval,
+    app,
+    inputs,
+    tmp_path,
+    monkeypatch,
+):
     home, commit = await prepare_source(app, inputs)
     path, _ = write_config(tmp_path, app, inputs[0], commit)
-    await home_eval.run(path, prepare_only=True)
+    await home_eval.run_evaluation(path, prepare_only=True)
     applications = []
     factory = home_eval.Application
 
@@ -114,7 +131,7 @@ async def test_reopen_scores_all_queries_without_optimizer_history_and_closes(ap
         return application
 
     monkeypatch.setattr(home_eval, "Application", tracked_application)
-    result = await home_eval.run(path)
+    result = await home_eval.run_evaluation(path)
     assert result["evaluation"] == {"result_dir": "test-results"}
     applications[-1].close.assert_awaited_once()
     assert not list((home / "evaluations").rglob("manifest.json"))
@@ -123,7 +140,13 @@ async def test_reopen_scores_all_queries_without_optimizer_history_and_closes(ap
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("app", ["beam-judge", "lme-judge"], indirect=True)
-async def test_full_evaluation_records_source_provenance_with_fake_docker(app, inputs, tmp_path, monkeypatch):
+async def test_full_evaluation_records_source_provenance_with_fake_docker(
+    home_eval,
+    app,
+    inputs,
+    tmp_path,
+    monkeypatch,
+):
     spec, lme = inputs
     if "lme-judge" in app.config.plugins:
         spec["benchmark"] = {"name": "longmemeval", "source": str(lme), "all_cases": True}
@@ -138,7 +161,7 @@ async def test_full_evaluation_records_source_provenance_with_fake_docker(app, i
     answer = "yes" if spec["benchmark"]["name"] == "longmemeval" else '{"score": 0.5}'
     monkeypatch.setattr(AsAgentWrapper, "reply", AsyncMock(return_value={"result": answer}))
     before = snapshot(home)
-    result = await home_eval.run(path)
+    result = await home_eval.run_evaluation(path)
     run = Path(result["evaluation"]["result_dir"])
     manifest = read_json(run / "manifest.json")
     assert manifest["test_evaluation"]["source_commit_sha"] == commit
@@ -151,7 +174,13 @@ async def test_full_evaluation_records_source_provenance_with_fake_docker(app, i
 
 
 @pytest.mark.asyncio
-async def test_evaluation_failure_closes_application_and_preserves_preparation(app, inputs, tmp_path, monkeypatch):
+async def test_evaluation_failure_closes_application_and_preserves_preparation(
+    home_eval,
+    app,
+    inputs,
+    tmp_path,
+    monkeypatch,
+):
     _, commit = await prepare_source(app, inputs)
     path, config = write_config(tmp_path, app, inputs[0], commit)
     factory = home_eval.Application
@@ -166,14 +195,14 @@ async def test_evaluation_failure_closes_application_and_preserves_preparation(a
 
     monkeypatch.setattr(home_eval, "Application", failing_application)
     with pytest.raises(RuntimeError, match="Infrastructure failure"):
-        await home_eval.run(path)
+        await home_eval.run_evaluation(path)
     applications[-1].close.assert_awaited_once()
     assert (Path(config["test_workspace"]) / "home/metadata/preparation.json").is_file()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
-async def test_lme_default_selection_excludes_actual_training_cases(app, inputs, tmp_path):
+async def test_lme_default_selection_excludes_actual_training_cases(home_eval, app, inputs, tmp_path):
     spec, lme = inputs
     original = json.loads(lme.read_text())
     held_out = {**original[0], "question_id": "q2"}
@@ -184,7 +213,7 @@ async def test_lme_default_selection_excludes_actual_training_cases(app, inputs,
     config["benchmark"] = {"name": "longmemeval", "source": str(lme), "all_cases": True}
     config["exclude_training_cases"] = True
     path.write_text(yaml.safe_dump(config))
-    result = await home_eval.run(path, prepare_only=True, expected_benchmark="longmemeval")
+    result = await home_eval.run_evaluation(path, prepare_only=True, expected_benchmark="longmemeval")
     target = Path(result["test_workspace"]) / "home"
     _, dataset, cases = load_inputs(target, EvaluationSpec(record_history=False))
     assert dataset.case_ids == ["q2"]
@@ -194,10 +223,10 @@ async def test_lme_default_selection_excludes_actual_training_cases(app, inputs,
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("change", ["candidate", "dataset", "runtime", "test_code", "test_data"])
-async def test_reopen_rejects_changed_identity_or_artifacts(app, inputs, tmp_path, change):
+async def test_reopen_rejects_changed_identity_or_artifacts(home_eval, app, inputs, tmp_path, change):
     _, commit = await prepare_source(app, inputs)
     path, config = write_config(tmp_path, app, inputs[0], commit)
-    result = await home_eval.run(path, prepare_only=True)
+    result = await home_eval.run_evaluation(path, prepare_only=True)
     home = Path(result["test_workspace"]) / "home"
     if change == "candidate":
         config["code_commit"] = "1234567890"
@@ -216,13 +245,13 @@ async def test_reopen_rejects_changed_identity_or_artifacts(app, inputs, tmp_pat
         file.write_text(json.dumps(case))
     before = snapshot(home)
     with pytest.raises((ValueError, CalledProcessError)):
-        await home_eval.run(path, prepare_only=True)
+        await home_eval.run_evaluation(path, prepare_only=True)
     assert snapshot(home) == before
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("location", ["same", "child", "parent"])
-async def test_rejects_overlapping_workspaces_before_start(app, inputs, tmp_path, monkeypatch, location):
+async def test_rejects_overlapping_workspaces_before_start(home_eval, app, inputs, tmp_path, monkeypatch, location):
     _, commit = await prepare_source(app, inputs)
     path, config = write_config(tmp_path, app, inputs[0], commit)
     source = Path(app.config.workspace_dir)
@@ -232,12 +261,12 @@ async def test_rejects_overlapping_workspaces_before_start(app, inputs, tmp_path
     factory = AsyncMock()
     monkeypatch.setattr(home_eval, "Application", factory)
     with pytest.raises(ValueError, match="non-nested"):
-        await home_eval.run(path)
+        await home_eval.run_evaluation(path)
     factory.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_import_runtime_drift_rolls_back_and_allows_retry(app, inputs, tmp_path, monkeypatch):
+async def test_import_runtime_drift_rolls_back_and_allows_retry(home_eval, app, inputs, tmp_path, monkeypatch):
     source_home, commit = await prepare_source(app, inputs)
     path, config = write_config(tmp_path, app, inputs[0], commit)
     install = EvaluationSource.install
@@ -249,13 +278,13 @@ async def test_import_runtime_drift_rolls_back_and_allows_retry(app, inputs, tmp
 
     monkeypatch.setattr(EvaluationSource, "install", fail_install)
     with pytest.raises(ValueError, match="during import"):
-        await home_eval.run(path, prepare_only=True)
+        await home_eval.run_evaluation(path, prepare_only=True)
     target = Path(config["test_workspace"]) / "home"
     assert not (target / "metadata/preparation.json").exists()
     assert not list((target / "code/runtime").iterdir())
     assert not list((target / "code/repo").iterdir())
     monkeypatch.setattr(EvaluationSource, "install", install)
-    await home_eval.run(path, prepare_only=True)
+    await home_eval.run_evaluation(path, prepare_only=True)
     assert tree_fingerprint(target / "code/runtime") == tree_fingerprint(source_home / "code/runtime")
 
 
@@ -270,7 +299,7 @@ async def test_benchmark_entry_points_select_correct_defaults(benchmark, monkeyp
 
 
 @pytest.mark.parametrize("options", [{"sampling": True}, {"record_history": True}, {"max_evaluations": 1}])
-def test_test_runner_rejects_optimizer_modes(options):
+def test_test_runner_rejects_optimizer_modes(home_eval, options):
     with pytest.raises(ValueError):
         home_eval.TestRunConfig.model_validate(
             {

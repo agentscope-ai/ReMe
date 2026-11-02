@@ -20,6 +20,7 @@ from reme_home.judge import JUDGE_PLUGINS  # noqa: E402
 from reme_home.sampling import SamplingPolicy  # noqa: E402
 
 from reme.application import Application  # noqa: E402
+from reme.utils.env_utils import load_env  # noqa: E402
 
 # pylint: enable=wrong-import-position
 
@@ -67,6 +68,7 @@ def load_config(config_path: str | Path, *, workspace_dir: str | None = None, pr
 async def _run(config_path, *, workspace_dir=None, optimize_workspace=False, instruction=None):
     """Apply the same runner configuration to each preparation or optimization lifecycle."""
     workspace, spec, config = _load_config(config_path, workspace_dir=workspace_dir)
+    load_env(PROJECT_ROOT / ".env", override=False)
     app = Application(
         workspace_dir=str(workspace),
         plugins=["home", JUDGE_PLUGINS[spec["benchmark"]["name"]]],
