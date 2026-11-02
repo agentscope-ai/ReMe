@@ -764,6 +764,46 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("infrastructure", [False, True])
+async def test_top_level_answer_failure_preserves_classification_and_retry_policy(
+    app,
+    prepared,
+    monkeypatch,
+    infrastructure,
+):
+    exception = {
+        "type": "APIConnectionError" if infrastructure else "ValueError",
+        "module": "openai" if infrastructure else "builtins",
+    }
+
+    async def answer(worker, queries):
+        # Worker startup failures happen before any per-query result is written.
+        return {"success": False, "error": "candidate application startup failed", "exception": exception}
+
+    monkeypatch.setattr(FakeWorker, "run_queries", answer)
+    response = await app.run_job("home_evaluate", case_ids=["1"])
+    assert response.success is (not infrastructure)
+    summary = response.answer
+    kind = "infra_error" if infrastructure else "candidate_failure"
+    assert summary["case_status_counts"][kind] == 1
+    assert summary["mean_query_score"] == (None if infrastructure else 0)
+    run = Path(summary["result_dir"])
+    failure = json.loads((run / "cases/1/failure.json").read_text())
+    assert failure["stage"] == "answer"
+    assert failure["exception"] == exception
+    assert failure["failure_kind"] == kind
+
+    retry = await app.run_job("home_evaluate", case_ids=["1"])
+    if infrastructure:
+        assert retry.answer["status"] == "completed"
+        assert Path(retry.answer["result_dir"]).name == "2"
+        assert len(FakeFactory.instances) == 2
+    else:
+        assert retry.answer["error_code"] == "UNCHANGED_CANDIDATE"
+        assert len(FakeFactory.instances) == 1
+
+
+@pytest.mark.asyncio
 async def test_late_cleanup_failure_survives_without_duplicate_execution_record(app, prepared, monkeypatch):
     async def close(worker):
         worker.closed = True

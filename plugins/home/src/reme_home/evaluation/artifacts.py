@@ -395,8 +395,8 @@ def construction_exception(build: dict):
 
 
 def answer_exception(queries: dict):
-    """Select the representative error from failed answer results."""
-    return _failure_exception(
-        [row.get("exception") for row in queries.get("queries", []) if row.get("error")],
-        "answer",
-    )
+    """Inspect failed answers and worker errors that occur before query results exist."""
+    exceptions = [row.get("exception") for row in queries.get("queries", []) if row.get("error")]
+    if queries.get("exception"):
+        exceptions.append(queries["exception"])
+    return _failure_exception(exceptions, "answer")
