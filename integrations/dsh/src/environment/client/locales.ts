@@ -6,7 +6,7 @@ export const envEn = {
   disconnected: "Not connected",
   retest: "Test connection",
   remoteNotice:
-    "This service URL is not local, so local environment management is disabled.",
+    "This service URL is not a loopback origin root, so only its connection is probed. A gateway mounted under a path prefix cannot be managed locally.",
   pythonTitle: "Local Python",
   pythonHint:
     "ReMe requires Python 3.11 or newer. Pick the interpreter that a local service should use.",
@@ -210,7 +210,8 @@ export const envZh: typeof envEn = {
   connected: "已连接",
   disconnected: "未连接",
   retest: "测试连接",
-  remoteNotice: "当前服务地址不是本机地址，本地环境管理已停用。",
+  remoteNotice:
+    "当前服务地址不是本机根路径地址，仅探测其连通性；带路径前缀的网关地址不支持本地环境管理。",
   pythonTitle: "本地 Python 环境",
   pythonHint:
     "ReMe 需要 Python 3.11 或更新版本。请选择本地服务使用的 Python 解释器。",
