@@ -63,7 +63,19 @@ class DreamState(BaseModel):
     )
     failed_units: list[dict] = Field(default_factory=list)
     failed_paths: list[str] = Field(default_factory=list)
+    processed_paths: list[str] | None = Field(
+        default=None,
+        description=(
+            "Paths actually sent to the model. ``None`` means the run did not "
+            "record it (state written by an older version), and the finish step "
+            "then falls back to checkpointing every changed path."
+        ),
+    )
     checkpoint_paths: list[str] = Field(default_factory=list)
+    deferred_paths: list[str] = Field(
+        default_factory=list,
+        description="Changed paths never sent to the model, left eligible for a later run.",
+    )
     warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     summary: str = ""
