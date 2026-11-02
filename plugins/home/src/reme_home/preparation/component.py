@@ -14,6 +14,7 @@ from reme.components.base_component import BaseComponent
 from reme.steps.base_step import BaseStep, Ref
 
 from .code import prepare_code
+from .evaluation_source import EvaluationSource
 from .data import prepare_dataset
 from .data.basic import derive_debug_cases
 from .data.models import fingerprint
@@ -58,10 +59,18 @@ class HomePreparation(BaseComponent):
         if self._pending:
             await asyncio.gather(*self._pending, return_exceptions=True)
 
-    async def prepare(self, *, spec: dict | None = None, spec_path: str | None = None) -> dict:
+    async def prepare(
+        self,
+        *,
+        spec: dict | None = None,
+        spec_path: str | None = None,
+        code_source: EvaluationSource | None = None,
+    ) -> dict:
         """Keep blocking data/Git work off the event loop and await rollback on cancellation."""
         stop = Event()
-        task = asyncio.create_task(asyncio.to_thread(self._prepare, spec=spec, spec_path=spec_path, stop=stop))
+        task = asyncio.create_task(
+            asyncio.to_thread(self._prepare, spec=spec, spec_path=spec_path, stop=stop, code_source=code_source),
+        )
         self._pending.add(task)
         cancelled = False
         try:
@@ -80,7 +89,7 @@ class HomePreparation(BaseComponent):
         finally:
             self._pending.discard(task)
 
-    def _prepare(self, *, spec: dict | None, spec_path: str | None, stop: Event) -> dict:
+    def _prepare(self, *, spec: dict | None, spec_path: str | None, stop: Event, code_source=None) -> dict:
         """Prepare a started application's workspace from exactly one input form.
 
         Local YAML paths must stay inside the workspace. Explicit dataset/repository
@@ -108,19 +117,23 @@ class HomePreparation(BaseComponent):
             self.judge.require_benchmark(config.benchmark.name)
             # Resolve explicitly supplied source inputs before creating transaction state.
             source = _source_path(workspace, config.benchmark.source)
-            repository = _source_path(workspace, config.runtime.source_repo)
+            repository = _source_path(workspace, config.runtime.source_repo) if code_source is None else None
             evidence = (
                 _source_path(workspace, config.benchmark.evidence_source) if config.benchmark.evidence_source else None
             )
             config.benchmark.source = str(source)
-            config.runtime.source_repo = str(repository)
+            if repository is not None:
+                config.runtime.source_repo = str(repository)
             config.benchmark.evidence_source = str(evidence) if evidence else None
             existed = check_targets(root, state)
             transaction = state / TRANSACTION
             transaction.mkdir()
             try:
                 sync_directory(state)
-                result = self._stage(config, transaction, source, repository, evidence)
+                if code_source is None:
+                    result = self._stage(config, transaction, source, repository, evidence)
+                else:
+                    result = self._stage(config, transaction, source, repository, evidence, code_source=code_source)
 
                 def check_cancelled():
                     if stop.is_set():
@@ -142,7 +155,8 @@ class HomePreparation(BaseComponent):
             return result
 
     @staticmethod
-    def _stage(config, transaction, source, repository, evidence) -> dict:
+    def _stage(config, transaction, source, repository, evidence, *, code_source=None) -> dict:
+        request_fingerprint = fingerprint(config.model_dump(mode="json"))
         dataset = prepare_dataset(
             transaction / "output-2",
             config.benchmark.name,
@@ -163,7 +177,11 @@ class HomePreparation(BaseComponent):
             )
         else:
             (transaction / "output-3/cases").mkdir(parents=True)
-        code = prepare_code(config, repository, transaction / "output-0", transaction / "output-1")
+        code = (
+            prepare_code(config, repository, transaction / "output-0", transaction / "output-1")
+            if code_source is None
+            else code_source.install(transaction / "output-0", transaction / "output-1")
+        )
         config.runtime.source_ref = code["source_commit"]
         domain = config.model_dump(mode="json")
         (transaction / "output-4").write_text(yaml.safe_dump(domain, sort_keys=False), encoding="utf-8")
@@ -179,6 +197,11 @@ class HomePreparation(BaseComponent):
             "dataset": dataset.model_dump(mode="json"),
             "code": code,
         }
+        if code_source is not None:
+            result["test_evaluation"] = {
+                **code_source.provenance,
+                "request_fingerprint": request_fingerprint,
+            }
         write_json(transaction / "output-6", result)
         return result
 

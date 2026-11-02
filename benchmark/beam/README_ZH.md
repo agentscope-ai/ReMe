@@ -172,3 +172,38 @@ python benchmark/beam/run_home.py --optimize
 不加 `--optimize` 时仍只准备。
 
 默认选择 BEAM **100K 全部 case**。
+
+
+## 独立测试集评测
+
+默认在独立工作区评测 **100K 全部 case**，与旧独立评测入口一致，不代表与训练集互斥的留出集。
+可在 [config_home_eval.yaml](config_home_eval.yaml) 更换 `variant`，或把 `all_cases: true`
+替换为 `case_ids: [...]`，指定测试数据。
+
+入口从已有 Home 优化工作区导出指定候选提交，接受完整 SHA 或无歧义的十六进制短 SHA，
+并复制该实验已准备的固定 runtime。无需原始 ReMe 源码仓库，也不会切换或修改优化工作区。
+配置内路径均相对仓库根目录。
+
+先准备测试工作区，再分别在两个终端启动服务和调用评测（替换 `CANDIDATE_SHA`）：
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
+# 终端 1：
+reme start workspace_dir=benchmark/beam/workspaces/home-test-100K 'plugins=["home","beam-judge"]'
+# 终端 2：
+reme home_evaluate workspace_dir=benchmark/beam/workspaces/home-test-100K record_history=false
+```
+
+### 本地一次性测试评测
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA
+# 可选：--config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
+```
+
+Python 可调用 `await benchmark.beam.run_home_eval.run(commit="CANDIDATE_SHA")`。
+入口完整重建记忆并对所选 case 的全部 query 评分，关闭采样与优化历史记录，使用现有 Docker
+评测环境和宿主 judge 配置；实际评测需要模型凭证。结果保存在测试工作区的 `home/evaluations/`，
+manifest 的 `test_evaluation` 记录来源候选，导出后的本地提交另记为 `evaluation_commit_sha`。
+相同请求可复用未改动的准备结果并新增一次评测；更换候选或数据选择时需使用新测试工作区。
+测试工作区与来源工作区必须互不包含。

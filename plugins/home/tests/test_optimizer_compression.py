@@ -7,6 +7,7 @@ import asyncio
 import json
 
 from agentscope.agent import Agent, ContextConfig
+from agentscope.exception import StructuredOutputError
 from agentscope.message import AssistantMsg, TextBlock, UserMsg, Usage
 from agentscope.state import AgentState
 import jsonschema
@@ -45,12 +46,19 @@ def make_agent(tmp_path, ratio=0.9, trigger=0.8, failure=None, summary="existing
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_type", [RuntimeError, StructuredOutputError])
 @pytest.mark.parametrize(
     ("trigger", "ratio", "expected"),
     [(0.8, 0.79, False), (0.8, 0.85, False), (0.8, 0.9, True), (0.65, 0.82, False), (0.65, 0.825, True)],
 )
-async def test_real_compression_failure_uses_dev_meta_emergency_threshold(tmp_path, trigger, ratio, expected):
-    agent = make_agent(tmp_path, ratio, trigger)
+async def test_real_compression_failure_uses_dev_meta_emergency_threshold(
+    tmp_path,
+    trigger,
+    ratio,
+    expected,
+    failure_type,
+):
+    agent = make_agent(tmp_path, ratio, trigger, failure=failure_type("Invalid structured output"))
     context_before, summary_before = agent.state.context, agent.state.summary
     await agent.compress_context()
     assert agent.validation_cycle_timer.context_compression_count == int(expected)
@@ -63,10 +71,16 @@ async def test_real_compression_failure_uses_dev_meta_emergency_threshold(tmp_pa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_type", [RuntimeError, StructuredOutputError])
 @pytest.mark.parametrize("summary", ["existing summary", [TextBlock(text="existing summary")]])
 @pytest.mark.parametrize("reserve_ratio", [0.2, 0])
-async def test_offload_retains_full_messages_summary_usage_and_recent_context(tmp_path, summary, reserve_ratio):
-    agent = make_agent(tmp_path, summary=summary)
+async def test_offload_retains_full_messages_summary_usage_and_recent_context(
+    tmp_path,
+    summary,
+    reserve_ratio,
+    failure_type,
+):
+    agent = make_agent(tmp_path, summary=summary, failure=failure_type("Invalid structured output"))
     agent.context_config.reserve_ratio = reserve_ratio
     agent.state.context[-1] = AssistantMsg(
         id=agent.state.reply_id,
@@ -87,7 +101,7 @@ async def test_offload_retains_full_messages_summary_usage_and_recent_context(tm
     assert data["session_id"] == agent.state.session_id
     assert data["context_ratio"] == 0.9
     assert data["emergency_ratio"] == 0.9
-    assert data["failure"]["type"] == "RuntimeError"
+    assert data["failure"]["type"] == failure_type.__name__
     text = agent.state.summary
     if isinstance(text, list):
         text = "\n".join(block.text for block in text)
@@ -117,6 +131,7 @@ async def test_unrecoverable_failures_and_cancellation_propagate(tmp_path, failu
     ("failure", "expected"),
     [
         (RuntimeError("provider failed"), True),
+        (StructuredOutputError("invalid summary"), True),
         (RuntimeError("The system prompt exceeds threshold"), False),
         (jsonschema.ValidationError("invalid summary"), True),
         (openai.OpenAIError("provider unavailable"), True),

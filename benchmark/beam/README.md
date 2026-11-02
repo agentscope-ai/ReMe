@@ -192,3 +192,39 @@ from benchmark.beam.run_home import run
 
 result = await run(workspace_dir="/path/to/new-workspace")
 ```
+
+
+## Evaluate a candidate on an independent test set
+
+The default evaluates every 100K case, matching the previous standalone evaluation. This is an independent
+workspace, not a disjoint held-out split. Select another `variant`, or replace `all_cases: true` with
+`case_ids: [...]`, in [config_home_eval.yaml](config_home_eval.yaml) for a different test set.
+
+The entry point imports a full candidate SHA or unambiguous hexadecimal prefix from an existing Home
+optimization workspace and copies its prepared fixed runtime. It does not require the original ReMe source
+repository or change the optimizer's checkout. Paths in the configuration are repository-relative.
+
+Prepare first, then use the service from two terminals (replace `CANDIDATE_SHA`):
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
+# Terminal 1:
+reme start workspace_dir=benchmark/beam/workspaces/home-test-100K 'plugins=["home","beam-judge"]'
+# Terminal 2:
+reme home_evaluate workspace_dir=benchmark/beam/workspaces/home-test-100K record_history=false
+```
+
+### Local one-shot test evaluation
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA
+# Optional overrides: --config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
+```
+
+Python callers can use `await benchmark.beam.run_home_eval.run(commit="CANDIDATE_SHA")`.
+The runner rebuilds construction and scores every selected query with sampling and history recording disabled.
+It uses the existing Docker evaluation runtime and host judge configuration; model credentials are required
+for evaluation. Results stay in the test workspace's `home/evaluations/`, with original candidate provenance
+in each manifest's `test_evaluation`. The exported snapshot has its own local `evaluation_commit_sha`.
+Rerunning the same request reopens unchanged prepared inputs and creates another evaluation result. Use a
+new test workspace for another candidate or selection. Source and test workspaces must not overlap.

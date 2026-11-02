@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from agentscope.exception import ToolJSONDecodeError
+from agentscope.exception import StructuredOutputError, ToolJSONDecodeError
 from agentscope.message import TextBlock
 import jsonschema
 import openai
@@ -67,7 +67,16 @@ class RecoverableCompressionAgent(BoundedReActAgent):
         """Match dev_meta's model/output failures, excluding uncompressible prompts."""
         if isinstance(exc, RuntimeError):
             return not str(exc).startswith("The system prompt")
-        return isinstance(exc, (ToolJSONDecodeError, jsonschema.ValidationError, ValidationError, openai.OpenAIError))
+        return isinstance(
+            exc,
+            (
+                StructuredOutputError,
+                ToolJSONDecodeError,
+                jsonschema.ValidationError,
+                ValidationError,
+                openai.OpenAIError,
+            ),
+        )
 
     async def _fallback_compress_context(self, cause, context_ratio, config):
         """Persist older messages before replacing state; never call a second model."""

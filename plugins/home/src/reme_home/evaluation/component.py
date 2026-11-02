@@ -291,6 +291,8 @@ class HomeEvaluation(BaseComponent):
             }
             if source is not None:
                 manifest["construction_source"] = source
+            if "test_evaluation" in record:
+                manifest["test_evaluation"] = record["test_evaluation"]
             if admission is not None:
                 manifest["candidate_gate"] = admission
             if reuse is not None:

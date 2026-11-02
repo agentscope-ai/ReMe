@@ -147,3 +147,39 @@ ID 已按原顺序直接写入 [config_home.yaml](config_home.yaml) 的 `benchma
 运行时无需读取分组文件，group_6–group_10 保持为留出集。
 独立审阅的证据标注保存在
 [home_evidence_sessions.jsonl](home_evidence_sessions.jsonl)，来源见英文说明。
+
+
+## 独立测试集评测
+
+默认从完整数据中排除来源工作区实际使用的训练 ID；使用默认 250 个训练 case 时，测试集为
+**group_6–group_10，共 250 个 case**。若要显式选取测试 case，可在
+[config_home_eval.yaml](config_home_eval.yaml) 设置 `exclude_training_cases: false`，
+并把 `all_cases: true` 替换为 `case_ids: [...]`。留出集为空时会直接报错。
+
+入口从已有 Home 优化工作区导出指定候选提交，接受完整 SHA 或无歧义的十六进制短 SHA，
+并复制该实验已准备的固定 runtime。无需原始 ReMe 源码仓库，也不会切换或修改优化工作区。
+配置内路径均相对仓库根目录。
+
+先准备测试工作区，再分别在两个终端启动服务和调用评测（替换 `CANDIDATE_SHA`）：
+
+```bash
+python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
+# 终端 1：
+reme start workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out 'plugins=["home","lme-judge"]'
+# 终端 2：
+reme home_evaluate workspace_dir=benchmark/longmemeval/workspaces/home-test-held-out record_history=false
+```
+
+### 本地一次性测试评测
+
+```bash
+python benchmark/longmemeval/run_home_eval.py --commit CANDIDATE_SHA
+# 可选：--config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
+```
+
+Python 可调用 `await benchmark.longmemeval.run_home_eval.run(commit="CANDIDATE_SHA")`。
+入口完整重建记忆并对所选 case 的全部 query 评分，关闭采样与优化历史记录，使用现有 Docker
+评测环境和宿主 judge 配置；实际评测需要模型凭证。结果保存在测试工作区的 `home/evaluations/`，
+manifest 的 `test_evaluation` 记录来源候选，导出后的本地提交另记为 `evaluation_commit_sha`。
+相同请求可复用未改动的准备结果并新增一次评测；更换候选或数据选择时需使用新测试工作区。
+测试工作区与来源工作区必须互不包含。
