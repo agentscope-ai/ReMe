@@ -456,17 +456,46 @@ class CodexAgentWrapper(BaseAgentWrapper):
             state.owned_thread_ids = ids
             return ids
 
-    async def _record_thread_ownership(self, alias: str, thread_id: str) -> None:
+    def _require_thread_alias(self, alias: str) -> str:
+        """Resolve an omitted alias and reject names that are not configured."""
         workspaces = _context_workspaces(self.app_context)
         if not workspaces:
-            return
-        alias = self._normalize_thread_alias(alias)
+            return alias
+        resolved = self._normalize_thread_alias(alias)
+        if resolved not in workspaces:
+            configured = sorted(workspaces)
+            raise ValueError(f"Unknown workspace {resolved!r}; configured: {configured}")
+        return resolved
+
+    @staticmethod
+    def _write_owned_thread_ids(path: Path, thread_ids: set[str]) -> None:
+        """Atomically replace one workspace's ownership file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump({"thread_ids": sorted(thread_ids)}, stream, indent=1)
+            os.replace(raw_path, path)
+        finally:
+            Path(raw_path).unlink(missing_ok=True)
+
+    async def _record_thread_ownership(self, alias: str, thread_id: str) -> bool:
+        """Claim ``thread_id`` for ``alias``.
+
+        Returns True when this call newly records the thread. An unknown alias,
+        or a thread already owned by another workspace, raises ValueError before
+        the claim is stored.
+        """
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return False
+        alias = self._require_thread_alias(alias)
         async with self.app_context.codex_thread_ownership_lock:
             for owner_alias in workspaces:
                 if thread_id not in await self._owned_thread_ids(owner_alias):
                     continue
                 if owner_alias == alias:
-                    return
+                    return False
                 raise ValueError(
                     f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
                     f"it cannot be used from workspace {alias!r}",
@@ -476,21 +505,40 @@ class CodexAgentWrapper(BaseAgentWrapper):
             ids = await self._owned_thread_ids(alias)
             path = self._thread_ownership_path(alias)
             if path is None:
+                if thread_id in ids:
+                    return False
                 ids.add(thread_id)
-                return
+                return True
             async with state.lock:
                 if thread_id in ids:
-                    return
+                    return False
                 updated = {*ids, thread_id}
-                path.parent.mkdir(parents=True, exist_ok=True)
-                fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
-                try:
-                    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                        json.dump({"thread_ids": sorted(updated)}, stream, indent=1)
-                    os.replace(raw_path, path)
-                finally:
-                    Path(raw_path).unlink(missing_ok=True)
+                self._write_owned_thread_ids(path, updated)
                 ids.add(thread_id)
+                return True
+
+    async def _forget_thread_ownership(self, alias: str, thread_id: str) -> None:
+        """Drop a claim reserved for an SDK operation that did not succeed."""
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return
+        alias = self._normalize_thread_alias(alias)
+        async with self.app_context.codex_thread_ownership_lock:
+            ids = await self._owned_thread_ids(alias)
+            if thread_id not in ids:
+                return
+            path = self._thread_ownership_path(alias)
+            if path is None:
+                ids.discard(thread_id)
+                return
+            state = self._codex_thread_state(alias)
+            async with state.lock:
+                if thread_id not in ids:
+                    return
+                updated = set(ids)
+                updated.discard(thread_id)
+                self._write_owned_thread_ids(path, updated)
+                ids.discard(thread_id)
 
     async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
         """Reject resume/fork/compact of a thread owned by another workspace.
@@ -648,17 +696,29 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return response
 
     async def compact_session(self, session_id: str, workspace: str | None = None) -> None:
-        """Start native compaction of a Codex thread owned by the bound workspace."""
+        """Compact a Codex thread after its workspace wins ownership.
+
+        The alias is validated and the cross-workspace claim is settled before
+        any SDK call, so a losing request cannot compact. A claim made for this
+        call is removed when the SDK rejects the operation; an existing claim
+        is left in place. Thread release still runs once a thread was resumed.
+        """
         await self.start()
+        alias = str(workspace or "")
         async with self._turn_lock:
-            await self._check_thread_ownership(session_id, str(workspace or ""))
-            codex = await self._get_codex()
-            thread = await codex.thread_resume(session_id)
+            newly_claimed = await self._record_thread_ownership(alias, session_id)
+            codex = None
+            thread = None
             try:
+                codex = await self._get_codex()
+                thread = await codex.thread_resume(session_id)
                 await thread.compact()
-                await self._record_thread_ownership(str(workspace or ""), thread.id)
+            except BaseException:
+                if newly_claimed:
+                    await self._forget_thread_ownership(alias, session_id)
+                raise
             finally:
-                if self._release_threads:
+                if thread is not None and codex is not None and self._release_threads:
                     await self._release_thread(codex, thread.id)
 
     @classmethod
