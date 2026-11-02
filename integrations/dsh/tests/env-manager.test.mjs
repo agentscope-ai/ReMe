@@ -361,6 +361,43 @@ test("refuses to overwrite a live record owned by another endpoint", async (t) =
   assert.equal(calls.spawn.length, 0);
 });
 
+test("replaces a leftover launch recorded under a same-origin path prefix", async (t) => {
+  // A version that still launched prefixed endpoints recorded this service
+  // under `…/reme`. The launch configures only host and port, so it is the
+  // same local service; the endpoint on screen cannot stop it, and the start
+  // must replace it instead of refusing with an unreachable recovery.
+  const { manager, calls, directory, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  let running = true;
+  io.probePid = () => {
+    if (!running) throw new Error("ESRCH");
+  };
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+  };
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, true);
+  assert.deepEqual(calls.killTree, [6000]);
+  assert.equal(calls.spawn.length, 1);
+  assert.equal(readServiceState(statePath)?.pid, 5001);
+});
+
 test("stop waits for an in-flight start and then stops that launch", async (t) => {
   const { manager, calls, directory, io } = managerIn(t);
   let running = true;

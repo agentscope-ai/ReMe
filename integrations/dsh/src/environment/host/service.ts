@@ -27,7 +27,7 @@ import type {
 import { openAppendLog } from "./log.js";
 import { isWindowsPath } from "./paths.js";
 
-export { serviceEndpointKey } from "../endpoint-key.js";
+export { serviceEndpointKey, serviceOriginKey } from "../endpoint-key.js";
 export { parseLocalEndpoint } from "../endpoint-rules.js";
 
 /**

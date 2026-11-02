@@ -16,6 +16,7 @@ import {
   readServiceState,
   removeServiceState,
   serviceEndpointKey,
+  serviceOriginKey,
   serviceOwnership,
   serviceRecordRef,
   serviceStatus,
@@ -490,13 +491,40 @@ export class ReMeEnvManager {
         recorded,
         recorded.endpoint,
       );
-      if (other === "owned")
-        return this.refused(
-          logPath,
-          now,
-          "other-endpoint-running",
-          `A service for ${recorded.endpoint} is still running; stop it from that endpoint first`,
-        );
+      if (other === "owned") {
+        // The launch configures only host and port, so two endpoints on the
+        // same origin name the same local service even when their paths
+        // differ. A record left by a version that still launched a prefixed
+        // endpoint (for example `/reme`) is that service, and the endpoint on
+        // screen cannot reach it to stop it: replace it here instead of
+        // refusing with an instruction the tab cannot carry out.
+        if (
+          serviceOriginKey(recorded.endpoint) ===
+          serviceOriginKey(endpointValue)
+        ) {
+          const previous = await stopService(this.serviceIO, {
+            statePath: this.serviceStatePath,
+            endpoint: recorded.endpoint,
+            ownership: "owned",
+          });
+          if (!previous.stopped)
+            return this.refused(
+              logPath,
+              now,
+              "previous-not-stopped",
+              `A previous launch could not be stopped: ${
+                previous.reason ?? "unknown reason"
+              }`,
+              { record: previous.record },
+            );
+        } else
+          return this.refused(
+            logPath,
+            now,
+            "other-endpoint-running",
+            `A service for ${recorded.endpoint} is still running; stop it from that endpoint first`,
+          );
+      }
       // An unreadable image/command line is not proof the process is gone:
       // dropping the record would orphan a live service this plugin can no
       // longer stop. Keep it and report why the start is blocked. The record is
