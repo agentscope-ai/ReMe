@@ -150,6 +150,72 @@ def save_record(home, category, payload):
     return str(path)
 
 
+async def review_report(
+    wrapper,
+    home,
+    scope,
+    task,
+    report,
+    *,
+    role,
+    sandbox_label,
+    category,
+    report_model,
+    failure_decision,
+    failure_reason,
+    memory_limit_mib=None,
+):
+    """Share read-only review mechanics while callers choose their failure policy.
+
+    Sandbox and prompt setup and report persistence deliberately stay outside
+    the model/report recovery boundary. Cancellation propagates to the export owner.
+    """
+    backend = WorkflowSandbox(scope, memory_limit_mib)
+    probe = await backend.exec_shell(
+        [sys.executable, "-I", "-B", "-c", f"print('{sandbox_label.lower()} sandbox')"],
+        timeout=10,
+    )
+    if not probe.ok():
+        raise RuntimeError(f"{sandbox_label} sandbox unavailable: " + probe.stderr.decode(errors="replace"))
+    tools = [
+        Read(backend=backend),
+        Glob(backend=backend),
+        Grep(backend=backend),
+        AutoBash(cwd=scope["scratch"], backend=backend, is_read_only=True),
+    ]
+    for tool in tools:
+        tool.is_concurrency_safe = False
+    prompt = yaml.safe_load(Path(__file__).with_name(f"{role}.yaml").read_text(encoding="utf-8"))
+    try:
+        reply = await wrapper.reply(
+            task,
+            system_prompt=prompt["system_prompt"],
+            toolkit=Toolkit(tools=tools),
+            builtin_tools=[],
+            job_tools=[],
+            skills=[],
+            resume=None,
+            session_id=None,
+            fork_session=False,
+            output_schema=None,
+            _structured_report_model=report_model,
+            permission_mode="bypass",
+        )
+        report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})
+        text = reply["result"].strip()
+        if text.startswith("```") and text.endswith("```"):
+            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        report.update(report_model.model_validate(json.loads(text)).model_dump())
+    except Exception as exc:
+        report.update(
+            decision=failure_decision,
+            reason=f"{failure_reason}: {type(exc).__name__}: {exc}",
+            review_failed=True,
+        )
+    path = await blocking(save_record, home, category, report)
+    return {**report, "review_path": path}
+
+
 _INSPECT = """\
 import json, pathlib, sys
 path = pathlib.Path(sys.argv[2])

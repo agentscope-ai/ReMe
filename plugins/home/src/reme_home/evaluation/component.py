@@ -235,8 +235,12 @@ class HomeEvaluation(BaseComponent):
                 manifest["selection_plan"] = plan
             write_json(run / "manifest.json", manifest)
             return
-        self.history.record_started(run, policy if policy is not None else self.sampling_policy, plan)
-        manifest.update(read_json(run / "manifest.json"))
+        try:
+            self.history.record_started(run, policy if policy is not None else self.sampling_policy, plan)
+        finally:
+            # Cache publication can fail after the durable start was written.
+            # Preserve those fields when the caller later saves failure status.
+            manifest.update(read_json(run / "manifest.json"))
 
     def _finish_sampling(self, run):
         self.history.record(run)

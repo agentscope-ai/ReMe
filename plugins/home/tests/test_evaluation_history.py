@@ -7,7 +7,15 @@ from pathlib import Path
 
 import pytest
 from agentscope.message import ToolResultState
-from reme_home.evaluation.history import HomeEvaluationHistory, EvaluationRecord, read_state
+from reme_home.evaluation.history import (
+    HomeEvaluationHistory,
+    EvaluationRecord,
+    read_state,
+    rebuild_sampling_state,
+    start_validation,
+)
+from reme_home.evaluation.budget import validation_budget_status
+from reme_home.evaluation import history as history_module
 from reme_home.sampling import SamplingPolicy, create_sampling_plan
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
@@ -29,6 +37,86 @@ def history(app):
 
 def manifest(response):
     return json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
+
+
+@pytest.mark.asyncio
+async def test_start_cache_failure_keeps_start_evidence_and_exhausts_budget(app, prepared, monkeypatch):
+    commit_candidate(prepared)
+    manager = history(app)
+    manager.rebuild()  # Start with a valid but empty cache, not just a missing cache.
+    original = history_module.write_json
+
+    def fail_cache(path, value, **kwargs):
+        if path == prepared / "sampling/state.json":
+            raise OSError("injected start cache publication failure")
+        return original(path, value, **kwargs)
+
+    monkeypatch.setattr(history_module, "write_json", fail_cache)
+    response = await app.run_job("home_evaluate", max_evaluations=1, sampling=True)
+    assert not response.success
+    paths = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
+    assert len(paths) == 1
+    payload = json.loads(paths[0].read_text())
+    assert payload["status"] == "failed" and payload["sandbox_started_at"]
+    plan = json.loads((prepared / payload["sampling"]["plan_path"]).read_text())
+    assert payload["sandbox_started_at"] == plan["sandbox_started_at"]
+    assert payload["sampling"]["round"] == plan["round"] == 1
+    assert not (prepared / "sampling/state.json").exists()
+    expected = {plan["validation_key"]: 1}
+    assert read_state(prepared)["started_validations"] == expected
+    assert rebuild_sampling_state(prepared, persist=False)["started_validations"] == expected
+    budget = validation_budget_status(prepared, 1)
+    assert budget["used_validations"] == 1 and budget["remaining_validations"] == 0
+    rejected = await app.run_job("home_evaluate", max_evaluations=1)
+    assert rejected.answer["error_code"] == "VALIDATION_BUDGET_EXHAUSTED"
+    assert len(FakeFactory.instances) == 1
+    assert manager.list_results() == []
+
+
+@pytest.mark.parametrize("interrupted_write", ["manifest.json", "state.json"])
+def test_interrupted_start_rebuilds_from_plan_and_retry_is_idempotent(tmp_path, monkeypatch, interrupted_write):
+    class Interrupted(BaseException):
+        """Model process interruption outside ordinary exception handling."""
+
+    home = tmp_path / "home"
+    run = home / "evaluations/candidate/abcdef0/1"
+    run.mkdir(parents=True)
+    original = history_module.write_json
+    original(
+        run / "manifest.json",
+        {
+            "mode": "scored",
+            "dataset_kind": "training-set",
+            "status": "running",
+            "validation_id": "1",
+            "case_ids": ["1"],
+            "query_ids": {"1": ["q1"]},
+        },
+    )
+    rebuild_sampling_state(home)  # An old cache must not hide newly published evidence.
+
+    def interrupt(path, value, **kwargs):
+        if path.name == interrupted_write:
+            raise Interrupted()
+        return original(path, value, **kwargs)
+
+    monkeypatch.setattr(history_module, "write_json", interrupt)
+    with pytest.raises(Interrupted):
+        start_validation(home, run, SamplingPolicy())
+    plan_path = home / "sampling/plans/candidate/abcdef0/1.json"
+    evidence = plan_path.read_bytes()
+    plan = json.loads(evidence)
+    assert not (home / "sampling/state.json").exists()
+    if interrupted_write == "manifest.json":
+        assert "sandbox_started_at" not in json.loads((run / "manifest.json").read_text())
+    assert read_state(home)["started_validations"] == {"candidate/abcdef0/1": 1}
+    assert validation_budget_status(home, 1)["remaining_validations"] == 0
+    monkeypatch.setattr(history_module, "write_json", original)
+    assert start_validation(home, run, SamplingPolicy()) == plan
+    assert plan_path.read_bytes() == evidence
+    assert json.loads((run / "manifest.json").read_text())["sandbox_started_at"] == plan["sandbox_started_at"]
+    assert read_state(home)["round"] == 1
+    assert rebuild_sampling_state(home)["started_validations"] == {"candidate/abcdef0/1": 1}
 
 
 @pytest.mark.asyncio

@@ -1,18 +1,12 @@
 """Early candidate admission using read-only, commit-pinned source exports."""
 
-import json
 from contextlib import asynccontextmanager
-from pathlib import Path
 import shutil
-import sys
 from typing import Literal
 from uuid import uuid4
 
-from agentscope.tool import Glob, Grep, Read, Toolkit
 from pydantic import Field
-import yaml
 
-from ..auto_bash import AutoBash
 from ..code.repository import current_branch, require_clean, resolve_revision, validate_repository, validate_tree
 from ..code.snapshot import export_blob, tree
 from ..evaluation.artifacts import contained, read_json
@@ -20,7 +14,7 @@ from ..evaluation.component import blocking
 from ..evaluation.repetition import previous_candidate_result
 from ..preparation.code import git
 from ..preparation.spec import SpecModel
-from .workflow_common import WorkflowSandbox, save_record
+from .workflow_common import review_report
 
 
 class CandidateGateReport(SpecModel):
@@ -92,51 +86,18 @@ async def review_candidate(wrapper, home, context, budget, *, memory_limit_mib=N
     """Fail closed on sandbox setup; model/report failures allow validation as in dev_meta."""
     async with review_export(home, "candidate-gate") as root:
         scope = await blocking(prepare_review_scope, home, context, root=root)
-        return await _review_candidate(wrapper, home, context, budget, scope, memory_limit_mib)
-
-
-async def _review_candidate(wrapper, home, context, budget, scope, memory_limit_mib):
-    """Run inside the caller-owned export lifetime; persist only the report."""
-    backend = WorkflowSandbox(scope, memory_limit_mib)
-    probe = await backend.exec_shell([sys.executable, "-I", "-B", "-c", "print('candidate gate sandbox')"], timeout=10)
-    if not probe.ok():
-        raise RuntimeError("Candidate gate sandbox unavailable: " + probe.stderr.decode(errors="replace"))
-    tools = [
-        Read(backend=backend),
-        Glob(backend=backend),
-        Grep(backend=backend),
-        AutoBash(cwd=scope["scratch"], backend=backend, is_read_only=True),
-    ]
-    for tool in tools:
-        tool.is_concurrency_safe = False
-    prompt = yaml.safe_load(Path(__file__).with_suffix(".yaml").read_text(encoding="utf-8"))
-    report = {**context, "validation_budget": budget, "source_path": scope["scratch"]}
-    try:
-        reply = await wrapper.reply(
+        return await review_report(
+            wrapper,
+            home,
+            scope,
             f"Review admission from {context['base_commit']} to {context['candidate_commit']}.\n"
             f"Source exports and complete diff.patch: {scope['scratch']}",
-            system_prompt=prompt["system_prompt"],
-            toolkit=Toolkit(tools=tools),
-            builtin_tools=[],
-            job_tools=[],
-            skills=[],
-            resume=None,
-            session_id=None,
-            fork_session=False,
-            output_schema=None,
-            _structured_report_model=CandidateGateReport,
-            permission_mode="bypass",
+            {**context, "validation_budget": budget, "source_path": scope["scratch"]},
+            role="candidate_gate",
+            sandbox_label="Candidate gate",
+            category="candidate-gates",
+            report_model=CandidateGateReport,
+            failure_decision="accept",
+            failure_reason="Candidate gate failed; validation is allowed",
+            memory_limit_mib=memory_limit_mib,
         )
-        report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})
-        text = reply["result"].strip()
-        if text.startswith("```") and text.endswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        report.update(CandidateGateReport.model_validate(json.loads(text)).model_dump())
-    except Exception as exc:
-        report.update(
-            decision="accept",
-            reason=f"Candidate gate failed; validation is allowed: {type(exc).__name__}: {exc}",
-            review_failed=True,
-        )
-    path = await blocking(save_record, home, "candidate-gates", report)
-    return {**report, "review_path": path}

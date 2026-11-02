@@ -114,35 +114,45 @@ def start_validation(home: Path, run: Path, policy: SamplingPolicy, plan: dict |
         return {}
     key = run.relative_to(home / "evaluations").as_posix()
     state = read_state(home)
-    if key in state["started_validations"]:
-        return read_json(contained(home, manifest["sampling"]["plan_path"]))
-    plan = (
-        dict(plan)
-        if plan is not None
-        else {
-            "mode": "explicit",
-            "case_ids": manifest["case_ids"],
-            "query_ids": manifest["query_ids"],
-            "policy": policy.model_dump(),
-        }
-    )
-    # Preserve the draw's state snapshot separately from the committed start round.
-    if "round" in plan:
-        plan["selection_round"] = plan["round"]
-    plan.update(
-        round=state["round"] + 1,
-        validation_id=manifest["validation_id"],
-        validation_key=key,
-        sandbox_started_at=utc_now().isoformat(),
-    )
     relative = f"sampling/plans/{key}.json"
-    write_json(contained(home, relative), plan)
+    if key in state["started_validations"]:
+        plan = read_json(contained(home, relative))
+    else:
+        plan = (
+            dict(plan)
+            if plan is not None
+            else {
+                "mode": "explicit",
+                "case_ids": manifest["case_ids"],
+                "query_ids": manifest["query_ids"],
+                "policy": policy.model_dump(),
+            }
+        )
+        # Preserve the draw's state snapshot separately from the committed start round.
+        if "round" in plan:
+            plan["selection_round"] = plan["round"]
+        plan.update(
+            round=state["round"] + 1,
+            validation_id=manifest["validation_id"],
+            validation_key=key,
+            sandbox_started_at=utc_now().isoformat(),
+        )
+    # Invalidate before publishing evidence: interruption at either following
+    # write must rebuild from the started plan rather than trust an old cache.
+    cache = contained(home, "sampling/state.json")
+    cache.unlink(missing_ok=True)
+    if key not in state["started_validations"]:
+        write_json(contained(home, relative), plan)
     manifest["sampling"] = {"round": plan["round"], "mode": plan["mode"], "plan_path": relative}
     manifest["sandbox_started_at"] = plan["sandbox_started_at"]
     write_json(run / "manifest.json", manifest)
-    state["round"] = plan["round"]
+    state["round"] = max(state["round"], plan["round"])
     state["started_validations"][key] = plan["round"]
-    write_json(contained(home, "sampling/state.json"), state)
+    try:
+        write_json(cache, state)
+    except BaseException:
+        cache.unlink(missing_ok=True)
+        raise
     return plan
 
 
@@ -231,10 +241,17 @@ def rebuild_sampling_state(home: Path, *, persist: bool = True) -> dict:
             manifest.get("mode") == "debug"
             or manifest.get("dataset_kind") != "training-set"
             or manifest.get("options", {}).get("record_history") is False
-            or not (manifest.get("sandbox_started_at"))
         ):
             continue
-        plan = read_json(contained(home, manifest["sampling"]["plan_path"]))
+        key = path.parent.relative_to(home / "evaluations").as_posix()
+        plan_path = contained(home, manifest.get("sampling", {}).get("plan_path", f"sampling/plans/{key}.json"))
+        if not manifest.get("sandbox_started_at") and not plan_path.is_file():
+            continue
+        plan = read_json(plan_path)
+        # A started plan is independent evidence even if the process stopped
+        # before publishing the manifest's start fields.
+        if not plan.get("sandbox_started_at"):
+            continue
         runs.append((plan["round"], path.parent, plan["validation_key"]))
     for round_id, run, key in sorted(runs):
         state["round"] = max(state["round"], round_id)

@@ -331,10 +331,12 @@ def rebuild_summary(run: Path) -> dict:
 INFRA_TYPES = {
     "APIConnectionError",
     "APITimeoutError",
+    "AuthenticationError",
     "ConnectError",
     "ConnectionError",
     "ConnectTimeout",
     "NetworkError",
+    "PermissionDeniedError",
     "PoolTimeout",
     "RateLimitError",
     "ReadError",
@@ -350,7 +352,7 @@ INFRA_TYPES = {
 
 
 def failure_kind(exception, stage: str) -> str:
-    """Only candidate execution errors count against candidate scores."""
+    """Only candidate execution errors count against scores; provider access errors are infrastructure failures."""
     if stage not in {"construction", "answer"}:
         return "infra_error"
     exception = exception if isinstance(exception, dict) else {}
@@ -360,7 +362,7 @@ def failure_kind(exception, stage: str) -> str:
     if isinstance(causes, list) and any(failure_kind(cause, stage) == "infra_error" for cause in causes):
         return "infra_error"
     status = exception.get("status_code")
-    if isinstance(status, int) and (status in {408, 429} or status >= 500):
+    if isinstance(status, int) and (status in {401, 403, 408, 429} or status >= 500):
         return "infra_error"
     name = str(exception.get("type", ""))
     module = str(exception.get("module", ""))

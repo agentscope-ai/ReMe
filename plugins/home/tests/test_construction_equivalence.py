@@ -434,12 +434,11 @@ async def test_partial_export_and_report_failures_clean_review_files(
     assert (await app.run_job("home_evaluate")).success
     commit_candidate(prepared)
     if stage == "report":
-        module = candidate_gate if kind == "candidate-gate" else construction_equivalence
 
         def fail_report(*args, **kwargs):
             raise OSError("report write failed")
 
-        monkeypatch.setattr(module, "save_record", fail_report)
+        monkeypatch.setattr(workflow_common, "save_record", fail_report)
     elif kind == "candidate-gate":
         original = candidate_gate.export_blob
 

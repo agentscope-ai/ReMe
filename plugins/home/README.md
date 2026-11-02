@@ -144,15 +144,10 @@ All prepared outputs live under `workspace_dir/home/` (paths below are relative 
   manifest with case IDs and content fingerprints.
 - `datasets/debug-cases/`: deterministic small smoke cases with source case IDs
   in their metadata, or an empty `cases/` directory when debug derivation is disabled.
-- `code/runtime/`: fixed committed ReMe sources, packaging files and configurations,
-  without plugin projects. Uncommitted source edits are excluded.
-- `code/repo/`: an independent Git repository containing complete selected plugin
-  projects (including packaging and configuration) and any selected ReMe core paths,
-  retaining repository-relative locations. `candidate.paths` defines the editable
-  scope, not the complete file inventory. The initial commit preserves the baseline.
-  Future runners assemble an isolated evaluation tree from runtime plus repo,
-  excluding `.git`; `install_projects` paths are relative to that tree. Install
-  plugins from the candidate, and never edit the fixed runtime.
+- `code/runtime/` and `code/repo/`: fixed committed runtime and candidate Git
+  repository. See the [workspace and modification boundary](src/reme_home/runtime_docs/architecture-guide.md#workspace-and-modification-boundary)
+  for their roles and editable scope. Source exports exclude uncommitted edits;
+  `install_projects` paths are relative to the assembled evaluation tree.
 - `docs/architecture-guide.md` and `docs/validation-artifact-guide.md`: guides
   shipped with the installed Home plugin, covering candidate development and
   investigation of evaluation artifacts.
@@ -236,59 +231,21 @@ For explicit `reuse_construction_from`, the caller must establish construction
 equivalence. Automatic sampled/budgeted selection instead invokes the host's
 equivalence reviewer and 60% replay policy. Runs record both commits.
 
-Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`:
-
-```text
-manifest.json
-summary.json
-cases/<case-id>/
-  memory_construction/
-    result.json
-    build.log
-    reme_workspace.tar.gz
-    reme_workspace/
-  queries/
-    result.json
-    <query-id>/answer.log
-```
-
-Structured scores in query results and summaries use at most four decimal places.
-Raw judge text and reference answers are preserved.
-
-The memory tar is exported **before** queries, retains session Git checkpoints,
-and is independent of the query execution state. Replayed runs keep an
-independent donor tar and inherited build log without charging construction
-tokens again. Answers are persisted before host judging. Per-query results keep
-reference/actual answers, scores, compact judge output, reported answer token usage
-and failures. `queries/result.json` is the sole authoritative answer record;
-reconstructable prompts and repeated payloads are removed using the reviewed
-`dev_meta` rules. Construction results similarly compact redundant links, Job
-counts, token records and cumulative daily-index snapshots. Summary
-scores use the expected-query denominator; infrastructure/judge/artifact errors
-make the comparable mean unavailable while retaining the observed-score mean.
-The Job returns `success=false` for infrastructure/judge/artifact failures, while
-preserving its structured answer and result directory; candidate failures remain
-ordinary evaluation observations.
-Base jobs preserve structured exception types, HTTP status codes and causes in
-`Response.metadata["reme.job_error"]`; the Docker worker carries them into failure
-artifacts. Network/provider failures anywhere in the cause chain invalidate the
-comparison. Failed jobs without structured error details (including older
-candidates) are conservatively treated as infrastructure errors, without parsing
-their error text. Successful jobs returning empty answers still count as candidate
-failures. The construction failure-rate tolerance applies only to candidate
-errors: infrastructure or unclassified failures always reject construction, even
-when another failed job was a candidate error.
-The manifest retains run identity, selection, mode and execution status. The
-summary retains only outcome counts, expected/scored query counts, score means,
-low-score cases, question-type statistics and compact case/query mappings.
-Candidate answer token summaries average only total tokens per model; detailed
-construction costs remain in construction results. Temporary post-query archives
-are discarded after extracting logs; separate execution, checksum and raw-answer
-JSON copies are not saved. See the
-[artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md) for the
-exact fields, rebuild helper and migration from the previous verbose format.
+Results use `home/evaluations/<branch>/<commit-prefix>/<ascending-run-id>/`.
+The [artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md#saved-files)
+is the reference for saved files, authoritative query records, compaction and
+failure evidence. Its [summary reference](src/reme_home/runtime_docs/validation-artifact-guide.md#summary-fields)
+covers score denominators, token accounting, debug fields and summary rebuilding.
 Before comparing runs, verify completed scored execution, infrastructure outcomes,
 candidate code and complete case/query coverage.
+
+The Job returns `success=false` for infrastructure/judge/artifact failures while
+preserving its structured answer and result directory; candidate failures remain
+ordinary evaluation observations. Successful Jobs returning empty answers count
+as candidate failures. Construction failure-rate tolerance applies only to
+candidate errors; infrastructure or unclassified failures always reject construction.
+See [failure interpretation](src/reme_home/runtime_docs/validation-artifact-guide.md#investigating-a-result)
+for structured error classification.
 
 Run/case/query `failure.json` files preserve diagnostics. Interrupted/fail-fast
 runs publish `partial_summary.json`, not a completed summary. New executions
@@ -305,10 +262,10 @@ Debug requires successful construction and nonempty, error-free answers, and
 returns `success=false` for candidate failures as well as infrastructure failures.
 It cannot reuse construction. Case/query selections refer to the selected mode's
 dataset; omitted selections run all its cases/queries.
-Debug results retain execution counts and artifacts, but all mean scores are
-null. `scored_query_count` and `query_status_counts.unscored` are zero, while
-`expected_query_count` still records the expected execution count. Debug/scored
-mode is recorded in the manifest.
+Debug results retain execution counts and artifacts, with null mean scores.
+See the [summary reference](src/reme_home/runtime_docs/validation-artifact-guide.md#summary-fields)
+for coverage fields and manifest mode.
+
 The former `dataset_kind` input is rejected; use `debug` instead. Debug results
 must not be used to assess answer correctness or candidate quality. No real
 Docker/model evaluation is required by Home's isolated unit tests.
@@ -581,22 +538,14 @@ checksum checks. A later full rebuild considers the full training set again.
 
 ### Successful evaluation history
 
-`reme_home.evaluation.history.HomeEvaluationHistory` is the dedicated
-`home.evaluation_history` Component, automatically bound by `HomeEvaluation`.
-It owns successful-result registration, lookup, deduplication, cache rebuilding
-and the observations used for the next draw. Steps remain invocation adapters;
-they do not own cross-evaluation state.
-
-A successful history entry requires `record_history=true` and a started, completed, scored training-set
-run with a full summary and no infrastructure errors, following the existing
-`Response.success` contract. Low or zero quality scores remain valid observations.
-Classified candidate failures retain the existing response semantics; only their
-actual numeric scores train EWMA. A run with any infrastructure error is entirely
-excluded, including scores from its healthy cases. Debug, cancelled, fail-fast
-and pre-start failures never enter successful history. A full summary is the durable
-completion boundary: cancelling the caller during subsequent history bookkeeping
-does not relabel that already-completed evaluation. Failed registration discards
-only derived caches so they can rebuild from the final source run status.
+The `home.evaluation_history` Component discovers successful scored training
+results and rebuilds sampling observations from saved evidence. Low scores remain
+valid observations; infrastructure failures, debug and incomplete runs are excluded.
+See [history and sampling evidence](src/reme_home/runtime_docs/validation-artifact-guide.md#evaluation-history-and-adaptive-sampling-evidence)
+for eligibility, started/successful rounds, saved plans and cache recovery.
+The full summary is the durable completion boundary: cancellation during later
+history bookkeeping does not relabel the completed evaluation. Failed registration
+discards only derived caches, which can rebuild from saved run evidence.
 
 ```python
 history = app.context.components["home.evaluation_history"]["default"]
@@ -605,159 +554,47 @@ result = history.get_result(results[-1].run_key)
 history.rebuild()                # Rebuild sampling observations from saved artifacts.
 ```
 
-The Component owns the workspace lock for these synchronous filesystem methods;
-async host code can run them in a worker thread. Successful results are discovered
-from each run's manifest and summary; no `history.json` index is written or read.
-Legacy index files are ignored and left untouched. Each returned record points to
-its run via `run_key`; questions, answers and memory files stay in that result directory.
-
-The separate startup ledger advances only after the first successfully initialized
-sandbox, including when a later worker or execution fails. Extra/replacement
-workers do not count twice. `home/sampling/state.json` distinguishes started
-`round` from `successful_round`. Only successful history advances the probability
-clock or changes EWMA; failed runs cannot age cases or alter the next draw's
-weights. Started plans live under
-`home/sampling/plans/<branch>/<commit-prefix>/<run-id>.json`. Their `round` is the
-startup ledger round; `selection_round` records the successful-history snapshot
-used for an adaptive draw.
-
-For `record_history=false`, full or explicit evaluation does not access the history
-manager. Adaptive selection can still read existing observations, while leaving
-them unchanged; its draw is saved locally as `manifest.selection_plan`, without
-a startup-ledger round or shared sampling plan. `manifest.options.record_history`
-persists the requested setting, and the response's `record_history` indicates
-whether the run participates in history (always false for debug). Legacy manifests
-without the setting retain the previous history behavior.
-
-Formal runs remain serialized by `home/metadata/validation.lock`; debug bypasses
-that lock. Missing caches reconstruct from started plans and successful scored
-artifacts. Older sampling caches are rebuilt under the success-only rule.
-`history.rebuild()` rewrites only the catalog and sampling cache. Preserve source
-manifests, plans and result artifacts when rebuilding; candidate code, datasets
-and memory files are never modified.
+These synchronous filesystem methods own the workspace lock; async host code can
+run them in a worker thread. Formal runs remain serialized by
+`home/metadata/validation.lock`; debug bypasses that lock. Rebuilding changes only
+derived state; preserve source manifests, plans and result artifacts.
 
 ## Evaluation result inspection
 
-Two read-only Jobs navigate saved evaluations independently of successful
-optimization history. They include debug, failed, cancelled, running and standalone
-(`record_history=false`) runs. Reads never register results, update sampling,
-rebuild summaries or write artifacts.
+Read-only inspection includes debug, failed, cancelled, running and standalone
+(`record_history=false`) runs, independently of successful optimization history.
+It never registers results, updates sampling, rebuilds summaries or writes artifacts.
 
-`home_list_validation_results` accepts optional `branch_name` and `commit_sha`
-filters plus `offset=0`, `limit=20` (1–100). Without filters it lists all runs,
-newest first, with a stable path tie-breaker. It returns `row_count`, `rows` and
-`next_offset`, compact identity/options, saved summary counts and scores, failure
-previews and artifact paths. A malformed run is reported as a `read_error` row
-without stopping the unfiltered catalog.
-
-`commit_sha` accepts a full SHA or hexadecimal prefix. A prefix must match exactly
-one of **all commits reachable from the selected local branch**, including commits
-that have never been evaluated. Omitting `branch_name` with a commit filter uses
-the current candidate branch. Missing or ambiguous matches fail explicitly; the
-response includes the resolved branch and full SHA. A branch-only filter can also
-browse historical runs from a deleted branch.
-
-`home_inspect_validation` requires `validation_path` (absolute or relative to
-`home/`) and accepts optional `case_id`, `query_id`, `offset=0` and `limit=20`:
-
-| Selection | Returned rows |
+| Job | Use |
 | --- | --- |
-| Run only | Case summaries, missing scores first, then low scores. |
-| Run and case | Query summaries in manifest order, plus independently paged failed construction Jobs. |
-| Run, case and query | One query's question, answer, rubric, score and judge/error previews. |
-
-`query_id` requires `case_id`; both must be selected by the run manifest. Cases or
-queries without published evidence are explicitly marked `missing`, with null
-scores. The tool uses a saved full summary, or an existing partial summary when
-the full summary is absent. Missing summaries are reported without reconstruction.
-Errors are previewed to 600 characters, and selected query fields to 2,000 each;
-truncated fields carry a marker. `rows_source`, JSON `pointer` values, and log and
-memory paths identify the original evidence. Failed construction Jobs have their
-own `row_count`, `rows`, `next_offset` under `construction.failed_jobs`; their
-pagination is independent of the query rows, using the supplied offset/limit.
+| `home_list_validation_results` | Find runs, optionally filtered by `branch_name` and `commit_sha`. |
+| `home_inspect_validation` | Inspect a `validation_path`, then narrow with `case_id` and `query_id`. |
+| `home_trace_query_evidence` | Link a query to source sessions, memory checkpoints and saved evidence without a model call. |
+| `home_inspect_memory_history` | Page through one case's exported memory Git checkpoints. |
+| `home_compare_memory` | Compare committed memory within a run or across evaluations of the same case. |
 
 With the configured service running, use a second terminal:
 
 ```bash
-reme home_list_validation_results branch_name=candidate commit_sha=abc123 limit=10
-reme home_inspect_validation validation_path=evaluations/candidate/abc1234/1
-reme home_inspect_validation validation_path=evaluations/candidate/abc1234/1 case_id=case-a query_id=query-a
-```
-
-Host callers use the same Jobs through `app.run_job()`. For a case-scoped agent,
-inject `validation_path` and `case_id` with `injected_job_kwargs`; the wrapper hides
-and enforces these values. Both Jobs reject path escapes and symlinks, and fail
-closed for restricted `_allowed_paths` contexts, like the other Home Jobs.
-
-### Memory checkpoint inspection
-
-Read-only Jobs investigate a case's exported memory Git repository. Locate
-an evaluation and case with `home_list_validation_results` and
-`home_inspect_validation` first. These Jobs never change artifacts, Git refs, the
-index, evaluation history or sampling state.
-
-- `home_trace_query_evidence(validation_path, case_id, query_id,
-  evidence_session_ids=null)` joins a selected query to its source sessions and
-  memory checkpoints without calling a model. Dataset evidence annotations take
-  precedence over optional inferred session IDs, including an empty annotation.
-  Returns `query` (question, expected/actual answer, score, error and
-  `result_missing` and `expected_kind`), `locations` with JSON Pointers into source
-  and saved query files, optional `criteria` previews of saved rubric judgments,
-  `evidence_source` (`independent_annotation`,
-  `diagnostician_inference`, or `unavailable`), `evidence_is_certain`,
-  `memory_status`, `sessions` (ID, source JSON Pointer, checkpoint and changed files), and `paths` to
-  the normalized case, memory repository, query results and query artifacts.
-  A null checkpoint means no matching `session: <id>` commit was found; missing
-  results keep scores null. Answer/question previews are limited to 2,000
-  characters and errors to 600. At most 50 sessions and 50 changed files per
-  session are returned, with omitted counts when needed. Criterion previews are
-  limited to 20 entries and 600 characters per requirement/reason; absent or
-  mismatched rubric judgments are not paired. Session text, diffs,
-  later history and full answer/judge results remain at the returned paths or
-  in the inspection/comparison Jobs below. Original transcripts and derived
-  memories can both be searchable; these coordinates alone do not prove a cause.
-- `home_inspect_memory_history(validation_path, case_id, path=null, offset=0,
-  limit=20)` returns `status`, `workspace_exists`, `has_git_history`, `head`,
-  `repository`, and newest-first checkpoint `rows` with `row_count` and
-  `next_offset`. Limits are 1–100. Each row includes the full commit SHA, parents,
-  timestamp, subject (up to 2,000 characters) and a `session_id` when the subject
-  follows `session: <id>`. `path` follows a literal workspace-relative file or
-  directory. Missing exports, absent Git history and empty repositories have
-  distinct statuses; corrupt repositories fail explicitly.
-- `home_compare_memory(validation_path, case_id, base_ref=null,
-  target_ref="HEAD", target_validation_path=null, path=null)` compares two memory
-  commits. Within one evaluation, `base_ref` is required. For another evaluation,
-  supply `target_validation_path`; both sides then default to `HEAD`. The case
-  must be selected in both manifests. Returns resolved commits, candidate commit
-  identities, manifest fingerprints, added/removed/modified paths, content-tree
-  hashes, a unified `diff`, and `truncated`.
-
-References accept HEAD-relative expressions and hexadecimal SHA prefixes unique
-among commits reachable from that memory repository's HEAD. Resolved expressions
-must also be HEAD-reachable. This is independent of candidate-code branch history.
-Comparisons read committed regular files from Git objects, ignoring dirty or
-untracked checkout contents. File mode changes alone are not content differences.
-Binary changes are identified without printing their bytes. Each snapshot is
-limited to 2,000 files, 20 MB total and 5 MB per file; diff output is limited to
-100,000 characters. Narrow `path` if a limit is reached. Tree hashes describe the
-selected path scope. Linked Git storage, alternates, shallow/partial histories and
-symbolic links in Git metadata are rejected.
-
-After starting the service with the Home configuration, call from another terminal:
-
-```bash
-reme home_inspect_memory_history validation_path=evaluations/candidate/abcdef0/1 case_id=case1
+reme home_list_validation_results branch_name=candidate limit=10
+reme home_inspect_validation validation_path=evaluations/candidate/abcdef0/1
+reme home_inspect_validation validation_path=evaluations/candidate/abcdef0/1 case_id=case1 query_id=query1
 reme home_trace_query_evidence validation_path=evaluations/candidate/abcdef0/1 case_id=case1 query_id=query1
+reme home_inspect_memory_history validation_path=evaluations/candidate/abcdef0/1 case_id=case1
 reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 case_id=case1 base_ref=HEAD~1
 reme home_compare_memory validation_path=evaluations/candidate/abcdef0/1 target_validation_path=evaluations/candidate/1234567/1 case_id=case1
 ```
 
-`validation_path` is absolute or relative to `home/`; for example the relative
-form is `evaluations/candidate/abcdef0/1`. For agent tools, host `injected_job_kwargs` can pin
-`validation_path` and `case_id`; the wrapper hides injected fields and rejects
-model overrides. Like the other Home inspection Jobs, these Jobs reject
-`_allowed_paths` restrictions rather than bypassing them. Use these tools directly
-or through the case-study batch Job below.
+`validation_path` is absolute or relative to `home/`. See
+[read-only evaluation inspection](src/reme_home/runtime_docs/validation-artifact-guide.md#read-only-evaluation-inspection)
+for pagination, commit-prefix resolution, previews and source pointers, and
+[memory checkpoint tools](src/reme_home/runtime_docs/validation-artifact-guide.md#memory-checkpoint-tools)
+for evidence provenance, missing-history states, comparison references and limits.
+
+Host callers use the same Jobs through `app.run_job()`. For case-scoped agent
+tools, pin `validation_path` and `case_id` through `injected_job_kwargs`;
+the wrapper hides those fields and rejects model overrides. These Jobs reject
+path escapes, symlinks and restricted `_allowed_paths` contexts.
 
 ## Case-study batches
 
@@ -794,19 +631,11 @@ available. No case scratch directory or intermediate analysis files are created.
 still return a text report with per-case metadata. Do not supply both path names
 or both case selectors. Other inspection Jobs retain their `validation_path` argument.
 
-The toolkit includes validation inspection, compact query-evidence tracing,
-memory history/comparison, and the three committed-code navigation Jobs.
-Validation/case selectors and the evaluated code revision are hidden and enforced
-by the host; memory comparison stays within the selected evaluation. General
-Read/Grep/Glob, Write/Edit, validation and code-mutation tools are not exposed.
+The case-study toolkit and mandatory read-only OS sandbox are described in the
+[artifact guide](src/reme_home/runtime_docs/validation-artifact-guide.md#single-case-diagnostic-agent).
+The host pins case/evaluation selectors and code revision. Direct code reads can
+see current worktree changes; use revision-pinned Jobs to establish evaluated behavior.
 
-`AutoBash` and `python_execute` share a required OS sandbox. Commands have no
-static whitelist (`is_read_only=false`); filesystem permissions enforce access.
-Read-only roots are the selected case artifact directory, normalized source-case
-JSON, validation manifest, all of `home/code/`, and `home/docs/`. No host writable
-roots are granted. System/interpreter runtime paths and disposable backend
-temporary storage remain available. Direct code reads can see current worktree
-changes; use the revision-pinned Jobs to establish the evaluated behavior.
 `python_execute` accepts either `code` or an existing `file`, optional file-only
 `args`, and a `timeout` in seconds (default 60, maximum 600). It uses `python -I -B`
 and returns returncode/stdout/stderr/timed_out. Both executors reuse bounded output,

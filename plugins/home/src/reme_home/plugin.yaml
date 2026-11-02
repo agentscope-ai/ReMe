@@ -86,12 +86,12 @@ application_defaults:
           thinking_enable: false
     agent_wrapper:
       home_construction_equivalence:
-        backend: home_workflow_agent
+        backend: home_case_study_agent
         as_llm: home_construction_equivalence
         react_config:
           max_iters: 100
       home_candidate_gate:
-        backend: home_workflow_agent
+        backend: home_case_study_agent
         as_llm: home_candidate_gate
         react_config:
           max_iters: 60
@@ -106,7 +106,7 @@ application_defaults:
         react_config:
           max_iters: 3000
       home_diagnostic:
-        backend: home_workflow_agent
+        backend: home_case_study_agent
         as_llm: home_diagnostic
         time_budget_minutes: 60
         react_config:

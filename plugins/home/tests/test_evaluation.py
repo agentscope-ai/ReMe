@@ -680,12 +680,30 @@ async def test_startup_rejects_disabled_or_replaced_judge_job(app, tmp_path, ove
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("phase", ["answer", "construction"])
-@pytest.mark.parametrize("kind", ["timeout", "wrapped_timeout", "http_429", "http_503", "code", "legacy"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "timeout",
+        "wrapped_timeout",
+        "http_401",
+        "http_403",
+        "sdk_auth",
+        "sdk_permission",
+        "http_429",
+        "http_503",
+        "code",
+        "legacy",
+    ],
+)
 async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monkeypatch, phase, kind):
     from types import SimpleNamespace
     import httpx
     from deploy.benchmark_docker.worker import _run_job_on_app
     from reme.components.job.base_job import BaseJob
+
+    authentication_failure = kind in {"http_401", "http_403", "sdk_auth", "sdk_permission"}
+    method = "run_queries" if phase == "answer" else "run_build"
+    original = getattr(FakeWorker, method)
 
     async def failing_step(_context):
         if kind == "timeout":
@@ -695,6 +713,14 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
                 raise TimeoutError("model timed out")
             except TimeoutError as error:
                 raise RuntimeError("model invocation failed") from error
+        if kind.startswith("sdk_"):
+            import openai
+
+            request = httpx.Request("POST", "https://example.test")
+            status = 401 if kind == "sdk_auth" else 403
+            response = httpx.Response(status, request=request)
+            error_type = openai.AuthenticationError if kind == "sdk_auth" else openai.PermissionDeniedError
+            raise error_type("provider access denied", response=response, body=None)
         if kind.startswith("http_"):
             request = httpx.Request("POST", "https://example.test")
             response = httpx.Response(int(kind.split("_")[1]), request=request)
@@ -761,6 +787,74 @@ async def test_real_job_errors_reach_worker_and_home_summary(app, prepared, monk
         if kind != "legacy":
             assert failure["exception"] == result["exception"]
     assert all(worker.closed for worker in FakeFactory.instances[-1].workers)
+    if authentication_failure:
+        history = app.context.components["home.evaluation_history"]["default"]
+        assert history.list_results() == []
+        # Correcting the credentials must allow the same commit to be assessed.
+        monkeypatch.setattr(FakeWorker, method, original)
+        retry = await app.run_job("home_evaluate", case_ids=["1"])
+        assert retry.success, retry.answer
+        assert retry.answer["status"] == "completed"
+        assert retry.answer["commit_sha"] == summary["commit_sha"]
+        assert Path(retry.answer["result_dir"]).name == "2"
+        assert retry.answer["scored_query_count"] == 1
+        assert len(history.list_results()) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["construction", "answer"])
+@pytest.mark.parametrize("kind", ["http_503", "wrapped_http_503", "wrapped_timeout", "code"])
+async def test_pool_exceptions_preserve_classification_and_retry_policy(app, prepared, monkeypatch, phase, kind):
+    import httpx
+
+    async def fail(worker, inputs):
+        if kind == "code":
+            raise ValueError("candidate bug")
+        try:
+            if kind == "wrapped_timeout":
+                raise TimeoutError("transport timed out")
+            request = httpx.Request("POST", "https://example.test")
+            response = httpx.Response(503, request=request)
+            raise httpx.HTTPStatusError("service unavailable", request=request, response=response)
+        except (TimeoutError, httpx.HTTPStatusError) as error:
+            if kind.startswith("wrapped_"):
+                raise RuntimeError("worker invocation failed") from error
+            raise
+
+    monkeypatch.setattr(FakeWorker, "run_build" if phase == "construction" else "run_queries", fail)
+    response = await app.run_job("home_evaluate", case_ids=["1"])
+    infrastructure = kind != "code"
+    assert response.success is (not infrastructure)
+    summary = response.answer
+    failure_kind = "infra_error" if infrastructure else "candidate_failure"
+    assert summary["case_status_counts"][failure_kind] == 1
+    assert summary["mean_query_score"] == (None if infrastructure else 0)
+    run = Path(summary["result_dir"])
+    failure = json.loads((run / "cases/1/failure.json").read_text())
+    assert failure["stage"] == phase
+    assert failure["failure_kind"] == failure_kind
+    if kind == "code":
+        expected = {"type": "ValueError", "module": "builtins"}
+    else:
+        cause = (
+            {"type": "TimeoutError", "module": "builtins"}
+            if kind == "wrapped_timeout"
+            else {"type": "HTTPStatusError", "module": "httpx", "status_code": 503}
+        )
+        expected = (
+            {"type": "RuntimeError", "module": "builtins", "causes": [cause]} if kind.startswith("wrapped_") else cause
+        )
+    assert failure["exception"] == expected
+
+    retry = await app.run_job("home_evaluate", case_ids=["1"])
+    if infrastructure:
+        assert retry.answer["status"] == "completed"
+        assert Path(retry.answer["result_dir"]).name == "2"
+        assert len(FakeFactory.instances) == 2
+    else:
+        assert retry.answer["error_code"] == "UNCHANGED_CANDIDATE"
+        assert len(FakeFactory.instances) == 1
+    assert all(worker.closed for factory in FakeFactory.instances for worker in factory.workers)
 
 
 @pytest.mark.asyncio

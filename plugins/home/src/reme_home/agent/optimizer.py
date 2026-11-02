@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import math
 import time
 from pathlib import Path
 from typing import Callable
@@ -23,7 +22,7 @@ from ..evaluation.budget import validate_max_evaluations, validation_budget_stat
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from .diagnostic import diagnostic_tool, evaluation_paths
-from .bounded import TimeBudgetReminder, _format_minutes, _remove_hint_by_identity
+from .bounded import RunTimeBudgetTimer, _format_minutes, _remove_hint_by_identity
 from .compression import RecoverableCompressionAgent
 from .workflow_common import required_job, save_record, workflow_reply
 from .wrapper import CaseStudyAgentWrapper
@@ -37,55 +36,23 @@ MUTATION_JOBS = (
 PENDING_CYCLE_TRANSITIONS = "home.optimizer.pending_cycle_transitions"
 
 
-class ValidationCycleTimer:
+class ValidationCycleTimer(RunTimeBudgetTimer):
     """Emit escalating reminders as a scored-validation cycle ages."""
 
+    reminder_thresholds = (0.90, 0.75, 0.50)
+
     def __init__(self, time_budget_minutes: float, *, clock: Callable[[], float] = time.monotonic) -> None:
-        if (
-            not isinstance(time_budget_minutes, (int, float))
-            or isinstance(time_budget_minutes, bool)
-            or not math.isfinite(time_budget_minutes)
-            or time_budget_minutes <= 0
-        ):
-            raise ValueError("time_budget_minutes must be a positive number")
-        self.time_budget_minutes = float(time_budget_minutes)
-        self._clock = clock
-        self._started_at = self._clock()
-        self._last_reminded_ratio = 0.0
-        self._next_reminder_is_persistent = False
-        self.context_compression_count = 0
+        super().__init__(time_budget_minutes, agent_label="optimizer", clock=clock)
+        self.start()
 
     def reset(self) -> None:
         """Start a fresh cycle after a scored validation finishes."""
 
-        self._started_at = self._clock()
-        self._last_reminded_ratio = 0.0
-        self._next_reminder_is_persistent = False
-        self.context_compression_count = 0
+        self.start()
 
-    def record_context_compression(self) -> None:
-        """Record one completed compression since the last scored validation."""
-
-        self.context_compression_count += 1
-
-    def next_reminder(self) -> TimeBudgetReminder | None:
-        """Return one reminder for the latest newly reached deadline."""
-
-        elapsed_minutes = max(0.0, (self._clock() - self._started_at) / 60.0)
+    def _reminder_content(self, elapsed_minutes: float, reached_ratio: float) -> str:
+        """Keep optimizer guidance tied to the last scored validation."""
         elapsed_ratio = elapsed_minutes / self.time_budget_minutes
-        reached_ratio: float | None = None
-        if elapsed_ratio >= 1.0:
-            reached_ratio = math.floor(elapsed_ratio * 10 + 1e-9) / 10
-        else:
-            for threshold in (0.9, 0.75, 0.5):
-                if elapsed_ratio >= threshold:
-                    reached_ratio = threshold
-                    break
-        if reached_ratio is None or reached_ratio <= self._last_reminded_ratio:
-            return None
-        self._last_reminded_ratio = reached_ratio
-        persistent = self._next_reminder_is_persistent
-        self._next_reminder_is_persistent = not persistent
         elapsed = _format_minutes(elapsed_minutes)
         percentage = round(reached_ratio * 100)
         timing = (
@@ -97,22 +64,16 @@ class ValidationCycleTimer:
             "scored validation. "
         )
         if elapsed_ratio >= 1.0:
-            return TimeBudgetReminder(
-                content=(
-                    f"<system-reminder>{timing}{compression}"
-                    "Prioritize completing the code changes, committing them, passing the smoke test, and starting "
-                    "validation as soon as possible.</system-reminder>"
-                ),
-                persistent=persistent,
+            return (
+                f"<system-reminder>{timing}{compression}"
+                "Prioritize completing the code changes, committing them, passing the smoke test, and starting "
+                "validation as soon as possible.</system-reminder>"
             )
         remaining = _format_minutes(self.time_budget_minutes - elapsed_minutes)
-        return TimeBudgetReminder(
-            content=(
-                f"<system-reminder>{timing}{compression}"
-                f"Complete the code changes, commit them, pass the smoke test, and start validation within {remaining}."
-                "</system-reminder>"
-            ),
-            persistent=persistent,
+        return (
+            f"<system-reminder>{timing}{compression}"
+            f"Complete the code changes, commit them, pass the smoke test, and start validation within {remaining}."
+            "</system-reminder>"
         )
 
 

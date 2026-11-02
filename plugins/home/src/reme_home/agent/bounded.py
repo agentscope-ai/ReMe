@@ -30,6 +30,8 @@ class TimeBudgetReminder:
 class RunTimeBudgetTimer:
     """Track one agent run and emit advisory reminders without stopping it."""
 
+    reminder_thresholds = (0.90, 0.75, 0.60)
+
     def __init__(
         self,
         time_budget_minutes: float,
@@ -89,7 +91,7 @@ class RunTimeBudgetTimer:
         if elapsed_ratio >= 1.0:
             reached_ratio = math.floor(elapsed_ratio * 10 + 1e-9) / 10
         else:
-            for threshold in (0.90, 0.75, 0.60):
+            for threshold in self.reminder_thresholds:
                 if elapsed_ratio >= threshold:
                     reached_ratio = threshold
                     break
@@ -98,17 +100,21 @@ class RunTimeBudgetTimer:
         self._last_reminded_ratio = reached_ratio
         persistent = self._next_reminder_is_persistent
         self._next_reminder_is_persistent = not persistent
+        return TimeBudgetReminder(
+            content=self._reminder_content(elapsed_minutes, reached_ratio),
+            persistent=persistent,
+        )
+
+    def _reminder_content(self, elapsed_minutes: float, reached_ratio: float) -> str:
+        """Describe this run without changing the shared reminder schedule."""
         elapsed = _format_minutes(elapsed_minutes)
         percentage = round(reached_ratio * 100)
-        return TimeBudgetReminder(
-            content=(
-                f"<system-reminder>The {self.agent_label} run has used {elapsed} ({percentage}% of its "
-                f"{_format_minutes(self.time_budget_minutes)} soft time budget). "
-                f"The run has completed {self.context_compression_count} context compressions. "
-                "This reminder does not terminate the run. Prioritize the highest-value remaining investigation and "
-                "produce the required final report as soon as the evidence is sufficient.</system-reminder>"
-            ),
-            persistent=persistent,
+        return (
+            f"<system-reminder>The {self.agent_label} run has used {elapsed} ({percentage}% of its "
+            f"{_format_minutes(self.time_budget_minutes)} soft time budget). "
+            f"The run has completed {self.context_compression_count} context compressions. "
+            "This reminder does not terminate the run. Prioritize the highest-value remaining investigation and "
+            "produce the required final report as soon as the evidence is sufficient.</system-reminder>"
         )
 
 

@@ -17,6 +17,19 @@ from typing import Any
 from ._cleanup import finish_cleanup, format_error
 from .docker_sandbox import DockerReMeSandbox, DockerReMeSandboxFactory
 from .models import EvaluationQuery, JobRequest
+from .worker import _exception_details
+
+
+def _exception_classification(exc: BaseException) -> dict[str, Any]:
+    """Retain only classification fields, omitting absent status codes and causes."""
+    details = _exception_details(exc)
+    result = {key: details[key] for key in ("type", "module")}
+    status = details.get("status_code")
+    if isinstance(status, int) and not isinstance(status, bool):
+        result["status_code"] = status
+    if details["causes"]:
+        result["causes"] = details["causes"]
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +157,7 @@ class BenchmarkDockerPool:
                             except Exception as exc:
                                 result.error = format_error(exc)
                                 result.failure_stage = operation
-                                result.exception = {"type": type(exc).__name__, "module": type(exc).__module__}
+                                result.exception = _exception_classification(exc)
                                 await self._retain_failed_build_log(worker, plan, result)
                                 return result
                             accepted = accept_build(result.build) if accept_build else result.build.get("success")
@@ -175,7 +188,7 @@ class BenchmarkDockerPool:
                     except Exception as exc:  # Keep other cases running and release this worker.
                         result.error = format_error(exc)
                         result.failure_stage = operation
-                        result.exception = {"type": type(exc).__name__, "module": type(exc).__module__}
+                        result.exception = _exception_classification(exc)
                         return result
                     finally:
                         if result.error and plan.export_diagnostics_to is not None and worker.reusable:

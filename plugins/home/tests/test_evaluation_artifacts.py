@@ -8,9 +8,35 @@ import json
 
 import pytest
 
-from reme_home.evaluation.artifacts import average_tokens, read_json, rebuild_summary, summarize, write_json
+from reme_home.evaluation.artifacts import (
+    average_tokens,
+    failure_kind,
+    read_json,
+    rebuild_summary,
+    summarize,
+    write_json,
+)
 from reme_home.evaluation.compaction import compact_construction, compact_query
 from reme_home.preparation.data.models import CaseSpec, QuerySpec
+
+
+@pytest.mark.parametrize("stage", ["construction", "answer"])
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    "exception, expected",
+    [
+        ({"type": "HTTPStatusError", "module": "httpx", "status_code": 401}, "infra_error"),
+        ({"type": "HTTPStatusError", "module": "httpx", "status_code": 403}, "infra_error"),
+        ({"type": "AuthenticationError", "module": "openai"}, "infra_error"),
+        ({"type": "PermissionDeniedError", "module": "openai"}, "infra_error"),
+        ({"type": "HTTPStatusError", "module": "httpx", "status_code": 400}, "candidate_failure"),
+        ({"type": "ValueError", "module": "builtins"}, "candidate_failure"),
+    ],
+)
+def test_provider_access_errors_are_infrastructure_failures(stage, wrapped, exception, expected):
+    if wrapped:
+        exception = {"type": "RuntimeError", "module": "builtins", "causes": [exception]}
+    assert failure_kind(exception, stage) == expected
 
 
 def test_scores_are_rounded_without_changing_reference_text_or_token_metrics(tmp_path):
