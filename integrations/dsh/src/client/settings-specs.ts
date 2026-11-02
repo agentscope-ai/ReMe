@@ -136,10 +136,5 @@ const SETTING_SPEC_DEFS = [
 /** Every settings field name, in display and reset order. */
 export type SettingField = (typeof SETTING_SPEC_DEFS)[number]["field"];
 
-/** Every settings field name, in display and reset order. */
-export const SETTING_FIELDS: readonly SettingField[] = SETTING_SPEC_DEFS.map(
-  (spec) => spec.field,
-);
-
 /** The specs `SettingsFormModel` stages drafts against, in display order. */
 export const SETTINGS_SPECS: SettingsFieldSpec[] = [...SETTING_SPEC_DEFS];
