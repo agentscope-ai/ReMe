@@ -129,7 +129,7 @@ async def test_large_resources_export_for_both_reviewers(app, prepared, reviewer
         ScriptedModel(final=finish),
     )
     force_draw(monkeypatch, 0.1)
-    response = await app.run_job("home_evaluate", sampling=True, max_validations=10)
+    response = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert response.success, response.answer
     assert response.answer["execution_mode"] == "query_only_replay"
     for report in (
@@ -172,7 +172,7 @@ async def test_equivalent_candidate_uses_host_probability(
     )
     set_model(app, "home_construction_equivalence", model)
     force_draw(monkeypatch, draw)
-    result = await app.run_job("home_evaluate", sampling=True, max_validations=10)
+    result = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert result.success, result.answer
     decision = result.answer["automatic_construction_reuse"]
     assert decision["selected"] == selected and decision["draw"] == draw and decision["probability"] == 0.6
@@ -346,13 +346,13 @@ async def test_infrastructure_retry_preserves_replay_and_selection(app, prepared
     set_model(app, "home_construction_equivalence", model)
     force_draw(monkeypatch, 0.1)
     monkeypatch.setattr(FakeFactory, "bad_export", True)
-    failed = await app.run_job("home_evaluate", sampling=True, max_validations=10)
+    failed = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert not failed.success
     failed_manifest = read_json(Path(failed.answer["result_dir"]) / "manifest.json")
     assert (await app.run_job("home_create_candidate_branch", branch_name="retry-branch")).success
     monkeypatch.setattr(FakeFactory, "bad_export", False)
     monkeypatch.setattr(reuse, "select_query_only", lambda: pytest.fail("Recovery must not redraw"))
-    recovered = await app.run_job("home_evaluate", sampling=True, max_validations=10)
+    recovered = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert recovered.success, recovered.answer
     manifest = read_json(Path(recovered.answer["result_dir"]) / "manifest.json")
     assert manifest["automatic_construction_reuse"] == {
@@ -411,7 +411,7 @@ async def test_sandbox_failure_stops_before_model_sampling_or_budget(app, prepar
         raise RuntimeError("sandbox unavailable")
 
     monkeypatch.setattr(workflow_common, "create_case_study_sandbox", unavailable)
-    response = await app.run_job("home_evaluate", sampling=True, max_validations=10)
+    response = await app.run_job("home_evaluate", sampling=True, max_evaluations=10)
     assert not response.success and "sandbox unavailable" in str(response.answer)
     assert not model.calls and len(FakeFactory.instances) == 1
     assert not list((prepared / "tmp").glob("construction-equivalence-*"))
@@ -459,7 +459,7 @@ async def test_partial_export_and_report_failures_clean_review_files(
     response = await app.run_job(
         "home_evaluate",
         sampling=True,
-        **({"max_validations": 10} if kind == "candidate-gate" else {}),
+        **({"max_evaluations": 10} if kind == "candidate-gate" else {}),
     )
     assert not response.success and "failed" in str(response.answer)
     assert not list((prepared / "tmp").glob(f"{kind}-*"))

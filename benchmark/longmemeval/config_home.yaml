@@ -3,7 +3,7 @@
 # Preserve dev_meta's fixed training split; groups 6-10 remain held out.
 workspace_dir: benchmark/longmemeval/workspaces/home-groups-1-5
 # Formal optimizer evaluations; charged once the first sandbox starts, excluding init/debug.
-max_validations: 10
+max_evaluations: 10
 # Policy defaults for Home evaluation; each call still controls sampling=true/false.
 sampling_policy:
   max_cases: 5

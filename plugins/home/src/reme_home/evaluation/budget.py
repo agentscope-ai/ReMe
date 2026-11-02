@@ -3,19 +3,19 @@
 from .history import read_state
 
 
-def validate_max_validations(value):
+def validate_max_evaluations(value):
     """Accept only a positive host-supplied integer, matching dev_meta."""
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError("max_validations must be a positive integer")
+        raise ValueError("max_evaluations must be a positive integer")
     return value
 
 
-def validation_budget_status(home, max_validations):
+def validation_budget_status(home, max_evaluations):
     """Report started formal runs, independently of completion, score or sampler success."""
-    validate_max_validations(max_validations)
+    validate_max_evaluations(max_evaluations)
     used = sum(not key.startswith("init/") for key in read_state(home)["started_validations"])
-    remaining = max(0, max_validations - used)
-    gated = max_validations // 2
+    remaining = max(0, max_evaluations - used)
+    gated = max_evaluations // 2
     if not remaining:
         phase = "exhausted"
         guidance = (
@@ -35,7 +35,7 @@ def validation_budget_status(home, max_validations):
         )
     return {
         "used_validations": used,
-        "max_validations": max_validations,
+        "max_evaluations": max_evaluations,
         "remaining_validations": remaining,
         "gated_validation_count": gated,
         "optimization_phase": phase,

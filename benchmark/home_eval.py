@@ -42,7 +42,7 @@ class TestRunConfig(SpecModel):
                 options.debug,
                 options.sampling,
                 options.record_history,
-                options.max_validations is not None,
+                options.max_evaluations is not None,
                 options.sampling_policy is not None,
                 options.case_ids is not None,
                 options.query_ids is not None,

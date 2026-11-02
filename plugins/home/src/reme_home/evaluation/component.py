@@ -91,9 +91,9 @@ class HomeEvaluation(BaseComponent):
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
         lock = nullcontext() if spec.debug else _initialization_lock(self.workspace.state_path / "validation.lock")
         with lock:
-            budgeted = spec.max_validations is not None and not spec.debug
+            budgeted = spec.max_evaluations is not None and not spec.debug
             if budgeted:
-                budget = await blocking(validation_budget_status, self.workspace.home_path, spec.max_validations)
+                budget = await blocking(validation_budget_status, self.workspace.home_path, spec.max_evaluations)
                 if budget["remaining_validations"] < 1:
                     return {
                         "status": "rejected",
@@ -141,7 +141,7 @@ class HomeEvaluation(BaseComponent):
                 result["validation_budget"] = await blocking(
                     validation_budget_status,
                     self.workspace.home_path,
-                    spec.max_validations,
+                    spec.max_evaluations,
                 )
             return result
 

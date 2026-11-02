@@ -942,7 +942,7 @@ context tokens) and
 `components.home.evaluation.default.construction_equivalence_memory_limit_mib`
 uses the existing OS sandbox memory-limit contract.
 
-During the first `max_validations // 2` non-init formal starts, a fresh
+During the first `max_evaluations // 2` non-init formal starts, a fresh
 `home_candidate_gate` agent reviews each new candidate before sampling or starting
 an evaluation sandbox. It compares the candidate with its nearest previously
 evaluated ancestor (falling back to `init`). It accepts runtime mechanism changes
@@ -950,7 +950,7 @@ and concrete execution, safety or contract fixes; it rejects prompt/parameter-on
 tuning, cosmetic changes and dead code during this early exploration phase.
 Ambiguous evidence is accepted. Baselines, debug, infrastructure retries and later
 refinement bypass admission. Ordinary unbudgeted `home_evaluate` calls remain
-ungated; supplying `max_validations` enables the same admission policy.
+ungated; supplying `max_evaluations` enables the same admission policy.
 
 The reviewer receives only read-only source exports of the two exact commits and
 their complete diff under `home/tmp/candidate-gate-*/`. Its Read, Glob, Grep and
@@ -1025,8 +1025,11 @@ Evaluation tools queue transitions in request state; the optimizer injects them
 before the next reasoning call, after all tool results have been written. Thus a
 transition never separates an API tool call from its matching result.
 
-`components.agent_wrapper.home_optimizer.max_validations` defaults to 10, matching
-dev_meta. `get_validation_budget` reports consumed and remaining slots, the search
+`components.agent_wrapper.home_optimizer.max_evaluations` defaults to 10, matching
+dev_meta. This setting and the `home_evaluate` argument were renamed from
+`max_validations`; update existing configuration and callers to `max_evaluations`.
+The old name is rejected rather than silently falling back to the default budget.
+`get_validation_budget` reports consumed and remaining slots, the search
 phase and next-candidate guidance. A non-init formal run consumes one slot when
 its first sandbox initializes successfully, including runs that later fail or are
 cancelled. Initial baselines, debug, rejected calls and pre-start failures are free.
@@ -1034,10 +1037,10 @@ Accounting reuses persistent started-run evidence and survives optimizer restart
 removing the rebuildable sampling cache does not restore the budget. The evaluator
 checks the limit while holding the formal-validation lock, before starting another
 run. At exhaustion it returns `VALIDATION_BUDGET_EXHAUSTED`; the optimizer selects
-from existing evidence. The first `max_validations // 2` starts favor structural
+from existing evidence. The first `max_evaluations // 2` starts favor structural
 exploration; later starts favor evidence-driven refinement. This guidance is advisory.
 Ordinary `home_evaluate` calls remain unbounded unless the host supplies
-`max_validations`; all recorded non-init formal starts in that workspace count.
+`max_evaluations`; all recorded non-init formal starts in that workspace count.
 
 Sessions and model usage follow ReMe's wrapper conventions; each nested call reports its own usage.
 The optimizer follows dev_meta's compression recovery policy. Recoverable model
@@ -1070,7 +1073,7 @@ components:
       react_config:
         max_iters: 3000
       validation_cycle_time_budget_minutes: 150
-      max_validations: 10
+      max_evaluations: 10
 ```
 
 `evaluation_options` also accepts `base_image`, `fail_fast` and

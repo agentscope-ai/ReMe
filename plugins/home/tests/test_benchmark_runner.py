@@ -89,7 +89,7 @@ async def test_python_runner_starts_prepares_and_closes(tmp_path, monkeypatch, b
     }
     assert observed["components"]["agent_wrapper"]["home_optimizer"] == {
         "validation_cycle_time_budget_minutes": 150,
-        "max_validations": 10,
+        "max_evaluations": 10,
     }
     application.start.assert_awaited_once()
     application.close.assert_awaited_once()
@@ -156,7 +156,7 @@ async def test_runner_passes_cycle_budget_to_optimizer(tmp_path, monkeypatch, be
     expected = 150 if budget == "omitted" else budget
     assert observed["components"]["agent_wrapper"]["home_optimizer"] == {
         "validation_cycle_time_budget_minutes": expected,
-        "max_validations": 10,
+        "max_evaluations": 10,
     }
     assert "validation_cycle_time_budget_minutes" not in application.run_job.call_args.kwargs["spec"]
     application.close.assert_awaited_once()
@@ -204,9 +204,9 @@ async def test_runner_formal_budget_configuration(tmp_path, monkeypatch, benchma
     module = import_module(f"benchmark.{benchmark}.run_home")
     config = yaml.safe_load(module.DEFAULT_CONFIG.read_text())
     if limit == "omitted":
-        config.pop("max_validations", None)
+        config.pop("max_evaluations", None)
     else:
-        config["max_validations"] = limit
+        config["max_evaluations"] = limit
     path = tmp_path / "home.yaml"
     path.write_text(yaml.safe_dump(config))
     application = AsyncMock()
@@ -220,14 +220,23 @@ async def test_runner_formal_budget_configuration(tmp_path, monkeypatch, benchma
     monkeypatch.setattr(module, "Application", factory)
     if limit in ("omitted", 3):
         await module.prepare(path)
-        assert observed["components"]["agent_wrapper"]["home_optimizer"]["max_validations"] == (
+        assert observed["components"]["agent_wrapper"]["home_optimizer"]["max_evaluations"] == (
             10 if limit == "omitted" else limit
         )
-        assert "max_validations" not in application.run_job.call_args.kwargs["spec"]
+        assert "max_evaluations" not in application.run_job.call_args.kwargs["spec"]
     else:
         with pytest.raises(ValueError):
             await module.prepare(path)
         assert not observed
+
+
+@pytest.mark.parametrize("module", [beam_runner, lme_runner])
+def test_runner_rejects_old_budget_name(module):
+    """Reject obsolete config keys instead of using the default budget."""
+    config = yaml.safe_load(module.DEFAULT_CONFIG.read_text())
+    config["max_validations"] = config.pop("max_evaluations")
+    with pytest.raises(ValueError):
+        module.RunHomeConfig.model_validate(config)
 
 
 @pytest.mark.asyncio
@@ -237,7 +246,7 @@ async def test_optimizer_lifecycle_uses_same_config_and_does_not_prepare(tmp_pat
     """A separate optimization launch consumes the same count, timer and sampling settings."""
     module = import_module(f"benchmark.{benchmark}.run_home")
     config = yaml.safe_load(module.DEFAULT_CONFIG.read_text())
-    config.update(max_validations=3, validation_cycle_time_budget_minutes=minutes)
+    config.update(max_evaluations=3, validation_cycle_time_budget_minutes=minutes)
     path = tmp_path / "home.yaml"
     path.write_text(yaml.safe_dump(config))
     application = AsyncMock()
@@ -252,7 +261,7 @@ async def test_optimizer_lifecycle_uses_same_config_and_does_not_prepare(tmp_pat
     result = await module.optimize(path, workspace_dir=str(tmp_path / "existing"), instruction="Improve retrieval")
     assert result["status"] == "completed"
     assert observed["components"]["agent_wrapper"]["home_optimizer"] == {
-        "max_validations": 3,
+        "max_evaluations": 3,
         "validation_cycle_time_budget_minutes": minutes,
     }
     application.run_job.assert_awaited_once_with("home_optimize", instruction="Improve retrieval")

@@ -19,7 +19,7 @@ from ..evaluation.artifacts import contained, read_json, write_json
 from ..evaluation.component import blocking
 from ..evaluation.inputs import EvaluationSpec, load_inputs
 from ..evaluation.history import read_state
-from ..evaluation.budget import validate_max_validations, validation_budget_status
+from ..evaluation.budget import validate_max_evaluations, validation_budget_status
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from .diagnostic import diagnostic_tool, evaluation_paths
@@ -165,7 +165,10 @@ class OptimizerAgentWrapper(CaseStudyAgentWrapper):
 
     def validation_limit(self):
         """Keep the formal count limit host-owned and independent of elapsed time."""
-        return validate_max_validations(self._merged_kwargs({}).get("max_validations", 10))
+        options = self._merged_kwargs({})
+        if "max_validations" in options:
+            raise ValueError("Use max_evaluations instead of max_validations")
+        return validate_max_evaluations(options.get("max_evaluations", 10))
 
     def _create_agent(self, *, options, **kwargs):
         timer = (
@@ -367,13 +370,13 @@ def verify_final(home, result):
         return evidence["evaluation_path"]
 
 
-def validation_budget_tool(home, max_validations):
+def validation_budget_tool(home, max_evaluations):
     """Expose dev_meta's read-only count, phase and next-candidate guidance."""
-    validate_max_validations(max_validations)
+    validate_max_evaluations(max_evaluations)
 
     async def get_validation_budget():
         """Return started formal validations, remaining count and optimization guidance."""
-        return await blocking(validation_budget_status, home, max_validations)
+        return await blocking(validation_budget_status, home, max_evaluations)
 
     return FunctionTool(
         get_validation_budget,
@@ -387,10 +390,10 @@ def validation_budget_tool(home, max_validations):
     )
 
 
-def evaluation_tool(wrapper, options, *, home, timer=None, max_validations=10):
+def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10):
     """Only debug mode is model-selected; the host decides construction replay."""
     job = required_job(wrapper, "home_evaluate")
-    validate_max_validations(max_validations)
+    validate_max_evaluations(max_evaluations)
 
     async def evaluate(debug: bool = False, **kwargs):
         """Run debug after committing; after debug passes, run a sampled formal evaluation.
@@ -408,7 +411,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_validations=10):
         started_before = await blocking(lambda: set(read_state(home)["started_validations"])) if not debug else set()
         response = await job(
             **options,
-            **({"max_validations": max_validations} if not debug else {}),
+            **({"max_evaluations": max_evaluations} if not debug else {}),
             debug=debug,
             sampling=not debug,
             record_history=True,
@@ -417,7 +420,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_validations=10):
             reuse_construction_from=None,
         )
         if not debug:
-            budget = await blocking(validation_budget_status, home, max_validations)
+            budget = await blocking(validation_budget_status, home, max_evaluations)
             if isinstance(response.answer, dict):
                 response.answer = {**response.answer, "validation_budget": budget}
             completed = await blocking(completed_validation, home, response.answer, started_before)
@@ -487,8 +490,8 @@ class HomeOptimizeStep(BaseStep):
         self.context.response.metadata["optimization_report_path"] = report_path
         try:
             timer = self.agent_wrapper.create_cycle_timer()
-            max_validations = self.agent_wrapper.validation_limit()
-            budget = await blocking(validation_budget_status, home, max_validations)
+            max_evaluations = self.agent_wrapper.validation_limit()
+            budget = await blocking(validation_budget_status, home, max_evaluations)
             reply = await workflow_reply(
                 self.agent_wrapper,
                 home,
@@ -501,13 +504,13 @@ class HomeOptimizeStep(BaseStep):
                 tool_factory=lambda backend: [
                     Edit(backend=backend),
                     diagnostic_tool(self.agent_wrapper),
-                    validation_budget_tool(home, max_validations),
+                    validation_budget_tool(home, max_evaluations),
                     evaluation_tool(
                         self.agent_wrapper,
                         options,
                         home=home,
                         timer=timer,
-                        max_validations=max_validations,
+                        max_evaluations=max_evaluations,
                     ),
                 ],
                 job_names=MUTATION_JOBS,

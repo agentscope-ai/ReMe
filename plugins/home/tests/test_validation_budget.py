@@ -60,19 +60,37 @@ def test_dev_meta_phase_boundaries(tmp_path, used, phase, remaining):
 
 @pytest.mark.parametrize("invalid", [True, False, 0, -1, 1.5, "10", None])
 def test_invalid_optimizer_budgets_rejected(invalid):
-    wrapper = OptimizerAgentWrapper(name="optimizer", max_validations=invalid)
+    wrapper = OptimizerAgentWrapper(name="optimizer", max_evaluations=invalid)
     with pytest.raises(ValueError, match="positive integer"):
         wrapper.validation_limit()
     if invalid is not None:
         with pytest.raises(ValueError):
-            EvaluationSpec(max_validations=invalid)
+            EvaluationSpec(max_evaluations=invalid)
 
 
 def test_budgeted_evaluation_cannot_disable_started_history():
     with pytest.raises(ValueError, match="record_history"):
-        EvaluationSpec(max_validations=10, record_history=False)
-    assert EvaluationSpec(debug=True, max_validations=1, record_history=False).debug
+        EvaluationSpec(max_evaluations=10, record_history=False)
+    assert EvaluationSpec(debug=True, max_evaluations=1, record_history=False).debug
     assert OptimizerAgentWrapper(name="optimizer").validation_limit() == 10
+
+
+def test_old_budget_name_is_rejected():
+    with pytest.raises(ValueError):
+        EvaluationSpec(max_validations=3)
+    # Application defaults can supply the new name alongside an old override.
+    wrapper = OptimizerAgentWrapper(name="optimizer", max_evaluations=10, max_validations=3)
+    with pytest.raises(ValueError, match="Use max_evaluations"):
+        wrapper.validation_limit()
+
+
+@pytest.mark.asyncio
+async def test_job_rejects_old_budget_before_starting_sandbox(app):
+    count = len(FakeFactory.instances)
+    response = await app.run_job("home_evaluate", max_validations=3)
+    assert not response.success
+    assert "Use max_evaluations" in str(response.answer)
+    assert len(FakeFactory.instances) == count
 
 
 @pytest.mark.asyncio
@@ -93,7 +111,7 @@ async def test_exhaustion_blocks_before_pool_and_survives_cache_rebuild(app, pre
     assert baseline.success
     assert validation_budget_status(prepared, 1)["used_validations"] == 0
     commit_candidate(prepared)
-    result = await app.run_job("home_evaluate", max_validations=1)
+    result = await app.run_job("home_evaluate", max_evaluations=1)
     assert result.success, result.answer
     assert result.answer["validation_budget"]["remaining_validations"] == 0
     count = len(FakeFactory.instances)
@@ -101,12 +119,12 @@ async def test_exhaustion_blocks_before_pool_and_survives_cache_rebuild(app, pre
     (prepared / "sampling/state.json").unlink()
     assert validation_budget_status(prepared, 1)["used_validations"] == 1
     commit_candidate(prepared)
-    rejected = await app.run_job("home_evaluate", max_validations=1)
+    rejected = await app.run_job("home_evaluate", max_evaluations=1)
     assert not rejected.success
     assert rejected.answer["error_code"] == "VALIDATION_BUDGET_EXHAUSTED"
     assert rejected.answer["result_dir"] is None
     assert len(FakeFactory.instances) == count
-    debug = await app.run_job("home_evaluate", debug=True, max_validations=1)
+    debug = await app.run_job("home_evaluate", debug=True, max_evaluations=1)
     assert debug.success, debug.answer
     assert "validation_budget" not in debug.answer
     assert validation_budget_status(prepared, 1)["used_validations"] == 1
@@ -129,7 +147,7 @@ async def test_charge_depends_on_first_sandbox_start_not_result(app, prepared, m
                 raise RuntimeError("sandbox initialization failed")
 
         monkeypatch.setattr(evaluation, "DockerReMeSandboxFactory", PrestartFailureFactory)
-    task = asyncio.create_task(app.run_job("home_evaluate", max_validations=1))
+    task = asyncio.create_task(app.run_job("home_evaluate", max_evaluations=1))
     if outcome == "cancelled":
         while not FakeFactory.instances:
             await asyncio.sleep(0)

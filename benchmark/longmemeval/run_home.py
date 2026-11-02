@@ -34,7 +34,7 @@ class RunHomeConfig(BaseModel):
     preparation: dict
     sampling_policy: SamplingPolicy = Field(default_factory=SamplingPolicy)
     validation_cycle_time_budget_minutes: float | None = Field(default=150, gt=0, allow_inf_nan=False)
-    max_validations: int = Field(default=10, ge=1)
+    max_evaluations: int = Field(default=10, ge=1)
 
 
 def project_path(value: str, project_root: Path) -> Path:
@@ -75,7 +75,7 @@ async def _run(config_path, *, workspace_dir=None, optimize_workspace=False, ins
             "agent_wrapper": {
                 "home_optimizer": {
                     "validation_cycle_time_budget_minutes": config.validation_cycle_time_budget_minutes,
-                    "max_validations": config.max_validations,
+                    "max_evaluations": config.max_evaluations,
                 },
             },
         },

@@ -97,7 +97,7 @@ application_defaults:
           max_iters: 60
       home_optimizer:
         backend: home_optimizer_agent
-        max_validations: 10
+        max_evaluations: 10
         as_llm: home_optimizer
         validation_cycle_time_budget_minutes: 150
         context_config:
@@ -340,7 +340,7 @@ application_defaults:
             description: "Stop on the first failure; defaults to debug (false for scored runs, true for debug)"
           max_construction_failure_rate: {type: number, minimum: 0, maximum: 1}
           max_artifact_bytes: {type: integer, minimum: 1}
-          max_validations:
+          max_evaluations:
             type: [integer, "null"]
             minimum: 1
             description: "Host formal-evaluation budget; early new candidates pass admission review; optimizer injects its limit"

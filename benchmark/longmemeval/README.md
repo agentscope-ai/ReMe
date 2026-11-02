@@ -141,7 +141,7 @@ The top-level `validation_cycle_time_budget_minutes` configures the host optimiz
 advisory time between completed formal evaluations. It defaults to 150 minutes;
 set a positive number to change it or null to disable timed reminders.
 
-The top-level `max_validations` sets the optimizer's formal-evaluation budget
+The top-level `max_evaluations` sets the optimizer's formal-evaluation budget
 (positive integer, default 10). A slot is consumed at first sandbox startup,
 including later failures or cancellations; initial baseline and debug are excluded.
 

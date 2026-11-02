@@ -75,7 +75,7 @@ async def test_gate_before_sampling_preserves_budget_and_pins_code(app, prepared
         return original(*args, **kwargs)
 
     monkeypatch.setattr(component, "create_sampling_plan", draw)
-    response = await app.run_job("home_evaluate", max_validations=10, sampling=True)
+    response = await app.run_job("home_evaluate", max_evaluations=10, sampling=True)
     report = response.answer["candidate_gate"]
     assert report["base_commit"] == initial and report["candidate_commit"] == commit
     saved = read_json(Path(report["review_path"]))
@@ -109,16 +109,16 @@ async def test_baseline_debug_unbudgeted_and_late_phase_skip_gate(app, prepared,
         raise AssertionError("Gate must be skipped")
 
     monkeypatch.setattr(candidate_gate, "review_candidate", unexpected)
-    assert (await app.run_job("home_evaluate", max_validations=10)).success  # Baseline.
+    assert (await app.run_job("home_evaluate", max_evaluations=10)).success  # Baseline.
     commit_candidate(prepared)
-    assert (await app.run_job("home_evaluate", debug=True, max_validations=10)).success
+    assert (await app.run_job("home_evaluate", debug=True, max_evaluations=10)).success
     assert (await app.run_job("home_evaluate")).success  # Ordinary explicit evaluations remain ungated.
     commit_candidate(prepared)
-    result = await app.run_job("home_evaluate", max_validations=2)  # One previous non-init start: second half.
+    result = await app.run_job("home_evaluate", max_evaluations=2)  # One previous non-init start: second half.
     assert result.success, result.answer
     assert "candidate_gate" not in result.answer
     commit_candidate(prepared)
-    result = await app.run_job("home_evaluate", max_validations=2)
+    result = await app.run_job("home_evaluate", max_evaluations=2)
     assert result.answer["error_code"] == "VALIDATION_BUDGET_EXHAUSTED"
 
 
@@ -132,7 +132,7 @@ async def test_nearest_ancestor_and_infrastructure_retry(app, prepared, sandbox,
     commit_candidate(prepared)
     set_model(app, "home_candidate_gate", ScriptedModel(final='{"decision":"accept","reason":"New mechanism"}'))
     monkeypatch.setattr(FakeFactory, "bad_export", True)
-    failed = await app.run_job("home_evaluate", max_validations=10, sampling=True)
+    failed = await app.run_job("home_evaluate", max_evaluations=10, sampling=True)
     assert not failed.success
     assert failed.answer["candidate_gate"]["base_commit"] == base
 
@@ -141,9 +141,9 @@ async def test_nearest_ancestor_and_infrastructure_retry(app, prepared, sandbox,
 
     monkeypatch.setattr(candidate_gate, "review_candidate", unexpected)
     monkeypatch.setattr(FakeFactory, "bad_export", False)
-    recovered = await app.run_job("home_evaluate", max_validations=10, sampling=True)
+    recovered = await app.run_job("home_evaluate", max_evaluations=10, sampling=True)
     assert recovered.success, recovered.answer
-    repeat = await app.run_job("home_evaluate", max_validations=10)
+    repeat = await app.run_job("home_evaluate", max_evaluations=10)
     assert repeat.answer["error_code"] == "UNCHANGED_CANDIDATE"
 
 
@@ -158,7 +158,7 @@ async def test_model_failure_allows_validation_with_saved_diagnostics(app, prepa
             raise RuntimeError("model unavailable")
 
         monkeypatch.setattr(wrapper, "reply", broken)
-    response = await app.run_job("home_evaluate", max_validations=10)
+    response = await app.run_job("home_evaluate", max_evaluations=10)
     assert response.success, response.answer
     report = response.answer["candidate_gate"]
     assert report["decision"] == "accept" and report["review_failed"]
@@ -177,7 +177,7 @@ async def test_corrected_gate_rejects_before_spending_budget(app, prepared, sand
         ),
     )
     set_model(app, "home_candidate_gate", model)
-    response = await app.run_job("home_evaluate", max_validations=10)
+    response = await app.run_job("home_evaluate", max_evaluations=10)
     assert not response.success
     assert response.answer["error_code"] == "CANDIDATE_GATE_REJECTED"
     report = read_json(Path(response.answer["candidate_gate"]["review_path"]))
@@ -199,7 +199,7 @@ async def test_sandbox_setup_failure_never_calls_model_or_evaluates(app, prepare
         raise RuntimeError("sandbox unavailable")
 
     monkeypatch.setattr(workflow_common, "create_case_study_sandbox", unavailable)
-    result = await app.run_job("home_evaluate", max_validations=10)
+    result = await app.run_job("home_evaluate", max_evaluations=10)
     assert not result.success and "sandbox unavailable" in str(result.answer)
     assert not model.calls and not FakeFactory.instances
     assert validation_budget_status(prepared, 10)["used_validations"] == 0
@@ -218,9 +218,9 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
         return {"result": '{"decision":"accept","reason":"Mechanism change"}'}
 
     monkeypatch.setattr(wrapper, "reply", paused)
-    task = asyncio.create_task(app.run_job("home_evaluate", max_validations=10))
+    task = asyncio.create_task(app.run_job("home_evaluate", max_evaluations=10))
     await asyncio.wait_for(entered.wait(), timeout=10)
-    concurrent = await app.run_job("home_evaluate", max_validations=10)
+    concurrent = await app.run_job("home_evaluate", max_evaluations=10)
     assert not concurrent.success  # Formal lock spans review and evaluation.
     commit_candidate(prepared)
     release.set()
@@ -229,7 +229,7 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
     assert not FakeFactory.instances
     entered.clear()
     release.clear()
-    task = asyncio.create_task(app.run_job("home_evaluate", max_validations=10))
+    task = asyncio.create_task(app.run_job("home_evaluate", max_evaluations=10))
     await asyncio.wait_for(entered.wait(), timeout=10)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
@@ -237,7 +237,7 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
     assert not list((prepared / "tmp").glob("candidate-gate-*"))
     assert validation_budget_status(prepared, 10)["used_validations"] == 0
     release.set()
-    result = await app.run_job("home_evaluate", max_validations=10)
+    result = await app.run_job("home_evaluate", max_evaluations=10)
     assert result.success, result.answer
 
 

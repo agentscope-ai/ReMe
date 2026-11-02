@@ -29,7 +29,7 @@ class EvaluationSpec(SpecModel):
     debug: bool = False
     sampling: bool = False
     record_history: bool = True
-    max_validations: int | None = Field(default=None, ge=1)
+    max_evaluations: int | None = Field(default=None, ge=1)
     sampling_policy: SamplingPolicy | None = None
     concurrency: int = Field(default=4, ge=1)
     timeout_seconds: float = Field(default=7200.0, gt=0, allow_inf_nan=False)
@@ -68,7 +68,7 @@ class EvaluationSpec(SpecModel):
     @model_validator(mode="after")
     def resolve_mode(self):
         """Debug stops on failure by default and never reuses scored evidence."""
-        if self.max_validations is not None and not self.debug and not self.record_history:
+        if self.max_evaluations is not None and not self.debug and not self.record_history:
             raise ValueError("Budgeted formal evaluations require record_history=true")
         if self.debug and self.reuse_construction_from:
             raise ValueError("Construction reuse requires training-set")

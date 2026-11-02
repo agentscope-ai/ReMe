@@ -215,7 +215,7 @@ async def test_benchmark_optimizer_applies_budgets_to_real_workflow(
             {
                 "workspace_dir": str(prepared.parent),
                 "preparation": inputs[0],
-                "max_validations": 3,
+                "max_evaluations": 3,
                 "validation_cycle_time_budget_minutes": 30,
             },
         ),
@@ -250,7 +250,7 @@ async def test_benchmark_optimizer_applies_budgets_to_real_workflow(
     assert len(agents) == 1
     assert agents[0].validation_cycle_timer.time_budget_minutes == 30
     task = "\n".join(msg.get_text_content() or "" for msg in model.calls[0]["messages"])
-    assert '"max_validations": 3' in task
+    assert '"max_evaluations": 3' in task
     assert '"remaining_validations": 3' in task
     assert len(FakeFactory.instances) == 1  # Only the earlier baseline ran.
 

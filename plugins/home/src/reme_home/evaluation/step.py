@@ -17,6 +17,8 @@ class HomeEvaluateStep(BaseStep):
         if self.context.get("_allowed_paths") is not None:
             raise ValueError("Home evaluation Jobs require unrestricted access to their workspace output directories")
         arguments = {name: self.context.get(name) for name in EvaluationSpec.model_fields if name in self.context}
+        if "max_validations" in self.context:
+            raise ValueError("Use max_evaluations instead of max_validations")
         # Do not silently accept a removed toggle that conflicts with reuse paths.
         if "eval_only" in self.context:
             raise ValueError("Use reuse_construction_from instead of eval_only")

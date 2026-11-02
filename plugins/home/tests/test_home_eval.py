@@ -269,7 +269,7 @@ async def test_benchmark_entry_points_select_correct_defaults(benchmark, monkeyp
     runner.assert_awaited_once_with(module.DEFAULT_CONFIG, expected_benchmark=benchmark, commit="abcdef0")
 
 
-@pytest.mark.parametrize("options", [{"sampling": True}, {"record_history": True}, {"max_validations": 1}])
+@pytest.mark.parametrize("options", [{"sampling": True}, {"record_history": True}, {"max_evaluations": 1}])
 def test_test_runner_rejects_optimizer_modes(options):
     with pytest.raises(ValueError):
         home_eval.TestRunConfig.model_validate(
