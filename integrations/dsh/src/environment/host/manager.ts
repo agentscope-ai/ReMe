@@ -12,6 +12,7 @@ import { createNodeRunner } from "./runner.js";
 import {
   createServiceIO,
   forgetService,
+  parseLocalEndpoint,
   processAlive,
   readServiceState,
   removeServiceState,
@@ -403,6 +404,20 @@ export class ReMeEnvManager {
     return result;
   }
 
+  /**
+   * Whether a service launch is possible for this endpoint at all: only a
+   * root-path loopback endpoint can be started, so a prefixed or remote one is
+   * already doomed in `buildStartCommand`.
+   */
+  private launchable(endpoint: string): boolean {
+    try {
+      parseLocalEndpoint(endpoint);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async startLocked(
     endpoint: string,
     pythonPath: string,
@@ -498,9 +513,15 @@ export class ReMeEnvManager {
         // endpoint (for example `/reme`) is that service, and the endpoint on
         // screen cannot reach it to stop it: replace it here instead of
         // refusing with an instruction the tab cannot carry out.
+        //
+        // Only a launchable request may replace it: a prefixed request is
+        // refused by `buildStartCommand` below, so stopping a healthy
+        // same-origin service first would leave nothing running (autoStart
+        // would do that on every DSH start).
         if (
+          this.launchable(endpointValue) &&
           serviceOriginKey(recorded.endpoint) ===
-          serviceOriginKey(endpointValue)
+            serviceOriginKey(endpointValue)
         ) {
           const previous = await stopService(this.serviceIO, {
             statePath: this.serviceStatePath,

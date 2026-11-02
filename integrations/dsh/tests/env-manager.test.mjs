@@ -398,6 +398,37 @@ test("replaces a leftover launch recorded under a same-origin path prefix", asyn
   assert.equal(readServiceState(statePath)?.pid, 5001);
 });
 
+test("a prefixed request never stops the healthy service it cannot replace", async (t) => {
+  // A prefixed endpoint can never be launched: the launch sets only host and
+  // port, so the request is refused later anyway. Replacing the same-origin
+  // root-path service first would kill a healthy service and start nothing
+  // (autoStart would do that on every DSH start).
+  const { manager, calls, directory, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334/reme",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, false);
+  assert.equal(result.code, "other-endpoint-running");
+  assert.match(result.error, /still running/);
+  assert.deepEqual(calls.killTree, [], "the healthy service is left alone");
+  assert.equal(calls.spawn.length, 0);
+  assert.equal(readServiceState(statePath)?.pid, 6000, "the record survives");
+});
+
 test("stop waits for an in-flight start and then stops that launch", async (t) => {
   const { manager, calls, directory, io } = managerIn(t);
   let running = true;
