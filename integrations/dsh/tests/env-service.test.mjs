@@ -315,6 +315,41 @@ test("recognizes the Windows wrapper command line with escaped quotes", async (t
   assert.equal(await serviceOwnership(io, state, ENDPOINT), "owned");
 });
 
+test("a prefixed legacy record stays identifiable, so it can be stopped", async (t) => {
+  const { statePath } = tempState(t, "reme-prefix-");
+  // A record from a version that still launched a prefixed loopback endpoint.
+  // The launch rule has changed, but the process it started is still ours and
+  // must not become an unowned orphan just because the endpoint is not
+  // launchable any more.
+  const endpoint = "http://127.0.0.1:2334/reme";
+  record(statePath, { endpoint });
+  const { io, calls } = fakeIO({
+    processCommandLine: async () => commandFor(statePath),
+    probePid() {
+      // The record's process only disappears once it was asked to stop.
+      if (calls.killTree.length === 0) return;
+      const error = new Error("ESRCH");
+      error.code = "ESRCH";
+      throw error;
+    },
+  });
+  const state = readServiceState(statePath);
+  assert.equal(await serviceOwnership(io, state, endpoint), "owned");
+  assert.equal(await ownsService(io, state, endpoint), true);
+
+  // Because ownership is proven, Stop acts on the recorded pid instead of
+  // refusing it as foreign, and the record is dropped once it exited.
+  const stopped = await stopService(io, {
+    statePath,
+    endpoint,
+    timeoutMs: 50,
+    pollMs: 5,
+  });
+  assert.equal(stopped.stopped, true);
+  assert.deepEqual(calls.killTree, [777]);
+  assert.equal(readServiceState(statePath), undefined);
+});
+
 test("a dead record is cleared instead of reporting a stale pid", async (t) => {
   const { directory, statePath } = tempState(t, "reme-dead-");
   record(statePath);

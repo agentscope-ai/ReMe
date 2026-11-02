@@ -251,18 +251,36 @@ function normalizeCommandText(value: string, foldCase: boolean): string {
 }
 
 /**
+ * The local port a recorded endpoint names, without the launch rules.
+ *
+ * `commandMatches` only needs the port to find `service.port=<port>` in the
+ * command line, and it must stay as permissive as the record is old: a record
+ * written before the root-path rule may name a prefixed loopback URL, and that
+ * process still has to be recognizable as the one this plugin started so it
+ * can be stopped. Reusing the launch rule here would turn such a live record
+ * into a `foreign` process that nothing owns.
+ */
+function recordedPort(endpoint: string): number | undefined {
+  let url: URL;
+  try {
+    url = new URL(endpoint.trim());
+  } catch {
+    return undefined;
+  }
+  const port = Number(url.port || (url.protocol === "https:" ? "443" : "80"));
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return undefined;
+  return port;
+}
+
+/**
  * The recorded launch always passes `workspace_dir=<dir>` and
  * `service.port=<port>` as argv entries (also inside the Python wrapper's
  * `-c` script), so their presence is strong evidence that this pid is the
  * process the record describes — not merely another Python that reused the pid.
  */
 function commandMatches(command: string, persisted: PersistedService): boolean {
-  let port: number;
-  try {
-    port = parseLocalEndpoint(persisted.endpoint).port;
-  } catch {
-    return false;
-  }
+  const port = recordedPort(persisted.endpoint);
+  if (port === undefined) return false;
   const workspace = persisted.workspaceDir.trim();
   if (!workspace) return false;
   const foldCase = isWindowsPath(workspace);
