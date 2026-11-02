@@ -28,6 +28,8 @@ function fakeSpawner() {
         pid: 4000 + children.length,
         /** Whether the process still exists. */
         alive: true,
+        /** Whether the managed group still holds a process after the exit. */
+        groupAliveFlag: false,
         /** Every termination the job asked for, in order. */
         kills: [],
         onExit(callback) {
@@ -36,6 +38,10 @@ function fakeSpawner() {
         kill(force = false) {
           child.kills.push(force ? "force" : "graceful");
           if (force) child.alive = false;
+        },
+        /** What the real spawner asks the OS: is the group still populated? */
+        groupAlive() {
+          return child.groupAliveFlag;
         },
         /** The Host observed the process exiting. */
         exit(code) {
@@ -240,7 +246,78 @@ test("dispose escalates after the configured grace period", (t) => {
   assert.equal(children[0].alive, false);
 });
 
-test("an observed exit settles the job once, as cancelled", (t) => {
+test("a cancelled job waits for its process group, not only for its leader", (t) => {
+  const timers = fakeTimers(t);
+  const { jobs, children, calls } = makeJobs(t, {
+    killGraceMs: 5_000,
+    groupPollMs: 25,
+    groupTimeoutMs: 60_000,
+  });
+  const started = jobs.start({ pythonPath: "C:\\env\\python.exe" });
+  jobs.cancel(started.id);
+
+  // The leader exits on the graceful signal while a build child that ignored
+  // it keeps the managed group alive: the regression the review reproduced.
+  children[0].groupAliveFlag = true;
+  children[0].exit(1);
+
+  let status = jobs.status(started.id);
+  assert.equal(status?.phase, "running");
+  assert.equal(status?.cancelling, true);
+  // The group gets the force-kill, and the job waits for it to be empty.
+  assert.deepEqual(children[0].kills, ["graceful", "force"]);
+  assert.equal(status?.finishedAt, undefined);
+  // While the group is alive the interpreter stays locked.
+  assert.equal(
+    jobs.start({ pythonPath: "C:\\env\\python.exe" }).id,
+    started.id,
+  );
+  assert.equal(calls.starts, 1);
+
+  // The force-kill cleared the group: the next confirmation settles the job
+  // and releases the interpreter.
+  children[0].groupAliveFlag = false;
+  timers.fireAll();
+  status = jobs.status(started.id);
+  assert.equal(status?.phase, "cancelled");
+  assert.equal(status?.exitCode, 1);
+  assert.equal(status?.cancelling, undefined);
+  assert.notEqual(
+    jobs.start({ pythonPath: "C:\\env\\python.exe" }).id,
+    started.id,
+  );
+  assert.equal(calls.starts, 2);
+  // Nothing is left pending once the group is confirmed empty.
+  assert.equal(timers.pending().length, 0);
+});
+
+test("a group that never empties keeps the job unconfirmed", (t) => {
+  const timers = fakeTimers(t);
+  const { jobs, children, calls } = makeJobs(t, {
+    killGraceMs: 5_000,
+    groupPollMs: 25,
+    groupTimeoutMs: 60_000,
+  });
+  const started = jobs.start({ pythonPath: "C:\\env\\python.exe" });
+  jobs.cancel(started.id);
+  children[0].groupAliveFlag = true;
+  children[0].exit(1);
+
+  // Every poll keeps finding the group alive, so the job never settles.
+  timers.fireAll();
+  const status = jobs.status(started.id);
+  assert.equal(status?.phase, "running");
+  assert.equal(status?.cancelling, true);
+  assert.notEqual(status?.phase, "cancelled");
+  // The interpreter is still locked: a build child may still be running.
+  assert.equal(
+    jobs.start({ pythonPath: "C:\\env\\python.exe" }).id,
+    started.id,
+  );
+  assert.equal(calls.starts, 1);
+});
+
+test("a cancelled job with an observed exit settles once, as cancelled", (t) => {
   const timers = fakeTimers(t);
   const { jobs, children } = makeJobs(t, { killGraceMs: 5_000 });
   const started = jobs.start({ pythonPath: "C:\\env\\python.exe" });

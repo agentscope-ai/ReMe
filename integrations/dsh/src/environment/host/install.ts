@@ -12,6 +12,16 @@ export interface InstallChild {
   onExit(callback: (code: number | null) => void): void;
   /** `force` escalates to SIGKILL on POSIX; Windows always force-kills. */
   kill(force?: boolean): void;
+  /**
+   * Whether any process of the managed process group still exists.
+   *
+   * Only the leader's exit is observable through `onExit`, so a build child
+   * that ignored the graceful signal can outlive it. POSIX starts the install
+   * in its own group and can answer this; Windows kills the tree with
+   * `taskkill /T`, so it reports false. Omitted when the group cannot be
+   * inspected, which makes an observed exit settle the job.
+   */
+  groupAlive?(): boolean;
 }
 
 export interface InstallSpawner {
@@ -161,6 +171,20 @@ export function createInstallSpawner(
             // Already gone.
           }
         },
+        groupAlive() {
+          // Only POSIX puts the install in its own process group, and only
+          // there can the leader exit while the group outlives it.
+          if (process.platform === "win32" || child.pid === undefined)
+            return false;
+          try {
+            process.kill(-child.pid, 0);
+            return true;
+          } catch (error) {
+            // ESRCH means the group is empty; anything else cannot be proven
+            // empty, so the job waits instead of settling early.
+            return (error as NodeJS.ErrnoException).code !== "ESRCH";
+          }
+        },
       };
     },
   };
@@ -192,6 +216,19 @@ const DEFAULT_KILL_GRACE_MS = 5_000;
  */
 const DEFAULT_DISPOSE_GRACE_MS = 0;
 
+/**
+ * How often a cancelled job whose group outlived its leader is re-checked.
+ * Small enough to settle promptly, large enough not to busy-wait.
+ */
+const DEFAULT_GROUP_POLL_MS = 100;
+
+/**
+ * How long a cancelled job waits for a process group it already force-killed
+ * to empty. A group still populated after this stays unconfirmed (and locked)
+ * rather than being reported as a cancellation that did not happen.
+ */
+const DEFAULT_GROUP_TIMEOUT_MS = 5_000;
+
 interface Job {
   id: string;
   phase: InstallPhase;
@@ -210,6 +247,12 @@ interface Job {
    * It never settles the job: only an observed exit does.
    */
   terminateTimer?: ReturnType<typeof setTimeout>;
+  /**
+   * Poll that waits for the whole process group of a cancelled job to empty
+   * after its leader already exited. It settles the job once the group is
+   * gone; until then the interpreter stays locked.
+   */
+  groupTimer?: ReturnType<typeof setTimeout>;
 }
 
 export interface InstallJobsOptions {
@@ -227,6 +270,17 @@ export interface InstallJobsOptions {
    * force-kill follows immediately and a child can never outlive the Host.
    */
   disposeGraceMs?: number;
+  /**
+   * How often a cancelled job re-checks a process group whose leader already
+   * exited. Defaults to 100 ms.
+   */
+  groupPollMs?: number;
+  /**
+   * How long a cancelled job waits for that group to empty after the
+   * force-kill. Defaults to 5 s; a group still populated afterwards keeps the
+   * job unconfirmed instead of reporting a completed cancellation.
+   */
+  groupTimeoutMs?: number;
 }
 
 /**
@@ -240,10 +294,14 @@ export class InstallJobs {
   private sequence = 0;
   private readonly killGraceMs: number;
   private readonly disposeGraceMs: number;
+  private readonly groupPollMs: number;
+  private readonly groupTimeoutMs: number;
 
   constructor(private readonly options: InstallJobsOptions) {
     this.killGraceMs = options.killGraceMs ?? DEFAULT_KILL_GRACE_MS;
     this.disposeGraceMs = options.disposeGraceMs ?? DEFAULT_DISPOSE_GRACE_MS;
+    this.groupPollMs = options.groupPollMs ?? DEFAULT_GROUP_POLL_MS;
+    this.groupTimeoutMs = options.groupTimeoutMs ?? DEFAULT_GROUP_TIMEOUT_MS;
   }
 
   start(request: InstallRequest): InstallStatus {
@@ -366,9 +424,10 @@ export class InstallJobs {
    * The one termination path, shared by cancellation and disposal.
    *
    * It sends the graceful signal first and escalates to the force-kill after
-   * `graceMs`. It never settles the job: only an observed exit does, so the
-   * interpreter stays locked while the process is still alive and a failed
-   * termination stays visible.
+   * `graceMs`. It never settles the job: only an observed exit does — and, for
+   * a cancelled job whose leader exited first, an empty managed group — so the
+   * interpreter stays locked while any install process is still alive and a
+   * failed termination stays visible.
    */
   private terminate(job: Job, graceMs: number): void {
     this.clearTerminateTimer(job);
@@ -405,6 +464,20 @@ export class InstallJobs {
   private finish(job: Job, code: number | null): void {
     if (job.phase !== "running") return;
     this.clearTerminateTimer(job);
+    // A cancelled leader can exit while a build child that ignored the
+    // graceful signal keeps running. Only an empty group settles the job, so
+    // the interpreter stays locked until nothing of the install is left.
+    if (job.cancelling && this.groupAlive(job)) {
+      this.awaitGroupExit(job, code);
+      return;
+    }
+    this.settle(job, code);
+  }
+
+  /** Write the final phase of an already stopped job. */
+  private settle(job: Job, code: number | null): void {
+    this.clearTerminateTimer(job);
+    this.clearGroupTimer(job);
     job.phase = job.cancelling
       ? "cancelled"
       : code === 0
@@ -413,6 +486,54 @@ export class InstallJobs {
     job.exitCode = code;
     job.finishedAt = new Date().toISOString();
     job.cancelling = false;
+  }
+
+  /** Whether the managed process group still holds a live process. */
+  private groupAlive(job: Job): boolean {
+    return job.child.groupAlive?.() === true;
+  }
+
+  /**
+   * Force-kill the group that outlived its leader, then settle only once it is
+   * empty.
+   *
+   * The job stays `running` (and the interpreter locked) for the whole wait,
+   * so a second installation cannot start while a build child still runs. A
+   * group that does not empty within the timeout keeps the job unconfirmed
+   * instead of reporting a cancellation that did not happen.
+   */
+  private awaitGroupExit(job: Job, code: number | null): void {
+    this.clearGroupTimer(job);
+    job.child.kill(true);
+    const deadline = Date.now() + this.groupTimeoutMs;
+    const poll = (): void => {
+      job.groupTimer = undefined;
+      if (job.phase !== "running") return;
+      if (!this.groupAlive(job)) {
+        this.settle(job, code);
+        return;
+      }
+      if (Date.now() >= deadline) return;
+      job.groupTimer = this.after(this.groupPollMs, poll);
+    };
+    job.groupTimer = this.after(this.groupPollMs, poll);
+  }
+
+  /** Drop the pending group poll of a job. */
+  private clearGroupTimer(job: Job): void {
+    if (!job.groupTimer) return;
+    clearTimeout(job.groupTimer);
+    job.groupTimer = undefined;
+  }
+
+  /** Never let a pending wait keep the Host process alive. */
+  private after(
+    delayMs: number,
+    callback: () => void,
+  ): ReturnType<typeof setTimeout> {
+    const timer = setTimeout(callback, delayMs);
+    timer.unref();
+    return timer;
   }
 
   /** Serialize only JSON-safe values; optional fields are omitted when unset. */
