@@ -8,6 +8,7 @@ from .._evolve import agent_reply_result_text
 from ....components import R
 from ....enumeration import DreamBucketEnum
 from ....schema import DreamExtractOutput, DreamState
+from .checkpoint import CheckpointStore, source_versions
 from .utils import (
     clean_paths,
     daily_dir,
@@ -103,6 +104,20 @@ class DreamExtractStep(BaseStep):
             existing=existing,
             indexed=indexed,
         )
+        checkpoint = CheckpointStore(self, state, max_units)
+        saved = checkpoint.read()
+        if changed or saved is not None:
+            versions = source_versions(workspace, existing)
+            restored = checkpoint.restore(versions)
+            if restored is not None:
+                self.context["_dream_checkpoint"] = checkpoint
+                return self._finish(restored, True, f"Resumed {len(restored.units)} extracted unit(s) from checkpoint")
+            if saved is not None:
+                # A previous failed dump may have advanced only in-memory mtimes. Validate content, too.
+                changed = list(dict.fromkeys([*changed, *(p for p in existing if versions[p] != saved.sources.get(p))]))
+                state.changed_paths = changed
+                state.unchanged_paths = [p for p in existing if p not in changed]
+                state.files_changed, state.files_unchanged = len(changed), len(state.unchanged_paths)
         if not changed:
             self.logger.info(f"[{self.name}] skip no changed input dates={','.join(dates)}")
             return self._finish(state, True, f"No changed dream input for {', '.join(dates)}")
@@ -112,7 +127,7 @@ class DreamExtractStep(BaseStep):
             self.logger.warning(f"[{self.name}] skip no llm changed={len(changed)}")
             return self._finish(state, False, state.errors[-1])
 
-        self.logger.info(f"[{self.name}] agent start changed={len(changed)} dates={len(dates)}")
+        self.logger.info(f"[{self.name}] extracting from scratch: changed={len(changed)} dates={len(dates)}")
         user_message = self.prompt_format(
             "extract_user_message",
             date=day,
@@ -162,6 +177,9 @@ class DreamExtractStep(BaseStep):
                 return self._finish(state, False, error)
 
         self.logger.info(f"[{self.name}] parse done keys={','.join(sorted(meta.keys())) if meta else '(none)'}")
+        state = checkpoint.publish(state, versions)
+        self.context["_dream_checkpoint"] = checkpoint
+        self.logger.info(f"[{self.name}] extraction checkpoint saved: {len(state.units)} units")
         answer = f"Extracted {len(state.units)} unit(s) from {len(changed)} changed file(s) across {len(dates)} day(s)"
         return self._finish(state, True, answer)
 

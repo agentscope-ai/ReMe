@@ -5,6 +5,7 @@ from pathlib import Path
 from ...base_step import BaseStep
 from ....components import R
 from ....schema import DreamState, FileNode
+from .checkpoint import CheckpointStore, integration_lock
 from .utils import state_from_context, store_state, workspace_dir
 
 
@@ -19,6 +20,15 @@ class DreamFinishStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         state = state_from_context(self)
+        saved = self.context.get("_dream_checkpoint")
+        if isinstance(saved, CheckpointStore):
+            async with integration_lock(self):
+                saved.ensure_current(complete=not state.errors and not state.failed_units)
+                return await self._execute(state)
+        return await self._execute(state)
+
+    async def _execute(self, state: DreamState):
+        """Persist catalog versions while holding the same lock as checkpointed integrations."""
         workspace = Path(state.workspace).resolve() if state.workspace else workspace_dir(self)
         if self.file_catalog is None:
             raise RuntimeError("dream_finish_step requires file_catalog")
@@ -46,6 +56,9 @@ class DreamFinishStep(BaseStep):
             self.logger.info(f"[{self.name}] catalog dump done")
 
         state.checkpoint_paths = [n.path for n in upserts if n.path in checkpoint]
+        saved = self.context.get("_dream_checkpoint")
+        if isinstance(saved, CheckpointStore) and self.persist and not state.errors and not state.failed_units:
+            saved.remove()
         state.summary = render_summary(state)
         store_state(self, state)
         self.context.response.success = not state.errors
