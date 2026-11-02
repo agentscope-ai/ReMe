@@ -501,6 +501,12 @@ export class InstallJobs {
    * so a second installation cannot start while a build child still runs. A
    * group that does not empty within the timeout keeps the job unconfirmed
    * instead of reporting a cancellation that did not happen.
+   *
+   * The group id is the leader's pid, and the force-kill is sent in the short
+   * window right after its exit was observed; a pathological pid reuse inside
+   * that window is inherent to signalling a process group. The liveness probe
+   * uses signal 0, which also counts an unreaped zombie as present, so a dead
+   * group can take one extra poll to be seen as empty.
    */
   private awaitGroupExit(job: Job, code: number | null): void {
     this.clearGroupTimer(job);
