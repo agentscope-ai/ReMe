@@ -12,7 +12,7 @@ from .base import (
     PAPER_COUNT,
     DailyPaperStep,
     normalize_chinese_title,
-    resolve_unique_note_path,
+    reserve_unique_note_path,
     strip_frontmatter,
     structured_output,
     utc_now_iso,
@@ -109,33 +109,33 @@ class DailyPaperDigestStep(DailyPaperStep):
         existing_rel = str(self._state("existing_digest_path") or "").strip()
         existing_path = self.workspace_path / existing_rel if existing_rel else None
         existing_was_file = existing_path is not None and existing_path.is_file()
-        title, digest_path = resolve_unique_note_path(
+        async with reserve_unique_note_path(
             self.workspace_path / daily_dir / day,
             title,
             taken={item.title for item in analyses},
             taken_suffix="（每日简报）",
             disk_suffix=f"（{day}）",
             existing=existing_path,
-        )
-        digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
-        body = self._validate_historical_wikilinks(body, run_day, digest_path)
-        body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
-        selected_ids = [item.arxiv_id for item in analyses]
-        await write_markdown(
-            digest_path,
-            body,
-            {
-                "name": title,
-                "title": title,
-                "description": output.desc.strip(),
-                "kind": "daily-paper-brief",
-                "date": day,
-                "arxiv_ids": selected_ids,
-                "selection_reasoning": [item.reasoning for item in analyses],
-                "source_notes": wikilinks,
-                "generated_at": utc_now_iso(),
-            },
-        )
+        ) as (title, digest_path):
+            digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
+            body = self._validate_historical_wikilinks(body, run_day, digest_path)
+            body += "\n\n## 详细论文\n\n" + "\n".join(f"- {link}" for link in wikilinks)
+            selected_ids = [item.arxiv_id for item in analyses]
+            await write_markdown(
+                digest_path,
+                body,
+                {
+                    "name": title,
+                    "title": title,
+                    "description": output.desc.strip(),
+                    "kind": "daily-paper-brief",
+                    "date": day,
+                    "arxiv_ids": selected_ids,
+                    "selection_reasoning": [item.reasoning for item in analyses],
+                    "source_notes": wikilinks,
+                    "generated_at": utc_now_iso(),
+                },
+            )
         changes = list(self.context.get("changes") or [])
         if existing_was_file and existing_path != digest_path:
             existing_path.unlink()

@@ -5,6 +5,7 @@ import os
 import re
 import zoneinfo
 from collections.abc import Iterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TypeVar
 from uuid import uuid4
@@ -117,6 +118,29 @@ def resolve_unique_note_path(
         if candidate not in taken and (path == existing or not path.exists()):
             return candidate, path
         candidate = f"{candidate}{disk_suffix}"
+
+
+@asynccontextmanager
+async def reserve_unique_note_path(
+    day_dir: Path,
+    title: str,
+    *,
+    taken: set[str],
+    taken_suffix: str,
+    disk_suffix: str,
+    existing: Path | None,
+):
+    """Serialize path selection and publication for one Daily Paper directory."""
+    lock = await get_path_lock(day_dir)
+    async with lock:
+        yield resolve_unique_note_path(
+            day_dir,
+            title,
+            taken=taken,
+            taken_suffix=taken_suffix,
+            disk_suffix=disk_suffix,
+            existing=existing,
+        )
 
 
 async def write_atomic(path: Path, content: str | bytes) -> None:

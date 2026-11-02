@@ -1,8 +1,11 @@
 """Filename selection must preserve notes when generated titles collide."""
 
+import asyncio
+
+import frontmatter
 import pytest
 
-from reme_daily_paper.base import resolve_unique_note_path, write_markdown
+from reme_daily_paper.base import reserve_unique_note_path, resolve_unique_note_path, write_markdown
 
 
 @pytest.mark.asyncio
@@ -87,3 +90,25 @@ def test_single_collision_keeps_existing_suffix_convention(tmp_path):
     assert selected_title == f"{title}{suffix}"
     assert destination == tmp_path / f"{selected_title}.md"
     assert not destination.exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_notes_reserve_distinct_paths(tmp_path):
+    """Concurrent runs select and publish under one directory-scoped lock."""
+
+    async def create_note(arxiv_id):
+        async with reserve_unique_note_path(
+            tmp_path,
+            "论文总结",
+            taken=set(),
+            taken_suffix=f"（{arxiv_id}）",
+            disk_suffix=f"（{arxiv_id}）",
+            existing=None,
+        ) as (title, path):
+            await write_markdown(path, f"body from {arxiv_id}", {"arxiv_id": arxiv_id, "title": title})
+        return path
+
+    paths = await asyncio.gather(create_note("paper-a"), create_note("paper-b"))
+
+    assert len(set(paths)) == 2
+    assert {frontmatter.load(path).metadata["arxiv_id"] for path in paths} == {"paper-a", "paper-b"}

@@ -11,7 +11,7 @@ from .base import (
     iter_note_metadata,
     normalize_chinese_title,
     replace_surrogates,
-    resolve_unique_note_path,
+    reserve_unique_note_path,
     strip_frontmatter,
     structured_output,
     utc_now_iso,
@@ -116,45 +116,45 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         day_dir = self.workspace_path / daily_dir / day
         existing_note = self._find_existing_note(day_dir, paper.arxiv_id)
         suffix = f"（{paper.arxiv_id}）"
-        title, note_path = resolve_unique_note_path(
+        async with reserve_unique_note_path(
             day_dir,
             title,
             taken=used_titles,
             taken_suffix=suffix,
             disk_suffix=suffix,
             existing=existing_note,
-        )
-        used_titles.add(title)
-        note_rel = note_path.relative_to(self.workspace_path).as_posix()
-        desc = replace_surrogates(output.desc.strip())
-        body = replace_surrogates(strip_frontmatter(output.body))
-        if not desc or not body:
-            raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
-        await write_markdown(
-            note_path,
-            body,
-            {
-                "name": title,
-                "title": title,
-                "description": desc,
-                "kind": "daily-paper-analysis",
-                "arxiv_id": paper.arxiv_id,
-                "source_title": paper.title,
-                "authors": paper.authors,
-                "hf_url": paper.hf_url,
-                "arxiv_url": paper.arxiv_url,
-                "download_url": paper.pdf_url,
-                "source_pdf": f"[[{pdf_rel}]]",
-                "published_at": paper.published_at,
-                "monthly_rank": paper.monthly_rank,
-                "weekly_rank": paper.weekly_rank,
-                "fused_score": round(paper.fused_score, 8),
-                "selection_reasoning": selected.reasoning,
-                "generated_at": utc_now_iso(),
-                "pdf_pages": page_count,
-                "pdf_text_truncated": truncated,
-            },
-        )
+        ) as (title, note_path):
+            used_titles.add(title)
+            note_rel = note_path.relative_to(self.workspace_path).as_posix()
+            desc = replace_surrogates(output.desc.strip())
+            body = replace_surrogates(strip_frontmatter(output.body))
+            if not desc or not body:
+                raise ValueError(f"Agent returned an empty paper note for {paper.arxiv_id}")
+            await write_markdown(
+                note_path,
+                body,
+                {
+                    "name": title,
+                    "title": title,
+                    "description": desc,
+                    "kind": "daily-paper-analysis",
+                    "arxiv_id": paper.arxiv_id,
+                    "source_title": paper.title,
+                    "authors": paper.authors,
+                    "hf_url": paper.hf_url,
+                    "arxiv_url": paper.arxiv_url,
+                    "download_url": paper.pdf_url,
+                    "source_pdf": f"[[{pdf_rel}]]",
+                    "published_at": paper.published_at,
+                    "monthly_rank": paper.monthly_rank,
+                    "weekly_rank": paper.weekly_rank,
+                    "fused_score": round(paper.fused_score, 8),
+                    "selection_reasoning": selected.reasoning,
+                    "generated_at": utc_now_iso(),
+                    "pdf_pages": page_count,
+                    "pdf_text_truncated": truncated,
+                },
+            )
         changes = list(self.context.get("changes") or [])
         if existing_note is not None and existing_note != note_path:
             existing_rel = existing_note.relative_to(self.workspace_path).as_posix()
@@ -181,6 +181,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
         )
 
     async def execute(self):
+        """Analyze selected papers and persist their notes."""
         assert self.context is not None
         self.context["changes"] = []
         if self._skip():
