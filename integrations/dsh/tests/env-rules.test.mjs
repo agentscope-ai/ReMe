@@ -65,10 +65,18 @@ test("the interpreter readiness has one definition", () => {
 test("only a loopback HTTP endpoint is a manageable local service", () => {
   assert.equal(isLocalEndpoint("http://127.0.0.1:2333"), true);
   assert.equal(isLocalEndpoint("http://localhost:2333"), true);
+  // A trailing slash is still the root of the origin.
+  assert.equal(isLocalEndpoint("http://127.0.0.1:2333/"), true);
   assert.equal(isLocalEndpoint("https://127.0.0.1:2333"), false);
   assert.equal(isLocalEndpoint("http://10.0.0.5:2333"), false);
   assert.equal(isLocalEndpoint("http://[::1]:2333"), false);
   assert.equal(isLocalEndpoint("not-a-url"), false);
+  // A path prefix is a gateway, not a service this plugin can launch: the
+  // start command configures host and port only, so the startup health check
+  // at `/reme/health_check` would 404 there. Such an endpoint is still probed
+  // as a remote one, at its own path.
+  assert.equal(isLocalEndpoint("http://127.0.0.1:2333/reme"), false);
+  assert.equal(isLocalEndpoint("http://localhost:2333/reme"), false);
 
   // The Host and the tab read the same rule, so the port they report is the
   // same one.
@@ -80,6 +88,14 @@ test("only a loopback HTTP endpoint is a manageable local service", () => {
     host: "127.0.0.1",
     port: 2333,
   });
+  assert.deepEqual(parseLocalEndpoint("http://127.0.0.1:2334/"), {
+    host: "127.0.0.1",
+    port: 2334,
+  });
+  assert.throws(
+    () => parseLocalEndpoint("http://127.0.0.1:2333/reme"),
+    /root-path/,
+  );
 });
 
 test("an emptied secret never reaches the .env file", (t) => {

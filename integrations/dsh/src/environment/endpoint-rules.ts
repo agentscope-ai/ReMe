@@ -21,7 +21,9 @@ export interface LocalEndpoint {
  *
  * Throws when the endpoint is not one, so the caller can report why. An
  * https loopback URL is refused: the service this plugin launches is plain
- * HTTP, so an https URL could never become healthy.
+ * HTTP, so an https URL could never become healthy. A loopback URL with a path
+ * prefix is refused too: the launch only sets host and port, so the service
+ * answers at the origin root and the prefixed health check could never pass.
  */
 export function parseLocalEndpoint(endpoint: string): LocalEndpoint {
   let url: URL;
@@ -43,6 +45,15 @@ export function parseLocalEndpoint(endpoint: string): LocalEndpoint {
   const port = Number(url.port || "80");
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new TypeError("Invalid ReMe endpoint port");
+  // The launch configures `service.host` and `service.port` only, so the
+  // service always answers at the origin root. A path prefix (a gateway that
+  // mounts ReMe under, say, `/reme`) would make the startup health check at
+  // `/reme/health_check` 404, so such an endpoint is not launchable here. It
+  // stays a remote endpoint and is health-checked at its own path.
+  if (url.pathname !== "/" && url.pathname !== "")
+    throw new TypeError(
+      "Local service management requires a root-path endpoint",
+    );
   return { host: "127.0.0.1", port };
 }
 

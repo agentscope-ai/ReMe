@@ -77,6 +77,11 @@ test("accepts only loopback HTTP endpoints and validates the port", () => {
     host: "127.0.0.1",
     port: 2333,
   });
+  // A trailing slash is the origin root and stays launchable.
+  assert.deepEqual(parseLocalEndpoint("http://127.0.0.1:2334/"), {
+    host: "127.0.0.1",
+    port: 2334,
+  });
   assert.throws(() => parseLocalEndpoint("http://10.0.0.5:2333"));
   assert.throws(() => parseLocalEndpoint("not-a-url"));
   assert.throws(() => parseLocalEndpoint("http://127.0.0.1:0"));
@@ -89,6 +94,17 @@ test("accepts only loopback HTTP endpoints and validates the port", () => {
   // The launch binds service.host=127.0.0.1, so an IPv6 loopback endpoint
   // would start a service that can never answer it.
   assert.throws(() => parseLocalEndpoint("http://[::1]:2333"), /IPv4/);
+  // The launch configures host and port only; a path prefix (a gateway that
+  // mounts ReMe under, say, `/reme`) cannot be served by it, so the startup
+  // health check at `/reme/health_check` would 404.
+  assert.throws(
+    () => parseLocalEndpoint("http://127.0.0.1:2334/reme"),
+    /root-path/,
+  );
+  assert.throws(
+    () => parseLocalEndpoint("http://localhost:2333/reme"),
+    /root-path/,
+  );
 });
 
 test("builds reme start with the workspace cwd contract", () => {
