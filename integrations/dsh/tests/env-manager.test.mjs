@@ -80,6 +80,41 @@ test("serializes concurrent starts into one service launch", async (t) => {
   assert.equal(second.alreadyRunning, true);
 });
 
+test("auto-start only attempts a launch for a local root-path endpoint", async (t) => {
+  const { manager, calls, directory } = managerIn(t);
+  const workspace = join(directory, "workspace");
+  const statuses = [];
+  manager.serviceStatus = async (endpoint) => {
+    statuses.push(endpoint);
+    return {
+      phase: "stopped",
+      managed: false,
+      endpoint,
+      logPath: join(directory, "service.log"),
+    };
+  };
+
+  // A gateway prefix cannot be launched, so auto-start does not even probe it
+  // for a start: it could only fail after stopping a same-origin service, and
+  // would report a failure on every DSH start.
+  await manager.autoStart({
+    endpoint: "http://127.0.0.1:2334/reme",
+    pythonPath: "D:\\env\\python.exe",
+    workspaceDir: workspace,
+  });
+  assert.deepEqual(statuses, []);
+  assert.equal(calls.spawn.length, 0);
+
+  // A root-path endpoint is auto-started as before.
+  await manager.autoStart({
+    endpoint: "http://127.0.0.1:2334",
+    pythonPath: "D:\\env\\python.exe",
+    workspaceDir: workspace,
+  });
+  assert.ok(statuses.length > 0);
+  assert.equal(calls.spawn.length, 1);
+});
+
 test("a failed spawn can be retried immediately", async (t) => {
   const { manager, calls, directory, io } = managerIn(t);
   io.spawnService = async (options) => {

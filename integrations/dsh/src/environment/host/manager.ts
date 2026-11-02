@@ -316,6 +316,17 @@ export class ReMeEnvManager {
     workspaceDir: string;
     authToken?: string;
   }): Promise<void> {
+    // Only a root-path loopback endpoint can become a local service. A
+    // configured gateway prefix (or a remote URL) is probed elsewhere, and a
+    // start could at best fail after stopping a same-origin service: skip it
+    // instead of reporting a failure on every DSH start.
+    let launchable = false;
+    try {
+      launchable = this.launchable(this.endpoint(options.endpoint));
+    } catch {
+      launchable = false;
+    }
+    if (!launchable) return;
     const status = await this.serviceStatus(
       options.endpoint,
       options.authToken ?? "",
