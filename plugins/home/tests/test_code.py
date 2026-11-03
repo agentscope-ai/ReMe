@@ -38,7 +38,7 @@ async def run(app, job, **kwargs):
     return response.answer
 
 
-async def create(app, name="candidate"):
+async def create(app, name="candidate-branch"):
     return await run(app, "home_create_candidate_branch", branch_name=name)
 
 
@@ -65,6 +65,9 @@ async def test_branch_commit_diff_and_immutable_read(prepared):
     assert status["changes"] == [{"status": " M", "path": "plugins/beam/src/reme_beam/__init__.py"}]
     assert not status["clean"]
     assert "+dirty = 3" in (await run(app, "home_code_diff"))["content"]
+    assert "+dirty = 3" in (await run(app, "home_code_diff", base_revision="init"))["content"]
+    rejected = await app.run_job("home_code_diff", revision=result["commit_sha"])
+    assert not rejected.success and "revision requires base_revision" in str(rejected.answer)
     read = await run(
         app,
         "home_read_code_file",
@@ -92,6 +95,24 @@ async def test_host_pinned_job_tool_and_schema(prepared):
     with pytest.raises(ValueError, match="injected"):
         await tool(path="plugins/beam/src/reme_beam/__init__.py", revision="HEAD")
     assert all(model.model_json_schema()["additionalProperties"] is False for model in ARGUMENTS.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation,job_name",
+    [
+        ("create_branch", "home_create_candidate_branch"),
+        ("switch_branch", "home_switch_candidate_branch"),
+        ("merge_branch", "home_merge_candidate_branch"),
+        ("diff", "home_code_diff"),
+    ],
+)
+async def test_code_tool_parameter_descriptions(app, operation, job_name):
+    tool = AsAgentWrapper._make_tool(app.context.jobs[job_name])
+    properties = ARGUMENTS[operation].model_json_schema()["properties"]
+    for name, field in properties.items():
+        assert field["description"]
+        assert tool.input_schema["properties"][name]["description"] == field["description"]
 
 
 @pytest.mark.asyncio

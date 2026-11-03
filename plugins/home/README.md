@@ -334,6 +334,9 @@ Home registers the `home.code` Component and ten ordinary Step-backed Jobs. They
 operate only on the prepared `home/code/repo`, sharing the preparation/evaluation
 process lock. Enable Home and prepare the workspace before calling them.
 
+Branch names must be valid local Git branch names of 1–100 characters and serve as
+single evaluation-directory names, so `/` and `\` are forbidden.
+
 | Job | Inputs and behavior |
 | --- | --- |
 | `home_code_status` | Current branch, full commit SHA, exact changed paths and pending merge state. |

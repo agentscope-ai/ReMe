@@ -426,6 +426,8 @@ application_defaults:
         additionalProperties: false
         properties:
           branch_name:
+            description: >-
+              Valid local Git branch name used as a single evaluation-directory name; '/' and '\' are forbidden.
             maxLength: 100
             minLength: 1
             type: string
@@ -442,6 +444,8 @@ application_defaults:
         additionalProperties: false
         properties:
           branch_name:
+            description: >-
+              Valid local Git branch name used as a single evaluation-directory name; '/' and '\' are forbidden.
             maxLength: 100
             minLength: 1
             type: string
@@ -458,6 +462,8 @@ application_defaults:
         additionalProperties: false
         properties:
           branch_name:
+            description: >-
+              Valid local Git branch name used as a single evaluation-directory name; '/' and '\' are forbidden.
             maxLength: 100
             minLength: 1
             type: string
@@ -491,11 +497,13 @@ application_defaults:
         additionalProperties: false
         properties:
           base_revision:
+            description: Base commit; defaults to HEAD. Without revision, compare against the tracked working tree.
             anyOf:
             - type: string
             - type: 'null'
             default: null
           revision:
+            description: Target commit; requires non-null base_revision. Null or omitted means the tracked working tree.
             anyOf:
             - type: string
             - type: 'null'

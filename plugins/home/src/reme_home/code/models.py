@@ -12,7 +12,13 @@ class NoArguments(SpecModel):
 class BranchArguments(SpecModel):
     """One existing or new local candidate branch."""
 
-    branch_name: str = Field(min_length=1, max_length=100)
+    branch_name: str = Field(
+        min_length=1,
+        max_length=100,
+        description=(
+            "Valid local Git branch name used as a single evaluation-directory name; '/' and '\\' are forbidden."
+        ),
+    )
 
 
 class CommitArguments(SpecModel):
@@ -24,8 +30,14 @@ class CommitArguments(SpecModel):
 class DiffArguments(SpecModel):
     """Omit revisions for tracked working changes against HEAD."""
 
-    base_revision: str | None = None
-    revision: str | None = None
+    base_revision: str | None = Field(
+        default=None,
+        description="Base commit; defaults to HEAD. Without revision, compare against the tracked working tree.",
+    )
+    revision: str | None = Field(
+        default=None,
+        description="Target commit; requires non-null base_revision. Null or omitted means the tracked working tree.",
+    )
 
 
 class TreeArguments(SpecModel):
