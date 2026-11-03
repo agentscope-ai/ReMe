@@ -167,6 +167,9 @@ def update_sampling_state(home: Path, run: Path, *, _state: dict | None = None) 
     state = read_state(home) if _state is None else _state
     key = plan["validation_key"]
     if key in state["processed_validations"]:
+        # A missing cache was reconstructed above, including this completion.
+        if _state is None and not contained(home, "sampling/state.json").exists():
+            write_json(contained(home, "sampling/state.json"), state)
         return
     round_id = state["successful_round"] + 1
     cases, queries = state["cases"], state["queries"]
@@ -271,11 +274,11 @@ class HomeEvaluationHistory(BaseComponent):
         super().__init__(**kwargs)
         self.workspace = self.bind("default", HomeWorkspace, optional=False)
 
-    def _history_lock(self):
+    def _history_lock(self, *, wait: bool = False):
         if not self.is_started:
             raise RuntimeError("Start the Home application before reading evaluation history")
         _validate_directory(self.workspace_path.resolve(), self.workspace.state_path)
-        return _initialization_lock(self.workspace.state_path / "workspace.lock")
+        return _initialization_lock(self.workspace.state_path / "workspace.lock", wait=wait)
 
     def _run_path(self, run: Path) -> Path:
         home = self.workspace.home_path
@@ -316,6 +319,18 @@ class HomeEvaluationHistory(BaseComponent):
                 return None
             update_sampling_state(home, run)
             return record
+
+    def publish_completed(self, run: Path, manifest: dict, summary: dict) -> None:
+        """Invalidate observations before publishing the durable completion boundary.
+
+        A process exit before registration leaves a missing cache, so the next
+        reader reconstructs all observations from source artifacts.
+        """
+        with self._history_lock(wait=True):
+            run = self._run_path(run)
+            contained(self.workspace.home_path, "sampling/state.json").unlink(missing_ok=True)
+            write_json(run / "manifest.json", manifest)
+            write_json(run / "summary.json", summary, compact_leaf_containers=True)
 
     def list_results(self) -> list[EvaluationRecord]:
         """Return successful results in chronological order, including low-scoring candidates."""

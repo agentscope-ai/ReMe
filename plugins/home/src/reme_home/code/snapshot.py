@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from ..preparation.code import git, git_bytes
+from ..preparation.code import git, git_bytes, git_tree
 from ..preparation.spec import relative_path
 from .repository import MAX_OUTPUT, resolve_revision
 
@@ -25,20 +25,13 @@ def code_path(path: str) -> str:
 
 def tree(repository: Path, revision: str, path: str | None = None) -> list[tuple[str, str]]:
     """Read regular-file object IDs with NUL-delimited names and no archive filters."""
-    # ls-tree does not support pathspec magic. Filter exact names/prefixes ourselves.
-    entries = git(repository, "ls-tree", "-r", "-z", "--full-tree", revision, strip=False)
     prefix = code_path(path) if path is not None else None
-    result = []
-    for entry in filter(None, entries.split("\0")):
-        header, name = entry.split("\t", 1)
-        if prefix is not None and name != prefix and not name.startswith(prefix + "/"):
-            continue
-        mode, kind, oid = header.split()
-        code_path(name)
-        if mode not in {"100644", "100755"} or kind != "blob":
-            raise ValueError(f"Code snapshot must contain regular files only: {name}")
-        result.append((name, oid))
-    return result
+
+    def selected(name):
+        # Browse literal names/prefixes before validating selected paths.
+        return prefix is None or name == prefix or name.startswith(prefix + "/")
+
+    return [(name.as_posix(), oid) for name, _mode, oid in git_tree(repository, revision, path_filter=selected)]
 
 
 def blob(repository: Path, oid: str) -> bytes:

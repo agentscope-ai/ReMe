@@ -1,8 +1,10 @@
 """Initialize Home's layout inside an existing ReMe workspace."""
 
 import json
+import errno
 import os
 import tempfile
+import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,8 +50,8 @@ def _validate_directory(root: Path, path: Path) -> None:
 
 
 @contextmanager
-def _initialization_lock(path: Path):
-    """Hold a process lock; the persistent lock file is not an ownership marker."""
+def _initialization_lock(path: Path, *, wait: bool = False):
+    """Hold a process lock, optionally waiting for contention in an owned worker thread."""
     if path.is_symlink() or (path.exists() and not path.is_file()):
         raise ValueError(f"Invalid Home workspace lock: {path}")
     with path.open("a+b") as stream:
@@ -77,10 +79,15 @@ def _initialization_lock(path: Path):
             def release():
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
-        try:
-            acquire()
-        except OSError as exc:
-            raise RuntimeError(f"Home workspace initialization is already in progress: {path}") from exc
+        while True:
+            try:
+                acquire()
+                break
+            except OSError as exc:
+                if wait and exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    time.sleep(0.05)
+                    continue
+                raise RuntimeError(f"Home workspace initialization is already in progress: {path}") from exc
         try:
             yield
         finally:

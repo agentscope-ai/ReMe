@@ -54,13 +54,26 @@ def runtime_roots(plugins: list[str]) -> list[Path]:
     ]
 
 
-def git_tree(repository: Path, revision: str, roots: list[Path] | None = None) -> list[tuple[Path, str, str]]:
-    """Select regular Git files using exact NUL-delimited paths, retaining modes and object IDs."""
+def git_tree(
+    repository: Path,
+    revision: str,
+    roots: list[Path] | None = None,
+    *,
+    path_filter: Callable[[str], bool] | None = None,
+) -> list[tuple[Path, str, str]]:
+    """Select regular Git files with exact NUL-delimited names, modes and object IDs.
+
+    Browsing may filter raw names before validation; export roots retain strict
+    path validation across the full tree.
+    """
     entries = []
     raw_tree = git_bytes(repository, "ls-tree", "-r", "-z", "--full-tree", revision)
     for entry in filter(None, raw_tree.split(b"\0")):
         header, raw_name = entry.split(b"\t", 1)
-        path = Path(relative_path(raw_name.decode("utf-8")))
+        name = raw_name.decode("utf-8")
+        if path_filter is not None and not path_filter(name):
+            continue
+        path = Path(relative_path(name))
         if roots is not None and not any(path.is_relative_to(root) for root in roots):
             continue
         mode, kind, oid = header.decode().split()

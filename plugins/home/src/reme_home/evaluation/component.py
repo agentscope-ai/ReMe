@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
 
 from reme.components.base_component import BaseComponent
+from reme.utils.async_utils import finish_cleanup
 
 from ..preparation.data.models import utc_now
 from .adapters import accepts_build, build_jobs, evaluation_query
@@ -36,12 +37,7 @@ from .reuse import automatic_reuse, construction_fingerprints, reuse_context
 
 async def blocking(function, *args, **kwargs):
     """Await owned filesystem work even when the calling job is cancelled."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        await asyncio.gather(task, return_exceptions=True)
-        raise
+    return await finish_cleanup(asyncio.to_thread(function, *args, **kwargs))
 
 
 class HomeEvaluation(BaseComponent):
@@ -81,7 +77,10 @@ class HomeEvaluation(BaseComponent):
             return await asyncio.shield(task)
         except asyncio.CancelledError:
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            try:
+                await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+            except asyncio.CancelledError:
+                pass
             raise
         finally:
             self._pending.discard(task)
@@ -408,10 +407,16 @@ class HomeEvaluation(BaseComponent):
                 success=summary["case_status_counts"]["infra_error"] == 0,
                 finished_at=utc_now().isoformat(),
             )
-            write_json(run / "manifest.json", manifest)
-            write_json(run / "summary.json", summary, compact_leaf_containers=True)
             if not spec.debug and spec.record_history:
-                await blocking(self._finish_sampling, run)
+                await blocking(self.history.publish_completed, run, manifest, summary)
+                try:
+                    await blocking(self._finish_sampling, run)
+                except Exception:
+                    await blocking(self.history.invalidate)
+                    self.logger.exception("Sampling registration failed; completed evaluation retained")
+            else:
+                write_json(run / "manifest.json", manifest)
+                write_json(run / "summary.json", summary, compact_leaf_containers=True)
             return {
                 "result_dir": str(run),
                 "commit_sha": commit,
@@ -423,11 +428,10 @@ class HomeEvaluation(BaseComponent):
                 **{key: value for key, value in summary.items() if key != "cases"},
             }
         except BaseException as error:
-            # A full summary is the durable completion boundary. Cancellation
-            # during drained history bookkeeping cancels the caller, not the
-            # already completed evaluation or its successful history entry.
-            registration_failed = run is not None and manifest.get("status") == "completed"
-            if isinstance(error, asyncio.CancelledError) and registration_failed:
+            # A full summary is the durable completion boundary. Bookkeeping
+            # errors or cancellation must not demote an already completed run.
+            completed = run is not None and manifest.get("status") == "completed" and (run / "summary.json").is_file()
+            if completed:
                 raise
             if run is not None:
                 manifest.update(
@@ -451,11 +455,6 @@ class HomeEvaluation(BaseComponent):
                     scoring_required=not spec.debug,
                 )
                 write_json(run / "partial_summary.json", partial, compact_leaf_containers=True)
-                if registration_failed and not spec.debug and spec.record_history:
-                    try:
-                        await blocking(self.history.invalidate)
-                    except Exception as cache_error:
-                        error.add_note(f"History cache invalidation failed: {cache_error}")
             if isinstance(error, asyncio.CancelledError) or run is None:
                 raise
             raise RuntimeError(f"Evaluation failed; artifacts: {run}: {error}") from error

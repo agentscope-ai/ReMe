@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from ..evaluation.artifacts import contained, read_json
-from ..preparation.code import git
+from ..preparation.code import git, git_tree
 from ..preparation.spec import relative_path
 
 INITIAL_BRANCH = "init"
@@ -135,11 +135,7 @@ def validate_tree(repository: Path, record: dict, revision: str) -> None:
         path = Path(relative_path(name))
         if ".git" in path.parts or not any(path.is_relative_to(root) for root in roots):
             raise ValueError(f"Change outside candidate_paths: {name}")
-    for entry in filter(None, git(repository, "ls-tree", "-r", "-z", revision, strip=False).split("\0")):
-        header, name = entry.split("\t", 1)
-        mode, kind, _oid = header.split()
-        if mode not in {"100644", "100755"} or kind != "blob" or ".git" in Path(relative_path(name)).parts:
-            raise ValueError(f"Candidate must contain regular files only: {name}")
+    git_tree(repository, revision)
 
 
 def merge_branch(repository: Path, record: dict, *, branch_name: str) -> dict:

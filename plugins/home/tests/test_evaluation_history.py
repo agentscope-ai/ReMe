@@ -3,7 +3,13 @@
 # pylint: disable=missing-function-docstring,redefined-outer-name,unused-argument,protected-access
 
 import json
+import asyncio
+import os
 from pathlib import Path
+import subprocess
+import sys
+from threading import Event
+from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.message import ToolResultState
@@ -37,6 +43,59 @@ def history(app):
 
 def manifest(response):
     return json.loads((Path(response.answer["result_dir"]) / "manifest.json").read_text())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_completion_waits_for_concurrent_code_browsing(app, prepared, monkeypatch, cancelled):
+    from reme_home.code.component import OPERATIONS
+
+    manager = history(app)
+    publishing, browsing, release = Event(), Event(), Event()
+    original_publish, original_status = manager.publish_completed, OPERATIONS["status"]
+
+    def publish(*args):
+        publishing.set()
+        assert browsing.wait(5)
+        return original_publish(*args)
+
+    def status(*args, **kwargs):
+        browsing.set()  # HomeCode owns workspace.lock before dispatching here.
+        assert release.wait(5)
+        return original_status(*args, **kwargs)
+
+    monkeypatch.setattr(manager, "publish_completed", publish)
+    monkeypatch.setitem(OPERATIONS, "status", status)
+    evaluation = asyncio.create_task(app.run_job("home_evaluate"))
+    code_status = None
+    try:
+        assert await asyncio.to_thread(publishing.wait, 5)
+        code_status = asyncio.create_task(app.run_job("home_code_status"))
+        assert await asyncio.to_thread(browsing.wait, 5)
+        await asyncio.sleep(0.1)
+        assert not evaluation.done()
+        if cancelled:
+            evaluation.cancel("original cancellation")
+            await asyncio.sleep(0)
+            evaluation.cancel("repeated cancellation")
+            await asyncio.sleep(0)
+            assert not evaluation.done()
+        release.set()
+        if cancelled:
+            with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+                await evaluation
+        else:
+            response = await evaluation
+            assert response.success, response.answer
+            assert manifest(response)["status"] == "completed"
+        assert (await code_status).success
+        assert len(manager.list_results()) == 1
+        state = read_state(prepared)
+        manager.rebuild()
+        assert read_state(prepared) == state and state["successful_round"] == 1
+    finally:
+        release.set()
+        await asyncio.gather(evaluation, *([code_status] if code_status is not None else []), return_exceptions=True)
 
 
 @pytest.mark.asyncio
@@ -423,9 +482,6 @@ async def test_legacy_cache_rebuild_and_explicit_null_query_budget(app, prepared
 
 @pytest.mark.asyncio
 async def test_cancellation_after_durable_completion_keeps_history_consistent(app, prepared, monkeypatch):
-    import asyncio
-    from threading import Event
-
     manager = history(app)
     original = manager.record
     entered, release = Event(), Event()
@@ -451,23 +507,183 @@ async def test_cancellation_after_durable_completion_keeps_history_consistent(ap
 
 
 @pytest.mark.asyncio
-async def test_registration_failure_invalidates_only_caches(app, prepared, monkeypatch):
+@pytest.mark.parametrize("after_record", [False, True])
+async def test_registration_failure_invalidates_only_caches(app, prepared, monkeypatch, after_record):
     manager = history(app)
     original = manager.record
 
     def fail(*args):
+        if after_record:
+            original(*args)
         raise OSError("sampling observations could not be saved")
 
     monkeypatch.setattr(manager, "record", fail)
     response = await app.run_job("home_evaluate")
-    assert not response.success
+    assert response.success, response.answer
     runs = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
     assert len(runs) == 1
     run = runs[0].parent
-    failed = json.loads(runs[0].read_text())
-    assert failed["status"] == "failed" and failed["success"] is False
+    completed = json.loads(runs[0].read_text())
+    assert completed["status"] == "completed" and completed["success"] is True
     assert (run / "summary.json").is_file() and (run / "cases/1/queries/result.json").is_file()
     assert not (prepared / "sampling/state.json").exists()
-    assert read_state(prepared)["round"] == 1 and read_state(prepared)["successful_round"] == 0
+    assert read_state(prepared)["round"] == 1 and read_state(prepared)["successful_round"] == 1
     monkeypatch.setattr(manager, "record", original)
-    assert manager.list_results() == [] and not manager.sampling_state()["cases"]
+    assert len(manager.list_results()) == 1
+    observations = manager.sampling_state()
+    repeat = await app.run_job("home_evaluate")
+    assert not repeat.success and repeat.answer["error_code"] == "UNCHANGED_CANDIDATE"
+    assert manager.rebuild() == manager.list_results()
+    assert manager.sampling_state() == observations
+    commit_candidate(prepared)
+    assert (await app.run_job("home_evaluate")).success
+    state = read_state(prepared)
+    manager.rebuild()
+    assert read_state(prepared) == state
+    assert state["successful_round"] == 2
+
+
+@pytest.mark.asyncio
+async def test_process_exit_after_completion_recovers_before_next_evaluation(app, prepared):
+    from reme.application import Application
+
+    config = app.config.model_dump(mode="json")
+    await app.close()
+    script = """
+import asyncio
+from importlib.metadata import EntryPoint
+import json
+import os
+import sys
+from unittest.mock import AsyncMock
+sys.path[:] = json.loads(sys.argv[1])
+from reme.application import Application
+from reme_home.evaluation import component
+from test_evaluation import FakeFactory
+import reme.plugin
+entries = {name: EntryPoint(name=name, value=value, group="reme.plugins") for name, value in
+           [("home", "reme_home"), ("beam-judge", "judge_beam")]}
+reme.plugin.find_entry_points = lambda group, name: [entries[name]]
+component.DockerReMeSandboxFactory = FakeFactory
+async def run():
+    app = Application(**json.loads(sys.argv[2]))
+    await app.start()
+    app.context.components["agent_wrapper"]["judge"].reply = AsyncMock(
+        return_value={"result": '{"score": 0.5}'})
+    app.context.components["home.evaluation"]["default"]._finish_sampling = lambda run: os._exit(23)
+    await app.run_job("home_evaluate")
+asyncio.run(run())
+"""
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [sys.executable, "-c", script, json.dumps(sys.path), json.dumps(config)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=os.environ.copy(),
+    )
+    assert result.returncode == 23, result.stderr
+    assert not (prepared / "sampling/state.json").exists()
+    restarted = Application(**config)
+    await restarted.start()
+    try:
+        judge = restarted.context.components["agent_wrapper"]["judge"]
+        judge.reply = AsyncMock(return_value={"result": '{"score": 0.5}'})
+        manager = history(restarted)
+        assert len(manager.list_results()) == 1
+        assert read_state(prepared)["successful_round"] == 1
+        commit_candidate(prepared)
+        following = await restarted.run_job("home_evaluate")
+        assert following.success, following.answer
+        assert len(manager.list_results()) == 2
+        state = read_state(prepared)
+        assert state["successful_round"] == 2
+        manager.rebuild()
+        assert read_state(prepared) == state
+    finally:
+        await restarted.close()
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancellation_drains_preparation_before_application_close(app, prepared, monkeypatch):
+    evaluator = app.context.components["home.evaluation"]["default"]
+    entered, release, finished = Event(), Event(), Event()
+    output = prepared / "thread-finished.txt"
+
+    def prepare(*args):
+        entered.set()
+        assert release.wait(5)
+        output.write_text("finished")
+        finished.set()
+
+    monkeypatch.setattr(evaluator, "_prepare", prepare)
+    task = asyncio.create_task(app.run_job("home_evaluate"))
+    close = None
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel("first cancellation")
+        await asyncio.sleep(0)
+        task.cancel("second cancellation")
+        await asyncio.sleep(0)
+        close = asyncio.create_task(app.close())
+        await asyncio.sleep(0.05)
+        assert evaluator._pending and not close.done() and not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+            await task
+        await close
+        assert finished.is_set() and output.read_text() == "finished"
+        assert not evaluator._pending
+    finally:
+        release.set()
+        await asyncio.gather(task, *([close] if close is not None else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fail", [False, True])
+async def test_blocking_preserves_kwargs_and_thread_errors(fail):
+    from reme_home.evaluation.component import blocking
+
+    error = OSError("thread operation failed")
+
+    def operation(value, *, suffix):
+        if fail:
+            raise error
+        return value + suffix
+
+    if fail:
+        with pytest.raises(OSError) as raised:
+            await blocking(operation, "value", suffix="-suffix")
+        assert raised.value is error
+    else:
+        assert await blocking(operation, "value", suffix="-suffix") == "value-suffix"
+
+
+@pytest.mark.asyncio
+async def test_blocking_drains_thread_through_repeated_cancellation(tmp_path):
+    from reme_home.evaluation.component import blocking
+
+    entered, release, finished = Event(), Event(), Event()
+    output = tmp_path / "thread-finished.txt"
+
+    def write(*, content):
+        entered.set()
+        assert release.wait(5)
+        output.write_text(content)
+        finished.set()
+
+    task = asyncio.create_task(blocking(write, content="finished"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        task.cancel("first cancellation")
+        await asyncio.sleep(0)
+        task.cancel("second cancellation")
+        await asyncio.sleep(0)
+        assert not task.done() and not finished.is_set()
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+            await task
+        assert finished.is_set() and output.read_text() == "finished"
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
