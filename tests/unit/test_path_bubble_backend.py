@@ -280,12 +280,13 @@ async def test_python_execute_defaults_to_read_only_sandbox(tmp_path, monkeypatc
     """Default Python execution has no host write grants and uses the sandbox."""
     seen = {}
 
-    async def fake_exec(self, command, *, cwd=None, timeout=None, raise_errors=False):
+    async def fake_run_job(self, command, cwd, *, data, timeout, raise_errors=False):
+        assert data is None
         assert raise_errors is True
         seen.update(command=command, cwd=cwd, timeout=timeout, backend=self)
         return ExecResult(exit_code=0, stdout=b"ok\n", stderr=b"")
 
-    monkeypatch.setattr(PathBubbleBackend, "exec_shell", fake_exec)
+    monkeypatch.setattr(PathBubbleBackend, "_run_job", fake_run_job)
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     response = await step(code="print('ok')", **memory_options)
 

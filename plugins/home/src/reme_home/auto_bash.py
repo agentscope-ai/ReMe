@@ -177,7 +177,7 @@ class AutoBash(Bash):
             kwargs["cwd"] = workspace
             kwargs["backend"] = create_file_sandbox_backend(
                 cwd=workspace,
-                read_only_paths=[str(workspace)],
+                read_only_paths=[],
                 writable_paths=[],
             )
         super().__init__(**kwargs)

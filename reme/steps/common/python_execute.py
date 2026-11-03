@@ -36,7 +36,6 @@ class PythonExecuteStep(BaseStep):
             backend = file_sandbox_for_step(self)
             result = await backend.exec_shell(
                 [sys.executable, "-c", code],
-                cwd=str(self.workspace_path.resolve()),
                 timeout=timeout,
                 raise_errors=True,
             )
@@ -46,7 +45,6 @@ class PythonExecuteStep(BaseStep):
             self.context.response.success = False
             self.context.response.answer = str(exc)
             return self.context.response
-        timed_out = timed_out or (result.exit_code == -1 and result.stderr == b"timed out")
         stdout = result.stdout.decode(errors="replace")
         stderr = result.stderr.decode(errors="replace")
         if timed_out:

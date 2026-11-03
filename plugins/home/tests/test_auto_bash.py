@@ -19,6 +19,7 @@ from reme_home.auto_bash import AutoBash, AutoBashStep
 from reme.utils.local_backend import LocalProcessBackend
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
+from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
 from reme.components.application_context import ApplicationContext
 from reme.config.config_parser import _load_config
 from reme.enumeration import ComponentEnum
@@ -49,14 +50,22 @@ def isolated_git_config(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_direct_auto_bash_defaults_to_read_only_sandbox(tmp_path, monkeypatch):
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+async def test_direct_auto_bash_defaults_to_read_only_sandbox(tmp_path, monkeypatch, platform):
     """Direct tool construction has the same default grants as the job."""
+    monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", platform)
     tool = AutoBash(cwd=tmp_path, is_read_only=False)
     backend = tool._backend  # pylint: disable=protected-access
-    assert isinstance(backend, PathBubbleBackend)
-    argv = backend._bwrap_argv(["/bin/sh", "-c", "echo ok"], str(tmp_path))  # pylint: disable=protected-access
-    assert argv[argv.index(str(tmp_path)) - 1] == "--ro-bind"
-    assert "--bind" not in argv
+    if platform == "linux":
+        assert isinstance(backend, PathBubbleBackend)
+        argv = backend._bwrap_argv(["/bin/sh", "-c", "echo ok"], str(tmp_path))  # pylint: disable=protected-access
+        assert argv[argv.index(str(tmp_path)) - 1] == "--ro-bind"
+        assert "--bind" not in argv
+    else:
+        assert isinstance(backend, PathSeatbeltBackend)
+        profile = backend._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+        assert f'(allow file-read* (subpath "{tmp_path}"))' in profile
+        assert f'(allow file-write* (subpath "{tmp_path}"))' not in profile
 
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "unsupported")
     with pytest.raises(RuntimeError, match="No file sandbox backend"):
@@ -309,7 +318,6 @@ async def test_step_configuration_can_disable_read_only(tmp_path):
     step = AutoBashStep(
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
         is_read_only=False,
-        read_only_paths=[],
         writable_paths=[str(tmp_path)],
     )
 

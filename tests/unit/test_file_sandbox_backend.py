@@ -197,20 +197,63 @@ async def test_python_job_selects_seatbelt_on_macos(tmp_path, monkeypatch):
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "darwin")
     seen = {}
 
-    async def fake_exec(self, command, *, cwd=None, timeout=None, raise_errors=False):
+    async def fake_run_job(self, command, cwd, *, data, timeout, raise_errors=False):
+        assert data is None
         assert raise_errors is True
         seen.update(backend=self, command=command, cwd=cwd, timeout=timeout)
         return ExecResult(exit_code=0, stdout=b"ok\n", stderr=b"")
 
-    monkeypatch.setattr(PathSeatbeltBackend, "exec_shell", fake_exec)
+    monkeypatch.setattr(PathSeatbeltBackend, "_run_job", fake_run_job)
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     response = await step(code="print('ok')")
     assert response.success is True
     assert isinstance(seen["backend"], PathSeatbeltBackend)
     assert seen["command"] == [sys.executable, "-c", "print('ok')"]
+    assert seen["cwd"] == str(tmp_path)
+    assert seen["timeout"] == 60
     profile = seen["backend"]._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
     assert f'(allow file-read* (subpath "{tmp_path}"))' in profile
     assert f'(allow file-write* (subpath "{tmp_path}"))' not in profile
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize("grant", ["default", "workspace", "output"])
+async def test_python_workspace_grants(tmp_path, monkeypatch, platform, grant):
+    """Backend completion keeps defaults read-only and accepts explicit write grants."""
+    monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", platform)
+    output = tmp_path / "output"
+    output.mkdir()
+    writable = [] if grant == "default" else [str(tmp_path if grant == "workspace" else output)]
+    backend_class = PathBubbleBackend if platform == "linux" else PathSeatbeltBackend
+
+    async def inspect_exec(backend, _command, **kwargs):
+        assert kwargs["raise_errors"] is True
+        assert backend._writable_paths == writable  # pylint: disable=protected-access
+        read_only = backend._read_only_paths  # pylint: disable=protected-access
+        assert (str(tmp_path) in read_only) is (grant != "workspace")
+        return ExecResult(exit_code=0, stdout=b"ok\n", stderr=b"")
+
+    monkeypatch.setattr(backend_class, "exec_shell", inspect_exec)
+    step = PythonExecuteStep(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        **({"writable_paths": writable} if writable else {}),
+    )
+    response = await step(code="print('ok')")
+    assert response.success is True
+    assert response.answer == "ok\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+@pytest.mark.parametrize("name", ["read_only_paths", "writable_paths"])
+async def test_python_rejects_request_path_grants(tmp_path, monkeypatch, platform, name):
+    """Neither platform accepts request-level path authorization."""
+    monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", platform)
+    step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    response = await step(code="print('blocked')", **{name: [str(tmp_path)]})
+    assert response.success is False
+    assert response.answer == f"{name} must be configured on the Step, not supplied by the caller"
 
 
 @pytest.mark.asyncio
