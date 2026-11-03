@@ -6,13 +6,13 @@ import { safeError } from "../../endpoint.js";
 import { detectPythonEnvs } from "./detect.js";
 import { envUpdates, storedState } from "../env-fields.js";
 import { canHostService } from "../dependency.js";
+import { isLocalEndpoint } from "../endpoint-rules.js";
 import { createInstallSpawner, InstallJobs, tailLog } from "./install.js";
 import { checkReme, MINIMUM_REME, remeVersionAtLeast } from "./reme.js";
 import { createNodeRunner } from "./runner.js";
 import {
   createServiceIO,
   forgetService,
-  parseLocalEndpoint,
   processAlive,
   readServiceState,
   removeServiceState,
@@ -26,6 +26,7 @@ import {
   writeServiceState,
 } from "./service.js";
 import type { PersistedService, ServiceIO } from "./service.js";
+import type { ServiceOwnership } from "./service.js";
 import {
   envSummary,
   mergeEnvFile,
@@ -328,7 +329,7 @@ export class ReMeEnvManager {
     // instead of reporting a failure on every DSH start.
     let launchable = false;
     try {
-      launchable = this.launchable(this.endpoint(options.endpoint));
+      launchable = isLocalEndpoint(this.endpoint(options.endpoint));
     } catch {
       launchable = false;
     }
@@ -427,57 +428,52 @@ export class ReMeEnvManager {
   }
 
   /**
-   * Whether a service launch is possible for this endpoint at all: only a
-   * root-path loopback endpoint can be started, so a prefixed or remote one is
-   * already doomed in `buildStartCommand`.
+   * The recorded service and what can be proven about it.
+   *
+   * The record is read in one place and its ownership decided in one place,
+   * because the verdict drives three decisions: whether a start may replace
+   * the process, whether the record blocks it, and which record the tab may
+   * forget.
+   *
+   * Ownership is decided against the record's *own* endpoint: the launch
+   * configures only host and port, so a record filed under a path prefix
+   * still describes the service the endpoint on screen talks to.
    */
-  private launchable(endpoint: string): boolean {
-    try {
-      parseLocalEndpoint(endpoint);
-      return true;
-    } catch {
-      return false;
-    }
+  private async recordedService(): Promise<{
+    record?: PersistedService;
+    ownership: ServiceOwnership;
+    alive: boolean;
+  }> {
+    const record = readServiceState(this.serviceStatePath);
+    if (!record || record.pid === undefined)
+      return { ownership: "foreign", alive: false };
+    if (!processAlive(this.serviceIO, record.pid))
+      return { record, ownership: "foreign", alive: false };
+    return {
+      record,
+      alive: true,
+      ownership: await serviceOwnership(
+        this.serviceIO,
+        record,
+        record.endpoint,
+      ),
+    };
+  }
+
+  /** Whether two endpoints name the same local service (host and port). */
+  private sameOrigin(recorded: string, endpoint: string): boolean {
+    return serviceOriginKey(recorded) === serviceOriginKey(endpoint);
   }
 
   /**
-   * A leftover record that names the same local service as the endpoint on
-   * screen.
-   *
-   * The launch configures only host and port, so two endpoints on the same
-   * origin name the same local process even when their paths differ. A record
-   * left by a version that still launched prefixed endpoints (for example
-   * `/reme`) therefore describes the service the endpoint on screen talks to.
-   * It is returned only when it is provably ours: the same origin, a live
-   * pid, a Python image and a command line that carries the recorded
-   * `workspace_dir` and `service.port`.
-   *
-   * A request that cannot launch anything never gets one: a prefixed request
-   * is refused by `buildStartCommand`, so stopping a healthy same-origin
-   * service first would leave nothing running (autoStart would do that on
-   * every DSH start).
+   * Whether the recorded service is the one the endpoint on screen talks to:
+   * the same endpoint, or the same local service under another path.
    */
-  private async leftoverService(
-    endpointValue: string,
-  ): Promise<PersistedService | undefined> {
-    if (!this.launchable(endpointValue)) return undefined;
-    const recorded = readServiceState(this.serviceStatePath);
-    if (!recorded || recorded.pid === undefined) return undefined;
-    // A record filed under the endpoint on screen is not a leftover.
-    if (
-      serviceEndpointKey(recorded.endpoint) ===
-      serviceEndpointKey(endpointValue)
-    )
-      return undefined;
-    if (serviceOriginKey(recorded.endpoint) !== serviceOriginKey(endpointValue))
-      return undefined;
-    if (!processAlive(this.serviceIO, recorded.pid)) return undefined;
-    const ownership = await serviceOwnership(
-      this.serviceIO,
-      recorded,
-      recorded.endpoint,
+  private relatedRecord(recorded: string, endpoint: string): boolean {
+    return (
+      serviceEndpointKey(recorded) === serviceEndpointKey(endpoint) ||
+      this.sameOrigin(recorded, endpoint)
     );
-    return ownership === "owned" ? recorded : undefined;
   }
 
   /**
@@ -488,19 +484,34 @@ export class ReMeEnvManager {
    * it. A failed write is not fatal — the start path can still replace the
    * record by its own endpoint.
    *
+   * Only a record that is provably ours and describes the same local service
+   * is re-keyed: the same origin, a live pid, a Python image and a command
+   * line that carries the recorded `workspace_dir` and `service.port`. A
+   * request that cannot launch anything never qualifies: a prefixed request
+   * is refused by `buildStartCommand`, so stopping a healthy same-origin
+   * service first would leave nothing running (autoStart would do that on
+   * every DSH start).
+   *
    * The record is compared and written without yielding in between: the
    * ownership probe above takes long enough for a launch to record a new pid,
    * and overwriting that record would orphan the fresh service. The compare
    * and the write are synchronous, so nothing can slip in between them.
    */
   private async adoptLeftover(endpointValue: string): Promise<void> {
-    const leftover = await this.leftoverService(endpointValue);
-    if (!leftover) return;
+    if (!isLocalEndpoint(endpointValue)) return;
+    const { record, ownership } = await this.recordedService();
+    if (!record || ownership !== "owned") return;
+    // A record filed under the endpoint on screen is not a leftover.
+    if (
+      serviceEndpointKey(record.endpoint) === serviceEndpointKey(endpointValue)
+    )
+      return;
+    if (!this.sameOrigin(record.endpoint, endpointValue)) return;
     const current = readServiceState(this.serviceStatePath);
     if (
       !current ||
-      current.pid !== leftover.pid ||
-      current.endpoint !== leftover.endpoint
+      current.pid !== record.pid ||
+      current.endpoint !== record.endpoint
     )
       return;
     try {
@@ -557,56 +568,20 @@ export class ReMeEnvManager {
         ...(current.version ? { version: current.version } : {}),
       };
     if (current.phase === "conflict") {
-      // The port is answered by something that is not a healthy service. A
-      // provable launch of ours (still booting or rejecting our token) is
-      // stopped and replaced; anything else is left alone.
-      if (!current.managed) {
-        // The port may be held by a leftover record of ours that is filed
-        // under a path prefix of the same origin. The endpoint on screen
-        // cannot stop that record (it names another endpoint) and the
-        // conflict card offers no way out, so it is replaced here instead of
-        // leaving the user with a process to kill by hand.
-        const leftover = await this.leftoverService(endpointValue);
-        if (leftover) {
-          const replaced = await stopService(this.serviceIO, {
-            statePath: this.serviceStatePath,
-            endpoint: leftover.endpoint,
-            ownership: "owned",
-          });
-          if (!replaced.stopped)
-            return this.refused(
-              logPath,
-              now,
-              "previous-not-stopped",
-              `A previous launch could not be stopped: ${
-                replaced.reason ?? "unknown reason"
-              }`,
-              { record: replaced.record },
-            );
-        } else {
-          // The port may be held by a recorded process whose identity cannot
-          // be read. It must never be signalled, but the record has to be
-          // named: it is the only way out of a port the tab cannot clear.
-          const unverified = current.record;
-          if (unverified)
-            return this.refused(
-              logPath,
-              now,
-              "unverified-record",
-              `The recorded service for ${unverified.endpoint} (pid ${unverified.pid}) could not be verified; leaving it untouched`,
-              { pid: unverified.pid, record: unverified },
-            );
-          return this.refused(
-            logPath,
-            now,
-            "conflict",
-            "Another process is already listening on this endpoint",
-          );
-        }
-      } else {
+      // The port is answered by something that is not a healthy service. The
+      // record may name that process: one of ours (still booting or rejecting
+      // our token) is stopped and replaced; one whose identity cannot be read
+      // is named, so the tab can forget it; anything else is left alone.
+      const { record, ownership } = await this.recordedService();
+      if (
+        record &&
+        ownership === "owned" &&
+        isLocalEndpoint(endpointValue) &&
+        this.sameOrigin(record.endpoint, endpointValue)
+      ) {
         const previous = await stopService(this.serviceIO, {
           statePath: this.serviceStatePath,
-          endpoint: endpointValue,
+          endpoint: record.endpoint,
           ownership: "owned",
         });
         if (!previous.stopped)
@@ -619,6 +594,28 @@ export class ReMeEnvManager {
             }`,
             { record: previous.record },
           );
+      } else if (
+        record &&
+        ownership === "unknown" &&
+        this.relatedRecord(record.endpoint, endpointValue)
+      ) {
+        // The process may be ours, but its identity cannot be read: it must
+        // never be signalled. The record has to be named anyway, because it is
+        // the only way out of a port the tab cannot clear.
+        return this.refused(
+          logPath,
+          now,
+          "unverified-record",
+          `The recorded service for ${record.endpoint} (pid ${record.pid}) could not be verified; leaving it untouched`,
+          { pid: record.pid, record: serviceRecordRef(record) },
+        );
+      } else {
+        return this.refused(
+          logPath,
+          now,
+          "conflict",
+          "Another process is already listening on this endpoint",
+        );
       }
     }
     // A record for a *different* endpoint that is still alive would be
@@ -626,20 +623,15 @@ export class ReMeEnvManager {
     // A provably owned or an unverifiable process blocks the new start; only a
     // provably foreign record is discarded, just like the same-endpoint case
     // below.
-    const recorded = readServiceState(this.serviceStatePath);
+    const other = await this.recordedService();
+    const recorded = other.record;
     if (
       recorded &&
-      recorded.pid !== undefined &&
+      other.alive &&
       serviceEndpointKey(recorded.endpoint) !==
-        serviceEndpointKey(endpointValue) &&
-      processAlive(this.serviceIO, recorded.pid)
+        serviceEndpointKey(endpointValue)
     ) {
-      const other = await serviceOwnership(
-        this.serviceIO,
-        recorded,
-        recorded.endpoint,
-      );
-      if (other === "owned") {
+      if (other.ownership === "owned") {
         // The launch configures only host and port, so two endpoints on the
         // same origin name the same local service even when their paths
         // differ. A record left by a version that still launched a prefixed
@@ -652,9 +644,8 @@ export class ReMeEnvManager {
         // same-origin service first would leave nothing running (autoStart
         // would do that on every DSH start).
         if (
-          this.launchable(endpointValue) &&
-          serviceOriginKey(recorded.endpoint) ===
-            serviceOriginKey(endpointValue)
+          isLocalEndpoint(endpointValue) &&
+          this.sameOrigin(recorded.endpoint, endpointValue)
         ) {
           const previous = await stopService(this.serviceIO, {
             statePath: this.serviceStatePath,
@@ -683,7 +674,7 @@ export class ReMeEnvManager {
       // dropping the record would orphan a live service this plugin can no
       // longer stop. Keep it and report why the start is blocked. The record is
       // named, so the client can offer to forget exactly this one.
-      if (other === "unknown")
+      if (other.ownership === "unknown")
         return this.refused(
           logPath,
           now,
@@ -697,16 +688,11 @@ export class ReMeEnvManager {
     // when ownership is proven; an unprovable record is kept and reported,
     // because dropping it would orphan a live process the tab cannot stop.
     if (current.pid !== undefined) {
-      const ownership = await serviceOwnership(
-        this.serviceIO,
-        recorded,
-        endpointValue,
-      );
-      if (ownership === "owned") {
+      if (other.ownership === "owned") {
         const previous = await stopService(this.serviceIO, {
           statePath: this.serviceStatePath,
           endpoint: endpointValue,
-          ownership,
+          ownership: "owned",
         });
         if (!previous.stopped)
           return this.refused(
@@ -718,18 +704,18 @@ export class ReMeEnvManager {
             }`,
             { record: previous.record },
           );
-      } else if (ownership === "unknown") {
+      } else if (other.ownership === "unknown") {
         // PowerShell/ps failed to describe a live process. Discarding the
         // record here would orphan it: the tab could never stop or replace it.
         // The message and the record name the same pid: it is the one the
         // confirmed Forget is pinned to.
-        const pid = recorded?.pid ?? current.pid;
+        const pid = other.record?.pid ?? current.pid;
         return this.refused(
           logPath,
           now,
           "unverified-record",
           `The recorded service for ${endpointValue} (pid ${pid}) could not be verified; leaving it untouched`,
-          { pid, record: serviceRecordRef(recorded) },
+          { pid, record: serviceRecordRef(other.record) },
         );
       } else {
         removeServiceState(this.serviceStatePath);
