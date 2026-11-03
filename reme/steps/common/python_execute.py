@@ -3,7 +3,7 @@
 import sys
 from typing import Any
 
-from ...utils.local_backend import LocalProcessBackend, ProcessTimeout
+from ...utils.local_backend import ProcessTimeout
 from ..base_step import BaseStep
 from ...components import R
 from .file_sandbox import file_sandbox_for_step
@@ -13,7 +13,7 @@ DEFAULT_TIMEOUT = 60.0
 
 @R.register("python_execute_step")
 class PythonExecuteStep(BaseStep):
-    """Run Python code and return stdout, limiting each output stream to 1 MiB."""
+    """Run sandboxed Python with a read-only workspace and bounded output."""
 
     async def execute(self):
         assert self.context is not None
@@ -34,11 +34,10 @@ class PythonExecuteStep(BaseStep):
         timed_out = False
         try:
             backend = file_sandbox_for_step(self)
-            result = await (backend or LocalProcessBackend()).exec_shell(
+            result = await backend.exec_shell(
                 [sys.executable, "-c", code],
-                cwd=str(self.workspace_path),
+                cwd=str(self.workspace_path.resolve()),
                 timeout=timeout,
-                **({"raise_errors": True} if backend is None else {}),
             )
         except ProcessTimeout as exc:
             result, timed_out = exc.result, True

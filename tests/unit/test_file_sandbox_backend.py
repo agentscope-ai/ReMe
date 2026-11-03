@@ -1,7 +1,6 @@
 """Shared file sandbox selection and macOS policy construction."""
 
 import asyncio
-import os
 import plistlib
 import sys
 from pathlib import Path
@@ -38,18 +37,16 @@ def test_platform_selection_and_memory_defaults(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_unsupported_platform_requires_backend_only_for_path_policy(tmp_path, monkeypatch):
-    """An unsupported platform runs ordinary Python but rejects a requested sandbox."""
+async def test_unsupported_platform_never_runs_python_on_host(tmp_path, monkeypatch):
+    """Default execution fails closed when the platform has no sandbox."""
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "unsupported")
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
 
-    plain = await step(code="print('host')")
-    assert plain.success is True
-    assert plain.answer == "host\n"
-
-    restricted = await step(code="print('blocked')", read_only_paths=[])
+    marker = tmp_path / "host-execution"
+    restricted = await step(code=f"from pathlib import Path; Path({str(marker)!r}).touch()")
     assert restricted.success is False
     assert restricted.answer == "No file sandbox backend for unsupported"
+    assert not marker.exists()
 
 
 def test_seatbelt_profile_limits_file_access(tmp_path):
@@ -157,6 +154,8 @@ async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data):
 async def test_seatbelt_launch_failure_cleans_up_without_host_fallback(tmp_path, monkeypatch):
     """A failed sandbox launcher never starts the requested command directly."""
     monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("REME_TEST_SECRET", "must-not-be-inherited")
+    monkeypatch.setenv("PYTHONPATH", "/untrusted/python")
     monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "/usr/bin/sandbox-exec")
     seen = {}
 
@@ -183,12 +182,17 @@ async def test_seatbelt_launch_failure_cleans_up_without_host_fallback(tmp_path,
     assert seen["arguments"][0] == "bootstrap"
     assert seen["job"]["AbandonProcessGroup"] is False
     assert seen["job"]["ProgramArguments"][-2:] == ["/bin/echo", "unsafe"]
+    assert "REME_TEST_SECRET" not in seen["job"]["EnvironmentVariables"]
+    assert "PYTHONPATH" not in seen["job"]["EnvironmentVariables"]
+    argv = seen["job"]["ProgramArguments"]
+    assert argv[argv.index("/usr/bin/env") + 1] == "-i"
+    assert not any("must-not-be-inherited" in argument for argument in argv)
     assert not Path(seen["arguments"][-1]).exists()
 
 
 @pytest.mark.asyncio
 async def test_python_job_selects_seatbelt_on_macos(tmp_path, monkeypatch):
-    """Path injection reaches the macOS backend with no implicit memory cap."""
+    """Default execution selects macOS isolation with a read-only workspace."""
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "darwin")
     seen = {}
 
@@ -198,10 +202,37 @@ async def test_python_job_selects_seatbelt_on_macos(tmp_path, monkeypatch):
 
     monkeypatch.setattr(PathSeatbeltBackend, "exec_shell", fake_exec)
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="print('ok')", read_only_paths=[])
+    response = await step(code="print('ok')")
     assert response.success is True
     assert isinstance(seen["backend"], PathSeatbeltBackend)
     assert seen["command"] == [sys.executable, "-c", "print('ok')"]
+    profile = seen["backend"]._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+    assert f'(allow file-read* (subpath "{tmp_path}"))' in profile
+    assert f'(allow file-write* (subpath "{tmp_path}"))' not in profile
+
+
+@pytest.mark.asyncio
+async def test_seatbelt_direct_execution_does_not_inherit_service_environment(tmp_path, monkeypatch):
+    """The non-launchd path strips credentials and interpreter injection settings too."""
+    monkeypatch.setenv("REME_TEST_SECRET", "must-not-be-inherited")
+    monkeypatch.setenv("PYTHONPATH", "/untrusted/python")
+    monkeypatch.setenv("DYLD_INSERT_LIBRARIES", "/untrusted/library")
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    seen = {}
+
+    async def spawn(_command, **kwargs):
+        seen.update(kwargs)
+        raise RuntimeError("stop before spawning")
+
+    monkeypatch.setattr(backend, "_spawn_process", spawn)
+    with pytest.raises(RuntimeError, match="stop before spawning"):
+        await backend._start_process(  # pylint: disable=protected-access
+            [sys.executable, "-c", "print('ok')"],
+            str(tmp_path),
+        )
+    assert set(seen["env"]) == {"HOME", "TMPDIR", "PATH"}
+    assert seen["env"]["HOME"] == str(tmp_path)
+    assert not Path(seen["env"]["TMPDIR"]).exists()
 
 
 @pytest.mark.asyncio
@@ -276,8 +307,12 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
 
 
 @pytest.mark.asyncio
-async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path):
-    """The shared executor retains the existing unsandboxed Python metadata."""
+async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path, monkeypatch):
+    """The sandbox backend's timeout result is reflected in Python metadata."""
+    monkeypatch.setattr(
+        "reme.steps.common.python_execute.file_sandbox_for_step",
+        lambda _step: LocalProcessBackend(),
+    )
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     response = await step(
         code="import sys, time; print('diagnostic', file=sys.stderr, flush=True); time.sleep(60)",
@@ -286,7 +321,7 @@ async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path):
     assert response.success is False
     assert response.answer == "Python execution timed out after 0.3s"
     assert response.metadata == {
-        "returncode": -9 if os.name == "posix" else 1,
-        "stderr": "diagnostic\n",
+        "returncode": -1,
+        "stderr": "timed out",
         "python_timeout": 0.3,
     }

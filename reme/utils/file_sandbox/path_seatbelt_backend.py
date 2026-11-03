@@ -123,6 +123,14 @@ class PathSeatbeltBackend(FileSandboxBackend):
             lines.append(f"(deny file-write-create {rule})")
         return "\n".join(lines)
 
+    def _environment(self, tempdir: str) -> dict[str, str]:
+        """Expose runtime settings only, never service credentials or Python hooks."""
+        return {
+            "HOME": self._cwd,
+            "TMPDIR": tempdir,
+            "PATH": ":".join((str(Path(sys.prefix) / "bin"), "/usr/local/bin", "/usr/bin", "/bin")),
+        }
+
     async def _start_process(self, command: list[str], cwd: str, *, stdin=asyncio.subprocess.DEVNULL):
         """Start Seatbelt directly when the GUI launchd domain is unavailable."""
         tempdir = tempfile.mkdtemp(prefix="reme-seatbelt-", dir=os.path.realpath(tempfile.gettempdir()))
@@ -130,7 +138,7 @@ class PathSeatbeltBackend(FileSandboxBackend):
             process = await self._spawn_process(
                 ["/usr/bin/sandbox-exec", "-p", self._profile(tempdir), *command],
                 cwd=cwd,
-                env={**os.environ, "HOME": self._cwd, "TMPDIR": tempdir},
+                env=self._environment(tempdir),
                 stdin=stdin,
             )
         except BaseException:
@@ -269,13 +277,18 @@ class PathSeatbeltBackend(FileSandboxBackend):
                     "-c",
                     script,
                     str(status_path),
+                    # launchd can also supply its own environment. Clear it at
+                    # the payload boundary, rather than merely adding safe keys.
+                    "/usr/bin/env",
+                    "-i",
+                    *(f"{key}={value}" for key, value in self._environment(str(sandbox_tmp)).items()),
                     "/usr/bin/sandbox-exec",
                     "-p",
                     self._profile(str(sandbox_tmp)),
                     *command,
                 ],
                 "WorkingDirectory": cwd,
-                "EnvironmentVariables": {**os.environ, "HOME": self._cwd, "TMPDIR": str(sandbox_tmp)},
+                "EnvironmentVariables": self._environment(str(sandbox_tmp)),
                 "StandardInPath": str(stdin_path) if data is not None else "/dev/null",
                 "StandardOutPath": str(stdout_path),
                 "StandardErrorPath": str(stderr_path),

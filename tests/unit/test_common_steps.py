@@ -17,9 +17,19 @@ from reme.steps.common.health_check import _file_graph_status
 from reme.steps.common.llm_demo import LLMDemoStep
 from reme.steps.common.python_execute import PythonExecuteStep
 from reme.steps.index import traverse as traverse_mod
+from reme.utils.local_backend import LocalProcessBackend
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
+
+
+@pytest.fixture(autouse=True)
+def python_process_backend(monkeypatch):
+    """Test executor responses with real pipes; sandbox policy is tested separately."""
+    monkeypatch.setattr(
+        "reme.steps.common.python_execute.file_sandbox_for_step",
+        lambda _step: LocalProcessBackend(),
+    )
 
 
 def _node(

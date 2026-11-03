@@ -60,8 +60,12 @@ async def test_continuous_output_stops_process(tmp_path, fd):
 
 
 @pytest.mark.asyncio
-async def test_python_step_reports_output_overflow(tmp_path):
+async def test_python_step_reports_output_overflow(tmp_path, monkeypatch):
     """Python callers receive bounded partial output and failure metadata."""
+    monkeypatch.setattr(
+        "reme.steps.common.python_execute.file_sandbox_for_step",
+        lambda _step: LocalProcessBackend(),
+    )
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     response = await step(code=f"import os;os.write(1, b'x' * {OUTPUT_LIMIT_BYTES + 1})")
     assert response.success is False

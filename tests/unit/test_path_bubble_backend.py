@@ -14,6 +14,8 @@ from agentscope.tool import ExecResult
 
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
 from reme.components.application_context import ApplicationContext
+from reme.components.job import BaseJob
+from reme.components.service import HttpService, MCPService
 from reme.steps.common.python_execute import PythonExecuteStep
 
 
@@ -274,8 +276,8 @@ def test_path_bubble_backend_rejects_replaced_mount_source(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("memory_options", [{}, {"memory_limit_mib": 0}])
-async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, monkeypatch, memory_options):
-    """Python execution uses the same backend and timeout units."""
+async def test_python_execute_defaults_to_read_only_sandbox(tmp_path, monkeypatch, memory_options):
+    """Default Python execution has no host write grants and uses the sandbox."""
     seen = {}
 
     async def fake_exec(self, command, *, cwd=None, timeout=None):
@@ -284,7 +286,7 @@ async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, mo
 
     monkeypatch.setattr(PathBubbleBackend, "exec_shell", fake_exec)
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="print('ok')", read_only_paths=[], writable_paths=[str(tmp_path)], **memory_options)
+    response = await step(code="print('ok')", **memory_options)
 
     assert response.success is True
     assert response.answer == "ok\n"
@@ -293,23 +295,27 @@ async def test_python_execute_uses_path_backend_when_paths_supplied(tmp_path, mo
     assert seen["timeout"] == 60
     expected_limit = memory_options.get("memory_limit_mib", 4096)
     assert seen["backend"]._memory_limit_mib == expected_limit  # pylint: disable=protected-access
+    argv = seen["backend"]._bwrap_argv(seen["command"], str(tmp_path))  # pylint: disable=protected-access
+    assert ("--ro-bind", str(tmp_path), str(tmp_path)) in _mounts(argv)
+    assert not any(mode == "--bind" for mode, _source, _target in _mounts(argv))
+    assert "--clearenv" in argv and "--unshare-all" in argv
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("limit", [0, 1, -1])
-async def test_python_execute_rejects_memory_limit_without_path_policy(tmp_path, limit):
-    """A requested memory policy must never be silently ignored."""
+@pytest.mark.parametrize("policy", [{"writable_paths": ["/tmp"]}, {"read_only_paths": []}, {"writable_paths": None}])
+async def test_python_execute_rejects_caller_path_grants(tmp_path, policy):
+    """A caller cannot widen or disable the server's sandbox path policy."""
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="print('should not run')", memory_limit_mib=limit)
+    response = await step(code="print('should not run')", **policy)
     assert response.success is False
-    assert response.answer == "memory_limit_mib requires read_only_paths or writable_paths to enable the sandbox"
+    assert "must be configured on the Step, not supplied by the caller" in response.answer
 
 
 @pytest.mark.asyncio
 async def test_step_rejects_invalid_mount_parameters(tmp_path):
     """Malformed path injection cannot silently disable sandboxing."""
-    step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-    response = await step(code="print('unsafe')", writable_paths="/tmp")
+    step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)), writable_paths="/tmp")
+    response = await step(code="print('unsafe')")
     assert response.success is False
     assert "writable_paths must be a list" in response.answer
 
@@ -324,7 +330,7 @@ async def test_sandbox_start_failure_does_not_run_on_host(tmp_path, monkeypatch)
     monkeypatch.setattr(PathBubbleBackend, "_start_process", unavailable)
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
     python_step = PythonExecuteStep(app_context=app_context)
-    python_result = await python_step(code="print('host')", read_only_paths=[])
+    python_result = await python_step(code="print('host')")
 
     assert python_result.success is False
     assert "bwrap unavailable" in python_result.answer
@@ -333,7 +339,39 @@ async def test_sandbox_start_failure_does_not_run_on_host(tmp_path, monkeypatch)
 def test_job_hides_injected_path_policy():
     """Path policy reaches the Step through context without becoming a tool argument."""
     config_path = Path(__file__).parents[2] / "reme" / "config" / "benchmark.yaml"
-    parameters = yaml.safe_load(config_path.read_text(encoding="utf-8"))["jobs"]["python_execute"]["parameters"]
+    job = yaml.safe_load(config_path.read_text(encoding="utf-8"))["jobs"]["python_execute"]
+    assert job["enable_serve"] is False
+    parameters = job["parameters"]
     assert "read_only_paths" not in parameters["properties"]
     assert "writable_paths" not in parameters["properties"]
     assert "default" not in parameters["properties"]["memory_limit_mib"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("service_class", [HttpService, MCPService])
+async def test_benchmark_python_job_is_private_but_locally_callable(tmp_path, monkeypatch, service_class):
+    """Disabling serving preserves the benchmark's in-process job execution."""
+    from unittest.mock import Mock
+
+    config_path = Path(__file__).parents[2] / "reme" / "config" / "benchmark.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))["jobs"]["python_execute"]
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    job = BaseJob(name="python_execute", app_context=context, **config)
+    context.jobs["python_execute"] = job
+    service = service_class()
+    service.add_job = Mock(return_value=True)
+    service.add_jobs(SimpleNamespace(context=context))
+    service.add_job.assert_not_called()
+
+    monkeypatch.setattr(
+        PathBubbleBackend,
+        "exec_shell",
+        AsyncMock(return_value=ExecResult(exit_code=0, stdout=b"local\n", stderr=b"")),
+    )
+    await job.start()
+    try:
+        response = await job(code="print('local')")
+        assert response.success is True
+        assert response.answer == "local\n"
+    finally:
+        await job.close()

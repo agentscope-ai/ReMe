@@ -132,7 +132,10 @@ jobs:
 
   python_execute:
     backend: base
-    description: "Execute Python code and return printed stdout."
+    enable_serve: false
+    # Local-only execution; the workspace is read-only unless Step config grants writes.
+    # Readable workspace files (including .env) are visible to executed code.
+    description: "Execute sandboxed Python with a read-only workspace and return printed stdout."
     parameters:
       type: object
       properties:
@@ -145,7 +148,7 @@ jobs:
         memory_limit_mib:
           type: integer
           minimum: 0
-          description: "Linux memory limit in MiB (default 4096; 0 disables it); requires a path policy; macOS ignores nonzero values"
+          description: "Linux sandbox memory limit in MiB (default 4096; 0 disables it); macOS ignores nonzero values"
       required:
         - code
     steps:
