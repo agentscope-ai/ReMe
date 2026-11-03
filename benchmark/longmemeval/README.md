@@ -145,6 +145,11 @@ The top-level `max_evaluations` sets the optimizer's formal-evaluation budget
 (positive integer, default 10). A slot is consumed at first sandbox startup,
 including later failures or cancellations; initial baseline and debug are excluded.
 
+The top-level `memory_limit_mib` sets the host agent sandbox memory limit for
+optimization, diagnosis, case studies and evaluation reviews. Set `memory_limit_mib: 0`
+in the runner YAML to disable the Linux cgroup limit. Null or omission keeps platform
+defaults (4096 MiB on Linux); macOS does not enforce memory limits.
+
 After preparation, run local one-shot optimization with the same configuration:
 
 ```bash

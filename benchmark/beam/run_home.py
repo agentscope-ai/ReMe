@@ -36,6 +36,7 @@ class RunHomeConfig(BaseModel):
     sampling_policy: SamplingPolicy = Field(default_factory=SamplingPolicy)
     validation_cycle_time_budget_minutes: float | None = Field(default=150, gt=0, allow_inf_nan=False)
     max_evaluations: int = Field(default=10, ge=1)
+    memory_limit_mib: int | None = Field(default=None, ge=0)
 
 
 def project_path(value: str, project_root: Path) -> Path:
@@ -69,11 +70,35 @@ async def _run(config_path, *, workspace_dir=None, optimize_workspace=False, ins
     """Apply the same runner configuration to each preparation or optimization lifecycle."""
     workspace, spec, config = _load_config(config_path, workspace_dir=workspace_dir)
     load_env(PROJECT_ROOT / ".env", override=False)
+    memory_options = {}
+    jobs = {}
+    if config.memory_limit_mib is not None:
+        memory_options = {
+            "candidate_gate_memory_limit_mib": config.memory_limit_mib,
+            "construction_equivalence_memory_limit_mib": config.memory_limit_mib,
+        }
+        for name, backend, wrapper in (
+            ("home_optimize", "home_optimize_step", "home_optimizer"),
+            ("home_diagnose", "home_diagnose_step", "home_diagnostic"),
+            ("home_case_study", "home_case_study_step", "home_case_study"),
+        ):
+            jobs[name] = {
+                "steps": [
+                    {
+                        "backend": backend,
+                        "agent_wrapper": wrapper,
+                        "memory_limit_mib": config.memory_limit_mib,
+                        **({"concurrency": 4, "output_token_limit": 2500} if name == "home_case_study" else {}),
+                    },
+                ],
+            }
     app = Application(
         workspace_dir=str(workspace),
         plugins=["home", JUDGE_PLUGINS[spec["benchmark"]["name"]]],
         components={
-            "home.evaluation": {"default": {"sampling_policy": config.sampling_policy.model_dump(mode="json")}},
+            "home.evaluation": {
+                "default": {"sampling_policy": config.sampling_policy.model_dump(mode="json"), **memory_options},
+            },
             "agent_wrapper": {
                 "home_optimizer": {
                     "validation_cycle_time_budget_minutes": config.validation_cycle_time_budget_minutes,
@@ -81,6 +106,7 @@ async def _run(config_path, *, workspace_dir=None, optimize_workspace=False, ins
                 },
             },
         },
+        jobs=jobs,
         service={"backend": "cli"},
         enable_logo=False,
         log_to_file=False,

@@ -4,6 +4,8 @@
 workspace_dir: benchmark/longmemeval/workspaces/home-groups-1-5
 # Formal optimizer evaluations; charged once the first sandbox starts, excluding init/debug.
 max_evaluations: 10
+# Host agent sandbox memory limit in MiB; null keeps platform defaults, 0 disables the Linux cgroup limit.
+memory_limit_mib: 0
 # Policy defaults for Home evaluation; each call still controls sampling=true/false.
 sampling_policy:
   max_cases: 5

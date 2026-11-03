@@ -272,6 +272,52 @@ async def test_runner_formal_budget_configuration(tmp_path, monkeypatch, benchma
         assert not observed
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("benchmark", ["beam", "longmemeval"])
+@pytest.mark.parametrize("limit", ["omitted", None, 0, 1024, -1, True, "0", 1.5])
+async def test_runner_sandbox_memory_policy(tmp_path, monkeypatch, benchmark, limit):
+    """Keep zero explicit across every host sandbox and preserve platform defaults when unset."""
+    module = import_module(f"benchmark.{benchmark}.run_home")
+    config = yaml.safe_load(module.DEFAULT_CONFIG.read_text())
+    if limit == "omitted":
+        config.pop("memory_limit_mib", None)
+    else:
+        config["memory_limit_mib"] = limit
+    path = tmp_path / "home.yaml"
+    path.write_text(yaml.safe_dump(config))
+    application = AsyncMock()
+    application.run_job.return_value = Response(answer={})
+    observed = {}
+
+    def factory(**kwargs):
+        observed.update(kwargs)
+        return application
+
+    monkeypatch.setattr(module, "Application", factory)
+    if isinstance(limit, bool) or limit in (-1, "0", 1.5):
+        with pytest.raises(ValueError):
+            await module.optimize(path)
+        assert not observed
+        return
+    await module.optimize(path)
+    evaluation = observed["components"]["home.evaluation"]["default"]
+    if limit in ("omitted", None):
+        assert observed["jobs"] == {}
+        assert "candidate_gate_memory_limit_mib" not in evaluation
+        assert "construction_equivalence_memory_limit_mib" not in evaluation
+    else:
+        assert evaluation["candidate_gate_memory_limit_mib"] == limit
+        assert evaluation["construction_equivalence_memory_limit_mib"] == limit
+        defaults = yaml.safe_load((ROOT / "plugins/home/src/reme_home/plugin.yaml").read_text())[
+            "application_defaults"
+        ]["jobs"]
+        assert set(observed["jobs"]) == {"home_optimize", "home_diagnose", "home_case_study"}
+        for name, job in observed["jobs"].items():
+            assert job["steps"] == [{**defaults[name]["steps"][0], "memory_limit_mib": limit}]
+    application.run_job.assert_awaited_once_with("home_optimize")
+    application.close.assert_awaited_once()
+
+
 @pytest.mark.parametrize("module", [beam_runner, lme_runner])
 def test_runner_rejects_old_budget_name(module):
     """Reject obsolete config keys instead of using the default budget."""

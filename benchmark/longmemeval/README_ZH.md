@@ -131,6 +131,10 @@ Python 中也可调用 `await benchmark.longmemeval.run_home.run(workspace_dir=.
 顶层 `max_evaluations` 配置 optimizer 的正式评测次数预算，必须为正整数，默认 10。
 首次成功启动 sandbox 时扣一次，之后失败或取消也不退还；初始 baseline 和 debug 不计入。
 
+顶层 `memory_limit_mib` 配置优化、诊断、case study 和评估审查的宿主 agent 沙箱内存限制。
+在 runner YAML 中设置 `memory_limit_mib: 0` 可关闭 Linux cgroup 内存限制；
+省略或设为 null 时保留平台默认值（Linux 为 4096 MiB），macOS 不执行内存限制。
+
 准备完成后，用同一份配置进行本地一次性优化：
 
 ```bash
