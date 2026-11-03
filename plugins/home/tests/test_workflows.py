@@ -10,12 +10,14 @@ import sys
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
 from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import HintBlock, TextBlock, ToolCallBlock
 from agentscope.model import ChatResponse, ChatUsage
+from agentscope.state import AgentState
 from agentscope.tool import LocalBackend
 from jsonschema import Draft202012Validator
 from reme_home.agent import optimizer as optimizer_module, diagnostic as diagnostic_module, workflow_common, case_study
@@ -31,6 +33,8 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     preparation_inputs,
     prepared_home,
 )
+
+from reme.schema import Response
 
 
 class ScriptedModel(RecordingModel):
@@ -92,6 +96,45 @@ def final_report(home, branch="init", path=None):
             "report": "Selected using matching formal evidence; sampled coverage limits confidence.",
         },
     )
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{}",
+        "```\n{}\n```",
+        "```json\n{}\n```",
+        "Completed.\n```json\n{}\n```\nSee report.",
+        "Completed.\r\n```JSON\r\n{}\r\n```",
+    ],
+)
+def test_parse_optimizer_result_formats(template):
+    claim = {"branch_name": "candidate", "commit_sha": "a" * 40, "evaluation_path": "run", "report": "Evidence"}
+    assert optimizer_module.parse_result(template.format(json.dumps(claim))).model_dump() == claim
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "No result",
+        'Completed. {"report":"Evidence"}',
+        "Completed.\n```json\n{}",
+        "Completed.\n```python\n{}\n```",
+        "Completed.\n```json\n{}\n```\n```json\n{}\n```",
+        "Completed.\n```text\nexample\n```\n```json\n{}\n```",
+        'Completed.\n```json\n{"report":"Evidence",}\n```',
+    ],
+)
+def test_parse_optimizer_result_rejects_invalid_or_multiple_fences(text):
+    with pytest.raises(json.JSONDecodeError):
+        optimizer_module.parse_result(text)
+
+
+@pytest.mark.parametrize("changes", [{"commit_sha": "short"}, {"report": ""}, {"unexpected": True}])
+def test_mixed_optimizer_result_keeps_schema_validation(changes):
+    claim = {"branch_name": "candidate", "commit_sha": "a" * 40, "evaluation_path": "run", "report": "Evidence"}
+    with pytest.raises(ValueError):
+        optimizer_module.parse_result(f"Completed.\n```json\n{json.dumps({**claim, **changes})}\n```")
 
 
 @pytest.mark.asyncio
@@ -161,7 +204,14 @@ async def test_draft_scope_across_optimizer_diagnoses_and_invocations(app, prepa
 
 
 @pytest.mark.asyncio
-async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepared, sandbox, monkeypatch):
+@pytest.mark.parametrize("max_evaluations", [10, 1])
+async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(
+    app,
+    prepared,
+    sandbox,
+    monkeypatch,
+    max_evaluations,
+):
     home = prepared
     now, timers = [0.0], []
     timer_class = optimizer_module.ValidationCycleTimer
@@ -210,7 +260,8 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
         ],
         final=lambda: final_report(home, "mechanism"),
     )
-    set_model(app, "home_optimizer", optimizer)
+    wrapper = set_model(app, "home_optimizer", optimizer)
+    monkeypatch.setattr(wrapper, "validation_limit", lambda: max_evaluations)
     response = await app.run_job("home_optimize", instruction="Improve general retrieval")
     assert response.success, response.answer
     assert target.read_text() == "value = 2\n"
@@ -223,10 +274,16 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
         if isinstance(block, HintBlock) and block.source == "meta_reme_validation_cycle_transition"
     ]
     assert len(transitions) == 1
-    assert "Formal validation 1 completed successfully" in transitions[0]
-    assert "Remaining formal validations: 9. Start cycle 2." in transitions[0]
     assert len(timers) == 1
-    assert timers[0]._started_at == now[0] - 60 * 60  # Reset before the final reasoning call.
+    if max_evaluations == 1:
+        assert transitions[0] == optimizer_module.VALIDATION_BUDGET_EXHAUSTED_HINT
+        assert "Start cycle" not in transitions[0]
+        assert not timers[0].active
+        assert timers[0].next_reminder() is None
+    else:
+        assert "Formal validation 1 completed successfully" in transitions[0]
+        assert "Remaining formal validations: 9. Start cycle 2." in transitions[0]
+        assert timers[0]._started_at == now[0] - 60 * 60  # Reset before the final reasoning call.
     assert any(
         isinstance(block, HintBlock) and block.source == "meta_reme_validation_timer"
         for message in optimizer.calls[-1]["messages"]
@@ -237,8 +294,11 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
     assert "sampled coverage" in response.answer["report"]
     assert read_json(Path(response.metadata["optimization_report_path"]))["status"] == "completed"
     assert len(diagnostic.calls) == 2
-    assert len(gate.calls) == 1
-    assert read_json(next((home / "logs/candidate-gates").glob("*.json")))["decision"] == "accept"
+    if max_evaluations == 1:
+        assert not gate.calls  # A one-validation budget starts in refinement, without admission review.
+    else:
+        assert len(gate.calls) == 1
+        assert read_json(next((home / "logs/candidate-gates").glob("*.json")))["decision"] == "accept"
     source = next((home / "logs/diagnostic-trajectories").glob("*.json"))
     trace = read_json(source)
     assert trace["session_id"] and any("Improve general retrieval" in str(msg) for msg in trace["messages"])
@@ -259,6 +319,47 @@ async def test_real_optimization_diagnoses_edits_debugs_and_evaluates(app, prepa
     assert "Write" in diagnostic_schemas  # Private scratch only.
     assert any(str(target.parent.parent) in policy["writable_paths"] for policy in sandbox)
     assert all(str(home / "code/repo") not in policy["writable_paths"] for policy in sandbox)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("success", [True, False])
+@pytest.mark.parametrize("with_timer", [True, False])
+async def test_exhausted_evaluation_hint_is_once_even_after_failure(monkeypatch, success, with_timer):
+    job = AsyncMock(return_value=Response(success=success, answer={"status": "completed" if success else "failed"}))
+    monkeypatch.setattr(optimizer_module, "required_job", lambda *_args: job)
+    monkeypatch.setattr(optimizer_module, "read_state", lambda _home: {"started_validations": []})
+    monkeypatch.setattr(optimizer_module, "validation_budget_status", lambda *_args: {"remaining_validations": 0})
+    timer = optimizer_module.ValidationCycleTimer(30) if with_timer else None
+    state = AgentState()
+    tool = optimizer_module.evaluation_tool(None, {}, home=None, timer=timer)
+    await tool.call(_agent_state=state)
+    assert state.middle_context.pop(optimizer_module.PENDING_CYCLE_TRANSITIONS) == [
+        optimizer_module.VALIDATION_BUDGET_EXHAUSTED_HINT,
+    ]
+    await tool.call(_agent_state=state)
+    assert optimizer_module.PENDING_CYCLE_TRANSITIONS not in state.middle_context
+    if timer is not None:
+        assert not timer.active
+    assert job.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_optimizer_starts_with_exhausted_budget(app, prepared, sandbox, monkeypatch):
+    path = await baseline(app)
+    timer = optimizer_module.ValidationCycleTimer(30)
+    model = ScriptedModel(final=lambda: final_report(prepared, path=path))
+    wrapper = set_model(app, "home_optimizer", model)
+    monkeypatch.setattr(wrapper, "create_cycle_timer", lambda: timer)
+    monkeypatch.setattr(optimizer_module, "validation_budget_status", lambda *_args: {"remaining_validations": 0})
+    response = await app.run_job("home_optimize")
+    assert response.success, response.answer
+    assert not timer.active
+    task = "\n".join(msg.get_text_content() or "" for msg in model.calls[0]["messages"])
+    assert task.count(optimizer_module.VALIDATION_BUDGET_EXHAUSTED_HINT) == 1
+    assert len(FakeFactory.instances) == 1  # Only the baseline ran.
+    schemas = {item["function"]["name"] for item in model.calls[0]["tools"]}
+    assert set(optimizer_module.MUTATION_JOBS) <= schemas
+    assert "home_evaluate" in schemas
 
 
 @pytest.mark.asyncio
@@ -322,8 +423,9 @@ async def test_benchmark_optimizer_applies_budgets_to_real_workflow(
 
 
 @pytest.mark.asyncio
-async def test_optimizer_creates_baseline_once_and_verifies_baseline_fallback(app, prepared, sandbox):
-    model = ScriptedModel(final=lambda: final_report(prepared))
+@pytest.mark.parametrize("template", ["{}", "```json\n{}\n```", "Completed.\n```json\n{}\n```\nSee report."])
+async def test_optimizer_creates_baseline_once_and_verifies_baseline_fallback(app, prepared, sandbox, template):
+    model = ScriptedModel(final=lambda: template.format(final_report(prepared)))
     set_model(app, "home_optimizer", model)
     response = await app.run_job("home_optimize")
     assert response.success, response.answer
@@ -390,7 +492,10 @@ async def test_bad_baseline_rejected_before_optimizer(app, prepared, sandbox, ch
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["dirty", "branch", "commit", "path", "infra", "debug", "replay", "invalid_json"])
+@pytest.mark.parametrize(
+    "change",
+    ["dirty", "branch", "mixed_branch", "commit", "path", "infra", "debug", "replay", "invalid_json"],
+)
 async def test_final_claim_rejected_without_discarding_changes(app, prepared, sandbox, change):
     path = Path(await baseline(app))
     target = prepared / "code/repo/plugins/beam/src/reme_beam/__init__.py"
@@ -399,7 +504,7 @@ async def test_final_claim_rejected_without_discarding_changes(app, prepared, sa
         claim = json.loads(final_report(prepared, path=path))
         if change == "dirty":
             target.write_text("preserve unfinished changes\n")
-        elif change == "branch":
+        elif change in {"branch", "mixed_branch"}:
             claim["branch_name"] = "invented"
         elif change == "commit":
             claim["commit_sha"] = "0" * 40
@@ -417,7 +522,8 @@ async def test_final_claim_rejected_without_discarding_changes(app, prepared, sa
             write_json(path / "manifest.json", manifest)
         else:
             return "not a structured final claim"
-        return json.dumps(claim)
+        result = json.dumps(claim)
+        return f"Completed.\n```json\n{result}\n```" if change == "mixed_branch" else result
 
     set_model(app, "home_optimizer", ScriptedModel(final=finish))
     response = await app.run_job("home_optimize")

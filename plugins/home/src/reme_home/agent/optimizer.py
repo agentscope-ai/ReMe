@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 import time
 from pathlib import Path
 from typing import Callable
@@ -35,6 +36,14 @@ MUTATION_JOBS = (
     "home_commit_candidate",
 )
 PENDING_CYCLE_TRANSITIONS = "home.optimizer.pending_cycle_transitions"
+VALIDATION_BUDGET_EXHAUSTED_HINT = (
+    "<system-reminder>The formal validation budget is exhausted. All previous validation-cycle timer reminders "
+    "are expired. Select the best candidate using existing evaluation evidence; do not develop new candidates "
+    "or run further evaluations. Complete any necessary evidence and repository checks, and leave the selected "
+    "evaluated branch and full commit checked out with no uncommitted changes. Return exactly one JSON object "
+    "with branch_name, commit_sha, evaluation_path and report. Put all summary and explanation in report; "
+    "do not include Markdown fences or text outside the JSON object.</system-reminder>"
+)
 
 
 class ValidationCycleTimer(RunTimeBudgetTimer):
@@ -197,11 +206,23 @@ class OptimizationResult(SpecModel):
 
 
 def parse_result(text):
-    """Accept a JSON object, optionally enclosed in one Markdown JSON fence."""
+    """Accept JSON, including a single JSON fence surrounded by commentary."""
     text = text.strip()
+    original = text
     if text.startswith("```") and text.endswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    return OptimizationResult.model_validate(json.loads(text))
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        fences = re.findall(
+            r"^[ \t]*```json[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$",
+            original,
+            flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+        )
+        if len(fences) != 1 or len(re.findall(r"^[ \t]*```", original, flags=re.MULTILINE)) != 2:
+            raise
+        payload = json.loads(fences[0])
+    return OptimizationResult.model_validate(payload)
 
 
 EVALUATION_OPTIONS = {
@@ -352,7 +373,7 @@ def validation_budget_tool(home, max_evaluations):
     )
 
 
-def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10):
+def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, budget_exhausted=False):
     """Only debug mode is model-selected; the host decides construction replay."""
     job = required_job(wrapper, "home_evaluate")
     validate_max_evaluations(max_evaluations)
@@ -363,6 +384,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10):
         Debug checks execution, not answer quality. Inspect infrastructure failures
         separately; retries keep the existing commit and selection recovery rules.
         """
+        nonlocal budget_exhausted
         if not isinstance(debug, bool):
             raise ValueError("debug must be boolean")
         if set(kwargs) - {"_agent_state"}:
@@ -385,13 +407,26 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10):
             budget = await blocking(validation_budget_status, home, max_evaluations)
             if isinstance(response.answer, dict):
                 response.answer = {**response.answer, "validation_budget": budget}
-            completed = await blocking(completed_validation, home, response.answer, started_before)
-            if completed is not None:
-                manifest, validation_number = completed
+            if budget["remaining_validations"] == 0:
                 if timer is not None:
-                    timer.reset()
-                transition = validation_cycle_transition(manifest, validation_number, budget["remaining_validations"])
-                state.middle_context.setdefault(PENDING_CYCLE_TRANSITIONS, []).append(transition.hint)
+                    timer.stop()
+                if not budget_exhausted:
+                    state.middle_context.setdefault(PENDING_CYCLE_TRANSITIONS, []).append(
+                        VALIDATION_BUDGET_EXHAUSTED_HINT,
+                    )
+                    budget_exhausted = True
+            else:
+                completed = await blocking(completed_validation, home, response.answer, started_before)
+                if completed is not None:
+                    manifest, validation_number = completed
+                    if timer is not None:
+                        timer.reset()
+                    transition = validation_cycle_transition(
+                        manifest,
+                        validation_number,
+                        budget["remaining_validations"],
+                    )
+                    state.middle_context.setdefault(PENDING_CYCLE_TRANSITIONS, []).append(transition.hint)
         return {"success": response.success, "answer": response.answer, "metadata": response.metadata}
 
     tool = FunctionTool(evaluate, name="home_evaluate", is_concurrency_safe=False, is_state_injected=True)
@@ -454,6 +489,9 @@ class HomeOptimizeStep(BaseStep):
             timer = self.agent_wrapper.create_cycle_timer()
             max_evaluations = self.agent_wrapper.validation_limit()
             budget = await blocking(validation_budget_status, home, max_evaluations)
+            budget_exhausted = budget["remaining_validations"] == 0
+            if budget_exhausted and timer is not None:
+                timer.stop()
             reply = await workflow_reply(
                 self.agent_wrapper,
                 home,
@@ -461,7 +499,9 @@ class HomeOptimizeStep(BaseStep):
                 f"Begin optimization.\n{spec.instruction}\n\n"
                 f"Completed full initial baseline: {baseline['evaluation_path']}\n"
                 f"Formal validation budget: {json.dumps(budget)}\n"
+                f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}\n"
                 "Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path and report. "
+                "Do not include Markdown fences or text outside the JSON object; put your summary in report. "
                 "Leave that evaluated branch and commit checked out with no uncommitted changes.",
                 tool_factory=lambda backend: [
                     *create_draft_tools()[0],
@@ -474,6 +514,7 @@ class HomeOptimizeStep(BaseStep):
                         home=home,
                         timer=timer,
                         max_evaluations=max_evaluations,
+                        budget_exhausted=budget_exhausted,
                     ),
                 ],
                 job_names=MUTATION_JOBS,

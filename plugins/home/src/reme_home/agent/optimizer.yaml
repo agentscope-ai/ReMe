@@ -64,6 +64,7 @@ system_prompt: |-
 
   Finish with a clean checkout of the best evaluated branch and full commit. Choosing the baseline is valid if
   improvements are unsupported. Return exactly one JSON object with branch_name, commit_sha, evaluation_path,
-  and report. report must explain the chosen evidence, comparisons, regressions, costs and limitations. The host
+  and report. Do not include Markdown fences or text outside the JSON object. Put all summary and explanation
+  in report, which must explain the chosen evidence, comparisons, regressions, costs and limitations. The host
   will reject a mismatched checkout or missing, incomplete, debug or infrastructure-failed evidence. Query-only
   evidence is valid only when the host selected it after a successful construction-equivalence review.
