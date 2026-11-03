@@ -1,5 +1,6 @@
 """Execute Python code and return printed stdout."""
 
+import math
 import sys
 from typing import Any
 
@@ -9,19 +10,29 @@ from ...components import R
 from .file_sandbox import file_sandbox_for_step
 
 DEFAULT_TIMEOUT = 60.0
+MAX_TIMEOUT = 86400.0
 
 
 @R.register("python_execute_step")
 class PythonExecuteStep(BaseStep):
-    """Run sandboxed Python with a read-only workspace and bounded output."""
+    """Run sandboxed Python with a read-only workspace and bounded output.
+
+    Timeouts default to 60 seconds and are capped at one day. A trusted Step
+    configuration can set max_python_timeout to a shorter limit; request data
+    cannot override that limit. Positive infinity is capped; NaN is rejected.
+    """
 
     async def execute(self):
         assert self.context is not None
 
         code = self.context.get("code", "")
+        maximum, maximum_error = self._parse_timeout(self.kwargs.get("max_python_timeout", MAX_TIMEOUT))
         timeout, timeout_error = self._parse_timeout(
             self.context.get("python_timeout", self.context.get("timeout", DEFAULT_TIMEOUT)),
+            maximum=maximum,
         )
+        if maximum_error:
+            timeout_error = maximum_error.replace("python_timeout", "max_python_timeout")
         if not isinstance(code, str) or not code.strip():
             self.context.response.success = False
             self.context.response.answer = "code is required"
@@ -64,11 +75,19 @@ class PythonExecuteStep(BaseStep):
         return self.context.response
 
     @staticmethod
-    def _parse_timeout(raw: Any) -> tuple[float, str]:
+    def _parse_timeout(raw: Any, *, maximum: float = MAX_TIMEOUT) -> tuple[float, str]:
         try:
+            if isinstance(raw, bool):
+                raise ValueError("boolean timeout")
             timeout = float(raw)
+        except OverflowError:
+            # JSON integers can exceed float's range. They still have a known
+            # sign, so large positive integers follow the normal cap policy.
+            if isinstance(raw, int) and raw > 0:
+                return maximum, ""
+            return DEFAULT_TIMEOUT, "python_timeout must be a positive number"
         except (TypeError, ValueError):
             return DEFAULT_TIMEOUT, "python_timeout must be a positive number"
-        if timeout <= 0:
+        if math.isnan(timeout) or timeout <= 0:
             return DEFAULT_TIMEOUT, "python_timeout must be a positive number"
-        return timeout, ""
+        return min(timeout, maximum), ""

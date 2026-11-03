@@ -78,6 +78,13 @@ class PathSeatbeltBackend(FileSandboxBackend):
         # standard runtime locations, never symlinks to arbitrary user data.
         developer_roots = ("/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer")
         read_paths += [path for path in developer_roots if os.path.isdir(path) and os.path.realpath(path) == path]
+        # The Apple dispatcher also loads runtime files next to Developer.
+        # Keep these grants separate from Contents and reject redirected paths.
+        xcode_runtime = (
+            "/Applications/Xcode.app/Contents/Info.plist",
+            "/Applications/Xcode.app/Contents/SharedFrameworks",
+        )
+        read_paths += [path for path in xcode_runtime if os.path.exists(path) and os.path.realpath(path) == path]
         # Selectors may be absent: xcode-select must be allowed to probe them
         # before falling back to the standard installation. Keep these literal.
         runtime_files = (

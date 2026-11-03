@@ -144,7 +144,7 @@ jobs:
           description: "Python code to execute. Print the final result to stdout."
         python_timeout:
           type: number
-          description: "Execution timeout in seconds; defaults to 60."
+          description: "Positive execution timeout in seconds; defaults to 60, capped at 86400 or the shorter Step max_python_timeout."
         memory_limit_mib:
           type: integer
           minimum: 0

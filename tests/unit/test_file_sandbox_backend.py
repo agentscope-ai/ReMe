@@ -93,6 +93,60 @@ def test_seatbelt_developer_runtime_grants_are_read_only(tmp_path, monkeypatch, 
     assert '(allow file-read-metadata (literal "/private/var/select"))' in profile
 
 
+@pytest.mark.parametrize("redirected", [False, True])
+def test_seatbelt_developer_runtime_grants_are_narrow(tmp_path, monkeypatch, redirected):
+    """Xcode's sibling runtime is readable, without trusting symlinked installations."""
+    directories = {
+        "/Library/Developer/CommandLineTools",
+        "/Applications/Xcode.app/Contents/Developer",
+        "/Applications/Xcode.app/Contents/SharedFrameworks",
+    }
+    info = "/Applications/Xcode.app/Contents/Info.plist"
+    runtime = directories | {info}
+    exists, isdir, realpath = os.path.exists, os.path.isdir, os.path.realpath
+    monkeypatch.setattr(os.path, "exists", lambda path: path in runtime or exists(path))
+    monkeypatch.setattr(os.path, "isdir", lambda path: path in directories or isdir(path))
+    monkeypatch.setattr(
+        os.path,
+        "realpath",
+        lambda path: str(tmp_path / "untrusted") if redirected and path in runtime else realpath(path),
+    )
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    profile = backend._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+
+    for path in runtime:
+        rule = f'(subpath "{path}")' if path in directories else f'(literal "{path}")'
+        assert (f"(allow file-read* {rule})" in profile) is not redirected
+        assert f"(allow file-write* {rule})" not in profile
+    for parent in ("/Applications", "/Applications/Xcode.app/Contents", "/Library/Developer", "/private/var/db"):
+        assert f'(allow file-read* (subpath "{parent}"))' not in profile
+        assert f'(allow file-write* (subpath "{parent}"))' not in profile
+    assert '(allow file-read* (literal "/private/var/db/xcode_select_link"))' in profile
+
+
+def test_seatbelt_environment_drops_host_values(tmp_path, monkeypatch):
+    """The environment is an allowlist, including for future secret and hook names."""
+    values = {
+        "REME_SANDBOX_TEST_SECRET": "secret",
+        "PYTHONPATH": str(tmp_path),
+        "PYTHONSTARTUP": str(tmp_path / "hook.py"),
+        "DYLD_INSERT_LIBRARIES": str(tmp_path / "hook.dylib"),
+        "DEVELOPER_DIR": str(tmp_path / "developer"),
+        "PATH": str(tmp_path / "untrusted"),
+        "GIT_TRACE_FUTURE": str(tmp_path / "trace"),
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    environment = backend._environment(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+    assert environment == {
+        "HOME": str(tmp_path),
+        "TMPDIR": str(tmp_path / "temporary"),
+        "PATH": f"{sys.prefix}/bin:/usr/local/bin:/usr/bin:/bin",
+    }
+    assert all(os.environ[name] == value for name, value in values.items())
+
+
 def test_sandbox_reads_virtual_environment_base_runtime(tmp_path, monkeypatch):
     """A virtual environment grants its real base interpreter without widening writes."""
     workspace = tmp_path / "workspace"

@@ -1,5 +1,6 @@
 """Real macOS execution, deliberately separate from the mocked command tests."""
 
+import os
 import shlex
 import subprocess
 import sys
@@ -75,3 +76,19 @@ async def test_auto_bash_git_preserves_sandbox(tmp_path, monkeypatch):
     )
     assert clean.success, clean.answer
     assert clean.answer.strip() == "clean"
+
+    # Make the trace destination writable so absence of output proves that
+    # environment cleanup works independently of filesystem denials.
+    trace = workspace / "trace"
+    trace.mkdir()
+    marker = trace / "git-trace"
+    monkeypatch.setenv("GIT_TRACE", str(marker))
+    step = AutoBashStep(app_context=context, writable_paths=[str(trace)])
+    for read_only in (True, False):
+        result = await step(command="git rev-parse --show-toplevel", is_read_only=read_only)
+        assert result.success, result.answer
+        assert not marker.exists()
+    assert os.environ["GIT_TRACE"] == str(marker)
+    assert os.environ["REME_SANDBOX_TEST_SECRET"] == "must-not-inherit"
+    subprocess.run(["/usr/bin/git", "rev-parse", "--show-toplevel"], cwd=workspace, check=True, capture_output=True)
+    assert marker.stat().st_size > 0
