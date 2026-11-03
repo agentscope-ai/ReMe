@@ -74,6 +74,20 @@ class PathSeatbeltBackend(FileSandboxBackend):
         """Allow only configured files plus the system runtime needed to launch tools."""
         system_roots = ("/System", "/usr", "/bin", "/sbin", "/private/etc", "/dev")
         read_paths = [path for path in system_roots if os.path.exists(path)]
+        # Apple Git dispatches into the installed developer tools. Only trust
+        # standard runtime locations, never symlinks to arbitrary user data.
+        developer_roots = ("/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer")
+        read_paths += [path for path in developer_roots if os.path.isdir(path) and os.path.realpath(path) == path]
+        # Selectors may be absent: xcode-select must be allowed to probe them
+        # before falling back to the standard installation. Keep these literal.
+        runtime_files = (
+            "/etc",
+            "/var",
+            "/var/select/developer_dir",
+            "/private/var/select/developer_dir",
+            "/var/db/xcode_select_link",
+            "/private/var/db/xcode_select_link",
+        )
         read_paths += self._read_only_paths + self._writable_paths + [tempdir]
         lines = [
             "(version 1)",
@@ -85,13 +99,14 @@ class PathSeatbeltBackend(FileSandboxBackend):
             '(allow file-read* (literal "/") (literal "/private/var/select/sh"))',
         ]
         ancestors = set()
-        for path in read_paths:
+        for path in read_paths + list(runtime_files):
             parent = os.path.dirname(path)
             while parent != "/":
                 ancestors.add(parent)
                 parent = os.path.dirname(parent)
         lines.extend(f"(allow file-read-metadata (literal {json.dumps(path)}))" for path in sorted(ancestors))
         lines.extend(self._runtime_link_rules())
+        lines.extend(f"(allow file-read* (literal {json.dumps(path)}))" for path in runtime_files)
         lines.extend(f"(allow file-read* {self._path_rule(path)})" for path in read_paths)
         # Shell redirection to the null device is safe and is accepted by
         # AutoBash's read-only policy; do not grant writes to the rest of /dev.

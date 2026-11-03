@@ -65,6 +65,34 @@ def test_seatbelt_profile_limits_file_access(tmp_path):
     assert "network*" not in profile
 
 
+@pytest.mark.parametrize("redirected", [False, True])
+@pytest.mark.parametrize(
+    "runtime",
+    ["/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer"],
+)
+def test_seatbelt_developer_runtime_grants_are_read_only(tmp_path, monkeypatch, redirected, runtime):
+    """Standard developer tools are readable, but symlinks cannot expose other trees."""
+    original_isdir = os.path.isdir
+    original_realpath = os.path.realpath
+    monkeypatch.setattr(os.path, "isdir", lambda path: path == runtime or original_isdir(path))
+    monkeypatch.setattr(
+        os.path,
+        "realpath",
+        lambda path: (str(tmp_path) if redirected else runtime) if path == runtime else original_realpath(path),
+    )
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    profile = backend._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
+
+    assert (f'(allow file-read* (subpath "{runtime}"))' in profile) is not redirected
+    assert f'(allow file-write* (subpath "{runtime}"))' not in profile
+    for path in ("/Library", "/var", "/private/var"):
+        assert f'(allow file-read* (subpath "{path}"))' not in profile
+        assert f'(allow file-write* (subpath "{path}"))' not in profile
+    for path in ("/etc", "/var", "/var/select/developer_dir", "/private/var/db/xcode_select_link"):
+        assert f'(allow file-read* (literal "{path}"))' in profile
+    assert '(allow file-read-metadata (literal "/private/var/select"))' in profile
+
+
 def test_sandbox_reads_virtual_environment_base_runtime(tmp_path, monkeypatch):
     """A virtual environment grants its real base interpreter without widening writes."""
     workspace = tmp_path / "workspace"
