@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resou
 def python_process_backend(monkeypatch):
     """Test executor responses with real pipes; sandbox policy is tested separately."""
     monkeypatch.setattr(
-        "reme.steps.common.python_execute.file_sandbox_for_step",
+        "reme.steps.common.python_execute.python_sandbox_for_step",
         lambda _step: LocalProcessBackend(),
     )
 
