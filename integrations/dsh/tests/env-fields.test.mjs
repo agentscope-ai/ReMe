@@ -169,10 +169,19 @@ test("the default rule does not touch the other keys", () => {
   assert.deepEqual(cleared, { LLM_BASE_URL: "" });
 });
 
-test("only the backend names a default", () => {
-  // The embedding backend has no default: ReMe's embedding components are
-  // commented out, so the plugin must not invent a rule for it.
+test("both backends name a default", () => {
+  // ReMe 0.4.0.x declares `as_embedding` with
+  // `backend: ${EMBEDDING_BACKEND:-openai}` and instantiates it, so the
+  // embedding backend follows the same rule as the LLM one.
   assert.equal(envFieldMeta("LLM_BACKEND")?.defaultValue, "openai");
-  assert.equal(envFieldMeta("EMBEDDING_BACKEND")?.defaultValue, undefined);
+  assert.equal(envFieldMeta("EMBEDDING_BACKEND")?.defaultValue, "openai");
   assert.equal(envFieldMeta("LLM_MODEL_NAME")?.defaultValue, undefined);
+  assert.equal(envFieldMeta("LLM_BASE_URL")?.defaultValue, undefined);
+});
+
+test("a cleared embedding backend is written as the default", () => {
+  // The same failure as the LLM backend: an empty value names no backend, and
+  // ReMe refuses to start with one.
+  const updates = envUpdates({ EMBEDDING_BACKEND: "" }, STORED);
+  assert.deepEqual(updates, { EMBEDDING_BACKEND: "openai" });
 });

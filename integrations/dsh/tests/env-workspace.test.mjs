@@ -434,6 +434,25 @@ test("a cleared backend is saved as the default, never as an empty value", (t) =
   assert.match(text, /^EMBEDDING_API_KEY=EMPTY$/m);
 });
 
+test("a cleared embedding backend is saved as the default", (t) => {
+  // ReMe 0.4.0.x declares `as_embedding` with
+  // `backend: ${EMBEDDING_BACKEND:-openai}` and instantiates it, so an empty
+  // value names no backend there either.
+  const { manager, directory } = managerIn(t);
+  const envPath = join(directory, ".env");
+  writeFileSync(
+    envPath,
+    "EMBEDDING_BACKEND=gemini\nLLM_API_KEY=sk-keep\nEMBEDDING_API_KEY=EMPTY\n",
+  );
+
+  manager.writeEnv(directory, { EMBEDDING_BACKEND: "" });
+
+  const text = readFileSync(envPath, "utf8");
+  assert.match(text, /^EMBEDDING_BACKEND=openai$/m);
+  assert.doesNotMatch(text, /^EMBEDDING_BACKEND=$/m);
+  assert.match(text, /^LLM_API_KEY=sk-keep$/m);
+});
+
 test("the probe refuses a .env whose backend is empty", async (t) => {
   // An explicitly empty backend names no backend, and ReMe would start with
   // none at all. The honest answer is an incomplete configuration, and no
@@ -469,6 +488,41 @@ test("the probe refuses a .env whose backend is empty", async (t) => {
     latencyMs: 0,
     error: "LLM config incomplete (LLM_BACKEND)",
   });
+  assert.equal(calls.length, 0, "the snippet is not run");
+});
+
+test("the probe refuses a known backend written in the wrong case", async (t) => {
+  // ReMe's backend registry is case-sensitive, so "OpenAI" is refused as an
+  // unregistered backend. Probing it would test a configuration the service
+  // cannot use.
+  const directory = mkdtempSync(join(tmpdir(), "reme-llm-case-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(
+    join(directory, ".env"),
+    [
+      "LLM_BACKEND=OpenAI",
+      "LLM_MODEL_NAME=test-model",
+      "LLM_API_KEY=sk-test",
+      "LLM_BASE_URL=https://provider.invalid",
+    ].join("\n"),
+  );
+  const calls = [];
+  const result = await testLlm(
+    {
+      run: async (exe, args, options) => {
+        calls.push({ exe, args, options });
+        return {
+          code: 0,
+          stdout: '{"ok": true, "status": 200, "latencyMs": 12, "error": ""}\n',
+          stderr: "",
+        };
+      },
+    },
+    { workspaceDir: directory, pythonPath: "C:\\env\\python.exe" },
+  );
+  assert.equal(result.ok, false);
+  assert.match(result.error, /LLM_BACKEND/);
+  assert.match(result.error, /openai/, "the message names the spelling to use");
   assert.equal(calls.length, 0, "the snippet is not run");
 });
 

@@ -291,6 +291,21 @@ export function llmProtocolFor(backend: string): LlmProtocol {
 }
 
 /**
+ * Whether the file names a backend in a spelling ReMe will not have.
+ *
+ * ReMe's backend registry is case-sensitive, so a name that differs from a
+ * known backend only in case is a misspelling the service refuses
+ * ("Unregistered backend"). A name the plugin has never heard of is left
+ * alone: its list is a snapshot, and ReMe may know more than the plugin does.
+ */
+export function backendSpellingIsWrong(name: string): boolean {
+  return (
+    LLM_PROTOCOLS[name] === undefined &&
+    LLM_PROTOCOLS[name.toLowerCase()] !== undefined
+  );
+}
+
+/**
  * The probe program for one provider, run by the selected interpreter inside
  * the workspace so it reads the same `.env` the service would discover. The
  * provider's protocol is baked into the program, so the probe cannot fall back
@@ -422,6 +437,16 @@ export async function testLlm(
       status: 0,
       latencyMs: 0,
       error: "LLM config incomplete (LLM_BACKEND)",
+    };
+  // A known backend written in the wrong case is refused by ReMe's
+  // case-sensitive registry, so probing it would test a configuration the
+  // service cannot use.
+  if (backend !== undefined && backendSpellingIsWrong(backend))
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      error: `LLM config invalid (LLM_BACKEND must be written in lower case: ${backend.toLowerCase()})`,
     };
   const protocol = llmProtocolFor(backend ?? DEFAULT_LLM_BACKEND);
   try {

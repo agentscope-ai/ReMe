@@ -104,9 +104,10 @@ DSH settings.
   cleared: a credential cannot be deleted by emptying its control, so the blank field always means “keep what is
   stored”. Emptying a **non-secret** field and saving **clears** it. Only fields you edited are written, so the rest
   of the file keeps its comments, unknown keys and order.
-- The backend selection is the one non-secret field with a default: clearing it writes the default
-  (`LLM_BACKEND=openai`) instead of an empty value. ReMe applies `${LLM_BACKEND:-openai}` only when the variable is
-  absent, so an empty value would name no backend at all and the service would refuse to start.
+- The two backend selections are the non-secret fields with a default: clearing one writes the default
+  (`LLM_BACKEND=openai`, `EMBEDDING_BACKEND=openai`) instead of an empty value. ReMe applies
+  `${LLM_BACKEND:-openai}` and `${EMBEDDING_BACKEND:-openai}` only when the variable is absent, so an empty
+  value would name no backend at all and the service would refuse to start.
 - A save writes the edits that were submitted and leaves newer ones alone: typing another field while the save is in
   flight keeps that text, and the card says that unsaved edits are still pending.
 - Saving validates the whole merged file, not just the values you typed: ReMe 0.4.0.x instantiates the embedding
@@ -133,6 +134,9 @@ DSH settings.
   (`LLM config incomplete (LLM_BACKEND)`) and no request is sent: ReMe would start with no backend at all, so the
   probe must not test a configuration the service cannot use. A `.env` without the key is probed with the default
   backend, exactly as ReMe would start it.
+- A known backend written in the wrong case (`LLM_BACKEND=OpenAI`) is reported as invalid, with the spelling to
+  use: ReMe's backend registry is case-sensitive and refuses that name. A backend name the plugin has never heard
+  of is still probed tolerantly — the list here is a snapshot, and ReMe may know more than the plugin does.
 - The draft, the save message and the LLM-test result belong to the workspace they were produced for: switching
   the workspace disposes the section's state, so neither a key typed for one workspace nor a success reported for
   it can be carried into another.

@@ -62,7 +62,15 @@ export const ENV_FIELDS: readonly EnvFieldMeta[] = [
   { key: "LLM_MODEL_NAME", secret: false },
   { key: "LLM_API_KEY", secret: true },
   { key: "LLM_BASE_URL", secret: false },
-  { key: "EMBEDDING_BACKEND", secret: false },
+  {
+    key: "EMBEDDING_BACKEND",
+    secret: false,
+    // ReMe 0.4.0.x declares `as_embedding` with
+    // `backend: ${EMBEDDING_BACKEND:-openai}` and instantiates it, so the
+    // same rule holds here: the default is written out, because an empty
+    // value names no backend and the service then refuses to start.
+    defaultValue: "openai",
+  },
   { key: "EMBEDDING_MODEL_NAME", secret: false },
   {
     key: "EMBEDDING_API_KEY",
