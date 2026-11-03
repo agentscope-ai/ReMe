@@ -4,8 +4,6 @@ import asyncio
 import datetime as dt
 from pathlib import Path
 
-import frontmatter
-
 from .arxiv import ARXIV_ID_PATTERN
 from .base import DailyPaperStep, iter_note_metadata, now
 from .huggingface_papers import HuggingFacePapersClient
@@ -65,11 +63,11 @@ class DailyPaperCollectStep(DailyPaperStep):
         return found
 
     @staticmethod
-    def find_saved_digest(day_dir: Path) -> Path | None:
-        """Find a generated brief by frontmatter instead of by its model-generated title."""
+    def find_saved_digest(day_dir: Path) -> tuple[Path, dict] | None:
+        """Find a generated brief and return its already-read frontmatter."""
         for path, metadata in iter_note_metadata(day_dir):
             if metadata.get("kind") == "daily-paper-brief" or path.name == "daily-paper-brief.md":
-                return path
+                return path, metadata
         return None
 
     @staticmethod
@@ -85,6 +83,7 @@ class DailyPaperCollectStep(DailyPaperStep):
         return PaperInfo.model_validate(values)
 
     async def execute(self):
+        """Load prior brief state or collect the current weekly and monthly papers."""
         assert self.context is not None
         timezone = self.app_context.app_config.timezone if self.app_context is not None else None
         raw_date = str(self._value("date", "") or "").strip()
@@ -95,16 +94,16 @@ class DailyPaperCollectStep(DailyPaperStep):
         daily_dir = str(self.config_value("daily_dir")).strip("/")
         force = bool(self._value("force", False))
         self.logger.info(f"[{self.name}] start date={day} force={force}")
-        digest_path = self.find_saved_digest(self.workspace_path / daily_dir / day)
-        if digest_path is not None:
+        saved_digest = self.find_saved_digest(self.workspace_path / daily_dir / day)
+        if saved_digest is not None:
+            digest_path, saved_metadata = saved_digest
             digest_rel = digest_path.relative_to(self.workspace_path).as_posix()
             self._set_state("existing_digest_path", digest_rel)
             if not force:
                 self._set_state("skip", True)
                 self._set_state("digest_path", digest_rel)
                 self.context.response.success = True
-                saved = frontmatter.load(digest_path)
-                partial = bool(saved.metadata.get("partial", False))
+                partial = bool(saved_metadata.get("partial", False))
                 qualifier = "partial " if partial else ""
                 self.context.response.answer = (
                     f"Skipped: {qualifier}daily paper brief already exists at {digest_rel}"
@@ -116,7 +115,7 @@ class DailyPaperCollectStep(DailyPaperStep):
                         "digest_path": digest_rel,
                         "skipped": True,
                         "partial": partial,
-                        "failed_arxiv_ids": saved.metadata.get("failed_arxiv_ids", []),
+                        "failed_arxiv_ids": saved_metadata.get("failed_arxiv_ids", []),
                     },
                 )
                 self.logger.info(f"[{self.name}] skip existing digest path={digest_rel}")

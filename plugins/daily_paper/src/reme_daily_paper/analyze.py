@@ -9,6 +9,7 @@ from .arxiv import ArxivPdfClient
 from .base import (
     PAPER_COUNT,
     DailyPaperStep,
+    analysis_summary_metadata,
     iter_note_metadata,
     markdown_output,
     normalize_chinese_title,
@@ -227,15 +228,7 @@ class DailyPaperAnalyzeStep(DailyPaperStep):
                     self.logger.warning(f"[{self.name}] paper failed arxiv_id={item.arxiv_id}: {exc}")
                 else:
                     analyses.append(analysis)
-                self.context.response.metadata.update(
-                    {
-                        "analysis_count": len(analyses),
-                        "failure_count": len(failures),
-                        "failed_papers": list(failures),
-                        "note_paths": [paper.note_path for paper in analyses],
-                        "pdf_paths": [paper.pdf_path for paper in analyses],
-                    },
-                )
+                self.context.response.metadata.update(analysis_summary_metadata(analyses, failures))
         self.context.response.success = bool(analyses)
         self.context.response.answer = (
             f"Agent wrote {len(analyses)} detailed paper notes; {len(failures)} paper(s) failed"

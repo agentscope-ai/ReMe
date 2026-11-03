@@ -11,7 +11,7 @@ Step backend，并在 `application_defaults` 下提供 Job 配置；通过 `plug
 ### 1. 安装 ReMe 和每日论文插件
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.12"
+python -m pip install "reme-ai[core]>=0.4.2.0"
 reme plugins install plugins/daily_paper
 ```
 
