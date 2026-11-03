@@ -109,10 +109,12 @@ def test_seatbelt_developer_runtime_grants_are_narrow(tmp_path, monkeypatch, red
     exists, isdir, realpath = os.path.exists, os.path.isdir, os.path.realpath
     monkeypatch.setattr(os.path, "exists", lambda path: path in runtime or exists(path))
     monkeypatch.setattr(os.path, "isdir", lambda path: path in directories or isdir(path))
+    # Model both canonical and redirected installations independently of the
+    # host's Xcode.app symlink (common on GitHub's macOS runners).
     monkeypatch.setattr(
         os.path,
         "realpath",
-        lambda path: str(tmp_path / "untrusted") if redirected and path in runtime else realpath(path),
+        lambda path: (str(tmp_path / "untrusted") if redirected else path) if path in runtime else realpath(path),
     )
     backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
     profile = backend._profile(str(tmp_path / "temporary"))  # pylint: disable=protected-access
