@@ -99,10 +99,13 @@ def test_seatbelt_developer_runtime_grants_are_narrow(tmp_path, monkeypatch, red
     directories = {
         "/Library/Developer/CommandLineTools",
         "/Applications/Xcode.app/Contents/Developer",
+        "/Applications/Xcode.app/Contents/Frameworks",
         "/Applications/Xcode.app/Contents/SharedFrameworks",
     }
-    info = "/Applications/Xcode.app/Contents/Info.plist"
-    runtime = directories | {info}
+    runtime = directories | {
+        "/Applications/Xcode.app/Contents/Info.plist",
+        "/Applications/Xcode.app/Contents/version.plist",
+    }
     exists, isdir, realpath = os.path.exists, os.path.isdir, os.path.realpath
     monkeypatch.setattr(os.path, "exists", lambda path: path in runtime or exists(path))
     monkeypatch.setattr(os.path, "isdir", lambda path: path in directories or isdir(path))
@@ -145,6 +148,91 @@ def test_seatbelt_environment_drops_host_values(tmp_path, monkeypatch):
         "PATH": f"{sys.prefix}/bin:/usr/local/bin:/usr/bin:/bin",
     }
     assert all(os.environ[name] == value for name, value in values.items())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "developer,usable",
+    [
+        ("/Library/Developer/CommandLineTools", True),
+        ("/Applications/Xcode.app/Contents/Developer", True),
+        ("/Applications/Other.app/Contents/Developer", False),
+        ("/tmp/developer", False),
+        ("relative/developer", False),
+        ("", False),
+    ],
+)
+@pytest.mark.parametrize("redirected", [False, True])
+async def test_seatbelt_resolves_only_trusted_selected_git(tmp_path, monkeypatch, developer, usable, redirected):
+    """Host selection is sanitized, and only an unredirected runtime can replace Apple's shim."""
+    from unittest.mock import AsyncMock
+
+    monkeypatch.setenv("DEVELOPER_DIR", "/untrusted/developer")
+    monkeypatch.setenv("DYLD_INSERT_LIBRARIES", "/untrusted/loader")
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    process = object()
+    spawn = AsyncMock(return_value=process)
+    communicate = AsyncMock(return_value=ExecResult(exit_code=0, stdout=f"{developer}\n".encode(), stderr=b""))
+    monkeypatch.setattr(LocalProcessBackend, "_spawn_process", spawn)
+    monkeypatch.setattr(LocalProcessBackend, "_communicate", communicate)
+    git = f"{developer}/usr/bin/git"
+    realpath = os.path.realpath
+    monkeypatch.setattr(os.path, "realpath", lambda path: "/untrusted/git" if redirected and path == git else path)
+    monkeypatch.setattr(os.path, "isfile", lambda path: path == git)
+    monkeypatch.setattr(os, "access", lambda path, _mode: path == git)
+    temporary = str(tmp_path / "temporary")
+    command = ["/usr/bin/git", "status", "--short"]
+
+    prepared, environment = await backend._prepare_command(command, temporary)  # pylint: disable=protected-access
+
+    spawn.assert_awaited_once_with(
+        ["/usr/bin/xcode-select", "--print-path"],
+        cwd="/",
+        env={},
+        stdin=asyncio.subprocess.DEVNULL,
+    )
+    communicate.assert_awaited_once_with(process, timeout=5)
+    selected = usable and not redirected
+    assert prepared == ([git, "status", "--short"] if selected else command)
+    expected_bin = f"{developer}/usr/bin:" if selected else ""
+    assert environment == {
+        "HOME": str(tmp_path),
+        "TMPDIR": temporary,
+        "PATH": f"{sys.prefix}/bin:/usr/local/bin:{expected_bin}/usr/bin:/bin",
+    }
+    assert command == ["/usr/bin/git", "status", "--short"]
+    # A shell's script and quoting remain intact; it finds Git through PATH.
+    shell = ["/bin/sh", "-c", "git rev-parse --show-toplevel"]
+    prepared, _ = await backend._prepare_command(shell, temporary)  # pylint: disable=protected-access
+    assert prepared == shell
+    monkeypatch.setattr(os.path, "realpath", realpath)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing", "timeout", "failed", "not-executable", "not-file"])
+async def test_seatbelt_git_selection_failure_preserves_sandbox(tmp_path, monkeypatch, failure):
+    """Unavailable tools never turn into arbitrary host execution or broader path grants."""
+    from unittest.mock import AsyncMock
+
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    spawn = AsyncMock(side_effect=FileNotFoundError() if failure == "missing" else None)
+    developer = "/Library/Developer/CommandLineTools"
+    result = ExecResult(
+        exit_code=0 if failure in {"not-executable", "not-file"} else -1,
+        stdout=f"{developer}\n".encode(),
+        stderr=b"timed out" if failure == "timeout" else b"",
+    )
+    monkeypatch.setattr(LocalProcessBackend, "_spawn_process", spawn)
+    monkeypatch.setattr(LocalProcessBackend, "_communicate", AsyncMock(return_value=result))
+    monkeypatch.setattr(os.path, "isfile", lambda _: failure != "not-file")
+    monkeypatch.setattr(os, "access", lambda *_: failure != "not-executable")
+    command = ["/usr/bin/git", "status", "--short"]
+    temporary = str(tmp_path / "temporary")
+
+    prepared, environment = await backend._prepare_command(command, temporary)  # pylint: disable=protected-access
+
+    assert prepared == command
+    assert environment == backend._environment(temporary)  # pylint: disable=protected-access
 
 
 def test_sandbox_reads_virtual_environment_base_runtime(tmp_path, monkeypatch):

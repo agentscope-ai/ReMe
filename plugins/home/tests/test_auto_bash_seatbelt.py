@@ -31,13 +31,14 @@ async def test_auto_bash_git_preserves_sandbox(tmp_path, monkeypatch):
     step = AutoBashStep(app_context=context)
 
     # The default PATH may select Homebrew Git. Explicitly exercise Apple's
-    # dispatcher inside the same default backend to cover xcode-select access.
+    # dispatcher argv too, which the backend resolves to trusted developer tools.
     backend = AutoBash(cwd=workspace)._backend  # pylint: disable=protected-access
     assert isinstance(backend, PathSeatbeltBackend)
     for command, expected in (("status", "?? note.txt"), ("rev-parse", str(workspace))):
         flag = "--short" if command == "status" else "--show-toplevel"
         result = await backend.exec_shell(["/usr/bin/git", command, flag], timeout=10)
         assert result.exit_code == 0, result.stderr.decode(errors="replace")
+        assert result.stderr == b""
         assert expected in result.stdout.decode()
 
     for read_only in (True, False):

@@ -38,6 +38,8 @@ class LaunchctlError(RuntimeError):
 class PathSeatbeltBackend(FileSandboxBackend):
     """Run each command under a deny-by-default Seatbelt profile."""
 
+    _DEVELOPER_ROOTS = ("/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer")
+
     def __init__(
         self,
         *,
@@ -76,12 +78,13 @@ class PathSeatbeltBackend(FileSandboxBackend):
         read_paths = [path for path in system_roots if os.path.exists(path)]
         # Apple Git dispatches into the installed developer tools. Only trust
         # standard runtime locations, never symlinks to arbitrary user data.
-        developer_roots = ("/Library/Developer/CommandLineTools", "/Applications/Xcode.app/Contents/Developer")
-        read_paths += [path for path in developer_roots if os.path.isdir(path) and os.path.realpath(path) == path]
+        read_paths += [path for path in self._DEVELOPER_ROOTS if os.path.isdir(path) and os.path.realpath(path) == path]
         # The Apple dispatcher also loads runtime files next to Developer.
         # Keep these grants separate from Contents and reject redirected paths.
         xcode_runtime = (
             "/Applications/Xcode.app/Contents/Info.plist",
+            "/Applications/Xcode.app/Contents/version.plist",
+            "/Applications/Xcode.app/Contents/Frameworks",
             "/Applications/Xcode.app/Contents/SharedFrameworks",
         )
         read_paths += [path for path in xcode_runtime if os.path.exists(path) and os.path.realpath(path) == path]
@@ -146,22 +149,60 @@ class PathSeatbeltBackend(FileSandboxBackend):
             lines.append(f"(deny file-write-create {rule})")
         return "\n".join(lines)
 
-    def _environment(self, tempdir: str) -> dict[str, str]:
+    def _environment(self, tempdir: str, developer_bin: str | None = None) -> dict[str, str]:
         """Expose runtime settings only, never service credentials or Python hooks."""
+        paths = [str(Path(sys.prefix) / "bin"), "/usr/local/bin"]
+        if developer_bin is not None:
+            paths.append(developer_bin)
+        paths.extend(("/usr/bin", "/bin"))
         return {
             "HOME": self._cwd,
             "TMPDIR": tempdir,
-            "PATH": ":".join((str(Path(sys.prefix) / "bin"), "/usr/local/bin", "/usr/bin", "/bin")),
+            "PATH": ":".join(paths),
         }
+
+    async def _prepare_command(self, command: list[str], tempdir: str) -> tuple[list[str], dict[str, str]]:
+        """Resolve Apple's Git shim before sandboxing, without running user commands on the host."""
+        # xcode-select only reports the system selection. In particular, do not
+        # inherit DEVELOPER_DIR, PATH or loader hooks from the service process.
+        backend = LocalProcessBackend()
+        try:
+            process = await backend._spawn_process(  # pylint: disable=protected-access
+                ["/usr/bin/xcode-select", "--print-path"],
+                cwd="/",
+                env={},
+                stdin=asyncio.subprocess.DEVNULL,
+            )
+            result = await backend._communicate(process, timeout=5)  # pylint: disable=protected-access
+        except OSError:
+            return command, self._environment(tempdir)
+        developer = result.stdout.decode(errors="replace").strip() if result.ok() else ""
+        git = os.path.join(developer, "usr", "bin", "git")
+        # Match the runtime grants: selection never authorizes an arbitrary
+        # directory or a standard installation redirected to user-owned data.
+        if (
+            developer not in self._DEVELOPER_ROOTS
+            or os.path.realpath(git) != git
+            or not os.path.isfile(git)
+            or not os.access(git, os.X_OK)
+        ):
+            return command, self._environment(tempdir)
+        environment = self._environment(tempdir, os.path.dirname(git))
+        # Shells find the real Git through PATH; explicit dispatcher argv must
+        # also bypass xcrun's loader and per-user cache outside sandbox TMPDIR.
+        if command[0] == "/usr/bin/git":
+            command = [git, *command[1:]]
+        return command, environment
 
     async def _start_process(self, command: list[str], cwd: str, *, stdin=asyncio.subprocess.DEVNULL):
         """Start Seatbelt directly when the GUI launchd domain is unavailable."""
         tempdir = tempfile.mkdtemp(prefix="reme-seatbelt-", dir=os.path.realpath(tempfile.gettempdir()))
         try:
+            command, environment = await self._prepare_command(command, tempdir)
             process = await self._spawn_process(
                 ["/usr/bin/sandbox-exec", "-p", self._profile(tempdir), *command],
                 cwd=cwd,
-                env=self._environment(tempdir),
+                env=environment,
                 stdin=stdin,
             )
         except BaseException:
@@ -288,6 +329,7 @@ class PathSeatbeltBackend(FileSandboxBackend):
                     pass
 
         try:
+            command, environment = await self._prepare_command(command, str(sandbox_tmp))
             for path, buffer, name in ((stdout_path, stdout, "stdout"), (stderr_path, stderr, "stderr")):
                 os.mkfifo(path, 0o600)
                 # Holding both ends open prevents a transient EOF before launchd
@@ -312,14 +354,14 @@ class PathSeatbeltBackend(FileSandboxBackend):
                     # the payload boundary, rather than merely adding safe keys.
                     "/usr/bin/env",
                     "-i",
-                    *(f"{key}={value}" for key, value in self._environment(str(sandbox_tmp)).items()),
+                    *(f"{key}={value}" for key, value in environment.items()),
                     "/usr/bin/sandbox-exec",
                     "-p",
                     self._profile(str(sandbox_tmp)),
                     *command,
                 ],
                 "WorkingDirectory": cwd,
-                "EnvironmentVariables": self._environment(str(sandbox_tmp)),
+                "EnvironmentVariables": environment,
                 "StandardInPath": str(stdin_path) if data is not None else "/dev/null",
                 "StandardOutPath": str(stdout_path),
                 "StandardErrorPath": str(stderr_path),

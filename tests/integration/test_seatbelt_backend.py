@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import shlex
 import subprocess
 import sys
 import sysconfig
@@ -21,7 +22,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt requi
 @pytest.mark.asyncio
 @pytest.mark.parametrize("direct", [False, True], ids=["auto-launch", "direct"])
 async def test_seatbelt_apple_git_preserves_isolation(tmp_path, monkeypatch, direct):
-    """Exercise Apple's dispatcher with real tools, isolated files and temporary storage."""
+    """Resolve Apple's Git to real tools, with isolated files and temporary storage."""
     root = tmp_path.resolve()
     workspace = root / "workspace"
     workspace.mkdir()
@@ -40,9 +41,16 @@ async def test_seatbelt_apple_git_preserves_isolation(tmp_path, monkeypatch, dir
         monkeypatch.setattr(backend, "_has_gui_launchd", missing)
 
     for args, expected in ((["status", "--short"], "?? note.txt"), (["rev-parse", "--show-toplevel"], str(workspace))):
+        for command in (["/usr/bin/git", *args], ["git", *args], ["/bin/sh", "-c", shlex.join(["git", *args])]):
+            result = await backend.exec_shell(command, timeout=10)
+            assert result.exit_code == 0, result.stderr.decode(errors="replace")
+            assert result.stderr == b""
+            assert expected in result.stdout.decode()
+    for args in (["--version"], ["--exec-path"], ["hash-object", "note.txt"]):
         result = await backend.exec_shell(["/usr/bin/git", *args], timeout=10)
         assert result.exit_code == 0, result.stderr.decode(errors="replace")
-        assert expected in result.stdout.decode()
+        assert result.stderr == b""
+        assert result.stdout.strip()
 
     code = f"""
 import os
