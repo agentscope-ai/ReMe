@@ -474,6 +474,17 @@ test("adopts a leftover record under a same-origin path prefix", async (t) => {
   );
 
   // The adopted record is stoppable: the endpoint on screen can act on it.
+  // A healthy service is only observed, though: Start reports it as already
+  // running and replaces nothing.
+  const started = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(started.started, false);
+  assert.equal(started.alreadyRunning, true);
+  assert.equal(calls.spawn.length, 0, "a healthy service is not replaced");
+
   const stopped = await manager.serviceStop("http://127.0.0.1:2334");
   assert.equal(stopped.stopped, true);
   assert.deepEqual(calls.killTree, [6000]);

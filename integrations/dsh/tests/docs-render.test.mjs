@@ -40,10 +40,11 @@ function codeSpans(text) {
 test("the user docs hold no code span the GUI turns into a link", (t) => {
   for (const file of ["environment.md", "environment_ZH.md"]) {
     const path = join(docs, file);
-    // The packed plugin does not ship the docs; there is nothing to check
-    // there.
+    // The docs are part of the package (`files` includes `docs`), so the check
+    // runs in the packed install too. This branch only guards a checkout that
+    // does not have them.
     if (!existsSync(path)) {
-      t.skip(`${file} is not part of the package`);
+      t.skip(`${file} is not part of this checkout`);
       continue;
     }
     const offenders = codeSpans(readFileSync(path, "utf8")).filter(
