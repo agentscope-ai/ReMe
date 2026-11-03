@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -596,6 +597,67 @@ test("a stop acts on a leftover record without a prior status read", async (t) =
   assert.equal(stopped.stopped, true);
   assert.deepEqual(calls.killTree, [6000]);
   assert.equal(readServiceState(statePath), undefined);
+});
+
+test("replaces a leftover launch whose record cannot be re-keyed", async (t) => {
+  // The re-keying of the leftover is a write to the state file. When that
+  // write fails, the record keeps naming the old endpoint and the conflict
+  // branch has to fall back to the same guard: otherwise the port stays
+  // occupied by our own service and the tab has no way out.
+  const { manager, calls, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  let running = true;
+  io.probePid = () => {
+    if (!running) throw new Error("ESRCH");
+  };
+  // The state file is written through a temporary file next to it; a directory
+  // in its place makes that write fail, exactly as a read-only directory would.
+  const blocked = `${statePath}.${process.pid}.tmp`;
+  mkdirSync(blocked, { recursive: true });
+  t.after(() => rmSync(blocked, { recursive: true, force: true }));
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+    // The write works again once the leftover is gone.
+    rmSync(blocked, { recursive: true, force: true });
+  };
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  io.fetchHealth = async () => ({ ok: false, version: "", error: "boom" });
+  io.portOpen = async () => true;
+
+  // The record cannot be re-keyed, so the leftover stays foreign.
+  const status = await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.managed, false);
+  assert.equal(
+    readServiceState(statePath)?.endpoint,
+    "http://127.0.0.1:2334/reme",
+    "the record keeps its old endpoint",
+  );
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, true);
+  assert.deepEqual(
+    calls.killTree,
+    [6000],
+    "the leftover is stopped even though it could not be re-keyed",
+  );
+  assert.equal(calls.spawn.length, 1);
+  assert.equal(readServiceState(statePath)?.pid, 5001);
 });
 
 test("a prefixed request never stops the healthy service it cannot replace", async (t) => {
