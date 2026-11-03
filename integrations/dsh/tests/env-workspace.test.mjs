@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,7 +17,29 @@ import {
   testLlm,
   validateEnvUpdate,
 } from "../dist/environment/host/workspace.js";
+import { ReMeEnvManager } from "../dist/environment/host/manager.js";
 import { MANAGED_KEYS } from "../dist/environment/env-fields.js";
+
+/** A manager whose process work is replaced by facts. */
+function managerIn(t) {
+  const directory = mkdtempSync(join(tmpdir(), "reme-env-save-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const manager = new ReMeEnvManager(
+    { DSH_HOME: directory },
+    {
+      fetchHealth: async () => ({ ok: false, version: "", error: "" }),
+      portOpen: async () => false,
+      spawnService: async () => ({ pid: 1 }),
+      killTree() {},
+      probePid() {},
+      processImage: async () => "python.exe",
+      processCommandLine: async () => "",
+      exists: () => true,
+      platform: "win32",
+    },
+  );
+  return { manager, directory };
+}
 
 test("resolves the workspace directory with ~/.reme defaults", () => {
   const home = process.platform === "win32" ? "C:\\Users\\u" : "/home/u";
@@ -389,4 +411,95 @@ test("a backend that ignores LLM_BASE_URL is probed with its own endpoint", asyn
   const openai = await probe("openai");
   assert.match(openai, /missing\.append\("LLM_BASE_URL"\)/);
   assert.match(openai, /env\.get\("LLM_BASE_URL"/);
+});
+
+test("a cleared backend is saved as the default, never as an empty value", (t) => {
+  // ReMe resolves `${LLM_BACKEND:-openai}` only when the variable is absent.
+  // An empty value would name no backend, and the service would refuse to
+  // start, so the saved file must hold the default.
+  const { manager, directory } = managerIn(t);
+  const envPath = join(directory, ".env");
+  writeFileSync(
+    envPath,
+    "LLM_BACKEND=dashscope\nLLM_API_KEY=sk-keep\nEMBEDDING_API_KEY=EMPTY\n",
+  );
+
+  manager.writeEnv(directory, { LLM_BACKEND: "" });
+
+  const text = readFileSync(envPath, "utf8");
+  assert.match(text, /^LLM_BACKEND=openai$/m);
+  assert.doesNotMatch(text, /^LLM_BACKEND=$/m);
+  // The other keys are untouched.
+  assert.match(text, /^LLM_API_KEY=sk-keep$/m);
+  assert.match(text, /^EMBEDDING_API_KEY=EMPTY$/m);
+});
+
+test("the probe refuses a .env whose backend is empty", async (t) => {
+  // An explicitly empty backend names no backend, and ReMe would start with
+  // none at all. The honest answer is an incomplete configuration, and no
+  // request is sent.
+  const directory = mkdtempSync(join(tmpdir(), "reme-llm-empty-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(
+    join(directory, ".env"),
+    [
+      "LLM_BACKEND=",
+      "LLM_MODEL_NAME=test-model",
+      "LLM_API_KEY=sk-test",
+      "LLM_BASE_URL=https://provider.invalid",
+    ].join("\n"),
+  );
+  const calls = [];
+  const result = await testLlm(
+    {
+      run: async (exe, args, options) => {
+        calls.push({ exe, args, options });
+        return {
+          code: 0,
+          stdout: '{"ok": true, "status": 200, "latencyMs": 12, "error": ""}\n',
+          stderr: "",
+        };
+      },
+    },
+    { workspaceDir: directory, pythonPath: "C:\\env\\python.exe" },
+  );
+  assert.deepEqual(result, {
+    ok: false,
+    status: 0,
+    latencyMs: 0,
+    error: "LLM config incomplete (LLM_BACKEND)",
+  });
+  assert.equal(calls.length, 0, "the snippet is not run");
+});
+
+test("a .env without the backend key is probed with the default protocol", async (t) => {
+  // The key is absent, so ReMe applies its default; the probe does the same.
+  const directory = mkdtempSync(join(tmpdir(), "reme-llm-absent-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  writeFileSync(
+    join(directory, ".env"),
+    [
+      "LLM_MODEL_NAME=test-model",
+      "LLM_API_KEY=sk-test",
+      "LLM_BASE_URL=https://provider.invalid",
+    ].join("\n"),
+  );
+  const calls = [];
+  await testLlm(
+    {
+      run: async (exe, args, options) => {
+        calls.push({ exe, args, options });
+        return {
+          code: 0,
+          stdout: '{"ok": true, "status": 200, "latencyMs": 12, "error": ""}\n',
+          stderr: "",
+        };
+      },
+    },
+    { workspaceDir: directory, pythonPath: "C:\\env\\python.exe" },
+  );
+  const snippet = String(calls[0]?.args[1] ?? "");
+  assert.match(snippet, /\/chat\/completions/);
+  assert.match(snippet, /"Authorization"/);
+  assert.match(snippet, /Bearer /);
 });

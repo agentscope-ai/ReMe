@@ -9,6 +9,7 @@ import {
   SECRET_KEYS,
   storedState,
 } from "../dist/environment/env-fields.js";
+import { DEFAULT_LLM_BACKEND } from "../dist/environment/llm-backend.js";
 
 /** A file that already holds a value for every key that needs one. */
 const STORED = { EMBEDDING_API_KEY: true };
@@ -40,8 +41,9 @@ test("only the two credentials are secret", () => {
 });
 
 test("the metadata of a key carries its secret flag and placeholder", () => {
-  // What an empty draft means is not metadata: it follows the `secret` flag
-  // alone, which the update rules below apply.
+  // What an empty draft means follows the `secret` flag, which the update
+  // rules below apply. A key that names a default is the documented
+  // exception.
   assert.equal(envFieldMeta("LLM_API_KEY")?.secret, true);
   assert.equal(envFieldMeta("LLM_BASE_URL")?.secret, false);
   assert.equal(envFieldMeta("EMBEDDING_API_KEY")?.disabledValue, "EMPTY");
@@ -123,4 +125,54 @@ test("a key the tab does not manage travels unchanged", () => {
     LLM_MODEL_NAME: "qwen3.7-plus",
     SECRET_OTHER: "value",
   });
+});
+
+test("an empty backend selection is written as the default, not as an empty value", () => {
+  // ReMe resolves `${LLM_BACKEND:-openai}` only when the variable is absent:
+  // an explicitly empty value names no backend, and the service refuses to
+  // start with it. So the cleared selection writes the default out.
+  const updates = envUpdates({ LLM_BACKEND: "" }, STORED);
+  assert.deepEqual(updates, { LLM_BACKEND: DEFAULT_LLM_BACKEND });
+  assert.equal(updates.LLM_BACKEND, "openai");
+  assert.notEqual(updates.LLM_BACKEND, "");
+});
+
+test("a typed backend still travels", () => {
+  const updates = envUpdates({ LLM_BACKEND: "dashscope" }, STORED);
+  assert.deepEqual(updates, { LLM_BACKEND: "dashscope" });
+});
+
+test("an untouched backend key does not travel", () => {
+  // The stored backend survives the save, exactly like every other key.
+  const updates = envUpdates({ LLM_MODEL_NAME: "qwen3.7-plus" }, STORED);
+  assert.equal("LLM_BACKEND" in updates, false);
+});
+
+test("the default rule does not touch the other keys", () => {
+  // A blank secret still keeps the stored credential, and a key that must not
+  // stay empty still gets its placeholder.
+  const secret = envUpdates(
+    { LLM_API_KEY: "", LLM_BACKEND: "" },
+    { LLM_API_KEY: true, EMBEDDING_API_KEY: true },
+  );
+  assert.equal("LLM_API_KEY" in secret, false);
+  assert.equal(secret.LLM_BACKEND, "openai");
+
+  const placeholder = envUpdates(
+    { EMBEDDING_API_KEY: "" },
+    { EMBEDDING_API_KEY: false },
+  );
+  assert.equal(placeholder.EMBEDDING_API_KEY, "EMPTY");
+
+  // A non-secret key without a default is still an explicit clear.
+  const cleared = envUpdates({ LLM_BASE_URL: "" }, STORED);
+  assert.deepEqual(cleared, { LLM_BASE_URL: "" });
+});
+
+test("only the backend names a default", () => {
+  // The embedding backend has no default: ReMe's embedding components are
+  // commented out, so the plugin must not invent a rule for it.
+  assert.equal(envFieldMeta("LLM_BACKEND")?.defaultValue, "openai");
+  assert.equal(envFieldMeta("EMBEDDING_BACKEND")?.defaultValue, undefined);
+  assert.equal(envFieldMeta("LLM_MODEL_NAME")?.defaultValue, undefined);
 });

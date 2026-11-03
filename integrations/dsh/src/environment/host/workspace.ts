@@ -278,7 +278,14 @@ export const LLM_PROTOCOLS: Record<string, LlmProtocol> = {
 /** The backend ReMe itself falls back to when `.env` names none. */
 export { DEFAULT_LLM_BACKEND };
 
-/** The protocol a backend speaks; unknown backends use ReMe's default. */
+/**
+ * The protocol a backend speaks; an unknown backend uses the OpenAI-style
+ * request.
+ *
+ * The list of backends here is a snapshot of the ones the tab offers, and
+ * ReMe may support more, so an unknown name is probed tolerantly rather than
+ * refused.
+ */
 export function llmProtocolFor(backend: string): LlmProtocol {
   return LLM_PROTOCOLS[llmBackendOf(backend)] ?? OPENAI_PROTOCOL;
 }
@@ -353,17 +360,22 @@ except Exception as error:
 }
 
 /**
- * The LLM backend the workspace `.env` selects. An unreadable or incomplete
- * file names none, which leaves the probe on ReMe's default backend.
+ * The LLM backend the workspace `.env` selects.
+ *
+ * `undefined` means the file does not hold the key at all: the service then
+ * falls back to its default. A present key is returned as its trimmed value,
+ * which may be the empty string — that names no backend at all, and ReMe
+ * refuses to start with it, so the caller has to know the difference.
  */
-export function readLlmBackend(envPath: string): string {
+export function readLlmBackend(envPath: string): string | undefined {
   let text = "";
   try {
     text = readFileSync(envPath, "utf8");
   } catch {
-    return "";
+    return undefined;
   }
-  return (parseEnvFile(text)["LLM_BACKEND"] ?? "").trim();
+  const value = parseEnvFile(text)["LLM_BACKEND"];
+  return value === undefined ? undefined : value.trim();
 }
 
 /** Parse the JSON line the LLM test snippet prints. */
@@ -399,9 +411,19 @@ export async function testLlm(
   // The backend in the workspace `.env` decides the protocol; the probe must
   // not fall back to an OpenAI-style request for a provider that speaks its
   // own, or it would report a working configuration as broken.
-  const protocol = llmProtocolFor(
-    readLlmBackend(join(options.workspaceDir, ".env")),
-  );
+  const backend = readLlmBackend(join(options.workspaceDir, ".env"));
+  // A present but empty backend names no backend. ReMe resolves its default
+  // only when the variable is absent, so the service would start with no
+  // backend at all and refuse to run: the honest answer is an incomplete
+  // configuration, and the request is not sent.
+  if (backend === "")
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      error: "LLM config incomplete (LLM_BACKEND)",
+    };
+  const protocol = llmProtocolFor(backend ?? DEFAULT_LLM_BACKEND);
   try {
     const result = await io.run(
       options.pythonPath,
