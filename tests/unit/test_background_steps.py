@@ -15,8 +15,10 @@ import asyncio
 import datetime
 import os
 import tempfile
+import threading
 import warnings
 import weakref
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -29,8 +31,10 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.file_chunker import DefaultFileChunker, JsonFileChunker
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.file_store import LocalFileStore
+from reme.components.job.background_job import BackgroundJob
 from reme.components.runtime_context import RuntimeContext
 from reme.enumeration import ComponentEnum
+from reme.schema import FileChunk, FileNode
 from reme.steps.evolve.auto_memory import AutoMemoryStep
 from reme.steps.evolve.base_auto_resource import _compute_note_stem
 from reme.steps.evolve.auto_resource import AutoResourceStep
@@ -51,6 +55,7 @@ from reme.steps.index import (
 )
 from reme.steps.index._change_batch import bucket_changes
 from reme.steps.index._watch_rules import WatchRule, build_watch_rules, collect_existing, match_file
+from reme.utils.file_utils import FileChangedDuringChunkingError
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -944,6 +949,83 @@ async def test_update_index_handles_file_removed_before_stat():
         ]
 
 
+def test_update_index_initial_scan_removes_file_disappeared_during_parse():
+    """The initial scan removes stale indexed content when a changed source vanishes."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "old contents")
+            store = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker(supported_extensions=["md"])
+            await store.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+                await store.upsert([await chunker.chunk(source)])
+                source.write_text("changed before initial scan", encoding="utf-8")
+                step = UpdateIndexStep(file_store=store, persist=False, app_context=app_ctx)
+
+                async def disappear_during_parse(path: Path):
+                    path.unlink()
+                    raise FileNotFoundError("file disappeared during parse")
+
+                with patch.object(step, "build_item", side_effect=disappear_during_parse):
+                    response = await step(
+                        RuntimeContext(
+                            changes=[{"change": "modified", "path": str(source)}],
+                            retry_source_changes_before_watch=True,
+                        ),
+                    )
+
+                assert response.success is True
+                assert response.answer == [{"change": "deleted", "path": str(source), "success": True}]
+                assert await store.get_nodes() == []
+            finally:
+                await chunker.close()
+                await store.close()
+
+    asyncio.run(run())
+
+
+def test_update_index_initial_scan_fails_when_source_never_stabilizes():
+    """A watcher cannot start from an initial scan that exhausted source retries."""
+
+    async def run():
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            source = write_file(cwd / "daily" / "a.md", "changing source")
+            store = LocalFileStore(name="default", embedding_store="")
+            chunker = DefaultFileChunker(supported_extensions=["md"])
+            await store.start()
+            await chunker.start()
+            try:
+                app_ctx = _make_app_context(cwd)
+                app_ctx.components = {ComponentEnum.FILE_CHUNKER: {"default": chunker}}
+                step = UpdateIndexStep(file_store=store, persist=False, app_context=app_ctx)
+
+                async def source_keeps_changing(path: Path):
+                    raise FileChangedDuringChunkingError("source keeps changing")
+
+                with patch.object(step, "build_item", side_effect=source_keeps_changing) as build_item:
+                    with pytest.raises(FileChangedDuringChunkingError, match="after bounded retries"):
+                        await step(
+                            RuntimeContext(
+                                changes=[{"change": "added", "path": str(source)}],
+                                retry_source_changes_before_watch=True,
+                            ),
+                        )
+
+                assert build_item.call_count == 4
+                assert await store.get_nodes() == []
+            finally:
+                await chunker.close()
+                await store.close()
+
+    asyncio.run(run())
+
+
 @pytest.mark.asyncio
 async def test_update_index_reports_memory_estimation_failure_without_aborting():
     """A missing chunker is isolated to the affected file and returned as a normal failure."""
@@ -998,6 +1080,7 @@ def test_index_update_loop_init_dispatch_updates_store_across_batches():
 
                 first = await init_step(ctx)
                 assert first.metadata["counts"] == {"added": 2, "modified": 0, "deleted": 0}
+                assert "retry_source_changes_before_watch" not in ctx
                 nodes = {n.path: n for n in await fs.get_nodes()}
                 assert set(nodes) == {"daily/a.md", "digest/report.md"}
                 assert all(nodes[p].chunk_ids for p in nodes)
@@ -1009,6 +1092,7 @@ def test_index_update_loop_init_dispatch_updates_store_across_batches():
 
                 second = await init_step(ctx)
                 assert second.metadata["counts"] == {"added": 1, "modified": 1, "deleted": 1}
+                assert "retry_source_changes_before_watch" not in ctx
                 assert {(c["change"], Path(c["path"]).name) for c in ctx["changes"]} == {
                     ("modified", "a.md"),
                     ("deleted", "report.md"),
@@ -1022,6 +1106,135 @@ def test_index_update_loop_init_dispatch_updates_store_across_batches():
             finally:
                 await chunker.close()
                 await fs.close()
+
+    asyncio.run(run())
+
+
+def test_index_update_loop_retries_source_changed_during_initial_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real background job indexes the latest source before its watcher baseline."""
+
+    async def run() -> None:
+        with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+            cwd = Path.cwd()
+            path = write_file(cwd / "daily" / "source.md", "initial contents")
+            parse_started = [threading.Event() for _ in range(5)]
+            resume_parse = [threading.Event() for _ in range(5)]
+            watcher_started = asyncio.Event()
+            watcher_update_requested = asyncio.Event()
+            watcher_update_completed = asyncio.Event()
+            chunk_calls: list[Path] = []
+            watcher_contents: list[str] = []
+
+            store = LocalFileStore(name="default", embedding_store="")
+            app_ctx = _make_app_context(cwd)
+            chunker = DefaultFileChunker(app_context=app_ctx)
+            app_ctx.components = {
+                ComponentEnum.FILE_STORE: {"default": store},
+                ComponentEnum.FILE_CHUNKER: {"default": chunker},
+            }
+            job = BackgroundJob(
+                name="index_update_loop",
+                app_context=app_ctx,
+                watch_dirs=["daily_dir"],
+                watch_suffixes=["md"],
+                steps=[
+                    {
+                        "backend": "init_changes_step",
+                        "monitor_type": "file_store",
+                        "monitor_name": "default",
+                        "dispatch_steps": ["update_index_step"],
+                    },
+                    {
+                        "backend": "watch_changes_step",
+                        "step": 20,
+                        "debounce": 50,
+                        "poll_delay_ms": 10,
+                        "dispatch_steps": [{"backend": "update_index_step", "persist": False}],
+                    },
+                ],
+            )
+
+            original_chunk = chunker._chunk_sync
+
+            def count_chunk(file_path: Path, rel_path: str) -> tuple[FileNode, list[FileChunk]]:
+                result = original_chunk(file_path, rel_path)
+                chunk_calls.append(file_path)
+                attempt = len(chunk_calls) - 1
+                if attempt in {0, 1, 3, 4}:
+                    parse_started[attempt].set()
+                    if not resume_parse[attempt].wait(timeout=5):
+                        raise TimeoutError(f"parse attempt {attempt + 1} was not resumed")
+                return result
+
+            async def track_watcher_start(
+                *paths: str | Path,
+                watch_filter: Callable[[Change, str], bool],
+                recursive: bool,
+                force_polling: bool,
+                debounce: int,
+                step: int,
+                poll_delay_ms: int,
+                stop_event: asyncio.Event,
+                yield_on_timeout: bool,
+            ) -> AsyncGenerator[set[tuple[Change, str]], None]:
+                assert yield_on_timeout is False
+                del paths, watch_filter, recursive, force_polling, debounce, step, poll_delay_ms
+                nodes = await store.get_nodes()
+                watcher_contents.append(
+                    "".join(store.file_chunks[chunk_id].text for node in nodes for chunk_id in node.chunk_ids),
+                )
+                watcher_started.set()
+                await watcher_update_requested.wait()
+                yield {(Change.modified, str(path))}
+                watcher_update_completed.set()
+                await stop_event.wait()
+
+            monkeypatch.setattr(chunker, "_chunk_sync", count_chunk)
+            from reme.steps.index import watch_changes as watch_changes_module
+
+            monkeypatch.setattr(watch_changes_module, "awatch", track_watcher_start)
+
+            try:
+                await store.start()
+                await chunker.start()
+                await job.start()
+                assert await asyncio.to_thread(parse_started[0].wait, 5)
+                path.write_text("contents after the first parse", encoding="utf-8")
+                resume_parse[0].set()
+                assert await asyncio.to_thread(parse_started[1].wait, 5)
+                latest = "latest contents after the initial scan"
+                path.write_text(latest, encoding="utf-8")
+                resume_parse[1].set()
+
+                await asyncio.wait_for(watcher_started.wait(), timeout=5)
+                nodes = await store.get_nodes()
+                assert len(nodes) == 1
+                chunks = [store.file_chunks[chunk_id] for chunk_id in nodes[0].chunk_ids]
+                assert "".join(chunk.text for chunk in chunks) == latest
+                assert watcher_contents == [latest]
+                assert len(chunk_calls) == 3
+
+                path.write_text("watcher update before first parse", encoding="utf-8")
+                watcher_update_requested.set()
+                assert await asyncio.to_thread(parse_started[3].wait, 5)
+                path.write_text("watcher update before retry parse", encoding="utf-8")
+                resume_parse[3].set()
+                assert await asyncio.to_thread(parse_started[4].wait, 5)
+                path.write_text("latest watcher update source", encoding="utf-8")
+                resume_parse[4].set()
+
+                await asyncio.wait_for(watcher_update_completed.wait(), timeout=5)
+                assert len(chunk_calls) == 5
+                assert job._task is not None and not job._task.done()
+                nodes = await store.get_nodes()
+                chunks = [store.file_chunks[chunk_id] for chunk_id in nodes[0].chunk_ids]
+                assert "".join(chunk.text for chunk in chunks) == latest
+            finally:
+                for event in resume_parse:
+                    event.set()
+                await job.close()
+                await chunker.close()
+                await store.close()
 
     asyncio.run(run())
 
@@ -1313,12 +1526,12 @@ async def test_auto_resource_handles_file_removed_before_stat():
             original_stat = Path.stat
 
             def existing_is_file(path, *args, **kwargs):
-                if path == source:
+                if Path(path).name == source.name:
                     return True
                 return original_is_file(path, *args, **kwargs)
 
             def disappearing_stat(path, *args, **kwargs):
-                if path == source:
+                if Path(path).name == source.name:
                     raise FileNotFoundError("file disappeared")
                 return original_stat(path, *args, **kwargs)
 

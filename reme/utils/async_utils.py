@@ -3,10 +3,12 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from typing import Any
+from typing import Any, TypeVar
+
+T = TypeVar("T")
 
 
-async def finish_cleanup(operation: Awaitable):
+async def finish_cleanup(operation: Awaitable[T]) -> T:
     """Finish cleanup before propagating any cancellation received while waiting."""
     task = asyncio.ensure_future(operation)
     cancellation: asyncio.CancelledError | None = None
@@ -21,7 +23,7 @@ async def finish_cleanup(operation: Awaitable):
                 raise
             break
     if cancellation is not None:
-        with suppress(Exception):
+        with suppress(Exception, asyncio.CancelledError):
             task.result()
         raise cancellation
     return task.result()
