@@ -5,7 +5,7 @@ import random
 import subprocess
 import tarfile
 
-from ..code.repository import current_branch, require_clean, resolve_revision, validate_repository, validate_tree
+from ..code.repository import current_branch, validate_candidate, validate_repository
 from ..code.snapshot import tree
 from ..preparation.code import git
 from ..preparation.data.models import fingerprint
@@ -43,10 +43,7 @@ def construction_fingerprints(record, dataset, spec, environment):
 
 def reuse_context(home, spec, environment):
     """Find the nearest valid ancestor before review or sampling, under the workspace lock."""
-    repo, record = validate_repository(home)
-    require_clean(repo)
-    commit = resolve_revision(repo, "HEAD")
-    validate_tree(repo, record, commit)
+    repo, record, commit = validate_candidate(home)
     identity = {"candidate_commit": commit, "branch_name": current_branch(repo)}
     previous = previous_candidate_result(home, commit)
     if previous is not None:

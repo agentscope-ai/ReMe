@@ -1,6 +1,7 @@
 """Export trusted source inputs without running their code or installing them."""
 
 import hashlib
+from collections.abc import Callable
 import os
 from pathlib import Path
 import shutil
@@ -10,7 +11,7 @@ import tomllib
 from .spec import PreparationSpec, relative_path
 
 
-def git_bytes(repository: Path, *arguments: str) -> bytes:
+def git_bytes(repository: Path, *arguments: str, input_bytes: bytes | None = None) -> bytes:
     """Run bounded, noninteractive Git commands without a shell or user hooks."""
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
@@ -29,6 +30,7 @@ def git_bytes(repository: Path, *arguments: str) -> bytes:
         ],
         check=True,
         capture_output=True,
+        input=input_bytes,
         env=environment,
         timeout=120,
     )
@@ -39,6 +41,59 @@ def git(repository: Path, *arguments: str, strip: bool = True) -> str:
     """Decode Git output, optionally preserving porcelain whitespace and path bytes."""
     output = git_bytes(repository, *arguments).decode("utf-8")
     return output.strip() if strip else output
+
+
+def runtime_roots(plugins: list[str]) -> list[Path]:
+    """Return the core and plugin project roots allowed in prepared sources."""
+    return [
+        Path("reme"),
+        Path("pyproject.toml"),
+        Path("README.md"),
+        Path("LICENSE"),
+        *(Path("plugins") / name for name in plugins),
+    ]
+
+
+def git_tree(repository: Path, revision: str, roots: list[Path] | None = None) -> list[tuple[Path, str, str]]:
+    """Select regular Git files using exact NUL-delimited paths, retaining modes and object IDs."""
+    entries = []
+    raw_tree = git_bytes(repository, "ls-tree", "-r", "-z", "--full-tree", revision)
+    for entry in filter(None, raw_tree.split(b"\0")):
+        header, raw_name = entry.split(b"\t", 1)
+        path = Path(relative_path(raw_name.decode("utf-8")))
+        if roots is not None and not any(path.is_relative_to(root) for root in roots):
+            continue
+        mode, kind, oid = header.decode().split()
+        if mode not in {"100644", "100755"} or kind != "blob" or ".git" in path.parts:
+            raise ValueError(f"Git source must contain regular files only: {path}")
+        entries.append((path, mode, oid))
+    return entries
+
+
+def export_git_tree(
+    repository: Path,
+    entries: list[tuple[Path, str, str]],
+    destination: Callable[[Path], Path],
+) -> None:
+    """Batch-export raw blobs without checkout/archive filters or browsing size limits."""
+    objects = git_bytes(
+        repository,
+        "cat-file",
+        "--batch",
+        input_bytes="".join(oid + "\n" for _, _, oid in entries).encode(),
+    )
+    offset = 0
+    for path, mode, oid in entries:
+        boundary = objects.index(b"\n", offset)
+        found, kind, size = objects[offset:boundary].decode().split()
+        if found != oid or kind != "blob":
+            raise ValueError(f"Invalid Git object: {path}")
+        offset = boundary + 1
+        target = destination(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(objects[offset : offset + int(size)])
+        target.chmod(0o755 if mode == "100755" else 0o644)
+        offset += int(size) + 1
 
 
 def tree_fingerprint(root: Path) -> str:
@@ -79,57 +134,11 @@ def prepare_code(spec: PreparationSpec, source: Path, runtime: Path, candidate: 
     is editable. The initial candidate commit supplies the original baseline.
     """
     revision = git(source, "rev-parse", "--verify", "--end-of-options", spec.runtime.source_ref + "^{commit}")
-    # Read object contents directly, bypassing archive attributes and checkout filters.
-    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    raw_tree = subprocess.run(
-        ["git", "-C", str(source), "ls-tree", "-r", "-z", "--full-tree", revision],
-        check=True,
-        capture_output=True,
-        timeout=120,
-        env=environment,
-    ).stdout
-    roots = [
-        Path("reme"),
-        Path("pyproject.toml"),
-        Path("README.md"),
-        Path("LICENSE"),
-        *(Path("plugins") / name for name in spec.runtime.plugins),
-    ]
-    entries = []
-    for entry in raw_tree.split(b"\0"):
-        if not entry:
-            continue
-        header, raw_name = entry.split(b"\t", maxsplit=1)
-        name = Path(relative_path(raw_name.decode("utf-8")))
-        if not any(name.is_relative_to(root) for root in roots):
-            continue
-        mode, kind, object_id = header.decode().split()
-        if mode not in {"100644", "100755"} or kind != "blob":
-            raise ValueError(f"Runtime source must contain regular files only: {name}")
-        entries.append((name, mode, object_id))
-    objects = subprocess.run(
-        ["git", "-C", str(source), "cat-file", "--batch"],
-        input="".join(object_id + "\n" for _, _, object_id in entries).encode(),
-        check=True,
-        capture_output=True,
-        timeout=120,
-        env=environment,
-    ).stdout
+    entries = git_tree(source, revision, runtime_roots(spec.runtime.plugins))
     runtime.mkdir()
     candidate.mkdir()
-    offset = 0
-    for name, mode, object_id in entries:
-        boundary = objects.index(b"\n", offset)
-        found, kind, size = objects[offset:boundary].decode().split()
-        if found != object_id or kind != "blob":
-            raise ValueError(f"Invalid Git object: {name}")
-        offset = boundary + 1
-        # Keep each selected plugin only in repo, including packaging/config files.
-        destination = (candidate if name.parts[0] == "plugins" else runtime) / name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(objects[offset : offset + int(size)])
-        destination.chmod(0o755 if mode == "100755" else 0o644)
-        offset += int(size) + 1
+    # Keep each selected plugin only in repo, including packaging/config files.
+    export_git_tree(source, entries, lambda path: (candidate if path.parts[0] == "plugins" else runtime) / path)
     if not (runtime / "reme/__init__.py").is_file() or not (runtime / "pyproject.toml").is_file():
         raise ValueError("Source revision is not a ReMe project")
     if not (runtime / "reme/config" / spec.runtime.config).is_file():

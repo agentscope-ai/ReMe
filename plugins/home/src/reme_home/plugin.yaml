@@ -2,7 +2,6 @@ backends:
   home_optimizer_agent: reme_home.agent.optimizer:OptimizerAgentWrapper
   home_diagnose_step: reme_home.agent.diagnostic:HomeDiagnoseStep
   home_optimize_step: reme_home.agent.optimizer:HomeOptimizeStep
-  home_workflow_agent: reme_home.agent.wrapper:CaseStudyAgentWrapper
   home_case_study_step: reme_home.agent.case_study:HomeCaseStudyStep
   home_case_study_agent: reme_home.agent.wrapper:CaseStudyAgentWrapper
   home_trace_query_evidence_step: reme_home.evaluation.evidence_step:HomeTraceQueryEvidenceStep

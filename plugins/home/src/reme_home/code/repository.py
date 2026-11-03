@@ -30,6 +30,15 @@ def validate_repository(home: Path, record: dict | None = None) -> tuple[Path, d
     return repository, record
 
 
+def validate_candidate(home: Path) -> tuple[Path, dict, str]:
+    """Validate a clean candidate HEAD before admission or construction reuse, under the caller's lock."""
+    repository, record = validate_repository(home)
+    require_clean(repository)
+    revision = resolve_revision(repository, "HEAD")
+    validate_tree(repository, record, revision)
+    return repository, record, revision
+
+
 def current_branch(repository: Path) -> str:
     """Reject detached HEAD so every candidate commit remains branch-reachable."""
     branch = git(repository, "branch", "--show-current")

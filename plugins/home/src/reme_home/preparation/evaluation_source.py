@@ -8,11 +8,10 @@ import shutil
 import yaml
 
 from ..code.repository import resolve_revision, validate_repository, validate_tree
-from ..code.snapshot import export_blob
 from ..evaluation.artifacts import contained, read_json
-from .code import git, tree_fingerprint
+from .code import export_git_tree, git, git_tree, tree_fingerprint
 from .data.models import fingerprint
-from .spec import PreparationSpec, relative_path
+from .spec import PreparationSpec
 
 
 @dataclass(frozen=True)
@@ -65,17 +64,7 @@ class EvaluationSource:
             raise ValueError("Source fixed runtime changed during import")
         repository = contained(self.home, "code/repo", directory=True)
         candidate.mkdir()
-        entries = git(repository, "ls-tree", "-r", "-z", "--full-tree", self.commit, strip=False)
-        for entry in filter(None, entries.split("\0")):
-            header, name = entry.split("\t", 1)
-            mode, kind, oid = header.split()
-            path = Path(relative_path(name))
-            if mode not in {"100644", "100755"} or kind != "blob" or ".git" in path.parts:
-                raise ValueError(f"Candidate must contain regular files only: {name}")
-            destination = candidate / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            export_blob(repository, oid, destination)
-            destination.chmod(0o755 if mode == "100755" else 0o644)
+        export_git_tree(repository, git_tree(repository, self.commit), lambda path: candidate / path)
         # The isolated repository's init is the selected snapshot, not the optimizer baseline.
         git(candidate, "init", "--initial-branch=init", "--template=")
         git(candidate, "add", "--force", "--all")

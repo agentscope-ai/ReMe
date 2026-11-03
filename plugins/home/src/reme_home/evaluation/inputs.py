@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import Literal
 
 import shutil
-import subprocess
 import tempfile
 import tarfile
 
@@ -12,7 +11,7 @@ from pydantic import Field, field_validator, model_validator
 
 from deploy.benchmark_docker import SourceSnapshot
 
-from ..preparation.code import git, tree_fingerprint
+from ..preparation.code import export_git_tree, git, git_tree, runtime_roots, tree_fingerprint
 from ..preparation.data.models import CaseSpec, DatasetManifest, fingerprint
 from .artifacts import contained, file_sha256, inspect_archive, read_json
 from ..preparation.spec import SpecModel
@@ -138,45 +137,11 @@ def snapshot_code(home: Path, record: dict):
     commit = git(repository, "rev-parse", "--verify", "HEAD^{commit}")
     branch = "init" if commit == record["code"]["initial_commit"] else git(repository, "branch", "--show-current")
     entity_id(branch)
-    # NUL output validates exact paths without interpreting Git quoting rules.
-    entries = subprocess.check_output(
-        ["git", "-C", str(repository), "ls-tree", "-r", "-z", commit],
-        timeout=120,
-    ).split(b"\0")
-    parsed = []
-    for entry in entries:
-        if not entry:
-            continue
-        header, name = entry.split(b"\t", 1)
-        mode, kind, oid = header.decode().split()
-        relative = Path(name.decode())
-        if (
-            relative.is_absolute()
-            or ".." in relative.parts
-            or ".git" in relative.parts
-            or kind != "blob"
-            or mode not in {"100644", "100755"}
-        ):
-            raise ValueError(f"Candidate must contain contained regular files: {relative}")
-        if not any(
-            relative.is_relative_to(path)
-            for path in [
-                Path("reme"),
-                Path("pyproject.toml"),
-                Path("README.md"),
-                Path("LICENSE"),
-                *[Path("plugins") / p for p in record["code"]["plugins"]],
-            ]
-        ):
+    entries = git_tree(repository, commit)
+    roots = runtime_roots(record["code"]["plugins"])
+    for relative, _, _ in entries:
+        if not any(relative.is_relative_to(path) for path in roots):
             raise ValueError(f"Candidate path is outside the prepared runtime projects: {relative}")
-        parsed.append((relative, mode, oid))
-    contents = subprocess.run(
-        ["git", "-C", str(repository), "cat-file", "--batch"],
-        input="".join(oid + "\n" for _, _, oid in parsed).encode(),
-        capture_output=True,
-        check=True,
-        timeout=120,
-    ).stdout
     with tempfile.TemporaryDirectory(
         prefix="evaluation-source-",
         dir=contained(home, "tmp", directory=True),
@@ -193,18 +158,7 @@ def snapshot_code(home: Path, record: dict):
                 shutil.rmtree(target)
             elif target.exists():
                 target.unlink()
-        offset = 0
-        for relative, mode, oid in parsed:
-            end = contents.index(b"\n", offset)
-            found, kind, size = contents[offset:end].decode().split()
-            if found != oid or kind != "blob":
-                raise ValueError("Invalid candidate Git object")
-            offset = end + 1
-            target = combined / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(contents[offset : offset + int(size)])
-            target.chmod(0o755 if mode == "100755" else 0o644)
-            offset += int(size) + 1
+        export_git_tree(repository, entries, lambda path: combined / path)
         for project in record["code"]["install_projects"]:
             if not (combined / project / "pyproject.toml").is_file():
                 raise ValueError(f"Candidate is missing install project {project}")

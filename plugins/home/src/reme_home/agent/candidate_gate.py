@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import Field
 
-from ..code.repository import current_branch, require_clean, resolve_revision, validate_repository, validate_tree
+from ..code.repository import current_branch, validate_candidate, validate_repository
 from ..code.snapshot import export_blob, tree
 from ..evaluation.artifacts import contained, read_json
 from ..evaluation.component import blocking
@@ -26,10 +26,7 @@ class CandidateGateReport(SpecModel):
 
 def admission_context(home):
     """Called under the workspace lock; retries and the baseline bypass admission."""
-    repo, record = validate_repository(home)
-    require_clean(repo)
-    commit = resolve_revision(repo, "HEAD")
-    validate_tree(repo, record, commit)
+    repo, record, commit = validate_candidate(home)
     if commit == record["code"]["initial_commit"] or previous_candidate_result(home, commit) is not None:
         return None
     ancestors = set(git(repo, "rev-list", commit).splitlines())
