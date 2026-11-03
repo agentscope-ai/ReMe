@@ -630,6 +630,16 @@ evaluated commit and total `usage` (null if any case fails or usage is unavailab
 Response success is false if any case fails; completed sibling reports remain
 available. No case scratch directory or intermediate analysis files are created.
 
+The host bounds each returned report using `output_token_limit` (default 2,000)
+with a 10% allowance, rounded down. The agent sees only the configured budget.
+Single-case response metadata and each batch result include `estimated_tokens`,
+`original_estimated_tokens` and `truncated`. Saved sessions retain the full report,
+and usage retains the full model cost. The host Step's optional `tokenizer_source`
+selects a local tokenizer file/directory or Hugging Face source through
+`reme.utils.qwen_token_tools`; its default is `Qwen/Qwen3.8-27B`. Exact counting
+requires `reme-ai[qwen-tokenizer]`; if unavailable, the utility warns and uses its
+UTF-8 byte estimate for counting and truncation.
+
 `validation_path` remains an alias for `evaluation_path`. Legacy `case_id` calls
 still return a text report with per-case metadata. Do not supply both path names
 or both case selectors. Other inspection Jobs retain their `validation_path` argument.
@@ -658,7 +668,7 @@ jobs:
       - backend: home_case_study_step
         agent_wrapper: home_case_study
         concurrency: 4
-        output_token_limit: 2500
+        output_token_limit: 2000
         # memory_limit_mib: 0  # Explicitly disable Linux cgroup memory limiting if needed.
 ```
 
@@ -883,7 +893,15 @@ the existing summary are retained, with a reminder pointing to the readable JSON
 file. This fallback makes no additional model call and counts as one completed
 compression. Cancellation, invalid configuration and uncompressible system prompts
 still propagate during normal operation. Diagnostic and case-study agents retain
-their existing compression behavior. Bounded draft notebook tools are not included.
+their existing compression behavior.
+
+Optimizer and diagnostic agents have `add_draft` and `read_draft` notebook tools.
+Each keeps at most six reusable lessons in FIFO order, with a suggested 200 tokens
+per lesson and host truncation at 220 tokens. An optimizer invocation owns its own
+notebook and a separate diagnostic notebook shared by its successive fresh diagnoses.
+Standalone diagnoses start with an empty notebook. These in-memory lessons survive
+context compression, but are discarded when that optimization or diagnosis ends;
+they are not durable workspace memory and are not shared with case-study agents.
 
 Host-only execution settings belong in the optimizer Step; model, iteration and
 timer settings belong in its wrapper. For example:

@@ -22,6 +22,7 @@ from ..evaluation.budget import validate_max_evaluations, validation_budget_stat
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from .diagnostic import diagnostic_tool, evaluation_paths
+from .draft import create_draft_tools
 from .bounded import RunTimeBudgetTimer, _format_minutes, _remove_hint_by_identity
 from .compression import RecoverableCompressionAgent
 from .workflow_common import required_job, save_record, workflow_reply
@@ -463,6 +464,7 @@ class HomeOptimizeStep(BaseStep):
                 "Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path and report. "
                 "Leave that evaluated branch and commit checked out with no uncommitted changes.",
                 tool_factory=lambda backend: [
+                    *create_draft_tools()[0],
                     Edit(backend=backend),
                     diagnostic_tool(self.agent_wrapper),
                     validation_budget_tool(home, max_evaluations),

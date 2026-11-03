@@ -30,6 +30,19 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
 from test_evaluation_inspection import write_run, snapshot
 
 from reme.utils.local_backend import LocalProcessBackend
+from reme.utils import qwen_token_tools
+
+
+class CharacterTokenizer:
+    def encode(self, text, add_special_tokens=False):
+        assert not add_special_tokens
+        return SimpleNamespace(ids=list(text), offsets=[(i, i + 1) for i in range(len(text))])
+
+
+@pytest.fixture(autouse=True)
+def report_tokenizer(monkeypatch):
+    # Exercise real counting/truncation without tokenizer downloads or model calls.
+    monkeypatch.setattr(qwen_token_tools, "_load_tokenizer", lambda source: CharacterTokenizer())
 
 
 class RecordingSandbox:
@@ -339,9 +352,10 @@ def batch_run(case_run):
 class BatchModel(RecordingModel):
     """Read each fresh agent's case-local evidence before returning its report."""
 
-    def __init__(self, query_id):
+    def __init__(self, query_id, report="case-local report"):
         super().__init__()
         self.query_id = query_id
+        self.report = report
 
     async def __call__(self, **kwargs):
         self.calls.append(kwargs)
@@ -355,8 +369,64 @@ class BatchModel(RecordingModel):
                 ),
             ]
         else:
-            content = [TextBlock(text="case-local report")]
+            content = [TextBlock(text=self.report)]
         return ChatResponse(content=content, is_last=True, usage=ChatUsage(input_tokens=2, output_tokens=3, time=0))
+
+
+@pytest.mark.parametrize("single", [False, True])
+@pytest.mark.parametrize(
+    "budget,length,expected",
+    [(20, 20, 20), (20, 21, 21), (20, 22, 22), (20, 23, 22), (19, 21, 20)],
+)
+@pytest.mark.asyncio
+async def test_report_stage_keeps_hidden_allowance_and_full_session(
+    app,
+    batch_run,
+    sandbox,
+    single,
+    budget,
+    length,
+    expected,
+):
+    run, first, query_id, _commit = batch_run
+    report = ("证据🙂abc" * length)[:length]
+    model = BatchModel(query_id, report=report)
+    wrapper = app.context.components["agent_wrapper"]["home_case_study"]
+    wrapper.as_llm = SimpleNamespace(model=model)
+    app.context.jobs["home_case_study"].step_specs[0][1]["output_token_limit"] = budget
+    selectors = {"case_id": first} if single else {"case_ids": [first, "case2"]}
+    response = await app.run_job("home_case_study", evaluation_path=str(run), **selectors)
+    assert response.success, response.answer
+    results = [response.metadata] if single else response.answer["results"]
+    for item in results:
+        returned = response.answer if single else item["report"]
+        assert returned == report[:expected]
+        assert item["estimated_tokens"] == expected
+        assert item["original_estimated_tokens"] == length
+        assert item["truncated"] is (length > expected)
+        assert item["usage"]["total_tokens"] == 10
+        session = wrapper.session_path / f"{item['session_id']}.jsonl"
+        saved = [json.loads(line) for line in session.read_text().splitlines() if line.strip()]
+        assert report in str(saved)
+    for call in model.calls:
+        prompt = str(call["messages"])
+        assert f"approximately {budget} tokens" in prompt
+        assert "10%" not in prompt
+
+
+@pytest.mark.parametrize("configured", [True, False])
+@pytest.mark.asyncio
+async def test_default_report_budget_is_2000(app, batch_run, sandbox, configured):
+    run, first, query_id, _commit = batch_run
+    model = BatchModel(query_id, report="a" * 2201)
+    app.context.components["agent_wrapper"]["home_case_study"].as_llm = SimpleNamespace(model=model)
+    if not configured:
+        app.context.jobs["home_case_study"].step_specs[0][1].pop("output_token_limit")
+    response = await app.run_job("home_case_study", evaluation_path=str(run), case_id=first)
+    assert response.success, response.answer
+    assert response.answer == "a" * 2200
+    assert response.metadata["truncated"]
+    assert "approximately 2000 tokens" in str(model.calls[0]["messages"])
 
 
 @pytest.mark.asyncio

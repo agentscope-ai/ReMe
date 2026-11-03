@@ -24,7 +24,7 @@ from reme_home.preparation.code import git
 from reme_home.workspace import _initialization_lock
 
 from test_bounded_agent import RecordingModel
-from test_case_study import RecordingSandbox
+from test_case_study import RecordingSandbox, report_tokenizer  # noqa: F401  # pylint: disable=unused-import
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
     home_application,
@@ -92,6 +92,72 @@ def final_report(home, branch="init", path=None):
             "report": "Selected using matching formal evidence; sampled coverage limits confidence.",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_draft_scope_across_optimizer_diagnoses_and_invocations(app, prepared, sandbox):
+    path = await baseline(app)
+
+    def notebooks(messages):
+        return [
+            json.loads(block.output[0].text)["entries"]
+            for message in messages
+            for block in message.content
+            if block.type == "tool_result" and block.name == "read_draft"
+        ]
+
+    class NotebookModel(ScriptedModel):
+        def __init__(self):
+            super().__init__()
+            self.snapshots = []
+
+        async def __call__(self, **kwargs):
+            index = len(self.calls) % 3
+            self.calls.append(kwargs)
+            if index == 1:
+                self.snapshots.append(notebooks(kwargs["messages"])[-1])
+            content = (
+                [TextBlock(text="Supported diagnostic report.")]
+                if index == 2
+                else [
+                    ToolCallBlock(
+                        id=f"draft-{len(self.calls)}",
+                        name="read_draft" if index == 0 else "add_draft",
+                        input=json.dumps({} if index == 0 else {"experience": "Pin evidence to evaluated commits"}),
+                    ),
+                ]
+            )
+            return ChatResponse(content=content, is_last=True, usage=ChatUsage(input_tokens=2, output_tokens=3, time=0))
+
+    diagnostic = NotebookModel()
+    set_model(app, "home_diagnostic", diagnostic)
+    for _ in range(2):
+        model = ScriptedModel(
+            [
+                ("read_draft", {}),
+                ("add_draft", {"experience": "Compare candidates on common queries"}),
+                ("home_diagnose", {"evaluation_paths": [path]}),
+                ("home_diagnose", {"evaluation_paths": [path]}),
+                ("read_draft", {}),
+            ],
+            final=lambda: final_report(prepared, path=path),
+        )
+        set_model(app, "home_optimizer", model)
+        response = await app.run_job("home_optimize")
+        assert response.success, response.answer
+        assert notebooks(model.calls[-1]["messages"]) == [[], ["Compare candidates on common queries"]]
+        schemas = {tool["function"]["name"]: tool["function"]["parameters"] for tool in model.calls[0]["tools"]}
+        assert "_draft_store" not in schemas["home_diagnose"]["properties"]
+    assert diagnostic.snapshots == [
+        [],
+        ["Pin evidence to evaluated commits"],
+        [],
+        ["Pin evidence to evaluated commits"],
+    ]
+    for _ in range(2):
+        response = await app.run_job("home_diagnose", evaluation_paths=[path])
+        assert response.success, response.answer
+    assert diagnostic.snapshots[-2:] == [[], []]
 
 
 @pytest.mark.asyncio

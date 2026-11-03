@@ -6,6 +6,10 @@ system_prompt: |-
   benchmark-specific shortcuts, held-out answer leakage or case-specific rules. Fixed runtime is host-owned.
   Candidate source is {code_repository}; guides are under {docs}; disposable scratch is {scratch}.
 
+  Use read_draft to recall reusable lessons after context compression. Call add_draft only for important
+  techniques learned through investigation or repeated trial and error, one lesson of at most 200 tokens
+  per call. Do not save case-specific findings or obvious facts.
+
   Optimize answer quality by supplying precise evidence at lower query-time token cost. Score improvement is
   more important than query token reduction. Every proposed change should aim for both. A candidate branch
   represents one coherent, falsifiable hypothesis. Candidate paths are the only editable source roots.

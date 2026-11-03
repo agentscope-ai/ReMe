@@ -11,6 +11,7 @@ import yaml
 
 from reme.schema.token_usage import TokenUsage
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.qwen_token_tools import DEFAULT_TOKENIZER, QwenTokenTools
 
 from ..auto_bash import AutoBash
 from ..code.repository import resolve_revision, validate_repository
@@ -33,6 +34,7 @@ CASE_TOOLS = (
     "home_compare_memory",
 )
 CODE_TOOLS = ("home_list_code_tree", "home_search_code", "home_read_code_file")
+REPORT_METADATA = ("session_id", "usage", "estimated_tokens", "original_estimated_tokens", "truncated")
 _SANDBOX_PROBE = """\
 import json
 import pathlib
@@ -270,6 +272,22 @@ def create_toolkit(wrapper, scope, backend):
     return Toolkit(tools=tools)
 
 
+def limit_report(result, output_limit, tokenizer_source):
+    """Bound the returned report, preserving the full persisted session and model usage."""
+    tools = QwenTokenTools(tokenizer_source)
+    report = result["result"]
+    original_tokens = tools.count(report)
+    # Integer arithmetic floors the host-only 10% allowance, including small budgets.
+    report, returned_tokens, truncated = tools.truncate(report, output_limit * 110 // 100)
+    return {
+        **result,
+        "result": report,
+        "estimated_tokens": returned_tokens,
+        "original_estimated_tokens": original_tokens,
+        "truncated": truncated,
+    }
+
+
 class HomeCaseStudyStep(BaseStep):
     """Run ordered cases with fresh agents through the normal ReMe lifecycle."""
 
@@ -295,9 +313,12 @@ class HomeCaseStudyStep(BaseStep):
             )
         if len({scope["candidate_commit"] for scope in scopes}) != 1:
             raise ValueError("Evaluation candidate commit changed while preparing case scopes")
-        output_limit = self.kwargs.get("output_token_limit", 2500)
+        output_limit = self.kwargs.get("output_token_limit", 2000)
         if isinstance(output_limit, bool) or not isinstance(output_limit, int) or output_limit < 1:
             raise ValueError("output_token_limit must be a positive integer")
+        tokenizer_source = self.kwargs.get("tokenizer_source", DEFAULT_TOKENIZER)
+        if not isinstance(tokenizer_source, str) or not tokenizer_source.strip():
+            raise ValueError("tokenizer_source must be a non-empty string")
         concurrency = self.kwargs.get("concurrency", 4)
         if isinstance(concurrency, bool) or not isinstance(concurrency, int) or concurrency < 1:
             raise ValueError("concurrency must be a positive integer")
@@ -317,7 +338,7 @@ class HomeCaseStudyStep(BaseStep):
             result = await self._investigate(scopes[0], spec.focus, prompts, output_limit)
             response.answer = result["result"]
             response.metadata.update(validation_path=scopes[0]["validation_path"], case_id=spec.case_ids[0])
-            response.metadata.update({key: result[key] for key in ("session_id", "usage") if key in result})
+            response.metadata.update({key: result[key] for key in REPORT_METADATA if key in result})
             return response
         semaphore = asyncio.Semaphore(concurrency)
 
@@ -329,7 +350,7 @@ class HomeCaseStudyStep(BaseStep):
                         "case_id": scope["case_id"],
                         "success": True,
                         "report": result["result"],
-                        **{key: result[key] for key in ("session_id", "usage") if key in result},
+                        **{key: result[key] for key in REPORT_METADATA if key in result},
                     }
                 except Exception as exc:  # One failed investigator must not cancel sibling reports.
                     self.logger.exception(f"Case-study investigation failed: case_id={scope['case_id']}")
@@ -368,7 +389,7 @@ class HomeCaseStudyStep(BaseStep):
             raise RuntimeError("Case-study sandbox unavailable: " + probe.stderr.decode(errors="replace"))
         toolkit = create_toolkit(self.agent_wrapper, scope, backend)
         prompt = prompts["system_prompt"].format(**scope, output_token_limit=output_limit)
-        return await self.agent_wrapper.reply(
+        result = await self.agent_wrapper.reply(
             prompts["task_prompt"].format(focus=focus),
             system_prompt=prompt,
             toolkit=toolkit,
@@ -380,4 +401,10 @@ class HomeCaseStudyStep(BaseStep):
             fork_session=False,
             output_schema=None,
             permission_mode="bypass",
+        )
+        return await blocking(
+            limit_report,
+            result,
+            output_limit,
+            self.kwargs.get("tokenizer_source", DEFAULT_TOKENIZER),
         )

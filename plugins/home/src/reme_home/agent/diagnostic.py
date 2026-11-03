@@ -14,6 +14,7 @@ from ..evaluation.artifacts import contained, read_json, write_json
 from ..evaluation.component import blocking
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace
+from .draft import DraftStore, create_draft_tools
 from .workflow_common import required_job, save_record, workflow_reply
 from .wrapper import BoundedAgentWrapper
 
@@ -74,6 +75,7 @@ def trajectory(state):
 def diagnostic_tool(wrapper):
     """Inject the optimizer's real trajectory into a fresh diagnostic invocation."""
     job = required_job(wrapper, "home_diagnose")
+    drafts = DraftStore()
 
     async def diagnose(
         evaluation_paths: list[str],  # pylint: disable=redefined-outer-name
@@ -86,6 +88,7 @@ def diagnostic_tool(wrapper):
             instruction=instruction,
             evaluation_paths=evaluation_paths,
             caller_trajectory=trajectory(kwargs.get("_agent_state")),
+            _draft_store=drafts,
         )
         return {"success": response.success, "answer": response.answer, "metadata": response.metadata}
 
@@ -112,6 +115,9 @@ class HomeDiagnoseStep(BaseStep):
             raise ValueError("Home diagnosis requires access to its managed evidence")
         if not self.workspace.is_started or not self.agent_wrapper.is_started:
             raise RuntimeError("Start the Home workspace and diagnostic wrapper first")
+        drafts = self.context.get("_draft_store")
+        if drafts is not None and not isinstance(drafts, DraftStore):
+            raise TypeError("Diagnostic drafts must be a host-supplied DraftStore")
         spec = DiagnosticInput.model_validate(
             {key: self.context[key] for key in DiagnosticInput.model_fields if key in self.context},
         )
@@ -137,6 +143,7 @@ class HomeDiagnoseStep(BaseStep):
                 f"Diagnostic request:\n{spec.instruction}\n\nComplete available caller trajectory: {source}\n"
                 f"Explicit evaluation paths: {json.dumps(paths, ensure_ascii=False)}",
                 job_names=("home_case_study",),
+                tool_factory=lambda _backend: create_draft_tools(drafts)[0],
                 memory_limit_mib=self.kwargs.get("memory_limit_mib"),
             )
             if not isinstance(result.get("result"), str) or not result["result"].strip():

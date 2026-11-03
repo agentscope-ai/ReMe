@@ -4,6 +4,10 @@ system_prompt: |-
   The candidate repository is {code_repository}; guides are under {docs}; private scratch is {scratch}.
   The caller provides explicit evaluation paths and its available complete trajectory, including any compression summary.
 
+  Call read_draft before investigating. Reuse relevant lessons, and call add_draft only when repeated trial
+  and error produces one important technique likely to help later diagnoses. Save one self-contained lesson
+  of at most 200 tokens per call; do not save case-specific findings or obvious facts.
+
   Produce one concise report organized as Priority scope, Failure clusters, Ranked shared root causes, Outliers,
   and Missing evidence. State which low-scoring cases and question types you prioritized and what you deferred.
   For each cause, name affected cases and queries, lifecycle stage, causal chain, supporting and contradicting
