@@ -69,7 +69,8 @@ class NxFileGraph(BaseFileGraph):
     # -- Node CRUD ---------------------------------------------------------
 
     async def upsert_nodes(self, nodes: list[FileNode]) -> None:
-        for node in nodes:
+        for raw_node in nodes:
+            node = self.canonical_node(raw_node)
             path = node.path
             if self._graph.has_node(path):
                 self._graph.remove_edges_from(list(self._graph.out_edges(path, keys=True)))
@@ -77,7 +78,8 @@ class NxFileGraph(BaseFileGraph):
             self._graph.add_edges_from(self._edges_from(path, node))
 
     async def delete_nodes(self, paths: list[str]) -> None:
-        for path in paths:
+        for raw_path in paths:
+            path = self.normalize_path(raw_path)
             if not self._graph.has_node(path):
                 continue
             self._graph.remove_edges_from(list(self._graph.out_edges(path, keys=True)))
@@ -89,14 +91,19 @@ class NxFileGraph(BaseFileGraph):
         view = self._graph.nodes
         if paths is None:
             return [d["node"] for _, d in view(data=True) if "node" in d]
-        return [view[p]["node"] for p in paths if p in view and "node" in view[p]]
+        normalized = [self.normalize_path(p) for p in paths]
+        return [view[p]["node"] for p in normalized if p in view and "node" in view[p]]
 
     async def rebuild_links(self) -> None:
-        self._graph.remove_edges_from(list(self._graph.edges(keys=True)))
-        virtual = [n for n, d in self._graph.nodes(data=True) if "node" not in d]
-        self._graph.remove_nodes_from(virtual)
-        for path, data in list(self._graph.nodes(data=True)):
-            self._graph.add_edges_from(self._edges_from(path, data["node"]))
+        canonical = {
+            self.normalize_path(data["node"].path): self.canonical_node(data["node"])
+            for _, data in self._graph.nodes(data=True)
+            if "node" in data
+        }
+        self._graph.clear()
+        for node in canonical.values():
+            self._graph.add_node(node.path, node=node)
+            self._graph.add_edges_from(self._edges_from(node.path, node))
 
     async def clear(self):
         self._graph.clear()
@@ -105,6 +112,7 @@ class NxFileGraph(BaseFileGraph):
     # -- Link access -------------------------------------------------------
 
     async def get_outlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
+        path = self.normalize_path(path)
         view = self._graph.nodes
         if path not in view or "node" not in view[path]:
             return []
@@ -115,6 +123,7 @@ class NxFileGraph(BaseFileGraph):
         ]
 
     async def get_inlinks(self, path: str, scope: LinkScopeEnum = LinkScopeEnum.REAL) -> list[FileLink]:
+        path = self.normalize_path(path)
         view = self._graph.nodes
         if path not in view or not self._scope_match(path, scope):
             return []
