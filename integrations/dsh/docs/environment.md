@@ -136,7 +136,8 @@ DSH settings.
   backend, exactly as ReMe would start it.
 - A known backend written in the wrong case (`LLM_BACKEND=OpenAI`) is reported as invalid, with the spelling to
   use: ReMe's backend registry is case-sensitive and refuses that name. A backend name the plugin has never heard
-  of is still probed tolerantly — the list here is a snapshot, and ReMe may know more than the plugin does.
+  of is still probed tolerantly — the list here is a snapshot, and ReMe may know more than the plugin does. That
+  holds however the name looks: only a backend the plugin actually knows can be reported as a wrong spelling.
 - The draft, the save message and the LLM-test result belong to the workspace they were produced for: switching
   the workspace disposes the section's state, so neither a key typed for one workspace nor a success reported for
   it can be carried into another.

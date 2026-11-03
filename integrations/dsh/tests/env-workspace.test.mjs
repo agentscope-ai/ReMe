@@ -526,6 +526,64 @@ test("the probe refuses a known backend written in the wrong case", async (t) =>
   assert.equal(calls.length, 0, "the snippet is not run");
 });
 
+test("a backend name the plugin does not know is probed tolerantly, whatever it looks like", async (t) => {
+  // The protocol table is a plain object, so it inherits from
+  // `Object.prototype`: `constructor` and `__proto__` are not backends. A name
+  // the plugin has never heard of must be probed like any other unknown name,
+  // and must never be reported as a known backend written in the wrong case.
+  const directory = mkdtempSync(join(tmpdir(), "reme-llm-prototype-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const names = ["constructor", "__proto__", "CONSTRUCTOR", "__PROTO__"];
+  for (const name of names) {
+    writeFileSync(
+      join(directory, ".env"),
+      [
+        `LLM_BACKEND=${name}`,
+        "LLM_MODEL_NAME=test-model",
+        "LLM_API_KEY=sk-test",
+        "LLM_BASE_URL=https://provider.invalid",
+      ].join("\n"),
+    );
+    const calls = [];
+    const result = await testLlm(
+      {
+        run: async (exe, args, options) => {
+          calls.push({ exe, args, options });
+          return {
+            code: 0,
+            stdout:
+              '{"ok": true, "status": 200, "latencyMs": 12, "error": ""}\n',
+            stderr: "",
+          };
+        },
+      },
+      { workspaceDir: directory, pythonPath: "C:\\env\\python.exe" },
+    );
+    assert.doesNotMatch(
+      result.error ?? "",
+      /lower case/,
+      `${name} is not reported as a known backend in the wrong case`,
+    );
+    assert.equal(calls.length, 1, `${name} is probed tolerantly`);
+    const snippet = String(calls[0]?.args[1] ?? "");
+    assert.match(
+      snippet,
+      /\/chat\/completions/,
+      `${name} gets the default protocol`,
+    );
+    assert.match(
+      snippet,
+      /"Authorization"/,
+      `${name} gets the default protocol`,
+    );
+    assert.doesNotMatch(
+      snippet,
+      /undefined/,
+      `${name} builds no malformed snippet`,
+    );
+  }
+});
+
 test("a .env without the backend key is probed with the default protocol", async (t) => {
   // The key is absent, so ReMe applies its default; the probe does the same.
   const directory = mkdtempSync(join(tmpdir(), "reme-llm-absent-"));

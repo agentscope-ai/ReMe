@@ -279,6 +279,17 @@ export const LLM_PROTOCOLS: Record<string, LlmProtocol> = {
 export { DEFAULT_LLM_BACKEND };
 
 /**
+ * The protocol entry the table holds for `key`, if it holds one at all.
+ *
+ * Only an own entry counts: the table inherits from `Object.prototype`, so a
+ * plain lookup would hand out `Object` for a backend named `constructor` and
+ * build a malformed probe from it.
+ */
+function ownProtocol(key: string): LlmProtocol | undefined {
+  return Object.hasOwn(LLM_PROTOCOLS, key) ? LLM_PROTOCOLS[key] : undefined;
+}
+
+/**
  * The protocol a backend speaks; an unknown backend uses the OpenAI-style
  * request.
  *
@@ -287,7 +298,7 @@ export { DEFAULT_LLM_BACKEND };
  * refused.
  */
 export function llmProtocolFor(backend: string): LlmProtocol {
-  return LLM_PROTOCOLS[llmBackendOf(backend)] ?? OPENAI_PROTOCOL;
+  return ownProtocol(llmBackendOf(backend)) ?? OPENAI_PROTOCOL;
 }
 
 /**
@@ -299,9 +310,12 @@ export function llmProtocolFor(backend: string): LlmProtocol {
  * alone: its list is a snapshot, and ReMe may know more than the plugin does.
  */
 export function backendSpellingIsWrong(name: string): boolean {
+  // Own entries only. An inherited member is not a known backend: `constructor`
+  // and `__proto__` would otherwise be reported as known backends written in
+  // the wrong case, and the message would name a spelling ReMe refuses too.
   return (
-    LLM_PROTOCOLS[name] === undefined &&
-    LLM_PROTOCOLS[name.toLowerCase()] !== undefined
+    ownProtocol(name) === undefined &&
+    ownProtocol(name.toLowerCase()) !== undefined
   );
 }
 
