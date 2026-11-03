@@ -506,7 +506,6 @@ async def test_existing_content_searchable_during_indexing(
             assert recovered.success is True
             nodes = await store.get_nodes()
             assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
-        assert not step._source_versions
 
 
 @pytest.mark.asyncio
@@ -576,7 +575,6 @@ async def test_changed_batched_file_is_rebuilt_before_publication_and_valid_file
                 if change == "oversize":
                     assert response.answer[0]["skipped"] is True
                     assert response.answer[0]["reason"] == "file_too_large"
-        assert not step._source_versions
         nodes = {node.path: node for node in await store.get_nodes()}
         if change == "oversize":
             assert "first.txt" not in nodes
@@ -602,7 +600,6 @@ async def test_changed_batched_file_is_rebuilt_before_publication_and_valid_file
             assert "first.txt" not in nodes
         else:
             assert store.file_chunks[nodes["first.txt"].chunk_ids[0]].text == first_path.read_text()
-        assert not step._source_versions
 
 
 @pytest.mark.asyncio
@@ -640,7 +637,7 @@ async def test_stale_batch_chunks_are_released_before_source_retry(
             abs_path: Path,
             size_bytes: int,
             results: list[dict],
-        ) -> tuple[tuple[FileNode, list[FileChunk]], int] | None:
+        ) -> tuple[tuple[FileNode, list[FileChunk], os.stat_result], int] | None:
             nonlocal stale_chunk_released
             if stale_chunk_released is not None:
                 gc.collect()
@@ -670,7 +667,6 @@ async def test_stale_batch_chunks_are_released_before_source_retry(
 
         assert response.success is True
         assert stale_chunk_released is not None and stale_chunk_released.is_set()
-        assert not step._source_versions
         nodes = await store.get_nodes()
         assert len(nodes) == 1
         assert store.file_chunks[nodes[0].chunk_ids[0]].text == "latest source with a different size"
@@ -708,7 +704,11 @@ async def test_parse_retry_rechecks_size_limit_and_refreshes_memory_estimate(
         estimated_sizes: list[int] = []
         original_estimate = step.estimate_item_memory
 
-        def record_estimate(item: tuple[FileNode, list[FileChunk]], file_path: Path, size_bytes: int) -> int:
+        def record_estimate(
+            item: tuple[FileNode, list[FileChunk], os.stat_result],
+            file_path: Path,
+            size_bytes: int,
+        ) -> int:
             estimated_sizes.append(size_bytes)
             return original_estimate(item, file_path, size_bytes)
 
@@ -736,7 +736,6 @@ async def test_parse_retry_rechecks_size_limit_and_refreshes_memory_estimate(
             assert estimated_sizes == [new_size]
             nodes = await store.get_nodes()
             assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
-        assert not step._source_versions
 
 
 @pytest.mark.asyncio
@@ -767,7 +766,6 @@ async def test_index_updates_deduplicate_absolute_and_relative_paths(
         nodes = await store.get_nodes()
         assert len(nodes) == 1
         assert nodes[0].path == "source.txt"
-        assert not step._source_versions
 
 
 @pytest.mark.asyncio
@@ -788,11 +786,13 @@ async def test_version_is_checked_after_waiting_for_store_lock(
         await store.upsert([await chunker.chunk(path)])
         path.write_text("updated source")
         built = asyncio.Event()
+        pending_chunks: list[weakref.ReferenceType[FileChunk]] = []
         step = UpdateIndexStep(file_store=store, persist=False, app_context=context)
         original = step.build_item
 
-        async def record_build(file_path: Path) -> tuple[FileNode, list[FileChunk]]:
+        async def record_build(file_path: Path) -> tuple[FileNode, list[FileChunk], os.stat_result]:
             item = await original(file_path)
+            pending_chunks.append(weakref.ref(item[1][0]))
             built.set()
             return item
 
@@ -810,7 +810,10 @@ async def test_version_is_checked_after_waiting_for_store_lock(
             if outcome == "change":
                 response = await task
                 assert response.success is True
-        assert not step._source_versions
+        if outcome == "cancel":
+            await asyncio.sleep(0)
+            gc.collect()
+            assert pending_chunks and all(ref() is None for ref in pending_chunks)
         nodes = await store.get_nodes()
         expected_text = "latest source" if outcome == "change" else "original source"
         assert store.file_chunks[nodes[0].chunk_ids[0]].text == expected_text
@@ -819,4 +822,3 @@ async def test_version_is_checked_after_waiting_for_store_lock(
             assert recovered.success is True
             nodes = await store.get_nodes()
             assert store.file_chunks[nodes[0].chunk_ids[0]].text == path.read_text()
-        assert not step._source_versions

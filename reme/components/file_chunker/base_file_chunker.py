@@ -44,7 +44,7 @@ class BaseFileChunker(BaseComponent):
         with self._worker_state_lock:
             self._worker_closing = True
             self._worker_generation += 1
-        await finish_cleanup(asyncio.create_task(self._close_worker()))
+        await finish_cleanup(self._close_worker())
 
     async def _close_worker(self) -> None:
         await self._acquire_worker_lock()
@@ -76,18 +76,15 @@ class BaseFileChunker(BaseComponent):
         file_path = Path(path)
         rel_path = self.to_workspace_relative(path)
         await self._acquire_worker_lock()
-        temporary_worker = False
         try:
             with self._worker_state_lock:
                 if self._worker_closing or generation != self._worker_generation:
                     raise RuntimeError("File chunker closed while waiting to parse")
                 worker = self._worker
-                temporary_worker = worker is None
-            if temporary_worker:
+            if worker is None:
                 # Standalone chunk() remains usable without start(), with no persistent threads.
                 with ThreadPoolExecutor(max_workers=1, thread_name_prefix="reme-chunker") as worker:
                     return await self._run_chunk(worker, generation, file_path, rel_path, chunk)
-            assert worker is not None
             return await self._run_chunk(worker, generation, file_path, rel_path, chunk)
         finally:
             self._worker_lock.release()

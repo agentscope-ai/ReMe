@@ -407,33 +407,22 @@ class UpdateIndexStep(ChangeApplyStep):
     reads_file_content = True
     source_change_retries: int = 1
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._source_versions: dict[str, os.stat_result] = {}
-
     def _change_path_key(self, path: str) -> str:
         """Coalesce absolute and workspace-relative aliases of the same file."""
         return os.path.normcase(os.fspath(self._to_abs_path(path).absolute()))
 
-    async def _apply_existing(self, buckets: dict[Change, list[str]]) -> list[dict]:
-        try:
-            return await super()._apply_existing(buckets)
-        finally:
-            # Steps are invocation-scoped; cancelled batches must release their snapshots too.
-            self._source_versions.clear()
-
-    async def build_item(self, path: Path) -> tuple[FileNode, list[FileChunk]]:
+    async def build_item(self, path: Path) -> tuple[FileNode, list[FileChunk], os.stat_result]:
+        """Keep each source version with its parsed item until publication."""
         before = path.stat()
-        item = await self.chunk_file(path)
+        node, chunks = await self.chunk_file(path)
         after = path.stat()
         check_file_version(path, before, after)
-        self._source_versions[item[0].path] = after
-        return item
+        return node, chunks, after
 
     async def _try_upsert(
         self,
         change: Change,
-        items: list[tuple[FileNode, list[FileChunk]]],
+        items: list[tuple[FileNode, list[FileChunk], os.stat_result]],
         ok_paths: list[str],
         *,
         retry_source_changes: bool = True,
@@ -442,15 +431,15 @@ class UpdateIndexStep(ChangeApplyStep):
         retry_paths: list[str] = []
         result_by_path: dict[str, dict] = {}
         async with self.file_store._maintenance_guard():  # pylint: disable=protected-access
-            current_items: list[tuple[FileNode, list[FileChunk]]] = []
+            current_items: list[tuple[FileNode, list[FileChunk], os.stat_result]] = []
             current_paths: list[str] = []
-            item: tuple[FileNode, list[FileChunk]] | None = None
+            item: tuple[FileNode, list[FileChunk], os.stat_result] | None = None
             for item, path in zip(items, ok_paths):
                 node = item[0]
                 try:
                     check_file_version(
                         self._to_abs_path(node.path),
-                        self._source_versions[node.path],
+                        item[2],
                         self._to_abs_path(node.path).stat(),
                     )
                 except (FileChangedDuringChunkingError, FileNotFoundError) as exc:
@@ -474,8 +463,6 @@ class UpdateIndexStep(ChangeApplyStep):
                 else:
                     current_items.append(item)
                     current_paths.append(path)
-                finally:
-                    self._source_versions.pop(node.path)
             if current_items:
                 result_by_path.update(
                     {
@@ -509,8 +496,8 @@ class UpdateIndexStep(ChangeApplyStep):
         result_by_path.update({result["path"]: result for result in retry_results})
         return [result_by_path[path] for path in ok_paths]
 
-    async def upsert_items(self, items: list[tuple[FileNode, list[FileChunk]]]) -> None:
-        await self.file_store.upsert(items)
+    async def upsert_items(self, items: list[tuple[FileNode, list[FileChunk], os.stat_result]]) -> None:
+        await self.file_store.upsert([(node, chunks) for node, chunks, _ in items])
 
     async def delete_paths(self, paths: list[str]) -> None:
         await self.file_store.delete(paths)
@@ -526,7 +513,7 @@ class UpdateIndexStep(ChangeApplyStep):
 
     def estimate_item_memory(
         self,
-        item: tuple[FileNode, list[FileChunk]],
+        item: tuple[FileNode, list[FileChunk], os.stat_result],
         path: Path,
         size_bytes: int,
     ) -> int:
