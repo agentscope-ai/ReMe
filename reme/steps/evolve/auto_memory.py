@@ -147,6 +147,35 @@ def _sanitize_msg_for_save(msg: Msg) -> Msg:
     return msg.model_copy(update={"content": new_content})
 
 
+def _canonical_message_json(msg: Msg) -> str:
+    """Compare the JSON values written to disk without Python bool/int aliasing or key-order noise."""
+    persisted = json.loads(msg.model_dump_json())
+    return json.dumps(persisted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _stabilize_raw_content_ids(item: dict) -> dict:
+    """Give raw content blocks stable IDs when the caller did not supply one."""
+    content = item.get("content")
+    if not isinstance(content, list):
+        return item
+
+    stable_content = []
+    changed = False
+    for index, raw_block in enumerate(content):
+        if not isinstance(raw_block, dict):
+            stable_content.append(raw_block)
+            continue
+        block = dict(raw_block)
+        if "id" not in block:
+            canonical = json.dumps(block, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+            block["id"] = hashlib.sha256(f"{index}:{canonical}".encode("utf-8")).hexdigest()
+        if "created_at" not in block and item.get("created_at"):
+            block["created_at"] = item["created_at"]
+        stable_content.append(block)
+        changed = changed or block != raw_block
+    return {**item, "content": stable_content} if changed else item
+
+
 def _normalize_msg_timestamp(item: dict) -> dict:
     """Map common message timestamp aliases to AgentScope's ``created_at`` field."""
     if item.get("created_at"):
@@ -326,7 +355,7 @@ class AutoMemoryStep(BaseStep):
             # sanitized records so identical retries with omitted image/tool data
             # retain the append fast path, while corrections force a rewrite.
             can_append = 0 < len(existing) <= len(merged) and all(
-                merged[i].model_dump() == existing[i].model_dump() for i in range(len(existing))
+                _canonical_message_json(merged[i]) == _canonical_message_json(existing[i]) for i in range(len(existing))
             )
 
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -363,6 +392,8 @@ class AutoMemoryStep(BaseStep):
             item = _normalize_msg_timestamp(item)
         if isinstance(item, dict) and isinstance(item.get("content"), str):
             item = {**item, "content": [{"type": "text", "text": item["content"]}]}
+        if isinstance(item, dict):
+            item = _stabilize_raw_content_ids(item)
         return Msg.model_validate(item)
 
     @staticmethod
