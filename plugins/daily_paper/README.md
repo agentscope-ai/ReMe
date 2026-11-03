@@ -13,7 +13,7 @@ their Job configuration under `application_defaults`. Enable the installed plugi
 ### 1. Install ReMe and Daily Paper
 
 ```bash
-python -m pip install "reme-ai[core]>=0.4.1.12"
+python -m pip install "reme-ai[core]>=0.4.2.0"
 reme plugins install plugins/daily_paper
 ```
 

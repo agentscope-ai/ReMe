@@ -1,23 +1,20 @@
 """Shared state and file helpers for daily-paper steps."""
 
 import datetime as dt
-import os
 import re
 import zoneinfo
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, TypeVar
-from uuid import uuid4
 
-import aiofiles
 import frontmatter
 from pydantic import BaseModel
 
 from reme.steps import BaseStep
-from reme.steps.file_io import get_path_lock, validate_filename_component
+from reme.steps.file_io import get_path_lock, validate_filename_component, write_file_safe
 
-from .schema import DailyPaperMarkdownOutput
+from .schema import AnalyzedPaper, DailyPaperMarkdownOutput
 
 # Number of papers selected, analyzed, and digested each run. Shared across steps.
 PAPER_COUNT = 3
@@ -68,6 +65,20 @@ def markdown_output(result: dict[str, Any]) -> DailyPaperMarkdownOutput:
     if not desc or not body:
         raise ValueError("Agent returned an empty Markdown description or body")
     return output.model_copy(update={"desc": desc, "body": body})
+
+
+def analysis_summary_metadata(
+    analyses: list[AnalyzedPaper],
+    failures: list[dict[str, str]],
+) -> dict[str, Any]:
+    """Build shared progress metadata for analyze and standalone digest steps."""
+    return {
+        "analysis_count": len(analyses),
+        "failure_count": len(failures),
+        "failed_papers": list(failures),
+        "note_paths": [item.note_path for item in analyses],
+        "pdf_paths": [item.pdf_path for item in analyses],
+    }
 
 
 def normalize_chinese_title(raw: str, fallback: str) -> str:
@@ -157,19 +168,12 @@ async def reserve_unique_note_path(
 
 
 async def write_atomic(path: Path, content: str | bytes) -> None:
-    """Write through a sibling temporary file under the repository path lock."""
+    """Write atomically under the path lock, cleaning surrogate text first."""
     path.parent.mkdir(parents=True, exist_ok=True)
     lock = await get_path_lock(path)
     async with lock:
-        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
-        payload = replace_surrogates(content).encode("utf-8") if isinstance(content, str) else content
-        try:
-            async with aiofiles.open(temp_path, "wb") as stream:
-                await stream.write(payload)
-            os.replace(temp_path, path)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        payload = replace_surrogates(content) if isinstance(content, str) else content
+        await write_file_safe(path, payload)
 
 
 async def write_markdown(path: Path, body: str, metadata: dict[str, Any]) -> None:

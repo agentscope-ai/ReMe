@@ -11,6 +11,7 @@ from reme.steps.file_io import refresh_day_index
 from .base import (
     PAPER_COUNT,
     DailyPaperStep,
+    analysis_summary_metadata,
     markdown_output,
     normalize_chinese_title,
     reserve_unique_note_path,
@@ -113,7 +114,7 @@ class DailyPaperDigestStep(DailyPaperStep):
             )
         self.logger.info(f"[{self.name}] start notes={len(analyses)}")
 
-        documents = [{"title": item.title, "desc": item.desc, "body": item.body} for item in analyses]
+        documents = [item.model_dump(include={"title", "desc", "body"}) for item in analyses]
         wikilinks = [f"[[{item.note_path}]]" for item in analyses]
         run_day = dt.date.fromisoformat(self._run_day())
         daily_dir = str(self.config_value("daily_dir")).strip("/")
@@ -198,17 +199,13 @@ class DailyPaperDigestStep(DailyPaperStep):
         self.context.response.answer = f"Generated {qualifier}daily paper brief: {digest_rel}"
         self.context.response.metadata.update(
             {
+                **analysis_summary_metadata(analyses, failures),
                 "date": day,
                 "partial": partial,
-                "analysis_count": len(analyses),
-                "failure_count": len(failures),
-                "failed_papers": list(failures),
                 "week": self._state("week"),
                 "month": self._state("month"),
                 "selection_reasoning": [item.reasoning for item in analyses],
                 "selected_arxiv_ids": selected_ids,
-                "note_paths": [item.note_path for item in analyses],
-                "pdf_paths": [item.pdf_path for item in analyses],
                 "digest_path": digest_rel,
                 "source_counts": self._state("source_counts"),
                 "excluded_yesterday_count": len(
