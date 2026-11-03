@@ -63,7 +63,7 @@ async def test_continuous_output_stops_process(tmp_path, fd):
 async def test_python_step_reports_output_overflow(tmp_path, monkeypatch):
     """Python callers receive bounded partial output and failure metadata."""
     monkeypatch.setattr(
-        "reme.steps.common.python_execute.python_sandbox_for_step",
+        "reme.steps.common.python_execute.file_sandbox_for_step",
         lambda _step: LocalProcessBackend(),
     )
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))

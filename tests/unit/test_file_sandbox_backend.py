@@ -310,7 +310,7 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
 async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path, monkeypatch):
     """The sandbox backend's timeout result is reflected in Python metadata."""
     monkeypatch.setattr(
-        "reme.steps.common.python_execute.python_sandbox_for_step",
+        "reme.steps.common.python_execute.file_sandbox_for_step",
         lambda _step: LocalProcessBackend(),
     )
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))

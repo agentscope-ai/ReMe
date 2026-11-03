@@ -6,7 +6,7 @@ from typing import Any
 from ...utils.local_backend import ProcessTimeout
 from ..base_step import BaseStep
 from ...components import R
-from .file_sandbox import python_sandbox_for_step
+from .file_sandbox import file_sandbox_for_step
 
 DEFAULT_TIMEOUT = 60.0
 
@@ -33,7 +33,7 @@ class PythonExecuteStep(BaseStep):
 
         timed_out = False
         try:
-            backend = python_sandbox_for_step(self)
+            backend = file_sandbox_for_step(self)
             result = await backend.exec_shell(
                 [sys.executable, "-c", code],
                 cwd=str(self.workspace_path.resolve()),
