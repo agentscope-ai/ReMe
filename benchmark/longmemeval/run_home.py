@@ -88,7 +88,7 @@ async def _run(config_path, *, workspace_dir=None, optimize_workspace=False, ins
                         "backend": backend,
                         "agent_wrapper": wrapper,
                         "memory_limit_mib": config.memory_limit_mib,
-                        **({"concurrency": 4, "output_token_limit": 2500} if name == "home_case_study" else {}),
+                        **({"concurrency": 4, "output_token_limit": 2000} if name == "home_case_study" else {}),
                     },
                 ],
             }
