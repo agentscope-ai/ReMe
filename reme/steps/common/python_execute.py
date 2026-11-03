@@ -38,6 +38,7 @@ class PythonExecuteStep(BaseStep):
                 [sys.executable, "-c", code],
                 cwd=str(self.workspace_path.resolve()),
                 timeout=timeout,
+                raise_errors=True,
             )
         except ProcessTimeout as exc:
             result, timed_out = exc.result, True

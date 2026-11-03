@@ -21,6 +21,7 @@ from ..async_utils import finish_cleanup
 from ..local_backend import (
     LocalProcessBackend,
     OutputLimitExceeded,
+    ProcessTimeout,
     capture_output,
     output_limit_result,
 )
@@ -210,7 +211,15 @@ class PathSeatbeltBackend(FileSandboxBackend):
             capture_output(buffer, chunk, name, exceeded)
             await asyncio.sleep(0)
 
-    async def _run_job(self, command: list[str], cwd: str, *, data: bytes | None, timeout: float | None) -> ExecResult:
+    async def _run_job(
+        self,
+        command: list[str],
+        cwd: str,
+        *,
+        data: bytes | None,
+        timeout: float | None,
+        raise_errors: bool = False,
+    ) -> ExecResult:
         if sys.platform != "darwin":
             raise RuntimeError("PathSeatbeltBackend requires macOS")
         if shutil.which("sandbox-exec") is None:
@@ -225,7 +234,7 @@ class PathSeatbeltBackend(FileSandboxBackend):
                 RuntimeWarning,
                 stacklevel=2,
             )
-            return await super()._run_job(command, cwd, data=data, timeout=timeout)
+            return await super()._run_job(command, cwd, data=data, timeout=timeout, raise_errors=raise_errors)
         control = Path(tempfile.mkdtemp(prefix="reme-seatbelt-", dir=os.path.realpath(tempfile.gettempdir())))
         sandbox_tmp = control / "sandbox-tmp"
         sandbox_tmp.mkdir()
@@ -310,6 +319,13 @@ class PathSeatbeltBackend(FileSandboxBackend):
             try:
                 exit_code = await self._execute(run(), timeout=timeout, cleanup=cleanup)
             except TimeoutError:
+                if raise_errors:
+                    # launchd does not expose a subprocess returncode. Use the
+                    # wrapper's status when available, otherwise retain -1.
+                    exit_code = int(status_path.read_text(encoding="ascii")) if status_path.exists() else -1
+                    raise ProcessTimeout(
+                        ExecResult(exit_code=exit_code, stdout=bytes(stdout), stderr=bytes(stderr)),
+                    ) from None
                 return ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
             except OutputLimitExceeded as exc:
                 return output_limit_result(bytes(stdout), bytes(stderr), str(exc))

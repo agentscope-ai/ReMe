@@ -1,6 +1,7 @@
 """Shared file sandbox selection and macOS policy construction."""
 
 import asyncio
+import os
 import plistlib
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ from agentscope.tool import ExecResult
 
 from reme.components.application_context import ApplicationContext
 from reme.steps.common.python_execute import PythonExecuteStep
-from reme.utils.local_backend import LocalProcessBackend
+from reme.utils.local_backend import LocalProcessBackend, ProcessTimeout
 from reme.utils.file_sandbox import create_file_sandbox_backend
 from reme.utils.file_sandbox.path_bubble_backend import PathBubbleBackend
 from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
@@ -196,7 +197,8 @@ async def test_python_job_selects_seatbelt_on_macos(tmp_path, monkeypatch):
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "darwin")
     seen = {}
 
-    async def fake_exec(self, command, *, cwd=None, timeout=None):
+    async def fake_exec(self, command, *, cwd=None, timeout=None, raise_errors=False):
+        assert raise_errors is True
         seen.update(backend=self, command=command, cwd=cwd, timeout=timeout)
         return ExecResult(exit_code=0, stdout=b"ok\n", stderr=b"")
 
@@ -236,8 +238,12 @@ async def test_seatbelt_direct_execution_does_not_inherit_service_environment(tm
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["success", "failure", "timeout", "cancel", "error", "kickstart_error", "write"])
-async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("raise_errors", [False, True])
+@pytest.mark.parametrize(
+    "mode",
+    ["success", "failure", "timeout", "timeout_status", "cancel", "error", "kickstart_error", "write"],
+)
+async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode, raise_errors):
     """Every launchd outcome unregisters the job and removes its control files."""
     from unittest.mock import AsyncMock, Mock
 
@@ -266,13 +272,15 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
             # Output is collected after launchd has reaped the process group.
             (control / "stdout").write_bytes(b"output")
             (control / "stderr").write_bytes(b"diagnostic")
+            if mode == "timeout_status":
+                (control / "status").write_text("137\n", encoding="ascii")
         return "12345"
 
     async def wait_status(*_args):
         started.set()
         if mode == "error":
             raise RuntimeError("status failed")
-        if mode in ("timeout", "cancel"):
+        if mode in ("timeout", "timeout_status", "cancel"):
             await asyncio.Event().wait()
         return 7 if mode == "failure" else 0
 
@@ -281,7 +289,11 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
     operation = (
         backend.write_file(str(tmp_path / "note.bin"), b"binary\x00\xff")
         if mode == "write"
-        else backend.exec_shell(["true"], timeout=0.01 if mode == "timeout" else None)
+        else backend.exec_shell(
+            ["true"],
+            timeout=0.01 if mode.startswith("timeout") else None,
+            raise_errors=raise_errors,
+        )
     )
     task = asyncio.create_task(operation)
     if mode == "cancel":
@@ -292,26 +304,48 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode):
     elif mode in ("error", "kickstart_error"):
         with pytest.raises(RuntimeError, match="failed"):
             await asyncio.wait_for(task, timeout=1)
+    elif mode.startswith("timeout") and raise_errors:
+        with pytest.raises(ProcessTimeout) as caught:
+            await asyncio.wait_for(task, timeout=1)
+        assert caught.value.result == ExecResult(
+            exit_code=137 if mode == "timeout_status" else -1,
+            stdout=b"output",
+            stderr=b"diagnostic",
+        )
     else:
         result = await asyncio.wait_for(task, timeout=1)
         if mode == "write":
             assert result is None
-        elif mode == "timeout":
+        elif mode.startswith("timeout"):
             assert result == ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
         else:
             assert result.exit_code == (7 if mode == "failure" else 0)
             assert result.stdout == b"output" and result.stderr == b"diagnostic"
     assert calls == ["bootstrap", "kickstart", "bootout"]
     assert not control.exists()
-    assert killed.call_count == int(mode in ("timeout", "cancel", "error"))
+    assert killed.call_count == int(mode in ("timeout", "timeout_status", "cancel", "error"))
 
 
 @pytest.mark.asyncio
-async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path, monkeypatch):
-    """The sandbox backend's timeout result is reflected in Python metadata."""
+@pytest.mark.parametrize("backend_class", [PathBubbleBackend, PathSeatbeltBackend])
+async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path, monkeypatch, backend_class):
+    """Real pipes exercise sandbox timeout propagation without OS isolation requirements."""
+    from unittest.mock import AsyncMock
+
+    backend = backend_class(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+
+    async def start(command, cwd, *, stdin):
+        return await LocalProcessBackend()._start_process(command, cwd, stdin=stdin)  # pylint: disable=protected-access
+
+    monkeypatch.setattr(backend, "_start_process", start)
+    if backend_class is PathSeatbeltBackend:
+        monkeypatch.setattr(sys, "platform", "darwin")
+        monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
+        monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=False))
+        monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.warnings.warn", lambda *a, **kw: None)
     monkeypatch.setattr(
         "reme.steps.common.python_execute.file_sandbox_for_step",
-        lambda _step: LocalProcessBackend(),
+        lambda _step: backend,
     )
     step = PythonExecuteStep(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
     response = await step(
@@ -321,7 +355,7 @@ async def test_python_timeout_preserves_exit_status_and_stderr(tmp_path, monkeyp
     assert response.success is False
     assert response.answer == "Python execution timed out after 0.3s"
     assert response.metadata == {
-        "returncode": -1,
-        "stderr": "timed out",
+        "returncode": -9 if os.name == "posix" else 1,
+        "stderr": "diagnostic\n",
         "python_timeout": 0.3,
     }

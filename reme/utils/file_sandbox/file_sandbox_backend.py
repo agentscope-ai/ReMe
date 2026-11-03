@@ -111,18 +111,27 @@ class FileSandboxBackend(LocalProcessBackend):
         *,
         cwd: str | None = None,
         timeout: float | None = None,
+        raise_errors: bool = False,
     ) -> ExecResult:
-        """Execute an argv list with a timeout inside the platform sandbox."""
-        return await self._run_job(command, cwd or self._cwd, data=None, timeout=timeout)
+        """Execute inside the sandbox; raise_errors preserves output in ProcessTimeout."""
+        return await self._run_job(command, cwd or self._cwd, data=None, timeout=timeout, raise_errors=raise_errors)
 
-    async def _run_job(self, command: list[str], cwd: str, *, data: bytes | None, timeout: float | None) -> ExecResult:
+    async def _run_job(
+        self,
+        command: list[str],
+        cwd: str,
+        *,
+        data: bytes | None,
+        timeout: float | None,
+        raise_errors: bool = False,
+    ) -> ExecResult:
         """Run with optional stdin; platform backends may own a different job lifecycle."""
         process = await self._start_process(
             command,
             cwd,
             stdin=asyncio.subprocess.PIPE if data is not None else asyncio.subprocess.DEVNULL,
         )
-        return await self._communicate(process, data=data, timeout=timeout)
+        return await self._communicate(process, data=data, timeout=timeout, raise_errors=raise_errors)
 
     async def read_file(self, path: str) -> bytes:
         """Read through a sandboxed command so file rules still apply."""
