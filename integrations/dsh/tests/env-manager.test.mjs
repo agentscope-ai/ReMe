@@ -433,6 +433,171 @@ test("replaces a leftover launch recorded under a same-origin path prefix", asyn
   assert.equal(readServiceState(statePath)?.pid, 5001);
 });
 
+test("adopts a leftover record under a same-origin path prefix", async (t) => {
+  // The leftover record was filed under `…/reme`, but the launch configures
+  // only host and port, so it is the service the endpoint on screen talks to.
+  // It must be re-keyed to that endpoint: otherwise it looks foreign, the tab
+  // offers no Stop, and the record lingers until the process exits.
+  const { manager, calls, directory, io } = managerIn(t);
+  // The real status read: the leftover is only adopted by the Host itself.
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  let running = true;
+  io.probePid = () => {
+    if (!running) throw new Error("ESRCH");
+  };
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+  };
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  io.fetchHealth = async () => ({ ok: true, version: "0.4.2.1", error: "" });
+
+  const status = await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(status.phase, "running");
+  assert.equal(status.managed, true, "the leftover is ours to manage");
+  assert.equal(status.pid, 6000);
+  assert.equal(
+    readServiceState(statePath)?.endpoint,
+    "http://127.0.0.1:2334",
+    "the record is filed under the endpoint on screen",
+  );
+
+  // The adopted record is stoppable: the endpoint on screen can act on it.
+  const stopped = await manager.serviceStop("http://127.0.0.1:2334");
+  assert.equal(stopped.stopped, true);
+  assert.deepEqual(calls.killTree, [6000]);
+  assert.equal(readServiceState(statePath), undefined);
+});
+
+test("replaces a leftover launch that holds the port without being healthy", async (t) => {
+  // The leftover record was filed under `…/reme` and its process occupies the
+  // port without answering the health check. The endpoint on screen cannot
+  // stop that record (it names another endpoint) and the conflict card offers
+  // no way out, so the start must replace it instead of refusing.
+  const { manager, calls, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  let running = true;
+  io.probePid = () => {
+    if (!running) throw new Error("ESRCH");
+  };
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+  };
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  // The port answers, but the service behind it is not healthy.
+  io.fetchHealth = async () => ({ ok: false, version: "", error: "boom" });
+  io.portOpen = async () => true;
+
+  const status = await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.managed, true, "the leftover is ours to manage");
+  assert.equal(status.pid, 6000);
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, true);
+  assert.deepEqual(calls.killTree, [6000], "the leftover is stopped first");
+  assert.equal(calls.spawn.length, 1);
+  assert.equal(readServiceState(statePath)?.pid, 5001);
+});
+
+test("adopting a leftover never overwrites a record that changed meanwhile", async (t) => {
+  // The ownership probe reads the process command line, which takes long
+  // enough for another launch to record its own service. The adoption must
+  // not write the record it read before the probe: that would orphan the
+  // fresh service, or re-key a record that belongs to another endpoint.
+  const { manager, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  // Another launch records its own service while the ownership probe runs.
+  io.processCommandLine = async () => {
+    writeServiceState(statePath, {
+      pid: 7000,
+      endpoint: "http://127.0.0.1:2335",
+      workspaceDir: directory,
+      pythonPath: "D:\\env\\python.exe",
+      command: "reme start",
+      startedAt: "2026-10-27T00:01:00.000Z",
+    });
+    return `reme start workspace_dir=${directory} service.port=2334`;
+  };
+
+  await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(
+    readServiceState(statePath)?.pid,
+    7000,
+    "the newer record survives the adoption",
+  );
+  assert.equal(
+    readServiceState(statePath)?.endpoint,
+    "http://127.0.0.1:2335",
+    "and it is not re-keyed to another endpoint",
+  );
+});
+
+test("a stop acts on a leftover record without a prior status read", async (t) => {
+  // The Host must not depend on the client having read the status first: the
+  // stop itself re-keys the leftover, so it stops the right process instead of
+  // refusing the record as foreign.
+  const { manager, calls, directory, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334/reme",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  let running = true;
+  io.probePid = () => {
+    if (!running) throw new Error("ESRCH");
+  };
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+  };
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+
+  const stopped = await manager.serviceStop("http://127.0.0.1:2334");
+  assert.equal(stopped.stopped, true);
+  assert.deepEqual(calls.killTree, [6000]);
+  assert.equal(readServiceState(statePath), undefined);
+});
+
 test("a prefixed request never stops the healthy service it cannot replace", async (t) => {
   // A prefixed endpoint can never be launched: the launch sets only host and
   // port, so the request is refused later anyway. Replacing the same-origin

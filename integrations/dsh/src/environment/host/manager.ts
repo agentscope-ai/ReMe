@@ -23,8 +23,9 @@ import {
   serviceStatus,
   startService,
   stopService,
+  writeServiceState,
 } from "./service.js";
-import type { ServiceIO } from "./service.js";
+import type { PersistedService, ServiceIO } from "./service.js";
 import {
   envSummary,
   mergeEnvFile,
@@ -208,6 +209,11 @@ export class ReMeEnvManager {
   /** Current service phase (running / conflict / stopped) and ownership. */
   async serviceStatus(endpoint: string, authToken = ""): Promise<ServiceState> {
     const endpointValue = this.endpoint(endpoint);
+    // A record left under a path prefix of the same origin describes the
+    // service this endpoint talks to. It is re-keyed to the endpoint on screen
+    // first, so the tab can manage (stop) it and the start path can replace
+    // it instead of treating our own service as a foreign process.
+    await this.adoptLeftover(endpointValue);
     const persisted = readServiceState(this.serviceStatePath);
     // A malformed record must not turn the log path into a relative one.
     let logDir = resolveWorkspaceDir("", homedir());
@@ -406,6 +412,11 @@ export class ReMeEnvManager {
   }
 
   private async stopLocked(endpointValue: string): Promise<ServiceStopResult> {
+    // A leftover record under a path prefix of the same origin is this
+    // service: it is re-keyed first, so a stop that arrives before any
+    // status read still acts on the right record instead of refusing it as
+    // foreign.
+    await this.adoptLeftover(endpointValue);
     const result = await stopService(this.serviceIO, {
       statePath: this.serviceStatePath,
       endpoint: endpointValue,
@@ -426,6 +437,79 @@ export class ReMeEnvManager {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * A leftover record that names the same local service as the endpoint on
+   * screen.
+   *
+   * The launch configures only host and port, so two endpoints on the same
+   * origin name the same local process even when their paths differ. A record
+   * left by a version that still launched prefixed endpoints (for example
+   * `/reme`) therefore describes the service the endpoint on screen talks to.
+   * It is returned only when it is provably ours: the same origin, a live
+   * pid, a Python image and a command line that carries the recorded
+   * `workspace_dir` and `service.port`.
+   *
+   * A request that cannot launch anything never gets one: a prefixed request
+   * is refused by `buildStartCommand`, so stopping a healthy same-origin
+   * service first would leave nothing running (autoStart would do that on
+   * every DSH start).
+   */
+  private async leftoverService(
+    endpointValue: string,
+  ): Promise<PersistedService | undefined> {
+    if (!this.launchable(endpointValue)) return undefined;
+    const recorded = readServiceState(this.serviceStatePath);
+    if (!recorded || recorded.pid === undefined) return undefined;
+    // A record filed under the endpoint on screen is not a leftover.
+    if (
+      serviceEndpointKey(recorded.endpoint) ===
+      serviceEndpointKey(endpointValue)
+    )
+      return undefined;
+    if (serviceOriginKey(recorded.endpoint) !== serviceOriginKey(endpointValue))
+      return undefined;
+    if (!processAlive(this.serviceIO, recorded.pid)) return undefined;
+    const ownership = await serviceOwnership(
+      this.serviceIO,
+      recorded,
+      recorded.endpoint,
+    );
+    return ownership === "owned" ? recorded : undefined;
+  }
+
+  /**
+   * Re-key a leftover same-origin record to the endpoint on screen.
+   *
+   * Only the endpoint the record is filed under changes: it stays the record
+   * of the same process, so the tab can stop it and the start path can replace
+   * it. A failed write is not fatal — the start path can still replace the
+   * record by its own endpoint.
+   *
+   * The record is compared and written without yielding in between: the
+   * ownership probe above takes long enough for a launch to record a new pid,
+   * and overwriting that record would orphan the fresh service. The compare
+   * and the write are synchronous, so nothing can slip in between them.
+   */
+  private async adoptLeftover(endpointValue: string): Promise<void> {
+    const leftover = await this.leftoverService(endpointValue);
+    if (!leftover) return;
+    const current = readServiceState(this.serviceStatePath);
+    if (
+      !current ||
+      current.pid !== leftover.pid ||
+      current.endpoint !== leftover.endpoint
+    )
+      return;
+    try {
+      writeServiceState(this.serviceStatePath, {
+        ...current,
+        endpoint: endpointValue,
+      });
+    } catch {
+      // The record keeps its old endpoint; the start path replaces it anyway.
     }
   }
 
@@ -476,28 +560,52 @@ export class ReMeEnvManager {
       // The port is answered by something that is not a healthy service. A
       // provable launch of ours (still booting or rejecting our token) is
       // stopped and replaced; anything else is left alone.
-      if (!current.managed)
-        return this.refused(
-          logPath,
-          now,
-          "conflict",
-          "Another process is already listening on this endpoint",
-        );
-      const previous = await stopService(this.serviceIO, {
-        statePath: this.serviceStatePath,
-        endpoint: endpointValue,
-        ownership: "owned",
-      });
-      if (!previous.stopped)
-        return this.refused(
-          logPath,
-          now,
-          "previous-not-stopped",
-          `A previous launch could not be stopped: ${
-            previous.reason ?? "unknown reason"
-          }`,
-          { record: previous.record },
-        );
+      if (!current.managed) {
+        // The port may be held by a leftover record of ours that is filed
+        // under a path prefix of the same origin. The endpoint on screen
+        // cannot stop that record (it names another endpoint) and the
+        // conflict card offers no way out, so it is replaced here instead of
+        // leaving the user with a process to kill by hand.
+        const leftover = await this.leftoverService(endpointValue);
+        if (!leftover)
+          return this.refused(
+            logPath,
+            now,
+            "conflict",
+            "Another process is already listening on this endpoint",
+          );
+        const replaced = await stopService(this.serviceIO, {
+          statePath: this.serviceStatePath,
+          endpoint: leftover.endpoint,
+          ownership: "owned",
+        });
+        if (!replaced.stopped)
+          return this.refused(
+            logPath,
+            now,
+            "previous-not-stopped",
+            `A previous launch could not be stopped: ${
+              replaced.reason ?? "unknown reason"
+            }`,
+            { record: replaced.record },
+          );
+      } else {
+        const previous = await stopService(this.serviceIO, {
+          statePath: this.serviceStatePath,
+          endpoint: endpointValue,
+          ownership: "owned",
+        });
+        if (!previous.stopped)
+          return this.refused(
+            logPath,
+            now,
+            "previous-not-stopped",
+            `A previous launch could not be stopped: ${
+              previous.reason ?? "unknown reason"
+            }`,
+            { record: previous.record },
+          );
+      }
     }
     // A record for a *different* endpoint that is still alive would be
     // overwritten by the new launch, leaving that endpoint unable to stop it.
