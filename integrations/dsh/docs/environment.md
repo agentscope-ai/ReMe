@@ -164,10 +164,11 @@ processes it manages when the Host exits. The plugin owns a small service adapte
 - A service that occupies the port but fails the health check is reported as a conflict; if it is provably this
   plugin's service, the tab still offers **Stop**.
 - A record left by an older version under a path prefix of the same origin (for example
-  `http://127.0.0.1:2333/reme`) describes the **same** local service, because the launch configures only host
-  and port. Such a record is re-keyed to the endpoint on screen and then managed like any other launch: **Stop**
-  is offered, and **Start** replaces it. It is never reported as a foreign process the tab cannot act on, which
-  would leave the user with a process to kill by hand.
+  `127.0.0.1:2333/reme`) describes the **same** local service, because the launch configures only host
+  and port. When it can be proven to be this plugin's service, such a record is re-keyed to the endpoint on
+  screen and then managed like any other launch: **Stop** is offered, and **Start** replaces it. It is then
+  not reported as a foreign process the tab cannot act on, which would leave the user with a process to
+  kill by hand.
 - **Stop** tree-kills the recorded process (process group on POSIX, `taskkill /T /F` on Windows), waits for it to
   exit, escalates (POSIX: `SIGTERM` then `SIGKILL`; Windows: force `taskkill` again), and clears the record only
   after the pid is gone. A service started elsewhere stays untouched and is only observed.
