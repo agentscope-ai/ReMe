@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "reme": {
+      "command": "python3",
+      "args": [
+        "${ZCODE_PLUGIN_ROOT}/hooks/mcp_bridge.py"
+      ],
+      "timeoutMs": 600000
+    }
+  }
+}

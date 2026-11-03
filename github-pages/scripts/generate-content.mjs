@@ -16,6 +16,8 @@ const externalDocuments = [
   ["zh/integrations/codex.md", "integrations/codex/README_ZH.md"],
   ["en/integrations/qoder.md", "integrations/qoder/README.md"],
   ["zh/integrations/qoder.md", "integrations/qoder/README_ZH.md"],
+  ["en/integrations/zcode.md", "integrations/zcode/README.md"],
+  ["zh/integrations/zcode.md", "integrations/zcode/README_ZH.md"],
   ["en/integrations/hermes.md", "integrations/hermes_agent/README.md"],
   ["zh/integrations/dsh.md", "integrations/dsh/README_ZH.md"],
   ["en/integrations/dsh.md", "integrations/dsh/README.md"],
@@ -79,6 +81,12 @@ const externalDocumentRewrites = {
   ],
   "integrations/qoder/README_ZH.md": [
     ["(./README.md)", "(/en/integrations/qoder)"],
+  ],
+  "integrations/zcode/README.md": [
+    ["(./README_ZH.md)", "(/zh/integrations/zcode)"],
+  ],
+  "integrations/zcode/README_ZH.md": [
+    ["(./README.md)", "(/en/integrations/zcode)"],
   ],
   "integrations/dsh/README.md": [
     ["(./README_ZH.md)", "(/zh/integrations/dsh)"],
