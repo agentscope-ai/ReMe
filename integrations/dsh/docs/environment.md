@@ -104,6 +104,9 @@ DSH settings.
   cleared: a credential cannot be deleted by emptying its control, so the blank field always means “keep what is
   stored”. Emptying a **non-secret** field and saving **clears** it. Only fields you edited are written, so the rest
   of the file keeps its comments, unknown keys and order.
+- The backend selection is the one non-secret field with a default: clearing it writes the default
+  (`LLM_BACKEND=openai`) instead of an empty value. ReMe applies `${LLM_BACKEND:-openai}` only when the variable is
+  absent, so an empty value would name no backend at all and the service would refuse to start.
 - A save writes the edits that were submitted and leaves newer ones alone: typing another field while the save is in
   flight keeps that text, and the card says that unsaved edits are still pending.
 - Saving validates the whole merged file, not just the values you typed: ReMe 0.4.0.x instantiates the embedding
@@ -126,6 +129,10 @@ DSH settings.
 - ReMe reaches xAI through its gRPC SDK, so the xAI probe is a REST-level approximation of that channel.
 - The probe reads the `.env` on disk, so a configuration that is only picked in the form is not tested before the
   file is saved; the button says so while it waits.
+- A `.env` that sets `LLM_BACKEND` to an empty value is reported as an incomplete configuration
+  (`LLM config incomplete (LLM_BACKEND)`) and no request is sent: ReMe would start with no backend at all, so the
+  probe must not test a configuration the service cannot use. A `.env` without the key is probed with the default
+  backend, exactly as ReMe would start it.
 - The draft, the save message and the LLM-test result belong to the workspace they were produced for: switching
   the workspace disposes the section's state, so neither a key typed for one workspace nor a success reported for
   it can be carried into another.
@@ -163,6 +170,9 @@ processes it manages when the Host exits. The plugin owns a small service adapte
   the meantime, the Host refuses instead of dropping the new record silently.
 - A service that occupies the port but fails the health check is reported as a conflict; if it is provably this
   plugin's service, the tab still offers **Stop**.
+- A conflict caused by a **recorded** process whose identity cannot be read is a different case: the process is
+  never signalled, so the tab offers **Forget this record** instead. The record travels with the status, so the way
+  out does not depend on a start that the conflict card disables.
 - A record left by an older version under a path prefix of the same origin (for example
   `127.0.0.1:2333/reme`) describes the **same** local service, because the launch configures only host
   and port. When it can be proven to be this plugin's service, such a record is re-keyed to the endpoint on
