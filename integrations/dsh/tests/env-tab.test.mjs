@@ -1794,6 +1794,58 @@ test("Forget targets the record the Host named, not the endpoint on screen", asy
   assert.equal(forget.input.expectPid, 6000, "the record is pinned by its pid");
 });
 
+test("a conflict whose record cannot be verified offers forgetting it", async (t) => {
+  // The port is held by a recorded process whose identity cannot be read. The
+  // card offers no Stop (the process is not ours to signal) and no Start (a
+  // conflict disables it), so the record the Host names with the status is
+  // the only way out.
+  const CARD = "http://127.0.0.1:2334";
+  const conflict = {
+    phase: "conflict",
+    managed: false,
+    endpoint: CARD,
+    record: { endpoint: CARD, pid: 6000 },
+    logPath: "C:\\Users\\test\\.reme\\service.log",
+  };
+  const { renderer, calls, restore } = await mount(
+    { endpoint: CARD },
+    {
+      responses: {
+        "remeEnv/serviceStatus": conflict,
+        "remeEnv/serviceForget": { forgotten: true, pid: 6000 },
+      },
+    },
+  );
+  t.after(restore);
+
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+  assert.ok(
+    buttonByText(renderer, envZh.forgetRecord),
+    "the record-only way out is offered without a refused start",
+  );
+  // The confirmation names the record and the process it describes.
+  await act(async () => {
+    buttonByText(renderer, envZh.forgetRecord).props.onClick();
+  });
+  const confirming = texts(renderer.toJSON()).join(" ");
+  assert.ok(confirming.includes(CARD), "the confirmation names the record");
+  assert.ok(confirming.includes("6000"), "the confirmation names the pid");
+  await act(async () => {
+    buttonByText(renderer, envZh.forgetRecord).props.onClick();
+  });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+  const forget = calls.rpc.find(
+    (call) => call.method === "remeEnv/serviceForget",
+  );
+  assert.ok(forget, "forgetting reaches the Host");
+  assert.equal(forget.input.endpoint, CARD);
+  assert.equal(forget.input.expectPid, 6000, "the record is pinned by its pid");
+});
+
 test("a record that changed is not forgotten on a second click", async (t) => {
   const stopped = {
     phase: "stopped",

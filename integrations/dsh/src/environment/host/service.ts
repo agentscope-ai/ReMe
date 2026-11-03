@@ -14,7 +14,7 @@ import { basename, dirname } from "node:path";
 import { safeError } from "../../endpoint.js";
 import { ReMeClient } from "../../reme/client.js";
 import type { ReMeHealthResult } from "../../reme/types.js";
-import { serviceEndpointKey } from "../endpoint-key.js";
+import { serviceEndpointKey, serviceOriginKey } from "../endpoint-key.js";
 import { parseLocalEndpoint } from "../endpoint-rules.js";
 import type {
   HealthErrorCode,
@@ -369,8 +369,36 @@ export async function serviceStatus(
     recordForEndpoint && recordAlive
       ? serviceOwnership(io, persisted, options.endpoint)
       : "foreign";
+  /**
+   * The record behind the status, when the Host cannot prove that the process
+   * is the one the record describes.
+   *
+   * An unreadable identity is no proof, so the process is never signalled —
+   * but the record is what the tab has to drop to get the port back, and it
+   * has to travel with the status: the conflict card cannot offer a recovery
+   * that only a refused start would name.
+   *
+   * A record for another path on the same origin describes the same local
+   * service, so it is related too.
+   */
+  const unverified = async (
+    owner: ServiceOwnership,
+  ): Promise<ServiceRecordRef | undefined> => {
+    if (!persisted || !recordAlive) return undefined;
+    if (owner === "unknown") return serviceRecordRef(persisted);
+    if (recordForEndpoint) return undefined;
+    if (
+      serviceOriginKey(persisted.endpoint) !==
+      serviceOriginKey(options.endpoint)
+    )
+      return undefined;
+    const other = await serviceOwnership(io, persisted, persisted.endpoint);
+    return other === "unknown" ? serviceRecordRef(persisted) : undefined;
+  };
   if (health.ok) {
-    const managed = (await ownership()) === "owned";
+    const owner = await ownership();
+    const managed = owner === "owned";
+    const record = await unverified(owner);
     return {
       phase: "running",
       managed,
@@ -380,6 +408,7 @@ export async function serviceStatus(
         : {}),
       ...(health.version ? { version: health.version } : {}),
       ...(managed && persisted ? { startedAt: persisted.startedAt } : {}),
+      ...(record ? { record } : {}),
       logPath: options.logPath,
     };
   }
@@ -393,7 +422,9 @@ export async function serviceStatus(
   if (portOpen) {
     // Our own service can occupy the port without being healthy (still
     // booting, or a rejected token); identify it so the tab can stop it.
-    const managed = (await ownership()) === "owned";
+    const owner = await ownership();
+    const managed = owner === "owned";
+    const record = await unverified(owner);
     return {
       phase: "conflict",
       managed,
@@ -401,6 +432,7 @@ export async function serviceStatus(
       ...(managed && persisted?.pid !== undefined
         ? { pid: persisted.pid }
         : {}),
+      ...(record ? { record } : {}),
       logPath: options.logPath,
     };
   }

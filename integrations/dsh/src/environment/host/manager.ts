@@ -567,28 +567,42 @@ export class ReMeEnvManager {
         // conflict card offers no way out, so it is replaced here instead of
         // leaving the user with a process to kill by hand.
         const leftover = await this.leftoverService(endpointValue);
-        if (!leftover)
+        if (leftover) {
+          const replaced = await stopService(this.serviceIO, {
+            statePath: this.serviceStatePath,
+            endpoint: leftover.endpoint,
+            ownership: "owned",
+          });
+          if (!replaced.stopped)
+            return this.refused(
+              logPath,
+              now,
+              "previous-not-stopped",
+              `A previous launch could not be stopped: ${
+                replaced.reason ?? "unknown reason"
+              }`,
+              { record: replaced.record },
+            );
+        } else {
+          // The port may be held by a recorded process whose identity cannot
+          // be read. It must never be signalled, but the record has to be
+          // named: it is the only way out of a port the tab cannot clear.
+          const unverified = current.record;
+          if (unverified)
+            return this.refused(
+              logPath,
+              now,
+              "unverified-record",
+              `The recorded service for ${unverified.endpoint} (pid ${unverified.pid}) could not be verified; leaving it untouched`,
+              { pid: unverified.pid, record: unverified },
+            );
           return this.refused(
             logPath,
             now,
             "conflict",
             "Another process is already listening on this endpoint",
           );
-        const replaced = await stopService(this.serviceIO, {
-          statePath: this.serviceStatePath,
-          endpoint: leftover.endpoint,
-          ownership: "owned",
-        });
-        if (!replaced.stopped)
-          return this.refused(
-            logPath,
-            now,
-            "previous-not-stopped",
-            `A previous launch could not be stopped: ${
-              replaced.reason ?? "unknown reason"
-            }`,
-            { record: replaced.record },
-          );
+        }
       } else {
         const previous = await stopService(this.serviceIO, {
           statePath: this.serviceStatePath,

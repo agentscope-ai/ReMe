@@ -220,6 +220,24 @@ export function useService(
               ? undefined
               : current,
           );
+        // A record the Host could not verify is the only way out of a port it
+        // cannot clear, and the conflict card offers no other action: the
+        // status names it, so the recovery is offered without waiting for a
+        // refused start the card does not allow.
+        const unverified = next.record;
+        if (unverified)
+          setForgetTarget((current) =>
+            current &&
+            current.endpoint === unverified.endpoint &&
+            current.pid === unverified.pid
+              ? current
+              : {
+                  endpoint: unverified.endpoint,
+                  ...(unverified.pid === undefined
+                    ? {}
+                    : { pid: unverified.pid }),
+                },
+          );
         // A start this tab requested maps "stopped with a live pid" (the Host's
         // "launch still booting" signal) to `starting`; a plain status read
         // keeps the Host's phase, so a leftover process never locks the card.

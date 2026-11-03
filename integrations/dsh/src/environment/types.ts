@@ -141,6 +141,16 @@ export interface ServiceState {
   pid?: number;
   version?: string;
   startedAt?: string;
+  /**
+   * The record that describes the process behind this status, when the Host
+   * could not prove that the process is the one the record describes.
+   *
+   * The process is then never signalled — an unreadable identity is no proof
+   * — but the record is what the tab has to drop to get the port back, so it
+   * travels with the status instead of waiting for a refusal that a disabled
+   * button can never trigger.
+   */
+  record?: ServiceRecordRef;
   logPath: string;
 }
 

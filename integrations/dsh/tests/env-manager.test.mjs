@@ -671,6 +671,77 @@ test("replaces a leftover launch whose record cannot be re-keyed", async (t) => 
   assert.equal(readServiceState(statePath)?.pid, 5001);
 });
 
+test("a conflict held by an unverified record names that record", async (t) => {
+  // The recorded process holds the port, but its identity cannot be read: it
+  // must never be signalled. The refusal still names the record, because the
+  // record is the only way out of a port the tab cannot clear.
+  const { manager, calls, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334",
+    workspaceDir: directory,
+    pythonPath: "D:\\env\\python.exe",
+    command: "reme start",
+    startedAt: "2026-10-27T00:00:00.000Z",
+  });
+  // The process is alive, but its command line cannot be read.
+  io.processCommandLine = async () => "";
+  io.fetchHealth = async () => ({ ok: false, version: "", error: "boom" });
+  io.portOpen = async () => true;
+
+  const status = await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.managed, false);
+  assert.deepEqual(status.record, {
+    endpoint: "http://127.0.0.1:2334",
+    pid: 6000,
+  });
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, false);
+  assert.equal(result.code, "unverified-record");
+  assert.deepEqual(result.record, {
+    endpoint: "http://127.0.0.1:2334",
+    pid: 6000,
+  });
+  assert.deepEqual(
+    calls.killTree,
+    [],
+    "an unverified process is never signalled",
+  );
+  assert.equal(calls.spawn.length, 0);
+});
+
+test("a conflict held by an unrelated process stays a plain conflict", async (t) => {
+  // No record at all: the port belongs to something else, and there is no
+  // record the tab could forget.
+  const { manager, calls, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  io.fetchHealth = async () => ({ ok: false, version: "", error: "boom" });
+  io.portOpen = async () => true;
+
+  const status = await manager.serviceStatus("http://127.0.0.1:2334");
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.record, undefined);
+
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "D:\\env\\python.exe",
+    join(directory, "workspace"),
+  );
+  assert.equal(result.started, false);
+  assert.equal(result.code, "conflict");
+  assert.equal(result.record, undefined, "there is no record to name");
+  assert.deepEqual(calls.killTree, []);
+  assert.equal(calls.spawn.length, 0);
+});
+
 test("a prefixed request never stops the healthy service it cannot replace", async (t) => {
   // A prefixed endpoint can never be launched: the launch sets only host and
   // port, so the request is refused later anyway. Replacing the same-origin

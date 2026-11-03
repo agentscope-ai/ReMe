@@ -249,6 +249,7 @@ export function parseServiceState(value: unknown): ServiceState {
   optionalPidField(body, "pid", what);
   optionalStringField(body, "version", what);
   optionalStringField(body, "startedAt", what);
+  optionalRecordField(body, "record", what);
   return value as unknown as ServiceState;
 }
 

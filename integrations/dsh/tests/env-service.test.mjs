@@ -233,6 +233,46 @@ test("a conflict still identifies a provably owned service", async (t) => {
   assert.equal(status.pid, 777);
 });
 
+test("an unreadable identity names the record the status cannot clear", async (t) => {
+  // The process is alive, but its command line cannot be read: ownership stays
+  // unproven, so the process is never signalled. The record is nevertheless
+  // the only way out of a port the tab cannot clear, so it travels with the
+  // status instead of waiting for a refusal the card cannot trigger.
+  const { directory, statePath } = tempState(t, "reme-unverified-");
+  record(statePath);
+  const { io } = fakeIO({
+    portOpen: async () => true,
+    processCommandLine: async () => "",
+  });
+  const status = await serviceStatus(io, {
+    endpoint: ENDPOINT,
+    statePath,
+    logPath: join(directory, "service.log"),
+  });
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.managed, false, "an unproven identity is not ours");
+  assert.equal(status.pid, undefined, "and no pid is claimed either");
+  assert.deepEqual(status.record, { endpoint: ENDPOINT, pid: 777 });
+});
+
+test("a record that names no backend stays out of the status", async (t) => {
+  // A record for another endpoint says nothing about this one, so it is not
+  // offered as a recovery here.
+  const { directory, statePath } = tempState(t, "reme-other-record-");
+  record(statePath, { endpoint: "http://127.0.0.1:2333" });
+  const { io } = fakeIO({
+    portOpen: async () => true,
+    processCommandLine: async () => "",
+  });
+  const status = await serviceStatus(io, {
+    endpoint: ENDPOINT,
+    statePath,
+    logPath: join(directory, "service.log"),
+  });
+  assert.equal(status.phase, "conflict");
+  assert.equal(status.record, undefined);
+});
+
 test("a recycled pid that is no longer the service is not managed", async (t) => {
   const { statePath } = tempState(t, "reme-pid-");
   record(statePath);
