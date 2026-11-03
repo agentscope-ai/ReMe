@@ -36,6 +36,7 @@ class PythonExecuteStep(BaseStep):
             backend = file_sandbox_for_step(self)
             result = await backend.exec_shell(
                 [sys.executable, "-c", code],
+                cwd=str(self.workspace_path.resolve()),
                 timeout=timeout,
                 raise_errors=True,
             )
