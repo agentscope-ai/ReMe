@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/agentscope-ai-reme-badge.png)](https://mseep.ai/app/agentscope-ai-reme)
+
 <p align="center">
  <img src="https://raw.githubusercontent.com/agentscope-ai/ReMe/main/docs/figure/reme_logo.png" alt="ReMe Logo" width="50%">
 </p>
