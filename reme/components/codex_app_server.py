@@ -78,12 +78,11 @@ class CodexAppServer(BaseComponent):
 
     @property
     def session_path(self) -> Path:
-        """Persistent Codex state; different server configurations have separate homes."""
+        """Persistent Codex state under the workspace, unless an explicit home is configured."""
         if self._codex_home:
             path = Path(self._codex_home).expanduser()
             return path if path.is_absolute() else self.workspace_path / path
-        directory = self.app_context.app_config.mem_session_dir if self.app_context else "mem_session"
-        return self.workspace_path / directory / "codex" / self.name
+        return self.workspace_path / ".codex"
 
     def _client_config(self) -> CodexConfig:
         from openai_codex import CodexConfig

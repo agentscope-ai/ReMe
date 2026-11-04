@@ -582,9 +582,10 @@ models and the separate `CODEX_OAUTH_MODEL_NAME` override. See [demo configurati
 the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
 
 Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
-from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default private Codex home is now
-`{workspace_dir}/{mem_session_dir}/codex/{server_name}`; set `codex_home` to the previous directory to retain its login
-and saved threads. Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
+from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is
+`{workspace_dir}/.codex`; set `codex_home` to the previous directory to retain its login and saved threads.
+Configure separate `codex_home` values when servers need independent account or session storage.
+Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
 session-scoped MCP endpoint, using its HTTP listener when available or a lifecycle-managed loopback listener in CLI
 and embedded applications. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
 thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,

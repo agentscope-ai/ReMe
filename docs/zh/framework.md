@@ -560,8 +560,9 @@ thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OA
 使用 `LLM_API_KEY`、`LLM_BASE_URL` 的完整 API key 配置见 [demo 配置](../../reme/config/demo.yaml)。
 
 迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
-`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认私有 Codex 目录改为
-`{workspace_dir}/{mem_session_dir}/codex/{server_name}`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认 Codex 目录为
+`{workspace_dir}/.codex`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
 删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，HTTP 模式复用现有
 监听器，CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
 恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application

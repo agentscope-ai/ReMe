@@ -526,7 +526,7 @@ def test_server_config_authentication_environment_and_home(tmp_path):
     )
     config = server._client_config()
     assert config.env["CUSTOM"] == "preserved"
-    assert config.env["CODEX_HOME"] == str(tmp_path / "mem_session/codex/one")
+    assert config.env["CODEX_HOME"] == str(tmp_path / ".codex")
     assert 'forced_login_method="api"' in config.config_overrides
     assert 'model_provider="reme"' in config.config_overrides
     assert 'model_providers.reme.base_url="https://proxy.test/v1"' in config.config_overrides
@@ -534,6 +534,7 @@ def test_server_config_authentication_environment_and_home(tmp_path):
     assert "model_providers.reme.supports_websockets=false" in config.config_overrides
     oauth = CodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
     assert CodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
+    assert CodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
     assert oauth._client_config().config_overrides == ('forced_login_method="chatgpt"',)
     with pytest.raises(ValueError, match="requires a non-empty"):
         CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
@@ -593,6 +594,7 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         assert "auth_mode" not in wrappers["codex"]
         servers = config["components"]["codex_app_server"]
         assert servers["default"]["auth_mode"] == "api_key"
+        assert servers["default"]["codex_home"] == ".codex"
         assert servers["default"]["supports_websockets"] is False
         assert wrappers["codex"]["model"] == "qwen3.8-max"
         assert wrappers["codex"]["approval_mode"] == "deny_all"
@@ -614,7 +616,6 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         if name == "demo":
             assert servers["default"]["api_key"] == "demo-api-key"
             assert servers["default"]["base_url"] == "https://demo.invalid/v1"
-            assert "codex_home" not in servers["default"]
         else:
             assert servers["oauth"]["codex_home"] == "~/.codex"
 
