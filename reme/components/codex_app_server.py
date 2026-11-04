@@ -16,6 +16,7 @@ from .component_registry import R
 from .service.scoped_mcp import ScopedMCP
 from ..constants import normalize_connect_host
 from ..enumeration import ComponentEnum
+from ..utils.async_utils import finish_cleanup
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
@@ -251,7 +252,7 @@ class CodexAppServer(BaseComponent):
 
     @asynccontextmanager
     async def _operation(self, thread: AsyncThread) -> AsyncIterator[None]:
-        """Register before enqueueing work; retain the barrier if the caller is cancelled."""
+        """Track a shielded dispatch; clear its barrier if the SDK rejects the request."""
         state = self._threads[thread.id]
         state.operation_started = False
         state.completion = asyncio.get_running_loop().create_future()
@@ -265,13 +266,34 @@ class CodexAppServer(BaseComponent):
 
     async def turn(self, thread: AsyncThread, inputs: Any, **kwargs):
         """Start a normal SDK turn with completion tracking owned by this server."""
-        async with self._operation(thread):
-            return await thread.turn(inputs, **kwargs)
+        turn = None
+
+        async def dispatch():
+            nonlocal turn
+            async with self._operation(thread):
+                turn = await thread.turn(inputs, **kwargs)
+
+        try:
+            await finish_cleanup(dispatch())
+        except asyncio.CancelledError:
+            if turn is not None:
+                try:
+                    await finish_cleanup(turn.interrupt())
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
+            raise
+        return turn
 
     async def compact(self, thread: AsyncThread) -> None:
         """Enqueue native compaction; the thread lease waits for its completion event."""
-        async with self._operation(thread):
-            await thread.compact()
+
+        async def dispatch():
+            async with self._operation(thread):
+                await thread.compact()
+
+        await finish_cleanup(dispatch())
 
     @asynccontextmanager
     async def thread(

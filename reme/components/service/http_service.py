@@ -71,6 +71,9 @@ class HttpService(BaseService):
 
         lifespan = self._lifespan(app, self.host, self.port)
         servers = self.app_context.components.get("codex_app_server", {}) if self.app_context else {}
+        # TLS listeners may use certificates that cannot be verified through a loopback address.
+        if self.kwargs.get("ssl_certfile") or self.kwargs.get("ssl_keyfile"):
+            servers = {}
         if self.mcp_enabled:
             from fastmcp import FastMCP
 

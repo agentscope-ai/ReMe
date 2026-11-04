@@ -374,6 +374,53 @@ async def test_cancelling_reply_interrupts_only_its_turn_and_keeps_shared_server
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["turn", "compact"])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_cancelled_dispatch_settles_before_resuming_the_thread(system, monkeypatch, operation, fail):
+    first, second, server, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    thread = _Codex.instances[0].threads[thread_id]
+    original = getattr(thread, operation)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def dispatch(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        if fail:
+            raise ValueError("dispatch rejected")
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(thread, operation, dispatch)
+    request = (
+        first.compact_session(thread_id) if operation == "compact" else first.reply("cancel", session_id=thread_id)
+    )
+    task = asyncio.create_task(request)
+    queued = None
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel("original cancellation")
+        await asyncio.sleep(0)
+        task.cancel("cancel again")
+        await asyncio.sleep(0)
+        queued = asyncio.create_task(second.reply("later", session_id=thread_id))
+        await asyncio.sleep(0.01)
+        assert not queued.done()
+        monkeypatch.setattr(thread, operation, original)
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+            await asyncio.wait_for(task, 2)
+        assert (await asyncio.wait_for(queued, 2))["result"] == "later"
+        assert thread.interrupts == int(operation == "turn" and not fail)
+        await asyncio.wait_for(server.close(), 2)
+    finally:
+        release.set()
+        task.cancel()
+        if queued is not None:
+            queued.cancel()
+        await asyncio.gather(task, *([queued] if queued is not None else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_stream_close_interrupts_and_routes_chunks_per_session(system):
     first, second, _, _ = system
     stream = first.reply_stream("early")
@@ -418,7 +465,8 @@ async def test_compaction_holds_thread_lock_until_it_finishes(system):
 
 
 @pytest.mark.asyncio
-async def test_compaction_acknowledgement_does_not_release_the_thread_before_it_starts(system, monkeypatch):
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_compaction_acknowledgement_does_not_release_the_thread_before_it_starts(system, monkeypatch, cancelled):
     first, second, _, _ = system
     thread_id = (await first.reply("initial"))["session_id"]
     client = _Codex.instances[0]
@@ -432,6 +480,8 @@ async def test_compaction_acknowledgement_does_not_release_the_thread_before_it_
     async with asyncio.TaskGroup() as group:
         compacting = group.create_task(first.compact_session(thread_id))
         await asyncio.wait_for(acknowledged.wait(), 2)
+        if cancelled:
+            compacting.cancel()
         queued = group.create_task(second.reply("later", session_id=thread_id))
         try:
             await asyncio.sleep(0.01)
@@ -718,6 +768,40 @@ async def test_http_service_mounts_scoped_tools_without_another_listener(tmp_pat
         assert app.context.components["agent_wrapper"]["one"].app_server is server
         assert app.context.components["agent_wrapper"]["two"].app_server is server
     assert not server.is_started
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tls_options", [{"ssl_certfile": "server.pem"}, {"ssl_keyfile": "server.key"}])
+async def test_tls_http_service_uses_managed_loopback_for_scoped_tools(tmp_path, monkeypatch, tls_options):
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "http", "web_enabled": False, **tls_options},
+        components={"codex_app_server": {"default": {"backend": "sdk"}}},
+    )
+    service = app.context.service
+    service.build_service(app)
+    server = app.context.components["codex_app_server"]["default"]
+    probe = AsyncMock(side_effect=AssertionError("must not probe the TLS listener"))
+    monkeypatch.setattr(asyncio, "open_connection", probe)
+    job = _Job()
+    token = server.jobs_mcp.register([job], {"tool_context_id": "parent"})
+    listener_task = None
+    async with service.service.router.lifespan_context(service.service):
+        url = await server._mcp_url()
+        assert url.startswith("http://127.0.0.1:")
+        assert await server._mcp_url() == url
+        listener_task = server.jobs_mcp._task
+        assert listener_task is not None
+        async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {token}"})) as client:
+            await client.call_tool("search", {"query": "TLS host"})
+        assert job.calls == [{"query": "TLS host", "tool_context_id": "parent"}]
+        probe.assert_not_awaited()
+    assert listener_task.done()
+    assert server.jobs_mcp._task is None
+    assert not server.jobs_mcp.scopes
 
 
 @pytest.mark.asyncio

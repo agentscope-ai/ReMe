@@ -586,8 +586,8 @@ from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The defa
 `{workspace_dir}/.codex`; set `codex_home` to the previous directory to retain its login and saved threads.
 Configure separate `codex_home` values when servers need independent account or session storage.
 Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
-session-scoped MCP endpoint, using its HTTP listener when available or a lifecycle-managed loopback listener in CLI
-and embedded applications. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
+session-scoped MCP endpoint, reusing its plain HTTP listener when available. TLS, CLI and embedded applications use
+a lifecycle-managed loopback listener. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
 thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,
 without changing their public service exposure. Closing a wrapper leaves the shared server running; application
 shutdown closes it. A disconnected request fails without replaying tools; later requests can reconnect and resume.

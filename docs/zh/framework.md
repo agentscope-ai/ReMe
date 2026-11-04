@@ -563,8 +563,8 @@ thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OA
 `experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认 Codex 目录为
 `{workspace_dir}/.codex`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
 多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
-删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，HTTP 模式复用现有
-监听器，CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
+删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，明文 HTTP 模式复用现有
+监听器，TLS、CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
 恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application
 统一关闭。连接断开时当前请求报错且不重放工具，后续请求可以重连并恢复会话。
 
