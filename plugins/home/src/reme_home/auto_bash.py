@@ -4,6 +4,7 @@ import asyncio
 import os
 import shlex
 from functools import cache
+from pathlib import Path
 
 from agentscope.message import TextBlock, ToolResultState
 from agentscope.permission import PermissionBehavior, PermissionContext, PermissionDecision
@@ -12,7 +13,7 @@ from agentscope.tool import Bash, ToolChunk
 from reme.steps.base_step import BaseStep
 from reme.steps.common.file_sandbox import file_sandbox_for_step
 
-from reme.utils.local_backend import LocalProcessBackend
+from reme.utils.file_sandbox import create_file_sandbox_backend
 
 _READ_COMMANDS = {
     ":": {},
@@ -153,7 +154,7 @@ class AutoBash(Bash):
     Shell expansions, function definitions and for loops are rejected because
     their runtime arguments or environment can differ from the parsed tokens.
     Git external filters require unrestricted mode; other Git helpers are
-    disabled. Use path injection for OS file isolation.
+    disabled. The default backend isolates the working directory read-only.
     """
 
     name = "AutoBash"
@@ -172,7 +173,13 @@ class AutoBash(Bash):
 
     def __init__(self, *, is_read_only: bool = True, **kwargs):
         if kwargs.get("backend") is None:
-            kwargs["backend"] = LocalProcessBackend()
+            workspace = Path(kwargs.get("cwd") or Path.cwd()).expanduser().resolve()
+            kwargs["cwd"] = workspace
+            kwargs["backend"] = create_file_sandbox_backend(
+                cwd=workspace,
+                read_only_paths=[],
+                writable_paths=[],
+            )
         super().__init__(**kwargs)
         self.is_read_only = is_read_only
 
@@ -247,7 +254,7 @@ class AutoBash(Bash):
 
 
 class AutoBashStep(BaseStep):
-    """Expose AgentScope Bash with configurable read-only mode as a ReMe job."""
+    """Run sandboxed Bash with a read-only workspace and optional command validation."""
 
     async def execute(self):
         """Run the command with the selected permission policy and backend."""
@@ -263,7 +270,7 @@ class AutoBashStep(BaseStep):
             if not isinstance(is_read_only, bool):
                 raise ValueError("is_read_only must be a boolean")
             backend = file_sandbox_for_step(self)
-        except (TypeError, ValueError, RuntimeError) as exc:
+        except (TypeError, ValueError, OSError, RuntimeError) as exc:
             self.context.response.success = False
             self.context.response.answer = str(exc)
             return self.context.response

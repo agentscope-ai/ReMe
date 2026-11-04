@@ -5,7 +5,7 @@ application_defaults:
   jobs:
     auto_bash:
       backend: base
-      description: "Run a shell command in the workspace; read-only mode is enabled by default"
+      description: "Run a sandboxed shell command with a read-only workspace and command validation by default"
       parameters:
         type: object
         properties:
@@ -22,18 +22,10 @@ application_defaults:
             default: 60000
             minimum: 1
             maximum: 600000
-          read_only_paths:
-            type: array
-            items: { type: string }
-            description: "Read-only host paths; providing either path list enables the platform file sandbox"
-          writable_paths:
-            type: array
-            items: { type: string }
-            description: "Writable host paths; sandbox paths match host paths"
           memory_limit_mib:
             type: integer
             minimum: 0
-            description: "Linux cgroup memory limit in MiB (default 4096; 0 disables it); requires a path policy; macOS warns and ignores nonzero values"
+            description: "Linux cgroup memory limit in MiB (default 4096; 0 disables it); macOS warns and ignores nonzero values"
         required:
           - command
       steps:
