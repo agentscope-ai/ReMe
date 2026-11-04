@@ -502,6 +502,26 @@ jobs:
         expand_links: true
         max_links_per_direction: 10
 
+  dashscope_search:
+    backend: base
+    description: >-
+      Search the web with qwen3.8-flash; requires DASHSCOPE_API_KEY.
+      Returns raw search_info sources and separate model-generated content; page bodies and snippets are not guaranteed.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "web search query"
+      required:
+        - query
+    steps:
+      - backend: dashscope_search_step
+        model: qwen3.8-flash
+        api_key: ${DASHSCOPE_API_KEY:-}
+        search_strategy: turbo
+        timeout: 60
+
   node_search:
     backend: base
     description: "Digest node recall — given a candidate abstraction's name+description, surface existing digest nodes similar enough to either dedup against or link to as related."

@@ -54,6 +54,7 @@ web = [
 ]
 core = [
     "reme-ai[as]",
+    "dashscope>=1.26.0",
     "pillow>=13.0.0",
     "claude-agent-sdk>=0.2.174",
     "openai-codex>=0.163.0",
