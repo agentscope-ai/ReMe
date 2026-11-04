@@ -4,6 +4,7 @@
 
 import asyncio
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import socket
 from types import SimpleNamespace
@@ -528,6 +529,23 @@ def test_server_config_authentication_environment_and_home(tmp_path):
         CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
 
 
+def test_server_materializes_model_catalog_inside_its_private_home(tmp_path):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    catalog = {"models": [{"slug": "main", "auto_review_model_override": "reviewer"}, {"slug": "reviewer"}]}
+    server = CodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
+    config = server._client_config()
+    path = server.session_path / "reme-model-catalog.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == catalog
+    assert f"model_catalog_json={json.dumps(str(path))}" in config.config_overrides
+    assert path.is_relative_to(tmp_path)
+    with pytest.raises(ValueError, match="not both"):
+        CodexAppServer(
+            app_context=context,
+            model_catalog=catalog,
+            config_overrides=['model_catalog_json="external.json"'],
+        )._client_config()
+
+
 @pytest.mark.asyncio
 async def test_client_initialization_failure_is_closed_and_retryable(system, monkeypatch):
     first, _, server, _ = system
@@ -541,6 +559,7 @@ async def test_client_initialization_failure_is_closed_and_retryable(system, mon
 
 def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
     monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CODEX_MODEL_NAME", raising=False)
     monkeypatch.setenv("LLM_API_KEY", "demo-api-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://demo.invalid/v1")
     for name in ("default", "demo"):
@@ -550,8 +569,23 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         assert "auth_mode" not in wrappers["codex"]
         servers = config["components"]["codex_app_server"]
         assert servers["default"]["auth_mode"] == "api_key"
+        assert wrappers["codex"]["model"] == "qwen3.8-max"
+        assert wrappers["codex"]["effort"] == "xhigh"
+        models = servers["default"]["model_catalog"]["models"]
+        assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}
+        assert all(model["auto_review_model_override"] == "qwen3.8-flash" for model in models)
+        assert all(model["default_reasoning_level"] == "xhigh" for model in models)
+        assert all(model["multi_agent_reasoning_effort"] == "xhigh" for model in models)
+        assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"] for model in models)
+        assert set(servers["default"]["config_overrides"]) == {
+            'model_reasoning_effort="xhigh"',
+            'review_model="qwen3.8-max"',
+            'agents.default_subagent_model="qwen3.8-max"',
+            'agents.default_subagent_reasoning_effort="xhigh"',
+            'memories.extract_model="qwen3.8-flash"',
+            'memories.consolidation_model="qwen3.8-max"',
+        }
         if name == "demo":
-            assert wrappers["codex"]["model"] == "qwen3.8-flash"
             assert servers["default"]["api_key"] == "demo-api-key"
             assert servers["default"]["base_url"] == "https://demo.invalid/v1"
             assert "codex_home" not in servers["default"]

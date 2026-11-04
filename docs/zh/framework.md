@@ -542,6 +542,15 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
+API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
+处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `xhigh`。
+模型目录仅开放 `xhigh` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。
+主模型由 wrapper 的 `model` 配置，其余原生配置显式写在
+`codex_app_server.default.config_overrides` 和 `model_catalog` 中；ReMe 将原生 Codex 模型目录写为共享组件私有目录内的
+可重建元数据。`auto_review_model_override` 单独选择审批模型，仅修改主模型不会改变审批模型。原生会话压缩沿用
+thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OAUTH_MODEL_NAME` 覆盖。
+使用 `LLM_API_KEY`、`LLM_BASE_URL` 的完整 API key 配置见 [demo 配置](../../reme/config/demo.yaml)。
+
 迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
 `experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认私有 Codex 目录改为
 `{workspace_dir}/{mem_session_dir}/codex/{server_name}`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。

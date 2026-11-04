@@ -561,6 +561,17 @@ Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple 
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
+and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
+default subagents select `xhigh` reasoning. The catalog exposes only `xhigh`, so native approval reviews also use
+that level rather than the SDK's internal `low` default. Main-model overrides use `model`
+on the wrapper; the remaining native settings are explicit in `codex_app_server.default.config_overrides` and
+`model_catalog`. ReMe writes this native Codex catalog as rebuildable metadata in the server's private home.
+`auto_review_model_override` selects the approval model separately from the main model; changing only `model` does
+not change that reviewer. Native conversation compaction uses the thread's model. OAuth uses account-supported
+models and the separate `CODEX_OAUTH_MODEL_NAME` override. See [demo configuration](../../reme/config/demo.yaml) for
+the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
+
 Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
 from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default private Codex home is now
 `{workspace_dir}/{mem_session_dir}/codex/{server_name}`; set `codex_home` to the previous directory to retain its login

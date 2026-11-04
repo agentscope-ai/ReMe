@@ -40,7 +40,11 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
     skills_root.mkdir()
     project_skill = Path(__file__).resolve().parents[2] / "skills" / "reme_memory"
     (skills_root / "reme_memory").symlink_to(project_skill, target_is_directory=True)
-    api_key = os.getenv("CODEX_API_KEY") or os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY") or ""
+    api_key = base_url = ""
+    for prefix in ("CODEX", "OPENAI", "LLM"):
+        if api_key := os.getenv(f"{prefix}_API_KEY", ""):
+            base_url = os.getenv(f"{prefix}_BASE_URL", "")
+            break
     codex_home = os.getenv("REME_CODEX_HOME")
     if not api_key and codex_home is None:
         codex_home = str(Path.home() / ".codex")
@@ -56,11 +60,13 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
                     "backend": "sdk",
                     "auth_mode": "api_key" if api_key else "oauth",
                     "api_key": api_key,
-                    "base_url": os.getenv("CODEX_BASE_URL", ""),
+                    "base_url": base_url,
                     "codex_home": codex_home,
                 },
             },
-            "agent_wrapper": {"first": {"backend": "codex"}, "second": {"backend": "codex"}},
+            "agent_wrapper": {
+                name: {"backend": "codex", "model": os.getenv("CODEX_MODEL_NAME")} for name in ("first", "second")
+            },
         },
         jobs={
             "only_custom": {

@@ -46,6 +46,7 @@ class CodexAppServer(BaseComponent):
         codex_home: str | Path | None = None,
         codex_bin: str | None = None,
         config_overrides: list[str] | tuple[str, ...] = (),
+        model_catalog: dict[str, Any] | None = None,
         cwd: str | Path | None = None,
         experimental_api: bool = True,
         **kwargs,
@@ -58,6 +59,7 @@ class CodexAppServer(BaseComponent):
         self._base_url = base_url
         self._codex_bin = codex_bin
         self._config_overrides = tuple(config_overrides)
+        self._model_catalog = model_catalog
         self._cwd = cwd
         self._experimental_api = experimental_api
         self._codex_home = codex_home
@@ -91,6 +93,12 @@ class CodexAppServer(BaseComponent):
         if self._auth_mode == "api_key" and not api_login:
             raise ValueError("auth_mode='api_key' requires a non-empty API key")
         self.session_path.mkdir(parents=True, exist_ok=True)
+        if self._model_catalog is not None:
+            if any(option.partition("=")[0].strip() == "model_catalog_json" for option in overrides):
+                raise ValueError("Configure either model_catalog or config_overrides.model_catalog_json, not both")
+            catalog_path = self.session_path / "reme-model-catalog.json"
+            catalog_path.write_text(json.dumps(self._model_catalog, ensure_ascii=False), encoding="utf-8")
+            overrides.append(f"model_catalog_json={json.dumps(str(catalog_path))}")
         if api_login and self._base_url:
             overrides.append(f"openai_base_url={json.dumps(self._base_url)}")
         overrides.append(f"forced_login_method={json.dumps('api' if api_login else 'chatgpt')}")

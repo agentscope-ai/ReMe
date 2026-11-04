@@ -35,6 +35,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "codex_bin",
             "codex_home",
             "config_overrides",
+            "model_catalog",
             "experimental_api",
             "launch_args_override",
             "mcp_config",
