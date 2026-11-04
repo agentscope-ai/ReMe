@@ -117,6 +117,21 @@ components:
 基础文件操作、BM25 检索、wikilink 遍历和 `proactive_read` 不需要 LLM。`auto_memory`、`auto_resource`、
 `auto_dream` 和 proactive refresh 等演化流程需要可用 LLM。
 
+## 联网搜索
+
+安装 `reme-ai[core]` 后，默认 `dashscope_search` Job 使用 DashScope SDK 调用 `qwen3.8-flash`，独立于上述 LLM 配置。
+在一个终端设置 Key 并启动服务：
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+在另一个终端调用 `reme dashscope_search query="Qwen 最新模型"`。
+未配置 Key 不影响服务启动，但此 Job 调用会返回失败。
+结果的 `search_info.search_results` 保留供应商返回的来源字段，`content` 是单独的模型生成正文；
+网页正文和摘要不保证提供。模型、搜索策略和超时配置见 `reme/config/default.yaml`。
+
 ## 决策模型配置
 
 `as_decision_model` 是不依赖供应商的概率决策模型接口；当前的 `agentscope` 适配器通过 AgentScope `2.0.11` 调用 TypeSafe API。
