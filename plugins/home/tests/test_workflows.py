@@ -18,7 +18,6 @@ from agentscope.formatter import OpenAIChatFormatter
 from agentscope.message import HintBlock, TextBlock, ToolCallBlock
 from agentscope.model import ChatResponse, ChatUsage
 from agentscope.state import AgentState
-from agentscope.tool import LocalBackend
 from jsonschema import Draft202012Validator
 from reme_home.agent import optimizer as optimizer_module, diagnostic as diagnostic_module, workflow_common, case_study
 from reme_home.evaluation.artifacts import read_json, write_json
@@ -35,6 +34,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
 )
 
 from reme.schema import Response
+from reme.utils.local_backend import LocalProcessBackend
 
 
 class ScriptedModel(RecordingModel):
@@ -64,7 +64,7 @@ def sandbox(monkeypatch):
         # Mock only subprocess isolation. Writes are restricted by the real
         # sandbox in the dedicated OS tests below, not by this local fake.
         policies.append(kwargs)
-        local = LocalBackend()
+        local = LocalProcessBackend()
         return SimpleNamespace(backend=local, exec_shell=local.exec_shell)
 
     monkeypatch.setattr(workflow_common, "create_case_study_sandbox", create)
@@ -646,6 +646,11 @@ async def test_workflow_sandbox_enforces_read_write_and_git_boundaries(tmp_path)
         assert "module.py" in await backend.list_dir(str(candidate))
         await backend.write_file(str(scratch / "analysis.py"), b"print('analysis')\n")
         assert (await backend.exec_shell([sys.executable, "-I", "-B", str(scratch / "analysis.py")])).ok()
+        result = await case_study.python_tool(backend, str(scratch))._func(
+            code="import time; print('partial output', flush=True); time.sleep(20)",
+            timeout=0.5,
+        )
+        assert result["timed_out"] and result["stdout"].strip() == "partial output"
         for path in (repo / ".git/config", evidence / "result.json", secret):
             with pytest.raises(OSError):
                 await backend.write_file(str(path), b"forbidden")

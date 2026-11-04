@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "reme": {
+      "command": "python3",
+      "args": [
+        "${QODER_PLUGIN_ROOT}/hooks/mcp_bridge.py"
+      ],
+      "timeout": 600000
+    }
+  }
+}

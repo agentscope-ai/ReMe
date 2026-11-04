@@ -13,14 +13,14 @@ The screenshots below were captured in Codex desktop. Click an image to view it 
 - **Codex CLI >= 0.159.2** for installation and CLI use. Run `codex --version` to check.
 - **Codex desktop >= 26.924.22138** for the MCP settings form and status panel. Check the version in **About**.
   These are the versions validated for this guide; older releases have not been verified.
-- Make Python 3.11+ and `fastmcp>=3.4.2` available as `python3` in the environment that launches Codex,
+- Make Python 3.11+ and `fastmcp>=4.1.4,<5` available as `python3` in the environment that launches Codex,
   even when ReMe runs on another machine. Check with:
 
   ```bash
   python3 -c "import sys, fastmcp; print(sys.version); print(fastmcp.__version__)"
   ```
 
-  If needed, install FastMCP there with `python3 -m pip install "fastmcp>=3.4.2"`.
+  If needed, install FastMCP there with `python3 -m pip install "fastmcp>=4.1.4,<5"`.
 - Configure ReMe's model for memory extraction using the [configuration guide](../../docs/en/configuration.md).
   Default BM25 search does not require an embedding model.
 - Have a local checkout of this repository for installation.

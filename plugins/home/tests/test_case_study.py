@@ -54,7 +54,7 @@ class RecordingSandbox:
         self.policy = kwargs
         self.calls = []
 
-    async def exec_shell(self, command, *, cwd, timeout):
+    async def exec_shell(self, command, *, cwd, timeout, raise_errors=False):
         self.calls.append((command, cwd, timeout))
         return ExecResult(exit_code=0, stdout=b"analysis\n", stderr=b"")
 
@@ -239,7 +239,8 @@ async def test_iteration_limit_returns_final_report(app, prepared, case_run, san
 
 
 @pytest.mark.asyncio
-async def test_os_sandbox_read_scope_and_no_writes(tmp_path):
+async def test_os_sandbox_read_scope_and_no_writes(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME_CASE_STUDY_PRIVATE_TOKEN", "private-marker")
     case = tmp_path / "case"
     code = tmp_path / "code"
     case.mkdir()
@@ -275,6 +276,10 @@ async def test_os_sandbox_read_scope_and_no_writes(tmp_path):
     )
     assert ready.ok(), ready.stderr.decode(errors="replace")
     tool = case_study.python_tool(backend, str(case))
+    result = await tool._func(code="import os; print(os.environ.get('HOME_CASE_STUDY_PRIVATE_TOKEN', 'absent'))")
+    assert result["returncode"] == 0 and result["stdout"].strip() == "absent"
+    result = await tool._func(code="import time; print('partial output', flush=True); time.sleep(20)", timeout=0.5)
+    assert result["timed_out"] and result["stdout"].strip() == "partial output"
     result = await tool._func(code=f"from pathlib import Path; print(Path({str(code / 'source.py')!r}).read_text())")
     assert result["returncode"] == 0 and "visible code" in result["stdout"]
     result = await tool._func(
@@ -317,8 +322,15 @@ async def test_python_code_file_timeout_and_cancellation(tmp_path):
     script.write_text("import sys; print(sys.argv[1])")
     result = await tool._func(file="script.py", args=["argument"])
     assert result["stdout"].strip() == "argument"
-    result = await tool._func(code="import time; time.sleep(20)", timeout=0.05)
+    result = await tool._func(
+        code="import sys, time; print('partial output', flush=True); "
+        "print('partial error', file=sys.stderr, flush=True); "
+        "time.sleep(20)",
+        timeout=0.5,
+    )
     assert result["timed_out"]
+    assert result["stdout"].strip() == "partial output"
+    assert result["stderr"].strip() == "partial error"
     task = asyncio.create_task(tool._func(code="import time; time.sleep(20)"))
     await asyncio.sleep(0.05)
     task.cancel()
@@ -469,10 +481,10 @@ async def test_batch_continues_after_case_failure_and_keeps_usage_unknown(app, b
     app.context.components["agent_wrapper"]["home_case_study"].as_llm = SimpleNamespace(model=model)
     original = RecordingSandbox.exec_shell
 
-    async def fail_second_case(self, command, *, cwd, timeout):
+    async def fail_second_case(self, command, *, cwd, timeout, raise_errors=False):
         if str(cwd).endswith("/case2"):
             return ExecResult(exit_code=1, stdout=b"", stderr=b"sandbox denied")
-        return await original(self, command, cwd=cwd, timeout=timeout)
+        return await original(self, command, cwd=cwd, timeout=timeout, raise_errors=raise_errors)
 
     monkeypatch.setattr(RecordingSandbox, "exec_shell", fail_second_case)
     response = await app.run_job("home_case_study", validation_path=str(run), case_ids=["case2", first])

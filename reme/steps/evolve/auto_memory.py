@@ -331,7 +331,7 @@ class AutoMemoryStep(BaseStep):
             if can_append:
                 new_msgs = merged[len(existing) :]
                 if new_msgs:
-                    async with aiofiles.open(path, "a", encoding="utf-8") as f:
+                    async with aiofiles.open(path, "a", encoding="utf-8", newline="") as f:
                         for msg in new_msgs:
                             await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
                     self.logger.info(
@@ -344,7 +344,7 @@ class AutoMemoryStep(BaseStep):
                         f"existing={len(existing)} total={len(merged)}",
                     )
             else:
-                async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                async with aiofiles.open(path, "w", encoding="utf-8", newline="") as f:
                     for msg in merged:
                         await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
                 self.logger.info(

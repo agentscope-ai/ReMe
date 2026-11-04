@@ -27,8 +27,8 @@ bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
 
 
-def test_home_requires_workflow_interfaces_release() -> None:
-    """Home must reject ReMe wheels that predate its workflow interfaces."""
+def test_home_requires_workflow_and_sandbox_release() -> None:
+    """Home requires workflow interfaces, request path rejection and environment isolation."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
     requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
 
@@ -262,7 +262,7 @@ def test_qwen_tokenizer_dependency_is_optional() -> None:
     """Exact Qwen tokenization is opt-in and included in the full install."""
     config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     extras = config["project"]["optional-dependencies"]
-    assert extras["qwen-tokenizer"] == ["tokenizers>=0.21,<1"]
+    assert extras["qwen-tokenizer"] == ["tokenizers>=0.23.3,<1"]
     assert "tokenizers" not in {Requirement(value).name for value in config["project"]["dependencies"]}
     assert "tokenizers" not in {Requirement(value).name for value in extras["core"]}
     assert "reme-ai[qwen-tokenizer]" in extras["full"]

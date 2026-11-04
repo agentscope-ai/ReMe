@@ -19,6 +19,7 @@ def _developer_directory():
             text=True,
             timeout=5,
             check=False,
+            env={},
         )
         if result.returncode == 0 and result.stdout.strip():
             path = Path(result.stdout.strip()).resolve(strict=True)
@@ -43,7 +44,7 @@ class CaseStudySandbox:
         """Preserve the backend's contained working directory."""
         return await self.backend.getcwd()
 
-    async def exec_shell(self, command, *, cwd=None, timeout=None):
+    async def exec_shell(self, command, *, cwd=None, timeout=None, raise_errors=False):
         """Set the environment inside isolation using argv, never shell interpolation."""
         if not command:
             raise ValueError("command must not be empty")
@@ -56,6 +57,7 @@ class CaseStudySandbox:
             ],
             cwd=cwd,
             timeout=timeout,
+            raise_errors=raise_errors,
         )
 
 

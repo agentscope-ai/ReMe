@@ -31,6 +31,13 @@ Custom application config paths still work through `reme.config` and can use `ex
 This directory continues to own the runner, evaluation settings, dataset and outputs.
 Model credentials use the environment variables declared by the shared benchmark configuration.
 
+The shared preset keeps `python_execute` private (`enable_serve: false`); in-process benchmark jobs
+remain callable. Python always uses a sandbox with `workspace_dir` read-only by default, no network,
+and a minimal environment. Linux requires Bubblewrap and, for the default memory cap, a writable
+delegated cgroup v2; macOS requires Seatbelt. Unavailable isolation fails the call. Custom path grants
+must be configured on the Python Step, not passed as job arguments. Read-only workspace files,
+including any `.env` files, remain readable: keep credentials outside the workspace.
+
 ## 1. Get the Dataset
 
 BEAM is a public repository, cloned into `benchmark/beam/dataset/`:

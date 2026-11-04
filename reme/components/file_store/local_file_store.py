@@ -47,6 +47,35 @@ _SEARCH_FILTER_RESERVED_KEYS = frozenset(
 _FAILED_CHUNK_PREVIEW = 5
 
 
+def _filter_value_items(value) -> tuple | None:
+    """Return the accepted values of a filter value as a tuple, or ``None`` for scalars."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return tuple(value)
+    return None
+
+
+def _metadata_value_matches(actual, expected) -> bool:
+    """Return whether a chunk metadata value satisfies one search-filter value.
+
+    ``expected`` is the filter value and may be a collection of accepted
+    values. ``actual`` is the value stored on the chunk and may itself be a
+    collection -- frontmatter fields such as ``tags`` are YAML lists.
+
+    Collections are compared by intersection instead of by hashing the stored
+    value, so a list-valued metadata field never raises ``TypeError`` and a
+    scalar filter still matches a list that contains it.
+    """
+    expected_values = _filter_value_items(expected)
+    actual_values = _filter_value_items(actual)
+    if expected_values is None:
+        if actual_values is None:
+            return actual == expected
+        return any(expected == item for item in actual_values)
+    if actual_values is None:
+        return any(actual == item for item in expected_values)
+    return any(item in actual_values for item in expected_values)
+
+
 @R.register("local")
 class LocalFileStore(BaseFileStore):
     """In-memory file store with deferred JSONL persistence.
@@ -1096,8 +1125,8 @@ class LocalFileStore(BaseFileStore):
             )
             conditions = []
             for key, value in metadata.items():
-                collection = isinstance(value, (list, tuple, set, frozenset))
-                conditions.append((key, frozenset(value) if collection else value, collection))
+                values = _filter_value_items(value)
+                conditions.append((key, value if values is None else values))
         except (TypeError, ValueError):
             # Malformed late-stage conditions must still short-circuit as before.
             return legacy
@@ -1114,10 +1143,7 @@ class LocalFileStore(BaseFileStore):
                         return False
                 elif (start_date and path_date < start_date) or (end_date and path_date > end_date):
                     return False
-            return all(
-                chunk.metadata.get(key) in expected if collection else chunk.metadata.get(key) == expected
-                for key, expected, collection in conditions
-            )
+            return all(_metadata_value_matches(chunk.metadata.get(key), expected) for key, expected in conditions)
 
         return matches
 
@@ -1129,9 +1155,12 @@ class LocalFileStore(BaseFileStore):
 
     @classmethod
     def _value_matches(cls, actual, expected) -> bool:
-        if isinstance(expected, (list, tuple, set, frozenset)):
-            return actual in set(expected)
-        return actual == expected
+        """Return whether a chunk metadata value satisfies one filter value.
+
+        Kept as a class-level hook so subclasses can customize the comparison;
+        the default semantics live in :func:`_metadata_value_matches`.
+        """
+        return _metadata_value_matches(actual, expected)
 
     @staticmethod
     def _extract_date_from_path(path: str) -> str | None:

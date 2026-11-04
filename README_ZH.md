@@ -233,6 +233,7 @@ runtime 的能力，将记忆指引、召回和捕获接入 Agent 生命周期�
 | **OpenClaw**               | 使用 `openclaw plugins install clawhub:@agentscope-ai/reme-openclaw-plugin` 安装 [`@agentscope-ai/reme-openclaw-plugin`](https://reme.agentscope.io/zh/integrations/openclaw)。 | 原生记忆工具、用户触发运行前召回和自动对话捕获。                      |
 | **QwenPaw**                | 通过 Python API 在进程内嵌入 ReMe。                                                                                                       | 复用宿主生命周期和模型配置，同时保持记忆本地、文件化。                |
 | **Claude Code** | 启动 ReMe 服务后，安装 [Claude Code 插件](integrations/claude_code/README_ZH.md)。 | 自动召回、完成轮次分批记录，以及 MCP 查询工具。 |
+| **Qoder** | 启动 ReMe 服务后，安装 [Qoder 插件](integrations/qoder/README_ZH.md)。 | 自动召回、可重试的完成轮次记录、MCP 工具和内置 Skill。 |
 | **Hermes**                 | 安装 [ReMe provider](https://reme.agentscope.io/zh/integrations/hermes)，并选择 HTTP 或 Embedded 模式。                                  | 模型调用前召回，每轮对话完成后异步执行 `auto_memory`。                |
 | **Codex** | 启动 ReMe 服务后，安装 [Codex 插件](integrations/codex/README_ZH.md)。 | 原生 Hook 自动召回、分批记录，以及 MCP 查询工具。 |
 | **其他 CLI Agent** | 安装或复制 [ReMe Memory skill](skills/reme_memory/SKILL.md)。 | 通过 CLI 搜索、读取和写入记忆。 |
@@ -389,8 +390,8 @@ ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上�
 | [Proactive](https://reme.agentscope.io/zh/proactive)                                        | 安全读取兴趣主题，并将其接入宿主 Agent 的决策流程。                    |
 | [应用场景](https://reme.agentscope.io/zh/reme_scene)                                        | 查看金融研究、研发记忆和个人知识库的完整使用示例。                     |
 | [框架说明](https://reme.agentscope.io/zh/framework)                                         | 理解 Application、Job、Step、Component、service、配置和生命周期边界。  |
-| [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、OpenClaw、Hermes、Codex 或其他 Agent 接入 ReMe。 |
-| [DSH 插件](https://reme.agentscope.io/zh/integrations/dsh) 与 [Claude Code 插件](https://reme.agentscope.io/zh/integrations/claude-code) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
+| [Agent 集成](https://reme.agentscope.io/zh/integrations)                                    | 选择接口，并将 DSH、Claude Code、Codex、Qoder、OpenClaw、Hermes 或其他 Agent 接入 ReMe。 |
+| [DSH 插件](https://reme.agentscope.io/zh/integrations/dsh)、[Claude Code 插件](https://reme.agentscope.io/zh/integrations/claude-code) 与 [Qoder 插件](https://reme.agentscope.io/zh/integrations/qoder) | 配置宿主原生召回、自动捕获、记忆整理与诊断。 |
 | [CLI 与 Job API](https://reme.agentscope.io/zh/reference/cli)                               | 查询命令语法，以及由默认配置自动生成的 Job 参数参考。                  |
 | [运维与恢复](https://reme.agentscope.io/zh/operations)                                      | 诊断服务、维护索引，并备份、迁移和恢复 workspace。                     |
 | [ReMe 博客](https://reme.agentscope.io/zh/reme-blog)                     | 了解完整产品故事、设计动机、使用示例和评测摘要。                       |

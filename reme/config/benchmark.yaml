@@ -132,7 +132,10 @@ jobs:
 
   python_execute:
     backend: base
-    description: "Execute Python code and return printed stdout."
+    enable_serve: false
+    # Local-only execution; the workspace is read-only unless Step config grants writes.
+    # Readable workspace files (including .env) are visible to executed code.
+    description: "Execute sandboxed Python with a read-only workspace and return printed stdout."
     parameters:
       type: object
       properties:
@@ -141,11 +144,11 @@ jobs:
           description: "Python code to execute. Print the final result to stdout."
         python_timeout:
           type: number
-          description: "Execution timeout in seconds; defaults to 60."
+          description: "Positive execution timeout in seconds; defaults to 60, capped at 86400 or the shorter Step max_python_timeout."
         memory_limit_mib:
           type: integer
           minimum: 0
-          description: "Linux memory limit in MiB (default 4096; 0 disables it); requires a path policy; macOS ignores nonzero values"
+          description: "Linux sandbox memory limit in MiB (default 4096; 0 disables it); macOS ignores nonzero values"
       required:
         - code
     steps:
@@ -331,7 +334,7 @@ jobs:
 
   frontmatter_read:
     backend: base
-    description: "Read a file's frontmatter as a dict."
+    description: "Read a file's frontmatter, one key: value per line."
     parameters:
       type: object
       properties:

@@ -17,6 +17,8 @@ on:
       - 'integrations/codex/README.md'
       - 'integrations/codex/README_ZH.md'
       - 'integrations/codex/figures/**'
+      - 'integrations/qoder/README.md'
+      - 'integrations/qoder/README_ZH.md'
       - 'integrations/hermes_agent/README.md'
       - 'integrations/hermes_agent/figures/**'
       - 'reme_studio/**'

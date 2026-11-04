@@ -260,9 +260,9 @@ class WorkflowSandbox(BackendBase):
         """Use private scratch as the default, never the host process directory."""
         return self.scope["scratch"]
 
-    async def exec_shell(self, command, *, cwd=None, timeout=None):
+    async def exec_shell(self, command, *, cwd=None, timeout=None, raise_errors=False):
         """Keep command execution, environment and process cleanup inside isolation."""
-        return await self._backend().exec_shell(command, cwd=cwd, timeout=timeout)
+        return await self._backend().exec_shell(command, cwd=cwd, timeout=timeout, raise_errors=raise_errors)
 
     async def read_file(self, path):
         """Use core sandboxed file reads, not LocalBackend's host reads."""

@@ -993,13 +993,13 @@ async def test_batch_failure_falls_back_to_per_item_embedding():
 
     results = (await store._call_with_retry(["ok", "x" * 64, "also ok"])).embeddings
 
-    assert results == [[1.0, 0.0], None, [1.0, 0.0]]
-    assert provider.batch_sizes == [3, 1, 1, 1]
+    assert results == [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+    assert provider.batch_sizes == [3, 1, 1, 1, 1]
 
 
 @pytest.mark.asyncio
 async def test_poison_chunk_keeps_its_batch_mates():
-    """A rejected chunk must not clear the vectors of the chunks beside it."""
+    """An over-limit chunk is recovered from a shorter request without touching its siblings."""
     store = LocalEmbeddingStore(name="t_local_embedding_poison_nodes", enable_cache=False)
     store.as_embedding = PerItemLimitAsEmbedding()
     nodes = [EmbNode(text="first"), EmbNode(text="y" * 64), EmbNode(text="third")]
@@ -1007,17 +1007,19 @@ async def test_poison_chunk_keeps_its_batch_mates():
     await store.get_node_embeddings(nodes)
 
     assert nodes[0].embedding is not None
-    assert nodes[1].embedding is None
+    assert nodes[1].embedding is not None
     assert nodes[2].embedding is not None
 
 
 @pytest.mark.asyncio
 async def test_single_item_failure_still_reports_a_failed_batch():
-    """A one-item request has nothing to isolate, so the existing contract stands."""
+    """A one-item request that cannot be shortened keeps the non-terminal contract."""
     store = LocalEmbeddingStore(name="t_local_embedding_single_poison", enable_cache=False)
-    store.as_embedding = PerItemLimitAsEmbedding()
+    provider = PerItemLimitAsEmbedding()
+    provider.max_chars = 0  # no prefix can satisfy this limit
+    store.as_embedding = provider
 
-    result = await store._call_with_retry(["x" * 64])
+    result = await store._call_with_retry(["x"])
     assert result.embeddings is None
     assert result.terminal_failure is False
 
@@ -1107,8 +1109,8 @@ async def test_per_item_fallback_keeps_a_rate_limited_vector(monkeypatch):
 
     results = (await store._call_with_retry(["ok", "x" * 64, "also ok"])).embeddings
 
-    assert results == [[1.0, 0.0], None, [1.0, 0.0]]
-    assert provider.batch_sizes == [3, 1, 1, 1, 1]
+    assert results == [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+    assert provider.batch_sizes == [3, 1, 1, 1, 1, 1]
     assert provider.transient_failures == 1
     assert sleeps == [1.0]
 
@@ -1174,8 +1176,8 @@ async def test_a_provider_without_a_retry_policy_keeps_the_store_backoff(monkeyp
 
         results = (await store._call_with_retry(["ok", "x" * 64, "also ok"])).embeddings
 
-        assert results == [[1.0, 0.0], None, [1.0, 0.0]]
-        assert provider.batch_sizes == [3, 1, 1, 1, 1]
+        assert results == [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+        assert provider.batch_sizes == [3, 1, 1, 1, 1, 1]
         assert sleeps == [1.0]
 
 
@@ -1260,9 +1262,9 @@ async def test_an_isolated_item_still_recovers_through_the_sdk(monkeypatch):
 
     results = (await store._call_with_retry(["ok", "x" * 64, "also ok"])).embeddings
 
-    assert results == [[0.0, 1.0], None, [0.0, 1.0]]
-    assert provider.calls == 4
-    assert endpoint.requests == 5
+    assert results == [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
+    assert provider.calls == 5
+    assert endpoint.requests == 6
 
 
 @pytest.mark.asyncio
@@ -1463,9 +1465,9 @@ async def test_isolation_keeps_going_while_only_inputs_fail():
 
     result = await store._call_with_retry(["ok", "x" * 64, "also ok", "still ok"])
 
-    assert result.embeddings == [[1.0, 0.0], None, [1.0, 0.0], [1.0, 0.0]]
+    assert result.embeddings == [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
     assert result.terminal_failure is False
-    assert provider.batch_sizes == [4, 1, 1, 1, 1]
+    assert provider.batch_sizes == [4, 1, 1, 1, 1, 1]
 
 
 @pytest.mark.asyncio
@@ -1557,8 +1559,8 @@ async def test_context_length_rejection_reported_as_http_413_is_isolated():
 
     results = (await store._call_with_retry(["ok", "x" * 64, "also ok"])).embeddings
 
-    assert results == [[1.0, 0.0], None, [1.0, 0.0]]
-    assert provider.batch_sizes == [3, 1, 1, 1]
+    assert results == [[1.0, 0.0], [1.0, 0.0], [1.0, 0.0]]
+    assert provider.batch_sizes == [3, 1, 1, 1, 1]
 
 
 @pytest.mark.asyncio
@@ -1906,16 +1908,17 @@ async def test_batch_rejected_for_one_item_keeps_every_vector():
 
 @pytest.mark.asyncio
 async def test_input_length_retry_is_skipped_when_the_input_cannot_shrink():
-    """A rejection that a smaller budget cannot change must not be retried at all."""
+    """A one-character input cannot be shrunk, so no second request is sent."""
     provider = ShrinkablePerItemLimitAsEmbedding(max_chars=8)
     store = LocalEmbeddingStore(
         name="t_local_embedding_shrink_noop",
         enable_cache=False,
         max_input_length=8192,
     )
+    provider.max_chars = 0
     store.as_embedding = provider
 
-    result = await store._call_with_retry(["x" * 64])
+    result = await store._call_with_retry(["x"])
 
     assert result.embeddings is None
     assert provider.batch_sizes == [1]
@@ -2000,3 +2003,90 @@ async def test_unrelated_bad_request_is_not_retried_with_a_shorter_input():
 
     assert result.embeddings is None
     assert provider.batch_sizes == [1]
+
+
+@pytest.mark.asyncio
+async def test_shortened_request_that_is_still_too_long_shrinks_again():
+    """A shorter request that the provider still rejects must be shortened once more.
+
+    Regression for the first reported case: the half-budget retry landed above the
+    provider's real per-item limit and the store stopped after a single attempt.
+    """
+    provider = ShrinkablePerItemLimitAsEmbedding(max_chars=2048)
+    store = LocalEmbeddingStore(
+        name="t_local_embedding_shrink_twice",
+        enable_cache=False,
+        max_input_length=8192,
+    )
+    store.as_embedding = provider
+
+    result = await store._call_with_retry(["x" * 5000])
+
+    assert result.embeddings == [[1.0, 0.0]]
+    assert result.terminal_failure is False
+    assert provider.embedded_texts == ["x" * 1250]
+    assert provider.batch_sizes == [1, 1, 1]
+
+
+@pytest.mark.asyncio
+async def test_input_below_the_half_budget_is_still_shortened():
+    """An input already below half the configured budget still gets its own smaller request.
+
+    Regression for the second reported case: ``_truncate(text, max_length=max_input_length
+    // 2)`` returned the text unchanged, so nothing was re-sent even though the provider
+    reported an input-length error.
+    """
+    provider = ShrinkablePerItemLimitAsEmbedding(max_chars=2048)
+    store = LocalEmbeddingStore(
+        name="t_local_embedding_shrink_below_half",
+        enable_cache=False,
+        max_input_length=8192,
+    )
+    store.as_embedding = provider
+
+    result = await store._call_with_retry(["x" * 2400])
+
+    assert result.embeddings == [[1.0, 0.0]]
+    assert provider.batch_sizes == [1, 1]
+    assert provider.embedded_texts == ["x" * 1200]
+
+
+@pytest.mark.asyncio
+async def test_shrinking_stops_when_no_smaller_request_can_fit():
+    """The shrinking budget is bounded: a limit no prefix can satisfy must not spin."""
+    provider = ShrinkablePerItemLimitAsEmbedding(max_chars=0)
+    store = LocalEmbeddingStore(
+        name="t_local_embedding_shrink_bounded_rounds",
+        enable_cache=False,
+        max_input_length=8192,
+    )
+    store.as_embedding = provider
+
+    result = await store._call_with_retry(["x" * 400])
+
+    assert result.embeddings is None
+    assert len(provider.batch_sizes) == store.max_retries
+
+
+@pytest.mark.asyncio
+async def test_repeated_request_recovery_reuses_the_same_shrinking_path():
+    """Two consecutive requests on one store both recover the same item.
+
+    This is request-level repeatability only: no rebuild is performed and the gate is not
+    involved. The rebuild-side regression lives in
+    ``test_file_store_consistency.py::test_second_reindex_recovers_the_same_over_limit_chunk``.
+    """
+    provider = ShrinkablePerItemLimitAsEmbedding(max_chars=2048)
+    store = LocalEmbeddingStore(
+        name="t_local_embedding_shrink_repeat",
+        enable_cache=False,
+        max_input_length=8192,
+    )
+    store.as_embedding = provider
+
+    first = await store._call_with_retry(["x" * 5000])
+    second = await store._call_with_retry(["x" * 5000])
+
+    assert first.embeddings == [[1.0, 0.0]]
+    assert second.embeddings == [[1.0, 0.0]]
+    assert provider.embedded_texts == ["x" * 1250, "x" * 1250]

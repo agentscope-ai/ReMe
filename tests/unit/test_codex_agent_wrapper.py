@@ -5,6 +5,7 @@
 import asyncio
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 import stat
 import sys
@@ -573,6 +574,18 @@ def test_effective_mcp_config_snapshot_is_private_and_removed_on_close(tmp_path)
 
     asyncio.run(close_started_wrapper())
     assert not snapshot.exists()
+
+
+def test_effective_mcp_config_snapshot_needs_no_fchmod(tmp_path, monkeypatch):
+    """A platform without ``os.fchmod`` (Windows) still gets a usable snapshot."""
+    monkeypatch.delattr(os, "fchmod", raising=False)
+
+    wrapper, _job = _wrapper(tmp_path)
+    config = wrapper._mcp_server_config({"job_tools": ["search"]})
+    snapshot = Path(config["args"][config["args"].index("--config") + 1])
+
+    assert snapshot.exists()
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["workspace_dir"] == str(tmp_path)
 
 
 @pytest.mark.asyncio

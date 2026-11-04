@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.model import ChatUsage, StructuredResponse
-from agentscope.tool import LocalBackend
 from reme_home.agent import candidate_gate, workflow_common
 from reme_home.evaluation.artifacts import read_json
 from reme_home.evaluation.budget import validation_budget_status
@@ -27,6 +26,8 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
 )
 from test_workflows import ScriptedModel, set_model
 
+from reme.utils.local_backend import LocalProcessBackend
+
 
 @pytest.fixture(name="sandbox")
 def gate_sandbox(monkeypatch):
@@ -34,7 +35,7 @@ def gate_sandbox(monkeypatch):
 
     def create(**kwargs):
         policies.append(kwargs)
-        local = LocalBackend()
+        local = LocalProcessBackend()
         return SimpleNamespace(backend=local, exec_shell=local.exec_shell)
 
     monkeypatch.setattr(workflow_common, "create_case_study_sandbox", create)

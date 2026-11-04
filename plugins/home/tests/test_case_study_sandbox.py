@@ -21,10 +21,16 @@ def test_macos_grants_only_selected_developer_runtime(tmp_path, monkeypatch):
     workspace = tmp_path / "case"
     workspace.mkdir()
     monkeypatch.setattr(sys, "platform", "darwin")
+
+    def select_developer(*args, **kwargs):
+        assert args == (["/usr/bin/xcode-select", "-p"],)
+        assert kwargs["env"] == {}
+        return SimpleNamespace(returncode=0, stdout=str(developer))
+
     monkeypatch.setattr(
         sandbox.subprocess,
         "run",
-        lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout=str(developer)),
+        select_developer,
     )
     monkeypatch.setattr(sandbox, "create_file_sandbox_backend", PathSeatbeltBackend)
     roots = [str(workspace)]
@@ -65,7 +71,8 @@ def test_failed_macos_lookup_adds_no_grant(tmp_path, monkeypatch, result):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("same_prefix", [True, False], ids=["same-prefix", "different-prefix"])
-async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch, same_prefix):
+@pytest.mark.parametrize("raise_errors", [True, False])
+async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch, same_prefix, raise_errors):
     monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(sys, "base_prefix", sys.prefix if same_prefix else str(tmp_path / "base-python"))
     monkeypatch.setattr(sandbox, "create_file_sandbox_backend", PathBubbleBackend)
@@ -78,9 +85,9 @@ async def test_linux_environment_is_inside_bubblewrap(tmp_path, monkeypatch, sam
     backend = adapted.backend
     backend.exec_shell = AsyncMock(return_value="result")
     command = [sys.executable, "-I", "-B", "-c", "print('literal $HOME; `pwd`')"]
-    assert await adapted.exec_shell(command, cwd=str(tmp_path), timeout=7) == "result"
+    assert await adapted.exec_shell(command, cwd=str(tmp_path), timeout=7, raise_errors=raise_errors) == "result"
     args, kwargs = backend.exec_shell.call_args
-    assert kwargs == {"cwd": str(tmp_path), "timeout": 7}
+    assert kwargs == {"cwd": str(tmp_path), "timeout": 7, "raise_errors": raise_errors}
     assert args[0][-len(command) :] == command
     argv = backend._bwrap_argv(args[0], str(tmp_path))
     assert "--clearenv" in argv and "--unshare-all" in argv

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
-from mcp.shared.exceptions import McpError
+from mcp.shared.exceptions import MCPError
 
 PLUGIN = Path(__file__).resolve().parents[2] / "integrations/codex/plugins/reme"
 
@@ -60,7 +60,7 @@ async def test_settings_remain_editable_offline(plugin, monkeypatch):
     connect = AsyncMock(side_effect=ConnectionError("offline"))
     monkeypatch.setattr(module.ReMeProvider, "_list_tools", connect)
     async with Client(module.create_server()) as client:
-        capability = client.initialize_result.capabilities.experimental["openai/settings"]
+        capability = client.server_capabilities.experimental["openai/settings"]
         assert capability == {"readTool": module.SETTINGS_READ, "updateTool": module.SETTINGS_UPDATE}
         tools = {tool.name: tool for tool in await client.list_tools()}
         assert {module.SETTINGS_READ, module.SETTINGS_UPDATE, module.STATUS} <= tools.keys()
@@ -71,8 +71,8 @@ async def test_settings_remain_editable_offline(plugin, monkeypatch):
         assert settings["schema"]["properties"].keys() == config.DEFAULTS.keys()
         assert settings["layout"][0]["items"][1]["tool"] == module.STATUS
         assert len(settings["layout"][0]["items"]) == 2
-        assert tools[module.SETTINGS_READ].annotations.readOnlyHint
-        assert tools[module.SETTINGS_READ].outputSchema
+        assert tools[module.SETTINGS_READ].annotations.read_only_hint
+        assert tools[module.SETTINGS_READ].output_schema
         assert not (config.data_dir() / "config.json").exists()
         saved = await client.call_tool(capability["updateTool"], {"set": {"autoMemoryEnabled": False}})
         assert saved.structured_content["values"] == {**config.DEFAULTS, "autoMemoryEnabled": False}
@@ -169,7 +169,7 @@ async def test_hooks_call_mcp_and_preserve_structured_answers(plugin, monkeypatc
     assert calls == ["fact"]
     with pytest.raises(ToolError, match="write failed"):
         await transport.call_async(config.load_config(), "auto_memory", {}, 2)
-    with pytest.raises((TimeoutError, McpError)):
+    with pytest.raises((TimeoutError, MCPError)):
         await transport.call_async(config.load_config(), "delayed", {}, 0.05)
 
 
@@ -208,7 +208,7 @@ async def test_status_opens_a_self_contained_fullscreen_app_resource(plugin):
         ui = tools["reme_status"].meta["ui"]
         assert ui["visibility"] == ["app", "model"]
         content = (await client.read_resource(ui["resourceUri"]))[0]
-        assert content.mimeType == "text/html;profile=mcp-app"
+        assert content.mime_type == "text/html;profile=mcp-app"
         assert content.meta["openai/ui"] == {
             "preferredDisplayMode": "fullscreen",
             "availableDisplayModes": ["fullscreen"],
@@ -323,7 +323,7 @@ async def test_manual_dream_uses_saved_settings_serializes_processes_and_tracks_
     monkeypatch.setattr(features, "call_async", dream)
     async with Client(module.create_server()) as first, Client(module.create_server()) as second:
         tools = {tool.name: tool for tool in await first.list_tools()}
-        assert tools["reme_run_dream"].annotations.destructiveHint
+        assert tools["reme_run_dream"].annotations.destructive_hint
         task = asyncio.create_task(first.call_tool("reme_run_dream", {"date": "2026-09-30"}))
         await asyncio.wait_for(started.wait(), 2)
         assert state.local_status(current)["auto_dream"]["last_run"]["status"] == "running"

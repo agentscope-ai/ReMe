@@ -193,8 +193,9 @@ class LocalProcessBackend(LocalBackend):
             return output_limit_result(bytes(stdout_buffer), bytes(stderr_buffer), str(exc))
         except TimeoutError:
             if raise_errors:
-                stdout, stderr = communication.result() if not communication.cancelled() else (b"", b"")
-                raise ProcessTimeout(ExecResult(exit_code=process.returncode, stdout=stdout, stderr=stderr)) from None
+                raise ProcessTimeout(
+                    ExecResult(exit_code=process.returncode, stdout=bytes(stdout_buffer), stderr=bytes(stderr_buffer)),
+                ) from None
             return ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
         return ExecResult(exit_code=process.returncode, stdout=stdout, stderr=stderr)
 

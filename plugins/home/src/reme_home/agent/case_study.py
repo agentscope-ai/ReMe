@@ -11,6 +11,7 @@ import yaml
 
 from reme.schema.token_usage import TokenUsage
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.local_backend import ProcessTimeout
 from reme.utils.qwen_token_tools import DEFAULT_TOKENIZER, QwenTokenTools
 
 from ..auto_bash import AutoBash
@@ -181,12 +182,16 @@ def python_tool(backend, cwd):
             raise ValueError("args must be a list of strings in file mode only")
         command = [sys.executable, "-I", "-B"]
         command += ["-c", code] if has_code else [str(Path(cwd) / file), *(args or [])]
-        result = await backend.exec_shell(command, cwd=cwd, timeout=timeout)
+        timed_out = False
+        try:
+            result = await backend.exec_shell(command, cwd=cwd, timeout=timeout, raise_errors=True)
+        except ProcessTimeout as exc:
+            result, timed_out = exc.result, True
         return {
             "returncode": result.exit_code,
             "stdout": result.stdout.decode(errors="replace"),
             "stderr": result.stderr.decode(errors="replace"),
-            "timed_out": result.exit_code == -1 and result.stderr == b"timed out",
+            "timed_out": timed_out,
         }
 
     return FunctionTool(python_execute, is_concurrency_safe=False)
