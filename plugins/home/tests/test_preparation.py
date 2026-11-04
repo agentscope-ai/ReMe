@@ -482,7 +482,9 @@ def test_bad_recovery_journal_does_not_remove_outside_paths(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cancellation_waits_for_rollback(app, inputs, monkeypatch):
+@pytest.mark.parametrize("cancellations", [1, 3])
+@pytest.mark.parametrize("fail_stage", [False, True])
+async def test_cancellation_waits_for_rollback(app, inputs, monkeypatch, cancellations, fail_stage):
     """The event loop stays available, and cancellation waits for the worker to restore state."""
     spec, _ = inputs
     root = Path(app.config.workspace_dir)
@@ -496,24 +498,64 @@ async def test_cancellation_waits_for_rollback(app, inputs, monkeypatch):
         entered.set()
         if not proceed.wait(10):
             raise RuntimeError("test worker timed out")
-        return stage(*args)
+        result = stage(*args)
+        if fail_stage:
+            raise OSError("injected stage failure after cancellation")
+        return result
 
     monkeypatch.setattr(component, "_stage", blocked)
     task = asyncio.create_task(app.run_job("home_prepare", spec=spec))
     try:
         assert await asyncio.to_thread(entered.wait, 10)
-        task.cancel()
-        await asyncio.sleep(0)
+        for index in range(cancellations):
+            task.cancel(f"cancellation-{index}")
+            await asyncio.sleep(0)
         assert not task.done()
+        assert component._pending  # pylint: disable=protected-access
         proceed.set()
-        with pytest.raises(asyncio.CancelledError):
+        with pytest.raises(asyncio.CancelledError, match="cancellation-0"):
             await task
     finally:
         proceed.set()
         await asyncio.gather(task, return_exceptions=True)
     assert snapshot(root) == before
+    assert not component._pending  # pylint: disable=protected-access
     monkeypatch.setattr(component, "_stage", stage)
     assert (await app.run_job("home_prepare", spec=spec)).success
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancellations", [1, 3])
+async def test_cancellation_after_preparation_commit_retains_success(app, inputs, monkeypatch, cancellations):
+    """A stop request after the last published target must not undo a completed transaction."""
+    from reme_home.preparation import component as preparation
+
+    entered, release = Event(), Event()
+    original = preparation.publish
+
+    def committed(*args):
+        original(*args)
+        entered.set()
+        assert release.wait(5)
+
+    monkeypatch.setattr(preparation, "publish", committed)
+    task = asyncio.create_task(app.run_job("home_prepare", spec=inputs[0]))
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        for index in range(cancellations):
+            task.cancel(f"cancellation-{index}")
+            await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        response = await task
+        assert response.success, response.answer
+        home = Path(app.config.workspace_dir) / "home"
+        assert json.loads((home / "metadata/preparation.json").read_text())["preparation_id"]
+        assert not (home / "metadata" / TRANSACTION).exists()
+        assert not app.context.components["home.preparation"]["default"]._pending  # pylint: disable=protected-access
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @pytest.mark.asyncio

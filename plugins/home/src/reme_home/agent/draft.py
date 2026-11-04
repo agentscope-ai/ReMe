@@ -7,8 +7,7 @@ from threading import Lock
 from agentscope.tool import FunctionTool
 
 from reme.utils.qwen_token_tools import QwenTokenTools
-
-from ..evaluation.component import blocking
+from reme.utils.async_utils import complete_in_thread as blocking
 
 MAX_DRAFTS = 6
 RECOMMENDED_DRAFT_TOKENS = 200

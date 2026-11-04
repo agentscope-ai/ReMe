@@ -12,6 +12,7 @@ import yaml
 
 from reme.components.base_component import BaseComponent
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.async_utils import finish_cleanup
 
 from .code import prepare_code
 from .evaluation_source import EvaluationSource
@@ -72,20 +73,21 @@ class HomePreparation(BaseComponent):
             asyncio.to_thread(self._prepare, spec=spec, spec_path=spec_path, stop=stop, code_source=code_source),
         )
         self._pending.add(task)
-        cancelled = False
         try:
-            while True:
-                try:
-                    return await asyncio.shield(task)
-                except asyncio.CancelledError:
-                    if task.cancelled():
-                        raise
-                    cancelled = True
-                    stop.set()
-                except InterruptedError:
-                    if cancelled:
-                        raise asyncio.CancelledError from None
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError as cancellation:
+                if task.cancelled():
                     raise
+                stop.set()
+                try:
+                    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+                except asyncio.CancelledError:
+                    pass
+                if task.cancelled() or task.exception() is not None:
+                    raise cancellation from None
+                # A worker past the durable commit boundary still returns success.
+                return task.result()
         finally:
             self._pending.discard(task)
 

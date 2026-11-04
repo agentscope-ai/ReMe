@@ -37,6 +37,37 @@ async def test_start_callback_only_once_after_initialization(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_async_start_callback_serializes_concurrent_initializations(monkeypatch):
+    """Other initialized workers await the same durable start before being returned."""
+    monkeypatch.setattr(docker_sandbox.DockerReMeSandbox, "initialize", AsyncMock())
+    entered, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def started():
+        calls.append(True)
+        entered.set()
+        await release.wait()
+
+    factory = DockerReMeSandboxFactory(
+        ImageCandidate("fixture"),
+        workspace_builder=lambda *_: AsyncMock(),
+        on_sandbox_started=started,
+    )
+    first = asyncio.create_task(factory.create_case("first"))
+    second = asyncio.create_task(factory.create_case("second"))
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.sleep(0)
+        assert not first.done() and not second.done()
+        assert calls == [True]
+    finally:
+        release.set()
+        await asyncio.gather(first, second)
+    assert factory._sandbox_started_reported  # pylint: disable=protected-access
+    assert calls == [True]
+
+
+@pytest.mark.asyncio
 async def test_start_callback_failure_closes_initialized_resource(monkeypatch):
     """Persisting a start marker must not orphan an already-created workspace on failure."""
     monkeypatch.setattr(docker_sandbox.DockerReMeSandbox, "initialize", AsyncMock())

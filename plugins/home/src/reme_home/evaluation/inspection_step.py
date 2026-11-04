@@ -6,6 +6,7 @@ import json
 from pydantic import Field, field_validator, model_validator
 
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.async_utils import finish_cleanup
 
 from ..code.repository import current_branch, resolve_revision, validate_branch, validate_repository
 from ..preparation.code import git
@@ -323,19 +324,8 @@ async def _execute(step, model, function):
     spec = model.model_validate({name: step.context.get(name) for name in model.model_fields if name in step.context})
     if not step.workspace.is_started:
         raise RuntimeError("Start the Home workspace before inspecting evaluations")
-    task = asyncio.create_task(asyncio.to_thread(function, step.workspace.home_path, spec))
-    cancelled = False
-    while True:
-        try:
-            result = await asyncio.shield(task)
-            if cancelled:
-                raise asyncio.CancelledError
-            step.context.response.answer = result
-            return step.context.response
-        except asyncio.CancelledError:
-            if task.done():
-                raise
-            cancelled = True
+    step.context.response.answer = await finish_cleanup(asyncio.to_thread(function, step.workspace.home_path, spec))
+    return step.context.response
 
 
 class HomeListValidationResultsStep(BaseStep):

@@ -5,6 +5,8 @@ import random
 import subprocess
 import tarfile
 
+from reme.utils.async_utils import complete_in_thread as blocking
+
 from ..code.repository import current_branch, validate_candidate, validate_repository
 from ..code.snapshot import tree
 from ..preparation.code import git
@@ -136,7 +138,6 @@ async def automatic_reuse(wrapper, home, prepared, *, memory_limit_mib=None):
     """Automatic failures rebuild; only a sandboxed unchanged review permits a probability draw."""
     from ..agent.construction_equivalence import review_construction
     from ..agent.workflow_common import save_record
-    from .component import blocking
 
     if prepared is None:
         return None

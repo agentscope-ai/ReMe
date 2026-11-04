@@ -99,6 +99,68 @@ async def test_completion_waits_for_concurrent_code_browsing(app, prepared, monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["record_started", "record", "invalidate"])
+async def test_history_writes_wait_for_code_read_without_losing_result(app, prepared, monkeypatch, stage):
+    from reme_home.code.component import OPERATIONS
+
+    commit_candidate(prepared)
+    manager = history(app)
+    reached, browsing, acquiring, release = Event(), Event(), Event(), Event()
+    original, original_status = getattr(manager, stage), OPERATIONS["status"]
+
+    def write(*args, **kwargs):
+        reached.set()
+        assert browsing.wait(5)
+        acquiring.set()
+        return original(*args, **kwargs)
+
+    def status(*args, **kwargs):
+        browsing.set()  # The real code Job already owns workspace.lock.
+        assert release.wait(5)
+        return original_status(*args, **kwargs)
+
+    if stage == "invalidate":
+
+        def fail_record(*args):
+            raise OSError("injected registration failure after completion publication")
+
+        monkeypatch.setattr(manager, "record", fail_record)
+    monkeypatch.setattr(manager, stage, write)
+    monkeypatch.setitem(OPERATIONS, "status", status)
+    evaluation = asyncio.create_task(app.run_job("home_evaluate", max_evaluations=1))
+    code_status = None
+    try:
+        assert await asyncio.to_thread(reached.wait, 5)
+        code_status = asyncio.create_task(app.run_job("home_code_status"))
+        assert await asyncio.to_thread(acquiring.wait, 5)
+        await asyncio.sleep(0.1)
+        assert not evaluation.done()
+        # This coroutine must remain runnable while the history worker waits.
+        release.set()
+        response = await evaluation
+        assert response.success, response.answer
+        assert (await code_status).success
+        payload = manifest(response)
+        assert payload["status"] == "completed" and payload["success"] is True
+        plan = json.loads((prepared / payload["sampling"]["plan_path"]).read_text())
+        assert payload["sandbox_started_at"] == plan["sandbox_started_at"]
+        budget = validation_budget_status(prepared, 1)
+        assert budget["used_validations"] == 1 and budget["remaining_validations"] == 0
+        assert response.answer["validation_budget"] == budget
+        state = read_state(prepared)
+        assert state["round"] == state["successful_round"] == 1
+        assert state["started_validations"] == {plan["validation_key"]: 1}
+        assert len(manager.list_results()) == 1
+        manager.rebuild()
+        assert read_state(prepared) == state
+        retry = await app.run_job("home_evaluate")
+        assert retry.answer["error_code"] == "UNCHANGED_CANDIDATE"
+    finally:
+        release.set()
+        await asyncio.gather(evaluation, *([code_status] if code_status is not None else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
 async def test_start_cache_failure_keeps_start_evidence_and_exhausts_budget(app, prepared, monkeypatch):
     commit_candidate(prepared)
     manager = history(app)
@@ -508,7 +570,14 @@ async def test_cancellation_after_durable_completion_keeps_history_consistent(ap
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("after_record", [False, True])
-async def test_registration_failure_invalidates_only_caches(app, prepared, monkeypatch, after_record):
+@pytest.mark.parametrize("invalidation_fails", [False, True])
+async def test_registration_failure_invalidates_only_caches(
+    app,
+    prepared,
+    monkeypatch,
+    after_record,
+    invalidation_fails,
+):
     manager = history(app)
     original = manager.record
 
@@ -518,6 +587,12 @@ async def test_registration_failure_invalidates_only_caches(app, prepared, monke
         raise OSError("sampling observations could not be saved")
 
     monkeypatch.setattr(manager, "record", fail)
+    if invalidation_fails:
+
+        def fail_invalidate():
+            raise OSError("injected cache invalidation failure")
+
+        monkeypatch.setattr(manager, "invalidate", fail_invalidate)
     response = await app.run_job("home_evaluate")
     assert response.success, response.answer
     runs = list((prepared / "evaluations").glob("*/*/*/manifest.json"))
@@ -526,7 +601,7 @@ async def test_registration_failure_invalidates_only_caches(app, prepared, monke
     completed = json.loads(runs[0].read_text())
     assert completed["status"] == "completed" and completed["success"] is True
     assert (run / "summary.json").is_file() and (run / "cases/1/queries/result.json").is_file()
-    assert not (prepared / "sampling/state.json").exists()
+    assert (prepared / "sampling/state.json").exists() is (invalidation_fails and after_record)
     assert read_state(prepared)["round"] == 1 and read_state(prepared)["successful_round"] == 1
     monkeypatch.setattr(manager, "record", original)
     assert len(manager.list_results()) == 1
@@ -570,7 +645,7 @@ async def run():
     await app.start()
     app.context.components["agent_wrapper"]["judge"].reply = AsyncMock(
         return_value={"result": '{"score": 0.5}'})
-    app.context.components["home.evaluation"]["default"]._finish_sampling = lambda run: os._exit(23)
+    app.context.components["home.evaluation_history"]["default"].record = lambda run: os._exit(23)
     await app.run_job("home_evaluate")
 asyncio.run(run())
 """

@@ -5,8 +5,9 @@ from typing import Literal
 
 from pydantic import Field
 
+from reme.utils.async_utils import complete_in_thread as blocking
+
 from ..evaluation.artifacts import contained, file_sha256, inspect_archive, read_json, write_json
-from ..evaluation.component import blocking
 from ..evaluation.inputs import reuse_inputs
 from ..preparation.code import tree_fingerprint
 from ..preparation.spec import SpecModel

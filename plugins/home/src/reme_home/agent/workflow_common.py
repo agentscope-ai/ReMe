@@ -8,10 +8,11 @@ from uuid import uuid4
 from agentscope.tool import BackendBase, DirEntry, Glob, Grep, Read, Toolkit, Write
 import yaml
 
+from reme.utils.async_utils import complete_in_thread as blocking
+
 from ..auto_bash import AutoBash
 from ..code.repository import validate_repository
 from ..evaluation.artifacts import contained, write_json
-from ..evaluation.component import blocking
 from .case_study import python_tool
 from .sandbox import create_case_study_sandbox
 

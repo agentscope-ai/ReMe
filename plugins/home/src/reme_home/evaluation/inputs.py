@@ -166,17 +166,22 @@ def snapshot_code(home: Path, record: dict):
     return snapshot, commit, branch
 
 
+def _reuse_source(home: Path, value: str):
+    """Read current source artifacts within the managed evaluation tree."""
+    evaluations = contained(home, "evaluations", directory=True)
+    source = contained(home, value, directory=True)
+    if not source.is_relative_to(evaluations) or source == evaluations:
+        raise ValueError("reuse_construction_from must be inside home/evaluations")
+    manifest = read_json(contained(source, "manifest.json"))
+    summary = read_json(contained(source, "summary.json"))
+    return source, manifest, summary
+
+
 def reuse_inputs(home: Path, spec: EvaluationSpec, cases: list, fingerprints: dict):
     """Preflight the entire requested selection; never silently skip or rebuild cases."""
     if spec.reuse_construction_from is None:
         return None, {}
-    evaluations = contained(home, "evaluations", directory=True)
-    value = spec.reuse_construction_from
-    source = contained(home, value, directory=True)
-    if not source.is_relative_to(evaluations) or source == evaluations:
-        raise ValueError("reuse_construction_from must be inside home/evaluations")
-    manifest = read_json(source / "manifest.json")
-    summary = read_json(source / "summary.json")
+    source, manifest, summary = _reuse_source(home, spec.reuse_construction_from)
     if manifest.get("dataset_kind") != "training-set" or manifest.get("status", summary.get("status")) != "completed":
         raise ValueError("Reuse requires a completed training-set evaluation")
     for key in ("dataset", "construction_config"):
@@ -205,12 +210,7 @@ def replay_sampling_eligibility(home: Path, spec: EvaluationSpec, cases: list[Ca
     """Port dev_meta's replay eligibility without restricting future full rebuilds."""
     if spec.reuse_construction_from is None:
         return None
-    source = contained(home, spec.reuse_construction_from, directory=True)
-    evaluations = contained(home, "evaluations", directory=True)
-    if not source.is_relative_to(evaluations) or source == evaluations:
-        raise ValueError("reuse_construction_from must be inside home/evaluations")
-    manifest = read_json(contained(source, "manifest.json"))
-    summary = read_json(contained(source, "summary.json"))
+    source, manifest, summary = _reuse_source(home, spec.reuse_construction_from)
     if (
         manifest.get("dataset_kind") != "training-set"
         or manifest.get("mode") == "debug"

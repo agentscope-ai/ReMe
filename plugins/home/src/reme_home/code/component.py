@@ -3,6 +3,7 @@
 import asyncio
 
 from reme.components.base_component import BaseComponent
+from reme.utils.async_utils import finish_cleanup
 
 from ..workspace import HomeWorkspace, _initialization_lock, _validate_directory
 from . import repository, snapshot
@@ -45,22 +46,8 @@ class HomeCode(BaseComponent):
         arguments = ARGUMENTS[operation].model_validate(kwargs).model_dump()
         task = asyncio.create_task(asyncio.to_thread(self._run, operation, arguments))
         self._pending.add(task)
-        cancelled = False
         try:
-            while True:
-                try:
-                    result = await asyncio.shield(task)
-                    if cancelled:
-                        raise asyncio.CancelledError
-                    return result
-                except asyncio.CancelledError:
-                    if task.done():
-                        raise
-                    cancelled = True
-                except Exception:
-                    if cancelled:
-                        raise asyncio.CancelledError from None
-                    raise
+            return await finish_cleanup(task)
         finally:
             self._pending.discard(task)
 

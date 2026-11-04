@@ -147,7 +147,7 @@ async def test_baseline_then_adaptive_job_updates_only_selected_cases(app, prepa
     assert after["cases"][selected]["observed_count"] == 2
     assert after["cases"][selected]["successful_observations_after_last_error"] == 1
     assert after["cases"][unselected] == before["cases"][unselected]
-    evaluation._finish_sampling(run)
+    app.context.components["home.evaluation_history"]["default"].record(run)
     assert state(prepared) == after  # A summary is consumed once, including after reopening.
     assert "home_validate" not in app.context.jobs
     assert app.context.jobs["home_evaluate"].parameters["properties"]["sampling"]["type"] == "boolean"

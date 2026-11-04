@@ -306,12 +306,12 @@ class HomeEvaluationHistory(BaseComponent):
 
     def record_started(self, run: Path, policy: SamplingPolicy, plan: dict | None = None) -> dict:
         """Record a started round, independently of whether it later enters successful history."""
-        with self._history_lock():
+        with self._history_lock(wait=True):
             return start_validation(self.workspace.home_path, self._run_path(run), policy, plan)
 
     def record(self, run: Path) -> EvaluationRecord | None:
         """Register a successful result once; unsuccessful runs never train the sampler."""
-        with self._history_lock():
+        with self._history_lock(wait=True):
             home = self.workspace.home_path
             run = self._run_path(run)
             record = result_record(home, run)
@@ -321,16 +321,25 @@ class HomeEvaluationHistory(BaseComponent):
             return record
 
     def publish_completed(self, run: Path, manifest: dict, summary: dict) -> None:
-        """Invalidate observations before publishing the durable completion boundary.
+        """Publish durable completion before best-effort sampling registration.
 
-        A process exit before registration leaves a missing cache, so the next
-        reader reconstructs all observations from source artifacts.
+        Invalidate observations before publishing so interruption before registration
+        leaves a missing cache that readers rebuild from source artifacts. Cache
+        failures after publication must not turn completed evaluations into failures.
         """
         with self._history_lock(wait=True):
             run = self._run_path(run)
             contained(self.workspace.home_path, "sampling/state.json").unlink(missing_ok=True)
             write_json(run / "manifest.json", manifest)
             write_json(run / "summary.json", summary, compact_leaf_containers=True)
+        try:
+            self.record(run)
+        except Exception:
+            self.logger.exception("Sampling registration failed; completed evaluation retained")
+            try:
+                self.invalidate()
+            except Exception:
+                self.logger.exception("Sampling cache invalidation failed; completed evaluation retained")
 
     def list_results(self) -> list[EvaluationRecord]:
         """Return successful results in chronological order, including low-scoring candidates."""
@@ -346,12 +355,12 @@ class HomeEvaluationHistory(BaseComponent):
 
     def rebuild(self) -> list[EvaluationRecord]:
         """Rebuild only derived indexes and sampling observations; never rewrite source evidence."""
-        with self._history_lock():
+        with self._history_lock(wait=True):
             home = self.workspace.home_path
             rebuild_sampling_state(home)
             return self._records()
 
     def invalidate(self) -> None:
         """Discard only derived caches after an unsuccessful registration; retain all source evidence."""
-        with self._history_lock():
+        with self._history_lock(wait=True):
             contained(self.workspace.home_path, "sampling/state.json").unlink(missing_ok=True)

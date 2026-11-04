@@ -9,9 +9,9 @@ from agentscope.tool import FunctionTool
 from pydantic import Field, field_validator
 
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.async_utils import complete_in_thread as blocking
 
 from ..evaluation.artifacts import contained, read_json, write_json
-from ..evaluation.component import blocking
 from ..preparation.spec import SpecModel
 from ..workspace import HomeWorkspace
 from .draft import DraftStore, create_draft_tools

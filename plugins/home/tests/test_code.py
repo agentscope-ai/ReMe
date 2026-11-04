@@ -239,7 +239,9 @@ async def test_lock_restrictions_and_unprepared(app):
 
 
 @pytest.mark.asyncio
-async def test_cancel_waits_for_owned_git_thread(prepared, monkeypatch):
+@pytest.mark.parametrize("cancelled", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_git_thread_drains_and_preserves_cancellation_or_error(prepared, monkeypatch, cancelled, fail):
     app, _, _ = prepared
     component = app.context.components["home.code"]["default"]
     entered, release, finished = Event(), Event(), Event()
@@ -249,19 +251,35 @@ async def test_cancel_waits_for_owned_git_thread(prepared, monkeypatch):
         entered.set()
         assert release.wait(5)
         try:
+            if fail:
+                raise OSError("injected Git failure")
             return original(*args)
         finally:
             finished.set()
 
     monkeypatch.setattr(component, "_run", blocked)
     task = asyncio.create_task(component.run("status"))
-    assert await asyncio.to_thread(entered.wait, 5)
-    task.cancel()
-    await asyncio.sleep(0)
-    assert not task.done()
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        assert len(component._pending) == 1
+        if cancelled:
+            task.cancel("first cancellation")
+            await asyncio.sleep(0)
+            task.cancel("second cancellation")
+            await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        if cancelled:
+            with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+                await task
+        elif fail:
+            with pytest.raises(OSError, match="injected Git failure"):
+                await task
+        else:
+            assert isinstance(await task, dict)
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
     assert finished.is_set() and not component._pending
 
 

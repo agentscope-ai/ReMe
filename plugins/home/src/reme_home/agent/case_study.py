@@ -11,13 +11,13 @@ import yaml
 
 from reme.schema.token_usage import TokenUsage
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.local_backend import ProcessTimeout
 from reme.utils.qwen_token_tools import DEFAULT_TOKENIZER, QwenTokenTools
 
 from ..auto_bash import AutoBash
 from ..code.repository import resolve_revision, validate_repository
 from ..evaluation.artifacts import contained
-from ..evaluation.component import blocking
 from ..evaluation.evidence_step import _source_case
 from ..evaluation.inputs import entity_id
 from ..evaluation.memory_inspection_step import _repository

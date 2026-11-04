@@ -13,10 +13,10 @@ from agentscope.tool import Edit, FunctionTool
 from pydantic import Field
 
 from reme.steps.base_step import BaseStep, Ref
+from reme.utils.async_utils import complete_in_thread as blocking
 
 from ..code.repository import validate_repository, require_clean, validate_tree, status
 from ..evaluation.artifacts import contained, read_json, write_json
-from ..evaluation.component import blocking
 from ..evaluation.inputs import EvaluationSpec, load_inputs
 from ..evaluation.history import read_state
 from ..evaluation.budget import validate_max_evaluations, validation_budget_status

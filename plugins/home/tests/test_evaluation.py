@@ -167,7 +167,7 @@ class FakeFactory:
     async def create_cases(self, ids, **kwargs):
         self.workers = [FakeWorker(self) for _ in ids]
         if self.workers and self.kwargs.get("on_sandbox_started"):
-            self.kwargs["on_sandbox_started"]()
+            await self.kwargs["on_sandbox_started"]()
         return self.workers
 
 

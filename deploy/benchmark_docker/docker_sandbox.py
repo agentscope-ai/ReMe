@@ -7,12 +7,13 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import gzip
 import io
+import inspect
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import tarfile
-from typing import Any, BinaryIO, Callable, Literal, Protocol
+from typing import Any, Awaitable, BinaryIO, Callable, Literal, Protocol
 import uuid
 
 from ._cleanup import cleanup_on_error
@@ -272,11 +273,12 @@ class DockerReMeSandboxFactory:
         plugins: tuple[str, ...] | list[str] = (),
         command_timeout: float = 1800.0,
         workspace_builder: WorkspaceBuilder | None = None,
-        on_sandbox_started: Callable[[], None] | None = None,
+        on_sandbox_started: Callable[[], None | Awaitable[None]] | None = None,
     ) -> None:
         self.candidate = candidate
         self._on_sandbox_started = on_sandbox_started
         self._sandbox_started_reported = False
+        self._sandbox_started_lock = asyncio.Lock()
         self.env = dict(env or {})
         self.config = config
         self.plugins = tuple(plugins)
@@ -312,9 +314,13 @@ class DockerReMeSandboxFactory:
         )
         try:
             await case.initialize()
-            if self._on_sandbox_started is not None and not self._sandbox_started_reported:
-                self._on_sandbox_started()
-                self._sandbox_started_reported = True
+            if self._on_sandbox_started is not None:
+                async with self._sandbox_started_lock:
+                    if not self._sandbox_started_reported:
+                        result = self._on_sandbox_started()
+                        if inspect.isawaitable(result):
+                            await result
+                        self._sandbox_started_reported = True
         except BaseException as exc:
             await cleanup_on_error([(f"workspace {container_id!r}", workspace.close())], exc)
             raise

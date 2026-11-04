@@ -291,22 +291,41 @@ async def test_hidden_case_scope_is_enforced_by_agent_job_injection(app, prepare
 
 
 @pytest.mark.asyncio
-async def test_cancelled_job_drains_read_thread(app, prepared, monkeypatch):
+@pytest.mark.parametrize("cancelled", [False, True])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_read_thread_drains_and_preserves_cancellation_or_error(app, prepared, monkeypatch, cancelled, fail):
     entered, release, finished = Event(), Event(), Event()
 
     def read(*args):
         entered.set()
         assert release.wait(5)
         finished.set()
+        if fail:
+            raise OSError("injected inspection failure")
         return {}
 
     monkeypatch.setattr(inspection, "_list_results", read)
     task = asyncio.create_task(app.run_job("home_list_validation_results"))
-    assert await asyncio.to_thread(entered.wait, 5)
-    task.cancel()
-    await asyncio.sleep(0)
-    assert not task.done()
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        assert await asyncio.to_thread(entered.wait, 5)
+        if cancelled:
+            task.cancel("first cancellation")
+            await asyncio.sleep(0)
+            task.cancel("second cancellation")
+            await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        if cancelled:
+            with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+                await task
+        else:
+            response = await task
+            assert response.success is (not fail)
+            if fail:
+                assert "injected inspection failure" in str(response.answer)
+            else:
+                assert response.answer == {}
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
     assert finished.is_set()

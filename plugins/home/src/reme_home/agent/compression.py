@@ -1,6 +1,5 @@
 """Meta-ReMe compression recovery adapted to AgentScope's native context pipeline."""
 
-import asyncio
 import logging
 from pathlib import Path
 from uuid import uuid4
@@ -10,6 +9,8 @@ from agentscope.message import TextBlock
 import jsonschema
 import openai
 from pydantic import ValidationError
+
+from reme.utils.async_utils import finish_cleanup
 
 from ..evaluation.artifacts import contained, write_json
 from .bounded import BoundedReActAgent
@@ -127,9 +128,4 @@ class RecoverableCompressionAgent(BoundedReActAgent):
                 self.state.context[-1].usage = usage
             logger.warning("Local compression offloaded %d message(s) to %s", len(old_messages), path)
 
-        task = asyncio.create_task(apply_change())
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            await task
-            raise
+        await finish_cleanup(apply_change())

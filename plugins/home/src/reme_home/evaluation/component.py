@@ -9,6 +9,7 @@ from contextlib import nullcontext
 from deploy.benchmark_docker import BenchmarkDockerPool, CasePlan, DockerReMeSandboxFactory, SourceCandidate
 
 from reme.components.base_component import BaseComponent
+from reme.utils.async_utils import complete_in_thread as blocking
 from reme.utils.async_utils import finish_cleanup
 
 from ..preparation.data.models import utc_now
@@ -33,11 +34,6 @@ from .history import HomeEvaluationHistory
 from .budget import validation_budget_status
 from .repetition import previous_candidate_result
 from .reuse import automatic_reuse, construction_fingerprints, reuse_context
-
-
-async def blocking(function, *args, **kwargs):
-    """Await owned filesystem work even when the calling job is cancelled."""
-    return await finish_cleanup(asyncio.to_thread(function, *args, **kwargs))
 
 
 class HomeEvaluation(BaseComponent):
@@ -241,9 +237,6 @@ class HomeEvaluation(BaseComponent):
             # Preserve those fields when the caller later saves failure status.
             manifest.update(read_json(run / "manifest.json"))
 
-    def _finish_sampling(self, run):
-        self.history.record(run)
-
     def _allocate(self, branch, commit, manifest):
         """Allocate ascending IDs under a collision-safe commit prefix."""
         home = self.workspace.home_path
@@ -351,7 +344,8 @@ class HomeEvaluation(BaseComponent):
                 on_sandbox_started=(
                     None
                     if spec.debug
-                    else lambda: self._sampling_started(
+                    else lambda: blocking(
+                        self._sampling_started,
                         run,
                         manifest,
                         sampling_plan,
@@ -409,11 +403,6 @@ class HomeEvaluation(BaseComponent):
             )
             if not spec.debug and spec.record_history:
                 await blocking(self.history.publish_completed, run, manifest, summary)
-                try:
-                    await blocking(self._finish_sampling, run)
-                except Exception:
-                    await blocking(self.history.invalidate)
-                    self.logger.exception("Sampling registration failed; completed evaluation retained")
             else:
                 write_json(run / "manifest.json", manifest)
                 write_json(run / "summary.json", summary, compact_leaf_containers=True)

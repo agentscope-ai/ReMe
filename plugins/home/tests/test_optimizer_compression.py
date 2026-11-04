@@ -182,7 +182,12 @@ async def test_offload_write_failure_keeps_context_and_does_not_count(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_cancellation_during_apply_finishes_consistent_offload_then_propagates(tmp_path, monkeypatch):
+@pytest.mark.parametrize("cancellations", [1, 3])
+async def test_cancellation_during_apply_finishes_consistent_offload_then_propagates(
+    tmp_path,
+    monkeypatch,
+    cancellations,
+):
     agent = make_agent(tmp_path)
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -192,11 +197,18 @@ async def test_cancellation_during_apply_finishes_consistent_offload_then_propag
 
     monkeypatch.setattr(agent, "_clear_unreserved_read_cache", clear_cache)
     task = asyncio.create_task(agent.compress_context())
-    await started.wait()
-    task.cancel()
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+    try:
+        await asyncio.wait_for(started.wait(), 5)
+        for index in range(cancellations):
+            task.cancel(f"cancellation-{index}")
+            await asyncio.sleep(0)
+        assert not task.done()
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="cancellation-0"):
+            await task
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
     assert len(list(tmp_path.rglob("context-*.json"))) == 1
     assert "offloaded" in agent.state.summary
     assert len(agent.state.context) == 2

@@ -7,10 +7,11 @@ from uuid import uuid4
 
 from pydantic import Field
 
+from reme.utils.async_utils import complete_in_thread as blocking
+
 from ..code.repository import current_branch, validate_candidate, validate_repository
 from ..code.snapshot import export_blob, tree
 from ..evaluation.artifacts import contained, read_json
-from ..evaluation.component import blocking
 from ..evaluation.repetition import previous_candidate_result
 from ..preparation.code import git
 from ..preparation.spec import SpecModel
