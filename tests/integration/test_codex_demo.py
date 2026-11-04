@@ -96,7 +96,7 @@ async def test_live_codex_demo_chat_and_add_tool(demo_app, streaming, use_tool):
             errors = [
                 chunk.chunk
                 for chunk in chunks
-                if chunk.chunk_type == ChunkEnum.ERROR and not chunk.metadata.get("will_retry")
+                if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True
             ]
             assert not errors, errors
             assert chunks[0].chunk_type == ChunkEnum.REPLY_START

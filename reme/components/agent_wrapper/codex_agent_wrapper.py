@@ -32,6 +32,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "auth_mode",
             "api_key",
             "base_url",
+            "supports_websockets",
             "codex_bin",
             "codex_home",
             "config_overrides",

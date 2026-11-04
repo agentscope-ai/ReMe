@@ -546,6 +546,10 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 可用工具直接执行，不经过人工或模型审批。需要新增权限的请求直接拒绝，不弹出审批。
 如需自动审批，可显式设置 `approval_mode: auto_review`。工具白名单与注入参数约束继续生效。
 
+使用 API key 和自定义 `base_url` 时，共享组件会配置独立的 Responses provider，默认直接使用 HTTP/SSE。
+仅当端点支持 Responses WebSocket 传输时，才在 `codex_app_server` 上设置 `supports_websockets: true`。
+显式 `config_overrides` 优先于自动生成的 provider 默认值。
+
 API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
 处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `xhigh`。
 模型目录仅开放 `xhigh` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。

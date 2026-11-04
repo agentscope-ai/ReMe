@@ -566,6 +566,10 @@ The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK ma
 permissions are rejected rather than prompting. Set `approval_mode: auto_review` to opt into the configured
 automatic reviewer. Tool allowlists and injected argument constraints continue to apply.
 
+With an API key and a custom `base_url`, the shared server configures a dedicated Responses provider that uses
+HTTP/SSE by default. Set `supports_websockets: true` on `codex_app_server` only for endpoints supporting the Responses
+WebSocket transport. Explicit `config_overrides` retain precedence over generated provider defaults.
+
 API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
 and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
 default subagents select `xhigh` reasoning. The catalog exposes only `xhigh`, so native approval reviews also use

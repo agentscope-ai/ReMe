@@ -121,6 +121,7 @@ components:
       auth_mode: api_key
       api_key: ${LLM_API_KEY:-}
       base_url: ${LLM_BASE_URL:-}
+      supports_websockets: false
       config_overrides:
         - 'model_reasoning_effort="xhigh"'
         - 'review_model="qwen3.8-max"'

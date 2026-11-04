@@ -528,12 +528,29 @@ def test_server_config_authentication_environment_and_home(tmp_path):
     assert config.env["CUSTOM"] == "preserved"
     assert config.env["CODEX_HOME"] == str(tmp_path / "mem_session/codex/one")
     assert 'forced_login_method="api"' in config.config_overrides
-    assert 'openai_base_url="https://proxy.test/v1"' in config.config_overrides
+    assert 'model_provider="reme"' in config.config_overrides
+    assert 'model_providers.reme.base_url="https://proxy.test/v1"' in config.config_overrides
+    assert "model_providers.reme.requires_openai_auth=true" in config.config_overrides
+    assert "model_providers.reme.supports_websockets=false" in config.config_overrides
     oauth = CodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
     assert CodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
     assert oauth._client_config().config_overrides == ('forced_login_method="chatgpt"',)
     with pytest.raises(ValueError, match="requires a non-empty"):
         CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
+
+
+def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(tmp_path):
+    server = CodexAppServer(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        auth_mode="api_key",
+        api_key="key",
+        base_url="https://proxy.test/v1",
+        supports_websockets=True,
+        config_overrides=['model_provider="custom"'],
+    )
+    overrides = server._client_config().config_overrides
+    assert "model_providers.reme.supports_websockets=true" in overrides
+    assert overrides.index('model_provider="custom"') > overrides.index('model_provider="reme"')
 
 
 def test_server_materializes_model_catalog_inside_its_private_home(tmp_path):
@@ -576,6 +593,7 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         assert "auth_mode" not in wrappers["codex"]
         servers = config["components"]["codex_app_server"]
         assert servers["default"]["auth_mode"] == "api_key"
+        assert servers["default"]["supports_websockets"] is False
         assert wrappers["codex"]["model"] == "qwen3.8-max"
         assert wrappers["codex"]["approval_mode"] == "deny_all"
         assert wrappers["codex"]["effort"] == "xhigh"

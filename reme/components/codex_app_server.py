@@ -43,6 +43,7 @@ class CodexAppServer(BaseComponent):
         auth_mode: str = "auto",
         api_key: str = "",
         base_url: str = "",
+        supports_websockets: bool = False,
         codex_home: str | Path | None = None,
         codex_bin: str | None = None,
         config_overrides: list[str] | tuple[str, ...] = (),
@@ -57,6 +58,7 @@ class CodexAppServer(BaseComponent):
         self._auth_mode = auth_mode
         self._api_key = api_key
         self._base_url = base_url
+        self._supports_websockets = supports_websockets
         self._codex_bin = codex_bin
         self._config_overrides = tuple(config_overrides)
         self._model_catalog = model_catalog
@@ -100,7 +102,16 @@ class CodexAppServer(BaseComponent):
             catalog_path.write_text(json.dumps(self._model_catalog, ensure_ascii=False), encoding="utf-8")
             overrides.append(f"model_catalog_json={json.dumps(str(catalog_path))}")
         if api_login and self._base_url:
-            overrides.append(f"openai_base_url={json.dumps(self._base_url)}")
+            # Custom endpoints must not inherit the built-in OpenAI provider's WebSocket capability.
+            overrides = [
+                'model_provider="reme"',
+                'model_providers.reme.name="ReMe API"',
+                f"model_providers.reme.base_url={json.dumps(self._base_url)}",
+                'model_providers.reme.wire_api="responses"',
+                "model_providers.reme.requires_openai_auth=true",
+                f"model_providers.reme.supports_websockets={json.dumps(self._supports_websockets)}",
+                *overrides,
+            ]
         overrides.append(f"forced_login_method={json.dumps('api' if api_login else 'chatgpt')}")
         cwd = Path(self._cwd).expanduser() if self._cwd else self.workspace_path
         if not cwd.is_absolute():

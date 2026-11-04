@@ -936,6 +936,7 @@ components:
       auth_mode: api_key
       api_key: ${CODEX_API_KEY:-}
       base_url: ${CODEX_BASE_URL:-}
+      supports_websockets: false
       config_overrides:
         - 'model_reasoning_effort="xhigh"'
         - 'review_model="qwen3.8-max"'
