@@ -930,6 +930,58 @@ components:
         max_tokens: 65536
         thinking_enable: false
 
+  codex_app_server:
+    default:
+      backend: sdk
+      auth_mode: api_key
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+      codex_home: .codex
+      supports_websockets: false
+      config_overrides:
+        - 'model_reasoning_effort="xhigh"'
+        - 'review_model="qwen3.8-max"'
+        - 'agents.default_subagent_model="qwen3.8-max"'
+        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'memories.extract_model="qwen3.8-flash"'
+        - 'memories.consolidation_model="qwen3.8-max"'
+      model_catalog:
+        models:
+          - &codex_model_defaults
+            slug: &codex_simple_model qwen3.8-flash
+            display_name: Qwen3.8 Flash
+            description: Simple tasks and automatic approval review
+            auto_review_model_override: *codex_simple_model
+            default_reasoning_level: xhigh
+            multi_agent_reasoning_effort: xhigh
+            supported_reasoning_levels:
+              - effort: xhigh
+                description: Maximum reasoning
+            context_window: 983616
+            input_modalities: [text, image]
+            supports_parallel_tool_calls: false
+            supports_reasoning_summaries: false
+            support_verbosity: false
+            shell_type: default
+            visibility: list
+            supported_in_api: true
+            priority: 1
+            base_instructions: ""
+            experimental_supported_tools: []
+            truncation_policy:
+              mode: bytes
+              limit: 10000
+          - <<: *codex_model_defaults
+            slug: &codex_complex_model qwen3.8-max
+            display_name: Qwen3.8 Max
+            description: Main conversations and complex tasks
+            default_reasoning_level: xhigh
+            priority: 0
+    oauth:
+      backend: sdk
+      auth_mode: oauth
+      codex_home: ${CODEX_HOME:-~/.codex}
+
   agent_wrapper:
     default:
       backend: agentscope
@@ -951,18 +1003,16 @@ components:
       permission_mode: bypassPermissions
     codex:
       backend: codex
-      auth_mode: api_key
-      model: ${CODEX_MODEL_NAME:-}
-      api_key: ${CODEX_API_KEY:-}
-      base_url: ${CODEX_BASE_URL:-}
-      approval_mode: auto_review
+      app_server: default
+      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      effort: xhigh
+      approval_mode: deny_all
       sandbox: full-access
     codex_oauth:
       backend: codex
-      auth_mode: oauth
-      model: ${CODEX_MODEL_NAME:-}
-      codex_home: ${CODEX_HOME:-~/.codex}
-      approval_mode: auto_review
+      app_server: oauth
+      model: ${CODEX_OAUTH_MODEL_NAME:-}
+      approval_mode: deny_all
       sandbox: full-access
 
   file_graph:

@@ -4,6 +4,7 @@ from . import agent_wrapper
 from . import as_llm
 from . import as_decision_model
 from . import client
+from .codex_app_server import CodexAppServer
 from . import as_embedding
 from . import embedding_store
 from . import file_catalog
@@ -27,6 +28,7 @@ __all__ = [
     "BaseComponent",
     "ComponentMixin",
     "ComponentRegistry",
+    "CodexAppServer",
     "R",
     "create_application_registry",
     "PromptHandler",

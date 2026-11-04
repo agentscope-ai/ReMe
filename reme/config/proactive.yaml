@@ -1,0 +1,266 @@
+# Minimal Studio workspace with one Codex chat agent using API-key authentication.
+# Set LLM_API_KEY / LLM_BASE_URL (and optionally CODEX_MODEL_NAME) for chat.
+# Custom LLM_BASE_URL endpoints must support the Responses API.
+# Start: reme start config=proactive
+# Open: http://127.0.0.1:2333
+
+service:
+  backend: http
+  web_enabled: true
+  mcp_enabled: false
+
+jobs:
+  # Keep Markdown search and graph data in sync with the workspace files.
+  index_update_loop:
+    backend: background
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
+    steps:
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+      - backend: watch_changes_step
+        monitor_type: file_store
+        dispatch_steps:
+          - backend: update_index_step
+            persist: false
+
+  chat:
+    backend: stream
+    description: "Stream a read-only agent conversation over the ReMe workspace."
+    parameters:
+      type: object
+      properties:
+        query: {type: string, description: "user message"}
+        session_id: {type: string, description: "agent session to resume"}
+        system_prompt: {type: string, description: "optional system prompt override"}
+      required: [query]
+    steps:
+      - backend: chat_step
+        agent_wrapper: default
+
+  app_config:
+    backend: base
+    description: "Return the effective application config with secrets redacted."
+    steps:
+      - backend: app_config_step
+
+  version:
+    backend: base
+    description: "Return the ReMe version."
+    steps:
+      - backend: version_step
+
+  status:
+    backend: base
+    description: "Report component memory estimates and process RSS."
+    steps:
+      - backend: status_step
+
+  health_check:
+    backend: base
+    description: "Return a concise health-check snapshot of ReMe components."
+    steps:
+      - backend: health_check_step
+
+  graph_snapshot:
+    backend: base
+    description: "Return the category-rooted digest wikilink graph with daily-note leaves."
+    steps:
+      - backend: graph_snapshot_step
+
+  reindex:
+    backend: base
+    description: "Rebuild the local BM25 index from already-ingested chunks."
+    parameters:
+      type: object
+      properties:
+        scope: {type: string, enum: [all, bm25], default: all}
+    steps:
+      - backend: reindex_step
+
+  list:
+    backend: base
+    description: "List files under a workspace path."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative directory; empty = root", default: ""}
+        recursive: {type: boolean, default: false}
+        sort_by: {type: string, enum: [mtime]}
+        extensions: {type: array, items: {type: string}}
+        limit: {type: integer, default: 100}
+    steps:
+      - backend: list_step
+
+  load:
+    backend: base
+    description: "Load a complete text file for the local editor without agent-output truncation."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative path"}
+      required: [path]
+    steps:
+      - backend: load_step
+        max_bytes: 5242880
+
+  save:
+    backend: base
+    description: "Save text verbatim, optionally rejecting external changes since the file was opened."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative path"}
+        content: {type: string, description: "complete file content, including frontmatter"}
+        expected_mtime: {type: string, description: "optional ISO mtime returned by load/stat"}
+      required: [path, content]
+    steps:
+      - backend: save_step
+
+  # ChatStep exposes these read-only jobs as the agent's tools.
+  search:
+    backend: base
+    description: "Search indexed daily and digest Markdown files with BM25."
+    parameters:
+      type: object
+      properties:
+        query: {type: string, description: "search query"}
+        limit: {type: integer, default: 5}
+        min_score: {type: number, default: 0.0}
+        start_date: {type: string, description: "optional inclusive YYYY-MM-DD start date"}
+        end_date: {type: string, description: "optional inclusive YYYY-MM-DD end date"}
+      required: [query]
+    steps:
+      - backend: search_step
+
+  read:
+    backend: base
+    description: "Read a Markdown file under the workspace."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative Markdown path"}
+        start_line: {type: integer, description: "first line (1-based, inclusive)"}
+        end_line: {type: integer, description: "last line (1-based, inclusive)"}
+      required: [path]
+    steps:
+      - backend: read_step
+
+  read_image:
+    backend: base
+    description: "Read an image file as base64."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative image path"}
+      required: [path]
+    steps:
+      - backend: read_image_step
+        max_bytes: 5242880
+
+  frontmatter_read:
+    backend: base
+    description: "Read a file's frontmatter."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative Markdown path"}
+      required: [path]
+    steps:
+      - backend: frontmatter_read_step
+
+  stat:
+    backend: base
+    description: "Stat a workspace path (size, mtime, exists, is_dir, is_file)."
+    parameters:
+      type: object
+      properties:
+        path: {type: string, description: "workspace-relative path"}
+      required: [path]
+    steps:
+      - backend: stat_step
+
+  traverse:
+    backend: base
+    description: "Return a bounded wikilink graph with frontend-ready nodes and directed edges."
+    parameters:
+      type: object
+      properties:
+        path:
+          oneOf:
+            - {type: string}
+            - {type: array, items: {type: string}, minItems: 1}
+          description: "workspace-relative path or paths used as graph seeds"
+        depth: {type: integer, minimum: 0, default: 1}
+        direction: {type: string, enum: [forward, backward, both], default: both}
+      required: [path]
+    steps:
+      - backend: traverse_step
+
+components:
+  codex_app_server:
+    default:
+      backend: sdk
+      auth_mode: api_key
+      api_key: ${LLM_API_KEY:-}
+      base_url: ${LLM_BASE_URL:-}
+      codex_home: .codex
+      model_catalog:
+        models:
+          - slug: qwen3.8-max
+            display_name: Qwen3.8 Max
+            description: Studio chat
+            default_reasoning_level: xhigh
+            supported_reasoning_levels:
+              - effort: xhigh
+                description: Maximum reasoning
+            context_window: 983616
+            input_modalities: [text, image]
+            supports_parallel_tool_calls: false
+            supports_reasoning_summaries: false
+            support_verbosity: false
+            shell_type: default
+            visibility: list
+            supported_in_api: true
+            priority: 0
+            base_instructions: ""
+            experimental_supported_tools: []
+            truncation_policy:
+              mode: bytes
+              limit: 10000
+
+  agent_wrapper:
+    default:
+      backend: codex
+      app_server: default
+      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      effort: xhigh
+      approval_mode: deny_all
+      sandbox: read-only
+
+  tokenizer:
+    default:
+      backend: regex
+
+  keyword_index:
+    default:
+      backend: bm25
+      tokenizer: default
+
+  file_graph:
+    default:
+      backend: local
+
+  file_chunker:
+    markdown:
+      backend: markdown
+      supported_extensions: [md]
+
+  file_store:
+    default:
+      backend: local
+      embedding_store: ""
+      keyword_index: default
+      file_graph: default
