@@ -19,6 +19,25 @@ class BaseFileGraph(BaseComponent):
 
     component_type = ComponentEnum.FILE_GRAPH
 
+    @staticmethod
+    def normalize_path(path: str) -> str:
+        """Normalize persisted Windows separators to workspace-relative POSIX."""
+        return path.replace("\\", "/")
+
+    @classmethod
+    def canonical_node(cls, node: FileNode) -> FileNode:
+        """Return a node whose path and links use canonical POSIX separators."""
+        links = [
+            link.model_copy(
+                update={
+                    "source_path": cls.normalize_path(link.source_path),
+                    "target_path": cls.normalize_path(link.target_path),
+                },
+            )
+            for link in node.links
+        ]
+        return node.model_copy(update={"path": cls.normalize_path(node.path), "links": links})
+
     # -- Lifecycle ---------------------------------------------------------
 
     async def _start(self) -> None:

@@ -1,7 +1,7 @@
 """In-memory tag index derived from ``FileNode.front_matter``."""
 
 import asyncio
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 
 from .base_tag_index import BaseTagIndex, TagListItem, TagListResult, TagOrder, TagOrderBy
 from ..component_registry import R
@@ -63,12 +63,18 @@ class LocalTagIndex(BaseTagIndex):
 
     @staticmethod
     def _validate_path(path: str) -> str:
-        if not isinstance(path, str) or not path or "\\" in path:
+        if not isinstance(path, str) or not path:
             raise ValueError(f"Invalid workspace-relative tag-index path: {path!r}")
-        pure = PurePosixPath(path)
-        if pure.is_absolute() or path != pure.as_posix() or any(part in ("", ".", "..") for part in pure.parts):
+        normalized = path.replace("\\", "/")
+        pure = PurePosixPath(normalized)
+        if (
+            pure.is_absolute()
+            or PureWindowsPath(path).anchor
+            or normalized != pure.as_posix()
+            or any(part in ("", ".", "..") for part in pure.parts)
+        ):
             raise ValueError(f"Invalid workspace-relative tag-index path: {path!r}")
-        return path
+        return normalized
 
     def _prepare_nodes(self, nodes: list[FileNode]) -> list[tuple[str, tuple[str, ...]]]:
         prepared: list[tuple[str, tuple[str, ...]]] = []

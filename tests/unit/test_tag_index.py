@@ -57,6 +57,18 @@ async def test_tag_normalization_and_bidirectional_mutations() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tag_index_normalizes_windows_separators() -> None:
+    """Migrate persisted Windows paths to the canonical POSIX key."""
+
+    index = LocalTagIndex()
+    await index.rebuild([_node(r"daily\2026-10-27\note.md", ["ReMe"])])
+
+    assert await index.tags_for_path(r"daily\2026-10-27\note.md") == ["reme"]
+    assert await index.paths_for_tags(["reme"]) == ["daily/2026-10-27/note.md"]
+    assert index.path_to_tags == {"daily/2026-10-27/note.md": ("reme",)}
+
+
+@pytest.mark.asyncio
 async def test_rebuild_is_atomic_and_supports_all_or_any_queries() -> None:
     """Publish complete rebuilds atomically and support intersection and union lookup."""
 
