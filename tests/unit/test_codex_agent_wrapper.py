@@ -572,7 +572,7 @@ async def test_scoped_mcp_calls_original_jobs_and_isolates_catalog_arguments_and
             async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {second}"})) as two:
                 tools = await one.list_tools()
                 assert [tool.name for tool in tools] == ["search"]
-                assert "_allowed_paths" not in tools[0].inputSchema["properties"]
+                assert "_allowed_paths" not in tools[0].input_schema["properties"]
                 await one.call_tool("search", {"query": "a"})
                 await two.call_tool("search", {"query": "b"})
                 await one.call_tool("search", {"query": "c"})
