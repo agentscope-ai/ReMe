@@ -158,3 +158,118 @@ async def test_compact_drops_new_claim_when_sdk_rejects(tmp_path, monkeypatch):
 
     await beta._record_thread_ownership("beta", "new-thread")
     assert context.workspaces["beta"].codex_thread_state.owned_thread_ids == {"new-thread"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+@pytest.mark.parametrize("worker_operation", ["reply", "compact"])
+async def test_failed_compactor_keeps_ownership_confirmed_by_another_wrapper(
+    tmp_path,
+    monkeypatch,
+    cancel,
+    worker_operation,
+):
+    """Failure/cancellation cannot revoke another wrapper's successful use."""
+    config = {"workspace_dir": {"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")}}
+    context = ApplicationContext(**config)
+    compactor = CodexAgentWrapper(name="compactor", app_context=context, release_threads=False)
+    worker = CodexAgentWrapper(name="worker", app_context=context, release_threads=False)
+    entered = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def failing_client():
+        entered.set()
+        await finish.wait()
+        raise RuntimeError("client initialization failed")
+
+    async def run(_inputs, **_kwargs):
+        return SimpleNamespace(final_response="ok")
+
+    async def compact():
+        return None
+
+    async def resume(thread_id, **_kwargs):
+        return SimpleNamespace(id=thread_id, run=run, compact=compact)
+
+    async def working_client():
+        return SimpleNamespace(thread_resume=resume)
+
+    monkeypatch.setattr(compactor, "_get_codex", failing_client)
+    monkeypatch.setattr(worker, "_get_codex", working_client)
+    monkeypatch.setattr(worker, "_serialize", lambda _result: {})
+    task = asyncio.create_task(compactor.compact_session("T", workspace="alpha"))
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        if worker_operation == "reply":
+            result = await worker.reply("hello", resume="T", workspace="alpha")
+            assert result["result"] == "ok"
+        else:
+            await worker.compact_session("T", workspace="alpha")
+        if cancel:
+            task.cancel()
+        else:
+            finish.set()
+        with pytest.raises(asyncio.CancelledError if cancel else RuntimeError):
+            await asyncio.wait_for(task, timeout=2)
+
+        assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {"T"}
+        assert not context.workspaces["alpha"].codex_thread_state.provisional_claims
+        assert _owned_on_disk(tmp_path, "alpha") == {"T"}
+        for checked_context in (context, ApplicationContext(**config)):
+            beta = CodexAgentWrapper(name="beta", app_context=checked_context, release_threads=False)
+            monkeypatch.setattr(beta, "_get_codex", working_client)
+            with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+                await beta.reply("hello", resume="T", workspace="beta")
+        assert not _owned_on_disk(tmp_path, "beta")
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await compactor.close()
+        await worker.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_failed_compactor_retains_another_pending_reservation(tmp_path, monkeypatch, cancel):
+    """The last failed reservation cleans up; earlier failures preserve active work."""
+    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
+    wrappers = [CodexAgentWrapper(name=name, app_context=context) for name in ("first", "second")]
+    entered = [asyncio.Event(), asyncio.Event()]
+    finish = [asyncio.Event(), asyncio.Event()]
+
+    def client(index):
+        async def get_client():
+            entered[index].set()
+            await finish[index].wait()
+            raise RuntimeError("failed")
+
+        return get_client
+
+    tasks = []
+    try:
+        for index, wrapper in enumerate(wrappers):
+            monkeypatch.setattr(wrapper, "_get_codex", client(index))
+            tasks.append(asyncio.create_task(wrapper.compact_session("T", workspace="alpha")))
+            await asyncio.wait_for(entered[index].wait(), timeout=2)
+        if cancel:
+            tasks[0].cancel()
+        else:
+            finish[0].set()
+        with pytest.raises(asyncio.CancelledError if cancel else RuntimeError):
+            await asyncio.wait_for(tasks[0], timeout=2)
+        assert _owned_on_disk(tmp_path, "alpha") == {"T"}
+        beta = CodexAgentWrapper(app_context=context)
+        with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+            await beta.compact_session("T", workspace="beta")
+        finish[1].set()
+        with pytest.raises(RuntimeError, match="failed"):
+            await asyncio.wait_for(tasks[1], timeout=2)
+        assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == set()
+        assert not context.workspaces["alpha"].codex_thread_state.provisional_claims
+        assert not _owned_on_disk(tmp_path, "alpha")
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        for wrapper in wrappers:
+            await wrapper.close()

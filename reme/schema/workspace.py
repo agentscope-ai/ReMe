@@ -21,6 +21,8 @@ class WorkspaceCodexThreadState:
     """Authoritative Codex thread ownership shared by every wrapper in a workspace."""
 
     owned_thread_ids: set[str] | None = None
+    # Active operations on unconfirmed claims; protected by the application ownership lock.
+    provisional_claims: dict[str, int] = field(default_factory=dict)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
