@@ -485,14 +485,20 @@ async def test_compaction_acknowledgement_does_not_release_the_thread_before_it_
         queued = group.create_task(second.reply("later", session_id=thread_id))
         try:
             await asyncio.sleep(0.01)
-            assert not compacting.done()
+            # Cancellation may end the caller during cleanup; its barrier must still block the next turn.
+            if not cancelled:
+                assert not compacting.done()
             assert not queued.done()
             client.notify_status(thread_id, "idle")
             await asyncio.sleep(0)
-            assert not compacting.done()
+            if not cancelled:
+                assert not compacting.done()
+            assert not queued.done()
         finally:
             client.notify_status(thread_id, "active")
             client.notify_status(thread_id, "idle")
+    if cancelled:
+        assert compacting.cancelled()
     assert queued.result()["session_id"] == thread_id
 
 
