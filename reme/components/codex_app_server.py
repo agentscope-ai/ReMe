@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 import json
+import hashlib
+import math
 from pathlib import Path
 import sys
 from typing import Any, TYPE_CHECKING
@@ -17,6 +19,8 @@ from .service.scoped_mcp import ScopedMCP
 from ..constants import normalize_connect_host
 from ..enumeration import ComponentEnum
 from ..utils.async_utils import finish_cleanup
+from ..utils.async_utils import complete_in_thread
+from ..schema import SessionMessage, SessionSnapshot, SessionStatus
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
@@ -84,6 +88,126 @@ class CodexAppServer(BaseComponent):
             path = Path(self._codex_home).expanduser()
             return path if path.is_absolute() else self.workspace_path / path
         return self.workspace_path / ".codex"
+
+    def _message_path(self, session_id: str) -> Path:
+        from .agent_wrapper.codex_session_history import validate_identifier
+
+        validate_identifier(session_id)
+        session_dir = self.app_context.app_config.session_dir if self.app_context else "session"
+        namespace = hashlib.sha256(str(self.session_path.resolve()).encode()).hexdigest()[:16]
+        path = (self.workspace_path / session_dir / "proactive" / namespace / f"{session_id}.jsonl").resolve()
+        if not path.is_relative_to(self.workspace_path.resolve()):
+            raise ValueError("Session messages must stay inside the workspace")
+        return path
+
+    @asynccontextmanager
+    async def _session_client(self) -> AsyncIterator[AsyncCodex]:
+        """Keep status/history RPCs under lifecycle ownership without taking the turn lock."""
+        await self.start()
+        self._active += 1
+        self._idle.clear()
+        try:
+            yield await self._get_client()
+        finally:
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Inspect a thread without resuming it or waiting for an active turn."""
+        from .agent_wrapper.codex_session_history import session_status
+
+        self._message_path(session_id)
+        async with self._session_client() as codex:
+            thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
+            return session_status(thread)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Project public native history plus application-authored proactive messages."""
+        from .agent_wrapper import codex_session_history as history
+
+        path = self._message_path(session_id)
+        async with self._session_client() as codex:
+            response = await codex._client.thread_read(  # pylint: disable=protected-access
+                session_id,
+                include_turns=True,
+            )
+            thread = response.thread
+            records = await asyncio.to_thread(history.read_records, path)
+            recovered = (
+                await asyncio.to_thread(history.injected_ids, thread, self.session_path)
+                if any(not record["injected"] for record in records)
+                else set()
+            )
+            return history.session_snapshot(thread, records, recovered)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        timeout: float = 30,
+    ) -> SessionMessage:
+        """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
+        from openai_codex.generated.v2_all import ThreadInjectItemsResponse
+        from .agent_wrapper import codex_session_history as history
+
+        path = self._message_path(session_id)
+        history.validate_identifier(message_id)
+        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
+            raise ValueError("content must contain 1-100000 characters")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
+
+        async with asyncio.timeout(timeout):
+            async with self.thread(session_id) as loaded:
+                thread = (await loaded.read(include_turns=True)).thread
+                if history.session_status(thread).status != "idle":
+                    raise RuntimeError("Session must be idle before appending")
+                accepted = await asyncio.to_thread(history.injected_ids, thread, self.session_path)
+                records = await asyncio.to_thread(history.read_records, path)
+                native_id = f"reme-proactive-{message_id}"
+                record = next((entry for entry in records if entry["message"]["id"] == native_id), None)
+                if record is not None:
+                    if record["message"]["content"] != content:
+                        raise ValueError("message_id already belongs to different content")
+                    if record["injected"] or native_id in accepted:
+                        if not record["injected"]:
+                            record["injected"] = True
+                            await complete_in_thread(history.write_records, path, records)
+                        return SessionMessage.model_validate(record["message"])
+                else:
+                    record = history.new_record(message_id, content, thread)
+                    records.append(record)
+                # An unaccepted attempt may be retried after later user turns.
+                record["message"]["turn_id"] = thread.turns[-1].id if thread.turns else None
+
+                async def inject_and_publish():
+                    # A crash between the RPC and publication leaves a pending record.
+                    # Its reserved native ID is recovered from the rollout on retry.
+                    await complete_in_thread(history.write_records, path, records)
+                    codex = await self._get_client()
+                    await codex._client.request(  # pylint: disable=protected-access
+                        "thread/inject_items",
+                        {
+                            "threadId": session_id,
+                            "items": [
+                                {
+                                    "type": "message",
+                                    "id": native_id,
+                                    "role": "assistant",
+                                    "content": [{"type": "output_text", "text": content}],
+                                },
+                            ],
+                        },
+                        response_model=ThreadInjectItemsResponse,
+                    )
+                    record["injected"] = True
+                    await complete_in_thread(history.write_records, path, records)
+
+                await finish_cleanup(inject_and_publish())
+                return SessionMessage.model_validate(record["message"])
 
     def _client_config(self) -> CodexConfig:
         from openai_codex import CodexConfig

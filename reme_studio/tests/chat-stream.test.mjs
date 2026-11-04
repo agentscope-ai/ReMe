@@ -4,7 +4,10 @@ import {
   applyStreamChunk,
   chatStreamError,
   decodeSseEvent,
+  finishChatMessage,
   formatStreamPayloads,
+  readChatStream,
+  toggleChatBlock,
 } from "../app/chat-stream.ts";
 
 const initial = () => ({
@@ -91,6 +94,94 @@ test("reply completion collapses every non-text block", () => {
         block.status === "done",
     ),
   );
+});
+
+test("thinking finishes as each tool or answer phase starts", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("think", "Checking the time", { block_id: "before-tool" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_call", "date", { tool_call_id: "clock" }),
+  );
+  assert.equal(message.blocks[0].status, "done");
+  assert.equal(message.blocks[0].expanded, false);
+  assert.equal(message.blocks[1].status, "calling");
+
+  message = applyStreamChunk(
+    message,
+    chunk("tool_result", "00:11", {
+      tool_call_id: "clock",
+      metadata: { state: "completed" },
+    }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("think", "Reporting the time", { block_id: "after-tool" }),
+  );
+  assert.equal(message.blocks[2].status, "streaming");
+  message = applyStreamChunk(message, chunk("content", "现在是"));
+  assert.deepEqual(
+    message.blocks.slice(0, 3).map((block) => block.status),
+    ["done", "done", "done"],
+  );
+  assert.equal(message.blocks[2].expanded, false);
+
+  message = toggleChatBlock(message, message.blocks[0].id, true);
+  message = applyStreamChunk(message, chunk("content", " 00:11。"));
+  assert.equal(message.blocks[0].expanded, true);
+});
+
+test("thinking deltas and telemetry keep the current thought active", () => {
+  for (const block_id of [undefined, "thought"]) {
+    let message = applyStreamChunk(
+      initial(),
+      chunk("think", "First", { block_id }),
+    );
+    message = applyStreamChunk(
+      message,
+      chunk("think", " second", { block_id }),
+    );
+    message = applyStreamChunk(
+      message,
+      chunk("usage", "", { input_tokens: 4 }),
+    );
+    message = applyStreamChunk(message, chunk("data", { progress: 1 }));
+    message = applyStreamChunk(message, chunk("content"));
+    assert.deepEqual(message.blocks[0].payloads, ["First", " second"]);
+    assert.equal(message.blocks[0].status, "streaming");
+    assert.equal(message.blocks[0].expanded, true);
+  }
+});
+
+test("a new thought settles the previous thought without finishing pending tools", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("tool_call", "", { tool_call_id: "pending" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("think", "First", { block_id: "first" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("think", "Second", { block_id: "second" }),
+  );
+  assert.equal(message.blocks[0].status, "calling");
+  assert.equal(message.blocks[1].status, "done");
+  assert.equal(message.blocks[1].expanded, false);
+  assert.equal(message.blocks[2].status, "streaming");
+  assert.equal(message.blocks[2].expanded, true);
+  message = applyStreamChunk(
+    message,
+    chunk("tool_result", "Background output", { tool_call_id: "pending" }),
+  );
+  assert.equal(message.blocks[2].status, "streaming");
+  assert.equal(message.blocks[2].expanded, true);
+  message = applyStreamChunk(message, chunk("content", "Partial answer"));
+  assert.equal(message.blocks[0].status, "running");
+  assert.equal(message.blocks[2].status, "done");
 });
 
 test("reply completion restores the final answer when content deltas were missed", () => {
@@ -257,6 +348,133 @@ test("tool result data does not override the tool's execution state", () => {
   assert.equal(message.blocks[0].status, "running");
 });
 
+test("Claude tools remain pending across message boundaries and report their actual result", () => {
+  for (const is_error of [false, true]) {
+    let message = applyStreamChunk(
+      initial(),
+      chunk("tool_call", "", { tool_call_id: "tool-1" }),
+    );
+    message = applyStreamChunk(message, chunk("reply_end"));
+    assert.equal(message.blocks[0].status, "calling");
+
+    message = applyStreamChunk(
+      message,
+      chunk(
+        "tool_result",
+        { tool_use_id: "tool-1", content: "Result", is_error },
+        { tool_call_id: "tool-1" },
+      ),
+    );
+    assert.equal(message.blocks[0].status, is_error ? "error" : "done");
+    message = applyStreamChunk(message, chunk("reply_end"));
+    message = applyStreamChunk(message, chunk("done", "", { done: true }));
+    assert.equal(message.blocks[0].status, is_error ? "error" : "done");
+  }
+});
+
+test("Claude server tool results finish without an is_error field", () => {
+  const message = applyStreamChunk(
+    initial(),
+    chunk(
+      "tool_result",
+      { tool_use_id: "server-1", content: { matches: 1 } },
+      { tool_call_id: "server-1" },
+    ),
+  );
+  assert.equal(message.blocks[0].status, "done");
+});
+
+test("unrelated tool data cannot masquerade as a Claude error result", () => {
+  const message = applyStreamChunk(
+    initial(),
+    chunk(
+      "tool_result",
+      { tool_use_id: "other-tool", content: "data", is_error: true },
+      { tool_call_id: "tool-1" },
+    ),
+  );
+  assert.equal(message.blocks[0].status, "running");
+});
+
+test("a transport failure marks pending blocks failed and preserves completed phases", () => {
+  let message = initial();
+  message = applyStreamChunk(
+    message,
+    chunk("think", "Checking", { block_id: "thought-1" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_result", "", {
+      tool_call_id: "completed",
+      metadata: { state: "completed" },
+    }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_call", "", { tool_call_id: "pending" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("think", "Still checking", { block_id: "pending-thought" }),
+  );
+  message = finishChatMessage(message, "Connection lost");
+
+  assert.deepEqual(
+    message.blocks.slice(0, 4).map((block) => block.status),
+    ["done", "done", "error", "error"],
+  );
+  assert.equal(message.blocks.at(-1).text, "Connection lost");
+  message = finishChatMessage(message);
+  assert.equal(message.blocks[2].status, "error");
+});
+
+test("a server error followed by DONE does not mark a pending tool successful", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("tool_call", "", { tool_call_id: "pending" }),
+  );
+  message = applyStreamChunk(message, chunk("error", "Agent failed"));
+  message = applyStreamChunk(message, chunk("done", "", { done: true }));
+  assert.equal(message.blocks[0].status, "error");
+});
+
+test("late tool output does not reopen a completed or failed execution", () => {
+  for (const state of ["completed", "failed"]) {
+    let message = applyStreamChunk(
+      initial(),
+      chunk("tool_result", "Result", {
+        tool_call_id: "tool-1",
+        metadata: { state },
+      }),
+    );
+    message = applyStreamChunk(
+      message,
+      chunk("tool_result", "Trailing output", { tool_call_id: "tool-1" }),
+    );
+    assert.equal(
+      message.blocks[0].status,
+      state === "failed" ? "error" : "done",
+    );
+    assert.equal(message.blocks[0].expanded, false);
+  }
+});
+
+test("streaming preserves manual collapse and expansion of thinking and tool blocks", () => {
+  for (const event of [
+    chunk("think", "First", { block_id: "thought-1" }),
+    chunk("tool_result", "First", { tool_call_id: "tool-1" }),
+  ]) {
+    let message = applyStreamChunk(initial(), event);
+    const id = message.blocks[0].id;
+    message = toggleChatBlock(message, id, false);
+    message = applyStreamChunk(message, { ...event, chunk: "Next" });
+    assert.equal(message.blocks[0].expanded, false);
+    message = toggleChatBlock(message, id, true);
+    message = applyStreamChunk(message, { ...event, chunk: "Last" });
+    assert.equal(message.blocks[0].expanded, true);
+  }
+});
+
 test("payload formatting joins text deltas and separates structured snapshots", () => {
   assert.equal(formatStreamPayloads(["hel", "lo"]), "hello");
   assert.equal(
@@ -283,6 +501,119 @@ test("SSE terminal marker becomes an explicit done chunk", () => {
       done: false,
     },
   );
+});
+
+const sse = (event) => `data:${JSON.stringify(event)}\n\n`;
+const byteStream = (text, fragment = false) => {
+  const bytes = new TextEncoder().encode(text);
+  return new ReadableStream({
+    start(controller) {
+      if (fragment) {
+        for (const byte of bytes) controller.enqueue(Uint8Array.of(byte));
+      } else controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+};
+
+test("SSE reading preserves fragmented Chinese text and CRLF frames", async () => {
+  const stream = byteStream(
+    (sse(chunk("content", "你好")) + "data:[DONE]\n\n").replaceAll(
+      "\n",
+      "\r\n",
+    ),
+    true,
+  );
+  const chunks = [];
+  await readChatStream(stream, (event) => chunks.push(event), "Interrupted");
+  assert.equal(chunks[0].chunk, "你好");
+  assert.equal(chunks[1].done, true);
+  assert.equal(stream.locked, false);
+});
+
+test("SSE reading stops at DONE and cancels a connection that is still open", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data:[DONE]\n\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const chunks = [];
+  await readChatStream(stream, (event) => chunks.push(event), "Interrupted");
+  assert.deepEqual(
+    chunks.map((event) => event.chunk_type),
+    ["done"],
+  );
+  assert.equal(cancelled, true);
+  assert.equal(stream.locked, false);
+});
+
+test("SSE EOF without DONE fails even after reply_end and retains partial output", async () => {
+  for (const suffix of ["", sse(chunk("reply_end"))]) {
+    let message = initial();
+    const stream = byteStream(sse(chunk("content", "Partial reply")) + suffix);
+    await assert.rejects(
+      readChatStream(
+        stream,
+        (event) => {
+          message = applyStreamChunk(message, event);
+        },
+        "Interrupted",
+      ),
+      /Interrupted/,
+    );
+    assert.equal(message.blocks[0].text, "Partial reply");
+    assert.equal(stream.locked, false);
+  }
+});
+
+test("SSE reading accepts a terminal event without a trailing blank line", async () => {
+  for (const terminal of [
+    "data:[DONE]",
+    `data:${JSON.stringify(chunk("done", "", { done: true }))}`,
+  ]) {
+    const chunks = [];
+    await readChatStream(
+      byteStream(terminal),
+      (event) => chunks.push(event),
+      "Interrupted",
+    );
+    assert.equal(chunks[0].done, true);
+  }
+});
+
+test("SSE reading preserves transport errors and releases the reader", async () => {
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.error(new Error("Connection lost"));
+    },
+  });
+  await assert.rejects(
+    readChatStream(stream, () => {}, "Interrupted"),
+    /Connection lost/,
+  );
+  assert.equal(stream.locked, false);
+});
+
+test("malformed SSE cancels its connection and surfaces the parsing error", async () => {
+  let cancelled = false;
+  const stream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("data:{broken}\n\n"));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  await assert.rejects(
+    readChatStream(stream, () => {}, "Interrupted"),
+    SyntaxError,
+  );
+  assert.equal(cancelled, true);
+  assert.equal(stream.locked, false);
 });
 
 test("an aborted stream finishes without showing an error", async () => {

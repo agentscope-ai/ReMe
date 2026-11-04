@@ -68,6 +68,9 @@ const messages = {
       "仅显示最近的 {limit} 个文件，工作区中可能还有其他文件。",
     openingFile: "正在打开 {path}",
     chatFailed: "对话失败",
+    proactiveMessage: "主动提醒",
+    sessionSyncFailed: "会话同步失败",
+    chatInterrupted: "连接在回复完成前中断，请重试。",
     chatTitle: "和你的记忆对话",
     chatDescription: "搜索、阅读和整理 ReMe 工作区中的内容。",
     promptRecent: "总结最近的记录",
@@ -221,6 +224,10 @@ const messages = {
       "Showing the {limit} most recent files. More files may exist in this workspace.",
     openingFile: "Opening {path}",
     chatFailed: "Chat failed",
+    proactiveMessage: "Proactive reminder",
+    sessionSyncFailed: "Session sync failed",
+    chatInterrupted:
+      "The connection ended before the reply completed. Please retry.",
     chatTitle: "Chat with your memory",
     chatDescription:
       "Search, read, and organize content in your ReMe workspace.",

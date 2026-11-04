@@ -1,6 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -52,6 +53,9 @@ __all__ = [
     "ProactiveTopic",
     "Request",
     "Response",
+    "SessionMessage",
+    "SessionSnapshot",
+    "SessionStatus",
     "StreamChunk",
     "TokenUsage",
     "TraverseGraph",

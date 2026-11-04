@@ -44,6 +44,45 @@ jobs:
         agent_wrapper: default
         job_tools: []
 
+  session_read:
+    backend: base
+    description: "Read session history, including proactive assistant messages."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+      required: [session_id]
+    steps:
+      - backend: session_read_step
+        agent_wrapper: default
+
+  session_status:
+    backend: base
+    description: "Inspect session activity without waiting for generation."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+      required: [session_id]
+    steps:
+      - backend: session_status_step
+        agent_wrapper: default
+
+  session_append:
+    backend: base
+    description: "Append a proactive assistant message once the session is idle; retry with the same message_id."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+        message_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "stable retry/idempotency identifier"}
+        content: {type: string, minLength: 1, maxLength: 100000}
+        wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
+      required: [session_id, message_id, content]
+    steps:
+      - backend: session_append_step
+        agent_wrapper: default
+
   app_config:
     backend: base
     description: "Return the effective application config with secrets redacted."
@@ -131,11 +170,77 @@ components:
       api_key: ${LLM_API_KEY:-}
       base_url: ${LLM_BASE_URL:-}
       codex_home: .codex
-      # Keep Codex's built-in model metadata and base instructions.
+      supports_websockets: false
+      experimental_api: true
       config_overrides:
+        # Preserve Qwen3.8 Max's actual input limit; put safety headroom in the compaction threshold.
+        # At 95% usable context, 600000 leaves 334435 tokens below Codex's hard cap.
+        # Budget 128 KiB of new text at one token/byte, not Codex's byte/4 estimate of 32768.
+        # Planning allowances: 131072 output + 131072 new text + 32768 estimation/compaction overhead.
+        # This soft margin does not enforce request limits or guarantee room for arbitrary text/images.
+        - model_context_window=983616
+        - model_auto_compact_token_limit=600000
+        - 'model_auto_compact_token_limit_scope="total"'
+        # Zero disables extra compaction after a completed reply.
+        - model_post_turn_compact_threshold_percent=0
+        - features.async_compaction=false
+        # 2500 approximate tokens matches the fallback's 10000-byte tool-output limit.
+        - tool_output_token_limit=2500
+        # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
+
+        # Keep review and spawned agents on the configured Qwen endpoint.
+        - 'model_reasoning_effort="xhigh"'
+        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'agents.default_subagent_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'agents.default_subagent_reasoning_effort="xhigh"'
+
+        # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
+        - memories.generate_memories=true
+        - memories.use_memories=true
         - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
         - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+
+      # These capabilities describe Qwen3.8 Max; update them when switching model families.
+      # Official limits: https://help.aliyun.com/en/model-studio/qwen3-8-max
+      model_catalog:
+        models:
+          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max}
+            display_name: Qwen3.8 Max
+            description: Work and life assistant with text and image input
+            default_reasoning_level: xhigh
+            supported_reasoning_levels:
+              - effort: none
+                description: Disable thinking
+              - effort: low
+                description: Light reasoning
+              - effort: medium
+                description: Balanced reasoning
+              - effort: xhigh
+                description: Maximum reasoning
+            context_window: 983616
+            max_context_window: 983616
+            effective_context_window_percent: 95
+            input_modalities: [text, image]
+            # The provider returns reasoning content without a reasoning.summary request parameter.
+            supports_reasoning_summary_parameter: false
+            support_verbosity: false
+            shell_type: unified_exec
+            visibility: list
+            supported_in_api: true
+            priority: 0
+            experimental_supported_tools: []
+            truncation_policy:
+              mode: bytes
+              limit: 10000
+            # Custom catalogs do not inherit Codex's built-in base instruction template.
+            model_messages:
+              instructions_template: |
+                You are prome, a capable assistant working in the user's local ReMe workspace.
+                Follow developer instructions and applicable AGENTS.md files.
+                Use available tools to verify workspace facts; never invent file contents or completed actions.
+                Preserve user-owned memory files and unrelated changes when carrying out tasks.
+                Complete requested work, report relevant validation limits, and reply clearly in the user's language.
 
   agent_wrapper:
     default:

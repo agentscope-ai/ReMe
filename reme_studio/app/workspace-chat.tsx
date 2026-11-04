@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, LoaderCircle, Send } from "lucide-react";
 import WorkspaceMarkdown from "./files-workspace/WorkspaceMarkdown";
-import { streamChat } from "./api";
+import { readChatSession, streamChat } from "./api";
 import { chatStreamError, formatStreamPayloads } from "./chat-stream";
 import { useI18n } from "./i18n";
 import { useWorkspaceStore } from "./store";
@@ -126,21 +126,85 @@ function ChatBlockView({
 
 export default function Chat({
   tab,
+  active,
 }: {
   tab: Extract<WorkspaceTab, { type: "agent" }>;
+  active: boolean;
 }) {
   const { language, t } = useI18n();
   const [input, setInput] = useState("");
   const [fileDragOver, setFileDragOver] = useState(false);
+  const [syncError, setSyncError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const { addChatTurn, applyChatChunk, toggleChatBlock, finishChat } =
     useWorkspaceStore();
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [tab.messages]);
+    if (active) endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [tab.messages, active]);
   useEffect(() => () => controller.current?.abort(), []);
+
+  useEffect(() => {
+    if (IS_DEMO || !active || !tab.sessionId || tab.streaming) return;
+    const sessionId = tab.sessionId;
+    let stopped = false;
+    let unavailable = false;
+    let pending = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let request: AbortController | undefined;
+    const refresh = async () => {
+      if (
+        stopped ||
+        unavailable ||
+        pending ||
+        document.visibilityState !== "visible"
+      )
+        return;
+      pending = true;
+      request = new AbortController();
+      const current = useWorkspaceStore
+        .getState()
+        .tabs.find((item) => item.id === tab.id);
+      const expectedLastId =
+        current?.type === "agent" ? current.messages.at(-1)?.id : undefined;
+      try {
+        const snapshot = await readChatSession(sessionId, request.signal);
+        if (!stopped && document.visibilityState === "visible") {
+          if (snapshot)
+            useWorkspaceStore
+              .getState()
+              .syncChatSession(tab.id, snapshot, expectedLastId);
+          else unavailable = true;
+          setSyncError("");
+        }
+      } catch (error) {
+        if (!stopped && !request.signal.aborted)
+          setSyncError(error instanceof Error ? error.message : String(error));
+      } finally {
+        pending = false;
+        if (!stopped && !unavailable) {
+          clearTimeout(timer);
+          timer = setTimeout(() => void refresh(), 5000);
+        }
+      }
+    };
+    const onVisible = () => {
+      clearTimeout(timer);
+      if (document.visibilityState === "visible") void refresh();
+      else request?.abort();
+    };
+    void refresh();
+    window.addEventListener("focus", onVisible);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      request?.abort();
+      window.removeEventListener("focus", onVisible);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [active, tab.id, tab.sessionId, tab.streaming]);
 
   const suggestions = (
     <div className="suggestions">
@@ -186,7 +250,7 @@ export default function Chat({
   };
 
   return (
-    <div className="chat">
+    <div className="chat" style={active ? undefined : { display: "none" }}>
       <div className="messages">
         {!tab.messages.length && (
           <div className="chat-empty">
@@ -197,7 +261,12 @@ export default function Chat({
           </div>
         )}
         {tab.messages.map((message) => (
-          <div className={`message ${message.role}`} key={message.id}>
+          <div
+            className={`message ${message.role}${
+              message.source === "proactive" ? " proactive" : ""
+            }`}
+            key={message.id}
+          >
             <div className="avatar">
               {message.role === "user" ? (
                 t("you")
@@ -210,6 +279,11 @@ export default function Chat({
               )}
             </div>
             <div className="bubble">
+              {message.source === "proactive" && (
+                <span className="proactive-label">
+                  prome · {t("proactiveMessage")}
+                </span>
+              )}
               {message.role === "user" && <p>{message.content}</p>}
               {message.role === "assistant" &&
                 message.blocks?.map((block) => (
@@ -232,6 +306,11 @@ export default function Chat({
         {IS_DEMO && tab.messages.length > 0 && suggestions}
         <div ref={endRef} />
       </div>
+      {syncError && (
+        <div className="session-sync-error" role="status">
+          {t("sessionSyncFailed")}: {syncError}
+        </div>
+      )}
       <div
         className={`composer ${fileDragOver ? "file-drag-over" : ""}`}
         onDragOver={(event) => {
