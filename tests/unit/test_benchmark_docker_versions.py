@@ -14,13 +14,13 @@ from deploy.benchmark_docker.docker_sandbox import (
 )
 
 
-@pytest.mark.parametrize("version", ["2.0.9", "2.0.10"])
+@pytest.mark.parametrize("version", ["2.0.9", "2.0.10", "2.0.11"])
 def test_host_version_guard(monkeypatch, version):
     """The configured dependency can create a workspace; stale hosts fail early."""
     pytest.importorskip("aiodocker")
     monkeypatch.setattr("agentscope.__version__", version)
-    if version == "2.0.9":
-        with pytest.raises(RuntimeError, match="requires agentscope 2.0.10"):
+    if version != "2.0.11":
+        with pytest.raises(RuntimeError, match="requires agentscope 2.0.11"):
             _default_workspace_builder("version-test", "test-image", {})
     else:
         workspace = _default_workspace_builder("version-test", "test-image", {})
@@ -28,7 +28,7 @@ def test_host_version_guard(monkeypatch, version):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("version", ["2.0.9", "2.0.10"])
+@pytest.mark.parametrize("version", ["2.0.9", "2.0.10", "2.0.11"])
 async def test_candidate_version_guard(monkeypatch, version):
     """Candidate validation rejects stale images even on a supported host."""
     sandbox = DockerReMeSandbox(
@@ -47,8 +47,8 @@ async def test_candidate_version_guard(monkeypatch, version):
         "_exec_checked",
         AsyncMock(return_value=SimpleNamespace(stdout=json.dumps(validation).encode())),
     )
-    if version == "2.0.9":
-        with pytest.raises(SandboxCommandError, match="requires agentscope 2.0.10"):
+    if version != "2.0.11":
+        with pytest.raises(SandboxCommandError, match="requires agentscope 2.0.11"):
             await sandbox._validate_candidate("python")  # pylint: disable=protected-access
     else:
         await sandbox._validate_candidate("python")  # pylint: disable=protected-access
