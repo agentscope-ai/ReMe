@@ -4,6 +4,7 @@ import {
   applyStreamChunk,
   chatStreamError,
   decodeSseEvent,
+  formatStreamPayloads,
 } from "../app/chat-stream.ts";
 
 const initial = () => ({
@@ -121,6 +122,151 @@ test("content deltas with the same block id are combined", () => {
 
   assert.equal(message.blocks.length, 1);
   assert.equal(message.blocks[0].text, "Hello world");
+});
+
+test("Codex hook notifications do not become chat data blocks", () => {
+  let message = initial();
+  for (const status of ["running", "completed"]) {
+    const method = status === "running" ? "hook/started" : "hook/completed";
+    message = applyStreamChunk(
+      message,
+      chunk(
+        "data",
+        {
+          run: {
+            id: "session-start:5:/etc/codex/hooks.json",
+            eventName: "sessionStart",
+            status,
+          },
+          threadId: "thread-1",
+          turnId: "turn-1",
+        },
+        { metadata: { codex_method: method } },
+      ),
+    );
+  }
+  message = applyStreamChunk(message, chunk("content", "主人，你好。"));
+  message = applyStreamChunk(message, chunk("reply_end"));
+
+  assert.deepEqual(
+    message.blocks.map((block) => block.type),
+    ["content"],
+  );
+  assert.equal(message.blocks[0].text, "主人，你好。");
+});
+
+test("filtering hook diagnostics preserves structured output and errors", () => {
+  let message = initial();
+  message = applyStreamChunk(message, chunk("data", { matches: 1 }));
+  message = applyStreamChunk(
+    message,
+    chunk(
+      "data",
+      { diff: "file changes" },
+      {
+        metadata: { codex_method: "turn/diff/updated" },
+      },
+    ),
+  );
+  message = applyStreamChunk(message, chunk("error", "Hook failed"));
+
+  assert.deepEqual(
+    message.blocks.map((block) => block.type),
+    ["data", "error"],
+  );
+  assert.deepEqual(message.blocks[0].payloads, [
+    { matches: 1 },
+    { diff: "file changes" },
+  ]);
+  assert.equal(message.blocks[1].text, "Hook failed");
+});
+
+test("Codex tool snapshots finish before the reply ends", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk(
+      "tool_call",
+      { id: "tool-1", type: "mcpToolCall", status: "inProgress" },
+      {
+        tool_call_id: "tool-1",
+        tool_call_name: "search",
+      },
+    ),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_result", "Searching", { tool_call_id: "tool-1" }),
+  );
+  assert.equal(message.blocks[0].status, "running");
+  message = applyStreamChunk(
+    message,
+    chunk(
+      "tool_result",
+      { id: "tool-1", type: "mcpToolCall", status: "inProgress" },
+      {
+        tool_call_id: "tool-1",
+      },
+    ),
+  );
+  assert.equal(message.blocks[0].status, "running");
+  message = applyStreamChunk(
+    message,
+    chunk(
+      "tool_result",
+      { id: "tool-1", type: "mcpToolCall", status: "completed" },
+      {
+        tool_call_id: "tool-1",
+      },
+    ),
+  );
+
+  assert.equal(message.blocks[0].status, "done");
+  assert.equal(message.blocks[0].expanded, false);
+});
+
+test("Codex failed and declined tools stay failed after reply completion", () => {
+  for (const status of ["failed", "declined"]) {
+    let message = applyStreamChunk(
+      initial(),
+      chunk(
+        "tool_result",
+        { id: "tool-1", type: "commandExecution", status },
+        {
+          tool_call_id: "tool-1",
+          tool_call_name: "commandExecution",
+        },
+      ),
+    );
+    message = applyStreamChunk(message, chunk("reply_end"));
+
+    assert.equal(message.blocks[0].status, "error");
+  }
+});
+
+test("tool result data does not override the tool's execution state", () => {
+  const message = applyStreamChunk(
+    initial(),
+    chunk(
+      "tool_result",
+      { id: "record-1", status: "failed" },
+      {
+        tool_call_id: "tool-1",
+      },
+    ),
+  );
+  assert.equal(message.blocks[0].status, "running");
+});
+
+test("payload formatting joins text deltas and separates structured snapshots", () => {
+  assert.equal(formatStreamPayloads(["hel", "lo"]), "hello");
+  assert.equal(
+    formatStreamPayloads([{ status: "running" }, { status: "completed" }]),
+    '{\n  "status": "running"\n}\n\n{\n  "status": "completed"\n}',
+  );
+  assert.equal(
+    formatStreamPayloads(["progress", { result: 1 }]),
+    'progress\n\n{\n  "result": 1\n}',
+  );
 });
 
 test("SSE terminal marker becomes an explicit done chunk", () => {

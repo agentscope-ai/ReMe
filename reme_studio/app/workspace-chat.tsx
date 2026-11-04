@@ -96,7 +96,9 @@ function ChatBlockView({
       <summary>
         <ChunkStatus active={active} error={failed} />
         <span>{tool ? block.name : detailLabel(block, t)}</span>
-        <small>{active ? t("streaming") : t("completed")}</small>
+        <small>
+          {t(failed ? "failed" : active ? "streaming" : "completed")}
+        </small>
       </summary>
       {tool ? (
         <div className="stream-block-body">

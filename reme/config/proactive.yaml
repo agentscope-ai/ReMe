@@ -1,4 +1,4 @@
-# Minimal Studio workspace with one Codex chat agent using API-key authentication.
+# Studio workspace with MCP and a full-access Codex chat agent using API-key authentication.
 # Set LLM_API_KEY / LLM_BASE_URL (and optionally CODEX_MODEL_NAME) for chat.
 # Custom LLM_BASE_URL endpoints must support the Responses API.
 # Start: reme start config=proactive
@@ -7,7 +7,7 @@
 service:
   backend: http
   web_enabled: true
-  mcp_enabled: false
+  mcp_enabled: true
 
 jobs:
   # Keep Markdown search and graph data in sync with the workspace files.
@@ -28,7 +28,10 @@ jobs:
 
   chat:
     backend: stream
-    description: "Stream a read-only agent conversation over the ReMe workspace."
+    description: "Stream a full-access Codex conversation with the prome assistant."
+    system_prompt: |
+      你是 prome（proactive ReMe），主人的工作与生活管家。
+      始终称呼用户为“主人”，使用主人的语言自然交流，回答清晰、简洁、务实。
     parameters:
       type: object
       properties:
@@ -39,6 +42,7 @@ jobs:
     steps:
       - backend: chat_step
         agent_wrapper: default
+        job_tools: []
 
   app_config:
     backend: base
@@ -119,86 +123,6 @@ jobs:
     steps:
       - backend: save_step
 
-  # ChatStep exposes these read-only jobs as the agent's tools.
-  search:
-    backend: base
-    description: "Search indexed daily and digest Markdown files with BM25."
-    parameters:
-      type: object
-      properties:
-        query: {type: string, description: "search query"}
-        limit: {type: integer, default: 5}
-        min_score: {type: number, default: 0.0}
-        start_date: {type: string, description: "optional inclusive YYYY-MM-DD start date"}
-        end_date: {type: string, description: "optional inclusive YYYY-MM-DD end date"}
-      required: [query]
-    steps:
-      - backend: search_step
-
-  read:
-    backend: base
-    description: "Read a Markdown file under the workspace."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative Markdown path"}
-        start_line: {type: integer, description: "first line (1-based, inclusive)"}
-        end_line: {type: integer, description: "last line (1-based, inclusive)"}
-      required: [path]
-    steps:
-      - backend: read_step
-
-  read_image:
-    backend: base
-    description: "Read an image file as base64."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative image path"}
-      required: [path]
-    steps:
-      - backend: read_image_step
-        max_bytes: 5242880
-
-  frontmatter_read:
-    backend: base
-    description: "Read a file's frontmatter."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative Markdown path"}
-      required: [path]
-    steps:
-      - backend: frontmatter_read_step
-
-  stat:
-    backend: base
-    description: "Stat a workspace path (size, mtime, exists, is_dir, is_file)."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative path"}
-      required: [path]
-    steps:
-      - backend: stat_step
-
-  traverse:
-    backend: base
-    description: "Return a bounded wikilink graph with frontend-ready nodes and directed edges."
-    parameters:
-      type: object
-      properties:
-        path:
-          oneOf:
-            - {type: string}
-            - {type: array, items: {type: string}, minItems: 1}
-          description: "workspace-relative path or paths used as graph seeds"
-        depth: {type: integer, minimum: 0, default: 1}
-        direction: {type: string, enum: [forward, backward, both], default: both}
-      required: [path]
-    steps:
-      - backend: traverse_step
-
 components:
   codex_app_server:
     default:
@@ -207,29 +131,11 @@ components:
       api_key: ${LLM_API_KEY:-}
       base_url: ${LLM_BASE_URL:-}
       codex_home: .codex
-      model_catalog:
-        models:
-          - slug: qwen3.8-max
-            display_name: Qwen3.8 Max
-            description: Studio chat
-            default_reasoning_level: xhigh
-            supported_reasoning_levels:
-              - effort: xhigh
-                description: Maximum reasoning
-            context_window: 983616
-            input_modalities: [text, image]
-            supports_parallel_tool_calls: false
-            supports_reasoning_summaries: false
-            support_verbosity: false
-            shell_type: default
-            visibility: list
-            supported_in_api: true
-            priority: 0
-            base_instructions: ""
-            experimental_supported_tools: []
-            truncation_policy:
-              mode: bytes
-              limit: 10000
+      # Keep Codex's built-in model metadata and base instructions.
+      config_overrides:
+        - features.memories=true
+        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
 
   agent_wrapper:
     default:
@@ -237,8 +143,8 @@ components:
       app_server: default
       model: ${CODEX_MODEL_NAME:-qwen3.8-max}
       effort: xhigh
-      approval_mode: deny_all
-      sandbox: read-only
+      approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
+      sandbox: full-access
 
   tokenizer:
     default:

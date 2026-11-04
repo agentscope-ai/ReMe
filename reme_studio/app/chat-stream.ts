@@ -169,8 +169,19 @@ function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   const current = index >= 0 ? (blocks[index] as ToolBlock) : undefined;
   const hasPayload = payloadText(chunk.chunk).length > 0;
   const result = chunk.chunk_type === "tool_result";
-  const state = String(chunk.metadata?.state || "").toLowerCase();
-  const failed = state.includes("error") || state.includes("fail");
+  const snapshot =
+    typeof chunk.chunk === "object" &&
+    !Array.isArray(chunk.chunk) &&
+    chunk.chunk.id === toolId &&
+    typeof chunk.chunk.type === "string"
+      ? chunk.chunk
+      : undefined;
+  const state = String(
+    chunk.metadata?.state || snapshot?.status || "",
+  ).toLowerCase();
+  const failed =
+    state.includes("error") || state.includes("fail") || state === "declined";
+  const completed = failed || (state !== "" && state !== "inprogress");
   const nextBlock: ToolBlock = {
     id,
     type: "tool",
@@ -190,11 +201,11 @@ function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
     status: failed
       ? "error"
       : result
-      ? state
+      ? completed
         ? "done"
         : "running"
       : "calling",
-    expanded: true,
+    expanded: !completed,
     mediaType: chunk.media_type || current?.mediaType,
     metadata: { ...current?.metadata, ...chunk.metadata },
   };
@@ -234,6 +245,12 @@ export function applyStreamChunk(
     return finishChatMessage(message);
   }
   if (chunk.chunk_type === "reply_start") return message;
+  if (
+    chunk.chunk_type === "data" &&
+    typeof chunk.metadata?.codex_method === "string" &&
+    chunk.metadata.codex_method.startsWith("hook/")
+  )
+    return message;
 
   const blocks = message.blocks || [];
   if (chunk.chunk_type === "content")
@@ -265,5 +282,14 @@ export function toggleChatBlock(
 }
 
 export function formatStreamPayloads(payloads: StreamPayload[]): string {
-  return payloads.map(payloadText).join("");
+  return payloads
+    .map((payload, index) => {
+      const separator =
+        index > 0 &&
+        (typeof payload !== "string" || typeof payloads[index - 1] !== "string")
+          ? "\n\n"
+          : "";
+      return separator + payloadText(payload);
+    })
+    .join("");
 }
