@@ -561,6 +561,11 @@ Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple 
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
+`approval_policy: never`, so available tools run without human or model approval. Requests that need additional
+permissions are rejected rather than prompting. Set `approval_mode: auto_review` to opt into the configured
+automatic reviewer. Tool allowlists and injected argument constraints continue to apply.
+
 API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
 and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
 default subagents select `xhigh` reasoning. The catalog exposes only `xhigh`, so native approval reviews also use

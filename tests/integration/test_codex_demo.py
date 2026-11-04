@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 
 
 @pytest_asyncio.fixture
-async def demo_app(tmp_path, monkeypatch):
+async def demo_app(tmp_path, monkeypatch, request):
     """Load the requested LLM credentials while keeping all runtime state temporary."""
     env_path = Path(__file__).resolve().parents[2] / ".env"
     environment = {**(parse_env_file(env_path) if env_path.is_file() else {}), **os.environ}
@@ -40,6 +40,8 @@ async def demo_app(tmp_path, monkeypatch):
         log_to_file=False,
         service={"backend": "cli"},
     )
+    approval_mode = getattr(request, "param", "deny_all")
+    config["components"]["agent_wrapper"]["codex"]["approval_mode"] = approval_mode
     server_config = config["components"]["codex_app_server"]["default"]
     assert server_config["auth_mode"] == "api_key"
     assert server_config["api_key"] == environment["LLM_API_KEY"]
@@ -64,7 +66,7 @@ async def demo_app(tmp_path, monkeypatch):
     assert {effort for _, effort in reasoning} == {"xhigh"}
     assert models == (
         {"qwen3.8-max", "qwen3.8-flash"}
-        if global_counter_get(app.context.metadata, ["__job_counter", "add"])
+        if approval_mode == "auto_review" and global_counter_get(app.context.metadata, ["__job_counter", "add"])
         else {"qwen3.8-max"}
     )
 
@@ -100,6 +102,7 @@ async def test_live_codex_demo_chat_and_add_tool(demo_app, streaming, use_tool):
             assert chunks[0].chunk_type == ChunkEnum.REPLY_START
             assert chunks[-1].chunk_type == ChunkEnum.DONE
             assert chunks[-1].done
+            assert not any(chunk.chunk_type == ChunkEnum.APPROVAL for chunk in chunks)
             assert any(chunk.chunk_type == ChunkEnum.REPLY_END for chunk in chunks)
             assert chunks[-2].metadata.get("status") == "completed"
             content = [chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT and chunk.chunk]
@@ -131,3 +134,43 @@ async def test_live_codex_stream_demo_without_stream_queue(demo_app):
         response = await step(query="Reply exactly FALLBACK_OK.")
     assert response.success, response.answer
     assert response.answer.strip() == "FALLBACK_OK"
+
+
+@pytest.mark.asyncio
+async def test_live_codex_native_shell_tool_needs_no_approval(demo_app):
+    """The default policy also executes a native shell tool without an approval request."""
+    wrapper = demo_app.context.components["agent_wrapper"]["codex"]
+    async with asyncio.timeout(90):
+        chunks = [
+            chunk
+            async for chunk in wrapper.reply_stream(
+                "Run the shell command printf NATIVE_TOOL_OK, then return only the command output.",
+            )
+        ]
+    assert any(
+        chunk.chunk_type == ChunkEnum.TOOL_CALL and chunk.tool_call_name == "commandExecution" for chunk in chunks
+    )
+    assert any(
+        chunk.chunk_type == ChunkEnum.TOOL_RESULT and chunk.tool_call_name == "commandExecution" for chunk in chunks
+    )
+    assert not any(chunk.chunk_type == ChunkEnum.APPROVAL for chunk in chunks)
+    assert "NATIVE_TOOL_OK" in "".join(
+        chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str)
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("demo_app", ["auto_review"], indirect=True)
+async def test_live_codex_automatic_review_remains_available(demo_app):
+    """Explicitly selecting auto_review still invokes the configured Flash reviewer."""
+    async with asyncio.timeout(90):
+        chunks = [
+            chunk
+            async for chunk in demo_app.run_stream_job(
+                "stream_llm_demo",
+                query="Call the add tool to calculate 21 + 21, then return only its result.",
+            )
+        ]
+    assert any(chunk.chunk_type == ChunkEnum.APPROVAL for chunk in chunks)
+    assert global_counter_get(demo_app.context.metadata, ["__job_counter", "add"]) > 0
+    assert "42" in "".join(chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT)

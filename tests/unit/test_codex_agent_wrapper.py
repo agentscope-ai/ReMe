@@ -284,12 +284,19 @@ async def test_different_threads_run_concurrently_and_same_thread_serializes_acr
 
 
 @pytest.mark.asyncio
-async def test_resume_fork_and_sdk_options_remain_explicit(system):
+@pytest.mark.parametrize("approval_mode", [None, "auto_review"])
+async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode):
     from openai_codex import ApprovalMode, Sandbox
     from openai_codex.types import Personality, ReasoningEffort
 
     first, _, _, _ = system
-    original = await first.reply("one", model="custom", system_prompt="instructions", personality="friendly")
+    original = await first.reply(
+        "one",
+        model="custom",
+        system_prompt="instructions",
+        personality="friendly",
+        approval_mode=approval_mode,
+    )
     thread_id = original["session_id"]
     resumed = await first.reply("two", resume=thread_id, effort="high")
     forked = await first.reply("three", session_id=thread_id, fork_session=True)
@@ -299,7 +306,7 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system):
     options = client.opened[0][2]
     assert options["model"] == "custom"
     assert options["developer_instructions"] == "instructions"
-    assert options["approval_mode"] == ApprovalMode.auto_review
+    assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
     assert options["sandbox"] == Sandbox.full_access
     assert options["personality"] == Personality.friendly
     assert client.threads[thread_id].options[-1]["effort"] == ReasoningEffort.high
@@ -570,6 +577,7 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         servers = config["components"]["codex_app_server"]
         assert servers["default"]["auth_mode"] == "api_key"
         assert wrappers["codex"]["model"] == "qwen3.8-max"
+        assert wrappers["codex"]["approval_mode"] == "deny_all"
         assert wrappers["codex"]["effort"] == "xhigh"
         models = servers["default"]["model_catalog"]["models"]
         assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}

@@ -191,5 +191,5 @@ components:
       effort: xhigh
       job_tools:
         - add
-      approval_mode: auto_review
+      approval_mode: deny_all
       sandbox: full-access

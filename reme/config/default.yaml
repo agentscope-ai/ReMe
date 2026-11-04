@@ -1004,13 +1004,13 @@ components:
       app_server: default
       model: ${CODEX_MODEL_NAME:-qwen3.8-max}
       effort: xhigh
-      approval_mode: auto_review
+      approval_mode: deny_all
       sandbox: full-access
     codex_oauth:
       backend: codex
       app_server: oauth
       model: ${CODEX_OAUTH_MODEL_NAME:-}
-      approval_mode: auto_review
+      approval_mode: deny_all
       sandbox: full-access
 
   file_graph:
