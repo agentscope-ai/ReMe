@@ -115,6 +115,13 @@ components:
         max_tokens: 65536
         thinking_enable: false
 
+  codex_app_server:
+    default:
+      backend: sdk
+      auth_mode: api_key
+      api_key: ${LLM_API_KEY:-}
+      base_url: ${LLM_BASE_URL:-}
+
   agent_wrapper:
     as:
       backend: agentscope
@@ -140,9 +147,8 @@ components:
       permission_mode: bypassPermissions
     codex:
       backend: codex
-      auth_mode: oauth
-      model: ${CODEX_MODEL_NAME:-}
-      codex_home: ${CODEX_HOME:-~/.codex}
+      app_server: default
+      model: qwen3.8-flash
       job_tools:
         - add
       approval_mode: auto_review

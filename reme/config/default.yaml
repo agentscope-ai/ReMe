@@ -930,6 +930,17 @@ components:
         max_tokens: 65536
         thinking_enable: false
 
+  codex_app_server:
+    default:
+      backend: sdk
+      auth_mode: api_key
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+    oauth:
+      backend: sdk
+      auth_mode: oauth
+      codex_home: ${CODEX_HOME:-~/.codex}
+
   agent_wrapper:
     default:
       backend: agentscope
@@ -951,17 +962,14 @@ components:
       permission_mode: bypassPermissions
     codex:
       backend: codex
-      auth_mode: api_key
+      app_server: default
       model: ${CODEX_MODEL_NAME:-}
-      api_key: ${CODEX_API_KEY:-}
-      base_url: ${CODEX_BASE_URL:-}
       approval_mode: auto_review
       sandbox: full-access
     codex_oauth:
       backend: codex
-      auth_mode: oauth
+      app_server: oauth
       model: ${CODEX_MODEL_NAME:-}
-      codex_home: ${CODEX_HOME:-~/.codex}
       approval_mode: auto_review
       sandbox: full-access
 

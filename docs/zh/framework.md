@@ -70,6 +70,7 @@ reme/
     as_llm/, as_embedding/   # 模型封装
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
+    codex_app_server.py      # 共享 Codex 进程与会话锁
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -528,13 +529,26 @@ flowchart LR
 | `as_decision_model`   | `default`                       | 默认未配置；示例为 `agentscope` | 可选概率决策；通过继承 default 的 decision_demo 配置演示   |
 | `agent_wrapper`   | `default`                       | `agentscope`                | AgentScope wrapper                                         |
 | `agent_wrapper`   | `claude_code`                   | `claude_code`               | Claude Code wrapper                                        |
-| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 分别使用 API key 与 OAuth 的 Codex wrapper                 |
+| `codex_app_server` | `default/oauth`                | `sdk`                       | 分别使用 API key 与 OAuth 的共享 Codex 进程                |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 引用具名 Codex app-server 的 agent 配置                    |
 | `file_graph`      | `default`                       | `local`                     | wikilink 图谱                                              |
 | `file_catalog`    | `default/resource/digest/dream` | `local`                     | 文件变更 checkpoint                                        |
 | `file_chunker`    | `markdown`                      | `markdown`                  | Markdown AST 分块                                          |
 | `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`        | JSON、JSONL 与通用文本分块；默认通用分块支持 `txt`、`log`  |
 | `keyword_index`   | `default`                       | `bm25`                      | BM25 关键词索引                                            |
 | `file_store`      | `default`                       | `local`                     | 组合 file_graph、keyword_index；默认 `embedding_store: ""` |
+
+Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
+并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
+不同 thread 可以并发，同一 thread 的操作串行。
+
+迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
+`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认私有 Codex 目录改为
+`{workspace_dir}/{mem_session_dir}/codex/{server_name}`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，HTTP 模式复用现有
+监听器，CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
+恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application
+统一关闭。连接断开时当前请求报错且不重放工具，后续请求可以重连并恢复会话。
 
 注意：`search` step 的配置含 `vector_weight`，但默认 `file_store.default.embedding_store` 为空，因此实际是否有向量检索取决于运行配置是否启用
 embedding store。

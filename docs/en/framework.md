@@ -75,6 +75,7 @@ reme/
     as_llm/, as_embedding/   # model wrappers
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
+    codex_app_server.py      # shared Codex process and conversation locks
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -547,13 +548,28 @@ Current default components in `reme/config/default.yaml`:
 | `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`                         | LLM model wrapper.                                                             |
 | `agent_wrapper`   | `default`                       | `agentscope`                                     | AgentScope wrapper.                                                            |
 | `agent_wrapper`   | `claude_code`                   | `claude_code`                                    | Claude Code wrapper.                                                           |
-| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                                          | Codex wrappers for API-key and OAuth authentication.                           |
+| `codex_app_server` | `default/oauth`                | `sdk`                                            | Shared Codex processes for API-key and OAuth authentication.                   |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                                          | Agent configuration referencing a named Codex app-server.                     |
 | `file_graph`      | `default`                       | `local`                                          | Wikilink graph.                                                                |
 | `file_catalog`    | `default/resource/digest/dream` | `local`                                          | File-change checkpoints.                                                       |
 | `file_chunker`    | `markdown`                      | `markdown`                                       | Markdown AST chunking.                                                         |
 | `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`                             | JSON, JSONL, and generic text chunkers; generic text supports `txt` and `log`. |
 | `keyword_index`   | `default`                       | `bm25`                                           | BM25 keyword index.                                                            |
 | `file_store`      | `default`                       | `local`                                          | Combines file_graph and keyword_index; defaults to `embedding_store: ""`.      |
+
+Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
+keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
+`session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
+
+Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
+from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default private Codex home is now
+`{workspace_dir}/{mem_session_dir}/codex/{server_name}`; set `codex_home` to the previous directory to retain its login
+and saved threads. Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
+session-scoped MCP endpoint, using its HTTP listener when available or a lifecycle-managed loopback listener in CLI
+and embedded applications. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
+thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,
+without changing their public service exposure. Closing a wrapper leaves the shared server running; application
+shutdown closes it. A disconnected request fails without replaying tools; later requests can reconnect and resume.
 
 Note that the `search` Step configuration contains `vector_weight`, but `file_store.default.embedding_store` is empty by
 default. Vector retrieval is available only when the runtime configuration enables an embedding store.
