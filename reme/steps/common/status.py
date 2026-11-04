@@ -90,14 +90,19 @@ def _component_size(obj: object) -> int:
     return walk(obj)
 
 
-def _collect_memory(app_context) -> dict:
-    """Collect per-component estimates, their sum, and process RSS."""
+def _collect_memory(app_context, workspace=None) -> dict:
+    """Estimate shared and selected-workspace components, plus process-wide RSS."""
     components: dict[str, dict[str, dict[str, int | str]]] = {}
     total = 0
     if app_context is not None:
+        workspace = workspace or app_context.workspace
         for component_type in sorted(_TRACKED_COMPONENT_TYPES, key=lambda item: item.value):
             group = {}
-            for name, component in sorted(app_context.components.get(component_type, {}).items()):
+            selected_components = {
+                **app_context.shared_components.get(component_type, {}),
+                **workspace.components.get(component_type, {}),
+            }
+            for name, component in sorted(selected_components.items()):
                 # _component_size keeps an independent seen set so each component
                 # remains understandable in isolation. Consequently, a non-component
                 # object shared by multiple components may be included more than once
@@ -110,6 +115,7 @@ def _collect_memory(app_context) -> dict:
 
     rss = psutil.Process().memory_info().rss
     return {
+        "workspace": workspace.alias if workspace is not None else None,
         "components": components,
         "components_total_bytes": total,
         "components_total": _format_bytes(total),
@@ -121,6 +127,8 @@ def _collect_memory(app_context) -> dict:
 def _format_status(memory: dict) -> str:
     """Build the human-readable CLI response."""
     lines = ["Memory (estimated component object size)"]
+    if memory.get("workspace") is not None:
+        lines.append(f"  Workspace         {memory['workspace']}")
     for component_type, group in memory["components"].items():
         for name, usage in group.items():
             lines.append(f"  {component_type}:{name}  {usage['human']}")
@@ -140,7 +148,7 @@ class StatusStep(BaseStep):
     async def execute(self):
         assert self.context is not None
 
-        memory = _collect_memory(self.app_context)
+        memory = _collect_memory(self.app_context, self.context.workspace)
         self.context.response.answer = _format_status(memory)
         self.context.response.metadata["status"] = {"memory": memory}
         return self.context.response

@@ -2,6 +2,8 @@
 
 import asyncio
 
+from reme.application import Application
+from reme.schema import FileNode
 from reme.components.application_context import ApplicationContext
 from reme.components.base_component import BaseComponent, Dependency
 from reme.enumeration import ComponentEnum
@@ -108,3 +110,45 @@ def test_status_step_returns_human_summary_and_exact_metadata(tmp_path):
     assert "file_store:default" in response.answer
     assert "Storage" not in response.answer
     assert set(response.metadata["status"]) == {"memory"}
+
+
+def test_status_job_attributes_growth_to_selected_workspace(tmp_path):
+    """The real job includes beta's graph growth without charging it to alpha."""
+
+    async def check():
+        app = Application(
+            workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
+            enable_logo=False,
+            log_to_console=False,
+            log_to_file=False,
+            service={"backend": "cli"},
+            components={"file_graph": {"default": {"backend": "local"}}},
+            jobs={"status": {"backend": "base", "steps": [{"backend": "status_step"}]}},
+        )
+        await app.start()
+        try:
+
+            async def memory(alias):
+                response = await app.run_job("status", workspace=alias)
+                assert response.success
+                report = response.metadata["status"]["memory"]
+                assert report["workspace"] == alias
+                assert f"Workspace         {alias}" in response.answer
+                return report
+
+            alpha_before = await memory("alpha")
+            beta_before = await memory("beta")
+            graph = app.context.workspaces["beta"].get_component(ComponentEnum.FILE_GRAPH, "default")
+            await graph.upsert_nodes(
+                [FileNode(path="beta.md", st_mtime=1, front_matter={"description": "x" * 2_000_000})],
+            )
+            beta_after = await memory("beta")
+            alpha_after = await memory("alpha")
+            assert beta_after["components"]["file_graph"]["default"]["bytes"] == _component_size(graph)
+            assert beta_after["components_total_bytes"] > beta_before["components_total_bytes"] + 1_900_000
+            assert alpha_before["components"] == alpha_after["components"]
+            assert alpha_before["components_total_bytes"] == alpha_after["components_total_bytes"]
+        finally:
+            await app.close()
+
+    asyncio.run(check())
