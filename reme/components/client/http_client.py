@@ -116,8 +116,11 @@ class HttpClient(BaseClient):
                 raise RuntimeError(str(chunk.chunk))
             if chunk.chunk_type == ChunkEnum.DONE:
                 continue
-            if chunk.chunk_type == ChunkEnum.REPLY_END and chunk.status == "failed":
-                raise RuntimeError(chunk.metadata.get("error") or "Agent reply failed")
+            if chunk.chunk_type == ChunkEnum.REPLY_END and chunk.status != "completed":
+                outcome = chunk.chunk if isinstance(chunk.chunk, dict) else {}
+                raise RuntimeError(
+                    outcome.get("error") or chunk.metadata.get("error") or f"Agent reply ended: {chunk.status}",
+                )
             chunk_payload = chunk.chunk
             if chunk.chunk_type in {ChunkEnum.REPLY_START, ChunkEnum.REPLY_END}:
                 continue

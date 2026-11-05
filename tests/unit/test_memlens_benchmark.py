@@ -112,7 +112,10 @@ def fixture_candidate(tmp_path, monkeypatch):
     )
     wrapper = AsAgentWrapper(backend="agentscope", as_llm="", app_context=app)
     wrapper.reply = AsyncMock(
-        return_value={"status": "completed", "result": "answer", "session_id": "new", "usage": {"input_tokens": 7}},
+        return_value={
+            **wrapper._reply_result(session_id="new", result="answer", raw={}),
+            "usage": {"input_tokens": 7},
+        },
     )
     store = LocalFileStore(embedding_store="", app_context=app)
     return memory, answer, app, wrapper, store, tmp_path
@@ -336,3 +339,25 @@ async def test_observation_preserves_completed_reply_and_rejects_incomplete():
         reply.return_value = {"status": status, "error": None}
         with pytest.raises(RuntimeError, match=status):
             await wrapper.reply("Original input")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["completed", "failed", "interrupted", "waiting"])
+async def test_answer_preserves_native_usage_and_rejects_incomplete_outcomes(candidate, monkeypatch, status):
+    """Standalone answer Jobs retain the canonical outcome and native cache counters."""
+    _, answer, app, wrapper, store, _ = candidate
+    native = {"message": {"usage": {"input_tokens": 7, "cache_input_tokens": 5}}}
+    result = wrapper._reply_result(
+        session_id="new",
+        result="answer",
+        raw=native,
+        status=status,
+        error="provider failed" if status == "failed" else None,
+    )
+    wrapper.reply.return_value = result
+    monkeypatch.setattr(wrapper, "_resolve_job_tools", lambda _names: [])
+    step = answer.MemLensAgenticAnswerStep(app_context=app, agent_wrapper=wrapper, file_store=store)
+    response = await step(query="question")
+    assert response.success is (status == "completed")
+    assert response.answer == ("provider failed" if status == "failed" else "answer")
+    assert all(response.metadata[key] == value for key, value in result.items())

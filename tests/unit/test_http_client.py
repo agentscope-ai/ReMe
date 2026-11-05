@@ -125,3 +125,29 @@ async def test_raw_http_stream_rejects_corruption_or_missing_done(body):
     async with client:
         with pytest.raises((ValueError, RuntimeError)):
             _ = [chunk async for chunk in client.stream_chunks("chat")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+@pytest.mark.parametrize("error", [None, "provider refused the request"])
+async def test_cli_reports_incomplete_terminal_outcomes(monkeypatch, status, error):
+    """A partial answer followed by DONE must not hide an incomplete invocation."""
+    from reme.schema import StreamChunk
+
+    async def stream(_action, _payload):
+        yield StreamChunk(chunk="partial answer")
+        yield StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            event="end",
+            status=status,
+            chunk={"status": status, "error": error},
+        )
+        yield StreamChunk(chunk_type=ChunkEnum.DONE, done=True)
+
+    client = HttpClient()
+    monkeypatch.setattr(client, "_iter_stream_chunks", stream)
+    output = []
+    with pytest.raises(RuntimeError, match=error or status):
+        async for text in client._execute("chat", {}):
+            output.append(text)
+    assert output == ["partial answer"]
