@@ -46,7 +46,7 @@ proactive_refresh_cron:
   steps: *proactive_refresh_steps
 ```
 
-上面的 anchor 只是为了紧凑展示；`default.yaml` 中显式写出了两组 steps。读取 job 为：
+`default.yaml` 也通过这个 YAML anchor 共享同一组 steps。读取 job 为：
 
 ```yaml
 proactive_read:
@@ -82,6 +82,9 @@ proactive_read:
 | `min_confidence`  | 返回 topic 的最低置信度，默认 `0.4`；旧版 topic 使用 `0.5`。                 |
 
 ### Refresh 成本、文件与关闭方式
+
+`metadata.proactive.duration_ms` 已移除。服务运行期间，在另一个终端使用
+`reme job_status name=proactive_refresh_cron` 查询整条 Job 的开始和结束时间。
 
 没有 daily Markdown 发生变化时，refresh 会在调用 LLM 前结束，也不会生成新的曝光文件。有变化素材时，extract
 通常调用一次 LLM；回复不可用时最多重试一次。存在 push candidates 时，plan 会再调用一次；候选数大于一个时，

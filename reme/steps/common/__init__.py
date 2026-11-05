@@ -8,6 +8,7 @@ from .decision_demo import DecisionDemoStep
 from .demo import DemoEchoStep1, DemoEchoStep2
 from .health_check import HealthCheckStep
 from .help import HelpStep
+from .job_status import JobStatusStep
 from .llm_demo import LLMDemoStep
 from .python_execute import PythonExecuteStep
 from .shell import ShellStep
@@ -27,6 +28,7 @@ __all__ = [
     "DemoEchoStep2",
     "HealthCheckStep",
     "HelpStep",
+    "JobStatusStep",
     "LLMDemoStep",
     "PythonExecuteStep",
     "ShellStep",

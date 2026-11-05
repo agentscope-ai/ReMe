@@ -149,12 +149,38 @@ class BaseStep(ComponentMixin, ABC):
             del self.__dict__[key]
         self.context = RuntimeContext.from_context(context, **kwargs)
         assert self.context is not None
-        if self.input_mapping:
-            self.context.apply_mapping(self.input_mapping)
-        result = await self.execute()
-        if self.output_mapping:
-            self.context.apply_mapping(self.output_mapping)
-        return result
+        execution = self.context.job_execution
+        previous = None
+        failed = False
+        if execution is not None and self.app_context is not None:
+            previous = self.app_context.enter_job_step(execution, self.backend or self.name)
+            self.context.step_error = None
+        try:
+            if self.input_mapping:
+                self.context.apply_mapping(self.input_mapping)
+            result = await self.execute()
+            if self.output_mapping:
+                self.context.apply_mapping(self.output_mapping)
+            return result
+        except Exception as exc:
+            # Preserve the innermost path while an error is propagated or wrapped.
+            # A later independent failure replaces an error handled inside a parent.
+            if previous is not None:
+                previous_error = self.context.step_error
+                cause = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+                failed = previous_error is None or (previous_error is not exc and previous_error is not cause)
+                self.context.step_error = exc
+            raise
+        finally:
+            if previous is not None:
+                self.app_context.leave_job_step(
+                    execution,
+                    previous,
+                    failed,
+                    not self.context.response.success or self.context.stream_error is not None,
+                )
+                if not previous[0]:
+                    self.context.step_error = None
 
     def prompt_format(self, prompt_name: str, **kwargs) -> str:
         """Format a named prompt template with the given kwargs."""

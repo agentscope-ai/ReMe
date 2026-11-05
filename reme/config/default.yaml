@@ -72,7 +72,7 @@ jobs:
   dream_cron:
     backend: cron
     cron: "0 23 * * *"
-    steps:
+    steps: &dream_steps
       - backend: dream_extract_step
         file_catalog: dream
         scan_days: 2
@@ -100,7 +100,7 @@ jobs:
           type: string
           description: "YYYY-MM-DD to refresh; defaults to today in the application's timezone"
           default: ""
-    steps:
+    steps: &proactive_refresh_steps
       - backend: proactive_extract_step
         file_catalog: proactive
         scan_days: 2
@@ -122,24 +122,7 @@ jobs:
   proactive_refresh_cron:
     backend: cron
     cron: "0 18 * * *"             # once a day at 18:00
-    steps:
-      - backend: proactive_extract_step
-        file_catalog: proactive
-        scan_days: 2
-        carry_forward_days: 14
-        max_carry_forward_topics: 20
-        llm_timeout_seconds: 300
-        max_chars_per_file: 60000
-        max_total_chars: 300000
-      - backend: proactive_topics_step
-        known_threshold: 0.85
-        known_threshold_calibrated_for: text-embedding-v4@1024
-        min_push_confidence: 0.5
-        max_topics: 10
-      - backend: proactive_plan_step
-      - backend: proactive_agenda_step
-      - backend: proactive_finish_step
-        file_catalog: proactive
+    steps: *proactive_refresh_steps
 
   auto_dream:
     backend: base
@@ -167,16 +150,7 @@ jobs:
           type: integer
           description: "estimated bytes of changed file content per extraction call, taken from file size; it excludes prompt overhead and a single oversized file still gets its own call, so it is a batching budget rather than a hard request limit"
           default: 40000
-    steps:
-      - backend: dream_extract_step
-        file_catalog: dream
-        scan_days: 2
-        max_units: 5
-        max_chars_per_batch: 40000
-      - backend: dream_integrate_step
-      - backend: dream_finish_step
-        file_catalog: dream
-      - backend: auto_tag_step
+    steps: *dream_steps
 
   auto_memory:
     backend: base
@@ -374,6 +348,27 @@ jobs:
       properties: { }
     steps:
       - backend: health_check_step
+
+  job_status:
+    backend: base
+    description: "Query in-memory job executions and current step paths, newest first per job."
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Optional job name; defaults to all tracked jobs"
+        status:
+          type: string
+          enum: [running, succeeded, failed, stopped, cancelled]
+          description: "Optional execution status filter"
+        limit:
+          type: integer
+          minimum: 1
+          default: 20
+          description: "Maximum executions returned per job"
+    steps:
+      - backend: job_status_step
 
   status:
     backend: base

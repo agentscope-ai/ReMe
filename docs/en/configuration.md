@@ -74,6 +74,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `plugins` | `[]` | Installed plugins enabled for this Application |
 | `service` | HTTP | Service configuration |
 | `jobs` | default Jobs | Job configurations by name |
+| `job_history_limit` | `100` | Completed executions retained per Job in application memory; running records are always retained |
 | `components` | defaults | Components grouped by type and name |
 
 `session_dir` must remain workspace-relative.
@@ -91,6 +92,11 @@ reme start jobs.dream_cron.enabled=false
 Restart the service to apply the override. The separate `auto_dream` API remains available, and other jobs continue running.
 `enable_serve` independently controls service exposure: `enabled=true, enable_serve=false` keeps a Job available for
 local calls. Background and cron jobs are never service-exposed.
+
+`jobs.<name>.track_execution` defaults to `true` for background/cron Jobs and `false` for base/stream Jobs.
+Set it explicitly to override either default, for example `reme start jobs.chat.track_execution=true`.
+Execution records are memory-only and disappear when the Application is recreated. `job_history_limit=0` retains only
+running executions. See [Job execution status](./operations.md#job-execution-status) for queries and step paths.
 
 ## LLM
 
