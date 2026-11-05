@@ -2,6 +2,7 @@
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
+from .catalog_change import CatalogChange
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
@@ -25,6 +26,7 @@ from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
 from .response import Response
+from .resource_metadata import ResourceFile, ResourceMetadata
 from .stream_chunk import StreamChunk
 from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
@@ -33,6 +35,7 @@ __all__ = [
     "AgentReply",
     "collect_reply",
     "replay_reply",
+    "CatalogChange",
     "CallDecision",
     "CompactionOptions",
     "CompactionRequest",
@@ -60,6 +63,8 @@ __all__ = [
     "ProactiveTopic",
     "Request",
     "Response",
+    "ResourceFile",
+    "ResourceMetadata",
     "SessionMessage",
     "SessionSnapshot",
     "SessionStatus",

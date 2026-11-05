@@ -8,6 +8,7 @@ from ._watch_rules import WatchRule, build_context_watch_rules, collect_existing
 from ..base_step import BaseStep
 from ...components import R
 from ...schema import FileNode
+from ...utils.file_watch import diff_files
 
 
 @R.register("init_changes_step")
@@ -32,7 +33,7 @@ class InitChangesStep(BaseStep):
     def _get_watch_rules(self) -> list[WatchRule]:
         assert self.context is not None
         app_config = self.app_context.app_config if self.app_context else None
-        return build_context_watch_rules(app_config, self.workspace_path, self.context)
+        return build_context_watch_rules(app_config, self.workspace_path, self.context, self.file_catalog)
 
     async def _load_indexed_nodes(self) -> Iterable[FileNode]:
         if self.monitor_type == "file_store":
@@ -52,16 +53,7 @@ class InitChangesStep(BaseStep):
         indexed: dict[str, float] = {
             str(Path(n.path) if Path(n.path).is_absolute() else workspace_path / n.path): n.st_mtime for n in nodes
         }
-        to_delete = list(indexed.keys() - existing.keys())
-        to_add = list(existing.keys() - indexed.keys())
-        to_modify = [p for p in existing.keys() & indexed.keys() if existing[p] != indexed[p]]
-        changes: list[dict] = (
-            [{"change": "added", "path": p} for p in to_add]
-            + [{"change": "modified", "path": p} for p in to_modify]
-            + [{"change": "deleted", "path": p} for p in to_delete]
-        )
-        counts = {"added": len(to_add), "modified": len(to_modify), "deleted": len(to_delete)}
-        return changes, counts
+        return diff_files(existing, indexed)
 
     async def execute(self):
         assert self.context is not None

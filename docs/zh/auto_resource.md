@@ -55,35 +55,124 @@ workspace/
 
 ## 资源保留与 TTL
 
-默认配置不自动删除原始资源。`config=proactive` 显式启用以下保留协议：
+默认配置不自动删除原始资源。`config=proactive` 使用一个 catalog 记录**已确认处理的文件状态**，并显式启用以下保留协议：
 
-- 临时资源放在 `resource/YYYY-MM-DD/` 下，可包含任意层级和后缀的文件。
+- 临时资源统一为 `resource/YYYY-MM-DD/{uuid_hex}/` 资源包，每包通过 `metadata.json` 发现。
 - 永久资料放在 workspace 中 `resource/` 以外的目录，例如 `archive/`。
-- `resource/` 根目录文件、非日期目录、无效日期和日期目录符号链接不参与清理；这些是兼容保留项。
+- `resource/` 根目录文件、非日期目录、无效日期和日期目录符号链接不参与物理清理。
 
-`resource_watch_loop` 递归监控全部后缀，只更新 `file_catalog: resource`，不会调用 LLM 或自动生成 daily 卡片。
-`resource_cleanup_cron` 每小时调用 `cleanup_catalog_step`，由 local file catalog 删除过期目录的整个内容（包括尚未登记的文件和空目录），
-再删除对应 catalog 条目并持久化。文件系统是清理依据，不要求 catalog 完整，也不会根据缓存条目删除其他路径。
-清理根目录必须位于 workspace 内，且路径中不能含符号链接。
-清理要求平台支持基于目录描述符的安全删除（Linux、macOS）；不支持的平台会报错并保留文件。
+目录、文件名筛选和 TTL 只在 catalog 中配置一次：
+原来的 `jobs.resource_cleanup_cron.ttl_days` 已迁移到 `components.file_catalog.resource.ttl_days`。
 
-默认 `ttl_days: 7`。按应用 `timezone` 中的日历日期计算，目录日期距今天达到 7 天即过期，与文件 mtime 无关。
-例如 2026-11-05 清理时，`resource/2026-10-29/` 及更早日期目录会被删除，10-30 及之后保留。
-Cron 在服务启动后的下一个整点开始执行，停止服务期间不会清理。
-
-在一个终端启动服务并设置保留天数：
-
-```bash
-reme start config=proactive jobs.resource_cleanup_cron.ttl_days=7
+```yaml
+components:
+  file_catalog:
+    resource:
+      backend: local
+      watch_dirs: [resource_dir]
+      watch_suffixes: []
+      watch_filenames: [metadata.json]
+      ttl_days: 7
 ```
 
-`ttl_days` 必须是正整数。通过 `jobs.resource_cleanup_cron.enabled=false` 关闭清理；未配置该任务的其他配置不受影响。
-删除失败会保留该目录的 catalog 条目并标记本次任务失败，后续调度重新检查。
-实现见 [`LocalFileCatalog.cleanup_expired`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py)。
+`watch_dirs` 支持已有的应用目录字段或 workspace 内的目录，例如 `resource_dir`、`resource_dir/inbox`、`inbox`。
+清理及扫描根目录必须位于 workspace 内，且路径中不能含符号链接。`watch_filenames` 精确匹配文件名，
+与 `watch_suffixes` 同时配置时必须同时满足；两者为空时接受全部文件。
+物理清理不按文件筛选条件过滤，会删除过期日期目录的全部内容，包括未登记的图片和空目录。
+
+`resource_watch_loop` 使用 `file_catalog: resource` 选择上述配置，只监听并记录实时变更，不推进 catalog，也不调用 LLM 或生成 daily 卡片。
+`catalog_diff` 每次直接扫描文件，与 catalog 比较后返回新增、修改和删除清单；即使 watcher 未运行，也能发现期间的净变化。
+这些是路径和 mtime 的差异，不是正文 diff 或完整事件历史。
+
+在一个终端启动服务：
+
+```bash
+reme start config=proactive components.file_catalog.resource.ttl_days=7
+```
+
+在另一个终端查询待处理变化：
+
+```bash
+reme catalog_diff
+reme catalog_diff file_catalog=resource
+```
+
+结果位于 `answer.changes`，每项包含 `path`、`change`、`st_mtime` 和 `previous_mtime`。
+新增项的 `previous_mtime` 为 `null`，删除项的 `st_mtime` 为 `null`。查询不会更新 catalog，未确认的变化会再次返回。
+处理成功后，把成功项**原样**作为 `catalog_commit` 的 `changes` 参数；不要用当前时间替换版本字段。例如：
+
+```bash
+reme catalog_commit file_catalog=resource changes='[{"path":"resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json","change":"added","st_mtime":1793836800.0,"previous_mtime":null}]'
+```
+
+上面的 mtime 仅展示格式，实际调用必须复制 `catalog_diff` 返回的值。
+`answer.committed` 返回已确认路径；`answer.skipped` 返回未确认项及原因，存在跳过项时 `success=false`。
+只提交成功处理的子集即可，其他项保留待处理。源文件或 catalog 版本已变化、路径越界或已过期的项会被跳过，避免误确认更新的内容。
+这两个 Job 默认选择 `resource`，调用时可用 `file_catalog=<组件名>` 切换到另一个已配置扫描范围的 catalog，无需额外的 `name` 参数。
+Auto Resource 的既有处理逻辑和默认配置不变。
+
+proactive 的 watcher 和 diff 只接受精确名为 `metadata.json` 的文件，不再单独发现图片、其他 JSON 或裸文件。
+先读取 manifest 的 `description` 和 `files`，整包处理成功后仅提交 manifest 对应的原始 change。
+采集包发布后按不可变快照使用；直接修改或删除包内数据文件不会触发 diff，支持更新的写入方必须最后更新 manifest。
+消费方仍需确认清单中的文件存在且路径位于当前资源包内。catalog 的确认状态不写回 metadata。
+
+迁移已有 proactive workspace 时，旧 watcher 写入的 catalog 会保留为初始确认基线。
+如果需要重新消化全部历史资源，先停止服务，备份并移走 `metadata/file_catalog/resource.jsonl.zst`，再启动；保留原始资源文件。
+这是本次迁移的派生状态重建步骤，不应在服务运行时修改该文件。
+
+TTL 优先于消化：按应用 `timezone` 中的日历日期计算，目录日期距今天达到 `ttl_days` 即过期，与文件 mtime 无关。
+例如 2026-11-05、`ttl_days: 7` 时，10-29 及更早日期目录已过期，10-30 及之后保留。
+过期资源立即退出 diff 范围，commit 也不再确认；每小时的 `resource_cleanup_cron` 调用 catalog 删除源目录及对应条目，不等待消化。
+因此清理前发起的处理也不能在清理后通过 commit 恢复过期条目。`ttl_days` 必须为正整数。
+
+Cron 在启动后的下一个整点执行，服务停止期间不会物理删除。
+`jobs.resource_cleanup_cron.enabled=false` 只停止物理清理，diff 和 commit 仍遵守 catalog 中的 TTL。
+删除失败会保留仍存在目录的 catalog 条目并标记任务失败，后续调度重试。
+清理要求平台支持基于目录描述符的安全删除（Linux、macOS）；不支持的平台会报错并保留文件。
+实现见 [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py)。
 现有 `file_catalog.delete()` 仍然只删除 catalog 条目，不删除源文件。
 
-该流程只直接清理 resource 日期目录和对应 catalog，不改写其他目录或引用。
-若在其他配置中同时启用 Auto Resource，删除事件仍会按其规则清理关联 daily 卡片。
+清理流程不改写其他目录或引用。若在其他配置中同时启用 Auto Resource，删除事件仍会按其规则清理关联 daily 卡片。
+
+## 定时屏幕采集
+
+`config=proactive` 的 `screen_capture_cron` 在应用时区的每小时 00、15、30、45 分触发，不在启动时立即截图，
+也不补拍服务停止期间的画面。安装 `pip install "reme-ai[screen]"`（`core` 已包含该依赖），
+再用前述 `reme start config=proactive` 启动。可用 `jobs.screen_capture_cron.enabled=false` 关闭截图任务。
+
+截图来自运行 ReMe 的宿主机桌面。macOS 需要为实际运行进程授予屏幕录制权限；无图形会话、无显示器、
+缺少权限或依赖时该轮任务失败，不发布资源包，等待下次定时触发。支持情况由本机 MSS 后端决定。
+
+`reme/steps/data_connectors/` 中的 `BaseConnectorStep` 负责暂存、校验和原子发布，
+`ScreenCaptureStep` 逐屏保存 MSS 返回的原尺寸 PNG，不合并或缩放不同分辨率的显示器：
+
+```text
+resource/YYYY-MM-DD/{uuid_hex}/
+  1.png
+  2.png
+  metadata.json
+```
+
+`metadata.json` 使用 `ResourceMetadata` schema：
+
+```json
+{
+  "schema_version": 1,
+  "dataclass": "ScreenCaptureStep",
+  "source": "screen",
+  "created_at": "2026-11-05T15:00:00+08:00",
+  "modified_at": "2026-11-05T15:00:01+08:00",
+  "description": "同一轮采集的全部显示器截图，请结合全部图片理解当时的用户活动。",
+  "files": [{"path": "1.png"}, {"path": "2.png"}]
+}
+```
+
+`dataclass` 为实际 Step 类名，`source` 为来源渠道；时间均带时区，日期目录取采集开始时间。
+`files` 是非空对象列表，每项仅要求 `path`，可增加 `description` 或来源专属字段；路径相对于包目录，不能逃逸或引用符号链接。
+图片编号是该次采集的显示器枚举编号，不承诺跨重启稳定。多屏依次采集，不保证完全同时。
+任何屏幕失败都会丢弃整轮暂存数据，所有图片及 manifest 完成后才在 `resource/` 中发布目录。
+取消时等待正在执行的同步采集退出并清理暂存文件；每日产生 96 次计划采集，失败轮次不保存。
+资源包沿用上述七天 TTL。该任务只采集，不直接调用 LLM，也不生成 daily 卡片。
 
 ## 图像资源
 
