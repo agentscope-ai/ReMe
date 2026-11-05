@@ -137,7 +137,7 @@ Cron 在启动后的下一个整点执行，服务停止期间不会物理删除
 ## 定时屏幕采集
 
 `config=proactive` 的 `screen_capture_cron` 在应用时区的每小时 00、15、30、45 分触发，不在启动时立即截图，
-也不补拍服务停止期间的画面。安装 `pip install "reme-ai[screen]"`（`core` 已包含该依赖），
+也不补拍服务停止期间的画面。安装 `pip install "reme-ai[core]"`，
 再用前述 `reme start config=proactive` 启动。可用 `jobs.screen_capture_cron.enabled=false` 关闭截图任务。
 
 截图来自运行 ReMe 的宿主机桌面。macOS 需要为实际运行进程授予屏幕录制权限；无图形会话、无显示器、

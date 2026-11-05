@@ -54,9 +54,9 @@ web = [
 ]
 core = [
     "reme-ai[as]",
-    "reme-ai[screen]",
     "dashscope>=1.26.0",
     "pillow>=13.0.0",
+    "mss>=9.0.0",
     "claude-agent-sdk>=0.2.174",
     "openai-codex>=0.163.0",
     "pproxy>=2.7.9,<3",
@@ -70,9 +70,6 @@ core = [
     "networkx>=3.7; python_version >= '3.12' and python_full_version != '3.14.1'",
     "polars>=2.1.0",
     "reme_studio",
-]
-screen = [
-    "mss>=9.0.0",
 ]
 qwen-tokenizer = [
     "tokenizers>=0.23.3,<1",

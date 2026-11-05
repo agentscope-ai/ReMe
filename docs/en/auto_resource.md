@@ -153,8 +153,8 @@ deletion handlers still remove associated daily cards.
 ## Scheduled Screen Capture
 
 With `config=proactive`, `screen_capture_cron` runs at minutes 00, 15, 30, and 45 in the application timezone.
-It does not capture immediately on startup or replay missed intervals. Install `pip install "reme-ai[screen]"`
-(`core` already includes it), then start with the preceding `reme start config=proactive` command.
+It does not capture immediately on startup or replay missed intervals. Install `pip install "reme-ai[core]"`,
+then start with the preceding `reme start config=proactive` command.
 Set `jobs.screen_capture_cron.enabled=false` to disable capture.
 
 Capture observes the desktop of the host running ReMe. On macOS, grant Screen Recording permission to the actual

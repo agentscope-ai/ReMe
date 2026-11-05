@@ -22,7 +22,7 @@ class ScreenCaptureStep(BaseConnectorStep):
             import mss
             from mss.tools import to_png
         except ImportError as exc:
-            raise RuntimeError("Screen capture requires mss; install reme-ai[screen]") from exc
+            raise RuntimeError("Screen capture requires mss; install reme-ai[core]") from exc
 
         files = []
         with mss.mss() as capture:
