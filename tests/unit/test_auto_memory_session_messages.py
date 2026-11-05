@@ -264,14 +264,29 @@ async def test_metadata_bool_to_int_correction_is_persisted(step, append_new):
 
 
 @pytest.mark.asyncio
-async def test_identical_raw_retry_with_generated_content_ids_does_not_rewrite(step, monkeypatch):
-    """Parsing the same raw messages twice should not create false block-ID changes."""
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"type": "text", "text": "same raw payload"}],
+        [{"type": "hint", "hint": "notification"}],
+        [
+            {
+                "type": "hint",
+                "hint": [{"type": "text", "text": "notification"}],
+                "finished_at": "2026-10-01T10:00:00",
+            },
+        ],
+    ],
+    ids=["text", "hint", "nested hint"],
+)
+async def test_identical_raw_retry_with_generated_content_defaults_does_not_rewrite(step, monkeypatch, content):
+    """Parsing identical raw messages twice should not churn generated block defaults."""
     raw = {
         "id": "m0",
-        "name": "Alice",
-        "role": "user",
+        "name": "Assistant",
+        "role": "assistant",
         "created_at": "2026-10-01T10:00:00",
-        "content": [{"type": "text", "text": "same raw payload"}],
+        "content": content,
     }
     first = step._build_messages([raw])
     await step._save_session_messages(_SESSION, first)
@@ -290,6 +305,43 @@ async def test_identical_raw_retry_with_generated_content_ids_does_not_rewrite(s
 
     assert not write_modes
     assert step._session_path(_SESSION).read_bytes() == original
+
+
+def test_raw_hint_conversion_preserves_explicit_nested_ids_and_timestamps(step):
+    """Caller-provided IDs and timestamps remain authoritative at every hint depth."""
+    message = step._to_msg(
+        {
+            "id": "m0",
+            "name": "Alice",
+            "role": "assistant",
+            "created_at": "2026-10-01T10:00:00",
+            "content": [
+                {
+                    "type": "hint",
+                    "id": "outer-id",
+                    "created_at": "2026-10-01T10:00:01",
+                    "finished_at": "2026-10-01T10:00:02",
+                    "hint": [
+                        {
+                            "type": "text",
+                            "text": "notification",
+                            "id": "nested-id",
+                            "created_at": "2026-10-01T10:00:03",
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+
+    outer = message.content[0]
+    nested = outer.hint[0]
+    assert (outer.id, outer.created_at, outer.finished_at) == (
+        "outer-id",
+        "2026-10-01T10:00:01",
+        "2026-10-01T10:00:02",
+    )
+    assert (nested.id, nested.created_at) == ("nested-id", "2026-10-01T10:00:03")
 
 
 def test_raw_message_conversion_preserves_explicit_content_block_ids(step):

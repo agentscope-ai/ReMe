@@ -153,26 +153,38 @@ def _canonical_message_json(msg: Msg) -> str:
     return json.dumps(persisted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _stabilize_content_block(raw_block: dict, path: tuple[int, ...], message_timestamp: str | None) -> dict:
+    """Stabilize defaults generated while parsing a raw content block."""
+    block = dict(raw_block)
+    if isinstance(block.get("hint"), list):
+        block["hint"] = [
+            _stabilize_content_block(child, (*path, index), message_timestamp) if isinstance(child, dict) else child
+            for index, child in enumerate(block["hint"])
+        ]
+
+    if "id" not in block:
+        canonical = json.dumps(raw_block, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        position = str(path[0]) if len(path) == 1 else ".".join(map(str, path))
+        block["id"] = hashlib.sha256(f"{position}:{canonical}".encode("utf-8")).hexdigest()
+    if "created_at" not in block and message_timestamp:
+        block["created_at"] = message_timestamp
+    if block.get("type") == "hint" and "finished_at" not in block and message_timestamp:
+        block["finished_at"] = message_timestamp
+    return block
+
+
 def _stabilize_raw_content_ids(item: dict) -> dict:
-    """Give raw content blocks stable IDs when the caller did not supply one."""
+    """Stabilize generated IDs and timestamps in raw (including nested hint) blocks."""
     content = item.get("content")
     if not isinstance(content, list):
         return item
 
-    stable_content = []
-    changed = False
-    for index, raw_block in enumerate(content):
-        if not isinstance(raw_block, dict):
-            stable_content.append(raw_block)
-            continue
-        block = dict(raw_block)
-        if "id" not in block:
-            canonical = json.dumps(block, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-            block["id"] = hashlib.sha256(f"{index}:{canonical}".encode("utf-8")).hexdigest()
-        if "created_at" not in block and item.get("created_at"):
-            block["created_at"] = item["created_at"]
-        stable_content.append(block)
-        changed = changed or block != raw_block
+    timestamp = item.get("created_at")
+    stable_content = [
+        _stabilize_content_block(block, (index,), timestamp) if isinstance(block, dict) else block
+        for index, block in enumerate(content)
+    ]
+    changed = stable_content != content
     return {**item, "content": stable_content} if changed else item
 
 
