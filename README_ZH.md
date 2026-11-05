@@ -52,7 +52,9 @@
 - [2026.10] - **[基于决策模型的上下文压缩](docs/zh/context_compaction.md)**：根据下一步任务判断旧工具证据的保留价值，
   保护关键历史，并返回可回溯的压缩建议；提供 SVG 流程图、两个真实模型集成场景和 14-query 固定摘要实验，包含强制 Hermes 摘要基线。
 - [2026.10] - **[ReMe 多模态记忆更新](https://reme.agentscope.io/zh/blog_20261009)**：Auto Memory 将会话图片和上下文一起
-  写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。
+  写入记忆并保留图片来源；Auto Resource 将图片资料整理为可检索、可回溯原图的 daily 卡片。Qwen3.8-Max 下，
+  ReMe Image 的 LLM-Judge 得分为 [MemLens-256K 72.49%](benchmark/memlens/docs/zh/evaluation.md)、
+  [MobileMem 60.69%](benchmark/mobilemem/docs/zh/evaluation.md)；详情还包含 Kimi、DeepSeek 的结果。
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=zh) 上线**：无需安装或启动后端，
   即可在浏览器中浏览示例记忆文件、编辑 Markdown、探索记忆关联图谱。欢迎大家[来体验](https://reme.agentscope.io/studio/?lang=zh)！
 
@@ -349,13 +351,17 @@ ReMe 遵循 capture → index → consolidate → recall 的循环。workspace �
 
 ## 📊 评测结果
 
-ReMe 通过 Agent 多轮搜索与读取的方式，评测多会话和超长上下文中的记忆能力。下表为仓库中已公开的参考实验结果；模型、prompt、数据集和评判细节见各评测文档。
+ReMe 通过 Agent 多轮搜索与读取，评测文本与多模态记忆能力。下表为已公开的参考实验，各项沿用对应基准的评测协议；模型、prompt、统计范围与评分细节见各评测文档。
 
-| 基准                                                                        | 设置        |            样本量 | Agentic 得分 | 主要检验内容                   |
+| 基准                                                                        | 设置        |            样本量 | 得分 | 主要检验内容                   |
 | --------------------------------------------------------------------------- | ----------- | ----------------: | -----------: | ------------------------------ |
 | **[LongMemEval cleaned-s](https://reme.agentscope.io/zh/benchmarks/longmemeval)** | **整体**    |        **500 题** |    **89.4%** | 跨会话检索、知识更新与时间推理 |
 | [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 100K 上下文 | 20 cases / 400 题 |        66.1% | 十类长上下文记忆任务           |
 | [BEAM](https://reme.agentscope.io/zh/benchmarks/beam)                             | 1M 上下文   | 35 cases / 700 题 |        65.0% | 超长对话设置                   |
+| [MemLens-256K](benchmark/memlens/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 题 | 72.49% | 多模态长历史问答 |
+| [MobileMem-Omni](benchmark/mobilemem/docs/zh/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 位用户 / 1,333 题 | 60.69% | 个人视觉记忆与推理 |
+
+多模态两行汇报二元 LLM-Judge 准确率。详情包含 MemLens 四模型、五方法对照，以及 MobileMem 三模型的 Image/Text 对照，并说明 Kimi Image 的 history 变体。
 
 在仓库的 [π-Bench 评测](https://reme.agentscope.io/zh/benchmarks/pibench)中，ReMe Agent 在 5 种用户角色上的平均 **PROC 得分为 0.580**
 ，比相同测试模型配置的 NanoBot 高 2.4%。PROC 用于评估隐藏意图完成、针对性澄清、跨会话偏好和规范复用、跨任务依赖推断以及欠规格请求推进等主动性能力。

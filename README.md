@@ -56,7 +56,10 @@ users retain control of the durable files.
   walkthrough, two live-model integration scenarios, and a 14-query fixed-summary Top-N benchmark with a forced Hermes summary baseline.
 - [2026.10] - **[ReMe Multimodal Memory](https://reme.agentscope.io/en/blog_20261009) update**: Auto Memory reads images
   with their conversation context and preserves image sources; Auto Resource turns image files into searchable daily
-  cards linked to the originals.
+  cards linked to the originals. With Qwen3.8-Max, ReMe Image scores
+  [72.49% on MemLens-256K](benchmark/memlens/docs/en/evaluation.md) and
+  [60.69% on MobileMem](benchmark/mobilemem/docs/en/evaluation.md) in LLM-Judge accuracy; the reports also cover Kimi
+  and DeepSeek.
 - [2026.10] - **[ReMe Studio Playground](https://reme.agentscope.io/studio/?lang=en) is live**: explore example memory
   files, edit Markdown, and browse linked memory graphs right in your browser—no installation or backend required.
   Everyone is welcome to [try it out](https://reme.agentscope.io/studio/?lang=en)!
@@ -365,15 +368,19 @@ BM25 through reciprocal rank fusion (RRF).
 
 ## 📊 Benchmarks
 
-ReMe evaluates multi-session and long-context memory with agentic search-and-read workflows. The figures below are the
-published reference runs in this repository; model, prompt, dataset, and judging details are documented with each
-benchmark.
+ReMe evaluates text and multimodal memory with agentic search-and-read workflows. These reference runs use each
+benchmark's own evaluation protocol; follow the links for models, prompts, evaluated subsets and scoring details.
 
-| Benchmark                                                                   | Setting      |              Sample size | Agentic score | Focus                                                              |
+| Benchmark                                                                   | Setting      |              Sample size | Score | Focus                                                              |
 | --------------------------------------------------------------------------- | ------------ | -----------------------: | ------------: | ------------------------------------------------------------------ |
 | **[LongMemEval cleaned-s](https://reme.agentscope.io/en/benchmarks/longmemeval)** | **Overall**  |        **500 questions** |     **89.4%** | Cross-session retrieval, knowledge updates, and temporal reasoning |
 | [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 100K context | 20 cases / 400 questions |         66.1% | Ten types of long-context memory tasks                             |
 | [BEAM](https://reme.agentscope.io/en/benchmarks/beam)                             | 1M context   | 35 cases / 700 questions |         65.0% | Ultra-long conversation settings                                   |
+| [MemLens-256K](benchmark/memlens/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 189 / 195 questions | 72.49% | Multimodal long-history question answering |
+| [MobileMem-Omni](benchmark/mobilemem/docs/en/evaluation.md) | ReMe Image · Qwen3.8-Max | 20 users / 1,333 questions | 60.69% | Personal visual memory and reasoning |
+
+The multimodal rows report binary LLM-Judge accuracy. The linked reports include the four-model, five-method MemLens
+comparison and the three-model MobileMem Image/Text comparison, including Kimi's Image history variant.
 
 ReMe also achieved a **0.580 PROC score across five user personas** in the repository's
 [π-Bench evaluation](https://reme.agentscope.io/en/benchmarks/pibench), 2.4% above NanoBot under the same test-model configuration. PROC

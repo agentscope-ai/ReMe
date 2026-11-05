@@ -60,6 +60,15 @@ const requiredFiles = [
   "en/blog_20260920.html",
   "zh/blog_20261009.html",
   "en/blog_20261009.html",
+  "zh/benchmarks/memlens.html",
+  "en/benchmarks/memlens.html",
+  "zh/benchmarks/mobilemem.html",
+  "en/benchmarks/mobilemem.html",
+  "zh/memlens_256k_evaluation.html",
+  "en/memlens_256k_evaluation.html",
+  "figures/benchmarks/memlens/memlens-256k-qwen36-judge.svg",
+  "figures/benchmarks/memlens/memlens-256k-qwen38-judge.svg",
+  "figures/benchmarks/memlens/memlens-256k-four-models-judge.svg",
   "zh/services.html",
   "en/services.html",
   "studio/index.html",
@@ -138,6 +147,24 @@ const EnglishBlog = await readFile(path.join(outputDir, "en/blog_20260920.html")
 assert.match(EnglishBlog, /<h1[^>]*>ReMe Memory Tags/);
 assert.match(EnglishBlog, /How Does the Tag Index Work\?/);
 assert.doesNotMatch(EnglishBlog, /full article is currently available in Chinese/);
+
+for (const language of ["zh", "en"]) {
+  const multimodalBlog = await readFile(path.join(outputDir, language, "blog_20261009.html"), "utf8");
+  const overview = await readFile(path.join(outputDir, language, "overview.html"), "utf8");
+  for (const benchmark of ["memlens", "mobilemem"]) {
+    const route = `/${language}/benchmarks/${benchmark}`;
+    assert.ok(multimodalBlog.includes(`href="${route}"`), `multimodal blog must link to ${route}`);
+    assert.ok(overview.includes(`href="${route}"`), `project overview must link to ${route}`);
+    const evaluation = await readFile(path.join(outputDir, language, "benchmarks", `${benchmark}.html`), "utf8");
+    assert.ok(evaluation.includes(`href="/${language}/blog_20261009#`), "evaluation must link back to its blog section");
+    assert.ok(
+      evaluation.includes(`https://github.com/agentscope-ai/ReMe/blob/main/benchmark/${benchmark}/docs/${language}/evaluation.md`),
+      "evaluation source link must identify the canonical benchmark document",
+    );
+  }
+  assert.match(multimodalBlog, /src="\/figures\/benchmarks\/memlens\/[^"]+\.svg"/);
+  assert.doesNotMatch(multimodalBlog, /https:\/\/raw\.githubusercontent\.com\/agentscope-ai\/ReMe\/main\/benchmark\/memlens\/docs\/figure\//);
+}
 
 const jobReference = await readFile(path.join(outputDir, "en/reference/jobs.html"), "utf8");
 assert.match(jobReference, /Job API Reference/);
