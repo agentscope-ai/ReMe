@@ -89,7 +89,7 @@ empty filters accept every file. Physical cleanup ignores file filters and delet
 including uncataloged images and empty directories.
 
 `resource_watch_loop` selects this scope with `file_catalog: resource`. It only watches and logs live events; it does not
-advance the catalog, call an LLM, or create daily cards. `resource_pending` scans source files on
+advance the catalog, call an LLM, or create daily cards. `resource_changes` scans source files on
 each call, returning existing, unexpired `metadata.json` paths added or modified since acknowledgement.
 It works without a running watcher, does not advance the catalog, and repeats unacknowledged paths. Deleted files are omitted.
 
@@ -102,37 +102,34 @@ reme start config=proactive components.file_catalog.resource.ttl_days=7
 Query pending resources from another terminal:
 
 ```bash
-reme resource_pending
-reme resource_pending limit=40
+reme resource_changes
+reme resource_changes limit=40
 ```
 
 `answer` is a sorted list of workspace-relative path strings, capped by `limit` (a positive integer, default `20`).
 Unreturned resources remain pending. Read each manifest's `description` and `files`, process the
-whole package, then pass only successfully processed manifest paths to `resource_ack`:
+whole package, then pass only successfully processed manifest paths to `resource_processed`:
 
 ```bash
-reme resource_ack paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
+reme resource_processed paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
 ```
 
-After acknowledging a batch, call `resource_pending` again to retrieve the next batch.
+After acknowledging a batch, call `resource_changes` again to retrieve the next batch.
 
 Both `answer` and `success` are booleans: `true` confirms the whole batch; out-of-scope, missing, non-regular, or expired
 paths and I/O failures return `false` without advancing any checkpoint in the batch. `paths` is required; an empty list
 succeeds, and repeated acknowledgement is allowed. Unselected resources remain pending.
 Both Jobs bind `file_catalog: resource` in their Step configuration and expose no catalog selector.
-The old `catalog_diff` / `catalog_commit` interfaces have been removed; migrate to these calls without `changes` or mtime fields.
 
-The proactive watcher and pending query discover only files named exactly `metadata.json`; images, other JSON files,
+The proactive watcher and `resource_changes` discover only files named exactly `metadata.json`; images, other JSON files,
 and loose payloads are not discovered independently. Published packages are immutable snapshots; publish updates in a new
 UUID directory. Acknowledgement records each file's current mtime without checking the version consumed, so packages must
 remain unchanged during processing. Editing or deleting a payload alone does not make its package pending again.
 Consumers must still check that listed files exist and stay inside the package. Catalog confirmation state is never
 written into resource metadata. Existing Auto Resource processing and its defaults stay unchanged.
 
-When upgrading an existing proactive workspace, its watcher-written catalog remains the initial confirmation baseline.
-To process all historical resources again, stop the service, back up and move aside
-`metadata/file_catalog/resource.jsonl.zst`, then restart; retain the original resource files. This is a derived-state
-rebuild for this migration; do not modify the catalog file while the service is running.
+Processing state is stored in `metadata/file_catalog/resource.jsonl.zst`. To process all existing resources again,
+stop the service, back up and move aside this derived catalog, then restart. Retain the original resource files.
 
 TTL takes precedence over consumption. Calendar age in the application `timezone` determines expiry, independent of file
 mtime. On 2026-11-05 with `ttl_days: 7`, directories dated 2026-10-29 or earlier expire; 2026-10-30 and later remain.
@@ -141,7 +138,8 @@ catalog to delete expired directories and matching catalog entries without waiti
 cannot restore expired entries through a late acknowledgement. `ttl_days` must be a positive integer.
 
 Cron first runs at the next hour after startup; physical deletion does not run while the service is stopped.
-`jobs.resource_cleanup_cron.enabled=false` only disables physical cleanup; pending and ack still apply the configured TTL.
+`jobs.resource_cleanup_cron.enabled=false` only disables physical cleanup; `resource_changes` and `resource_processed`
+still apply the configured TTL.
 Failed deletions retain entries for directories that still exist and fail that execution; later runs retry.
 Cleanup requires descriptor-relative safe directory deletion (Linux and macOS); unsupported platforms fail without deleting files.
 See [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py).

@@ -103,13 +103,13 @@ class BaseFileCatalog(BaseComponent):
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         """Return nodes by paths; None = all; missing paths are skipped."""
 
-    async def pending(self, limit: int = 20) -> list[str]:
-        """Return up to ``limit`` existing, unexpired pending paths in path order."""
-        raise NotImplementedError(f"{type(self).__name__} does not support pending paths")
+    async def changes(self, limit: int = 20) -> list[str]:
+        """Return up to ``limit`` existing, unexpired new or modified paths awaiting processing in path order."""
+        raise NotImplementedError(f"{type(self).__name__} does not support listing changes")
 
-    async def ack(self, paths: list[str]) -> bool:
-        """Acknowledge current file versions as one batch; sources must remain immutable during processing."""
-        raise NotImplementedError(f"{type(self).__name__} does not support acknowledgement")
+    async def processed(self, paths: list[str]) -> bool:
+        """Mark current file versions as processed in one batch; sources must remain immutable during processing."""
+        raise NotImplementedError(f"{type(self).__name__} does not support marking paths as processed")
 
     async def cleanup_expired(self, directory: str | None = None, ttl_days: int | None = None) -> dict:
         """Delete expired YYYY-MM-DD directories and their catalog entries.

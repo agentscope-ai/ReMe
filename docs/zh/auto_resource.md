@@ -81,7 +81,7 @@ components:
 物理清理不按文件筛选条件过滤，会删除过期日期目录的全部内容，包括未登记的图片和空目录。
 
 `resource_watch_loop` 使用 `file_catalog: resource` 选择上述配置，只监听并记录实时变更，不推进 catalog，也不调用 LLM 或生成 daily 卡片。
-`resource_pending` 每次直接扫描文件，与 catalog 比较后返回仍存在、未过期且新增或修改后尚未确认的 `metadata.json` 路径。
+`resource_changes` 每次直接扫描文件，与 catalog 比较后返回仍存在、未过期且新增或修改后尚未确认的 `metadata.json` 路径。
 即使 watcher 未运行也能查询；查询不推进 catalog，未确认的资源下次继续返回，已删除文件不返回。
 
 在一个终端启动服务：
@@ -93,39 +93,38 @@ reme start config=proactive components.file_catalog.resource.ttl_days=7
 在另一个终端查询待消化资源：
 
 ```bash
-reme resource_pending
-reme resource_pending limit=40
+reme resource_changes
+reme resource_changes limit=40
 ```
 
 `answer` 直接返回按路径排序的字符串列表，路径相对于 workspace，最多返回 `limit` 条（正整数，默认 `20`）。
-未返回的资源仍保留待处理；确认一批后再次调用 `resource_pending` 获取下一批。
-先读取 manifest 的 `description` 和 `files`，整包消化成功后，将对应的 manifest 路径作为 `resource_ack` 的 `paths` 参数：
+未返回的资源仍保留待处理；确认一批后再次调用 `resource_changes` 获取下一批。
+先读取 manifest 的 `description` 和 `files`，整包消化成功后，将对应的 manifest 路径作为 `resource_processed` 的 `paths` 参数：
 
 ```bash
-reme resource_ack paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
+reme resource_processed paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
 ```
 
 `answer` 和 `success` 均为布尔值：整批确认成功为 `true`；路径越界、不存在、不是普通文件、已过期或 I/O 失败时为 `false`，
 不更新这批确认状态。`paths` 必填，空列表成功，重复确认允许；只传成功消化的子集，其他资源保留待处理。
-两个 Job 在 Step 配置中绑定 `file_catalog: resource`，不再暴露 catalog 选择参数。
-旧 `catalog_diff` / `catalog_commit` 接口已移除，调用方改用上述接口；不再传递 `changes` 或 mtime 字段。
+两个 Job 在 Step 配置中绑定 `file_catalog: resource`，不接受 catalog 选择参数。
 
-proactive 的 watcher 和 pending 只发现精确名为 `metadata.json` 的文件，图片、其他 JSON 和裸文件不单独发现。
+proactive 的 watcher 和 `resource_changes` 只发现精确名为 `metadata.json` 的文件，图片、其他 JSON 和裸文件不单独发现。
 资源包发布后按不可变快照使用，更新内容应发布到新 UUID 目录。路径确认记录文件当前 mtime，不校验消化前后的版本；
 因此不能在处理期间原地修改资源包。直接修改或删除包内数据文件也不会使资源重新待处理。
 消费方仍需确认清单中的文件存在且路径位于当前资源包内。catalog 的确认状态不写回 metadata，Auto Resource 的默认处理流程不变。
 
-迁移已有 proactive workspace 时，旧 watcher 写入的 catalog 会保留为初始确认基线。
-如果需要重新消化全部历史资源，先停止服务，备份并移走 `metadata/file_catalog/resource.jsonl.zst`，再启动；保留原始资源文件。
-这是本次迁移的派生状态重建步骤，不应在服务运行时修改该文件。
+消化状态保存在 `metadata/file_catalog/resource.jsonl.zst`。如需重新消化全部已有资源，
+先停止服务，备份并移走这个派生 catalog，再启动；保留原始资源文件。
 
 TTL 优先于消化：按应用 `timezone` 中的日历日期计算，目录日期距今天达到 `ttl_days` 即过期，与文件 mtime 无关。
 例如 2026-11-05、`ttl_days: 7` 时，10-29 及更早日期目录已过期，10-30 及之后保留。
-过期资源立即退出 pending 范围，ack 也不再确认；每小时的 `resource_cleanup_cron` 调用 catalog 删除源目录及对应条目，不等待消化。
-因此清理前发起的处理也不能在清理后通过 ack 恢复过期条目。`ttl_days` 必须为正整数。
+过期资源立即退出 `resource_changes` 查询范围，`resource_processed` 也不再确认；每小时的 `resource_cleanup_cron`
+调用 catalog 删除源目录及对应条目，不等待消化。因此清理前发起的处理也不能在清理后通过 `resource_processed`
+恢复过期条目。`ttl_days` 必须为正整数。
 
 Cron 在启动后的下一个整点执行，服务停止期间不会物理删除。
-`jobs.resource_cleanup_cron.enabled=false` 只停止物理清理，pending 和 ack 仍遵守 catalog 中的 TTL。
+`jobs.resource_cleanup_cron.enabled=false` 只停止物理清理，`resource_changes` 和 `resource_processed` 仍遵守 catalog 中的 TTL。
 删除失败会保留仍存在目录的 catalog 条目并标记任务失败，后续调度重试。
 清理要求平台支持基于目录描述符的安全删除（Linux、macOS）；不支持的平台会报错并保留文件。
 实现见 [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py)。

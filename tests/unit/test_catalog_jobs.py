@@ -1,4 +1,4 @@
-"""Pending resource paths, atomic acknowledgement, and TTL precedence."""
+"""Resource changes, atomic processing confirmation, and TTL precedence."""
 
 import os
 from datetime import datetime, timezone
@@ -47,18 +47,18 @@ def _write(workspace, path, mtime=1000):
 
 
 @pytest.mark.asyncio
-async def test_pending_is_read_only_and_ack_confirms_only_selected_paths(catalog, tmp_path):
+async def test_changes_is_read_only_and_processed_confirms_only_selected_paths(catalog, tmp_path):
     """Paths repeat until acknowledged; selected checkpoints survive a reload."""
     first = _write(tmp_path, "resource/2026-11-05/a.txt")
     second = _write(tmp_path, "resource/2026-11-05/b.unknown")
     batch = [first.relative_to(tmp_path).as_posix(), second.relative_to(tmp_path).as_posix()]
-    assert await catalog.pending() == batch
-    assert await catalog.pending() == batch
+    assert await catalog.changes() == batch
+    assert await catalog.changes() == batch
     assert await catalog.get_nodes() == []
     assert not (tmp_path / "metadata/file_catalog/resource.jsonl.zst").exists()
-    assert await catalog.ack(batch[:1]) is True
-    assert await catalog.ack(batch[:1] * 2) is True
-    assert await catalog.pending() == batch[1:]
+    assert await catalog.processed(batch[:1]) is True
+    assert await catalog.processed(batch[:1] * 2) is True
+    assert await catalog.changes() == batch[1:]
     reloaded = LocalFileCatalog(name="resource", app_context=catalog.app_context)
     await reloaded.load()
     assert [node.path for node in await reloaded.get_nodes()] == batch[:1]
@@ -66,91 +66,91 @@ async def test_pending_is_read_only_and_ack_confirms_only_selected_paths(catalog
 
 
 @pytest.mark.asyncio
-async def test_pending_limits_sorted_batches_until_acknowledged(catalog, tmp_path):
+async def test_changes_limits_sorted_batches_until_acknowledged(catalog, tmp_path):
     """Default and custom caps leave remaining resources available after acknowledgement."""
     paths = [f"resource/2026-11-05/{index:02}.txt" for index in range(23)]
     for path in reversed(paths):
         _write(tmp_path, path)
-    assert await catalog.pending() == paths[:20]
-    assert await catalog.pending() == paths[:20]
-    assert await catalog.pending(limit=3) == paths[:3]
-    assert await catalog.ack(paths[:20]) is True
-    assert await catalog.pending() == paths[20:]
-    assert await catalog.ack(paths[20:]) is True
-    assert await catalog.pending() == []
+    assert await catalog.changes() == paths[:20]
+    assert await catalog.changes() == paths[:20]
+    assert await catalog.changes(limit=3) == paths[:3]
+    assert await catalog.processed(paths[:20]) is True
+    assert await catalog.changes() == paths[20:]
+    assert await catalog.processed(paths[20:]) is True
+    assert await catalog.changes() == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit", [0, -1, True, 1.5, None, "10"])
-async def test_pending_requires_a_positive_integer_limit(catalog, limit):
+async def test_changes_requires_a_positive_integer_limit(catalog, limit):
     """Malformed limits cannot disable the response cap."""
     with pytest.raises(ValueError, match="limit must be a positive integer"):
-        await catalog.pending(limit=limit)
+        await catalog.changes(limit=limit)
 
 
 @pytest.mark.asyncio
-async def test_modified_paths_become_pending_and_deleted_paths_are_omitted(catalog, tmp_path):
-    """Acknowledgement records current mtime; missing files are never pending work."""
+async def test_modified_paths_reappear_in_changes_and_deleted_paths_are_omitted(catalog, tmp_path):
+    """Processing confirmation records current mtime; missing files are omitted from changes."""
     path = "resource/2026-11-05/note.txt"
     target = _write(tmp_path, path)
-    assert await catalog.ack([path]) is True
+    assert await catalog.processed([path]) is True
     _write(tmp_path, path, 2000)
-    assert await catalog.pending() == [path]
-    assert await catalog.ack([path]) is True
+    assert await catalog.changes() == [path]
+    assert await catalog.processed([path]) is True
     assert (await catalog.get_nodes([path]))[0].st_mtime == 2000
-    assert await catalog.pending() == []
+    assert await catalog.changes() == []
     target.unlink()
-    assert await catalog.pending() == []
-    assert await catalog.ack([path]) is False
+    assert await catalog.changes() == []
+    assert await catalog.processed([path]) is False
 
 
 @pytest.mark.asyncio
-async def test_invalid_path_prevents_the_entire_ack_batch(catalog, tmp_path):
+async def test_invalid_path_prevents_the_entire_processed_batch(catalog, tmp_path):
     """A valid prefix cannot publish a partial checkpoint when a later path is missing."""
     first = "resource/2026-11-05/a.txt"
     second = "resource/2026-11-05/b.txt"
     _write(tmp_path, first)
     _write(tmp_path, second)
-    assert await catalog.ack([first]) is True
+    assert await catalog.processed([first]) is True
     persisted = (tmp_path / "metadata/file_catalog/resource.jsonl.zst").read_bytes()
     _write(tmp_path, first, 2000)
-    assert await catalog.ack([first, second, "resource/missing.txt"]) is False
+    assert await catalog.processed([first, second, "resource/missing.txt"]) is False
     assert await catalog.get_nodes() == [FileNode(path=first, st_mtime=1000)]
     assert (tmp_path / "metadata/file_catalog/resource.jsonl.zst").read_bytes() == persisted
-    assert await catalog.pending() == [first, second]
+    assert await catalog.changes() == [first, second]
 
 
 @pytest.mark.asyncio
-async def test_ack_accepts_empty_batches_and_rejects_directories(catalog, tmp_path):
+async def test_processed_accepts_empty_batches_and_rejects_directories(catalog, tmp_path):
     """Empty acknowledgement is a no-op; directories cannot become checkpoints."""
-    assert await catalog.ack([]) is True
+    assert await catalog.processed([]) is True
     assert not (tmp_path / "metadata/file_catalog/resource.jsonl.zst").exists()
     (tmp_path / "resource/a").mkdir(parents=True)
-    assert await catalog.ack(["resource/a"]) is False
+    assert await catalog.processed(["resource/a"]) is False
     assert await catalog.get_nodes() == []
 
 
 @pytest.mark.asyncio
-async def test_ttl_precedes_pending_ack_and_cleanup(catalog, tmp_path, clock):
+async def test_ttl_precedes_changes_processed_and_cleanup(catalog, tmp_path, clock):
     """An in-flight consumer cannot revive an expired catalog entry after cleanup."""
     path = "resource/2026-10-30/a.txt"
     target = _write(tmp_path, path)
-    assert await catalog.ack([path]) is True
+    assert await catalog.processed([path]) is True
     _write(tmp_path, path, 2000)
-    pending = await catalog.pending()
+    changes = await catalog.changes()
     clock.instant = datetime(2026, 11, 6, 0, 30, tzinfo=timezone.utc)
     assert target.exists()
-    assert await catalog.pending() == []
-    assert await catalog.ack(pending) is False
+    assert await catalog.changes() == []
+    assert await catalog.processed(changes) is False
     await catalog.cleanup_expired()
     assert not target.exists()
     assert await catalog.get_nodes() == []
-    assert await catalog.ack(pending) is False
+    assert await catalog.processed(changes) is False
     assert await catalog.get_nodes() == []
 
 
 @pytest.mark.asyncio
-async def test_scope_filters_pending_paths_and_refuses_escaping_links(catalog, tmp_path):
+async def test_scope_filters_changes_paths_and_refuses_escaping_links(catalog, tmp_path):
     """Scope restrictions apply equally to discovery and acknowledgement."""
     catalog.watch_suffixes = ["txt"]
     _write(tmp_path, "resource/2026-11-05/a.txt")
@@ -158,8 +158,8 @@ async def test_scope_filters_pending_paths_and_refuses_escaping_links(catalog, t
     outside = _write(tmp_path, "archive/permanent.txt")
     (tmp_path / "resource/link.txt").symlink_to(outside)
     await catalog.upsert([FileNode(path="archive/old.txt", st_mtime=1), FileNode(path="resource/old.pdf", st_mtime=1)])
-    pending = await catalog.pending()
-    assert pending == ["resource/2026-11-05/a.txt"]
+    changes = await catalog.changes()
+    assert changes == ["resource/2026-11-05/a.txt"]
     for path in [
         "../archive/permanent.txt",
         str(outside),
@@ -171,24 +171,24 @@ async def test_scope_filters_pending_paths_and_refuses_escaping_links(catalog, t
         "C:/a.txt",
         "",
     ]:
-        assert await catalog.ack([*pending, path]) is False
+        assert await catalog.processed([*changes, path]) is False
     assert {node.path for node in await catalog.get_nodes()} == {"archive/old.txt", "resource/old.pdf"}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("paths", [None, "resource/a.txt", {}, [None], [1], [["resource/a.txt"]]])
-async def test_ack_requires_a_list_of_strings(catalog, paths):
+async def test_processed_requires_a_list_of_strings(catalog, paths):
     """Malformed inputs fail before inspecting source files or publishing state."""
     with pytest.raises(ValueError, match="paths must be a list of strings"):
-        await catalog.ack(paths)
+        await catalog.processed(paths)
     assert await catalog.get_nodes() == []
 
 
 @pytest.mark.asyncio
-async def test_failed_ack_write_keeps_baseline_retryable(catalog, tmp_path, monkeypatch):
+async def test_failed_processed_write_keeps_baseline_retryable(catalog, tmp_path, monkeypatch):
     """Disk errors cannot publish a success-only in-memory checkpoint."""
     _write(tmp_path, "resource/a.txt")
-    batch = await catalog.pending()
+    batch = await catalog.changes()
     import reme.components.file_catalog.local_file_catalog as module
 
     def fail(*_args):
@@ -196,11 +196,11 @@ async def test_failed_ack_write_keeps_baseline_retryable(catalog, tmp_path, monk
 
     with monkeypatch.context() as patcher:
         patcher.setattr(module, "write_jsonl_zst", fail)
-        assert await catalog.ack(batch) is False
+        assert await catalog.processed(batch) is False
     assert await catalog.get_nodes() == []
     assert not (tmp_path / "metadata/file_catalog/resource.jsonl.zst").exists()
-    assert await catalog.pending() == batch
-    assert await catalog.ack(batch) is True
+    assert await catalog.changes() == batch
+    assert await catalog.processed(batch) is True
 
 
 @pytest.mark.asyncio
@@ -224,30 +224,34 @@ async def test_jobs_bind_the_resource_catalog_and_return_paths_or_boolean(
     _write(tmp_path, second_path)
     _write(tmp_path, "resource/2026-11-05/a/image.png")
     _write(tmp_path, "inbox/b.txt")
-    pending = BaseJob(name="resource_pending", app_context=app, **app.app_config.jobs["resource_pending"].model_dump())
-    ack = BaseJob(name="resource_ack", app_context=app, **app.app_config.jobs["resource_ack"].model_dump())
-    assert pending.parameters["properties"]["limit"]["default"] == 20
-    assert pending.parameters["properties"]["limit"]["minimum"] == 1
-    assert set(ack.parameters["properties"]) == {"paths"}
-    assert ack.parameters["required"] == ["paths"]
-    await pending.start()
-    await ack.start()
+    changes = BaseJob(name="resource_changes", app_context=app, **app.app_config.jobs["resource_changes"].model_dump())
+    processed = BaseJob(
+        name="resource_processed",
+        app_context=app,
+        **app.app_config.jobs["resource_processed"].model_dump(),
+    )
+    assert changes.parameters["properties"]["limit"]["default"] == 20
+    assert changes.parameters["properties"]["limit"]["minimum"] == 1
+    assert set(processed.parameters["properties"]) == {"paths"}
+    assert processed.parameters["required"] == ["paths"]
+    await changes.start()
+    await processed.start()
     try:
-        response = await pending()
+        response = await changes()
         assert response.answer == [path, second_path]
         assert response.success is True
-        assert (await pending(file_catalog="other", limit=1)).answer == [path]
-        assert (await pending(limit=0)).success is False
-        response = await ack(file_catalog="other", paths=[path, second_path])
+        assert (await changes(file_catalog="other", limit=1)).answer == [path]
+        assert (await changes(limit=0)).success is False
+        response = await processed(file_catalog="other", paths=[path, second_path])
         assert response.success is True
         assert response.answer is True
-        assert (await pending()).answer == []
+        assert (await changes()).answer == []
         assert len(await resource.get_nodes()) == 2
         assert await other.get_nodes() == []
-        response = await ack(paths=["inbox/b.txt"])
+        response = await processed(paths=["inbox/b.txt"])
         assert response.success is False
         assert response.answer is False
-        assert (await ack()).success is False
+        assert (await processed()).success is False
     finally:
-        await ack.close()
-        await pending.close()
+        await processed.close()
+        await changes.close()

@@ -69,31 +69,31 @@ class LocalFileCatalog(BaseFileCatalog):
             absolute.is_relative_to(rule.path) and absolute.resolve().is_relative_to(rule.path) for rule in rules
         )
 
-    async def pending(self, limit: int = 20) -> list[str]:
+    async def changes(self, limit: int = 20) -> list[str]:
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
         async with self._io_lock:
-            return await complete_in_thread(self._pending, limit)
+            return await complete_in_thread(self._changes, limit)
 
-    def _pending(self, limit: int) -> list[str]:
+    def _changes(self, limit: int) -> list[str]:
         rules, today = self.watch_rules, self._today()
-        pending = []
+        changes = []
         for source, mtime in collect_existing(rules, recursive=True).items():
             path = self.to_workspace_relative(source)
             if not self._matches(path, rules) or self._expired(Path(source), rules, today):
                 continue
             node = self._nodes.get(path)
             if node is None or node.st_mtime != mtime:
-                pending.append(path)
-        return sorted(pending)[:limit]
+                changes.append(path)
+        return sorted(changes)[:limit]
 
-    async def ack(self, paths: list[str]) -> bool:
+    async def processed(self, paths: list[str]) -> bool:
         if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
             raise ValueError("paths must be a list of strings")
         async with self._io_lock:
-            return await complete_in_thread(self._ack, paths)
+            return await complete_in_thread(self._processed, paths)
 
-    def _ack(self, paths: list[str]) -> bool:
+    def _processed(self, paths: list[str]) -> bool:
         if not paths:
             return True
         rules, today = self.watch_rules, self._today()
@@ -110,7 +110,7 @@ class LocalFileCatalog(BaseFileCatalog):
             # Publish in-memory state only after the atomic file replacement succeeds.
             write_jsonl_zst(self._catalog_file, (node.model_dump_json() for node in nodes.values()), self.encoding)
         except OSError as exc:
-            self.logger.warning(f"Failed to acknowledge catalog paths: {exc}")
+            self.logger.warning(f"Failed to mark catalog paths as processed: {exc}")
             return False
         self._nodes = nodes
         return True
