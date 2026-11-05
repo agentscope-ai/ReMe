@@ -2,8 +2,14 @@
 
 # pylint: disable=protected-access
 
+import json
+
+import httpx
+import pytest
+
 from reme.components.client.http_client import HttpClient
 from reme.constants import REME_DEFAULT_HOST, REME_DEFAULT_PORT
+from reme.enumeration import ChunkEnum
 
 
 def test_default_client_uses_loopback_address():
@@ -34,3 +40,30 @@ def test_format_for_display_shows_metadata_when_requested():
     text = '{"answer":"0.4.0.7","success":true,"metadata":{"version":"0.4.0.7"}}'
 
     assert client._format_for_display(text) == '0.4.0.7\n✅ {"version": "0.4.0.7"}'
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("will_retry", [True, False, None, "false"])
+async def test_stream_retry_notifications_continue_but_terminal_errors_raise(will_retry):
+    """A temporary Codex reconnect must not prevent CLI callers from receiving the answer."""
+    events = [
+        {"chunk_type": "error", "chunk": "upstream error", "metadata": {"will_retry": will_retry}},
+        {"chunk_type": "content", "chunk": "recovered answer"},
+        {"chunk_type": "done", "done": True},
+    ]
+    body = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
+
+    def handle(_request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    client = HttpClient()
+    client.client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handle))
+    async with client:
+        if will_retry is True:
+            chunks = [chunk async for chunk in client.stream_chunks("stream_llm_demo")]
+            assert [chunk.chunk_type for chunk in chunks] == [ChunkEnum.ERROR, ChunkEnum.CONTENT]
+            assert chunks[0].metadata == {"will_retry": True}
+            assert chunks[-1].chunk == "recovered answer"
+        else:
+            with pytest.raises(RuntimeError, match="upstream error"):
+                _ = [chunk async for chunk in client.stream_chunks("stream_llm_demo")]

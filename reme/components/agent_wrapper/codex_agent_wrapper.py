@@ -1,135 +1,73 @@
-"""Codex Python SDK backend for the unified agent wrapper."""
+"""Codex agent sessions backed by an application-owned app-server."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
-from contextlib import suppress
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from functools import partial
-import hashlib
 import json
 import os
-from pathlib import Path
-import sys
-import tempfile
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
-from ..base_component import _context_workspaces
+from ..codex_app_server import CodexAppServer
 from ..component_registry import R
-from ...constants import normalize_connect_host
+from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, TokenUsage
-from ...schema.workspace import WorkspaceAgentState
 
 if TYPE_CHECKING:
-    from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
+    from openai_codex import AsyncThread, RunInput
     from openai_codex.types import Notification
-else:
-    # Keep the optional Codex SDK out of ReMe's package import path. Tests may
-    # also replace this value before the SDK is loaded.
-    AsyncCodex: Any = None
-
-
-def _get_async_codex_class():
-    """Return the optional Codex client class, importing its SDK on first use."""
-    global AsyncCodex  # pylint: disable=global-statement
-    if AsyncCodex is None:
-        from openai_codex import AsyncCodex as AsyncCodexClass
-
-        AsyncCodex = AsyncCodexClass
-    return AsyncCodex
-
-
-@dataclass(frozen=True)
-class _CodexAuthConfig:
-    """Resolved authentication settings for one Codex app-server."""
-
-    mode: str
-    api_key: str = ""
-    base_url: str = ""
-
-
-@dataclass(frozen=True)
-class _CodexLaunchConfig:
-    """Options fixed for the lifetime of one Codex app-server."""
-
-    auth_mode: str
-    api_key: str
-    base_url: str
-    codex_bin: str | None
-    config_overrides: tuple[str, ...]
-    experimental_api: bool
 
 
 @R.register("codex")
 class CodexAgentWrapper(BaseAgentWrapper):
-    """Agent wrapper backed by the Codex Python SDK."""
+    """Configure agents while sharing transport, authentication and session locks."""
 
     SDK_PACKAGE = "openai-codex"
-    _CLIENT_OPTION_NAMES = frozenset(
+    _SERVER_OPTIONS = frozenset(
         {
-            "api_key",
             "auth_mode",
+            "api_key",
             "base_url",
+            "supports_websockets",
             "codex_bin",
             "codex_home",
             "config_overrides",
-            "cwd",
+            "model_catalog",
             "experimental_api",
             "launch_args_override",
+            "mcp_config",
+            "release_threads",
         },
     )
 
+    def __init__(self, app_server: str = "default", **kwargs) -> None:
+        self._reject_server_options(kwargs)
+        super().__init__(**kwargs)
+        self.app_server = self.bind(app_server, CodexAppServer, default_factory=CodexAppServer, optional=False)
+        self._active = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+
+    @classmethod
+    def _reject_server_options(cls, kwargs: dict[str, Any]) -> None:
+        invalid = sorted(cls._SERVER_OPTIONS.intersection(kwargs))
+        if invalid:
+            raise TypeError(f"Configure Codex process options on codex_app_server: {', '.join(invalid)}")
+
+    def _reply_kwargs(self, kwargs: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
+        self._reject_server_options(kwargs)
+        invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
+        if invalid:
+            raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
+        return self._merged_stream_kwargs(kwargs) if stream else self._merged_kwargs(kwargs)
+
     @staticmethod
     def _codex_usage(usage: Any) -> TokenUsage:
-        """Normalize Codex's full-turn input/output usage snapshot."""
         return TokenUsage.from_provider(usage)
-
-    # pylint: disable=too-many-arguments
-    def __init__(
-        self,
-        mcp_config: str | None = None,
-        codex_home: str | Path | None = None,
-        *,
-        auth_mode: str = "auto",
-        api_key: str = "",
-        base_url: str = "",
-        codex_bin: str | None = None,
-        config_overrides: list[str] | tuple[str, ...] | None = None,
-        experimental_api: bool = True,
-        release_threads: bool = True,
-        **kwargs,
-    ) -> None:
-        if "launch_args_override" in kwargs:
-            raise TypeError("launch_args_override is not supported; configure codex_bin instead")
-        super().__init__(**kwargs)
-        self.mcp_config = mcp_config
-        self._codex_home = codex_home
-        self._launch_config = _CodexLaunchConfig(
-            auth_mode=auth_mode,
-            api_key=api_key,
-            base_url=base_url,
-            codex_bin=codex_bin,
-            config_overrides=tuple(config_overrides or ()),
-            experimental_api=experimental_api,
-        )
-        self._codex: AsyncCodex | None = None
-        self._release_threads = release_threads
-        self._turn_lock = asyncio.Lock()
-        self._thread_tool_contexts: dict[str, str] = {}
-        self._mcp_snapshot_path: Path | None = None
-
-    @property
-    def session_path(self) -> Path:
-        """Directory used for Codex state and persisted threads."""
-        if self._codex_home:
-            path = Path(self._codex_home).expanduser()
-            return path if path.is_absolute() else self.workspace_path / path
-        if self.app_context is None:
-            return self.workspace_path / "mem_session" / "codex"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -150,228 +88,25 @@ class CodexAgentWrapper(BaseAgentWrapper):
             relative_source = os.path.relpath(source, target.parent)
             target.symlink_to(relative_source, target_is_directory=True)
 
-    @property
-    def wrapper_session_path(self) -> Path:
-        """ReMe-owned session data, kept separate from a shared OAuth CODEX_HOME."""
-        if self.app_context is None:
-            return self.workspace_path / "mem_session" / "codex"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
-
-    def _explicit_mcp_config(self, kwargs: dict[str, Any]) -> str | None:
-        value = kwargs.get("mcp_config") if "mcp_config" in kwargs else self.mcp_config
-        if value is None:
-            return None
-        source = Path(str(value)).expanduser()
-        if source.suffix in {".yaml", ".yml", ".json"}:
-            if not source.is_absolute():
-                source = self.workspace_path / source
-            return str(source.absolute())
-        return str(value)
-
-    def _effective_config_snapshot(self) -> Path:
-        """Create one private snapshot that remains valid for the client lifetime."""
-        if self._mcp_snapshot_path is not None:
-            return self._mcp_snapshot_path
-        if self.app_context is None:
-            raise RuntimeError("Cannot snapshot MCP config without an app_context")
-        snapshot_dir = self.wrapper_session_path / "reme-mcp"
-        snapshot_dir.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix="config-", suffix=".json", dir=snapshot_dir)
-        try:
-            if hasattr(os, "fchmod"):
-                os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
-        except BaseException:
-            with suppress(OSError):
-                os.close(fd)
-            Path(raw_path).unlink(missing_ok=True)
-            raise
-        self._mcp_snapshot_path = Path(raw_path)
-        return self._mcp_snapshot_path
-
-    def _mcp_config_source(self, kwargs: dict[str, Any]) -> str:
-        return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
-
-    @staticmethod
-    def _resolve_auth_config(auth_mode: str, api_key: str = "", base_url: str = "") -> _CodexAuthConfig:
-        """Resolve login from wrapper options.
-
-        The Codex child process still inherits the parent process environment.
-        """
-        requested_mode = str(auth_mode or "auto").lower()
-        if requested_mode not in {"auto", "api_key", "oauth"}:
-            raise ValueError("auth_mode must be one of: auto, api_key, oauth")
-        if requested_mode == "oauth":
-            return _CodexAuthConfig(mode="oauth")
-
-        api_key = api_key if isinstance(api_key, str) else ""
-        if requested_mode == "api_key" and not api_key:
-            raise ValueError("auth_mode='api_key' requires a non-empty API key")
-        if not api_key:
-            return _CodexAuthConfig(mode="oauth")
-
-        base_url = base_url if isinstance(base_url, str) else ""
-        return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
-
-    def _build_client_config(self, auth: _CodexAuthConfig) -> CodexConfig:
-        from openai_codex import CodexConfig
-
-        env = dict(self.subprocess_environment)
-        self.session_path.mkdir(parents=True, exist_ok=True)
-        env["CODEX_HOME"] = str(self.session_path)
-
-        overrides = list(self._launch_config.config_overrides)
-        if auth.base_url:
-            overrides.append(f"openai_base_url={json.dumps(auth.base_url)}")
-        login_method = "api" if auth.mode == "api_key" else "chatgpt"
-        overrides.append(f"forced_login_method={json.dumps(login_method)}")
-        return CodexConfig(
-            codex_bin=self._launch_config.codex_bin,
-            config_overrides=tuple(overrides),
-            cwd=str(self.cwd),
-            env=env,
-            client_name="reme",
-            client_title="ReMe",
-            experimental_api=self._launch_config.experimental_api,
-        )
-
-    @classmethod
-    def _reject_client_options(cls, kwargs: dict[str, Any]) -> None:
-        invalid = sorted(cls._CLIENT_OPTION_NAMES.intersection(kwargs))
-        if invalid:
-            names = ", ".join(invalid)
-            raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
-
-    def _resident_mcp_endpoint(self) -> str:
-        from ..service import HttpService, MCPService
-
-        service = self.app_context.service if self.app_context is not None else None
-        if isinstance(service, HttpService) and service.mcp_enabled:
-            return f"http://{normalize_connect_host(service.host)}:{service.port}{service.mcp_path}"
-        if isinstance(service, MCPService) and service.transport == "streamable-http":
-            return f"http://{normalize_connect_host(service.host)}:{service.port}/mcp"
-        raise RuntimeError(
-            "Multi-workspace Codex job_tools require a resident HTTP MCP service; "
-            "one-shot CLI and other service backends are not supported for this combination",
-        )
-
-    @staticmethod
-    def _validate_resident_jobs(service, jobs) -> None:
-        if not service.tool_error_on_failure:
-            raise ValueError("Multi-workspace Codex job_tools require resident MCP tool_error_on_failure=true")
-        unavailable = [
-            job.name
-            for job in jobs
-            if not job.enabled or not job.enable_serve or (service.jobs is not None and job.name not in service.jobs)
-        ]
-        if unavailable:
-            raise ValueError(f"Codex job_tools must be exposed by the resident MCP service: {', '.join(unavailable)}")
-
-    def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
-        from ..job import BackgroundJob, StreamJob
-
-        job_names = list(dict.fromkeys(kwargs.get("job_tools") or []))
-        if not job_names:
-            return None
-        jobs = self._resolve_job_tools(job_names)
-        unsupported = [job.name for job in jobs if isinstance(job, (BackgroundJob, StreamJob))]
-        if unsupported:
-            raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
-
-        workspaces = _context_workspaces(self.app_context)
-        multi_workspace = workspaces is not None and len(workspaces) > 1
-        if multi_workspace:
-            if self._explicit_mcp_config(kwargs) is not None:
-                raise ValueError("mcp_config is only supported for single-workspace Codex job_tools")
-            endpoint = self._resident_mcp_endpoint()
-            self._validate_resident_jobs(self.app_context.service, jobs)
-            args = ["-m", "reme.components.agent_wrapper.codex_mcp_server", "--endpoint", endpoint]
-        else:
-            args = [
-                "-m",
-                "reme.components.agent_wrapper.codex_mcp_server",
-                "--config",
-                self._mcp_config_source(kwargs),
-                "--workspace",
-                str(self.workspace_path),
-            ]
-            if workspaces:
-                alias = str(kwargs.get("workspace") or next(iter(workspaces)))
-                args.extend(["--workspace-alias", alias])
-        for name in job_names:
-            args.extend(["--job", name])
-        args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
-        injected_job_kwargs = dict(kwargs.get("injected_job_kwargs") or {})
-        if workspaces and (workspace := kwargs.get("workspace")):
-            injected_job_kwargs["workspace"] = workspace
-        if injected_job_kwargs:
-            args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])
-        return {
-            "command": sys.executable,
-            "args": args,
-            "cwd": str(self.project_path),
-            "required": True,
-            "enabled_tools": job_names,
-            "startup_timeout_sec": kwargs.get("mcp_startup_timeout", 30),
-            "tool_timeout_sec": kwargs.get("mcp_tool_timeout", 300),
-        }
-
-    def _thread_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
-        config = dict(kwargs.get("config") or {})
-        if proxy_environment := self.command_proxy_environment:
-            shell_environment_policy = dict(config.get("shell_environment_policy") or {})
-            environment = dict(shell_environment_policy.get("set") or {})
-            environment.update(proxy_environment)
-            shell_environment_policy["set"] = environment
-            config["shell_environment_policy"] = shell_environment_policy
-        if server := self._mcp_server_config(kwargs):
-            servers = dict(config.get("mcp_servers") or {})
-            server_key = hashlib.sha256(json.dumps(server, sort_keys=True).encode()).hexdigest()[:12]
-            servers[f"reme_jobs_{server_key}"] = server
-            config["mcp_servers"] = servers
-        return config or None
-
     @staticmethod
     def _enum(enum_cls: Any, value: Any, default: Any = None) -> Any:
         if value is None:
             return default
         return value if isinstance(value, enum_cls) else enum_cls(value)
 
-    async def _open_thread(self, codex: AsyncCodex, kwargs: dict[str, Any]) -> AsyncThread:
+    def _thread_options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
-        alias = str(kwargs.get("workspace") or "")
-        tool_contexts = self._tool_contexts(alias)
-        resume = kwargs.get("resume") or ""
-        session_id = kwargs.get("session_id") or ""
-        if resume and session_id and resume != session_id:
-            raise ValueError("resume and session_id must identify the same Codex thread")
-        thread_id = resume or session_id
-        fork_session = bool(kwargs.get("fork_session", False))
-        if fork_session and not thread_id:
-            raise ValueError("fork_session=True requires resume or session_id")
-        if thread_id:
-            await self._check_thread_ownership(thread_id, alias)
-        if self._release_threads and tool_contexts:
-            await self._prune_thread_tool_contexts(codex, alias)
-        requested_tool_context = json.dumps(
-            {
-                "tool_context_id": str(kwargs.get("tool_context_id") or ""),
-                "injected_job_kwargs": dict(kwargs.get("injected_job_kwargs") or {}),
-            },
-            sort_keys=True,
-            default=str,
-        )
-        if not fork_session and thread_id in tool_contexts:
-            if requested_tool_context != tool_contexts[thread_id]:
-                raise ValueError("tool_context_id and injected_job_kwargs cannot change when resuming a Codex thread")
-
-        common = {
-            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),
+        config = dict(kwargs.get("config") or {})
+        if proxy_environment := self.command_proxy_environment:
+            policy = dict(config.get("shell_environment_policy") or {})
+            policy["set"] = {**policy.get("set", {}), **proxy_environment}
+            config["shell_environment_policy"] = policy
+        options = {
+            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.deny_all),
             "base_instructions": kwargs.get("base_instructions"),
-            "config": self._thread_config(kwargs),
+            "config": config,
             "cwd": str(self._call_cwd(kwargs)),
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
@@ -379,313 +114,65 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
-        personality = self._enum(Personality, kwargs.get("personality"))
-        thread_source = self._enum(ThreadSource, kwargs.get("thread_source"))
-        if fork_session:
-            thread = await codex.thread_fork(
-                thread_id,
+        if kwargs.get("fork_session"):
+            options.update(
                 ephemeral=kwargs.get("ephemeral"),
-                thread_source=thread_source,
-                **common,
+                thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
-        elif thread_id:
-            reserved = await self._record_thread_ownership(alias, thread_id, provisional=True)
-            try:
-                thread = await codex.thread_resume(thread_id, personality=personality, **common)
-                await self._record_thread_ownership(alias, thread.id)
-            except BaseException as exc:
-                if reserved:
-                    await self._settle_failed_thread_claim(alias, thread_id, exc, sdk_entered=True)
-                raise
         else:
-            thread = await codex.thread_start(
-                ephemeral=kwargs.get("ephemeral"),
-                personality=personality,
-                service_name=kwargs.get("service_name"),
-                session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
-                thread_source=thread_source,
-                **common,
-            )
-        await self._record_thread_ownership(alias, thread.id)
-        tool_contexts[thread.id] = requested_tool_context
-        return thread
+            options["personality"] = self._enum(Personality, kwargs.get("personality"))
+            if not (kwargs.get("resume") or kwargs.get("session_id")):
+                options.update(
+                    ephemeral=kwargs.get("ephemeral"),
+                    service_name=kwargs.get("service_name"),
+                    session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
+                    thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
+                )
+        return options
 
-    # ----- Thread ownership (per-workspace, persisted) ---------------------
-
-    def _agent_state(self, alias: str) -> WorkspaceAgentState | None:
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return None
-        return workspaces[self._normalize_thread_alias(alias)].agent_state(self.name)
-
-    def _tool_contexts(self, alias: str) -> dict[str, str]:
-        state = self._agent_state(alias)
-        return state.thread_tool_contexts if state is not None else self._thread_tool_contexts
-
-    def _normalize_thread_alias(self, alias: str) -> str:
-        """Map an omitted alias to the default while preserving explicit aliases."""
-        workspaces = _context_workspaces(self.app_context)
-        if workspaces and not alias:
-            return next(iter(workspaces))
-        return alias
-
-    def _thread_ownership_path(self, alias: str) -> Path | None:
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return None
-        workspace = workspaces.get(alias)
-        if workspace is None or workspace.mem_session_path is None:
-            return None
-        return workspace.mem_session_path / "codex" / "owned_threads.json"
-
-    def _codex_thread_state(self, alias: str):
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return None
-        return workspaces[self._normalize_thread_alias(alias)].codex_thread_state
-
-    async def _owned_thread_ids(self, alias: str) -> set[str]:
-        """Load ownership through the single authoritative state of each workspace."""
-        state = self._codex_thread_state(alias)
-        if state is None:
-            return set()
-        async with state.lock:
-            if state.owned_thread_ids is not None:
-                return state.owned_thread_ids
-            ids: set[str] = set()
-            path = self._thread_ownership_path(alias)
-            if path is not None and path.is_file():
-                try:
-                    raw = json.loads(path.read_text(encoding="utf-8"))
-                    ids = {str(thread_id) for thread_id in raw.get("thread_ids", [])}
-                except (OSError, ValueError, AttributeError) as exc:
-                    self.logger.warning(f"Ignoring unreadable Codex thread ownership file {path}: {exc}")
-            state.owned_thread_ids = ids
-            return ids
-
-    def _require_thread_alias(self, alias: str) -> str:
-        """Resolve an omitted alias and reject names that are not configured."""
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return alias
-        resolved = self._normalize_thread_alias(alias)
-        if resolved not in workspaces:
-            configured = sorted(workspaces)
-            raise ValueError(f"Unknown workspace {resolved!r}; configured: {configured}")
-        return resolved
-
-    @staticmethod
-    def _write_owned_thread_ids(path: Path, thread_ids: set[str]) -> None:
-        """Atomically replace one workspace's ownership file."""
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+    @asynccontextmanager
+    async def _session(self, kwargs: dict[str, Any], *, compact: bool = False) -> AsyncIterator[AsyncThread]:
+        resume, session_id = kwargs.get("resume") or "", kwargs.get("session_id") or ""
+        if resume and session_id and resume != session_id:
+            raise ValueError("resume and session_id must identify the same Codex thread")
+        thread_id = resume or session_id
+        fork = bool(kwargs.get("fork_session"))
+        if fork and not thread_id:
+            raise ValueError("fork_session=True requires resume or session_id")
+        jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        if any(isinstance(job, (BackgroundJob, StreamJob)) for job in jobs or []):
+            raise TypeError("Codex job_tools must be non-stream request jobs")
+        if any(not getattr(job, "enabled", True) for job in jobs or []):
+            raise ValueError("Codex job_tools must be enabled")
+        self._ensure_skills(kwargs.get("skills"))
+        await self.start()
+        self._active += 1
+        self._idle.clear()
         try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump({"thread_ids": sorted(thread_ids)}, stream, indent=1)
-            os.replace(raw_path, path)
+            async with self.app_server.thread(
+                thread_id,
+                fork=fork,
+                workspace=kwargs.get("workspace"),
+                options={} if compact else self._thread_options(kwargs),
+                jobs=jobs,
+                injected=self._resolve_injected_job_kwargs(kwargs),
+                mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
+                mcp_tool_timeout=kwargs.get("mcp_tool_timeout", 300),
+            ) as thread:
+                yield thread
         finally:
-            Path(raw_path).unlink(missing_ok=True)
-
-    async def _record_thread_ownership(self, alias: str, thread_id: str, *, provisional: bool = False) -> bool:
-        """Reserve or confirm ownership under the application-wide lock.
-
-        Provisional callers receive True while their reservation needs rollback
-        on failure. Successful SDK operations confirm the claim for all wrappers.
-        Persisted claims loaded after restart are always treated as confirmed.
-        """
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return False
-        alias = self._require_thread_alias(alias)
-        async with self.app_context.codex_thread_ownership_lock:
-            for owner_alias in workspaces:
-                if thread_id not in await self._owned_thread_ids(owner_alias):
-                    continue
-                if owner_alias == alias:
-                    claims = self._codex_thread_state(alias).provisional_claims
-                    if not provisional:
-                        claims.pop(thread_id, None)
-                    elif thread_id in claims:
-                        claims[thread_id] += 1
-                        return True
-                    return False
-                raise ValueError(
-                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
-                    f"it cannot be used from workspace {alias!r}",
-                )
-
-            state = self._codex_thread_state(alias)
-            ids = await self._owned_thread_ids(alias)
-            path = self._thread_ownership_path(alias)
-            async with state.lock:
-                if path is not None:
-                    self._write_owned_thread_ids(path, {*ids, thread_id})
-                ids.add(thread_id)
-                if provisional:
-                    state.provisional_claims[thread_id] = 1
-                return True
-
-    async def _forget_thread_ownership(self, alias: str, thread_id: str) -> None:
-        """Release a failed reservation without revoking confirmed or active ownership."""
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return
-        alias = self._normalize_thread_alias(alias)
-        async with self.app_context.codex_thread_ownership_lock:
-            state = self._codex_thread_state(alias)
-            count = state.provisional_claims.get(thread_id, 0)
-            if not count:
-                return
-            if count > 1:
-                state.provisional_claims[thread_id] -= 1
-                return
-            ids = await self._owned_thread_ids(alias)
-            if thread_id not in ids:
-                return
-            path = self._thread_ownership_path(alias)
-            async with state.lock:
-                updated = ids - {thread_id}
-                if path is not None:
-                    self._write_owned_thread_ids(path, updated)
-                ids.discard(thread_id)
-                state.provisional_claims.pop(thread_id, None)
-
-    async def _settle_failed_thread_claim(
-        self,
-        alias: str,
-        thread_id: str,
-        error: BaseException,
-        *,
-        sdk_entered: bool,
-    ) -> None:
-        """Roll back only when no thread RPC ran or the server rejected its input.
-
-        The SDK offloads RPCs to worker threads. Cancellation, transport errors,
-        and other unknown outcomes cannot establish that submitted work stopped.
-        Confirm those claims so later rollback and Context recreation stay safe.
-        """
-        if sdk_entered:
-            from openai_codex.errors import InvalidParamsError, InvalidRequestError, MethodNotFoundError
-
-            if not isinstance(error, (InvalidParamsError, InvalidRequestError, MethodNotFoundError)):
-                await self._record_thread_ownership(alias, thread_id)
-                return
-        await self._forget_thread_ownership(alias, thread_id)
-
-    async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
-        """Reject resume/fork/compact of a thread owned by another workspace.
-
-        Threads recorded nowhere predate ownership tracking or came from other
-        tools; they pass through and let the SDK decide.
-        """
-        workspaces = _context_workspaces(self.app_context)
-        if not workspaces:
-            return
-        alias = self._normalize_thread_alias(alias)
-        for owner_alias in workspaces:
-            if owner_alias != alias and thread_id in await self._owned_thread_ids(owner_alias):
-                raise ValueError(
-                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
-                    f"it cannot be used from workspace {alias!r}",
-                )
-
-    def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        from openai_codex import ApprovalMode, Sandbox
-        from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
-
-        return {
-            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
-            "cwd": str(self._call_cwd(kwargs)),
-            "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
-            "model": kwargs.get("model"),
-            "output_schema": kwargs.get("output_schema"),
-            "personality": self._enum(Personality, kwargs.get("personality")),
-            "sandbox": self._enum(Sandbox, kwargs.get("sandbox")),
-            "service_tier": kwargs.get("service_tier"),
-            "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
-        }
-
-    async def _get_codex(self) -> AsyncCodex:
-        """Lazily start the component-owned client from its fixed launch configuration."""
-        if self._codex is not None:
-            return self._codex
-        auth = self._resolve_auth_config(
-            self._launch_config.auth_mode,
-            self._launch_config.api_key,
-            self._launch_config.base_url,
-        )
-        codex = _get_async_codex_class()(self._build_client_config(auth))
-        try:
-            if auth.mode == "api_key":
-                await codex.login_api_key(auth.api_key)
-            else:
-                account = await codex.account()
-                if account.account is None:
-                    raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
-        except BaseException:
-            await codex.close()
-            raise
-        self._codex = codex
-        return codex
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
 
     async def _close(self) -> None:
-        """Close the persistent app-server and clear session execution guards."""
-        async with self._turn_lock:
-            codex, self._codex = self._codex, None
-            self._thread_tool_contexts.clear()
-            for workspace in (_context_workspaces(self.app_context) or {}).values():
-                if state := workspace.agent_states.get(self.name):
-                    state.thread_tool_contexts.clear()
-            try:
-                if codex is not None:
-                    await codex.close()
-            finally:
-                if self._mcp_snapshot_path is not None:
-                    self._mcp_snapshot_path.unlink(missing_ok=True)
-                    self._mcp_snapshot_path = None
+        await self._idle.wait()
 
-    async def _prune_thread_tool_contexts(self, codex: AsyncCodex, alias: str = "") -> None:
-        """Forget tool constraints only after the server confirms a thread is unloaded."""
-        tool_contexts = self._tool_contexts(alias)
+    async def _interrupt(self, turn) -> None:
         try:
-            from openai_codex.generated.v2_all import ThreadLoadedListResponse
-
-            loaded_ids: set[str] = set()
-            cursor = None
-            while True:
-                page = await codex._client.request(  # pylint: disable=protected-access
-                    "thread/loaded/list",
-                    {"cursor": cursor},
-                    response_model=ThreadLoadedListResponse,
-                )
-                loaded_ids.update(page.data)
-                cursor = page.next_cursor
-                if not cursor:
-                    break
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            self.logger.warning(f"Failed to list loaded Codex threads: {exc}")
-            return
-        retained = {thread_id: context for thread_id, context in tool_contexts.items() if thread_id in loaded_ids}
-        tool_contexts.clear()
-        tool_contexts.update(retained)
-
-    async def _release_thread(self, codex: AsyncCodex, thread_id: str) -> None:
-        """Unsubscribe so the app-server can unload the thread once it is idle."""
-        try:
-            from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
-
-            # The SDK exposes no public unsubscribe; request() is public but
-            # reached through the private client attribute on SDK 0.162.x.
-            await codex._client.request(  # pylint: disable=protected-access
-                "thread/unsubscribe",
-                {"threadId": thread_id},
-                response_model=ThreadUnsubscribeResponse,
-            )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            self.logger.warning(f"Failed to unsubscribe Codex thread {thread_id}: {exc}")
-        # Unsubscribe is not an unload acknowledgement. In particular, a
-        # cancelled turn can still be running with its original MCP constraints.
-        # Keep the guard until thread/loaded/list confirms the thread is gone.
+            await turn.interrupt()
+        except Exception as exc:
+            self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
 
     @staticmethod
     def _serialize(value: Any) -> Any:
@@ -694,20 +181,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return to_jsonable_python(value, by_alias=True)
 
     async def reply(self, inputs: RunInput, **kwargs) -> dict:
-        """Run one Codex turn and return its final response."""
-        self._reject_client_options(kwargs)
-        kwargs = self._merged_kwargs(kwargs)
-        self._ensure_skills(kwargs.get("skills"))
-        await self.start()
-        async with self._turn_lock:
-            codex = await self._get_codex()
-            thread = await self._open_thread(codex, kwargs)
+        """Run an isolated or explicitly resumed conversation on the shared server."""
+        kwargs = self._reply_kwargs(kwargs)
+        async with self._session(kwargs) as thread:
+            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
             try:
-                result = await thread.run(inputs, **self._turn_kwargs(kwargs))
-            finally:
-                if self._release_threads:
-                    await self._release_thread(codex, thread.id)
-
+                result = await turn.run()
+            except BaseException:
+                await self._interrupt(turn)
+                raise
         final_response = result.final_response or ""
         response = {
             "session_id": thread.id,
@@ -728,35 +210,25 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return response
 
     async def compact_session(self, session_id: str, workspace: str | None = None) -> None:
-        """Compact a Codex thread after its workspace wins ownership.
+        """Hold the conversation lock until native compaction has finished."""
+        async with self._session({"session_id": session_id, "workspace": workspace}, compact=True) as thread:
+            await self.app_server.compact(thread)
 
-        The alias is validated and the cross-workspace claim is settled before
-        any SDK call, so a losing request cannot compact. A claim made for this
-        call is removed only before SDK entry or on explicit input rejection,
-        and only if no other operation uses or has confirmed it. Cancellation
-        after SDK entry retains ownership because the RPC may still execute.
-        Thread release still runs once a thread was resumed.
-        """
-        await self.start()
-        alias = str(workspace or "")
-        async with self._turn_lock:
-            reserved = await self._record_thread_ownership(alias, session_id, provisional=True)
-            codex = None
-            thread = None
-            sdk_entered = False
-            try:
-                codex = await self._get_codex()
-                sdk_entered = True
-                thread = await codex.thread_resume(session_id)
-                await thread.compact()
-                await self._record_thread_ownership(alias, session_id)
-            except BaseException as exc:
-                if reserved:
-                    await self._settle_failed_thread_claim(alias, session_id, exc, sdk_entered=sdk_entered)
-                raise
-            finally:
-                if thread is not None and codex is not None and self._release_threads:
-                    await self._release_thread(codex, thread.id)
+    def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        from openai_codex import ApprovalMode, Sandbox
+        from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
+
+        return {
+            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
+            "cwd": str(self._call_cwd(kwargs)),
+            "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
+            "model": kwargs.get("model"),
+            "output_schema": kwargs.get("output_schema"),
+            "personality": self._enum(Personality, kwargs.get("personality")),
+            "sandbox": self._enum(Sandbox, kwargs.get("sandbox")),
+            "service_tier": kwargs.get("service_tier"),
+            "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
+        }
 
     @classmethod
     # pylint: disable=too-many-return-statements
@@ -875,31 +347,19 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return []
 
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream Codex app-server notifications as unified chunks."""
-        self._reject_client_options(kwargs)
-        kwargs = self._merged_stream_kwargs(kwargs)
-        self._ensure_skills(kwargs.get("skills"))
-        await self.start()
-        async with self._turn_lock:
-            codex = await self._get_codex()
-            thread = await self._open_thread(codex, kwargs)
+        """Stream notifications routed by the SDK to this conversation's turn."""
+        kwargs = self._reply_kwargs(kwargs, stream=True)
+        async with self._session(kwargs) as thread:
+            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+            stream = turn.stream()
+            completed = False
             try:
-                turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
-                stream = turn.stream()
-                completed = False
-                try:
-                    async for event in stream:
-                        if event.method == "turn/completed":
-                            completed = True
-                        for chunk in self._event_to_chunks(event, thread.id):
-                            yield chunk
-                finally:
-                    if not completed:
-                        try:
-                            await turn.interrupt()
-                        except Exception as exc:  # pylint: disable=broad-exception-caught
-                            self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
-                    await stream.aclose()
+                async for event in stream:
+                    if event.method == "turn/completed":
+                        completed = True
+                    for chunk in self._event_to_chunks(event, thread.id):
+                        yield chunk
             finally:
-                if self._release_threads:
-                    await self._release_thread(codex, thread.id)
+                if not completed:
+                    await self._interrupt(turn)
+                await stream.aclose()

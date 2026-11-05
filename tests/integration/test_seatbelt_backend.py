@@ -2,6 +2,8 @@
 
 import asyncio
 import os
+import shlex
+import subprocess
 import sys
 import sysconfig
 import tempfile
@@ -15,6 +17,64 @@ import pytest
 from reme.utils.file_sandbox.path_seatbelt_backend import PathSeatbeltBackend
 
 pytestmark = pytest.mark.skipif(sys.platform != "darwin", reason="Seatbelt requires macOS")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("direct", [False, True], ids=["auto-launch", "direct"])
+async def test_seatbelt_apple_git_preserves_isolation(tmp_path, monkeypatch, direct):
+    """Resolve Apple's Git to real tools, with isolated files and temporary storage."""
+    root = tmp_path.resolve()
+    workspace = root / "workspace"
+    workspace.mkdir()
+    subprocess.run(["/usr/bin/git", "init", "-q", str(workspace)], check=True, capture_output=True)
+    (workspace / "note.txt").write_text("hello", encoding="utf-8")
+    outside = root / "outside.txt"
+    outside.write_text("private", encoding="utf-8")
+    monkeypatch.setenv("REME_SANDBOX_TEST_SECRET", "must-not-inherit")
+    monkeypatch.setenv("DEVELOPER_DIR", str(root / "untrusted-developer"))
+    backend = PathSeatbeltBackend(cwd=workspace, read_only_paths=[], writable_paths=[])
+    if direct:
+
+        async def missing(_domain):
+            return False
+
+        monkeypatch.setattr(backend, "_has_gui_launchd", missing)
+
+    for args, expected in ((["status", "--short"], "?? note.txt"), (["rev-parse", "--show-toplevel"], str(workspace))):
+        for command in (["/usr/bin/git", *args], ["git", *args], ["/bin/sh", "-c", shlex.join(["git", *args])]):
+            result = await backend.exec_shell(command, timeout=10)
+            assert result.exit_code == 0, result.stderr.decode(errors="replace")
+            assert result.stderr == b""
+            assert expected in result.stdout.decode()
+    for args in (["--version"], ["--exec-path"], ["hash-object", "note.txt"]):
+        result = await backend.exec_shell(["/usr/bin/git", *args], timeout=10)
+        assert result.exit_code == 0, result.stderr.decode(errors="replace")
+        assert result.stderr == b""
+        assert result.stdout.strip()
+
+    code = f"""
+import os
+from pathlib import Path
+assert os.environ['HOME'] == {str(workspace)!r}
+assert 'REME_SANDBOX_TEST_SECRET' not in os.environ
+assert 'DEVELOPER_DIR' not in os.environ
+temporary = Path(os.environ['TMPDIR'])
+(temporary / 'cache').write_text('temporary')
+for path, operation in [({str(outside)!r}, 'read'), ({str(outside)!r}, 'write'), ('note.txt', 'write')]:
+    try:
+        Path(path).read_text() if operation == 'read' else Path(path).write_text('denied')
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError(f'{{operation}} unexpectedly allowed: {{path}}')
+print(temporary)
+"""
+    result = await backend.exec_shell([sys.executable, "-c", code], timeout=10)
+    assert result.exit_code == 0, result.stderr.decode(errors="replace")
+    assert not Path(result.stdout.decode().strip()).exists()
+    assert outside.read_text(encoding="utf-8") == "private"
+    assert (workspace / "note.txt").read_text(encoding="utf-8") == "hello"
+    assert os.environ["REME_SANDBOX_TEST_SECRET"] == "must-not-inherit"
 
 
 @pytest.mark.asyncio

@@ -73,7 +73,17 @@ class InitChangesStep(BaseStep):
         self.context["changes"] = changes
         if changes:
             self.logger.info(f"[{self.name}] scan {self.monitor_type}:{self.monitor_name}: {counts}")
-            await self.dispatch_steps(self.dispatch_step_specs, changes=changes)
+            retry_key = "retry_source_changes_before_watch"
+            had_retry_value = retry_key in self.context
+            previous_retry_value = self.context.get(retry_key)
+            self.context[retry_key] = True
+            try:
+                await self.dispatch_steps(self.dispatch_step_specs, changes=changes)
+            finally:
+                if had_retry_value:
+                    self.context[retry_key] = previous_retry_value
+                else:
+                    del self.context[retry_key]
         else:
             self.logger.info(f"[{self.name}] {self.monitor_type}:{self.monitor_name} is up to date")
         self.context.response.metadata["counts"] = counts

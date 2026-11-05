@@ -101,16 +101,17 @@ External stateful backends that cannot isolate workspaces (currently the `neo4j`
 startup in multi-workspace configurations.
 
 The binding propagates through nested job calls and agent tool calls (`job_tools`) as a server-owned constraint
-that models cannot override. For Codex with multiple workspaces, `job_tools` requires the resident HTTP service
-with MCP enabled and `tool_error_on_failure: true`; the selected jobs must be exposed by that service. Its STDIO
-bridge forwards to this service without creating another Application and preserves failed Jobs as tool errors.
-The multi-workspace one-shot CLI combination is not supported; `mcp_config` retains its legacy meaning only for
-single-workspace Codex job tools.
+that models cannot override. Codex wrappers select an application-owned `codex_app_server` through `app_server`.
+Its scoped HTTP tools execute the original Application's jobs with the resolved workspace and preserve Job failures
+as tool errors. HTTP services can host the endpoint; embedded and one-shot CLI hosts use a managed loopback listener.
+This works for both single and multiple workspaces. Following the shared-server migration, move process and authentication
+settings to `components.codex_app_server.<name>` and remove `mcp_config` and `release_threads`.
 
 Once a Codex thread operation enters the SDK, cancellation or an unknown RPC outcome retains that thread's
 workspace ownership across restarts: cancelling the caller does not prove that submitted work stopped.
 A provisional claim can be released before SDK entry or after an explicit request-shape, method, or parameter
-rejection, provided no other operation still uses or has confirmed it.
+rejection, provided no other operation still uses or has confirmed it. A successful resume confirms ownership even
+if a subsequent turn or compaction fails.
 
 Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
 explicit per-alias variants:
@@ -165,6 +166,21 @@ Built-in registrations include `openai`, `anthropic`, `dashscope`, `deepseek`, `
 
 File operations, BM25 search, wikilink traversal, and `proactive_read` do not require an LLM. Evolution workflows such
 as `auto_memory`, `auto_resource`, `auto_dream`, and proactive refresh do.
+
+## Web search
+
+With `reme-ai[core]` installed, `dashscope_search` calls `qwen3.8-flash` through the DashScope SDK, independently of LLM settings.
+Set the key and start the service in one terminal:
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+From another terminal, call `reme dashscope_search query="Latest Qwen models"`.
+A missing key does not prevent service startup; calls to this Job return a failure.
+The result's `search_info.search_results` preserves provider source fields; `content` is separate model-generated text.
+Page bodies and snippets are not guaranteed. See `reme/config/default.yaml` for the model, search strategy, and timeout.
 
 ## Decision Model Configuration
 

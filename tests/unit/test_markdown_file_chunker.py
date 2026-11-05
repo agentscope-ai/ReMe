@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from reme.components.file_chunker import DefaultFileChunker, MarkdownFileChunker
+from reme.utils.file_utils import FileChangedDuringChunkingError
 
 
 def _write_md(tmpdir: str, name: str, body: str) -> str:
@@ -37,17 +38,22 @@ async def test_chunk_keeps_pre_read_mtime_when_source_changes(tmp_path, monkeypa
     os.utime(path, (1000, 1000))
     chunker = MarkdownFileChunker()
 
-    async def read_then_finish_write(_path):
+    original_read = chunker._read_text_for_indexing
+
+    def read_then_finish_write(_path):
         path.write_text("Completed memory note.", encoding="utf-8")
         os.utime(path, (2000, 2000))
         return ""
 
     monkeypatch.setattr(chunker, "_read_text_for_indexing", read_then_finish_write)
+    with pytest.raises(FileChangedDuringChunkingError):
+        await chunker.chunk("changing.md")
+
+    monkeypatch.setattr(chunker, "_read_text_for_indexing", original_read)
     node, chunks = await chunker.chunk("changing.md")
 
-    assert chunks == []
-    assert node.st_mtime == 1000
-    assert path.stat().st_mtime != node.st_mtime
+    assert node.st_mtime == 2000
+    assert "Completed memory note." in "\n".join(chunk.text for chunk in chunks)
 
 
 @pytest.mark.asyncio

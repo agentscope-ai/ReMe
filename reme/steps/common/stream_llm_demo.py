@@ -10,7 +10,7 @@ class StreamLLMDemoStep(BaseStep):
     """Drive an Agent powered by the ``agent_wrapper`` component with streaming output.
 
     When streaming is enabled on the context, text/thinking/tool events are
-    pushed chunk-by-chunk via ``self.context.add_stream_string``.
+    pushed chunk-by-chunk via ``self.context.add_stream_chunk``.
     When streaming is not enabled, falls back to non-streaming reply.
 
     Inputs (from RuntimeContext):
@@ -63,7 +63,7 @@ class StreamLLMDemoStep(BaseStep):
         text_parts: list[str] = []
 
         async for chunk in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
-            await self.context.add_stream_string(chunk.chunk, chunk.chunk_type)
+            await self.context.add_stream_chunk(chunk)
 
             if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str):
                 text_parts.append(chunk.chunk)

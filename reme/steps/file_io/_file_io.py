@@ -106,15 +106,28 @@ def _decode_known_file(data: bytes, file_extension: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-async def read_file_safe(file_path, max_bytes: int = MAX_FILE_READ_BYTES) -> tuple[str, str]:
+async def read_file_safe(
+    file_path,
+    max_bytes: int = MAX_FILE_READ_BYTES,
+    *,
+    require_complete: bool = False,
+) -> tuple[str, str]:
     """Read file in byte mode and decode using extension-aware strategy.
 
-    Returns ``(text, encoding)``.
+    Returns ``(text, encoding)``. With ``require_complete``, reject files above
+    the byte limit or reads that leave unread bytes at the EOF check. This only
+    prevents returning a truncated bounded read for write-back; it does not
+    support oversized-file editing, provide a stable snapshot against concurrent
+    changes, or make subsequent writes atomic.
     """
     stat = await aiofiles.os.stat(str(file_path))
+    if require_complete and stat.st_size > max_bytes:
+        raise ValueError(f"file size {stat.st_size} exceeds read limit of {max_bytes} bytes")
     read_size = min(stat.st_size, max_bytes)
     async with aiofiles.open(str(file_path), "rb") as f:
         data = await f.read(read_size)
+        if require_complete and await f.read(1):
+            raise ValueError("file changed during read; refusing to return incomplete contents")
     return _decode_known_file(data, Path(file_path).suffix)
 
 

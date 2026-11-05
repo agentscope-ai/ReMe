@@ -3,9 +3,6 @@
 # pylint: disable=protected-access,missing-function-docstring
 
 import asyncio
-import json
-import os
-from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -21,6 +18,8 @@ from reme.enumeration import ComponentEnum
 from reme.steps.base_step import BaseStep
 from reme.steps.evolve.base_auto_resource import _compute_agent_session_id
 from reme.steps.index.draft import AddDraftStep
+
+from .codex_workspace_test_support import workspace_server
 
 
 class _AliasReporterStep(BaseStep):
@@ -129,191 +128,6 @@ async def test_tool_context_state_namespaced_per_workspace(tmp_path):
     assert "tool_contexts" not in context.metadata
 
 
-@pytest.mark.asyncio
-async def test_codex_thread_tool_contexts_namespaced_per_workspace(tmp_path):
-    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
-    wrapper = CodexAgentWrapper(app_context=context)
-
-    class FakeCodex:
-        """Minimal Codex double echoing the requested thread id."""
-
-        def __init__(self):
-            self.next_id = "thread-1"
-
-        async def thread_start(self, **_kwargs):
-            return SimpleNamespace(id=self.next_id)
-
-        async def thread_resume(self, thread_id, **_kwargs):
-            return SimpleNamespace(id=thread_id)
-
-    codex = FakeCodex()
-    await wrapper._open_thread(codex, {"tool_context_id": "ctx-a"})
-    # A different thread under another workspace gets its own guard entry.
-    codex.next_id = "thread-2"
-    await wrapper._open_thread(codex, {"workspace": "beta", "tool_context_id": "ctx-b"})
-    # Same workspace resume with changed constraints still raises.
-    with pytest.raises(ValueError, match="cannot change"):
-        await wrapper._open_thread(codex, {"session_id": "thread-1", "tool_context_id": "ctx-b"})
-    # A thread owned by one workspace cannot be resumed from another.
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await wrapper._open_thread(codex, {"session_id": "thread-1", "workspace": "beta"})
-
-    alpha_state = context.workspaces["alpha"].agent_state(wrapper.name)
-    beta_state = context.workspaces["beta"].agent_state(wrapper.name)
-    assert set(alpha_state.thread_tool_contexts) == {"thread-1"}
-    assert set(beta_state.thread_tool_contexts) == {"thread-2"}
-    assert not wrapper._thread_tool_contexts
-    assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {"thread-1"}
-    assert context.workspaces["beta"].codex_thread_state.owned_thread_ids == {"thread-2"}
-
-
-@pytest.mark.asyncio
-async def test_codex_thread_ownership_persists_across_restart(tmp_path):
-    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
-
-    class FakeCodex:
-        """Minimal Codex double echoing the requested thread id."""
-
-        async def thread_start(self, **_kwargs):
-            return SimpleNamespace(id="thread-1")
-
-        async def thread_resume(self, thread_id, **_kwargs):
-            return SimpleNamespace(id=thread_id)
-
-        async def thread_fork(self, thread_id, **_kwargs):
-            return SimpleNamespace(id=f"{thread_id}-fork")
-
-    codex = FakeCodex()
-    wrapper = CodexAgentWrapper(app_context=context)
-    await wrapper._open_thread(codex, {"workspace": "alpha"})
-    ownership = tmp_path / "alpha" / "mem_session" / "codex" / "owned_threads.json"
-    assert ownership.is_file()
-
-    # A fresh wrapper (restart) reloads the ownership records and still rejects.
-    restarted = CodexAgentWrapper(app_context=context)
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await restarted._open_thread(codex, {"session_id": "thread-1", "workspace": "beta"})
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await restarted._open_thread(codex, {"session_id": "thread-1", "workspace": "beta", "fork_session": True})
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await restarted.compact_session("thread-1", workspace="beta")
-    # The owning workspace keeps working normally.
-    thread = await restarted._open_thread(codex, {"session_id": "thread-1", "workspace": "alpha"})
-    assert thread.id == "thread-1"
-    # Threads recorded nowhere pass through and let the SDK decide.
-    await restarted._open_thread(codex, {"session_id": "thread-elsewhere", "workspace": "beta"})
-
-
-@pytest.mark.asyncio
-async def test_codex_thread_ownership_is_shared_and_atomic_across_wrappers(tmp_path):
-    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
-    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context)
-    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context)
-
-    assert await wrapper_b._owned_thread_ids("alpha") == set()
-    await wrapper_a._record_thread_ownership("alpha", "alpha-thread")
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await wrapper_b._check_thread_ownership("alpha-thread", "beta")
-
-    await wrapper_b._record_thread_ownership("alpha", "second-alpha-thread")
-    ownership = tmp_path / "alpha" / "mem_session" / "codex" / "owned_threads.json"
-    assert set(json.loads(ownership.read_text(encoding="utf-8"))["thread_ids"]) == {
-        "alpha-thread",
-        "second-alpha-thread",
-    }
-    assert not list(ownership.parent.glob("*.tmp"))
-
-    restarted_context = ApplicationContext(
-        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
-    )
-    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await restarted._check_thread_ownership("alpha-thread", "beta")
-
-
-@pytest.mark.asyncio
-async def test_codex_resume_and_compact_claim_external_threads(tmp_path, monkeypatch):
-    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
-    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context, release_threads=False)
-    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context, release_threads=False)
-
-    class FakeCodex:
-        """Resume an existing external thread."""
-
-        async def thread_resume(self, thread_id, **_kwargs):
-            return SimpleNamespace(id=thread_id)
-
-    await wrapper_a._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "alpha"})
-    assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {"external-thread"}
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await wrapper_b._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "beta"})
-
-    class CompactThread:
-        """Minimal native compaction double."""
-
-        id = "compact-thread"
-
-        async def compact(self):
-            return None
-
-    compact_codex = SimpleNamespace(thread_resume=lambda _thread_id: None)
-
-    async def resume_compact(_thread_id):
-        return CompactThread()
-
-    compact_codex.thread_resume = resume_compact
-
-    async def get_compact_codex():
-        return compact_codex
-
-    monkeypatch.setattr(wrapper_a, "_get_codex", get_compact_codex)
-    await wrapper_a.compact_session("compact-thread", workspace="alpha")
-    assert "compact-thread" in context.workspaces["alpha"].codex_thread_state.owned_thread_ids
-
-    restarted_context = ApplicationContext(
-        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
-    )
-    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
-    with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
-        await restarted._open_thread(FakeCodex(), {"session_id": "external-thread", "workspace": "beta"})
-
-
-@pytest.mark.asyncio
-async def test_codex_concurrent_first_resume_has_one_owner(tmp_path):
-    context = ApplicationContext(workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")})
-    wrapper_a = CodexAgentWrapper(name="codex-a", app_context=context)
-    wrapper_b = CodexAgentWrapper(name="codex-b", app_context=context)
-
-    class FakeCodex:
-        """Yield between resume and ownership registration to force interleaving."""
-
-        async def thread_resume(self, thread_id, **_kwargs):
-            await asyncio.sleep(0)
-            return SimpleNamespace(id=thread_id)
-
-    results = await asyncio.gather(
-        wrapper_a._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": "alpha"}),
-        wrapper_b._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": "beta"}),
-        return_exceptions=True,
-    )
-    assert len([result for result in results if not isinstance(result, Exception)]) == 1
-    assert len([result for result in results if isinstance(result, ValueError)]) == 1
-
-    owners = [
-        alias
-        for alias, workspace in context.workspaces.items()
-        if "shared-external" in (workspace.codex_thread_state.owned_thread_ids or set())
-    ]
-    assert len(owners) == 1
-    other = "beta" if owners[0] == "alpha" else "alpha"
-    restarted_context = ApplicationContext(
-        workspace_dir={"alpha": str(tmp_path / "alpha"), "beta": str(tmp_path / "beta")},
-    )
-    restarted = CodexAgentWrapper(name="codex-restarted", app_context=restarted_context)
-    with pytest.raises(ValueError, match="belongs to workspace"):
-        await restarted._open_thread(FakeCodex(), {"session_id": "shared-external", "workspace": other})
-
-
 # ----- Background/cron binding -----------------------------------------------
 
 
@@ -354,6 +168,7 @@ async def test_per_alias_watch_variant_jobs_write_own_workspace(tmp_path):
         log_to_file=False,
         service={"backend": "cli"},
         components={
+            "codex_app_server": {"default": {"backend": "sdk", "auth_mode": "oauth"}},
             "tokenizer": {"default": {"backend": "regex"}},
             "file_store": {"default": {"backend": "local", "embedding_store": "", "tag_index": ""}},
             "keyword_index": {"default": {"backend": "bm25"}},
@@ -389,7 +204,7 @@ async def test_per_alias_watch_variant_jobs_write_own_workspace(tmp_path):
     assert "beta-watch" in beta and "alpha-watch" not in beta
 
 
-# ----- MCP boundary and Codex bridge -----------------------------------------
+# ----- MCP boundary ----------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -408,27 +223,6 @@ async def test_mcp_tool_boundary_forwards_injected_workspace(tmp_path):
     assert await tools[0].fn() == "beta"
     with pytest.raises(Exception, match="cannot be provided by the caller"):
         await tools[0].fn(workspace="alpha")
-
-
-@pytest.mark.asyncio
-async def test_codex_bridge_uses_resident_mcp_endpoint(tmp_path):
-    from reme.components.service import HttpService
-
-    context = _context(tmp_path)
-    context.service = HttpService(app_context=context, tool_error_on_failure=True)
-    context.jobs = {"search_job": _job(context, "search_job")}
-    wrapper = CodexAgentWrapper(app_context=context)
-
-    config = wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
-    assert config["args"][config["args"].index("--endpoint") + 1] == "http://127.0.0.1:2333/mcp"
-    raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
-    assert json.loads(raw) == {"workspace": "beta"}
-    assert "--config" not in config["args"] and "--workspace" not in config["args"]
-    assert "--token" not in config["args"]
-
-    default_config = wrapper._mcp_server_config({"job_tools": ["search_job"]})
-    assert "--injected-job-kwargs" not in default_config["args"]
-    await wrapper.close()
 
 
 # ----- Review follow-ups: explicit bindings, session isolation, key collisions
@@ -512,32 +306,7 @@ def test_cc_options_follow_bound_workspace(tmp_path):
     assert default_opts.env["CLAUDE_CONFIG_DIR"].startswith(str(tmp_path / "alpha"))
 
 
-@pytest.mark.asyncio
-async def test_codex_thread_cwd_follows_bound_workspace(tmp_path):
-    context = _context(tmp_path)
-    wrapper = CodexAgentWrapper(app_context=context)
-    observed = {}
-
-    class FakeCodex:
-        """Capture thread_start parameters without an app-server."""
-
-        next_id = 1
-
-        async def thread_start(self, **kwargs):
-            observed.update(kwargs)
-            self.next_id += 1
-            return SimpleNamespace(id=f"thread-{self.next_id - 1}")
-
-    codex = FakeCodex()
-    await wrapper._open_thread(codex, {"workspace": "beta"})
-    assert observed["cwd"] == str(tmp_path / "beta")
-
-    observed.clear()
-    await wrapper._open_thread(codex, {})
-    assert observed["cwd"] != str(tmp_path / "beta")
-
-
-# ----- Codex bridge: real child-process execution ----------------------------
+# ----- Shared Codex server with real workspace jobs ---------------------------
 
 
 def _codex_test_app(tmp_path, workspace_dir=None):
@@ -548,14 +317,9 @@ def _codex_test_app(tmp_path, workspace_dir=None):
         enable_logo=False,
         log_to_console=False,
         log_to_file=False,
-        service={
-            "backend": "http",
-            "host": "127.0.0.1",
-            "port": 0,
-            "web_enabled": False,
-            "tool_error_on_failure": True,
-        },
+        service={"backend": "cli"},
         components={
+            "codex_app_server": {"default": {"backend": "sdk", "auth_mode": "oauth"}},
             "tokenizer": {"default": {"backend": "regex"}},
             "file_store": {"default": {"backend": "local", "embedding_store": "", "tag_index": ""}},
             "keyword_index": {"default": {"backend": "bm25"}},
@@ -586,215 +350,155 @@ def _codex_test_app(tmp_path, workspace_dir=None):
     )
 
 
-async def _start_resident_http(app):
-    import uvicorn
-
-    service = app.context.service
-    service.build_service(app)
-    service.add_jobs(app)
-    config = uvicorn.Config(service.service, host=service.host, port=0, log_level="error", lifespan="on")
-    server = uvicorn.Server(config)
-    task = asyncio.create_task(server.serve())
-    for _ in range(100):
-        if server.started:
-            break
-        await asyncio.sleep(0.05)
-    assert server.started
-    service.port = server.servers[0].sockets[0].getsockname()[1]
-    return server, task
-
-
-async def _stop_resident_http(server, task):
-    server.should_exit = True
-    await asyncio.wait_for(task, timeout=30)
+@pytest.mark.asyncio
+async def test_codex_shared_server_preserves_workspace_guards_and_cwd(tmp_path, monkeypatch):
+    context = _context(tmp_path)
+    server = workspace_server(context, monkeypatch)
+    first = CodexAgentWrapper(name="first", app_context=context)
+    second = CodexAgentWrapper(name="second", app_context=context)
+    try:
+        alpha = await first.reply("alpha", tool_context_id="ctx-alpha")
+        beta = await second.reply("beta", workspace="beta", tool_context_id="ctx-beta")
+        sdk = server._codex
+        assert alpha["session_id"] != beta["session_id"]
+        assert sdk.opened[0][2]["cwd"] == str(first.project_path)
+        assert sdk.opened[1][2]["cwd"] == str(tmp_path / "beta")
+        assert sdk.threads[beta["session_id"]].options[0]["cwd"] == str(tmp_path / "beta")
+        with pytest.raises(ValueError, match="cannot change"):
+            await second.reply("changed", resume=alpha["session_id"], tool_context_id="ctx-beta")
+        for operation in ("resume", "fork", "compact"):
+            with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+                if operation == "compact":
+                    await second.compact_session(alpha["session_id"], workspace="beta")
+                else:
+                    await second.reply(
+                        "wrong workspace",
+                        resume=alpha["session_id"],
+                        workspace="beta",
+                        fork_session=operation == "fork",
+                    )
+        assert context.workspaces["alpha"].codex_thread_state.owned_thread_ids == {alpha["session_id"]}
+        assert context.workspaces["beta"].codex_thread_state.owned_thread_ids == {beta["session_id"]}
+    finally:
+        await first.close()
+        await second.close()
+        await server.close()
 
 
 @pytest.mark.asyncio
-async def test_codex_bridge_reads_resident_parent_state(tmp_path):
-    """The stdio bridge reuses the resident MCP service and its live workspace state."""
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
+async def test_codex_ownership_survives_shared_server_and_context_restart(tmp_path, monkeypatch):
+    context = _context(tmp_path)
+    server = workspace_server(context, monkeypatch)
+    wrapper = CodexAgentWrapper(app_context=context)
+    try:
+        await wrapper.reply("external", resume="external", workspace="alpha")
+        await wrapper.compact_session("compact", workspace="alpha")
+    finally:
+        await wrapper.close()
+        await server.close()
+    restarted = _context(tmp_path)
+    server = workspace_server(restarted, monkeypatch)
+    wrapper = CodexAgentWrapper(app_context=restarted)
+    try:
+        for thread_id in ("external", "compact"):
+            with pytest.raises(ValueError, match="belongs to workspace 'alpha'"):
+                await wrapper.reply("wrong workspace", resume=thread_id, workspace="beta")
+        assert server._codex is None
+        assert (await wrapper.reply("correct", resume="external", workspace="alpha"))["result"] == "correct"
+    finally:
+        await wrapper.close()
+        await server.close()
 
-    app = _codex_test_app(tmp_path)
-    wrapper = CodexAgentWrapper(app_context=app.context)
-    async with app:
-        server, task = await _start_resident_http(app)
+
+@pytest.mark.asyncio
+async def test_codex_concurrent_first_resume_has_one_persisted_owner(tmp_path, monkeypatch):
+    context = _context(tmp_path)
+    server = workspace_server(context, monkeypatch)
+    wrappers = [CodexAgentWrapper(name=name, app_context=context) for name in ("first", "second")]
+    try:
+        results = await asyncio.gather(
+            wrappers[0].reply("alpha", resume="T", workspace="alpha"),
+            wrappers[1].reply("beta", resume="T", workspace="beta"),
+            return_exceptions=True,
+        )
+        assert sum(isinstance(result, dict) for result in results) == 1
+        assert sum(isinstance(result, ValueError) for result in results) == 1
+        owners = [
+            alias for alias, ws in context.workspaces.items() if "T" in (ws.codex_thread_state.owned_thread_ids or ())
+        ]
+        assert len(owners) == 1
+        assert len(server._codex.opened) == 1
+        other = "beta" if owners[0] == "alpha" else "alpha"
+        restarted = _context(tmp_path)
+        new_server = workspace_server(restarted, monkeypatch)
+        new_wrapper = CodexAgentWrapper(app_context=restarted)
         try:
-            await app.run_job("write_note", path="daily/resident.md", content="parent-resident-beta", workspace="beta")
-            from reme.components.client import MCPClient
+            with pytest.raises(ValueError, match="belongs to workspace"):
+                await new_wrapper.reply("wrong", resume="T", workspace=other)
+            assert new_server._codex is None
+        finally:
+            await new_wrapper.close()
+            await new_server.close()
+    finally:
+        for wrapper in wrappers:
+            await wrapper.close()
+        await server.close()
 
-            resident_client = MCPClient(transport="streamable-http", host="127.0.0.1", port=app.context.service.port)
-            await resident_client.start()
-            assert {entry["name"] for entry in await resident_client.list_actions()} == {"read_note", "write_note"}
-            await resident_client.close()
-            server_config = wrapper._mcp_server_config(
-                {"job_tools": ["read_note", "write_note"], "workspace": "beta"},
-            )
-            transport = StdioTransport(
-                command=server_config["command"],
-                args=server_config["args"],
-                cwd=server_config["cwd"],
-                keep_alive=False,
-                env=dict(os.environ),
-            )
-            async with Client(transport, timeout=None, init_timeout=30) as client:
-                tools = await client.list_tools()
-                assert {tool.name for tool in tools} == {"read_note", "write_note"}
-                read = await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["multi", "single_string", "single_mapping"])
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_codex_scoped_mcp_calls_original_workspace_jobs(tmp_path, monkeypatch, mode, explicit):
+    """Managed HTTP tools preserve binding, parent state and failures for CLI hosts too."""
+    from fastmcp import Client
+    from fastmcp.client import StreamableHttpTransport
+
+    from .codex_workspace_test_support import WorkspaceCodex
+
+    monkeypatch.setattr("openai_codex.AsyncCodex", WorkspaceCodex)
+    workspace_dir = (
+        None
+        if mode == "multi"
+        else (str(tmp_path / "single") if mode == "single_string" else {"named": str(tmp_path / "single")})
+    )
+    app = _codex_test_app(tmp_path, workspace_dir=workspace_dir)
+    async with app:
+        server = app.context.shared_components[ComponentEnum.CODEX_APP_SERVER]["default"]
+        wrapper = CodexAgentWrapper(app_context=app.context)
+        alias = "beta" if mode == "multi" and explicit else next(iter(app.context.workspaces))
+        root = app.context.workspaces[alias].workspace_path
+        await app.run_job("write_note", path="daily/resident.md", content="parent-state", workspace=alias)
+        sdk = await server._get_client()
+        seen = []
+
+        async def tools_from_turn(_thread, _inputs):
+            config = sdk.opened[-1][2]["config"]["mcp_servers"]["reme_jobs"]
+            transport = StreamableHttpTransport(url=config["url"], headers=config["http_headers"])
+            async with Client(transport) as client:
+                assert {tool.name for tool in await client.list_tools()} == {"read_note", "write_note"}
+                read = await client.call_tool("read_note", {"path": "daily/resident.md"})
+                assert "parent-state" in read.content[0].text
                 with pytest.raises(Exception):
-                    await client.call_tool("read_note", {"path": "daily/resident.md", "workspace": "alpha"})
-                await asyncio.wait_for(
-                    client.call_tool("write_note", {"path": "daily/bridge.md", "content": "via-bridge-beta"}),
-                    timeout=30,
-                )
+                    await client.call_tool("read_note", {"path": "daily/resident.md", "workspace": "other"})
+                await client.call_tool("write_note", {"path": "daily/tool.md", "content": "bound-write"})
                 failure = await client.call_tool(
                     "write_note",
                     {"path": "../escape.md", "content": "must-not-write"},
                     raise_on_error=False,
                 )
                 assert failure.is_error
-            assert not (tmp_path / "escape.md").exists()
-            assert "parent-resident-beta" in str(read.content[0].text)
-            assert "via-bridge-beta" in (tmp_path / "beta" / "daily" / "bridge.md").read_text(encoding="utf-8")
-            assert not (tmp_path / "alpha" / "daily" / "bridge.md").exists()
-            store_alpha = app.context.get_component(ComponentEnum.FILE_STORE, "default", "alpha")
-            assert all("bridge" not in node.path for node in await store_alpha.get_nodes())
+                seen.append(read)
 
-            invalid_config = wrapper._mcp_server_config({"job_tools": ["read_note"], "workspace": "nope"})
-            invalid_transport = StdioTransport(
-                command=invalid_config["command"],
-                args=invalid_config["args"],
-                cwd=invalid_config["cwd"],
-                keep_alive=False,
-                env=dict(os.environ),
-            )
-            async with Client(invalid_transport, timeout=None, init_timeout=30) as client:
-                with pytest.raises(Exception, match="Unknown workspace 'nope'"):
-                    await asyncio.wait_for(client.call_tool("read_note", {"path": "daily/resident.md"}), timeout=30)
-        finally:
-            await _stop_resident_http(server, task)
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_codex_reply_defaults_workspace_for_real_job_tools(tmp_path, monkeypatch):
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    @dataclass
-    class TurnResult:
-        """Serializable fake turn result."""
-
-        final_response: str
-        usage: object = None
-
-    class FakeThread:
-        """Execute the configured job tool through the real STDIO bridge."""
-
-        def __init__(self, thread_id, config):
-            self.id = thread_id
-            self.config = config
-
-        async def run(self, _inputs, **_kwargs):
-            server = next(iter(self.config["mcp_servers"].values()))
-            transport = StdioTransport(
-                command=server["command"],
-                args=server["args"],
-                cwd=server["cwd"],
-                keep_alive=False,
-                env=dict(os.environ),
-            )
-            arguments = {"path": f"daily/reply-{self.id}.md", "content": self.id}
-            if self.id == "thread-override":
-                arguments["workspace"] = "beta"
-            async with Client(transport, timeout=None, init_timeout=30) as client:
-                await client.call_tool("write_note", arguments)
-            return TurnResult(final_response="done")
-
-    class FakeCodex:
-        """Create threads with deterministic IDs."""
-
-        def __init__(self):
-            self.next_id = 0
-
-        async def thread_start(self, **kwargs):
-            self.next_id += 1
-            thread_id = "thread-override" if self.next_id == 3 else f"thread-{self.next_id}"
-            return FakeThread(thread_id, kwargs["config"])
-
-    app = _codex_test_app(tmp_path)
-    app.context.jobs["write_note"].kwargs["workspace"] = "beta"
-    wrapper = CodexAgentWrapper(app_context=app.context, release_threads=False)
-    codex = FakeCodex()
-
-    async def get_codex():
-        return codex
-
-    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
-    async with app:
-        server, task = await _start_resident_http(app)
+        sdk.run_hook = tools_from_turn
         try:
-            await wrapper.reply("default", job_tools=["write_note"])
-            assert (tmp_path / "alpha" / "daily" / "reply-thread-1.md").is_file()
-            assert not (tmp_path / "beta" / "daily" / "reply-thread-1.md").exists()
-
-            await wrapper.reply("explicit", job_tools=["write_note"], workspace="alpha")
-            assert (tmp_path / "alpha" / "daily" / "reply-thread-2.md").is_file()
-            assert not (tmp_path / "beta" / "daily" / "reply-thread-2.md").exists()
-
-            with pytest.raises(Exception):
-                await wrapper.reply("override", job_tools=["write_note"])
-            assert not (tmp_path / "beta" / "daily" / "reply-thread-override.md").exists()
+            kwargs = {"workspace": alias} if explicit else {}
+            await wrapper.reply("use tools", job_tools=["read_note", "write_note"], **kwargs)
+            assert seen
+            assert (root / "daily/tool.md").read_text(encoding="utf-8") == "bound-write\n"
+            assert not (root.parent / "escape.md").exists()
+            for other_alias, workspace in app.context.workspaces.items():
+                if other_alias != alias:
+                    assert not (workspace.workspace_path / "daily/tool.md").exists()
+                    assert not await workspace.get_component(ComponentEnum.FILE_STORE, "default").get_nodes()
         finally:
-            await _stop_resident_http(server, task)
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("named_alias", [False, True])
-async def test_codex_legacy_bridge_preserves_single_workspace_binding(tmp_path, named_alias):
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    alias = "alice" if named_alias else "default"
-    root = tmp_path / alias
-    workspace_dir = {alias: str(root)} if named_alias else str(root)
-    app = _codex_test_app(tmp_path, workspace_dir=workspace_dir)
-    wrapper = CodexAgentWrapper(app_context=app.context)
-    server_config = wrapper._mcp_server_config({"job_tools": ["write_note"], "workspace": alias})
-    transport = StdioTransport(
-        command=server_config["command"],
-        args=server_config["args"],
-        cwd=server_config["cwd"],
-        keep_alive=False,
-        env=dict(os.environ),
-    )
-
-    async with Client(transport, timeout=None, init_timeout=30) as client:
-        await asyncio.wait_for(
-            client.call_tool("write_note", {"path": "daily/legacy.md", "content": alias}),
-            timeout=30,
-        )
-    assert alias in (root / "daily" / "legacy.md").read_text(encoding="utf-8")
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_codex_multi_workspace_rejects_unsupported_job_transport(tmp_path):
-    from reme.components.service import CliService, HttpService
-
-    context = _context(tmp_path)
-    context.service = CliService(app_context=context)
-    context.jobs = {"search_job": _job(context, "search_job")}
-    wrapper = CodexAgentWrapper(app_context=context)
-
-    with pytest.raises(RuntimeError, match="resident HTTP MCP service"):
-        wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
-    with pytest.raises(ValueError, match="only supported for single-workspace"):
-        wrapper._mcp_server_config(
-            {"job_tools": ["search_job"], "workspace": "beta", "mcp_config": "custom.yaml"},
-        )
-    context.service = HttpService(app_context=context, tool_error_on_failure=False)
-    with pytest.raises(ValueError, match="tool_error_on_failure=true"):
-        wrapper._mcp_server_config({"job_tools": ["search_job"], "workspace": "beta"})
-    await wrapper.close()
+            await wrapper.close()

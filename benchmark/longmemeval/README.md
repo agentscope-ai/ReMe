@@ -28,6 +28,10 @@ Custom application config paths still work through `reme.config` and can use `ex
 This directory continues to own the runner, evaluation settings, dataset and outputs.
 Model credentials use the environment variables declared by the shared benchmark configuration.
 
+The shared preset keeps `python_execute` private (`enable_serve: false`); in-process benchmark jobs
+remain callable. Python sandbox requirements and credential placement are described in the
+[BEAM benchmark guide](../beam/README.md).
+
 ## 1. Get the Dataset
 
 ReMe uses only the **cleaned-S** split, hosted on HuggingFace:

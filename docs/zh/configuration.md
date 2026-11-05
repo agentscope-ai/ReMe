@@ -103,14 +103,14 @@ Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
 在多 workspace 配置下会在启动时被拒绝。
 
 绑定会经嵌套 Job 调用和 agent 工具调用（`job_tools`）传播，作为模型无法覆盖的服务端约束。
-多 workspace 下的 Codex `job_tools` 需要启用 MCP 且配置 `tool_error_on_failure: true` 的常驻 HTTP 服务，
-且所选 Job 必须由该服务暴露；其 STDIO bridge 转发到该服务，不会创建另一个 Application，并会将失败的
-Job 保留为 tool error。多 workspace 与 one-shot CLI 的组合暂不支持；`mcp_config` 仅在单 workspace 的
-Codex job tools 中保留原有语义。
+Codex wrapper 通过 `app_server` 选择 Application 持有的共享 `codex_app_server`。其 scoped HTTP 工具在原有
+Application 中执行 Job，保留已解析的 workspace 绑定，并将失败的 Job 作为 tool error 返回。
+HTTP 服务可挂载该端点；嵌入式和 one-shot CLI 宿主使用受生命周期管理的 loopback listener，单、多 workspace 均支持。
+按照共享服务迁移约定，将进程和认证配置移到 `components.codex_app_server.<name>`，并移除 `mcp_config` 和 `release_threads`。
 
 Codex thread 操作进入 SDK 后，若调用被取消或 RPC 结果不明，会保留 thread 的 workspace 归属，重启后仍然有效；
 取消调用方并不能证明已提交的操作停止执行。临时归属仅在进入 SDK 前，或收到明确的请求格式、方法或参数拒绝后，
-且没有其他操作仍在使用或已确认该归属时，才可以释放。
+且没有其他操作仍在使用或已确认该归属时，才可以释放。成功 resume 即确认归属，后续 turn 或 compact 失败不会撤销它。
 
 Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
 
@@ -163,6 +163,21 @@ components:
 
 基础文件操作、BM25 检索、wikilink 遍历和 `proactive_read` 不需要 LLM。`auto_memory`、`auto_resource`、
 `auto_dream` 和 proactive refresh 等演化流程需要可用 LLM。
+
+## 联网搜索
+
+安装 `reme-ai[core]` 后，默认 `dashscope_search` Job 使用 DashScope SDK 调用 `qwen3.8-flash`，独立于上述 LLM 配置。
+在一个终端设置 Key 并启动服务：
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+在另一个终端调用 `reme dashscope_search query="Qwen 最新模型"`。
+未配置 Key 不影响服务启动，但此 Job 调用会返回失败。
+结果的 `search_info.search_results` 保留供应商返回的来源字段，`content` 是单独的模型生成正文；
+网页正文和摘要不保证提供。模型、搜索策略和超时配置见 `reme/config/default.yaml`。
 
 ## 决策模型配置
 
