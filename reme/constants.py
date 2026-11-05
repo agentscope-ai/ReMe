@@ -15,7 +15,7 @@ REME_DEFAULT_PORT = 2333
 
 
 def normalize_connect_host(host: str) -> str:
-    """Return a local destination for an address used only for binding."""
+    """Return a local destination for a configured bind address."""
     if host == REME_WILDCARD_BIND_HOST:
         return REME_DEFAULT_HOST
     if host == REME_IPV6_WILDCARD_BIND_HOST:
