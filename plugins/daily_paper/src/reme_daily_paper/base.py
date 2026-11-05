@@ -19,7 +19,7 @@ from .schema import AnalyzedPaper, DailyPaperMarkdownOutput
 # Number of papers selected, analyzed, and digested each run. Shared across steps.
 PAPER_COUNT = 3
 _STATE_PREFIX = "daily_paper_"
-_FRONTMATTER_PATTERN = re.compile(r"^---\s*\n.*?\n---(?:\s*\n|$)", re.DOTALL)
+_FRONTMATTER_PATTERN = re.compile(r"^---[ \t]*\n.*?^---[ \t]*(?:\n|$)", re.DOTALL | re.MULTILINE)
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CHINESE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
@@ -169,7 +169,6 @@ async def reserve_unique_note_path(
 
 async def write_atomic(path: Path, content: str | bytes) -> None:
     """Write atomically under the path lock, cleaning surrogate text first."""
-    path.parent.mkdir(parents=True, exist_ok=True)
     lock = await get_path_lock(path)
     async with lock:
         payload = replace_surrogates(content) if isinstance(content, str) else content

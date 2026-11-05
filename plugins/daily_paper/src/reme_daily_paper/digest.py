@@ -164,7 +164,7 @@ class DailyPaperDigestStep(DailyPaperStep):
                 {
                     "name": title,
                     "title": title,
-                    "description": output.desc.strip(),
+                    "description": output.desc,
                     "kind": "daily-paper-brief",
                     "date": day,
                     "arxiv_ids": selected_ids,
