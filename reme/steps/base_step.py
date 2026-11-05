@@ -152,6 +152,7 @@ class BaseStep(ComponentMixin, ABC):
         execution = self.context.job_execution
         previous = None
         failed = False
+        response_failed = None
         if execution is not None and self.app_context is not None:
             previous = self.app_context.enter_job_step(execution, self.backend or self.name)
             self.context.step_error = None
@@ -161,6 +162,7 @@ class BaseStep(ComponentMixin, ABC):
             result = await self.execute()
             if self.output_mapping:
                 self.context.apply_mapping(self.output_mapping)
+            response_failed = not self.context.response.success or self.context.stream_error is not None
             return result
         except Exception as exc:
             # Preserve the innermost path while an error is propagated or wrapped.
@@ -177,7 +179,7 @@ class BaseStep(ComponentMixin, ABC):
                     execution,
                     previous,
                     failed,
-                    not self.context.response.success or self.context.stream_error is not None,
+                    response_failed,
                 )
                 if not previous[0]:
                     self.context.step_error = None

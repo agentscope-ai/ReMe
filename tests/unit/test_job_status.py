@@ -165,6 +165,41 @@ async def test_recovered_step_errors_do_not_hide_the_actual_terminal_failure(con
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+async def test_recovered_response_failure_does_not_own_a_later_failure(context, nested):
+    """A successful recovery clears the obsolete path before the final failure."""
+    for name in ("recovered_failure", "recovery", "terminal_failure"):
+        context.registry.register(_CallbackStep, name)
+
+    async def fail(step):
+        step.context.response.success = False
+        step.context.response.answer = step.backend
+
+    async def recover(step):
+        step.context.response.success = True
+
+    steps = [
+        {"backend": "recovered_failure", "callback": fail},
+        {"backend": "recovery", "callback": recover},
+        {"backend": "terminal_failure", "callback": fail},
+    ]
+
+    async def parent(step):
+        await step.dispatch_steps(steps)
+
+    job = _job(
+        context,
+        track_execution=True,
+        steps=[{"backend": "callback_step", "callback": parent}] if nested else steps,
+    )
+    await job.start()
+    assert not (await job()).success
+    record = context.get_job_status()["test"][0]
+    assert record["error"] == "terminal_failure"
+    assert record["failed_step"] == (["callback_step"] if nested else []) + ["terminal_failure"]
+
+
+@pytest.mark.asyncio
 async def test_stream_failure_records_status_and_preserves_error_done_protocol(context):
     """ERROR plus DONE remains the client contract even when the exception is handled."""
 

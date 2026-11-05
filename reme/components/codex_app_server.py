@@ -442,6 +442,27 @@ class CodexAppServer(BaseComponent):
         self._threads[thread.id].token_usage = None
         await finish_cleanup(dispatch())
 
+    async def _fork_messages(self, source_id: str, thread: AsyncThread) -> None:
+        """Copy inherited proactive provenance while the source conversation is locked."""
+        from .agent_wrapper import codex_session_history as history
+
+        records = await asyncio.to_thread(history.read_records, self._message_path(source_id))
+        if not records:
+            return
+        accepted = set()
+        if any(not record["injected"] for record in records):
+            codex = await self._get_client()
+            source = (await codex._client.thread_read(source_id)).thread  # pylint: disable=protected-access
+            accepted = await asyncio.to_thread(history.injected_ids, source, self.session_path)
+        # Native forks inherit context but do not preserve injected item IDs.
+        inherited = [
+            {**record, "injected": True}
+            for record in records
+            if record["injected"] or record["message"]["id"] in accepted
+        ]
+        if inherited:
+            await complete_in_thread(history.write_records, self._message_path(thread.id), inherited)
+
     @asynccontextmanager
     async def thread(
         self,
@@ -509,6 +530,7 @@ class CodexAppServer(BaseComponent):
                         async with source.lock:
                             state.token_usage = await self.token_usage(thread_id)
                             thread = await codex.thread_fork(thread_id, **options)
+                            await finish_cleanup(self._fork_messages(thread_id, thread))
                     finally:
                         source.users -= 1
                 elif thread_id:
@@ -524,6 +546,10 @@ class CodexAppServer(BaseComponent):
                 finally:
                     # Interrupt acknowledgement alone does not mean that tool execution stopped.
                     error = sys.exception()
+                    if error is not None:
+                        # A paused/closed consumer can miss usage emitted by native completion.
+                        # Recover from the persisted rollout before the next turn starts.
+                        state.token_usage = None
                     try:
                         async with asyncio.timeout(30 if error is not None else None):
                             await self.wait_idle(thread)

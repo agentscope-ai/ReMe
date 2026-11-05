@@ -77,8 +77,46 @@ export function mergeSessionMessages(
     }
     return message;
   });
-  // Requests rejected before Codex started a turn still need their visible error.
-  messages.push(...current.filter((message) => message.localOnly));
+  // A disconnect can hide reply_start even though Codex accepted the request.
+  // Match pending prompts in order, after the last known native message, so an
+  // older identical prompt cannot consume a new rejected request.
+  const recovered = new Set<ChatMessage>();
+  const knownTurns = new Set(current.map((message) => message.turnId));
+  let after = -1;
+  current.forEach((message, index) => {
+    const nativeIndex = messages.findIndex(
+      (entry) =>
+        entry.id === message.id ||
+        (entry.source === "chat" &&
+          entry.turnId &&
+          entry.turnId === message.turnId &&
+          entry.role === message.role),
+    );
+    if (nativeIndex >= 0) {
+      after = Math.max(after, nativeIndex);
+    } else if (message.localOnly && message.role === "user") {
+      const acceptedIndex = messages.findIndex(
+        (entry, position) =>
+          position > after &&
+          entry.source === "chat" &&
+          entry.role === "user" &&
+          !knownTurns.has(entry.turnId) &&
+          entry.content === message.content,
+      );
+      if (acceptedIndex < 0) return;
+      after = acceptedIndex;
+      recovered.add(message);
+      const assistant = current[index + 1];
+      if (assistant?.localOnly && assistant.role === "assistant")
+        recovered.add(assistant);
+    }
+  });
+  // Requests absent from native history still need their visible error.
+  messages.push(
+    ...current.filter(
+      (message) => message.localOnly && !recovered.has(message),
+    ),
+  );
   return JSON.stringify(messages) === JSON.stringify(current)
     ? current
     : messages;

@@ -439,31 +439,32 @@ async def test_compaction_replaying_previous_usage_under_current_turn_does_not_r
 
 
 @pytest.mark.asyncio
-async def test_usage_baseline_is_recovered_from_rollout_after_thread_state_is_lost(system):
-    first, _, server, _ = system
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_usage_baseline_recovers_after_lost_state_or_missed_stream_usage(system, interrupted):
+    first, second, server, _ = system
     session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    if interrupted:
+        stream = first.reply_stream("interrupted", session_id=session_id)
+        assert (await anext(stream)).chunk_type == ChunkEnum.REPLY_START
+        assert (await anext(stream)).chunk_type == ChunkEnum.CONTENT
+    # Native completion can overtake a paused consumer and persist unseen usage.
     path = server.session_path / "rollout.jsonl"
-    path.write_text(
-        json.dumps(
-            {
-                "type": "event_msg",
-                "payload": {
-                    "type": "token_count",
-                    "info": {
-                        "total_token_usage": {"input_tokens": 5000, "output_tokens": 500},
-                    },
-                },
-            },
-        )
-        + "\n",
-    )
-    _Codex.instances[0].threads[session_id].path = str(path)
-    server._threads.pop(session_id)
-    _Codex.instances[0].usage_events = [
-        _usage_event((1000, 100), (5000, 500)),
-        _usage_event((10, 2), (5010, 502)),
+    usage = {"total_token_usage": {"input_tokens": 5000, "output_tokens": 500}}
+    record = {"type": "event_msg", "payload": {"type": "token_count", "info": usage}}
+    path.write_text(json.dumps(record) + "\n")
+    client.threads[session_id].path = str(path)
+    if interrupted:
+        client.threads[session_id].busy = False
+        await stream.aclose()
+    else:
+        server._threads.pop(session_id)
+    turn_id = "turn-3" if interrupted else "turn-2"
+    client.usage_events = [
+        _usage_event((1000, 100), (5000, 500), turn_id=turn_id),
+        _usage_event((10, 2), (5010, 502), turn_id=turn_id),
     ]
-    assert (await first.reply("restored", session_id=session_id))["usage"] == {
+    assert (await second.reply("restored", session_id=session_id))["usage"] == {
         "input_tokens": 10,
         "output_tokens": 2,
         "total_tokens": 12,

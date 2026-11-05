@@ -90,6 +90,52 @@ test("a request rejected before starting a native turn retains its visible error
   assert.deepEqual(result, [rejected]);
 });
 
+test("native acceptance before reply_start replaces the pending local turn", () => {
+  const current = [
+    { id: "old-user", role: "user", content: "A", turnId: "turn-1" },
+    turn("old-answer", "B"),
+    { id: "local-user", role: "user", content: "A", localOnly: true },
+    {
+      id: "local-answer",
+      role: "assistant",
+      content: "",
+      localOnly: true,
+      blocks: [{ id: "error", type: "error", text: "Connection interrupted" }],
+    },
+  ];
+  const previous = [entry("u1", "user", "A"), entry("a1", "assistant", "B")];
+  // An older identical prompt is insufficient evidence of this request's acceptance.
+  assert.equal(mergeSessionMessages(current, snapshot(previous)).length, 4);
+  const data = snapshot([
+    ...previous,
+    entry("p1", "assistant", "reminder", { source: "proactive" }),
+    entry("u2", "user", "A", { turn_id: "turn-2" }),
+    entry("a2", "assistant", "recovered", { turn_id: "turn-2" }),
+  ]);
+  const recovered = mergeSessionMessages(current, data);
+  assert.deepEqual(
+    recovered.map((message) => message.id),
+    ["u1", "a1", "p1", "u2", "a2"],
+  );
+  assert.equal(recovered[4].blocks[0].text, "recovered");
+  assert.equal(mergeSessionMessages(recovered, data), recovered);
+});
+
+test("unaccepted requests survive recovery of a different native turn", () => {
+  const rejected = [
+    { id: "local-user", role: "user", content: "rejected", localOnly: true },
+    {
+      id: "local-answer",
+      role: "assistant",
+      content: "",
+      localOnly: true,
+      blocks: [{ id: "error", type: "error", text: "Invalid credentials" }],
+    },
+  ];
+  const data = snapshot([entry("u1", "user", "accepted")]);
+  assert.deepEqual(mergeSessionMessages(rejected, data).slice(-2), rejected);
+});
+
 test("stale session snapshots cannot overwrite a new turn or a different session", () => {
   const tab = {
     id: "tab",

@@ -97,14 +97,16 @@ class ApplicationContext:
         execution: JobExecution,
         previous: tuple[list[str], datetime | None],
         failed: bool,
-        response_failed: bool = False,
+        response_failed: bool | None = None,
     ) -> None:
-        """Restore the parent, retaining the innermost observed failure path."""
+        """Restore the parent; None preserves an exception path, False clears a recovered failure."""
         with self._job_lock:
             if execution.status != "running":
                 return
             if failed or (response_failed and execution.failed_step is None):
                 execution.failed_step = list(execution.step_path)
+            elif response_failed is False:
+                execution.failed_step = None
             execution.step_path, execution.step_started_at = previous
 
     def get_job_status(

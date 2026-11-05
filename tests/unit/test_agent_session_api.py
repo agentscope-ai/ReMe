@@ -81,6 +81,7 @@ class NativeSession:
             turns=[turn("turn-1", "A", "B")],
             status=SimpleNamespace(root=SimpleNamespace(type="idle", active_flags=[])),
         )
+        self.threads = {self.thread.id: self.thread}
         self.handle = SimpleNamespace(id=self.thread.id, read=AsyncMock(side_effect=self.read))
         self.client = SimpleNamespace(
             _client=SimpleNamespace(
@@ -92,17 +93,17 @@ class NativeSession:
         self.injected = []
         self.inject_hook = None
 
-    async def read(self, *_args, **_kwargs):
-        return SimpleNamespace(thread=self.thread)
+    async def read(self, session_id=None, **_kwargs):
+        return SimpleNamespace(thread=self.threads[session_id] if session_id else self.thread)
 
     async def request(self, method, params, **_kwargs):
         if method == "thread/loaded/list":
-            return SimpleNamespace(data=[self.thread.id], next_cursor=None)
+            return SimpleNamespace(data=list(self.threads), next_cursor=None)
         if method == "thread/unsubscribe":
             return SimpleNamespace(status="unsubscribed")
         assert method == "thread/inject_items"
         self.injected.extend(params["items"])
-        with open(self.thread.path, "a", encoding="utf-8") as stream:
+        with open(self.threads[params["threadId"]].path, "a", encoding="utf-8") as stream:
             for item in params["items"]:
                 stream.write(json.dumps({"type": "response_item", "payload": item}) + "\n")
         if self.inject_hook:
@@ -148,6 +149,47 @@ async def test_multiple_appends_are_ordered_durable_and_idempotent(runtime):
     assert all(record["injected"] for record in history.read_records(server._message_path("session-1")))
     with pytest.raises(ValueError, match="different content"):
         await server.append_session("session-1", "changed", message_id="topic-1")
+
+
+@pytest.mark.asyncio
+async def test_fork_inherits_only_accepted_proactive_records(runtime):
+    server, native = runtime
+    await server.append_session("session-1", "inherited", message_id="one")
+    path = server._message_path("session-1")
+    records = history.read_records(path)
+    # Include a native-accepted message whose publication was interrupted, and
+    # an unaccepted attempt that must stay out of the fork's displayed context.
+    records[0]["injected"] = False
+    records.append(history.new_record("rejected", "not inherited", native.thread))
+    history.write_records(path, records)
+    fork_path = server.session_path / "sessions" / "fork.jsonl"
+    # Native forks retain injected context but discard the reserved item IDs.
+    fork_path.write_text("")
+    fork_thread = SimpleNamespace(
+        id="fork-1",
+        path=str(fork_path),
+        turns=[*native.thread.turns, turn("turn-2", "D", "E")],
+        status=native.thread.status,
+    )
+    native.threads[fork_thread.id] = fork_thread
+    fork_handle = SimpleNamespace(id="fork-1", read=AsyncMock(return_value=SimpleNamespace(thread=fork_thread)))
+
+    async def fork(_session_id, **_options):
+        return fork_handle
+
+    native.client.thread_fork = AsyncMock(side_effect=fork)
+    native.client.thread_resume.side_effect = lambda session_id, **_kwargs: (
+        fork_handle if session_id == "fork-1" else native.handle
+    )
+    async with server.thread("session-1", fork=True) as forked:
+        assert forked.id == "fork-1"
+    snapshot = await server.read_session("fork-1")
+    assert [message.content for message in snapshot.messages] == ["A", "B", "inherited", "D", "E"]
+    assert history.read_records(path) == records
+    assert await server.append_session("fork-1", "inherited", message_id="one") == snapshot.messages[2]
+    assert len(native.injected) == 1
+    await server.append_session("fork-1", "fork only", message_id="two")
+    assert history.read_records(path) == records
 
 
 @pytest.mark.asyncio
