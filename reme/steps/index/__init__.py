@@ -2,7 +2,7 @@
 
 from ._source_format import normalize_posix_path
 from .bm25_search import Bm25SearchStep
-from .catalog import CatalogCommitStep, CatalogDiffStep
+from .catalog import ResourceAckStep, ResourcePendingStep
 from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep
 from .cleanup_catalog import CleanupCatalogStep
@@ -29,8 +29,6 @@ from .watch_changes import (
 __all__ = [
     "AddDraftStep",
     "Bm25SearchStep",
-    "CatalogCommitStep",
-    "CatalogDiffStep",
     "ChangeApplyStep",
     "ClearPathsStep",
     "ClearStoreStep",
@@ -46,6 +44,8 @@ __all__ = [
     "normalize_posix_path",
     "ReadAllDraftStep",
     "ReindexStep",
+    "ResourceAckStep",
+    "ResourcePendingStep",
     "OptimizeIndexStep",
     "SearchStep",
     "TraverseStep",

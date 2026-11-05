@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum
-from ...schema import ApplicationConfig, CatalogChange, FileNode
+from ...schema import ApplicationConfig, FileNode
 from ...utils.file_watch import WatchRule, build_watch_rules
 
 
@@ -103,13 +103,13 @@ class BaseFileCatalog(BaseComponent):
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         """Return nodes by paths; None = all; missing paths are skipped."""
 
-    async def diff(self) -> dict:
-        """Return unexpired source changes without advancing committed state."""
-        raise NotImplementedError(f"{type(self).__name__} does not support catalog diff")
+    async def pending(self) -> list[str]:
+        """Return existing, unexpired paths added or modified since acknowledgement."""
+        raise NotImplementedError(f"{type(self).__name__} does not support pending paths")
 
-    async def commit(self, changes: list[CatalogChange | dict]) -> dict:
-        """Persist selected changes only if their source and previous versions still match."""
-        raise NotImplementedError(f"{type(self).__name__} does not support catalog commit")
+    async def ack(self, paths: list[str]) -> bool:
+        """Acknowledge current file versions as one batch; sources must remain immutable during processing."""
+        raise NotImplementedError(f"{type(self).__name__} does not support acknowledgement")
 
     async def cleanup_expired(self, directory: str | None = None, ttl_days: int | None = None) -> dict:
         """Delete expired YYYY-MM-DD directories and their catalog entries.

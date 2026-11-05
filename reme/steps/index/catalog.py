@@ -1,38 +1,31 @@
-"""Public catalog diff and commit operations; business processing stays with the caller."""
+"""List pending resources and acknowledge caller-processed packages."""
 
 from ..base_step import BaseStep
 from ...components import R
 
 
-@R.register("catalog_diff_step")
-class CatalogDiffStep(BaseStep):
-    """Return pending file changes without updating the catalog."""
+@R.register("resource_pending_step")
+class ResourcePendingStep(BaseStep):
+    """Return pending resource paths without updating the catalog."""
 
     async def execute(self):
         assert self.context is not None
         if self.file_catalog is None:
-            raise RuntimeError("catalog_diff_step requires file_catalog")
-        result = await self.file_catalog.diff()
-        self.context["changes"] = result["changes"]
+            raise RuntimeError("resource_pending_step requires file_catalog")
         self.context.response.success = True
-        self.context.response.answer = result
-        self.context.response.metadata.update(result)
+        self.context.response.answer = await self.file_catalog.pending()
         return self.context.response
 
 
-@R.register("catalog_commit_step")
-class CatalogCommitStep(BaseStep):
-    """Confirm only caller-selected changes whose versions remain current."""
+@R.register("resource_ack_step")
+class ResourceAckStep(BaseStep):
+    """Acknowledge successfully processed resource paths as one batch."""
 
     async def execute(self):
         assert self.context is not None
         if self.file_catalog is None:
-            raise RuntimeError("catalog_commit_step requires file_catalog")
-        changes = self.context.get("changes")
-        if not isinstance(changes, list):
-            raise ValueError("catalog_commit requires changes: list")
-        result = await self.file_catalog.commit(changes)
+            raise RuntimeError("resource_ack_step requires file_catalog")
+        result = await self.file_catalog.ack(self.context.get("paths"))
         self.context.response.answer = result
-        self.context.response.metadata.update(result)
-        self.context.response.success = not result["skipped"]
+        self.context.response.success = result
         return self.context.response

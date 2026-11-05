@@ -10,9 +10,9 @@ from pathlib import Path, PureWindowsPath
 
 from .base_file_catalog import BaseFileCatalog
 from ..component_registry import R
-from ...schema import CatalogChange, FileNode
+from ...schema import FileNode
 from ...utils.async_utils import complete_in_thread
-from ...utils.file_watch import WatchRule, collect_existing, diff_files, match_file
+from ...utils.file_watch import WatchRule, collect_existing, match_file
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
@@ -58,7 +58,7 @@ class LocalFileCatalog(BaseFileCatalog):
             return [self._nodes[p] for p in paths if p in self._nodes]
 
     def _matches(self, path: str, rules: list[WatchRule]) -> bool:
-        """Apply the same lexical and resolved scope to current and committed paths."""
+        """Restrict catalog paths to the configured workspace scope."""
         relative = Path(path)
         if not path or relative.anchor or PureWindowsPath(path).anchor or ".." in relative.parts or "\\" in path:
             return False
@@ -69,82 +69,49 @@ class LocalFileCatalog(BaseFileCatalog):
             absolute.is_relative_to(rule.path) and absolute.resolve().is_relative_to(rule.path) for rule in rules
         )
 
-    async def diff(self) -> dict:
+    async def pending(self) -> list[str]:
         async with self._io_lock:
-            return await complete_in_thread(self._diff)
+            return await complete_in_thread(self._pending)
 
-    def _diff(self) -> dict:
+    def _pending(self) -> list[str]:
         rules, today = self.watch_rules, self._today()
-        existing = {
-            self.to_workspace_relative(path): mtime
-            for path, mtime in collect_existing(rules, recursive=True).items()
-            if self._matches(self.to_workspace_relative(path), rules) and not self._expired(Path(path), rules, today)
-        }
-        previous = {
-            path: node.st_mtime
-            for path, node in self._nodes.items()
-            if self._matches(path, rules) and not self._expired(self.workspace_path / path, rules, today)
-        }
-        changes, counts = diff_files(existing, previous)
-        return {
-            "changes": [
-                CatalogChange(
-                    **item,
-                    st_mtime=existing.get(item["path"]),
-                    previous_mtime=previous.get(item["path"]),
-                ).model_dump()
-                for item in changes
-            ],
-            "counts": counts,
-        }
+        pending = []
+        for source, mtime in collect_existing(rules, recursive=True).items():
+            path = self.to_workspace_relative(source)
+            if not self._matches(path, rules) or self._expired(Path(source), rules, today):
+                continue
+            node = self._nodes.get(path)
+            if node is None or node.st_mtime != mtime:
+                pending.append(path)
+        return sorted(pending)
 
-    async def commit(self, changes: list[CatalogChange | dict]) -> dict:
-        parsed = [CatalogChange.model_validate(item) for item in changes]
-        if len({item.path for item in parsed}) != len(parsed):
-            raise ValueError("changes must not contain duplicate paths")
+    async def ack(self, paths: list[str]) -> bool:
+        if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+            raise ValueError("paths must be a list of strings")
         async with self._io_lock:
-            return await complete_in_thread(self._commit, parsed)
+            return await complete_in_thread(self._ack, paths)
 
-    def _commit(self, changes: list[CatalogChange]) -> dict:
+    def _ack(self, paths: list[str]) -> bool:
+        if not paths:
+            return True
         rules, today = self.watch_rules, self._today()
         nodes = dict(self._nodes)
-        committed, skipped = [], []
-        for item in changes:
-            path = self.workspace_path / item.path
-            reason = None
-            if not self._matches(item.path, rules):
-                reason = "out_of_scope"
-            elif self._expired(path, rules, today):
-                reason = "expired"
-            else:
-                current_mtime = None
-                try:
-                    source_stat = path.stat()
-                    if stat.S_ISREG(source_stat.st_mode):
-                        current_mtime = source_stat.st_mtime
-                except (FileNotFoundError, NotADirectoryError):
-                    pass
-                except OSError:
-                    reason = "source_unavailable"
-                if reason is None:
-                    previous_mtime = nodes[item.path].st_mtime if item.path in nodes else None
-                    if current_mtime != item.st_mtime:
-                        reason = "source_changed"
-                    elif previous_mtime not in (item.previous_mtime, item.st_mtime):
-                        reason = "catalog_changed"
-            if reason:
-                skipped.append({"path": item.path, "reason": reason})
-                continue
-            if item.st_mtime is None:
-                nodes.pop(item.path, None)
-            else:
-                nodes[item.path] = FileNode(path=item.path, st_mtime=item.st_mtime)
-            committed.append(item.path)
-        if committed:
+        try:
+            for relative in dict.fromkeys(paths):
+                path = self.workspace_path / relative
+                if not self._matches(relative, rules) or self._expired(path, rules, today):
+                    return False
+                source_stat = path.stat()
+                if not stat.S_ISREG(source_stat.st_mode):
+                    return False
+                nodes[relative] = FileNode(path=relative, st_mtime=source_stat.st_mtime)
             # Publish in-memory state only after the atomic file replacement succeeds.
             write_jsonl_zst(self._catalog_file, (node.model_dump_json() for node in nodes.values()), self.encoding)
-            self._nodes = nodes
-        return {"committed": committed, "skipped": skipped}
+        except OSError as exc:
+            self.logger.warning(f"Failed to acknowledge catalog paths: {exc}")
+            return False
+        self._nodes = nodes
+        return True
 
     async def cleanup_expired(self, directory: str | None = None, ttl_days: int | None = None) -> dict:
         """Remove dated directories at least ``ttl_days`` old, then persist the catalog."""

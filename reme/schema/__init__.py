@@ -2,7 +2,6 @@
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
-from .catalog_change import CatalogChange
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
@@ -35,7 +34,6 @@ __all__ = [
     "AgentReply",
     "collect_reply",
     "replay_reply",
-    "CatalogChange",
     "CallDecision",
     "CompactionOptions",
     "CompactionRequest",

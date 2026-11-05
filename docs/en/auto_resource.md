@@ -89,9 +89,9 @@ empty filters accept every file. Physical cleanup ignores file filters and delet
 including uncataloged images and empty directories.
 
 `resource_watch_loop` selects this scope with `file_catalog: resource`. It only watches and logs live events; it does not
-advance the catalog, call an LLM, or create daily cards. `catalog_diff` scans source files on each call and compares them
-with committed state, so it also discovers net changes made while the watcher was stopped. This is a path/mtime diff,
-not a content diff or complete event history.
+advance the catalog, call an LLM, or create daily cards. `resource_pending` takes no arguments and scans source files on
+each call, returning existing, unexpired `metadata.json` paths added or modified since acknowledgement.
+It works without a running watcher, does not advance the catalog, and repeats unacknowledged paths. Deleted files are omitted.
 
 Start the service in one terminal:
 
@@ -99,35 +99,31 @@ Start the service in one terminal:
 reme start config=proactive components.file_catalog.resource.ttl_days=7
 ```
 
-Query pending changes from another terminal:
+Query pending resources from another terminal:
 
 ```bash
-reme catalog_diff
-reme catalog_diff file_catalog=resource
+reme resource_pending
 ```
 
-`answer.changes` contains records with `path`, `change`, `st_mtime`, and `previous_mtime`. Added records have a null
-`previous_mtime`; deleted records have a null `st_mtime`. Queries do not update the catalog, so unconfirmed changes repeat.
-After processing, pass only successful records **unchanged** to `catalog_commit`; do not replace their version fields
-with the current time. For example:
+`answer` is a sorted list of workspace-relative path strings. Read each manifest's `description` and `files`, process the
+whole package, then pass only successfully processed manifest paths to `resource_ack`:
 
 ```bash
-reme catalog_commit file_catalog=resource changes='[{"path":"resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json","change":"added","st_mtime":1793836800.0,"previous_mtime":null}]'
+reme resource_ack paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
 ```
 
-The example mtime only illustrates the format; copy the actual values returned by `catalog_diff`.
-`answer.committed` lists confirmed paths; `answer.skipped` lists rejected records and reasons. Any skipped record makes
-`success=false`. Commit only the successfully processed subset; other changes remain pending. Changed source or catalog
-versions, out-of-scope paths, and expired resources are skipped so newer content cannot be confirmed accidentally.
-Both Jobs default to `resource`; use `file_catalog=<component-name>` to select another catalog with a configured scope.
-No additional `name` parameter is needed. Existing Auto Resource processing and its default configuration stay unchanged.
+Both `answer` and `success` are booleans: `true` confirms the whole batch; out-of-scope, missing, non-regular, or expired
+paths and I/O failures return `false` without advancing any checkpoint in the batch. `paths` is required; an empty list
+succeeds, and repeated acknowledgement is allowed. Unselected resources remain pending.
+Both Jobs bind `file_catalog: resource` in their Step configuration and expose no catalog selector.
+The old `catalog_diff` / `catalog_commit` interfaces have been removed; migrate to these calls without `changes` or mtime fields.
 
-The proactive watcher and diff accept only files named exactly `metadata.json`; images, other JSON files, and loose
-payloads are no longer discovered independently. Read the manifest's `description` and `files`, process the whole
-package, then commit only the original manifest change. Published capture packages are immutable snapshots.
-Editing or deleting a payload alone does not trigger a diff; writers that support updates must update the manifest last.
+The proactive watcher and pending query discover only files named exactly `metadata.json`; images, other JSON files,
+and loose payloads are not discovered independently. Published packages are immutable snapshots; publish updates in a new
+UUID directory. Acknowledgement records each file's current mtime without checking the version consumed, so packages must
+remain unchanged during processing. Editing or deleting a payload alone does not make its package pending again.
 Consumers must still check that listed files exist and stay inside the package. Catalog confirmation state is never
-written into resource metadata.
+written into resource metadata. Existing Auto Resource processing and its defaults stay unchanged.
 
 When upgrading an existing proactive workspace, its watcher-written catalog remains the initial confirmation baseline.
 To process all historical resources again, stop the service, back up and move aside
@@ -136,12 +132,12 @@ rebuild for this migration; do not modify the catalog file while the service is 
 
 TTL takes precedence over consumption. Calendar age in the application `timezone` determines expiry, independent of file
 mtime. On 2026-11-05 with `ttl_days: 7`, directories dated 2026-10-29 or earlier expire; 2026-10-30 and later remain.
-Expired resources immediately leave diff results and cannot be committed. Every hour, `resource_cleanup_cron` asks the
+Expired resources immediately leave pending results and cannot be acknowledged. Every hour, `resource_cleanup_cron` asks the
 catalog to delete expired directories and matching catalog entries without waiting for processing. An in-flight consumer
-cannot restore expired entries through a late commit. `ttl_days` must be a positive integer.
+cannot restore expired entries through a late acknowledgement. `ttl_days` must be a positive integer.
 
 Cron first runs at the next hour after startup; physical deletion does not run while the service is stopped.
-`jobs.resource_cleanup_cron.enabled=false` only disables physical cleanup; diff and commit still apply the configured TTL.
+`jobs.resource_cleanup_cron.enabled=false` only disables physical cleanup; pending and ack still apply the configured TTL.
 Failed deletions retain entries for directories that still exist and fail that execution; later runs retry.
 Cleanup requires descriptor-relative safe directory deletion (Linux and macOS); unsupported platforms fail without deleting files.
 See [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py).

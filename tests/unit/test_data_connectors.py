@@ -265,7 +265,7 @@ async def test_base_connector_rejects_incomplete_manifests(tmp_path, kind):
 
 @pytest.mark.asyncio
 async def test_proactive_catalog_and_watcher_only_match_manifests(tmp_path, screens):
-    """Capture -> diff -> commit operates once per package and never per image."""
+    """Capture -> pending -> ack operates once per package and never per image."""
     app = ApplicationContext(**resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path)))
     config = app.app_config.components["file_catalog"]["resource"].model_dump()
     catalog = LocalFileCatalog(name="resource", app_context=app, **config)
@@ -289,12 +289,11 @@ async def test_proactive_catalog_and_watcher_only_match_manifests(tmp_path, scre
         expected = file == manifest
         assert match_file(str(file), rules) is expected
         assert watcher._filter(Change.added, str(file)) is expected  # pylint: disable=protected-access
-    changes = (await catalog.diff())["changes"]
-    assert [change["path"] for change in changes] == [response.answer["path"]]
-    assert await catalog.commit(changes) == {"committed": [response.answer["path"]], "skipped": []}
+    pending = await catalog.pending()
+    assert pending == [response.answer["path"]]
+    assert await catalog.ack(pending) is True
     (manifest.parent / "1.png").write_bytes(b"edited without updating the manifest")
-    assert (await catalog.diff())["changes"] == []
+    assert await catalog.pending() == []
     manifest.unlink()
-    deleted = (await catalog.diff())["changes"]
-    assert deleted[0]["change"] == "deleted"
-    assert (await catalog.commit(deleted))["skipped"] == []
+    assert await catalog.pending() == []
+    assert await catalog.ack(pending) is False
