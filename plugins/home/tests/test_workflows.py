@@ -106,6 +106,8 @@ def final_report(home, branch="init", path=None):
         "```json\n{}\n```",
         "Completed.\n```json\n{}\n```\nSee report.",
         "Completed.\r\n```JSON\r\n{}\r\n```",
+        "Completed. {}",
+        "<think>Comparing candidates.</think>\n{}",
     ],
 )
 def test_parse_optimizer_result_formats(template):
@@ -113,20 +115,28 @@ def test_parse_optimizer_result_formats(template):
     assert optimizer_module.parse_result(template.format(json.dumps(claim))).model_dump() == claim
 
 
+def test_optimizer_shared_recovery_rejects_competing_and_non_object_reports():
+    claim = {"branch_name": "candidate", "commit_sha": "a" * 40, "evaluation_path": "run", "report": "Evidence"}
+    text = json.dumps(claim)
+    repaired = f"Completed.\n```json\n{text[:-1]},}}\n```"
+    assert optimizer_module.parse_result(repaired).model_dump() == claim
+    for invalid in (f"[{text}]", f"```json\n{text}\n```\n{text}"):
+        with pytest.raises(ValueError):
+            optimizer_module.parse_result(invalid)
+
+
 @pytest.mark.parametrize(
     "text",
     [
         "No result",
-        'Completed. {"report":"Evidence"}',
         "Completed.\n```json\n{}",
         "Completed.\n```python\n{}\n```",
         "Completed.\n```json\n{}\n```\n```json\n{}\n```",
         "Completed.\n```text\nexample\n```\n```json\n{}\n```",
-        'Completed.\n```json\n{"report":"Evidence",}\n```',
     ],
 )
 def test_parse_optimizer_result_rejects_invalid_or_multiple_fences(text):
-    with pytest.raises(json.JSONDecodeError):
+    with pytest.raises(ValueError):
         optimizer_module.parse_result(text)
 
 

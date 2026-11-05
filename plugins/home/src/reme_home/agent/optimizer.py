@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import re
 import time
 from pathlib import Path
 from typing import Callable
@@ -26,6 +25,7 @@ from .diagnostic import diagnostic_tool, evaluation_paths
 from .draft import create_draft_tools
 from .bounded import RunTimeBudgetTimer, _format_minutes, _remove_hint_by_identity
 from .compression import RecoverableCompressionAgent
+from .structured_report import parse_json_object
 from .workflow_common import required_job, save_record, workflow_reply
 from .wrapper import CaseStudyAgentWrapper
 
@@ -206,23 +206,8 @@ class OptimizationResult(SpecModel):
 
 
 def parse_result(text):
-    """Accept JSON, including a single JSON fence surrounded by commentary."""
-    text = text.strip()
-    original = text
-    if text.startswith("```") and text.endswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError:
-        fences = re.findall(
-            r"^[ \t]*```json[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$",
-            original,
-            flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
-        )
-        if len(fences) != 1 or len(re.findall(r"^[ \t]*```", original, flags=re.MULTILINE)) != 2:
-            raise
-        payload = json.loads(fences[0])
-    return OptimizationResult.model_validate(payload)
+    """Parse the final report using the shared formatting recovery rules."""
+    return OptimizationResult.model_validate(parse_json_object(text, report_name="optimizer"))
 
 
 EVALUATION_OPTIONS = {

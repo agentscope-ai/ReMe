@@ -15,6 +15,7 @@ from ..code.repository import validate_repository
 from ..evaluation.artifacts import contained, write_json
 from .case_study import python_tool
 from .sandbox import create_case_study_sandbox
+from .structured_report import parse_json_object
 
 INSPECTION_JOBS = (
     "home_list_validation_results",
@@ -203,10 +204,7 @@ async def review_report(
             permission_mode="bypass",
         )
         report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})
-        text = reply["result"].strip()
-        if text.startswith("```") and text.endswith("```"):
-            text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        report.update(report_model.model_validate(json.loads(text)).model_dump())
+        report.update(report_model.model_validate(parse_json_object(reply["result"], report_name=role)).model_dump())
     except Exception as exc:
         report.update(
             decision=failure_decision,

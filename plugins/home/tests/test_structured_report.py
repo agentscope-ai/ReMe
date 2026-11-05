@@ -31,10 +31,37 @@ def test_parse_review_formats(text):
     }
 
 
-@pytest.mark.parametrize("text", ["invalid", "[]", '{"decision":"accept"} {"decision":"reject"}'])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "invalid",
+        "[]",
+        '[{"decision":"accept","reason":"Valid schema inside an invalid array"}]',
+        'Result: [{"decision":"accept","reason":"Still an array"}]',
+        '{"decision":"accept"} {"decision":"reject"}',
+        '```json\n{"decision":"accept"}\n```\n{"decision":"reject"}',
+        '```json\n{"decision":"accept"}\n```\n```json\n{"decision":"reject"}\n```',
+        '```text\nexample\n```\n```json\n{"decision":"accept"}\n```',
+        '```python\n{"decision":"accept"}\n```',
+        '```json\n{"decision":"accept"}',
+    ],
+)
 def test_invalid_or_ambiguous_reports_require_correction(text):
     with pytest.raises(ValueError):
         parse_json_object(AssistantMsg(name="review", content=text), report_name="review")
+
+
+@pytest.mark.parametrize("template", ["{}", "Completed.\n```json\n{}\n```"])
+def test_text_input_preserves_literal_formatting_inside_json_strings(template):
+    text = template.format('{"reason":"literal ```json"}')
+    assert parse_json_object(text, report_name="review") == {
+        "reason": "literal ```json",
+    }
+
+
+def test_bare_json_preserves_literal_thinking_tags():
+    text = '{"reason":"literal <think>evidence</think>"}'
+    assert parse_json_object(text, report_name="review") == {"reason": "literal <think>evidence</think>"}
 
 
 def test_repairs_preserve_strings_and_nested_json():

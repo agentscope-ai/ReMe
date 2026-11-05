@@ -65,46 +65,44 @@ class StructuredReportAgent(BoundedReActAgent):
         )
 
 
-def parse_json_object(message: Msg, *, report_name: str) -> dict[str, Any]:
-    """Parse an object with conservative repairs for common model formatting errors."""
-
-    text = message.get_text_content() or ""
-    candidates = [text.strip()]
-    without_thinking = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-    if without_thinking and without_thinking != candidates[0]:
-        candidates.append(without_thinking)
-    fenced_candidates = [
-        match.group(1).strip()
-        for match in re.finditer(r"```(?:json)?\s*(.*?)```", without_thinking, flags=re.DOTALL | re.IGNORECASE)
-    ]
-    if len(fenced_candidates) == 1:
-        candidates.extend(fenced_candidates)
-    object_candidates = _extract_json_objects(without_thinking)
-    if len(object_candidates) == 1:
-        candidates.extend(object_candidates)
-
-    saw_non_object = False
-    seen: set[str] = set()
-    for candidate in candidates:
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
-        repaired = _remove_trailing_commas(candidate)
-        for attempt in (candidate,) if repaired == candidate else (candidate, repaired):
-            try:
-                payload = json.loads(attempt)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(payload, dict):
-                return payload
-            saw_non_object = True
-    if saw_non_object:
+def parse_json_object(message: Msg | str, *, report_name: str) -> dict[str, Any]:
+    """Recover one JSON object, rejecting competing reports and non-object results."""
+    text = message if isinstance(message, str) else message.get_text_content() or ""
+    # Preserve valid JSON strings containing literal thinking tags or Markdown fences.
+    try:
+        payload = json.loads(_remove_trailing_commas(text.strip()))
+    except json.JSONDecodeError:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+        if "```" in text:
+            fences = list(
+                re.finditer(
+                    r"^[ \t]*```(?:json)?[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$",
+                    text,
+                    flags=re.MULTILINE | re.DOTALL | re.IGNORECASE,
+                ),
+            )
+            if len(fences) != 1 or len(re.findall(r"^[ \t]*```", text, flags=re.MULTILINE)) != 2:
+                raise ValueError(f"{report_name} did not return a single JSON report") from None
+            fence = fences[0]
+            if _extract_json_containers(text[: fence.start()] + text[fence.end() :]):
+                raise ValueError(f"{report_name} returned competing JSON reports") from None
+            candidate = fence.group(1)
+        else:
+            candidates = _extract_json_containers(text)
+            if len(candidates) != 1:
+                raise ValueError(f"{report_name} did not return a single JSON report") from None
+            candidate = candidates[0]
+        try:
+            payload = json.loads(_remove_trailing_commas(candidate))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{report_name} did not return a JSON object") from exc
+    if not isinstance(payload, dict):
         raise ValueError(f"{report_name} report must be a JSON object")
-    raise ValueError(f"{report_name} did not return a JSON object") from None
+    return payload
 
 
-def _extract_json_objects(text: str) -> list[str]:
-    """Extract balanced JSON-looking objects without interpreting braces inside strings."""
+def _extract_json_containers(text: str) -> list[str]:
+    """Extract whole containers so arrays cannot be mistaken for their nested objects."""
 
     objects: list[str] = []
     start: int | None = None
@@ -122,11 +120,11 @@ def _extract_json_objects(text: str) -> list[str]:
             continue
         if character == '"':
             in_string = True
-        elif character == "{":
+        elif character in "{[":
             if depth == 0:
                 start = index
             depth += 1
-        elif character == "}" and depth:
+        elif character in "}]" and depth:
             depth -= 1
             if depth == 0 and start is not None:
                 objects.append(text[start : index + 1])
