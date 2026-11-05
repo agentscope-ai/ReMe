@@ -12,7 +12,7 @@ from reme.enumeration import ComponentEnum
 from reme.application import Application
 from reme.components import ApplicationContext
 from reme.components.base_component import BaseComponent
-from reme.components.component_registry import ComponentRegistry
+from reme.components.component_registry import ComponentRegistry, R
 from reme.components.job.background_job import BackgroundJob
 from reme.components.job.base_job import BaseJob
 from reme.components.job.cron_job import CronJob
@@ -491,6 +491,72 @@ def test_application_start_failure_propagates_and_closes_started_components():
 
         assert good.closed is True
         assert not app._started_components
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("cancel_count", [1, 2])
+@pytest.mark.parametrize("close_error", [None, RuntimeError, asyncio.CancelledError])
+def test_cancelled_application_close_finishes_remaining_cleanup(tmp_path, cancel_count, close_error):
+    """Even repeated cancellation waits for the current component before its peers."""
+
+    async def run():
+        closing = asyncio.Event()
+        release = asyncio.Event()
+        closed = []
+
+        class ShutdownComponent(BaseComponent):
+            component_type = ComponentEnum.FILE_CHUNKER
+
+            async def _close(self):
+                if self.name == "b":
+                    closing.set()
+                    await release.wait()
+                closed.append(self.name)
+                if self.name == "b" and close_error is not None:
+                    raise close_error("component close failed")
+
+        with R.preserve(allow_mutation=True):
+            R.register(ShutdownComponent, "test_shutdown")
+            app = Application(
+                workspace_dir=str(tmp_path),
+                enable_logo=False,
+                log_to_console=False,
+                log_to_file=False,
+                thread_pool_max_workers=1,
+                service={"backend": "cli"},
+                components={"file_chunker": {name: {"backend": "test_shutdown"} for name in ("a", "b")}},
+            )
+
+        await app.start()
+        pool = app.context.thread_pool
+        assert pool is not None
+        close_task = asyncio.create_task(app.close())
+        try:
+            await asyncio.wait_for(closing.wait(), timeout=5)
+            for attempt in range(cancel_count):
+                close_task.cancel(f"cancel {attempt}")
+                await asyncio.sleep(0)
+            assert not close_task.done()
+            assert not closed
+            assert app.is_started
+            release.set()
+            with pytest.raises(asyncio.CancelledError, match="cancel 0"):
+                await close_task
+
+            assert closed == ["b", "a"]
+            assert all(not component.is_started for component in app.context.components["file_chunker"].values())
+            assert not app.is_started
+            assert app.context.thread_pool is None
+            with pytest.raises(RuntimeError, match="cannot schedule new futures after shutdown"):
+                pool.submit(lambda: None)
+        finally:
+            release.set()
+            close_task.cancel()
+            await asyncio.gather(close_task, return_exceptions=True)
+            for component in app.context.components["file_chunker"].values():
+                await component.close()
+            pool.shutdown(wait=True)
 
     asyncio.run(run())
 
