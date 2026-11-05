@@ -94,10 +94,10 @@ reme start config=proactive components.file_catalog.resource.ttl_days=7
 
 ```bash
 reme resource_pending
-reme resource_pending limit=20
+reme resource_pending limit=40
 ```
 
-`answer` 直接返回按路径排序的字符串列表，路径相对于 workspace，最多返回 `limit` 条（正整数，默认 `10`）。
+`answer` 直接返回按路径排序的字符串列表，路径相对于 workspace，最多返回 `limit` 条（正整数，默认 `20`）。
 未返回的资源仍保留待处理；确认一批后再次调用 `resource_pending` 获取下一批。
 先读取 manifest 的 `description` 和 `files`，整包消化成功后，将对应的 manifest 路径作为 `resource_ack` 的 `paths` 参数：
 

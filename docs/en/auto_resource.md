@@ -103,10 +103,10 @@ Query pending resources from another terminal:
 
 ```bash
 reme resource_pending
-reme resource_pending limit=20
+reme resource_pending limit=40
 ```
 
-`answer` is a sorted list of workspace-relative path strings, capped by `limit` (a positive integer, default `10`).
+`answer` is a sorted list of workspace-relative path strings, capped by `limit` (a positive integer, default `20`).
 Unreturned resources remain pending. Read each manifest's `description` and `files`, process the
 whole package, then pass only successfully processed manifest paths to `resource_ack`:
 

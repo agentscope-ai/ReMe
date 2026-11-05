@@ -69,7 +69,7 @@ class LocalFileCatalog(BaseFileCatalog):
             absolute.is_relative_to(rule.path) and absolute.resolve().is_relative_to(rule.path) for rule in rules
         )
 
-    async def pending(self, limit: int = 10) -> list[str]:
+    async def pending(self, limit: int = 20) -> list[str]:
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
         async with self._io_lock:

@@ -103,7 +103,7 @@ class BaseFileCatalog(BaseComponent):
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         """Return nodes by paths; None = all; missing paths are skipped."""
 
-    async def pending(self, limit: int = 10) -> list[str]:
+    async def pending(self, limit: int = 20) -> list[str]:
         """Return up to ``limit`` existing, unexpired pending paths in path order."""
         raise NotImplementedError(f"{type(self).__name__} does not support pending paths")
 

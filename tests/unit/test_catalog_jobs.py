@@ -68,15 +68,15 @@ async def test_pending_is_read_only_and_ack_confirms_only_selected_paths(catalog
 @pytest.mark.asyncio
 async def test_pending_limits_sorted_batches_until_acknowledged(catalog, tmp_path):
     """Default and custom caps leave remaining resources available after acknowledgement."""
-    paths = [f"resource/2026-11-05/{index:02}.txt" for index in range(13)]
+    paths = [f"resource/2026-11-05/{index:02}.txt" for index in range(23)]
     for path in reversed(paths):
         _write(tmp_path, path)
-    assert await catalog.pending() == paths[:10]
-    assert await catalog.pending() == paths[:10]
+    assert await catalog.pending() == paths[:20]
+    assert await catalog.pending() == paths[:20]
     assert await catalog.pending(limit=3) == paths[:3]
-    assert await catalog.ack(paths[:10]) is True
-    assert await catalog.pending() == paths[10:]
-    assert await catalog.ack(paths[10:]) is True
+    assert await catalog.ack(paths[:20]) is True
+    assert await catalog.pending() == paths[20:]
+    assert await catalog.ack(paths[20:]) is True
     assert await catalog.pending() == []
 
 
@@ -226,7 +226,7 @@ async def test_jobs_bind_the_resource_catalog_and_return_paths_or_boolean(
     _write(tmp_path, "inbox/b.txt")
     pending = BaseJob(name="resource_pending", app_context=app, **app.app_config.jobs["resource_pending"].model_dump())
     ack = BaseJob(name="resource_ack", app_context=app, **app.app_config.jobs["resource_ack"].model_dump())
-    assert pending.parameters["properties"]["limit"]["default"] == 10
+    assert pending.parameters["properties"]["limit"]["default"] == 20
     assert pending.parameters["properties"]["limit"]["minimum"] == 1
     assert set(ack.parameters["properties"]) == {"paths"}
     assert ack.parameters["required"] == ["paths"]
