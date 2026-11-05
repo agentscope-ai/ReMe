@@ -81,7 +81,7 @@ def test_search_without_eligible_results_explains_empty_metadata(
     )
 
     assert response.success
-    assert response.answer == ""
+    assert response.answer == NO_RESULTS_MESSAGE
     assert response.metadata["empty_result"] == {"reason": "no_results", "message": NO_RESULTS_MESSAGE}
     assert response.metadata["results"] == []
     assert response.metadata["link_expansion"] == {}
@@ -113,7 +113,7 @@ def test_search_all_seen_explains_empty_metadata_across_step_instances(tmp_path)
         assert first.metadata["counts"]["returned"] == 1
         assert "empty_result" not in first.metadata
         assert second.success
-        assert second.answer == ""
+        assert second.answer == ALL_RETURNED_MESSAGE
         assert second.metadata["empty_result"] == {"reason": "all_returned", "message": ALL_RETURNED_MESSAGE}
         assert second.metadata["results"] == []
         assert second.metadata["link_expansion"] == {}
@@ -142,7 +142,7 @@ def test_search_history_does_not_turn_missing_results_into_all_returned(tmp_path
         )
 
         assert response.success
-        assert response.answer == ""
+        assert response.answer == NO_RESULTS_MESSAGE
         assert response.metadata["empty_result"] == {"reason": "no_results", "message": NO_RESULTS_MESSAGE}
         assert response.metadata["results"] == []
         assert response.metadata["counts"]["returned"] == 0
@@ -210,7 +210,7 @@ def test_search_reused_response_does_not_keep_empty_reason(tmp_path, next_query)
         context = RuntimeContext(query="missing")
         context.response.metadata["other_step"] = "preserved"
         first = await step(context)
-        assert first.answer == ""
+        assert first.answer == NO_RESULTS_MESSAGE
         assert first.metadata["empty_result"]["reason"] == "no_results"
 
         store.keyword_search.return_value = [_chunk()]
@@ -233,7 +233,7 @@ def test_search_reused_response_does_not_keep_empty_reason(tmp_path, next_query)
 @pytest.mark.parametrize("all_returned", [False, True], ids=["no-results", "all-returned"])
 @pytest.mark.parametrize("show_metadata", [False, True], ids=["default-display", "show-metadata"])
 def test_empty_search_explanation_uses_existing_cli_metadata_display(tmp_path, capsys, all_returned, show_metadata):
-    """Both CLI paths expose reasons only when metadata display is requested."""
+    """The default answer explains empty results; metadata adds the structured reason."""
 
     async def search():
         store = _store([_chunk()] if all_returned else [])
@@ -247,7 +247,7 @@ def test_empty_search_explanation_uses_existing_cli_metadata_display(tmp_path, c
         "reason": "all_returned" if all_returned else "no_results",
         "message": ALL_RETURNED_MESSAGE if all_returned else NO_RESULTS_MESSAGE,
     }
-    assert response.answer == ""
+    assert response.answer == (ALL_RETURNED_MESSAGE if all_returned else NO_RESULTS_MESSAGE)
     assert response.success
     assert response.metadata["empty_result"] == expected
 
@@ -259,9 +259,15 @@ def test_empty_search_explanation_uses_existing_cli_metadata_display(tmp_path, c
     assert output.err == ""
     app.run_job.assert_awaited_once_with("search", query="memory")
     app.close.assert_awaited_once()
+    http_lines = http_text.splitlines()
+    assert http_lines[0] == expected["message"]
+    assert http_lines[1].startswith("✅")
+    cli_lines = output.out.splitlines()
+    assert cli_lines[0] == expected["message"]
     if show_metadata:
-        assert json.loads(http_text.removeprefix("\n✅ "))["empty_result"] == expected
-        assert json.loads(output.out)["empty_result"] == expected
+        assert json.loads(http_lines[1].removeprefix("✅ "))["empty_result"] == expected
+        assert json.loads(cli_lines[1])["empty_result"] == expected
     else:
-        assert http_text == "\n✅"
-        assert output.out == "\n"
+        assert len(http_lines) == 2
+        assert http_lines[1] == "✅"
+        assert len(cli_lines) == 1

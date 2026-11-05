@@ -365,9 +365,11 @@ class SearchStep(_ToolContextMixin, BaseStep):
 
         self.context.response.answer = "\n".join(answer_lines)
         if not fused:
+            message = ALL_RETURNED_MESSAGE if pre_dedup_count else NO_RESULTS_MESSAGE
+            self.context.response.answer = message
             self.context.response.metadata["empty_result"] = {
                 "reason": "all_returned" if pre_dedup_count else "no_results",
-                "message": ALL_RETURNED_MESSAGE if pre_dedup_count else NO_RESULTS_MESSAGE,
+                "message": message,
             }
         self.context.response.metadata["results"] = [
             c.model_dump(exclude_none=True, exclude={"embedding"}) for c in fused
