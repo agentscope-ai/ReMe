@@ -98,27 +98,24 @@ async def test_shorter_retry_uses_real_structured_parser(tmp_path, monkeypatch, 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("recover", [True, False])
 async def test_codex_json_parse_failure_gets_one_shorter_retry(tmp_path, monkeypatch, recover):
-    """Use the real Codex reply parser with only SDK/lifecycle boundaries replaced."""
+    """Use current Codex result normalization while replacing the app-server turn boundary."""
     from reme.components.agent_wrapper import CodexAgentWrapper
+    from openai_codex.generated.v2_all import AgentMessageThreadItem, Turn
 
     app = ApplicationContext(workspace_dir=str(tmp_path))
-    wrapper = CodexAgentWrapper(app_context=app)
+    wrapper = CodexAgentWrapper()
     valid = json.dumps({"title": "论文摘要", "desc": "summary", "body": "Supported result"})
-    thread = SimpleNamespace(
-        id="offline-thread",
-        run=AsyncMock(
-            side_effect=[
-                SimpleNamespace(final_response='{"body":"unfinished', usage=None),
-                SimpleNamespace(final_response=valid if recover else '{"body":"unfinished', usage=None),
-            ],
-        ),
-    )
-    monkeypatch.setattr(wrapper, "start", AsyncMock())
-    monkeypatch.setattr(wrapper, "_get_codex", AsyncMock(return_value=object()))
-    monkeypatch.setattr(wrapper, "_open_thread", AsyncMock(return_value=thread))
-    monkeypatch.setattr(wrapper, "_release_thread", AsyncMock())
-    monkeypatch.setattr(wrapper, "_serialize", lambda _: {})
-    step = DailyPaperAnalyzeStep(app_context=app, agent_wrapper=wrapper)
+    responses = ['{"body":"unfinished', valid if recover else '{"body":"unfinished']
+    calls = []
+
+    async def reply(_prompt, **kwargs):
+        calls.append(_prompt)
+        item = AgentMessageThreadItem(type="agentMessage", id=f"item-{len(calls)}", text=responses[len(calls) - 1])
+        turn = Turn(id=f"turn-{len(calls)}", items=[item], status="completed", duration_ms=1, error=None)
+        return wrapper._finish_reply("offline-thread", turn, [], None, None, kwargs)
+
+    step = DailyPaperAnalyzeStep(app_context=app)
+    step.agent_wrapper = SimpleNamespace(reply=reply)
     step.context = RuntimeContext(daily_paper_run_date="2026-07-21")
     monkeypatch.setattr(step, "_extract_pdf_text_sync", lambda *_: ("Evidence [p. 1]", 1, False))
     downloader = SimpleNamespace(download=AsyncMock())
@@ -130,10 +127,10 @@ async def test_codex_json_parse_failure_gets_one_shorter_retry(tmp_path, monkeyp
     else:
         with pytest.raises(ValueError, match="Codex returned invalid JSON"):
             await step._analyze_one(downloader, paper, pick, set())
-    assert thread.run.await_count == 2
+    assert len(calls) == 2
     instruction = step.prompt_format("analyze_short_retry")
-    assert instruction not in thread.run.await_args_list[0].args[0]
-    assert instruction in thread.run.await_args_list[1].args[0]
+    assert instruction not in calls[0]
+    assert instruction in calls[1]
     downloader.download.assert_awaited_once()
 
 
@@ -145,8 +142,12 @@ async def test_empty_frontmatter_retries_once_without_repeating_pdf_work(tmp_pat
     valid = {"title": "论文摘要", "desc": "summary", "body": "Recovered result"}
     reply = AsyncMock(
         side_effect=[
-            {"structured_output": {"title": "论文摘要", "desc": "summary", "body": empty_frontmatter}},
-            {"structured_output": valid},
+            {
+                "status": "completed",
+                "error": None,
+                "structured_output": {"title": "论文摘要", "desc": "summary", "body": empty_frontmatter},
+            },
+            {"status": "completed", "error": None, "structured_output": valid},
         ],
     )
     step = DailyPaperAnalyzeStep(app_context=app)
@@ -175,6 +176,12 @@ async def test_empty_frontmatter_retries_once_without_repeating_pdf_work(tmp_pat
 @pytest.mark.parametrize("body", ["---\n---\nUseful note", "---\n---\n\nUseful note"])
 def test_content_after_empty_frontmatter_is_retained(body):
     """Removing an empty frontmatter block must leave the Markdown body intact."""
-    result = markdown_output({"structured_output": {"title": "Title", "desc": "Description", "body": body}})
+    result = markdown_output(
+        {
+            "status": "completed",
+            "error": None,
+            "structured_output": {"title": "Title", "desc": "Description", "body": body},
+        },
+    )
 
     assert result.body == "Useful note"
