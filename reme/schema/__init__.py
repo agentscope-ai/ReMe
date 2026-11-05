@@ -1,6 +1,7 @@
 """Schema"""
 
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
+from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
@@ -30,6 +31,9 @@ from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 from .workspace import WorkspaceContext
 
 __all__ = [
+    "AgentReply",
+    "collect_reply",
+    "replay_reply",
     "CallDecision",
     "CompactionOptions",
     "CompactionRequest",

@@ -2,7 +2,7 @@
 
 from ..base_step import BaseStep
 from ...components import R
-from ...enumeration import ChunkEnum
+from ...schema import collect_reply
 
 
 @R.register("chat_step")
@@ -34,18 +34,11 @@ this chat intentionally provides read-only tools. Reply in the user's language."
         if session_id := self.context.get("session_id"):
             wrapper_kwargs["resume"] = str(session_id)
 
-        parts: list[str] = []
-        async for chunk in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
-            if chunk.chunk_type == ChunkEnum.REPLY_END:
-                answer = "".join(parts).strip()
-                if answer:
-                    chunk.metadata["answer"] = answer
-            await self.context.add_stream_chunk(chunk)
-            if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str):
-                parts.append(chunk.chunk)
-            if chunk.session_id:
-                self.context.response.metadata["session_id"] = chunk.session_id
-
-        self.context.response.success = True
-        self.context.response.answer = "".join(parts).strip()
+        result = await collect_reply(
+            self.agent_wrapper.reply_stream(query, **wrapper_kwargs),
+            on_chunk=self.context.add_stream_chunk,
+        )
+        self.context.response.success = result["status"] == "completed" and self.context.stream_error is None
+        self.context.response.answer = result["result"]
+        self.context.response.metadata.update(result)
         return self.context.response

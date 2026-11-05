@@ -425,6 +425,7 @@ class BaseAutoResourceStep(BaseStep):
             }
         try:
             result = await self.agent_wrapper.reply(inputs, **agent_kwargs)
+            text = agent_reply_result_text(result)
         except (Exception, asyncio.CancelledError):
             self.context.response.success = False
             try:
@@ -441,7 +442,7 @@ class BaseAutoResourceStep(BaseStep):
             metadata=note_metadata,
         )
         self.context.response.success = True
-        self.context.response.answer = agent_reply_result_text(result)
+        self.context.response.answer = text
         if note_path is None:
             self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
             return None

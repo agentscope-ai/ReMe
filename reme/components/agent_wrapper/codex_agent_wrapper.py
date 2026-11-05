@@ -12,11 +12,13 @@ import os
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
+from .codex_session_history import item_chunks
 from ..codex_app_server import CodexAppServer
 from ..component_registry import R
 from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema.stream_chunk import stream_status
 
 if TYPE_CHECKING:
     from openai_codex import AsyncThread, RunInput
@@ -76,12 +78,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if invalid:
             raise TypeError(f"Configure Codex process options on codex_app_server: {', '.join(invalid)}")
 
-    def _reply_kwargs(self, kwargs: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
+    def _reply_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         self._reject_server_options(kwargs)
         invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
-        return self._merged_stream_kwargs(kwargs) if stream else self._merged_kwargs(kwargs)
+        return self._merged_kwargs(kwargs)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -188,12 +190,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         except Exception as exc:
             self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
 
-    @staticmethod
-    def _serialize(value: Any) -> Any:
-        from pydantic_core import to_jsonable_python
-
-        return to_jsonable_python(value, by_alias=True)
-
     async def _turn_stream(self, turn: Any, usage: _TurnUsage) -> AsyncIterator[Notification]:
         """Observe only this turn's reported spending, including compaction calls."""
         stream = turn.stream()
@@ -211,38 +207,55 @@ class CodexAgentWrapper(BaseAgentWrapper):
         finally:
             await stream.aclose()
 
-    async def reply(self, inputs: RunInput, **kwargs) -> dict:
-        """Run an isolated or explicitly resumed conversation on the shared server."""
-        from openai_codex._run import _collect_async_turn_result
+    def _finish_reply(self, session_id, completed, items, native_usage, usage, kwargs) -> AgentReply:
+        """Build the native TurnResult and portable outcome from this turn's events."""
+        from openai_codex import TurnResult
 
-        kwargs = self._reply_kwargs(kwargs)
-        async with self._session(kwargs) as thread:
-            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
-            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
-            stream = self._turn_stream(turn, usage)
+        by_id = {item.root.id: item for item in items}
+        by_id.update({item.root.id: item for item in completed.items})
+        items = list(by_id.values())
+        final_response = None
+        fallback = None
+        for wrapped in reversed(items):
+            item = wrapped.root
+            if item.type != "agentMessage":
+                continue
+            if item.phase is not None and item.phase.value == "final_answer":
+                final_response = item.text
+                break
+            if item.phase is None and fallback is None:
+                fallback = item.text
+        if final_response is None:
+            final_response = fallback
+        result = TurnResult(
+            id=completed.id,
+            status=completed.status,
+            error=completed.error,
+            started_at=completed.started_at,
+            completed_at=completed.completed_at,
+            duration_ms=completed.duration_ms,
+            final_response=final_response,
+            items=items,
+            usage=native_usage,
+        )
+        status = completed.status.value
+        error = completed.error.message if completed.error else None
+        structured_output = None
+        if status == "completed" and kwargs.get("output_schema") is not None:
             try:
-                result = await _collect_async_turn_result(stream, turn_id=turn.id)
-            except BaseException:
-                await self._interrupt(turn)
-                raise
-            finally:
-                if usage.usage is not None:
-                    self._record_token_usage(usage.usage)
-                await stream.aclose()
-        final_response = result.final_response or ""
-        response = {
-            "session_id": thread.id,
-            "last_message": final_response,
-            "result": final_response,
-            "turn": self._serialize(result),
-            "usage": usage.usage.model_dump() if usage.usage is not None else None,
-        }
-        if kwargs.get("output_schema") is not None:
-            try:
-                response["structured_output"] = json.loads(final_response)
-            except json.JSONDecodeError as exc:
-                raise ValueError("Codex returned invalid JSON for the requested output_schema") from exc
-        return response
+                structured_output = json.loads(final_response or "")
+            except json.JSONDecodeError:
+                status = "failed"
+                error = "Codex returned invalid JSON for the requested output_schema"
+        return self._reply_result(
+            session_id=session_id,
+            result=final_response,
+            structured_output=structured_output,
+            usage=usage,
+            status=status,
+            error=error,
+            raw=self._serialize(result),
+        )
 
     def _session_workspace(self, workspace: str | None) -> str | None:
         """Resolve an explicit alias or the wrapper's configured/default binding."""
@@ -312,13 +325,39 @@ class CodexAgentWrapper(BaseAgentWrapper):
     ) -> list[StreamChunk]:
         """Map notifications; usage replaces the cumulative counts for its turn block."""
         method, payload = event.method, event.payload
-        make_chunk = partial(cls._chunk, session_id=session_id)
+        make_chunk = partial(cls._chunk, session_id=session_id, turn_id=getattr(payload, "turn_id", None))
         if method == "turn/started":
-            return [make_chunk(ChunkEnum.REPLY_START, metadata={"turn_id": payload.turn.id})]
+            return [
+                cls._chunk(
+                    ChunkEnum.REPLY_START,
+                    event="start",
+                    session_id=session_id,
+                    turn_id=payload.turn.id,
+                    status="running",
+                    metadata={"turn_id": payload.turn.id},
+                ),
+            ]
         if method == "item/agentMessage/delta":
-            return [make_chunk(ChunkEnum.CONTENT, block_id=payload.item_id, chunk=payload.delta)]
+            return [
+                make_chunk(
+                    ChunkEnum.CONTENT,
+                    block_id=payload.item_id,
+                    message_id=payload.item_id,
+                    chunk=payload.delta,
+                ),
+            ]
         if method in {"item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/plan/delta"}:
-            return [make_chunk(ChunkEnum.THINK, block_id=payload.item_id, chunk=payload.delta)]
+            kind = {"item/reasoning/summaryTextDelta": "summary", "item/reasoning/textDelta": "content"}.get(method)
+            index = getattr(payload, "summary_index" if kind == "summary" else "content_index", 0)
+            return [
+                make_chunk(
+                    ChunkEnum.THINK,
+                    block_id=f"{payload.item_id}:{kind}:{index}" if kind else payload.item_id,
+                    message_id=payload.item_id,
+                    chunk=payload.delta,
+                    metadata={"kind": f"reasoning_{kind}" if kind else "plan", "index": index},
+                ),
+            ]
         if method in {"item/commandExecution/outputDelta", "item/fileChange/outputDelta"}:
             return [
                 make_chunk(
@@ -326,6 +365,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     block_id=payload.item_id,
                     tool_call_id=payload.item_id,
                     chunk=payload.delta,
+                    status="running",
                 ),
             ]
         if method == "item/mcpToolCall/progress":
@@ -335,6 +375,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     block_id=payload.item_id,
                     tool_call_id=payload.item_id,
                     chunk=payload.message,
+                    status="running",
                 ),
             ]
         if method in {"item/autoApprovalReview/started", "item/autoApprovalReview/completed"}:
@@ -350,6 +391,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     block_id=target_item_id or review_id,
                     tool_call_id=target_item_id,
                     chunk=action,
+                    event="start" if status == "started" else "end",
+                    status="running" if status == "started" else stream_status((review or {}).get("status")),
                     metadata={
                         "review_id": review_id,
                         "status": status,
@@ -360,22 +403,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ),
             ]
         if method in {"item/started", "item/completed"}:
-            item = payload.item.root
-            item_type, item_id = item.type, item.id
-            tool_types = {"commandExecution", "fileChange", "mcpToolCall", "dynamicToolCall", "collabAgentToolCall"}
-            if item_type not in tool_types:
-                return []
-            name = getattr(item, "tool", None) or item_type
-            chunk_type = ChunkEnum.TOOL_CALL if method == "item/started" else ChunkEnum.TOOL_RESULT
-            return [
-                make_chunk(
-                    chunk_type,
-                    block_id=item_id,
-                    tool_call_id=item_id,
-                    tool_call_name=name,
-                    chunk=cls._serialize(item),
-                ),
-            ]
+            return item_chunks(
+                payload.item.root,
+                event="start" if method == "item/started" else "end",
+                session_id=session_id,
+                turn_id=payload.turn_id,
+            )
         if method == "thread/tokenUsage/updated":
             if usage is None:
                 return []
@@ -386,7 +419,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     chunk=usage.model_dump(),
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
-                    metadata={"usage": usage.model_dump()},
+                    metadata={
+                        "usage": usage.model_dump(),
+                        "native": cls._serialize(getattr(payload, "token_usage", None)),
+                    },
+                    event="end",
                 ),
             ]
         if method == "error":
@@ -394,17 +431,25 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 make_chunk(
                     ChunkEnum.ERROR,
                     chunk=payload.error.message,
-                    metadata={"will_retry": payload.will_retry},
+                    metadata={"will_retry": payload.will_retry, "native": cls._serialize(payload.error)},
                 ),
             ]
         if method == "turn/completed":
             turn = payload.turn
-            chunks = []
+            chunks = [
+                chunk
+                for item in getattr(turn, "items", [])
+                for chunk in item_chunks(getattr(item, "root", item), session_id=session_id, turn_id=turn.id)
+            ]
             if turn.error:
                 chunks.append(make_chunk(ChunkEnum.ERROR, chunk=turn.error.message))
             chunks.append(
-                make_chunk(
+                cls._chunk(
                     ChunkEnum.REPLY_END,
+                    event="end",
+                    session_id=session_id,
+                    turn_id=turn.id,
+                    status=stream_status(turn.status),
                     metadata={
                         "turn_id": turn.id,
                         "status": turn.status.value,
@@ -413,39 +458,60 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ),
             )
             return chunks
-        if getattr(payload, "turn_id", None):
-            return [
-                make_chunk(
-                    ChunkEnum.DATA,
-                    block_id=getattr(payload, "item_id", None),
-                    chunk=cls._serialize(payload),
-                    metadata={"codex_method": method},
-                ),
-            ]
-        return []
+        diagnostic = method.startswith("hook/") or not getattr(payload, "turn_id", None)
+        return [
+            make_chunk(
+                ChunkEnum.DATA,
+                block_id=getattr(payload, "item_id", None),
+                chunk=cls._serialize(payload),
+                metadata={"codex_method": method, **({"visibility": "diagnostic"} if diagnostic else {})},
+            ),
+        ]
 
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream notifications routed by the SDK to this conversation's turn."""
-        kwargs = self._reply_kwargs(kwargs, stream=True)
+        """Execute once, retaining every notification and a complete terminal outcome."""
+        kwargs = self._reply_kwargs(kwargs)
         emitted_usage = None
         async with self._session(kwargs) as thread:
             usage = _TurnUsage(await self.app_server.token_usage(thread.id))
             turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
             stream = self._turn_stream(turn, usage)
-            completed = False
+            items, native_usage, completed, terminal = [], None, None, None
             try:
                 async for event in stream:
-                    if event.method == "turn/completed":
-                        completed = True
+                    payload = event.payload
+                    if event.method == "item/completed" and payload.turn_id == turn.id:
+                        items.append(payload.item)
+                    elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
+                        native_usage = payload.token_usage
+                    elif event.method == "turn/completed" and payload.turn.id == turn.id:
+                        completed = payload.turn
+                    update = usage.usage if usage.usage != emitted_usage else None
+                    chunks = self._event_to_chunks(event, thread.id, usage=update)
                     if event.method == "thread/tokenUsage/updated":
-                        if usage.usage == emitted_usage:
-                            continue
                         emitted_usage = usage.usage
-                    for chunk in self._event_to_chunks(event, thread.id, usage=usage.usage):
-                        yield chunk
+                    if not chunks:
+                        chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
+                    for chunk in chunks:
+                        chunk.metadata.pop("native", None)
+                    chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
+                    for chunk in chunks:
+                        chunk.session_id = thread.id
+                        chunk.turn_id = chunk.turn_id or turn.id
+                        if chunk.chunk_type == ChunkEnum.REPLY_END:
+                            terminal = chunk
+                        else:
+                            yield chunk
+                if completed is None or terminal is None:
+                    raise RuntimeError("Codex turn completed event not received")
+                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, kwargs)
             finally:
                 if usage.usage is not None:
                     self._record_token_usage(usage.usage)
-                if not completed:
+                if completed is None:
                     await self._interrupt(turn)
                 await stream.aclose()
+        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+        terminal.status = result["status"]
+        terminal.metadata["error"] = result["error"]
+        yield terminal

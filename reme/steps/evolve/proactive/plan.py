@@ -213,6 +213,7 @@ class ProactivePlanStep(BaseStep):
                 wrapper.reply(user_message, system_prompt=system_prompt),
                 timeout=self.llm_timeout_seconds,
             )
+            raw = agent_reply_result_text(result)
         except asyncio.TimeoutError:
             self.logger.warning(f"[{self.name}] LLM reply timed out after {self.llm_timeout_seconds}s")
             return {}
@@ -221,7 +222,6 @@ class ProactivePlanStep(BaseStep):
                 f"[{self.name}] LLM reply failed ({type(e).__name__}: {e}); using fallback cards",
             )
             return {}
-        raw = agent_reply_result_text(result)
         cards_by_id: dict[str, dict] = {}
         for card in parse_plan_reply(raw):
             cid = str(card.get("topic_id") or "").strip()

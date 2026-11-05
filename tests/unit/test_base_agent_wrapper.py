@@ -212,22 +212,9 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         async def generate_structured_output(self, **kwargs):
             """Return a successful structured response."""
             observed.update(kwargs)
-            return SimpleNamespace(content={"ok": True}, usage=None)
+            from agentscope.model import StructuredResponse
 
-    class FakeMessage:
-        """Minimal AgentScope reply message."""
-
-        usage = None
-
-        @staticmethod
-        def model_dump():
-            """Return serialized message content."""
-            return {"content": "answer"}
-
-        @staticmethod
-        def get_text_content():
-            """Return plain text content."""
-            return "answer"
+            return StructuredResponse(content={"ok": True})
 
     class FakeAgent:
         """Minimal AgentScope agent."""
@@ -235,14 +222,13 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         state = SimpleNamespace(session_id="session-1", context=["context"])
 
         @staticmethod
-        async def observe(_inputs):
-            """Accept an input message."""
-            return None
+        async def reply_stream(_inputs, **_kwargs):
+            """Stream real SDK termination and message shapes."""
+            from agentscope.event import ReplyEndEvent
+            from agentscope.message import AssistantMsg
 
-        @staticmethod
-        async def reply():
-            """Return the fake reply message."""
-            return FakeMessage()
+            yield ReplyEndEvent(session_id="session-1", reply_id="reply", finished_reason="completed")
+            yield AssistantMsg(name="agent", content="answer", finished_reason="completed")
 
     wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
     wrapper.as_llm = SimpleNamespace(model=FakeModel())

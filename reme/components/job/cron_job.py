@@ -32,7 +32,9 @@ class CronJob(BackgroundJob):
         from croniter import croniter
 
         nxt = croniter(self.cron_expr, now).get_next(datetime.datetime)
-        return max(0.0, (nxt - now).total_seconds())
+        # croniter may reset fold on naive local times, so retain their wall-clock arithmetic.
+        delay = nxt.timestamp() - now.timestamp() if tz_name else (nxt - now).total_seconds()
+        return max(0.0, delay)
 
     async def _execute_steps(self) -> Response:
         merged = dict(self.kwargs)

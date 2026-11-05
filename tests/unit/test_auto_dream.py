@@ -118,7 +118,7 @@ class _ReplyAgent(BaseAgentWrapper):
             self.on_reply()
         if self.error:
             raise self.error
-        return self.result
+        return {**self._reply_result(session_id="stub", result="", raw={}), **self.result}
 
 
 class _SequenceAgent(BaseAgentWrapper):
@@ -138,7 +138,7 @@ class _SequenceAgent(BaseAgentWrapper):
             outcome = outcome()
         if isinstance(outcome, Exception):
             raise outcome
-        return outcome
+        return {**self._reply_result(session_id="stub", result="", raw={}), **outcome}
 
 
 def test_scan_day_files_includes_only_markdown_day_files():
@@ -541,7 +541,7 @@ async def test_integrate_failure_only_blocks_affected_sources(tmp_path, monkeypa
 
     def integrate_good():
         _touch(tmp_path / target, "integrated memory")
-        return {"result": json.dumps({"action": "CREATE", "target_path": target})}
+        return {"status": "completed", "result": json.dumps({"action": "CREATE", "target_path": target})}
 
     agent = _SequenceAgent(integrate_good, {"result": "{}"}, {"result": "{}"})
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
@@ -718,12 +718,12 @@ async def test_integrate_emits_actual_changes_once_across_units(tmp_path, monkey
 
     def create():
         _touch(tmp_path / created, "new")
-        return {"result": json.dumps({"action": "CREATE", "target_path": created})}
+        return {"status": "completed", "result": json.dumps({"action": "CREATE", "target_path": created})}
 
     def update():
         _touch(tmp_path / created, "new with more evidence")
         _touch(tmp_path / updated, "updated existing memory")
-        return {"result": json.dumps({"action": "REFINE", "target_path": created})}
+        return {"status": "completed", "result": json.dumps({"action": "REFINE", "target_path": created})}
 
     agent = _SequenceAgent(
         create,
@@ -818,7 +818,7 @@ async def test_dream_jobs_tag_outputs_and_preserve_checkpoint_results(
 
     async def reply(_message, **kwargs):
         if kwargs["job_tools"] == ["read"]:
-            return {"result": json.dumps({"units": [unit]})}
+            return {"status": "completed", "result": json.dumps({"units": [unit]})}
         if "list_tags" in kwargs["job_tools"]:
             injected = kwargs["injected_job_kwargs"]
             path = injected["_allowed_paths"][0]
@@ -831,15 +831,15 @@ async def test_dream_jobs_tag_outputs_and_preserve_checkpoint_results(
             )
             await FrontmatterUpdateStep(file_store=store)(update_context)
             assert update_context.response.success
-            return {"result": "Tagged ReMe"}
+            return {"status": "completed", "result": "Tagged ReMe"}
         for path in targets:
             previous = (tmp_path / path).read_text(encoding="utf-8") if (tmp_path / path).exists() else ""
             _touch(tmp_path / path, previous + "ReMe evidence\n")
         if integration_failure == "exception":
             raise RuntimeError("integration unavailable")
         if integration_failure == "invalid_receipt":
-            return {"result": "{}"}
-        return {"result": json.dumps({"action": "CREATE", "target_path": targets[0]})}
+            return {"status": "completed", "result": "{}"}
+        return {"status": "completed", "result": json.dumps({"action": "CREATE", "target_path": targets[0]})}
 
     agent = _ReplyAgent()
     monkeypatch.setattr(agent, "reply", AsyncMock(side_effect=reply))
@@ -1278,7 +1278,7 @@ class _BatchAwareAgent(BaseAgentWrapper):
                 }
                 for index in range(count)
             )
-        return {"result": json.dumps({"units": units})}
+        return {"status": "completed", "result": json.dumps({"units": units})}
 
 
 @pytest.mark.asyncio

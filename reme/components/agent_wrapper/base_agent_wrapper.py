@@ -1,6 +1,5 @@
 """Base agent wrapper component."""
 
-from abc import abstractmethod
 from collections.abc import AsyncGenerator
 from importlib import metadata
 from pathlib import Path
@@ -11,7 +10,8 @@ from pydantic import BaseModel
 from ..base_component import BaseComponent, _context_workspaces
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
-from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema.agent_reply import AgentReplyStatus, collect_reply
 from ...utils import global_counter_add_many
 
 if TYPE_CHECKING:
@@ -259,13 +259,6 @@ class BaseAgentWrapper(BaseComponent):
             merged["output_schema"] = self._normalize_output_schema(merged["output_schema"])
         return merged
 
-    def _merged_stream_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Merge stream options and reject unsupported structured output."""
-        merged = self._merged_kwargs(kwargs)
-        if merged.get("output_schema") is not None:
-            raise NotImplementedError("Structured output is not supported by reply_stream()")
-        return merged
-
     @staticmethod
     def _chunk(chunk_type: ChunkEnum = ChunkEnum.CONTENT, **kwargs: Any) -> StreamChunk:
         """Create a StreamChunk with a short backend-friendly call site."""
@@ -288,9 +281,39 @@ class BaseAgentWrapper(BaseComponent):
             },
         )
 
-    @abstractmethod
-    async def reply(self, inputs: Any, **kwargs) -> dict:
-        """Send inputs to the agent and return a dict with session_id and last_message."""
+    @staticmethod
+    def _serialize(value: Any) -> Any:
+        """Keep native model/dataclass fields in a JSON-serializable form."""
+        from pydantic_core import to_jsonable_python
+
+        return to_jsonable_python(value, by_alias=True)
+
+    @staticmethod
+    def _reply_result(
+        *,
+        session_id: str,
+        result: str | None,
+        raw: dict[str, Any],
+        status: AgentReplyStatus = "completed",
+        error: str | None = None,
+        structured_output: Any = None,
+        usage: TokenUsage | None = None,
+    ) -> AgentReply:
+        """Build the same portable fields for every backend."""
+        return AgentReply(
+            session_id=session_id,
+            result=result or "",
+            structured_output=structured_output,
+            usage=usage.model_dump() if usage is not None else None,
+            status=status,
+            error=error,
+            raw=raw,
+            events=[],
+        )
+
+    async def reply(self, inputs: Any, **kwargs) -> AgentReply:
+        """Collect the same execution used by streaming; errors and cancellation propagate."""
+        return await collect_reply(self.reply_stream(inputs, **kwargs))
 
     async def compact_session(self, session_id: str) -> None:
         """Request compaction of one persisted agent session."""
@@ -318,3 +341,5 @@ class BaseAgentWrapper(BaseComponent):
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""
+        raise NotImplementedError
+        yield  # pylint: disable=unreachable

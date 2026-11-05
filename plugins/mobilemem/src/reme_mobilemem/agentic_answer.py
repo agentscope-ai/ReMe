@@ -121,11 +121,11 @@ class MobileMemAgenticAnswerStep(BaseStep):
                 resume="",
                 react_config={"max_iters": max_iters},
             )
-            self.context.response.answer = (result.get("result") or "").strip()
+            self.context.response.success = result["status"] == "completed"
+            self.context.response.answer = result["error"] or result["result"].strip()
             self.context.response.metadata.update(
-                usage=result.get("usage"),
-                agentscope_usage=(result.get("last_message") or {}).get("usage"),
-                agent_session_id=result.get("session_id"),
+                **result,
+                agent_session_id=result["session_id"],
                 include_source_sessions=sources,
                 include_images=images,
                 max_iters=max_iters,

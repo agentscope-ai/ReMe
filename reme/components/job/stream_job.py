@@ -22,5 +22,6 @@ class StreamJob(BaseJob):
                 context.response.success = False
                 context.response.answer = _describe_exception(e)
                 await context.add_stream_string(str(e), ChunkEnum.ERROR)
+                context.stream_error = context.response.answer
             # Always emit DONE so consumers can detach even after an error.
             await context.add_stream_done()

@@ -20,14 +20,13 @@ class ChunkEnum(str, Enum):
         ExceedMaxItersEvent      -> ERROR
 
     Claude Code SDK events -> ChunkEnum mapping:
-        message_start   -> REPLY_START
+        message_start/stop -> DATA (model-message boundaries)
         message_delta   -> USAGE
-        message_stop    -> REPLY_END
         content_block_start/delta/stop (text)      -> CONTENT
         content_block_start/delta/stop (thinking)  -> THINK
         content_block_start/delta/stop (tool_use)  -> TOOL_CALL
         ToolResultBlock -> TOOL_RESULT
-        ResultMessage   -> USAGE
+        ResultMessage   -> USAGE + REPLY_END
         ResultMessage.is_error -> ERROR
 
     Codex app-server notifications follow the same lifecycle categories;

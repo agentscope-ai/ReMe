@@ -113,7 +113,7 @@ test("thinking finishes as each tool or answer phase starts", () => {
     message,
     chunk("tool_result", "00:11", {
       tool_call_id: "clock",
-      metadata: { state: "completed" },
+      status: "completed",
     }),
   );
   message = applyStreamChunk(
@@ -192,7 +192,11 @@ test("reply completion restores the final answer when content deltas were missed
   );
   message = applyStreamChunk(
     message,
-    chunk("reply_end", "", { metadata: { answer: "Final answer." } }),
+    chunk(
+      "reply_end",
+      { result: "Final answer." },
+      { event: "end", status: "completed" },
+    ),
   );
 
   assert.equal(message.blocks.at(-1).type, "content");
@@ -232,7 +236,7 @@ test("Codex hook notifications do not become chat data blocks", () => {
           threadId: "thread-1",
           turnId: "turn-1",
         },
-        { metadata: { codex_method: method } },
+        { metadata: { codex_method: method, visibility: "diagnostic" } },
       ),
     );
   }
@@ -281,6 +285,7 @@ test("Codex tool snapshots finish before the reply ends", () => {
       {
         tool_call_id: "tool-1",
         tool_call_name: "search",
+        status: "running",
       },
     ),
   );
@@ -307,6 +312,8 @@ test("Codex tool snapshots finish before the reply ends", () => {
       { id: "tool-1", type: "mcpToolCall", status: "completed" },
       {
         tool_call_id: "tool-1",
+        event: "end",
+        status: "completed",
       },
     ),
   );
@@ -325,6 +332,8 @@ test("Codex failed and declined tools stay failed after reply completion", () =>
         {
           tool_call_id: "tool-1",
           tool_call_name: "commandExecution",
+          event: "end",
+          status: "failed",
         },
       ),
     );
@@ -362,7 +371,11 @@ test("Claude tools remain pending across message boundaries and report their act
       chunk(
         "tool_result",
         { tool_use_id: "tool-1", content: "Result", is_error },
-        { tool_call_id: "tool-1" },
+        {
+          tool_call_id: "tool-1",
+          event: "end",
+          status: is_error ? "failed" : "completed",
+        },
       ),
     );
     assert.equal(message.blocks[0].status, is_error ? "error" : "done");
@@ -378,7 +391,7 @@ test("Claude server tool results finish without an is_error field", () => {
     chunk(
       "tool_result",
       { tool_use_id: "server-1", content: { matches: 1 } },
-      { tool_call_id: "server-1" },
+      { tool_call_id: "server-1", event: "end", status: "completed" },
     ),
   );
   assert.equal(message.blocks[0].status, "done");
@@ -406,7 +419,7 @@ test("a transport failure marks pending blocks failed and preserves completed ph
     message,
     chunk("tool_result", "", {
       tool_call_id: "completed",
-      metadata: { state: "completed" },
+      status: "completed",
     }),
   );
   message = applyStreamChunk(
@@ -444,7 +457,7 @@ test("late tool output does not reopen a completed or failed execution", () => {
       initial(),
       chunk("tool_result", "Result", {
         tool_call_id: "tool-1",
-        metadata: { state },
+        status: state,
       }),
     );
     message = applyStreamChunk(
@@ -639,4 +652,158 @@ test("a failed stream returns its error message", async () => {
   );
 
   assert.equal(error, "Connection lost");
+});
+
+test("authoritative text snapshots replace deltas, including an empty final text", () => {
+  let message = initial();
+  for (const event of [
+    chunk("content", "draft", { block_id: "answer" }),
+    chunk("content", "corrected", {
+      block_id: "answer",
+      event: "end",
+      metadata: { phase: "final_answer" },
+    }),
+    chunk("content", "corrected", { block_id: "answer", event: "end" }),
+    chunk("content", null, { block_id: "answer", event: "end" }),
+  ])
+    message = applyStreamChunk(message, event);
+  assert.equal(message.blocks.length, 1);
+  assert.equal(message.blocks[0].text, "corrected");
+  assert.equal(message.blocks[0].metadata.phase, "final_answer");
+  message = applyStreamChunk(
+    message,
+    chunk("content", "", { block_id: "answer", event: "end" }),
+  );
+  assert.equal(message.blocks[0].text, "");
+});
+
+test("tool snapshots replace streamed output and argument completion keeps the tool pending", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("tool_call", '{"q":', { tool_call_id: "tool" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_call", { q: "hello" }, { tool_call_id: "tool", event: "end" }),
+  );
+  assert.equal(message.blocks[0].status, "calling");
+  message = applyStreamChunk(
+    message,
+    chunk("tool_result", "partial", {
+      tool_call_id: "tool",
+      status: "running",
+    }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk(
+      "tool_result",
+      { output: "complete" },
+      { tool_call_id: "tool", event: "end", status: "completed" },
+    ),
+  );
+  assert.deepEqual(message.blocks[0].callPayloads, [{ q: "hello" }]);
+  assert.deepEqual(message.blocks[0].resultPayloads, [{ output: "complete" }]);
+  assert.equal(message.blocks[0].status, "done");
+});
+
+test("retryable errors do not turn a recovered reply into a failure", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("error", "temporary", { metadata: { will_retry: true } }),
+  );
+  message = applyStreamChunk(message, chunk("content", "recovered"));
+  message = applyStreamChunk(
+    message,
+    chunk("reply_end", null, { event: "end", status: "completed" }),
+  );
+  message = applyStreamChunk(message, chunk("done", "", { done: true }));
+  assert.equal(message.status, "completed");
+  assert.equal(message.blocks[0].metadata.will_retry, true);
+});
+
+test("reply interruption and input waits survive transport completion", () => {
+  for (const status of ["interrupted", "waiting"]) {
+    let message = applyStreamChunk(
+      initial(),
+      chunk("think", "working", { block_id: "thought" }),
+    );
+    message = applyStreamChunk(
+      message,
+      chunk("tool_call", null, { tool_call_id: "tool" }),
+    );
+    message = applyStreamChunk(
+      message,
+      chunk("reply_end", null, { event: "end", status }),
+    );
+    message = applyStreamChunk(message, chunk("done", "", { done: true }));
+    assert.equal(message.status, status);
+    assert.equal(message.blocks[0].status, "done");
+    assert.equal(message.blocks[1].status, status);
+  }
+});
+
+test("terminal outcomes retain raw data, scalar structured output and diagnostic events", () => {
+  const outcome = {
+    session_id: "session",
+    result: "final answer",
+    structured_output: false,
+    usage: null,
+    status: "waiting",
+    error: null,
+    raw: { cache: 7, signature: "signed", future: [false, null] },
+  };
+  const events = [
+    chunk("reply_start", null, { event: "start", status: "running" }),
+    chunk("data", null, {
+      metadata: { visibility: "diagnostic", native: { future: [false, null] } },
+    }),
+    chunk("content", "checking", { block_id: "commentary" }),
+    chunk("reply_end", outcome, { event: "end", status: "waiting" }),
+    chunk("done", "", { done: true }),
+  ];
+  const message = events.reduce(applyStreamChunk, initial());
+  assert.deepEqual(message.events, events);
+  assert.deepEqual(message.reply, outcome);
+  assert.equal(message.status, "waiting");
+  assert.deepEqual(
+    message.blocks.map((block) => block.type),
+    ["content", "content", "data"],
+  );
+  assert.equal(message.blocks[1].text, "final answer");
+  assert.deepEqual(message.blocks[2].payloads, [false]);
+  assert.equal(formatStreamPayloads(message.blocks[2].payloads), "false");
+  const replayed = JSON.parse(JSON.stringify(message.events)).reduce(
+    applyStreamChunk,
+    initial(),
+  );
+  assert.deepEqual(replayed, message);
+});
+
+test("null usage fields do not falsely settle an in-progress detail block", () => {
+  const message = applyStreamChunk(
+    initial(),
+    chunk("usage", null, { input_tokens: null, output_tokens: null }),
+  );
+  assert.equal(message.blocks[0].status, "streaming");
+  assert.equal(message.blocks[0].inputTokens, undefined);
+});
+
+test("stopping a running invocation preserves interruption rather than implying success", () => {
+  let message = applyStreamChunk(
+    initial(),
+    chunk("reply_start", null, { status: "running" }),
+  );
+  message = applyStreamChunk(
+    message,
+    chunk("tool_call", "{}", { tool_call_id: "pending" }),
+  );
+  const stopped = finishChatMessage(message);
+  assert.equal(stopped.status, "interrupted");
+  assert.equal(stopped.blocks[0].status, "interrupted");
+  assert.deepEqual(stopped.events, message.events);
+  assert.equal(
+    stopped.blocks.some((block) => block.type === "error"),
+    false,
+  );
 });

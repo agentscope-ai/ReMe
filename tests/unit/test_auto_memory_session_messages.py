@@ -5,7 +5,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from agentscope.message import Msg, TextBlock
+from agentscope.message import Base64Source, DataBlock, Msg, TextBlock
 import pytest
 
 from reme.steps.evolve import auto_memory
@@ -197,3 +197,183 @@ async def test_concurrent_append_survives_rewrite_race(step, monkeypatch):
 
     _assert_transcript(step._session_path(_SESSION), ["m0", "m_mid", "m1", "m2"])
     _assert_serialized(interleaving)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("append_new", [False, True])
+@pytest.mark.parametrize("field", ["content", "metadata", "created_at"])
+async def test_existing_message_updates_are_persisted(step, append_new, field):
+    original = _msg("m0", "2026-10-01T10:00:00")
+    await step._save_session_messages(_SESSION, [original])
+    updates = {
+        "content": [TextBlock(text="corrected observation")],
+        "metadata": {"corrected": True},
+        "created_at": "2026-10-01T10:00:30",
+    }
+    corrected = original.model_copy(update={field: updates[field]})
+    messages = [corrected]
+    if append_new:
+        messages.append(_msg("m1", "2026-10-01T10:01:00"))
+
+    await step._save_session_messages(_SESSION, messages)
+
+    saved = [Msg.model_validate_json(line) for line in step._session_path(_SESSION).read_text().splitlines()]
+    assert [message.model_dump() for message in saved] == [message.model_dump() for message in messages]
+
+
+@pytest.mark.asyncio
+async def test_identical_retry_with_sanitized_content_does_not_rewrite(step, monkeypatch):
+    message = _msg("m0", "2026-10-01T10:00:00")
+    message.content.append(DataBlock(source=Base64Source(media_type="image/png", data="aW1hZ2U=")))
+    await step._save_session_messages(_SESSION, [message])
+    original = step._session_path(_SESSION).read_bytes()
+    real_open = auto_memory.aiofiles.open
+    write_modes = []
+
+    def record_open(path, mode="r", **kwargs):
+        if mode in ("a", "w"):
+            write_modes.append(mode)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(auto_memory.aiofiles, "open", record_open)
+    await step._save_session_messages(_SESSION, [message])
+    assert not write_modes
+    assert step._session_path(_SESSION).read_bytes() == original
+    await step._save_session_messages(_SESSION, [message, _msg("m1", "2026-10-01T10:01:00")])
+    assert write_modes == ["a"]
+    assert len(message.content) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("append_new", [False, True])
+async def test_metadata_bool_to_int_correction_is_persisted(step, append_new):
+    """JSON true and 1 differ on disk even though Python considers them equal."""
+    original = _msg("m0", "2026-10-01T10:00:00").model_copy(update={"metadata": {"value": True}})
+    await step._save_session_messages(_SESSION, [original])
+    corrected = original.model_copy(update={"metadata": {"value": 1}})
+    messages = [corrected]
+    if append_new:
+        messages.append(_msg("m1", "2026-10-01T10:01:00"))
+
+    await step._save_session_messages(_SESSION, messages)
+
+    saved = [Msg.model_validate_json(line) for line in step._session_path(_SESSION).read_text().splitlines()]
+    assert saved[0].metadata["value"] == 1
+    assert type(saved[0].metadata["value"]) is int
+    assert [message.id for message in saved] == [message.id for message in messages]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    [
+        [{"type": "text", "text": "same raw payload"}],
+        [{"type": "hint", "hint": "notification"}],
+        [
+            {
+                "type": "hint",
+                "hint": [{"type": "text", "text": "notification"}],
+                "finished_at": "2026-10-01T10:00:00",
+            },
+        ],
+    ],
+    ids=["text", "hint", "nested hint"],
+)
+async def test_identical_raw_retry_with_generated_content_defaults_does_not_rewrite(step, monkeypatch, content):
+    """Parsing identical raw messages twice should not churn generated block defaults."""
+    raw = {
+        "id": "m0",
+        "name": "Assistant",
+        "role": "assistant",
+        "created_at": "2026-10-01T10:00:00",
+        "content": content,
+    }
+    first = step._build_messages([raw])
+    await step._save_session_messages(_SESSION, first)
+    original = step._session_path(_SESSION).read_bytes()
+    real_open = auto_memory.aiofiles.open
+    write_modes = []
+
+    def record_open(path, mode="r", **kwargs):
+        if mode in ("a", "w"):
+            write_modes.append(mode)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(auto_memory.aiofiles, "open", record_open)
+    second = step._build_messages([raw])
+    await step._save_session_messages(_SESSION, second)
+
+    assert not write_modes
+    assert step._session_path(_SESSION).read_bytes() == original
+
+
+def test_raw_hint_conversion_preserves_explicit_nested_ids_and_timestamps(step):
+    """Caller-provided IDs and timestamps remain authoritative at every hint depth."""
+    message = step._to_msg(
+        {
+            "id": "m0",
+            "name": "Alice",
+            "role": "assistant",
+            "created_at": "2026-10-01T10:00:00",
+            "content": [
+                {
+                    "type": "hint",
+                    "id": "outer-id",
+                    "created_at": "2026-10-01T10:00:01",
+                    "finished_at": "2026-10-01T10:00:02",
+                    "hint": [
+                        {
+                            "type": "text",
+                            "text": "notification",
+                            "id": "nested-id",
+                            "created_at": "2026-10-01T10:00:03",
+                        },
+                    ],
+                },
+            ],
+        },
+    )
+
+    outer = message.content[0]
+    nested = outer.hint[0]
+    assert (outer.id, outer.created_at, outer.finished_at) == (
+        "outer-id",
+        "2026-10-01T10:00:01",
+        "2026-10-01T10:00:02",
+    )
+    assert (nested.id, nested.created_at) == ("nested-id", "2026-10-01T10:00:03")
+
+
+def test_raw_message_conversion_preserves_explicit_content_block_ids(step):
+    """Caller-provided block IDs remain authoritative during normalization."""
+    message = step._to_msg(
+        {
+            "id": "m0",
+            "name": "Alice",
+            "role": "user",
+            "created_at": "2026-10-01T10:00:00",
+            "content": [{"type": "text", "text": "same raw payload", "id": "caller-block-id"}],
+        },
+    )
+
+    assert message.content[0].id == "caller-block-id"
+
+
+@pytest.mark.asyncio
+async def test_identical_metadata_with_different_key_order_does_not_rewrite(step, monkeypatch):
+    """Canonical JSON comparison ignores object key order while preserving value types."""
+    original = _msg("m0", "2026-10-01T10:00:00").model_copy(update={"metadata": {"a": 1, "b": 2}})
+    await step._save_session_messages(_SESSION, [original])
+    real_open = auto_memory.aiofiles.open
+    write_modes = []
+
+    def record_open(path, mode="r", **kwargs):
+        if mode in ("a", "w"):
+            write_modes.append(mode)
+        return real_open(path, mode, **kwargs)
+
+    monkeypatch.setattr(auto_memory.aiofiles, "open", record_open)
+    reordered = original.model_copy(update={"metadata": {"b": 2, "a": 1}})
+    await step._save_session_messages(_SESSION, [reordered])
+
+    assert not write_modes

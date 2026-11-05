@@ -64,6 +64,7 @@ jobs:
           python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme_studio/')
           python -m venv "${RUNNER_TEMP}/reme-package-smoke"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]"
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c "import reme"
 
@@ -92,16 +93,6 @@ jobs:
           assert runtime.registry.get(ComponentEnum.STEP, "auto_bash_step") is AutoBashStep
           assert runtime.config["jobs"]["auto_bash"]["steps"] == [{"backend": "auto_bash_step"}]
           PY
-
-      - name: Reject incompatible published ReMe for Home
-        run: |
-          HOME_WHEEL="$(pwd)/$(ls dist/home/reme_home-[0-9]*.whl)"
-          if python -m pip install --dry-run --ignore-installed "${HOME_WHEEL}" "reme-ai[as]==0.4.2.0" > "${RUNNER_TEMP}/home-incompatible.log" 2>&1; then
-            echo 'Home must not install with the published ReMe 0.4.2.0 wheel.'
-            exit 1
-          fi
-          cat "${RUNNER_TEMP}/home-incompatible.log"
-          grep -q 'ResolutionImpossible' "${RUNNER_TEMP}/home-incompatible.log"
 
       - name: Verify released core dependencies
         if: inputs.upload_artifacts

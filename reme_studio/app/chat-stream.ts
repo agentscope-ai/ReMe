@@ -5,6 +5,7 @@ import type {
   StreamChunk,
   StreamPayload,
   ToolBlock,
+  StreamStatus,
 } from "./types";
 
 const detailTypes = new Set(["think", "data", "approval", "usage"]);
@@ -70,16 +71,41 @@ export async function readChatStream(
 }
 
 const payloadText = (payload: StreamPayload): string =>
-  typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+  payload === null
+    ? ""
+    : typeof payload === "string"
+    ? payload
+    : JSON.stringify(payload, null, 2);
 
-const appendError = (blocks: ChatBlock[], text: string): ChatBlock[] => {
+const appendError = (
+  blocks: ChatBlock[],
+  text: string,
+  metadata?: Record<string, unknown>,
+): ChatBlock[] => {
   if (!text) return blocks;
   const last = blocks.at(-1);
-  if (last?.type === "error") {
+  if (
+    last?.type === "error" &&
+    last.metadata?.will_retry === metadata?.will_retry
+  ) {
     return [...blocks.slice(0, -1), { ...last, text: last.text + text }];
   }
-  return [...blocks, { id: `error:${blocks.length}`, type: "error", text }];
+  return [
+    ...blocks,
+    { id: `error:${blocks.length}`, type: "error", text, metadata },
+  ];
 };
+
+const settled = (status: string): status is "done" | "error" | "interrupted" =>
+  ["done", "error", "interrupted"].includes(status);
+const blockStatus = (status?: StreamStatus | null) =>
+  status === "failed"
+    ? "error"
+    : status === "interrupted"
+    ? "interrupted"
+    : status === "waiting"
+    ? "waiting"
+    : "done";
 
 export function finishChatMessage(
   message: ChatMessage,
@@ -88,33 +114,35 @@ export function finishChatMessage(
 ): ChatMessage {
   const failed =
     Boolean(error) ||
-    (finishTools && message.blocks?.some((block) => block.type === "error"));
+    message.status === "failed" ||
+    message.blocks?.some(
+      (block) => block.type === "error" && block.metadata?.will_retry !== true,
+    );
+  const status = failed
+    ? "failed"
+    : message.status === "running"
+    ? "interrupted"
+    : message.status === "interrupted" || message.status === "waiting"
+    ? message.status
+    : "completed";
   let blocks = (message.blocks || []).map((block): ChatBlock => {
     if (block.type === "content" || block.type === "error") return block;
-    // Claude emits reply_end before executing the tools in that message.
-    if (
-      !finishTools &&
-      block.type === "tool" &&
-      block.status !== "done" &&
-      block.status !== "error"
-    )
+    if (!finishTools && block.type === "tool" && !settled(block.status))
       return block;
     return {
       ...block,
-      status:
-        block.status === "error" || (failed && block.status !== "done")
-          ? "error"
-          : "done",
+      status: settled(block.status) ? block.status : blockStatus(status),
       expanded: false,
     };
   });
   if (error) blocks = appendError(blocks, error);
-  return { ...message, blocks };
+  return { ...message, status, blocks };
 }
 
 function applyContent(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
+  if (chunk.chunk === null) return blocks;
   const text = payloadText(chunk.chunk);
-  if (!text) return blocks;
+  if (!text && (!chunk.event || chunk.event === "delta")) return blocks;
   const id = chunk.block_id || "";
   const index = id
     ? blocks.findIndex(
@@ -124,12 +152,21 @@ function applyContent(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   const current = blocks[index];
   if (current?.type === "content" && (id || index === blocks.length - 1)) {
     const next = [...blocks];
-    next[index] = { ...current, text: current.text + text };
+    next[index] = {
+      ...current,
+      text: chunk.event && chunk.event !== "delta" ? text : current.text + text,
+      metadata: { ...current.metadata, ...chunk.metadata },
+    };
     return next;
   }
   return [
     ...blocks,
-    { id: `content:${id || blocks.length}`, type: "content", text },
+    {
+      id: `content:${id || blocks.length}`,
+      type: "content",
+      text,
+      metadata: chunk.metadata,
+    },
   ];
 }
 
@@ -160,10 +197,14 @@ function detailId(blocks: ChatBlock[], chunk: StreamChunk): string {
 function applyDetail(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   const id = detailId(blocks, chunk);
   const index = blocks.findIndex((block) => block.id === id);
-  const payloads = payloadText(chunk.chunk) ? [chunk.chunk] : [];
+  const payloads =
+    chunk.chunk !== null && (payloadText(chunk.chunk) || chunk.event === "end")
+      ? [chunk.chunk]
+      : [];
   const done =
-    chunk.chunk_type === "usage" &&
-    (chunk.input_tokens !== undefined || chunk.output_tokens !== undefined);
+    chunk.event === "end" ||
+    (chunk.chunk_type === "usage" &&
+      (chunk.input_tokens != null || chunk.output_tokens != null));
   const type = detailTypes.has(chunk.chunk_type)
     ? (chunk.chunk_type as DetailBlock["type"])
     : "unknown";
@@ -175,8 +216,11 @@ function applyDetail(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
     current.type !== "error"
       ? {
           ...current,
-          payloads: [...current.payloads, ...payloads],
-          status: done ? "done" : "streaming",
+          payloads:
+            chunk.event && chunk.event !== "delta" && chunk.chunk !== null
+              ? payloads
+              : [...current.payloads, ...payloads],
+          status: done ? blockStatus(chunk.status) : "streaming",
           expanded: current.expanded,
           mediaType: chunk.media_type || current.mediaType,
           inputTokens: chunk.input_tokens ?? current.inputTokens,
@@ -188,11 +232,11 @@ function applyDetail(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
           type,
           sourceType: chunk.chunk_type,
           payloads,
-          status: done ? "done" : "streaming",
+          status: done ? blockStatus(chunk.status) : "streaming",
           expanded: true,
-          mediaType: chunk.media_type,
-          inputTokens: chunk.input_tokens,
-          outputTokens: chunk.output_tokens,
+          mediaType: chunk.media_type || undefined,
+          inputTokens: chunk.input_tokens ?? undefined,
+          outputTokens: chunk.output_tokens ?? undefined,
           metadata: chunk.metadata,
         };
   if (index < 0) return [...blocks, nextBlock];
@@ -203,72 +247,55 @@ function applyDetail(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
 
 function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   const last = blocks.at(-1);
-  const activeToolId =
-    last?.type === "tool" && last.status !== "done" && last.status !== "error"
-      ? last.id.slice("tool:".length)
-      : undefined;
   const toolId =
     chunk.tool_call_id ||
     chunk.block_id ||
-    activeToolId ||
-    `${chunk.chunk_type}:${blocks.length}`;
+    (last?.type === "tool" && !settled(last.status)
+      ? last.id.slice("tool:".length)
+      : `${blocks.length}`);
   const id = `tool:${toolId}`;
   const index = blocks.findIndex(
     (block) => block.type === "tool" && block.id === id,
   );
   const current = index >= 0 ? (blocks[index] as ToolBlock) : undefined;
-  const hasPayload = payloadText(chunk.chunk).length > 0;
   const result = chunk.chunk_type === "tool_result";
-  const payload =
-    typeof chunk.chunk === "object" && !Array.isArray(chunk.chunk)
-      ? chunk.chunk
-      : undefined;
-  const snapshot =
-    payload?.id === toolId && typeof payload.type === "string"
-      ? payload
-      : undefined;
-  const claudeResult =
-    result && payload?.tool_use_id === toolId && "content" in payload
-      ? payload
-      : undefined;
-  const state = String(
-    chunk.metadata?.state || snapshot?.status || "",
-  ).toLowerCase();
-  const failed =
-    current?.status === "error" ||
-    claudeResult?.is_error === true ||
-    state.includes("error") ||
-    state.includes("fail") ||
-    state === "declined";
+  const previous =
+    (result ? current?.resultPayloads : current?.callPayloads) || [];
+  const payloads =
+    chunk.chunk === null
+      ? previous
+      : chunk.event && chunk.event !== "delta"
+      ? [chunk.chunk]
+      : [...previous, ...(payloadText(chunk.chunk) ? [chunk.chunk] : [])];
+  // TOOL_CALL end finishes argument streaming; only TOOL_RESULT end finishes execution.
   const completed =
-    failed ||
-    current?.status === "done" ||
-    claudeResult !== undefined ||
-    (state !== "" && state !== "inprogress");
+    chunk.status === "completed" ||
+    chunk.status === "failed" ||
+    chunk.status === "interrupted" ||
+    (result &&
+      chunk.event === "end" &&
+      chunk.status !== "running" &&
+      chunk.status !== "waiting");
+  const status =
+    current && (current.status === "error" || current.status === "interrupted")
+      ? current.status
+      : completed
+      ? blockStatus(chunk.status)
+      : current && settled(current.status)
+      ? current.status
+      : chunk.status === "waiting"
+      ? "waiting"
+      : result
+      ? "running"
+      : "calling";
   const nextBlock: ToolBlock = {
     id,
     type: "tool",
     name: chunk.tool_call_name || current?.name || "ReMe tool",
-    callPayloads: result
-      ? current?.callPayloads || []
-      : [
-          ...(current?.callPayloads || []),
-          ...(hasPayload ? [chunk.chunk] : []),
-        ],
-    resultPayloads: result
-      ? [
-          ...(current?.resultPayloads || []),
-          ...(hasPayload ? [chunk.chunk] : []),
-        ]
-      : current?.resultPayloads || [],
-    status: failed
-      ? "error"
-      : completed
-      ? "done"
-      : result
-      ? "running"
-      : "calling",
-    expanded: completed ? false : current?.expanded ?? true,
+    callPayloads: result ? current?.callPayloads || [] : payloads,
+    resultPayloads: result ? payloads : current?.resultPayloads || [],
+    status,
+    expanded: settled(status) ? false : current?.expanded ?? true,
     mediaType: chunk.media_type || current?.mediaType,
     metadata: { ...current?.metadata, ...chunk.metadata },
   };
@@ -278,16 +305,23 @@ function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   return next;
 }
 
-export function applyStreamChunk(
+function reduceStreamChunk(
   message: ChatMessage,
   chunk: StreamChunk,
 ): ChatMessage {
   if (chunk.chunk_type === "reply_end") {
-    const answer =
-      typeof chunk.metadata?.answer === "string" ? chunk.metadata.answer : "";
-    const hasContent = (message.blocks || []).some(
-      (block) => block.type === "content" && block.text.length > 0,
-    );
+    const outcome =
+      chunk.chunk &&
+      typeof chunk.chunk === "object" &&
+      !Array.isArray(chunk.chunk)
+        ? (chunk.chunk as ChatMessage["reply"])
+        : undefined;
+    const answer = outcome?.result || "";
+    const hasContent = (message.blocks || [])
+      .filter((block) => block.type === "content")
+      .map((block) => block.text)
+      .join("")
+      .endsWith(answer);
     const completed =
       answer && !hasContent
         ? {
@@ -302,18 +336,53 @@ export function applyStreamChunk(
             ],
           }
         : message;
-    return finishChatMessage(completed, undefined, { finishTools: false });
+    const failed =
+      chunk.status === "failed" &&
+      !(completed.blocks || []).some(
+        (block) =>
+          block.type === "error" && block.metadata?.will_retry !== true,
+      );
+    let blocks = failed
+      ? appendError(
+          completed.blocks || [],
+          String(
+            outcome?.error ||
+              chunk.metadata?.error ||
+              chunk.metadata?.finished_reason ||
+              "failed",
+          ),
+        )
+      : completed.blocks;
+    if (outcome?.structured_output != null) {
+      blocks = [
+        ...(blocks || []),
+        {
+          id: `structured:${message.id}`,
+          type: "data",
+          sourceType: "structured_output",
+          payloads: [outcome.structured_output as StreamPayload],
+          status: "done",
+          expanded: false,
+        },
+      ];
+    }
+    return finishChatMessage(
+      {
+        ...completed,
+        blocks,
+        status: outcome?.status || chunk.status || undefined,
+        reply: outcome,
+      },
+      undefined,
+      { finishTools: chunk.event === "end" },
+    );
   }
   if (chunk.chunk_type === "done" || chunk.done) {
     return finishChatMessage(message);
   }
-  if (chunk.chunk_type === "reply_start") return message;
-  if (
-    chunk.chunk_type === "data" &&
-    typeof chunk.metadata?.codex_method === "string" &&
-    chunk.metadata.codex_method.startsWith("hook/")
-  )
-    return message;
+  if (chunk.chunk_type === "reply_start")
+    return { ...message, status: "running" };
+  if (chunk.metadata?.visibility === "diagnostic") return message;
 
   let blocks = message.blocks || [];
   if (
@@ -340,9 +409,19 @@ export function applyStreamChunk(
   if (chunk.chunk_type === "error")
     return {
       ...message,
-      blocks: appendError(blocks, payloadText(chunk.chunk)),
+      blocks: appendError(blocks, payloadText(chunk.chunk), chunk.metadata),
     };
   return { ...message, blocks: applyDetail(blocks, chunk) };
+}
+
+export function applyStreamChunk(
+  message: ChatMessage,
+  chunk: StreamChunk,
+): ChatMessage {
+  return {
+    ...reduceStreamChunk(message, chunk),
+    events: [...(message.events || []), chunk],
+  };
 }
 
 export function toggleChatBlock(

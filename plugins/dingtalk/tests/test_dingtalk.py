@@ -155,7 +155,8 @@ class _AgentWrapper(BaseAgentWrapper):
         self.reply_calls = []
         self.compact_calls = []
         self.result_text = "回答"
-        self.is_error = False
+        self.status = "completed"
+        self.error = None
 
     async def compact_session(self, session_id):
         self.compact_calls.append(session_id)
@@ -163,11 +164,13 @@ class _AgentWrapper(BaseAgentWrapper):
     async def reply(self, inputs, **kwargs):
         self.reply_calls.append((inputs, kwargs))
         session_id = kwargs.get("resume") or "session-1"
-        return {
-            "session_id": session_id,
-            "last_message": {"is_error": self.is_error},
-            "result": self.result_text,
-        }
+        return self._reply_result(
+            session_id=session_id,
+            result=self.result_text,
+            raw={},
+            status=self.status,
+            error=self.error,
+        )
 
 
 class _Handler:
@@ -403,3 +406,23 @@ async def test_stream_client_reconnects_after_server_request(monkeypatch, tmp_pa
     step.logger.info.assert_called_once_with(
         "[DingTalkWaitStep] DingTalk server requested reconnect reason='connection is expired'; reconnecting in 1.0s",
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+@pytest.mark.parametrize("error", [None, "provider failed"])
+async def test_incomplete_reply_is_not_sent_as_a_success(tmp_path, status, error):
+    """Partial text cannot turn a failed/interrupted/waiting AgentReply into a Markdown reply."""
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = _AgentWrapper(app_context=app_context)
+    wrapper.status, wrapper.error = status, error
+    wrapper.result_text = "partial answer"
+    step = DingTalkWaitStep(app_context=app_context, agent_wrapper=wrapper)
+    step.logger = MagicMock()
+    handler, sessions, message = _Handler(), {}, _message()
+    key = _session_key(message)
+    with pytest.raises(RuntimeError, match=error or status):
+        await step._handle_message(message, key, sessions, handler)
+    assert not handler.markdown_replies
+    assert sessions[key] == "session-1"
+    assert not any("completed DingTalk reply" in call.args[0] for call in step.logger.info.call_args_list)

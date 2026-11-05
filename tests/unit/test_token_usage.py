@@ -123,105 +123,47 @@ def test_token_counter_is_a_per_agent_metric_tree(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_agentscope_reply_records_final_message_usage(tmp_path, monkeypatch):
-    """AgentScope 2.0.4.post1 reports aggregate usage on the final message."""
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("reported", [False, True])
+async def test_agentscope_records_usage_in_both_return_modes(tmp_path, monkeypatch, streaming, reported):
+    """Both APIs use the same final native message and record usage exactly once."""
+    from agentscope.event import ReplyEndEvent
+    from agentscope.message import AssistantMsg, Usage
+
     context = ApplicationContext(workspace_dir=str(tmp_path))
     wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-    message = SimpleNamespace(
-        # Match the AgentScope 2.0.4.post1 accumulation test: 10/20 + 5/8.
-        usage=SimpleNamespace(input_tokens=15, output_tokens=28),
-        model_dump=lambda: {"text": "answer"},
-        get_text_content=lambda: "answer",
+    message = AssistantMsg(
+        name="agent",
+        content="answer",
+        finished_reason="completed",
+        usage=Usage(input_tokens=15, output_tokens=28) if reported else None,
     )
+
+    async def native_stream(_inputs, **_kwargs):
+        yield ReplyEndEvent(session_id="session-1", reply_id="reply", finished_reason="completed")
+        yield message
+
     agent = SimpleNamespace(
         state=SimpleNamespace(session_id="session-1", context=[message]),
-        observe=lambda _inputs: _async_none(),
-        reply=lambda: _async_value(message),
-        reply_stream=_unexpected_reply_stream,
+        reply_stream=native_stream,
     )
 
     async def build_agent(inputs, **_kwargs):
         return agent, inputs
-
-    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", _async_none)
-
-    result = await wrapper.reply("hello")
-
-    assert result["usage"] == {"input_tokens": 15, "output_tokens": 28, "total_tokens": 43}
-    assert (
-        global_counter_get_all(context.metadata, ["__token_counter", "research"])["children"]["total_tokens"]["value"]
-        == 43
-    )
-
-
-@pytest.mark.asyncio
-async def test_agentscope_reply_without_usage_leaves_token_counters_unset(tmp_path, monkeypatch):
-    """Replies without any usage information remain visibly unavailable."""
-    context = ApplicationContext(workspace_dir=str(tmp_path))
-    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-    message = SimpleNamespace(
-        usage=None,
-        model_dump=lambda: {"text": "answer"},
-        get_text_content=lambda: "answer",
-    )
-    agent = SimpleNamespace(
-        state=SimpleNamespace(session_id="session-1", context=[message]),
-        observe=lambda _inputs: _async_none(),
-        reply=lambda: _async_value(message),
-        reply_stream=_unexpected_reply_stream,
-    )
-
-    async def build_agent(inputs, **_kwargs):
-        return agent, inputs
-
-    monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", _async_none)
-
-    result = await wrapper.reply("hello")
-
-    assert result["usage"] is None
-    assert "__token_counter" not in context.metadata
-
-
-async def _async_none(*_args, **_kwargs):
-    return None
-
-
-async def _async_value(value):
-    return value
-
-
-def _unexpected_reply_stream(*_args, **_kwargs):
-    raise AssertionError("Non-streaming replies must use Agent.reply()")
-
-
-@pytest.mark.asyncio
-async def test_agentscope_stream_reply_does_not_record_token_usage(tmp_path, monkeypatch):
-    """Only non-streaming AgentScope replies contribute to token accounting."""
-    context = ApplicationContext(workspace_dir=str(tmp_path))
-    wrapper = AsAgentWrapper(name="research", as_llm="", app_context=context)
-
-    class FakeAgent:
-        """Minimal AgentScope stream double."""
-
-        state = type("State", (), {"session_id": "session-1"})()
-
-        async def reply_stream(self, inputs):
-            """Yield no events for the supplied input."""
-            if inputs is None:
-                yield None
-
-    async def build_agent(inputs, **_kwargs):
-        """Build the minimal stream double."""
-        return FakeAgent(), inputs
 
     async def dump_state(_state, _kwargs=None):
-        """Avoid durable state writes in this accounting test."""
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
     monkeypatch.setattr(wrapper, "_dump_state", dump_state)
-
-    assert [chunk async for chunk in wrapper.reply_stream("hello")] == []
-    assert "__token_counter" not in context.metadata
+    if streaming:
+        chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
+        result = chunks[-1].chunk
+    else:
+        result = await wrapper.reply("hello")
+    assert result["usage"] == ({"input_tokens": 15, "output_tokens": 28, "total_tokens": 43} if reported else None)
+    counters = global_counter_get_all(context.metadata, ["__token_counter", "research"])
+    if reported:
+        assert counters["children"]["total_tokens"]["value"] == 43
+    else:
+        assert counters is None

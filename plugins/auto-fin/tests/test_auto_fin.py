@@ -149,7 +149,10 @@ class _TopicAgent(BaseAgentWrapper):
 
     async def reply(self, inputs, **kwargs):
         self.calls.append((str(inputs), kwargs))
-        return {"result": f"筛选结果：\n```json\n{json.dumps(self.selected)}\n```\n以上是相关 ID。"}
+        return {
+            "status": "completed",
+            "result": f"筛选结果：\n```json\n{json.dumps(self.selected)}\n```\n以上是相关 ID。",
+        }
 
 
 @pytest.mark.asyncio
@@ -221,7 +224,10 @@ async def test_topic_step_retries_invalid_json_once(tmp_path: Path):
 
         async def reply(self, inputs, **kwargs):
             self.calls.append((str(inputs), kwargs))
-            return {"result": ('{"new_ids": "[\\"1\\"]"}' if len(self.calls) == 1 else '```json\n{"黄金": ["1"]}\n```')}
+            return {
+                "status": "completed",
+                "result": ('{"new_ids": "[\\"1\\"]"}' if len(self.calls) == 1 else '```json\n{"黄金": ["1"]}\n```'),
+            }
 
     app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
     agent = RetryAgent({"黄金": []}, app_context=app_context)
@@ -293,6 +299,7 @@ class _ReportAgent(BaseAgentWrapper):
         topic = re.search(r"当前主题：(\S+)", prompt)
         title = f"{topic.group(1)}观察" if topic else "主题新闻观察"
         return {
+            "status": "completed",
             "structured_output": AutoFinReportOutput(
                 title=f"# {title}",
                 description="关注政策变化。",
@@ -363,6 +370,7 @@ async def test_research_names_the_note_after_the_topic_not_the_agent_title(tmp_p
     class _VerboseAgent(BaseAgentWrapper):
         async def reply(self, _prompt, **_kwargs):
             return {
+                "status": "completed",
                 "structured_output": AutoFinReportOutput(
                     title="机器人主题 9-18 研究：" + "量产与政策" * 60,
                     description="关注政策变化。",

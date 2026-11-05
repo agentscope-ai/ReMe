@@ -2,7 +2,7 @@
 
 from ..base_step import BaseStep
 from ...components import R
-from ...enumeration import ChunkEnum
+from ...schema import collect_reply
 
 
 @R.register("stream_llm_demo_step")
@@ -39,15 +39,19 @@ class StreamLLMDemoStep(BaseStep):
         }
 
         if self.context.stream:
-            text = await self._stream_reply(query, **wrapper_kwargs)
+            result = await collect_reply(
+                self.agent_wrapper.reply_stream(query, **wrapper_kwargs),
+                on_chunk=self.context.add_stream_chunk,
+            )
         else:
             result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
-            text = (result.get("result") or "").strip()
+        text = result["result"].strip()
+        self.context.response.metadata.update(result)
 
         self.logger.debug(f"[{self.name}] response: {text!r}")
 
-        self.context.response.success = True
-        self.context.response.answer = text
+        self.context.response.success = result["status"] == "completed" and self.context.stream_error is None
+        self.context.response.answer = result["error"] or text
         self.context.response.metadata.update(
             {
                 "query": query,
@@ -56,19 +60,3 @@ class StreamLLMDemoStep(BaseStep):
             },
         )
         return self.context.response
-
-    async def _stream_reply(self, query: str, **wrapper_kwargs) -> str:
-        """Stream unified chunks to the context stream queue."""
-        assert self.context is not None
-        text_parts: list[str] = []
-
-        async for chunk in self.agent_wrapper.reply_stream(query, **wrapper_kwargs):
-            await self.context.add_stream_chunk(chunk)
-
-            if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk.chunk, str):
-                text_parts.append(chunk.chunk)
-
-            if chunk.session_id:
-                self.context.response.metadata["session_id"] = chunk.session_id
-
-        return "".join(text_parts).strip()
