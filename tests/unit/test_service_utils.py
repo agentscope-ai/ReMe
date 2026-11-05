@@ -213,7 +213,7 @@ async def test_find_reme_uses_ipv6_for_wildcard_listener_probe(monkeypatch):
             return None
 
         def bind(self, address):
-            assert address == ("::", 8123)
+            assert address == ("::1", 8123)
 
     monkeypatch.setattr("reme.components.client.http_client.HttpClient", FailedProbeClient)
     monkeypatch.setattr(su.socket, "socket", FakeSocket)
