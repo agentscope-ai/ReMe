@@ -159,6 +159,41 @@ async def test_cancelled_capture_finishes_cleanup_without_publication(tmp_path, 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("signal", ["cancel", "stop"])
+async def test_capture_stopped_during_destination_preparation_publishes_nothing(tmp_path, screens, monkeypatch, signal):
+    """Cancellation or a stop during parent creation must still discard the complete staged package."""
+    started, release = asyncio.Event(), threading.Event()
+    loop = asyncio.get_running_loop()
+    mkdir = Path.mkdir
+
+    def block_mkdir(path, *args, **kwargs):
+        if path.parent == tmp_path / "resource":
+            loop.call_soon_threadsafe(started.set)
+            assert release.wait(5)
+        return mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", block_mkdir)
+    context = RuntimeContext(stop_event=asyncio.Event())
+    task = asyncio.create_task(ScreenCaptureStep(app_context=_app(tmp_path))(context))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if signal == "cancel":
+            task.cancel()
+            await asyncio.sleep(0)
+        else:
+            context.stop_event.set()
+    finally:
+        release.set()
+    error = asyncio.CancelledError if signal == "cancel" else RuntimeError
+    with pytest.raises(error):
+        await asyncio.wait_for(task, timeout=5)
+    assert screens.captured == [1, 2]
+    assert screens.closed == 1
+    assert not list((tmp_path / "resource").glob("*/*"))
+    assert not list(tmp_path.glob(".reme-resource-*"))
+
+
+@pytest.mark.asyncio
 async def test_concurrent_collections_do_not_overwrite_each_other(tmp_path, screens):
     """Fresh invocation-scoped collectors publish distinct UUID directories."""
     app = _app(tmp_path)

@@ -85,5 +85,7 @@ class BaseConnectorStep(BaseStep):
                 raise ValueError("Resource package parent must not contain symlinks")
             if target.exists():
                 raise FileExistsError(f"Resource package already exists: {target}")
+            if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
+                raise RuntimeError("Resource collection stopped before publication")
             directory.rename(target)
             return metadata.model_dump(mode="json", exclude_none=True)
