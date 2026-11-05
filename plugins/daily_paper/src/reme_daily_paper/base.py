@@ -30,7 +30,10 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 def structured_output(result: dict[str, Any], model: type[_OutputT]) -> _OutputT:
     """Validate an agent wrapper's structured output."""
     if result["status"] != "completed":
-        raise RuntimeError(result["error"] or f"Agent reply ended: {result['status']}")
+        error = result["error"] or f"Agent reply ended: {result['status']}"
+        if error == "Codex returned invalid JSON for the requested output_schema":
+            raise ValueError(error)
+        raise RuntimeError(error)
     return model.model_validate(result["structured_output"])
 
 
