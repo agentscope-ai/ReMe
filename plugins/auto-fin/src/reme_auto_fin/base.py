@@ -325,10 +325,9 @@ class AutoFinStep(BaseStep):
         if tool_context_id:
             kwargs["tool_context_id"] = tool_context_id
         result = await self.agent_wrapper.reply(prompt, **kwargs)
-        if not isinstance(result, dict) or result.get("structured_output") is None:
-            raise ValueError(f"Auto Fin Agent returned no structured output: {self._preview(result)}")
-        value = result["structured_output"]
-        output = value if isinstance(value, model) else model.model_validate(value)
+        if result["status"] != "completed":
+            raise RuntimeError(result["error"] or f"Agent reply ended: {result['status']}")
+        output = model.model_validate(result["structured_output"])
         rendered = self._preview(output.model_dump(), AGENT_OUTPUT_LOG_LIMIT)
         self.logger.info(
             f"[{self.name}] agent output prompt={prompt_name} schema={model.__name__} "

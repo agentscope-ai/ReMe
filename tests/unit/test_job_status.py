@@ -233,7 +233,22 @@ async def test_chat_error_chunks_match_execution_status_without_changing_stream(
         async def reply_stream(self, inputs, **kwargs):
             yield StreamChunk(chunk_type=ChunkEnum.ERROR, chunk="provider failed", metadata={"will_retry": will_retry})
             yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="partial or recovered")
-            yield StreamChunk(chunk_type=ChunkEnum.REPLY_END)
+            yield StreamChunk(
+                chunk_type=ChunkEnum.REPLY_END,
+                event="end",
+                status="completed" if will_retry else "failed",
+                chunk={
+                    key: value
+                    for key, value in self._reply_result(
+                        session_id="stub",
+                        result="partial or recovered",
+                        raw={},
+                        status="completed" if will_retry else "failed",
+                        error=None if will_retry else "provider failed",
+                    ).items()
+                    if key != "events"
+                },
+            )
 
     context.components["agent_wrapper"] = {"default": ErrorAgent()}
     job = _job(context, StreamJob, track_execution=True, steps=[{"backend": "chat_step"}])

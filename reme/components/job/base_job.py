@@ -131,7 +131,7 @@ class BaseJob(BaseComponent):
         else:
             if execution is not None:
                 if not context.response.success:
-                    status, error = "failed", str(context.response.answer)
+                    status, error = "failed", context.stream_error or str(context.response.answer)
                 elif context.stream_error is not None:
                     status, error = "failed", context.stream_error
                 elif context.stop_event is not None and context.stop_event.is_set():
