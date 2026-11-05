@@ -5,8 +5,9 @@ import type {
   ReMeHealth,
   ReMeResponse,
   StreamChunk,
+  SessionSnapshot,
 } from "./types";
-import { decodeSseEvent } from "./chat-stream";
+import { readChatStream } from "./chat-stream";
 import { healthFromResponse } from "./health-status";
 import { translate, useLanguageStore, type TranslationKey } from "./i18n";
 import {
@@ -63,6 +64,29 @@ export async function getAppConfig(): Promise<AppConfig> {
 
 export async function getReMeVersion(): Promise<string> {
   return String((await callReMe<string>("version")).answer);
+}
+
+export async function readChatSession(
+  sessionId: string,
+  signal: AbortSignal,
+): Promise<SessionSnapshot | undefined> {
+  const response = await fetch(`${REME_API_URL}/session_read`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId }),
+    signal,
+  });
+  if (response.status === 404) return undefined;
+  const payload = (await response.json()) as ReMeResponse<SessionSnapshot>;
+  if (payload.metadata?.code === "session_not_supported") return undefined;
+  if (!response.ok || !payload.success) {
+    throw new Error(
+      typeof payload.answer === "string"
+        ? payload.answer
+        : message("requestFailed", response.status),
+    );
+  }
+  return payload.answer;
 }
 
 export async function getReMeStatus(): Promise<ReMeResponse<string>> {
@@ -135,21 +159,16 @@ export async function streamChat(
   });
   if (!response.ok || !response.body)
     throw new Error(message("agentUnavailable", response.status));
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const events = buffer.split(/\r?\n\r?\n/);
-    buffer = events.pop() || "";
-    for (const event of events) {
-      const chunk = decodeSseEvent(event);
-      if (chunk) onChunk(chunk);
-    }
-    if (done) break;
+  if (
+    response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !==
+    "text/event-stream"
+  ) {
+    await response.body.cancel();
+    throw new Error(message("invalidResponse", response.status));
   }
-  const finalChunk = decodeSseEvent(buffer);
-  if (finalChunk) onChunk(finalChunk);
+  await readChatStream(
+    response.body,
+    onChunk,
+    translate(useLanguageStore.getState().language, "chatInterrupted"),
+  );
 }

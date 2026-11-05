@@ -1,7 +1,6 @@
 """FAISS-backed file store: chunk JSONL stays authoritative; FAISS HNSW replaces the linear vector scan."""
 
 import asyncio
-import hashlib
 import json
 from collections.abc import Callable
 from contextlib import suppress
@@ -388,28 +387,6 @@ class FaissLocalFileStore(LocalFileStore):
         self._reindex_busy = False
 
     # -- persistence ------------------------------------------------------
-
-    def _chunks_embedding_digest(self) -> str:
-        """Order-independent digest of the live (chunk_id, embedding) set.
-
-        Hashes float16 canonical bytes (the chunk JSONL serialization dtype) so
-        the value is identical whether an embedding sits fresh in memory
-        (possibly float32 from the provider; assignment bypasses the pydantic
-        validator) or has round-tripped through the JSONL. Written into the
-        idmap sidecar at dump time and recomputed from ``self.file_chunks`` at
-        load time: a mismatch means the sidecar vectors belong to a different
-        chunk generation than the authoritative JSONL, which the live-id set
-        check alone cannot detect for same-ID in-place updates.
-        """
-        digest = hashlib.sha256()
-        eligible = sorted(
-            cid for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
-        )
-        for cid in eligible:
-            digest.update(cid.encode("utf-8"))
-            digest.update(b"\x00")
-            digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
-        return digest.hexdigest()
 
     async def load(self) -> None:
         """Load chunks via the parent, then attach FAISS state (sidecar or rebuild)."""

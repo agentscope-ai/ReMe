@@ -185,10 +185,10 @@ class BM25Index(BaseKeywordIndex):
         self._idf_cache[token_id] = idf
         return idf
 
-    def _prepare_doc(self, doc_id: str, content: str) -> tuple[np.ndarray, int, Counter] | None:
-        """Tokenize and count terms; retire any prior version of `doc_id`."""
+    def _prepare_doc(self, doc_id: str, tokens: list[str]) -> tuple[np.ndarray, int, Counter] | None:
+        """Count prepared tokens; retire any prior version of `doc_id`."""
         self._remove_doc(doc_id)
-        token_ids = self._tokens_to_ids(self._tokenize(content))
+        token_ids = self._tokens_to_ids(tokens)
         if not token_ids:
             return None
         counts = Counter(token_ids)
@@ -252,14 +252,17 @@ class BM25Index(BaseKeywordIndex):
         if not docs_dict:
             return
 
+        # Tokenization can fail; finish it before retiring documents or allocating slots.
+        tokenized_docs = {doc_id: self._tokenize(content) for doc_id, content in docs_dict.items()}
+
         new_doc_ids: list[str] = []
         new_doc_lens: list[int] = []
         new_doc_token_ids: list[np.ndarray] = []
         pending: dict[int, list[tuple[int, int]]] = {}
         next_idx = len(self._doc_ids)
 
-        for doc_id, content in docs_dict.items():
-            prepared = self._prepare_doc(doc_id, content)
+        for doc_id, tokens in tokenized_docs.items():
+            prepared = self._prepare_doc(doc_id, tokens)
             if prepared is None:
                 continue
             unique_tids, n_tokens, token_counts = prepared

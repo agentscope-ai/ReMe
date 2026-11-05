@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import datetime
+import hashlib
 import heapq
 import json
 import time
@@ -43,6 +44,36 @@ _SEARCH_FILTER_RESERVED_KEYS = frozenset(
         "strict_date_filter",
     },
 )
+_FAILED_CHUNK_PREVIEW = 5
+
+
+def _filter_value_items(value) -> tuple | None:
+    """Return the accepted values of a filter value as a tuple, or ``None`` for scalars."""
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return tuple(value)
+    return None
+
+
+def _metadata_value_matches(actual, expected) -> bool:
+    """Return whether a chunk metadata value satisfies one search-filter value.
+
+    ``expected`` is the filter value and may be a collection of accepted
+    values. ``actual`` is the value stored on the chunk and may itself be a
+    collection -- frontmatter fields such as ``tags`` are YAML lists.
+
+    Collections are compared by intersection instead of by hashing the stored
+    value, so a list-valued metadata field never raises ``TypeError`` and a
+    scalar filter still matches a list that contains it.
+    """
+    expected_values = _filter_value_items(expected)
+    actual_values = _filter_value_items(actual)
+    if expected_values is None:
+        if actual_values is None:
+            return actual == expected
+        return any(expected == item for item in actual_values)
+    if actual_values is None:
+        return any(actual == item for item in expected_values)
+    return any(item in actual_values for item in expected_values)
 
 
 @R.register("local")
@@ -105,6 +136,23 @@ class LocalFileStore(BaseFileStore):
         if self.embedding_store is None:
             return 0
         return max(0, int(getattr(self.embedding_store, "dimensions", 0)))
+
+    def _chunks_embedding_digest(self) -> str:
+        """Order-independent digest of the live (chunk_id, embedding) set.
+
+        Float16 bytes match the authoritative chunk JSONL serialization even
+        before a fresh provider vector has round-tripped through persistence.
+        Vector backends use this digest to reject stale index sidecars.
+        """
+        digest = hashlib.sha256()
+        eligible = sorted(
+            cid for cid, chunk in self.file_chunks.items() if self._embedding_dim_matches(chunk.embedding)
+        )
+        for cid in eligible:
+            digest.update(cid.encode("utf-8"))
+            digest.update(b"\x00")
+            digest.update(np.asarray(self.file_chunks[cid].embedding, dtype=np.float16).tobytes())
+        return digest.hexdigest()
 
     # -- lifecycle ------------------------------------------------------------
 
@@ -440,7 +488,12 @@ class LocalFileStore(BaseFileStore):
                         if chunk.text and not self._embedding_dim_matches(chunk.embedding)
                     ]
                     if missing:
-                        raise RuntimeError(f"embedding reindex incomplete: {len(missing)} chunks failed")
+                        preview = ", ".join(missing[:_FAILED_CHUNK_PREVIEW])
+                        if len(missing) > _FAILED_CHUNK_PREVIEW:
+                            preview += f" (+{len(missing) - _FAILED_CHUNK_PREVIEW} more)"
+                        raise RuntimeError(
+                            f"embedding reindex incomplete: {len(missing)} chunks failed: {preview}",
+                        )
                     await self._finalize_embedding_reindex()
                 await self._dump_owned_state()
                 if self.embedding_store is not None:
@@ -544,6 +597,7 @@ class LocalFileStore(BaseFileStore):
                     return
 
             processed = 0
+            filled = 0
             batch_count = 0
             embedding_started_at = time.monotonic()
             next_percent = _PROGRESS_LOG_PERCENT_STEP
@@ -552,10 +606,11 @@ class LocalFileStore(BaseFileStore):
                 await self.embedding_store.get_node_embeddings(batch)
                 self._drop_stale_embeddings(batch, "backfill")
                 processed += len(batch)
+                filled += sum(1 for chunk in batch if chunk.embedding is not None)
                 batch_count += 1
                 next_percent = self._log_progress("embedding backfill", processed, total, next_percent)
             self.logger.info(
-                f"{self.name}: embedding batches complete: processed={processed}/{total}, "
+                f"{self.name}: embedding batches complete: processed={processed}/{total}, filled={filled}, "
                 f"batches={batch_count}, elapsed={time.monotonic() - embedding_started_at:.3f}s",
             )
         except asyncio.CancelledError:
@@ -1070,8 +1125,8 @@ class LocalFileStore(BaseFileStore):
             )
             conditions = []
             for key, value in metadata.items():
-                collection = isinstance(value, (list, tuple, set, frozenset))
-                conditions.append((key, frozenset(value) if collection else value, collection))
+                values = _filter_value_items(value)
+                conditions.append((key, value if values is None else values))
         except (TypeError, ValueError):
             # Malformed late-stage conditions must still short-circuit as before.
             return legacy
@@ -1088,10 +1143,7 @@ class LocalFileStore(BaseFileStore):
                         return False
                 elif (start_date and path_date < start_date) or (end_date and path_date > end_date):
                     return False
-            return all(
-                chunk.metadata.get(key) in expected if collection else chunk.metadata.get(key) == expected
-                for key, expected, collection in conditions
-            )
+            return all(_metadata_value_matches(chunk.metadata.get(key), expected) for key, expected in conditions)
 
         return matches
 
@@ -1103,9 +1155,12 @@ class LocalFileStore(BaseFileStore):
 
     @classmethod
     def _value_matches(cls, actual, expected) -> bool:
-        if isinstance(expected, (list, tuple, set, frozenset)):
-            return actual in set(expected)
-        return actual == expected
+        """Return whether a chunk metadata value satisfies one filter value.
+
+        Kept as a class-level hook so subclasses can customize the comparison;
+        the default semantics live in :func:`_metadata_value_matches`.
+        """
+        return _metadata_value_matches(actual, expected)
 
     @staticmethod
     def _extract_date_from_path(path: str) -> str | None:

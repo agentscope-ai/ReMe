@@ -54,6 +54,11 @@ index_update_loop:
 服务运行期间由 `watch_changes_step` 接手。它用 `watchfiles.awatch()` 监听同一批目录，按 quiet window 聚合文件事件，再用
 `coalesce_changes()` 把同一路径上的重复事件压成一批稳定变化。
 
+Step 的 `watch_mode` 默认为 `awatch`。在需要切换的 `watch_changes_step` 上设置 `watch_mode: watch`，
+即可在专用线程中运行 `watchfiles.watch()`。同一进程内嵌入多个 ReMe 应用时，这能避免长期监听占用 AnyIO
+处理同步请求的共享线程额度。每个活跃 watcher 仍需要一个线程。两种模式共用过滤、批次处理及 `force_polling`
+设置；Job 停止时也会停止并回收其专用监听线程。
+
 `update_index_step` 真正写索引：
 
 1. 按后缀选择 file chunker。
@@ -188,6 +193,23 @@ fused_score = vector_weight / (60 + vector_rank)
 
 默认 `vector_weight=0.7`，所以启用 embedding 后语义召回权重更高；关键词仍能把精确词命中的 chunk 拉上来。
 
+### 分数阈值
+
+常规混合搜索建议保持 `min_score=0`（默认值），用 `limit` 选取排名靠前的结果。
+正数 `min_score` 会在截断之前过滤返回分数，其尺度取决于本次查询实际有命中的分支：
+
+| 有命中的分支 | 与 `min_score` 比较的分数 |
+| --- | --- |
+| 只有向量 | 向量后端的原始分数，范围取决于后端 |
+| 只有 BM25 | BM25 原始分数，没有固定上限 |
+| 两边都有 | 加权 RRF 排名分数，最大为 `1/61`（约 `0.01639`） |
+
+RRF 分数表示排名贡献，不是归一化相关性或概率。最大值要求同一 chunk 在两个列表中都排第一；默认权重下，
+仅来自向量分支的贡献最大为 `0.7/61`。调整 `vector_weight` 会改变各分支的贡献，但两个权重之和仍为 1。
+当某个分支没有命中时，分数尺度会随查询切换，因此同一个正数阈值无法在所有模式下进行等价比较。
+例如，`min_score=0.05` 会过滤掉所有混合结果，即使它们的原始向量或 BM25 分数很高。
+当两边都有命中且阈值超过 `1/61` 时，搜索会记录警告。阈值仍会照常应用，不会因警告而降低或恢复已过滤结果。
+
 ## BM25 怎么工作
 
 `keyword_search()` 调用 `keyword_index.retrieve(query, limit)`。BM25 索引里每个 chunk 是一篇文档：
@@ -230,6 +252,23 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
 
 - `response.answer`：给人看的文本，每个命中块包含路径、行号、分数和 chunk 内容，后面跟 outlinks / inlinks。
 - `response.metadata`：给程序看的结构化结果，包括 `results`、`link_expansion`、`counts`。
+
+默认 `search` Job 没有结果可返回时，`response.answer` 保持 `""`，`success` 保持 `true`。
+此时 `results` 为空列表，`counts.returned` 为 `0`，可选字段 `response.metadata.empty_result` 说明原因：
+
+| `reason`       | 含义                                                            |
+|----------------|-----------------------------------------------------------------|
+| `no_results`   | 没有匹配结果，或所有候选都被 `min_score` 过滤。                    |
+| `all_returned` | 符合分数要求的内容在同一 `tool_context_id` 中都已返回过。          |
+
+该字段还包含便于阅读的 `message`。程序调用方应通过 `reason` 区分两种情况。
+正常命中不包含 `empty_result`，正文格式保持原样。
+
+通过 CLI 客户端调用已启动的服务时，可以开启已有的元数据显示选项查看原因：
+
+```bash
+reme search query="最近关于索引的讨论" show_metadata=true
+```
 
 典型文本结构：
 

@@ -7,6 +7,9 @@ export interface ReMeConfigInput {
   shutdownTimeoutMs?: number;
   autoMemoryEnabled?: boolean;
   autoMemoryInterval?: number;
+  autoMemoryQueueDir?: string;
+  autoMemoryRetryMs?: number;
+  autoMemoryRetryMaxMs?: number;
   autoDreamEnabled?: boolean;
   dreamCron?: string;
   dreamHint?: string;
@@ -21,6 +24,9 @@ export interface ReMeConfig extends ReMeClientConfig {
   shutdownTimeoutMs: number;
   autoMemoryEnabled: boolean;
   autoMemoryInterval: number;
+  autoMemoryQueueDir: string;
+  autoMemoryRetryMs: number;
+  autoMemoryRetryMaxMs: number;
   autoDreamEnabled: boolean;
   dreamCron: string;
   dreamHint: string;
@@ -32,7 +38,10 @@ export interface ReMeConfig extends ReMeClientConfig {
 }
 
 /** ReMe integration fields owned by the DSH user-settings document. */
-export type ReMeSettings = Omit<ReMeConfig, "dreamIntervalMs">;
+export type ReMeSettings = Omit<
+  ReMeConfig,
+  "dreamIntervalMs" | "autoMemoryQueueDir"
+>;
 
 export interface SessionEvent {
   type: string;

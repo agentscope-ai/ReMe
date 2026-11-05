@@ -153,6 +153,14 @@ reme traverse path="<workspace-relative-path>" depth=1 direction=both
 Cite the workspace-relative paths used. If retrieval returns nothing useful, say so plainly instead of inventing prior
 context.
 
+For a date-bounded review, list an inclusive range instead of relying on the top search results:
+
+```bash
+reme daily_list start_date=2026-10-19 end_date=2026-10-25 page=1 page_size=20
+```
+
+Check `reme help` for range support; older services can list each date separately. Omit `date` when using a range. Follow `total_pages` to request subsequent pages, then `read` relevant paths and cite them. If you stop before the last page, say the review is partial. Pages reflect current files, not a snapshot across calls.
+
 ## Write Memory
 
 Record durable facts, user preferences, important decisions, project context, and lessons learned. Avoid secrets or

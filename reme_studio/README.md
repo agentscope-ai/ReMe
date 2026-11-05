@@ -213,6 +213,32 @@ The built-in chat job is read-only with respect to the workspace. It can search 
 as a substitute for explicitly saving durable knowledge. Chat requires a valid Agent/model configuration; file browsing,
 editing, graphs, and service inspection do not.
 
+With `config=proactive`, Studio uses a Codex agent with full tool access and supports proactive messages. It synchronizes history when opening a
+conversation, after streaming, on focus, and every five seconds while the conversation is visible. Hidden pages and
+locally streaming conversations stop history polling. Proactive messages have a distinct background and a “Proactive reminder” label.
+
+Start the service in one terminal:
+
+```bash
+reme start config=proactive
+```
+
+From another terminal, use the conversation's session identifier:
+
+```bash
+reme session_status session_id=SESSION_ID
+reme session_append session_id=SESSION_ID message_id=reminder-1 content="This information may be useful to you." wait_timeout=30
+reme session_read session_id=SESSION_ID
+```
+
+`session_append` waits for the current turn's lease and appends an assistant message without starting model generation.
+Retry with the same `message_id` and content; reusing an ID with different content fails. Provenance records live under
+`{session_dir}/proactive/` in the workspace, filling the injected-message gap in Codex's native display-history APIs.
+Writes and ordinary chat must use the same ReMe app-server; session locks are not shared across processes.
+Only persistent Codex sessions are supported; other wrappers explicitly raise `NotImplementedError` for these three APIs.
+Busy waits time out. Once injection starts, cancellation finishes publication before releasing the session lock.
+Recovering interrupted publication reads reserved message IDs from the Codex rollout without rewriting native files.
+
 ### 7. Service status
 
 Open **Settings** from the top bar to inspect the backend that Studio is actually using.
@@ -402,8 +428,10 @@ Run proportionate checks from `reme_studio/`:
 ```bash
 npm run format:check
 npm run lint
-npm run build
-npm run build:static
+npm run test:unit
+# Build and verify the Sites, static, and demo distributions:
+npm run test:build
+# Run both suites:
 npm test
 ```
 

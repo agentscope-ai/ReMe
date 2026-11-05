@@ -34,6 +34,41 @@ export function decodeSseEvent(raw: string): StreamChunk | null {
   return JSON.parse(data) as StreamChunk;
 }
 
+export async function readChatStream(
+  stream: ReadableStream<Uint8Array>,
+  onChunk: (chunk: StreamChunk) => void,
+  interruptedMessage: string,
+): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const emit = (event: string): boolean => {
+    const chunk = decodeSseEvent(event);
+    if (!chunk) return false;
+    onChunk(chunk);
+    return chunk.chunk_type === "done" || chunk.done;
+  };
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() || "";
+      for (const event of events) {
+        if (emit(event)) return;
+      }
+      if (done) {
+        if (emit(buffer)) return;
+        throw new Error(interruptedMessage);
+      }
+    }
+  } finally {
+    // Cleanup must not replace the original transport or parsing error.
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 const payloadText = (payload: StreamPayload): string =>
   typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
 
@@ -49,12 +84,27 @@ const appendError = (blocks: ChatBlock[], text: string): ChatBlock[] => {
 export function finishChatMessage(
   message: ChatMessage,
   error?: string,
+  { finishTools = true }: { finishTools?: boolean } = {},
 ): ChatMessage {
+  const failed =
+    Boolean(error) ||
+    (finishTools && message.blocks?.some((block) => block.type === "error"));
   let blocks = (message.blocks || []).map((block): ChatBlock => {
     if (block.type === "content" || block.type === "error") return block;
+    // Claude emits reply_end before executing the tools in that message.
+    if (
+      !finishTools &&
+      block.type === "tool" &&
+      block.status !== "done" &&
+      block.status !== "error"
+    )
+      return block;
     return {
       ...block,
-      status: block.status === "error" ? "error" : "done",
+      status:
+        block.status === "error" || (failed && block.status !== "done")
+          ? "error"
+          : "done",
       expanded: false,
     };
   });
@@ -127,7 +177,7 @@ function applyDetail(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
           ...current,
           payloads: [...current.payloads, ...payloads],
           status: done ? "done" : "streaming",
-          expanded: true,
+          expanded: current.expanded,
           mediaType: chunk.media_type || current.mediaType,
           inputTokens: chunk.input_tokens ?? current.inputTokens,
           outputTokens: chunk.output_tokens ?? current.outputTokens,
@@ -169,8 +219,32 @@ function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
   const current = index >= 0 ? (blocks[index] as ToolBlock) : undefined;
   const hasPayload = payloadText(chunk.chunk).length > 0;
   const result = chunk.chunk_type === "tool_result";
-  const state = String(chunk.metadata?.state || "").toLowerCase();
-  const failed = state.includes("error") || state.includes("fail");
+  const payload =
+    typeof chunk.chunk === "object" && !Array.isArray(chunk.chunk)
+      ? chunk.chunk
+      : undefined;
+  const snapshot =
+    payload?.id === toolId && typeof payload.type === "string"
+      ? payload
+      : undefined;
+  const claudeResult =
+    result && payload?.tool_use_id === toolId && "content" in payload
+      ? payload
+      : undefined;
+  const state = String(
+    chunk.metadata?.state || snapshot?.status || "",
+  ).toLowerCase();
+  const failed =
+    current?.status === "error" ||
+    claudeResult?.is_error === true ||
+    state.includes("error") ||
+    state.includes("fail") ||
+    state === "declined";
+  const completed =
+    failed ||
+    current?.status === "done" ||
+    claudeResult !== undefined ||
+    (state !== "" && state !== "inprogress");
   const nextBlock: ToolBlock = {
     id,
     type: "tool",
@@ -189,12 +263,12 @@ function applyTool(blocks: ChatBlock[], chunk: StreamChunk): ChatBlock[] {
       : current?.resultPayloads || [],
     status: failed
       ? "error"
+      : completed
+      ? "done"
       : result
-      ? state
-        ? "done"
-        : "running"
+      ? "running"
       : "calling",
-    expanded: true,
+    expanded: completed ? false : current?.expanded ?? true,
     mediaType: chunk.media_type || current?.mediaType,
     metadata: { ...current?.metadata, ...chunk.metadata },
   };
@@ -228,14 +302,36 @@ export function applyStreamChunk(
             ],
           }
         : message;
-    return finishChatMessage(completed);
+    return finishChatMessage(completed, undefined, { finishTools: false });
   }
   if (chunk.chunk_type === "done" || chunk.done) {
     return finishChatMessage(message);
   }
   if (chunk.chunk_type === "reply_start") return message;
+  if (
+    chunk.chunk_type === "data" &&
+    typeof chunk.metadata?.codex_method === "string" &&
+    chunk.metadata.codex_method.startsWith("hook/")
+  )
+    return message;
 
-  const blocks = message.blocks || [];
+  let blocks = message.blocks || [];
+  if (
+    chunk.chunk_type === "think" ||
+    (chunk.chunk_type === "content" && payloadText(chunk.chunk)) ||
+    chunk.chunk_type === "tool_call"
+  ) {
+    const thinkingId =
+      chunk.chunk_type === "think" ? detailId(blocks, chunk) : undefined;
+    blocks = blocks.map(
+      (block): ChatBlock =>
+        block.type === "think" &&
+        block.status === "streaming" &&
+        block.id !== thinkingId
+          ? { ...block, status: "done", expanded: false }
+          : block,
+    );
+  }
   if (chunk.chunk_type === "content")
     return { ...message, blocks: applyContent(blocks, chunk) };
   if (chunk.chunk_type === "tool_call" || chunk.chunk_type === "tool_result") {
@@ -265,5 +361,14 @@ export function toggleChatBlock(
 }
 
 export function formatStreamPayloads(payloads: StreamPayload[]): string {
-  return payloads.map(payloadText).join("");
+  return payloads
+    .map((payload, index) => {
+      const separator =
+        index > 0 &&
+        (typeof payload !== "string" || typeof payloads[index - 1] !== "string")
+          ? "\n\n"
+          : "";
+      return separator + payloadText(payload);
+    })
+    .join("");
 }

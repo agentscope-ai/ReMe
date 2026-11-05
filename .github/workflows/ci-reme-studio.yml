@@ -66,7 +66,7 @@ jobs:
 
       - name: Verify npm package
         run: |
-          npm pack --pack-destination "${RUNNER_TEMP}"
+          npm pack --ignore-scripts --pack-destination "${RUNNER_TEMP}"
           tar -tzf "${RUNNER_TEMP}"/agentscope-ai-reme_studio-*.tgz | grep '^package/dist-static/index.html$'
 
       - name: Set up Python

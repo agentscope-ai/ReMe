@@ -2,23 +2,16 @@
 
 from typing import Final
 
+from ._tool_context import _ToolContextMixin
 from ..base_step import BaseStep
 from ...components import R
 
 
 @R.register("add_draft_step")
-class AddDraftStep(BaseStep):
+class AddDraftStep(_ToolContextMixin, BaseStep):
     """Append one draft text item to the current tool context."""
 
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
     DRAFTS_KEY: Final[str] = "drafts"
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
 
     async def execute(self):
         assert self.context is not None

@@ -59,6 +59,10 @@ MCP 不暴露 Stream Job。
 
 ## MCP
 
+ReMe 0.4.2.2 使用 FastMCP 4 与 MCP Python SDK 2。升级时请同步更新 ReMe 和宿主侧 MCP bridge；
+独立 bridge 环境需要 `fastmcp>=4.1.4,<5`。CLI 工具列表统一使用 SDK 2 的 snake_case 字段，
+包括 `input_schema`、`output_schema` 和 annotation hints；读取旧驼峰字段的调用方需要同步更新。
+
 默认 HTTP 服务会在 `/mcp` 挂载 streamable HTTP MCP：
 
 ```yaml

@@ -1,0 +1,40 @@
+backends:
+  mobilemem_judge_step: judge_mobilemem.llm_judge:MobileMemJudgeStep
+
+application_defaults:
+  jobs:
+    answer_judge:
+      backend: base
+      description: "MobileMem-Omni official judge protocol for a saved prediction"
+      parameters:
+        type: object
+        properties:
+          question: {type: string}
+          reference: {type: string}
+          prediction: {type: string}
+          evidence: {type: array, default: []}
+          judge_protocol:
+            type: string
+            enum: [membase_default, native_strict]
+            default: membase_default
+        required: [question, reference, prediction]
+      steps:
+        - backend: mobilemem_judge_step
+          as_llm: judge
+  components:
+    as_llm:
+      judge:
+        backend: openai
+        model: ${JUDGE_MODEL_NAME:-qwen3.8-max}
+        stream: false
+        max_retries: 3
+        retry_delay: 60
+        client_kwargs: {timeout: 600, max_retries: 0}
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        extra_body: {enable_thinking: false}
+        parameters:
+          temperature: 0
+          thinking_enable: false
+          max_tokens: 4096

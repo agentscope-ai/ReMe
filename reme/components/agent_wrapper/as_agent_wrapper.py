@@ -299,6 +299,11 @@ class AsAgentWrapper(BaseAgentWrapper):
         """Resolve configured skill names to AgentScope local skill directories."""
         return [str(path) for path in self._resolve_project_skills(skills).values()]
 
+    def _create_agent(self, *, options: dict[str, Any], **kwargs: Any) -> Agent:
+        """Construct the SDK agent while subclasses reuse ReMe's tool and session wiring."""
+        del options
+        return Agent(**kwargs)
+
     async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
@@ -327,7 +332,8 @@ class AsAgentWrapper(BaseAgentWrapper):
         perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
         state = await self._load_state(kwargs, perm_mode)
 
-        agent = Agent(
+        agent = self._create_agent(
+            options=kwargs,
             name=self.name,
             system_prompt=system_prompt,
             model=model,

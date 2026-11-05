@@ -57,6 +57,10 @@ source_conversation: "[[session/dialog/session-a.jsonl]]"
 
 ## 同时保存原始信息
 
+需要重试的客户端可为 `auto_memory` 传入 1–128 字符的可选 `request_id`。重试同一批次时保持 ID 与输入一致：
+已完成请求直接重放结果，不再调用记忆 Agent；同一个 ID 对应不同输入会报错。回执保存在配置的
+`metadata_dir/auto_memory_requests` 下。回执提交前发生进程中断，未完成的操作仍可能再次执行；任意 Agent 文件修改不具备事务性。
+
 整理后的 daily note 负责“好读”，过滤后的对话来源记录负责“可信”。
 
 Auto Memory 在生成记忆卡片的同时，也会保存对话来源消息：

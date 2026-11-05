@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520" role="img" aria-labelledby="title desc">
+  <title id="title">MemLens-256K: Qwen3.6-35B-A3B</title>
+  <desc id="desc">LLM-Judge scores on the same 189 of 195 cases. Full Context Image: 47.09%; ReMe Text: 41.27%; ReMe Image: 53.44%; OpenViking: 37.04%; Mem0: 38.62%. Six cases with provider content-moderation evidence are excluded across all methods.</desc>
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #263344; }
+    .title { font-size: 26px; font-weight: 650; }
+    .subtitle, .tick { font-size: 16px; fill: #64748b; }
+    .label { font-size: 18px; }
+    .value { font-size: 21px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .highlight { fill: #2563eb; font-weight: 700; }
+    .grid { stroke: #e2e8f0; stroke-width: 1; stroke-dasharray: 3 5; }
+    .baseline { fill: #cbd5e1; stroke: #94a3b8; }
+    .reme { fill: #2563eb; stroke: #1d4ed8; }
+  </style>
+  <rect x="1" y="1" width="998" height="518" rx="12" fill="#ffffff" stroke="#e2e8f0"/>
+  <text class="title" x="36" y="46">Qwen3.6-35B-A3B</text>
+  <text class="subtitle" x="36" y="76">MemLens-256K · LLM-Judge (%) ↑</text>
+  <line class="grid" x1="100" y1="416" x2="940" y2="416"/>
+  <text class="tick" x="82" y="422" text-anchor="end">0%</text>
+  <line class="grid" x1="100" y1="356" x2="940" y2="356"/>
+  <text class="tick" x="82" y="362" text-anchor="end">20%</text>
+  <line class="grid" x1="100" y1="296" x2="940" y2="296"/>
+  <text class="tick" x="82" y="302" text-anchor="end">40%</text>
+  <line class="grid" x1="100" y1="236" x2="940" y2="236"/>
+  <text class="tick" x="82" y="242" text-anchor="end">60%</text>
+  <line class="grid" x1="100" y1="176" x2="940" y2="176"/>
+  <text class="tick" x="82" y="182" text-anchor="end">80%</text>
+  <line class="grid" x1="100" y1="116" x2="940" y2="116"/>
+  <text class="tick" x="82" y="122" text-anchor="end">100%</text>
+  <line x1="100" y1="416" x2="940" y2="416" stroke="#94a3b8"/>
+  <g data-method="Full Context Image" data-score="47.09">
+    <rect class="baseline" x="144" y="274.73" width="104" height="141.27"/>
+    <text class="value" x="196" y="262.73" text-anchor="middle">47.09%</text>
+    <text class="label" x="196" y="450" text-anchor="middle"><tspan x="196">Full Context</tspan><tspan x="196" dy="23">Image</tspan></text>
+  </g>
+  <g data-method="ReMe Text" data-score="41.27">
+    <rect class="baseline" x="308" y="292.19" width="104" height="123.81"/>
+    <text class="value" x="360" y="280.19" text-anchor="middle">41.27%</text>
+    <text class="label" x="360" y="450" text-anchor="middle">ReMe Text</text>
+  </g>
+  <g data-method="ReMe Image" data-score="53.44">
+    <rect class="reme" x="472" y="255.68" width="104" height="160.32"/>
+    <text class="value highlight" x="524" y="243.68" text-anchor="middle">53.44%</text>
+    <text class="label highlight" x="524" y="450" text-anchor="middle">ReMe Image</text>
+  </g>
+  <g data-method="OpenViking" data-score="37.04">
+    <rect class="baseline" x="636" y="304.88" width="104" height="111.12"/>
+    <text class="value" x="688" y="292.88" text-anchor="middle">37.04%</text>
+    <text class="label" x="688" y="450" text-anchor="middle">OpenViking</text>
+  </g>
+  <g data-method="Mem0" data-score="38.62">
+    <rect class="baseline" x="800" y="300.14" width="104" height="115.86"/>
+    <text class="value" x="852" y="288.14" text-anchor="middle">38.62%</text>
+    <text class="label" x="852" y="450" text-anchor="middle">Mem0</text>
+  </g>
+</svg>

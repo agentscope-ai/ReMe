@@ -133,7 +133,8 @@ jobs:
           assert set(manifest.backends) == {
               "auto_fin_data_step",
               "auto_fin_topic_step",
-              "auto_fin_merge_step",
+              "auto_fin_research_step",
+              "auto_fin_digest_step",
           }
           assert set(manifest.application_defaults["jobs"]) == {
               "auto_fin",
@@ -165,6 +166,6 @@ jobs:
           path: dist/auto-fin
 
       - name: Publish reme-auto-fin
-        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1
         with:
           packages-dir: dist/auto-fin

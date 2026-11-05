@@ -229,8 +229,19 @@ class Application(BaseComponent):
         """Close resources while the caller serializes component mutations."""
         cancelled_error: asyncio.CancelledError | None = None
         for c in reversed(self._started_components):
+            close_task = asyncio.create_task(c.close())
             try:
-                await c.close()
+                # Keep this component alive until its shutdown finishes, so a
+                # cancelled host cannot tear down a running worker's dependencies.
+                # Re-shield after each cancellation; awaiting the task directly
+                # would let a second cancellation interrupt its cleanup.
+                while not close_task.done():
+                    try:
+                        await asyncio.shield(close_task)
+                    except asyncio.CancelledError as exc:
+                        if cancelled_error is None:
+                            cancelled_error = exc
+                close_task.result()
             except asyncio.CancelledError as exc:
                 if cancelled_error is None:
                     cancelled_error = exc

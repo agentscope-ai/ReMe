@@ -13,6 +13,8 @@ import type {
   SearchOptions,
 } from "./types.js";
 
+import { safeError, validEndpoint } from "../endpoint.js";
+
 interface ReMeResponseBody {
   success?: boolean;
   answer?: unknown;
@@ -50,7 +52,10 @@ export class ReMeClient {
     sessionId: string,
     options: AutoMemoryOptions = {},
   ): Promise<ReMeResult> {
-    const config = this.configSource();
+    const config = {
+      ...this.configSource(),
+      ...(options.endpoint ? { endpoint: options.endpoint } : {}),
+    };
     return this.request(
       "auto_memory",
       {
@@ -58,6 +63,7 @@ export class ReMeClient {
         session_id: sessionId,
         memory_hint: options.memoryHint || "",
         date: options.date || "",
+        ...(options.requestId ? { request_id: options.requestId } : {}),
       },
       config,
       config.backgroundTimeoutMs,
@@ -189,6 +195,10 @@ export class ReMeClient {
       ? AbortSignal.any([externalSignal, controller.signal])
       : controller.signal;
     try {
+      if (!validEndpoint(config.endpoint))
+        throw new TypeError(
+          "Invalid ReMe endpoint: credentials, query, and fragment are unsupported",
+        );
       const response = await fetch(`${config.endpoint}/${job}`, {
         method: "POST",
         headers: {
@@ -208,7 +218,7 @@ export class ReMeClient {
         metadata: body.metadata ?? {},
         error: ok
           ? ""
-          : String(body.answer || body.detail || `HTTP ${response.status}`),
+          : safeError(body.answer || body.detail || `HTTP ${response.status}`),
       };
     } catch (error) {
       return {
@@ -216,7 +226,7 @@ export class ReMeClient {
         status: 0,
         answer: "",
         metadata: {},
-        error: error instanceof Error ? error.message : String(error),
+        error: safeError(error),
       };
     } finally {
       clearTimeout(timer);

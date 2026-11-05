@@ -173,10 +173,17 @@ Daily note：
 ```bash
 reme write path=daily/2026-06-20/demo-session.md name=demo-session description="Demo session" content="记录内容"
 reme daily_list
+reme daily_list start_date=2026-06-01 end_date=2026-06-20 page=1 page_size=20
 reme daily_reindex
 ```
 
 `write` 可直接创建 daily note；需要刷新当天索引时运行 `daily_reindex`。
+
+`daily_list` 只读。未传新参数时，仍列出 `date`（默认今天）的全部笔记，返回 `{date, count, notes}`。
+日期范围必须同时提供起止日期，包含两端，且不能与非空的 `date` 混用；按日期降序、同日路径升序排列。
+日期范围或显式的 `page` / `page_size` 会启用分页：页码默认 1，每页默认 100 条、最多 1000 条，
+metadata 增加 `page`、`page_size`、`total_notes`、`total_pages`。空范围页数为 0，越界页返回空列表；
+总数只统计可读取、有效且有权限访问的笔记。分页限制返回量，不限制扫描量；每次查询读取当前文件，不提供跨页快照。
 
 ---
 

@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
+from ._base import _FileIOStep
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_session_output, truncate_text_output
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
-from ..base_step import BaseStep
 from ..index._source_format import is_session_path
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -12,7 +12,7 @@ from ...utils import expand_links, render_expansion_lines
 
 
 @R.register("read_step")
-class ReadStep(BaseStep):
+class ReadStep(_FileIOStep):
     """Read a markdown file. Optional `start_line`/`end_line` for ranged reads.
 
     Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
@@ -37,12 +37,8 @@ class ReadStep(BaseStep):
 
     def _fail(self, message: str, **meta) -> None:
         """Mark the response failed and stash a human-readable error."""
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
+        super()._fail(message, **meta)
         self.logger.warning(f"[{self.name}] FAILED: {message} | meta={meta}")
-        if meta:
-            self.context.response.metadata.update(meta)
 
     def _resolve_target(self, raw: str) -> Path | None:
         """Resolve ``raw`` under workspace and gate the markdown suffix.
@@ -156,6 +152,8 @@ class ReadStep(BaseStep):
             if content is None:
                 return None
 
+            # Match text-mode streaming reads and the chunker's source line numbers.
+            content = content.replace("\r\n", "\n").replace("\r", "\n")
             all_lines = content.split("\n")
             if content.endswith("\n"):
                 # split() yields a trailing empty element for the final newline;

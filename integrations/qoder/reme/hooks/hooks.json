@@ -1,0 +1,60 @@
+{
+  "description": "Automatic ReMe recall and retryable completed-turn recording.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QODER_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QODER_PLUGIN_ROOT}/hooks/auto_memory.py\" --capture-only",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QODER_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 610
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "async": true,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QODER_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 610
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${QODER_PLUGIN_ROOT}/hooks/auto_memory.py\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -16,7 +16,7 @@ from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.runtime_context import RuntimeContext
 from reme.config import resolve_app_config
-from reme.schema import DreamState
+from reme.schema import DreamState, FileNode
 from reme.steps.evolve.dream.finish import DreamFinishStep
 
 DAY = "2026-05-28"
@@ -137,6 +137,99 @@ async def test_dream_reprocesses_concurrent_source_edits_after_restart(tmp_path,
             assert len(calls) == before_retry + 2
             nodes = await app.context.components["file_catalog"]["dream"].get_nodes([SOURCE])
             assert nodes[0].st_mtime == source.stat().st_mtime
+    finally:
+        await app.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("older_checkpoint", [False, True])
+@pytest.mark.parametrize("recover_on_attempt", [None, 1, 2])
+async def test_invalid_integration_preserves_retry_after_restart(tmp_path, older_checkpoint, recover_on_attempt):
+    """Unrecoverable integration preserves catalog versions; actual writes can still recover."""
+    source = tmp_path / SOURCE
+    source.parent.mkdir(parents=True)
+    original = frontmatter.dumps(frontmatter.Post(OLD, name="deployment", description="Deployment policy"))
+    source.write_text(original)
+    index = f"daily/{DAY}.md"
+    (tmp_path / index).write_text("day index")
+
+    def agent_for(app, write_attempt):
+        calls = {"extract": 0, "integrate": 0}
+
+        async def reply(_message, **kwargs):
+            if "list_tags" in kwargs["job_tools"]:
+                return {"result": "No tags added by the controlled provider"}
+            if kwargs["job_tools"] == ["read"]:
+                calls["extract"] += 1
+                unit = {"name": "deployment", "bucket": "wiki", "summary": OLD, "paths": [SOURCE, index]}
+                return {"result": json.dumps({"units": [unit]})}
+            calls["integrate"] += 1
+            if calls["integrate"] == write_attempt:
+                written = await app.run_job("write", path=TARGET, content=OLD)
+                assert written.success, written.answer
+            return {"result": "{}"}
+
+        agent = AsyncMock(spec=BaseAgentWrapper)
+        agent.reply.side_effect = reply
+        return agent, calls
+
+    app = _app(tmp_path)
+    await app.start()
+    previous = {rel: (tmp_path / rel).stat().st_mtime - 2 for rel in (SOURCE, index)} if older_checkpoint else {}
+    try:
+        catalog = app.context.components["file_catalog"]["dream"]
+        await catalog.upsert([FileNode(path=rel, st_mtime=mtime) for rel, mtime in previous.items()])
+        agent, calls = agent_for(app, recover_on_attempt)
+        response = await app.run_job(
+            "auto_dream",
+            date=DAY,
+            scan_days=1,
+            agent_wrapper=agent,
+            as_llm=Mock(spec=ChatModelBase),
+        )
+        state = response.metadata["dream"]
+        assert response.success is (recover_on_attempt is not None)
+        assert state["skipped_units"] == []
+        assert calls == {"extract": 1, "integrate": recover_on_attempt or 2}
+        assert source.read_text() == original
+        if recover_on_attempt is None:
+            assert response.answer.startswith("AutoDream failed")
+            assert len(state["failed_units"]) == 1
+            assert set(state["failed_paths"]) == {SOURCE, index}
+            assert state["checkpoint_paths"] == []
+            assert state["errors"]
+            assert {n.path: n.st_mtime for n in await catalog.get_nodes()} == previous
+            assert not (tmp_path / TARGET).exists()
+        else:
+            assert response.answer.startswith("AutoDream completed with warnings")
+            assert state["failed_units"] == []
+            assert state["failed_paths"] == []
+            assert not state["errors"]
+            assert set(state["checkpoint_paths"]) == {SOURCE, index}
+            assert state["integrate_results"][0]["target_path"] == TARGET
+            assert OLD in (tmp_path / TARGET).read_text()
+    finally:
+        await app.close()
+
+    app = _app(tmp_path)
+    await app.start()
+    try:
+        catalog = app.context.components["file_catalog"]["dream"]
+        if recover_on_attempt is None:
+            assert {n.path: n.st_mtime for n in await catalog.get_nodes()} == previous
+        agent, calls = agent_for(app, 1)
+        response = await app.run_job(
+            "auto_dream",
+            date=DAY,
+            scan_days=1,
+            agent_wrapper=agent,
+            as_llm=Mock(spec=ChatModelBase),
+        )
+        assert response.success, response.answer
+        assert calls == {"extract": int(recover_on_attempt is None), "integrate": int(recover_on_attempt is None)}
+        assert {SOURCE, index} <= {n.path for n in await catalog.get_nodes()}
+        assert OLD in (tmp_path / TARGET).read_text()
+        assert source.read_text() == original
     finally:
         await app.close()
 

@@ -73,8 +73,9 @@ reme/
     file_chunker/            # Markdown / JSON / JSONL / generic text chunking
     file_catalog/            # change checkpoints
     as_llm/, as_embedding/   # model wrappers
-    as_classifier/           # optional Jev probabilistic classifier wrapper
+    as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
+    codex_app_server.py      # shared Codex process and conversation locks
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -542,18 +543,54 @@ Current default components in `reme/config/default.yaml`:
 | `service`         | singleton                       | `http`                                           | Default HTTP service.                                                          |
 | `tokenizer`       | `default`                       | `regex`                                          | BM25 tokenizer.                                                                |
 | `as_embedding`    | `default`                       | Not configured by default; example uses `openai` | Provides the embedding model wrapper after uncommenting the example config.    |
-| `as_classifier`   | `default`                       | Not configured by default; example uses `jev` | Optional probabilistic classifier; demonstrated by the classifier_demo config extending default. |
+| `as_decision_model`   | `default`                       | Not configured by default; example uses `agentscope` | Optional probabilistic decision model; demonstrated by the decision_demo config extending default. |
 | `embedding_store` | `default`                       | Not configured by default; example uses `local`  | Depends on `as_embedding: default` after uncommenting the example config.      |
 | `as_llm`          | `default`                       | `${LLM_BACKEND:-openai}`                         | LLM model wrapper.                                                             |
 | `agent_wrapper`   | `default`                       | `agentscope`                                     | AgentScope wrapper.                                                            |
 | `agent_wrapper`   | `claude_code`                   | `claude_code`                                    | Claude Code wrapper.                                                           |
-| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                                          | Codex wrappers for API-key and OAuth authentication.                           |
+| `codex_app_server` | `default/oauth`                | `sdk`                                            | Shared Codex processes for API-key and OAuth authentication.                   |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                                          | Agent configuration referencing a named Codex app-server.                     |
 | `file_graph`      | `default`                       | `local`                                          | Wikilink graph.                                                                |
 | `file_catalog`    | `default/resource/digest/dream` | `local`                                          | File-change checkpoints.                                                       |
 | `file_chunker`    | `markdown`                      | `markdown`                                       | Markdown AST chunking.                                                         |
 | `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`                             | JSON, JSONL, and generic text chunkers; generic text supports `txt` and `log`. |
 | `keyword_index`   | `default`                       | `bm25`                                           | BM25 keyword index.                                                            |
 | `file_store`      | `default`                       | `local`                                          | Combines file_graph and keyword_index; defaults to `embedding_store: ""`.      |
+
+Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
+keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
+`session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
+
+The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
+`approval_policy: never`, so available tools run without human or model approval. Requests that need additional
+permissions are rejected rather than prompting. Set `approval_mode: auto_review` to opt into the configured
+automatic reviewer. Tool allowlists and injected argument constraints continue to apply.
+
+With an API key and a custom `base_url`, the shared server configures a dedicated Responses provider that uses
+HTTP/SSE by default. Set `supports_websockets: true` on `codex_app_server` only for endpoints supporting the Responses
+WebSocket transport. Explicit `config_overrides` retain precedence over generated provider defaults.
+
+API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
+and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
+default subagents select `xhigh` reasoning. The catalog exposes only `xhigh`, so native approval reviews also use
+that level rather than the SDK's internal `low` default. Main-model overrides use `model`
+on the wrapper; the remaining native settings are explicit in `codex_app_server.default.config_overrides` and
+`model_catalog`. ReMe writes this native Codex catalog as rebuildable metadata in the server's private home.
+`auto_review_model_override` selects the approval model separately from the main model; changing only `model` does
+not change that reviewer. Native conversation compaction uses the thread's model. OAuth uses account-supported
+models and the separate `CODEX_OAUTH_MODEL_NAME` override. See [demo configuration](../../reme/config/demo.yaml) for
+the complete API-key setup using `LLM_API_KEY` and `LLM_BASE_URL`.
+
+Migration: move `auth_mode`, `api_key`, `base_url`, `codex_home`, `codex_bin`, `config_overrides` and `experimental_api`
+from wrappers to `components.codex_app_server.<name>` (`backend: sdk`). The default Codex home is
+`{workspace_dir}/.codex`; set `codex_home` to the previous directory to retain its login and saved threads.
+Configure separate `codex_home` values when servers need independent account or session storage.
+Remove `mcp_config` and `release_threads`. Job tools run against the current Application through a
+session-scoped MCP endpoint, reusing its plain HTTP listener when available. TLS, CLI and embedded applications use
+a lifecycle-managed loopback listener. Tool selection and injected arguments remain bound to each loaded thread; an unloaded
+thread can be resumed with a new binding. Internal jobs are available only through the explicitly selected tools,
+without changing their public service exposure. Closing a wrapper leaves the shared server running; application
+shutdown closes it. A disconnected request fails without replaying tools; later requests can reconnect and resume.
 
 Note that the `search` Step configuration contains `vector_weight`, but `file_store.default.embedding_store` is empty by
 default. Vector retrieval is available only when the runtime configuration enables an embedding store.

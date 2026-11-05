@@ -37,6 +37,7 @@ const releases = [
     loader: "1.0.6-alpha.2",
     schema: "3.18.5-alpha.2",
   },
+  { dsh: "0.2.1-rc.2", cordis: "4.0.5", loader: "1.0.6", schema: "3.18.5" },
 ];
 
 async function run(command, args, cwd) {

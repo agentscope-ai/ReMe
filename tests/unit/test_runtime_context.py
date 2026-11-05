@@ -156,25 +156,3 @@ def test_custom_response():
     ctx = RuntimeContext(response=resp)
     assert ctx.response is resp
     assert ctx.response.success is False
-
-
-if __name__ == "__main__":
-    print("\n=== RuntimeContext Tests ===")
-    test_getitem_setitem()
-    test_getitem_missing_raises()
-    test_contains()
-    test_delitem()
-    test_get_with_default()
-    test_update_merges_and_returns_self()
-    test_from_context_creates_new_when_none()
-    test_from_context_reuses_existing()
-    test_apply_mapping_copies_values()
-    test_apply_mapping_skips_missing_source()
-    test_apply_mapping_empty_is_noop()
-    test_stream_property()
-    test_enqueue_raises_without_queue()
-    test_add_stream_string()
-    test_add_stream_done()
-    test_default_response()
-    test_custom_response()
-    print("\n所有测试通过!")

@@ -26,12 +26,14 @@ outside the workspace are rejected.
 
 # pylint: disable=protected-access,redefined-builtin
 
-import asyncio
+from contextlib import chdir as temp_chdir
 import os
 import tempfile
 import warnings
 from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
+
+import pytest
 
 from reme.components import ApplicationContext
 from reme.components.file_store import LocalFileStore
@@ -49,22 +51,6 @@ from reme.utils.wikilink_handler import WikilinkHandler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 async def _make_store(files: dict[str, str] | None = None) -> LocalFileStore:
@@ -92,11 +78,6 @@ def _metadata(step) -> dict:
     return step.context.response.metadata
 
 
-def _run(coro):
-    """Run an async coroutine on a fresh isolated event loop."""
-    asyncio.run(coro)
-
-
 def _seed_md(workspace_dir: Path, rel: str, body: str) -> Path:
     target = workspace_dir / rel
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -112,49 +93,44 @@ def _seed_md(workspace_dir: Path, rel: str, body: str) -> Path:
 # -- stat ----------------------------------------------------------------
 
 
-def test_stat_indexed_file():
+@pytest.mark.asyncio
+async def test_stat_indexed_file():
     """stat reports size and mtime in its answer, plus metadata for an indexed file."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store({"topics/n.md": "---\nname: T\n---\nbody"})
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="topics/n.md")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "file"
-            assert payload["size"] == (Path(tmp) / "topics/n.md").stat().st_size
-            assert step.context.response.answer == (
-                f"stat: topics/n.md (file, {payload['size']} bytes, mtime {payload['mtime']})"
-            )
-            assert payload["mime"].startswith("text/")
-            assert payload["frontmatter"] == {"name": "T"}
-            await store.close()
-        print("✓ test_stat_indexed_file passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store({"topics/n.md": "---\nname: T\n---\nbody"})
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="topics/n.md")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "file"
+        assert payload["size"] == (Path(tmp) / "topics/n.md").stat().st_size
+        assert step.context.response.answer == (
+            f"stat: topics/n.md (file, {payload['size']} bytes, mtime {payload['mtime']})"
+        )
+        assert payload["mime"].startswith("text/")
+        assert payload["frontmatter"] == {"name": "T"}
+        await store.close()
 
 
-def test_stat_directory_fallback():
+@pytest.mark.asyncio
+async def test_stat_directory_fallback():
     """stat on a non-indexed directory falls back to a plain join + type=dir."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            (Path(tmp) / "topics").mkdir(parents=True, exist_ok=True)
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="topics")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "dir"
-            assert step.context.response.answer == f"stat: topics (dir, mtime {payload['mtime']})"
-            await store.close()
-        print("✓ test_stat_directory_fallback passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        (Path(tmp) / "topics").mkdir(parents=True, exist_ok=True)
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="topics")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "dir"
+        assert step.context.response.answer == f"stat: topics (dir, mtime {payload['mtime']})"
+        await store.close()
 
 
-def test_stat_directory_wins_over_same_name_index():
+@pytest.mark.asyncio
+async def test_stat_directory_wins_over_same_name_index():
     """stat prefers an existing directory over its same-name ``.md`` index.
 
     The daily layout keeps ``<daily_dir>/<date>/`` and its
@@ -162,126 +138,110 @@ def test_stat_directory_wins_over_same_name_index():
     must report the directory, while the explicit ``.md`` still hits the file.
     """
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "daily/2026-08-10/note.md": "---\nname: n\n---\nbody",
-                    "daily/2026-08-10.md": "---\nname: index\n---\nindex body",
-                },
-            )
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="daily/2026-08-10")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "dir"
-            assert payload["absolute_path"].endswith("2026-08-10")
-            assert "resolved_path" not in payload
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "daily/2026-08-10/note.md": "---\nname: n\n---\nbody",
+                "daily/2026-08-10.md": "---\nname: index\n---\nindex body",
+            },
+        )
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="daily/2026-08-10")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "dir"
+        assert payload["absolute_path"].endswith("2026-08-10")
+        assert "resolved_path" not in payload
 
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="daily/2026-08-10.md")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "file"
-            assert payload["frontmatter"] == {"name": "index"}
-            await store.close()
-        print("✓ test_stat_directory_wins_over_same_name_index passed")
-
-    asyncio.run(run())
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="daily/2026-08-10.md")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "file"
+        assert payload["frontmatter"] == {"name": "index"}
+        await store.close()
 
 
-def test_stat_shadowed_extensionless_reports_resolved_path():
+@pytest.mark.asyncio
+async def test_stat_shadowed_extensionless_reports_resolved_path():
     """When both ``LICENSE`` and ``LICENSE.md`` exist, ``stat path=LICENSE``
     resolves to the ``.md`` but discloses the substitution via ``resolved_path``.
     """
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
-            (Path(tmp) / "LICENSE.md").write_text("y" * 12, encoding="utf-8")
-            store = await _make_store()
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="LICENSE")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "file"
-            assert payload["path"] == "LICENSE"
-            assert payload["size"] == 12
-            assert payload["mime"] == "text/markdown"
-            assert payload["absolute_path"].endswith("LICENSE.md")
-            assert payload["resolved_path"] == "LICENSE.md"
-            await store.close()
-        print("✓ test_stat_shadowed_extensionless_reports_resolved_path passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
+        (Path(tmp) / "LICENSE.md").write_text("y" * 12, encoding="utf-8")
+        store = await _make_store()
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="LICENSE")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "file"
+        assert payload["path"] == "LICENSE"
+        assert payload["size"] == 12
+        assert payload["mime"] == "text/markdown"
+        assert payload["absolute_path"].endswith("LICENSE.md")
+        assert payload["resolved_path"] == "LICENSE.md"
+        await store.close()
 
 
-def test_stat_extensionless_file_without_md_sibling():
+@pytest.mark.asyncio
+async def test_stat_extensionless_file_without_md_sibling():
     """An extension-less file with no ``.md`` sibling is reported as-is."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
-            store = await _make_store()
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="LICENSE")
-            payload = _metadata(step)
-            assert payload["exists"] is True
-            assert payload["type"] == "file"
-            assert payload["size"] == 15
-            assert payload["absolute_path"].endswith("LICENSE")
-            assert "resolved_path" not in payload
-            await store.close()
-        print("✓ test_stat_extensionless_file_without_md_sibling passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        (Path(tmp) / "LICENSE").write_text("x" * 15, encoding="utf-8")
+        store = await _make_store()
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="LICENSE")
+        payload = _metadata(step)
+        assert payload["exists"] is True
+        assert payload["type"] == "file"
+        assert payload["size"] == 15
+        assert payload["absolute_path"].endswith("LICENSE")
+        assert "resolved_path" not in payload
+        await store.close()
 
 
-def test_stat_missing_reports_probed_md_path():
+@pytest.mark.asyncio
+async def test_stat_missing_reports_probed_md_path():
     """stat on a missing suffix-less path reports the probed ``.md`` candidate."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            step = crud_stat.StatStep(file_store=store)
-            await step(path="digest/missing")
-            payload = _metadata(step)
-            assert payload["exists"] is False
-            assert payload["resolved_path"] == "digest/missing.md"
-            assert "digest/missing.md" in str(step.context.response.answer)
-            await store.close()
-        print("✓ test_stat_missing_reports_probed_md_path passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        step = crud_stat.StatStep(file_store=store)
+        await step(path="digest/missing")
+        payload = _metadata(step)
+        assert payload["exists"] is False
+        assert payload["resolved_path"] == "digest/missing.md"
+        assert "digest/missing.md" in str(step.context.response.answer)
+        await store.close()
 
 
 # -- list ----------------------------------------------------------------
 
 
-def test_list_lists_files():
+@pytest.mark.asyncio
+async def test_list_lists_files():
     """list returns paths relative to the workspace for files under the given directory."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "topics/a.md": "x",
-                    "topics/b.md": "y",
-                    "topics/sub/c.md": "z",
-                },
-            )
-            step = crud_list.ListStep(file_store=store)
-            await step(path="topics", recursive=True)
-            payload = _metadata(step)
-            assert set(payload["items"]) == {"topics/a.md", "topics/b.md", "topics/sub/c.md"}
-            assert payload["count"] == 3
-            answer = step.context.response.answer
-            assert answer.startswith("Listed 3 file(s) under topics:\n")
-            assert all(f"- {item}" in answer for item in payload["items"])
-            await store.close()
-        print("✓ test_list_lists_files passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "topics/a.md": "x",
+                "topics/b.md": "y",
+                "topics/sub/c.md": "z",
+            },
+        )
+        step = crud_list.ListStep(file_store=store)
+        await step(path="topics", recursive=True)
+        payload = _metadata(step)
+        assert set(payload["items"]) == {"topics/a.md", "topics/b.md", "topics/sub/c.md"}
+        assert payload["count"] == 3
+        answer = step.context.response.answer
+        assert answer.startswith("Listed 3 file(s) under topics:\n")
+        assert all(f"- {item}" in answer for item in payload["items"])
+        await store.close()
 
 
 def test_list_formats_workspace_relative_windows_paths_as_posix():
@@ -292,44 +252,38 @@ def test_list_formats_workspace_relative_windows_paths_as_posix():
     assert crud_list.ListStep._format_relative(files, workspace) == ["topics/a.md"]
 
 
-def test_list_empty_directory_has_explicit_answer():
+@pytest.mark.asyncio
+async def test_list_empty_directory_has_explicit_answer():
     """list tells an LLM explicitly when the target directory has no files."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            (Path(tmp) / "topics").mkdir()
-            step = crud_list.ListStep(file_store=store)
-            await step(path="topics")
-            assert step.context.response.answer == "No files found under topics."
-            assert _metadata(step) == {"items": [], "count": 0}
-            await store.close()
-        print("✓ test_list_empty_directory_has_explicit_answer passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        (Path(tmp) / "topics").mkdir()
+        step = crud_list.ListStep(file_store=store)
+        await step(path="topics")
+        assert step.context.response.answer == "No files found under topics."
+        assert _metadata(step) == {"items": [], "count": 0}
+        await store.close()
 
 
-def test_list_respects_limit_and_non_recursive():
+@pytest.mark.asyncio
+async def test_list_respects_limit_and_non_recursive():
     """Non-recursive list ignores subdirs; limit caps the count."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "topics/a.md": "x",
-                    "topics/b.md": "y",
-                    "topics/sub/c.md": "z",
-                },
-            )
-            step = crud_list.ListStep(file_store=store)
-            await step(path="topics", recursive=False, limit=1)
-            payload = _metadata(step)
-            assert payload["count"] == 1
-            assert len(payload["items"]) == 1
-            await store.close()
-        print("✓ test_list_respects_limit_and_non_recursive passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "topics/a.md": "x",
+                "topics/b.md": "y",
+                "topics/sub/c.md": "z",
+            },
+        )
+        step = crud_list.ListStep(file_store=store)
+        await step(path="topics", recursive=False, limit=1)
+        payload = _metadata(step)
+        assert payload["count"] == 1
+        assert len(payload["items"]) == 1
+        await store.close()
 
 
 def test_list_can_sort_by_most_recent_modification():
@@ -407,278 +361,244 @@ def test_list_mtime_sort_skips_files_deleted_during_scan(tmp_path):
 # -- move ----------------------------------------------------------------
 
 
-def test_move_relocates_within_workspace():
+@pytest.mark.asyncio
+async def test_move_relocates_within_workspace():
     """move renames / relocates a file in place."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store({"daily/2026-05-18/foo/foo.md": "draft"})
-            step = crud_move.MoveStep(file_store=store)
-            await step(src_path="daily/2026-05-18/foo/foo.md", dst_path="knowledge/foo/foo.md")
-            payload = _metadata(step)
-            assert "error" not in payload
-            assert not (Path(tmp) / "daily/2026-05-18/foo/foo.md").exists()
-            assert (Path(tmp) / "knowledge/foo/foo.md").read_text(encoding="utf-8") == "draft"
-            await store.close()
-        print("✓ test_move_relocates_within_workspace passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store({"daily/2026-05-18/foo/foo.md": "draft"})
+        step = crud_move.MoveStep(file_store=store)
+        await step(src_path="daily/2026-05-18/foo/foo.md", dst_path="knowledge/foo/foo.md")
+        payload = _metadata(step)
+        assert "error" not in payload
+        assert not (Path(tmp) / "daily/2026-05-18/foo/foo.md").exists()
+        assert (Path(tmp) / "knowledge/foo/foo.md").read_text(encoding="utf-8") == "draft"
+        await store.close()
 
 
-def test_move_refuses_overwrite_without_flag():
+@pytest.mark.asyncio
+async def test_move_refuses_overwrite_without_flag():
     """move refuses to clobber an existing dst_path unless overwrite=True."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "a/x.md": "src",
-                    "b/x.md": "dst",
-                },
-            )
-            step = crud_move.MoveStep(file_store=store)
-            await step(src_path="a/x.md", dst_path="b/x.md")
-            payload = _metadata(step)
-            assert "destination exists" in payload.get("error", "")
-            assert (Path(tmp) / "a/x.md").exists()
-            await store.close()
-        print("✓ test_move_refuses_overwrite_without_flag passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "a/x.md": "src",
+                "b/x.md": "dst",
+            },
+        )
+        step = crud_move.MoveStep(file_store=store)
+        await step(src_path="a/x.md", dst_path="b/x.md")
+        payload = _metadata(step)
+        assert "destination exists" in payload.get("error", "")
+        assert (Path(tmp) / "a/x.md").exists()
+        await store.close()
 
 
-def test_move_default_retargets_inbound_links():
+@pytest.mark.asyncio
+async def test_move_default_retargets_inbound_links():
     """move with retarget=True (default) rewrites inbound full-path [[src_path]] → [[dst_path]]."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "daily/2026-05-18/draft/draft.md": "spec",
-                    # only the literal full-path form is retargeted by design;
-                    # short / no-ext forms are intentionally left alone.
-                    "knowledge/notes/notes.md": (
-                        "see [[daily/2026-05-18/draft/draft.md]] and again " "[[daily/2026-05-18/draft/draft.md]] twice"
-                    ),
-                },
-            )
-            step = crud_move.MoveStep(file_store=store)
-            await step(
-                src_path="daily/2026-05-18/draft/draft.md",
-                dst_path="knowledge/draft/draft.md",
-            )
-            payload = _metadata(step)
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "daily/2026-05-18/draft/draft.md": "spec",
+                # only the literal full-path form is retargeted by design;
+                # short / no-ext forms are intentionally left alone.
+                "knowledge/notes/notes.md": (
+                    "see [[daily/2026-05-18/draft/draft.md]] and again " "[[daily/2026-05-18/draft/draft.md]] twice"
+                ),
+            },
+        )
+        step = crud_move.MoveStep(file_store=store)
+        await step(
+            src_path="daily/2026-05-18/draft/draft.md",
+            dst_path="knowledge/draft/draft.md",
+        )
+        payload = _metadata(step)
 
-            assert "error" not in payload
-            assert payload["retarget"]["files_touched"] == 1
-            assert payload["retarget"]["links_changed"] == 2
+        assert "error" not in payload
+        assert payload["retarget"]["files_touched"] == 1
+        assert payload["retarget"]["links_changed"] == 2
 
-            notes = (Path(tmp) / "knowledge/notes/notes.md").read_text(encoding="utf-8")
-            assert "[[daily/2026-05-18/draft/draft.md]]" not in notes
-            assert notes.count("[[knowledge/draft/draft.md]]") == 2
-            await store.close()
-        print("✓ test_move_default_retargets_inbound_links passed")
-
-    asyncio.run(run())
+        notes = (Path(tmp) / "knowledge/notes/notes.md").read_text(encoding="utf-8")
+        assert "[[daily/2026-05-18/draft/draft.md]]" not in notes
+        assert notes.count("[[knowledge/draft/draft.md]]") == 2
+        await store.close()
 
 
-def test_move_opt_out_leaves_links_dangling():
+@pytest.mark.asyncio
+async def test_move_opt_out_leaves_links_dangling():
     """retarget=False moves the file but leaves inbound references stale."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "daily/2026-05-18/draft/draft.md": "spec",
-                    "knowledge/notes/notes.md": "see [[daily/2026-05-18/draft/draft.md]]",
-                },
-            )
-            step = crud_move.MoveStep(file_store=store)
-            await step(
-                src_path="daily/2026-05-18/draft/draft.md",
-                dst_path="knowledge/draft/draft.md",
-                retarget=False,
-            )
-            payload = _metadata(step)
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "daily/2026-05-18/draft/draft.md": "spec",
+                "knowledge/notes/notes.md": "see [[daily/2026-05-18/draft/draft.md]]",
+            },
+        )
+        step = crud_move.MoveStep(file_store=store)
+        await step(
+            src_path="daily/2026-05-18/draft/draft.md",
+            dst_path="knowledge/draft/draft.md",
+            retarget=False,
+        )
+        payload = _metadata(step)
 
-            assert "error" not in payload
-            assert payload["retarget"] is None
+        assert "error" not in payload
+        assert payload["retarget"] is None
 
-            notes = (Path(tmp) / "knowledge/notes/notes.md").read_text(encoding="utf-8")
-            # link UNCHANGED — caller opted out of retarget
-            assert "[[daily/2026-05-18/draft/draft.md]]" in notes
-            await store.close()
-        print("✓ test_move_opt_out_leaves_links_dangling passed")
-
-    asyncio.run(run())
+        notes = (Path(tmp) / "knowledge/notes/notes.md").read_text(encoding="utf-8")
+        # link UNCHANGED — caller opted out of retarget
+        assert "[[daily/2026-05-18/draft/draft.md]]" in notes
+        await store.close()
 
 
 # -- delete --------------------------------------------------------------
 
 
-def test_delete_removes_file():
+@pytest.mark.asyncio
+async def test_delete_removes_file():
     """delete hard-removes the file."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store({"knowledge/draft/draft.md": "x"})
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="knowledge/draft/draft.md")
-            payload = _metadata(step)
-            assert payload.get("deleted") is True
-            assert not (Path(tmp) / "knowledge/draft/draft.md").exists()
-            await store.close()
-        print("✓ test_delete_removes_file passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store({"knowledge/draft/draft.md": "x"})
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="knowledge/draft/draft.md")
+        payload = _metadata(step)
+        assert payload.get("deleted") is True
+        assert not (Path(tmp) / "knowledge/draft/draft.md").exists()
+        await store.close()
 
 
-def test_delete_missing_returns_error():
+@pytest.mark.asyncio
+async def test_delete_missing_returns_error():
     """delete on a nonexistent path returns error rather than raising."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="knowledge/nope/nope.md")
-            payload = _metadata(step)
-            assert payload["error"] == "not found"
-            await store.close()
-        print("✓ test_delete_missing_returns_error passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="knowledge/nope/nope.md")
+        payload = _metadata(step)
+        assert payload["error"] == "not found"
+        await store.close()
 
 
-def test_delete_reports_inbound_refs():
+@pytest.mark.asyncio
+async def test_delete_reports_inbound_refs():
     """delete returns the inbound wikilink list (literal full-path matches only)."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "knowledge/target/target.md": "doomed",
-                    "knowledge/a/a.md": "see [[knowledge/target/target.md]]",
-                    "knowledge/b/b.md": (
-                        "ref [[knowledge/target/target.md]] and again " "[[knowledge/target/target.md]]"
-                    ),
-                    # short / no-ext forms are NOT counted by design
-                    "knowledge/c/c.md": "[[target]] and [[knowledge/target/target]]",
-                },
-            )
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="knowledge/target/target.md")
-            payload = _metadata(step)
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "knowledge/target/target.md": "doomed",
+                "knowledge/a/a.md": "see [[knowledge/target/target.md]]",
+                "knowledge/b/b.md": ("ref [[knowledge/target/target.md]] and again " "[[knowledge/target/target.md]]"),
+                # short / no-ext forms are NOT counted by design
+                "knowledge/c/c.md": "[[target]] and [[knowledge/target/target]]",
+            },
+        )
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="knowledge/target/target.md")
+        payload = _metadata(step)
 
-            assert payload["deleted"] is True
-            assert not (Path(tmp) / "knowledge/target/target.md").exists()
-            # referencing files are untouched — agent decides what to do
-            assert (Path(tmp) / "knowledge/a/a.md").read_text(encoding="utf-8") == (
-                "see [[knowledge/target/target.md]]"
-            )
+        assert payload["deleted"] is True
+        assert not (Path(tmp) / "knowledge/target/target.md").exists()
+        # referencing files are untouched — agent decides what to do
+        assert (Path(tmp) / "knowledge/a/a.md").read_text(encoding="utf-8") == ("see [[knowledge/target/target.md]]")
 
-            inbound = payload["inbound"]
-            paths = {item["path"] for item in inbound["by_file"]}
-            assert paths == {"knowledge/a/a.md", "knowledge/b/b.md"}
-            # a: 1 full-path ref; b: 2 full-path refs; c: not counted
-            assert inbound["files_touched"] == 2
-            assert inbound["links_total"] == 3
-            await store.close()
-        print("✓ test_delete_reports_inbound_refs passed")
-
-    asyncio.run(run())
+        inbound = payload["inbound"]
+        paths = {item["path"] for item in inbound["by_file"]}
+        assert paths == {"knowledge/a/a.md", "knowledge/b/b.md"}
+        # a: 1 full-path ref; b: 2 full-path refs; c: not counted
+        assert inbound["files_touched"] == 2
+        assert inbound["links_total"] == 3
+        await store.close()
 
 
-def test_delete_folder_removes_tree():
+@pytest.mark.asyncio
+async def test_delete_folder_removes_tree():
     """delete on a directory hard-removes the whole subtree."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "scratch/a.md": "alpha",
-                    "scratch/sub/b.md": "beta",
-                    "scratch/asset.bin": "blob",
-                    "keeper/k.md": "kept",
-                },
-            )
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="scratch")
-            payload = _metadata(step)
-            assert payload["deleted"] is True
-            assert payload["is_dir"] is True
-            assert set(payload["deleted_files"]) == {
-                "scratch/a.md",
-                "scratch/sub/b.md",
-                "scratch/asset.bin",
-            }
-            assert not (Path(tmp) / "scratch").exists()
-            assert (Path(tmp) / "keeper/k.md").exists()
-            await store.close()
-        print("✓ test_delete_folder_removes_tree passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "scratch/a.md": "alpha",
+                "scratch/sub/b.md": "beta",
+                "scratch/asset.bin": "blob",
+                "keeper/k.md": "kept",
+            },
+        )
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="scratch")
+        payload = _metadata(step)
+        assert payload["deleted"] is True
+        assert payload["is_dir"] is True
+        assert set(payload["deleted_files"]) == {
+            "scratch/a.md",
+            "scratch/sub/b.md",
+            "scratch/asset.bin",
+        }
+        assert not (Path(tmp) / "scratch").exists()
+        assert (Path(tmp) / "keeper/k.md").exists()
+        await store.close()
 
 
-def test_delete_folder_reports_only_external_inbound():
+@pytest.mark.asyncio
+async def test_delete_folder_reports_only_external_inbound():
     """Inbound from inside the doomed folder is suppressed; outside refs surface."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store(
-                {
-                    "doomed/a.md": "see [[doomed/b.md]]",  # internal — filtered out
-                    "doomed/b.md": "see [[doomed/a.md]]",  # internal — filtered out
-                    "outside/x.md": ("ext [[doomed/a.md]] and [[doomed/a.md]] plus [[doomed/b.md]]"),
-                    "outside/y.md": "another [[doomed/a.md]]",
-                },
-            )
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="doomed")
-            payload = _metadata(step)
-            assert payload["deleted"] is True
-            assert payload["is_dir"] is True
-            assert not (Path(tmp) / "doomed").exists()
-            # outside files survive untouched
-            assert (Path(tmp) / "outside/x.md").exists()
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store(
+            {
+                "doomed/a.md": "see [[doomed/b.md]]",  # internal — filtered out
+                "doomed/b.md": "see [[doomed/a.md]]",  # internal — filtered out
+                "outside/x.md": ("ext [[doomed/a.md]] and [[doomed/a.md]] plus [[doomed/b.md]]"),
+                "outside/y.md": "another [[doomed/a.md]]",
+            },
+        )
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="doomed")
+        payload = _metadata(step)
+        assert payload["deleted"] is True
+        assert payload["is_dir"] is True
+        assert not (Path(tmp) / "doomed").exists()
+        # outside files survive untouched
+        assert (Path(tmp) / "outside/x.md").exists()
 
-            inbound = payload["inbound"]
-            # external sources: x.md, y.md (deduped) → 2 files
-            assert inbound["files_touched"] == 2
-            # 2 refs to doomed/a.md from x + 1 ref from y + 1 ref to b from x = 4
-            assert inbound["links_total"] == 4
+        inbound = payload["inbound"]
+        # external sources: x.md, y.md (deduped) → 2 files
+        assert inbound["files_touched"] == 2
+        # 2 refs to doomed/a.md from x + 1 ref from y + 1 ref to b from x = 4
+        assert inbound["links_total"] == 4
 
-            by_target = {row["target"]: row for row in inbound["by_target"]}
-            assert set(by_target) == {"doomed/a.md", "doomed/b.md"}
-            a_sources = {row["path"]: row["count"] for row in by_target["doomed/a.md"]["by_file"]}
-            assert a_sources == {"outside/x.md": 2, "outside/y.md": 1}
-            b_sources = {row["path"]: row["count"] for row in by_target["doomed/b.md"]["by_file"]}
-            assert b_sources == {"outside/x.md": 1}
-            await store.close()
-        print("✓ test_delete_folder_reports_only_external_inbound passed")
-
-    asyncio.run(run())
+        by_target = {row["target"]: row for row in inbound["by_target"]}
+        assert set(by_target) == {"doomed/a.md", "doomed/b.md"}
+        a_sources = {row["path"]: row["count"] for row in by_target["doomed/a.md"]["by_file"]}
+        assert a_sources == {"outside/x.md": 2, "outside/y.md": 1}
+        b_sources = {row["path"]: row["count"] for row in by_target["doomed/b.md"]["by_file"]}
+        assert b_sources == {"outside/x.md": 1}
+        await store.close()
 
 
-def test_delete_folder_empty_has_no_inbound():
+@pytest.mark.asyncio
+async def test_delete_folder_empty_has_no_inbound():
     """Empty folder delete reports zero deleted files and zero inbound."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            (Path(tmp) / "empty").mkdir()
-            store = await _make_store()
-            step = crud_delete.DeleteStep(file_store=store)
-            await step(path="empty")
-            payload = _metadata(step)
-            assert payload["deleted"] is True
-            assert payload["is_dir"] is True
-            assert payload["deleted_files"] == []
-            assert payload["inbound"]["files_touched"] == 0
-            assert payload["inbound"]["links_total"] == 0
-            assert not (Path(tmp) / "empty").exists()
-            await store.close()
-        print("✓ test_delete_folder_empty_has_no_inbound passed")
-
-    asyncio.run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        (Path(tmp) / "empty").mkdir()
+        store = await _make_store()
+        step = crud_delete.DeleteStep(file_store=store)
+        await step(path="empty")
+        payload = _metadata(step)
+        assert payload["deleted"] is True
+        assert payload["is_dir"] is True
+        assert payload["deleted_files"] == []
+        assert payload["inbound"]["files_touched"] == 0
+        assert payload["inbound"]["links_total"] == 0
+        assert not (Path(tmp) / "empty").exists()
+        await store.close()
 
 
 # ===========================================================================
@@ -710,181 +630,155 @@ async def _edit(store: LocalFileStore, **kwargs):
     return step.context.response
 
 
-def test_read_relative_path():
+@pytest.mark.asyncio
+async def test_read_relative_path():
     """`read path=Templates/Recipe.md` returns the file body from the workspace."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            body = "# Recipe\n\nMix flour and water.\n"
-            _seed_md(Path(tmp), "Templates/Recipe.md", body)
-            store = await _make_store()
-            resp = await _read(store, path="Templates/Recipe.md")
-            assert resp.success is True
-            assert "# Recipe" in str(resp.answer)
-            assert "flour and water" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_relative_path passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        body = "# Recipe\n\nMix flour and water.\n"
+        _seed_md(Path(tmp), "Templates/Recipe.md", body)
+        store = await _make_store()
+        resp = await _read(store, path="Templates/Recipe.md")
+        assert resp.success is True
+        assert "# Recipe" in str(resp.answer)
+        assert "flour and water" in str(resp.answer)
+        await store.close()
 
 
-def test_read_no_suffix_autoappends_md():
+@pytest.mark.asyncio
+async def test_read_no_suffix_autoappends_md():
     """A bare path with no suffix auto-appends `.md`."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Templates/Recipe.md", "auto-md\n")
-            store = await _make_store()
-            resp = await _read(store, path="Templates/Recipe")
-            assert resp.success is True
-            assert "auto-md" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_no_suffix_autoappends_md passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Templates/Recipe.md", "auto-md\n")
+        store = await _make_store()
+        resp = await _read(store, path="Templates/Recipe")
+        assert resp.success is True
+        assert "auto-md" in str(resp.answer)
+        await store.close()
 
 
-def test_read_line_range():
+@pytest.mark.asyncio
+async def test_read_line_range():
     """start_line / end_line slice the file 1-based, inclusive."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
-            store = await _make_store()
-            resp = await _read(store, path="Notes.md", start_line=2, end_line=4)
-            assert resp.success is True
-            assert "L2" in str(resp.answer)
-            assert "L3" in str(resp.answer)
-            assert "L4" in str(resp.answer)
-            assert "L1" not in str(resp.answer)
-            assert "L5" not in str(resp.answer)
-            await store.close()
-        print("✓ test_read_line_range passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\nL4\nL5\n")
+        store = await _make_store()
+        resp = await _read(store, path="Notes.md", start_line=2, end_line=4)
+        assert resp.success is True
+        assert "L2" in str(resp.answer)
+        assert "L3" in str(resp.answer)
+        assert "L4" in str(resp.answer)
+        assert "L1" not in str(resp.answer)
+        assert "L5" not in str(resp.answer)
+        await store.close()
 
 
-def test_read_absolute_path_inside_workspace_accepted():
+@pytest.mark.asyncio
+async def test_read_absolute_path_inside_workspace_accepted():
     """Absolute paths that resolve inside the workspace are accepted."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            target = _seed_md(Path(tmp), "Abs.md", "x\n")
-            store = await _make_store()
-            resp = await _read(store, path=str(target.resolve()))
-            assert resp.success is True
-            assert "x" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_absolute_path_inside_workspace_accepted passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        target = _seed_md(Path(tmp), "Abs.md", "x\n")
+        store = await _make_store()
+        resp = await _read(store, path=str(target.resolve()))
+        assert resp.success is True
+        assert "x" in str(resp.answer)
+        await store.close()
 
 
-def test_file_io_ops_reject_outside_workspace_path():
+@pytest.mark.asyncio
+async def test_file_io_ops_reject_outside_workspace_path():
     """CRUD steps reject paths outside the workspace without side effects."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            outside_path = "/etc/passwd"
-            _seed_md(Path(tmp), "target.md", "body\n")
-            store = await _make_store({"target.md": "body\n"})
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        outside_path = "/etc/passwd"
+        _seed_md(Path(tmp), "target.md", "body\n")
+        store = await _make_store({"target.md": "body\n"})
 
-            write_resp = await _write(store, path=outside_path, content="evil")
-            assert write_resp.success is False
+        write_resp = await _write(store, path=outside_path, content="evil")
+        assert write_resp.success is False
 
-            edit_resp = await _edit(store, path=outside_path, old_string="root", new_string="evil")
-            assert edit_resp.success is False
+        edit_resp = await _edit(store, path=outside_path, old_string="root", new_string="evil")
+        assert edit_resp.success is False
 
-            read_resp = await _read(store, path=outside_path)
-            assert read_resp.success is False
+        read_resp = await _read(store, path=outside_path)
+        assert read_resp.success is False
 
-            stat_step = crud_stat.StatStep(file_store=store)
-            await stat_step(path=outside_path)
-            assert stat_step.context.response.success is False
+        stat_step = crud_stat.StatStep(file_store=store)
+        await stat_step(path=outside_path)
+        assert stat_step.context.response.success is False
 
-            list_step = crud_list.ListStep(file_store=store)
-            await list_step(path=outside_path)
-            assert list_step.context.response.success is False
+        list_step = crud_list.ListStep(file_store=store)
+        await list_step(path=outside_path)
+        assert list_step.context.response.success is False
 
-            delete_step = crud_delete.DeleteStep(file_store=store)
-            await delete_step(path=outside_path)
-            assert delete_step.context.response.success is False
-            assert (Path(tmp) / "target.md").exists()
+        delete_step = crud_delete.DeleteStep(file_store=store)
+        await delete_step(path=outside_path)
+        assert delete_step.context.response.success is False
+        assert (Path(tmp) / "target.md").exists()
 
-            move_step = crud_move.MoveStep(file_store=store)
-            await move_step(src_path=outside_path, dst_path="moved.md")
-            assert move_step.context.response.success is False
+        move_step = crud_move.MoveStep(file_store=store)
+        await move_step(src_path=outside_path, dst_path="moved.md")
+        assert move_step.context.response.success is False
 
-            await store.close()
-        print("✓ test_file_io_ops_reject_outside_workspace_path passed")
-
-    _run(run())
+        await store.close()
 
 
-def test_read_non_md_degraded():
+@pytest.mark.asyncio
+async def test_read_non_md_degraded():
     """Paths whose suffix is not `.md` are read in compatibility mode."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "data/foo.txt", "plain-text body\n")
-            store = await _make_store()
-            resp = await _read(store, path="data/foo.txt")
-            assert resp.success is True
-            assert "plain-text body" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_non_md_degraded passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "data/foo.txt", "plain-text body\n")
+        store = await _make_store()
+        resp = await _read(store, path="data/foo.txt")
+        assert resp.success is True
+        assert "plain-text body" in str(resp.answer)
+        await store.close()
 
 
-def test_read_missing_file():
+@pytest.mark.asyncio
+async def test_read_missing_file():
     """Reading a non-existent file should fail with a clear error."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _read(store, path="NotThere.md")
-            assert resp.success is False
-            assert "does not exist" in str(resp.answer).lower()
-            await store.close()
-        print("✓ test_read_missing_file passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _read(store, path="NotThere.md")
+        assert resp.success is False
+        assert "does not exist" in str(resp.answer).lower()
+        await store.close()
 
 
-def test_read_start_after_end():
+@pytest.mark.asyncio
+async def test_read_start_after_end():
     """start_line > end_line is invalid."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Range.md", "a\nb\nc\n")
-            store = await _make_store()
-            resp = await _read(store, path="Range.md", start_line=3, end_line=1)
-            assert resp.success is False
-            assert "start_line" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_start_after_end passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Range.md", "a\nb\nc\n")
+        store = await _make_store()
+        resp = await _read(store, path="Range.md", start_line=3, end_line=1)
+        assert resp.success is False
+        assert "start_line" in str(resp.answer)
+        await store.close()
 
 
-def test_read_start_line_exceeds_total():
+@pytest.mark.asyncio
+async def test_read_start_line_exceeds_total():
     """start_line beyond total line count is invalid."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Short.md", "only-one-line\n")
-            store = await _make_store()
-            resp = await _read(store, path="Short.md", start_line=99)
-            assert resp.success is False
-            assert "exceeds" in str(resp.answer).lower()
-            await store.close()
-        print("✓ test_read_start_line_exceeds_total passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Short.md", "only-one-line\n")
+        store = await _make_store()
+        resp = await _read(store, path="Short.md", start_line=99)
+        assert resp.success is False
+        assert "exceeds" in str(resp.answer).lower()
+        await store.close()
 
 
-def test_read_trailing_newline_does_not_inflate_total_lines():
+@pytest.mark.asyncio
+async def test_read_trailing_newline_does_not_inflate_total_lines():
     """A trailing '\\n' must not count as an extra line (small-file path).
 
     ``line1\\nline2\\nline3\\n`` is 3 lines, matching both the large-file
@@ -894,583 +788,431 @@ def test_read_trailing_newline_does_not_inflate_total_lines():
     silently accepted instead of rejected.
     """
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Short.md", "line1\nline2\nline3\n")
-            store = await _make_store()
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Short.md", "line1\nline2\nline3\n")
+        store = await _make_store()
 
-            resp = await _read(store, path="Short.md", start_line=99)
-            assert resp.success is False
-            assert "exceeds file length (3 lines)" in str(resp.answer)
+        resp = await _read(store, path="Short.md", start_line=99)
+        assert resp.success is False
+        assert "exceeds file length (3 lines)" in str(resp.answer)
 
-            past_eof = await _read(store, path="Short.md", start_line=4)
-            assert past_eof.success is False
-            assert "exceeds file length (3 lines)" in str(past_eof.answer)
+        past_eof = await _read(store, path="Short.md", start_line=4)
+        assert past_eof.success is False
+        assert "exceeds file length (3 lines)" in str(past_eof.answer)
 
-            in_range = await _read(store, path="Short.md", start_line=3)
-            assert in_range.success is True
-            assert str(in_range.answer).strip() == "line3"
+        in_range = await _read(store, path="Short.md", start_line=3)
+        assert in_range.success is True
+        assert str(in_range.answer).strip() == "line3"
 
-            await store.close()
-        print("✓ test_read_trailing_newline_does_not_inflate_total_lines passed")
-
-    _run(run())
+        await store.close()
 
 
-def test_read_truncation():
+@pytest.mark.asyncio
+async def test_read_truncation():
     """A file larger than DEFAULT_MAX_BYTES triggers truncation with a continuation notice."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            # Seed > DEFAULT_MAX_BYTES (50 KiB) so the default truncation kicks in.
-            body = "\n".join(f"line {i}" for i in range(8000)) + "\n"
-            _seed_md(Path(tmp), "Big.md", body)
-            store = await _make_store()
-            resp = await _read(store, path="Big.md")
-            assert resp.success is True
-            assert "truncated" in str(resp.answer)
-            assert "start_line=" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_truncation passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        # Seed > DEFAULT_MAX_BYTES (50 KiB) so the default truncation kicks in.
+        body = "\n".join(f"line {i}" for i in range(8000)) + "\n"
+        _seed_md(Path(tmp), "Big.md", body)
+        store = await _make_store()
+        resp = await _read(store, path="Big.md")
+        assert resp.success is True
+        assert "truncated" in str(resp.answer)
+        assert "start_line=" in str(resp.answer)
+        await store.close()
 
 
-def test_read_empty_path_rejected():
+@pytest.mark.asyncio
+async def test_read_empty_path_rejected():
     """An empty `path` should be rejected."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _read(store, path="")
-            assert resp.success is False
-            assert "required" in str(resp.answer).lower()
-            await store.close()
-        print("✓ test_read_empty_path_rejected passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _read(store, path="")
+        assert resp.success is False
+        assert "required" in str(resp.answer).lower()
+        await store.close()
 
 
-def test_read_format_session_injected_false_disables_yaml_true():
+@pytest.mark.asyncio
+async def test_read_format_session_injected_false_disables_yaml_true():
     """Runtime-injected ``read_step_format_session=False`` takes precedence
     over a YAML-true config — existence check, not truthiness."""
 
-    async def run():
-        from agentscope.message import Msg
+    from agentscope.message import Msg
 
-        m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
-        jsonl_body = m.model_dump_json() + "\n"
+    m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
+    jsonl_body = m.model_dump_json() + "\n"
 
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            session_path = Path(tmp) / "session" / "dialog" / "s.jsonl"
-            session_path.parent.mkdir(parents=True, exist_ok=True)
-            session_path.write_text(jsonl_body, encoding="utf-8")
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        session_path = Path(tmp) / "session" / "dialog" / "s.jsonl"
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+        session_path.write_text(jsonl_body, encoding="utf-8")
 
-            store = await _make_store()
+        store = await _make_store()
 
-            # YAML config read_step_format_session=True, no injection → formatting active.
-            step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
-            await step(path="session/dialog/s.jsonl")
-            assert "[user @" in str(step.context.response.answer)
+        # YAML config read_step_format_session=True, no injection → formatting active.
+        step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
+        await step(path="session/dialog/s.jsonl")
+        assert "[user @" in str(step.context.response.answer)
 
-            # Same YAML config, but runtime injects False → must disable formatting.
-            step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
-            await step(path="session/dialog/s.jsonl", read_step_format_session=False)
-            assert "[user @" not in str(step.context.response.answer)
+        # Same YAML config, but runtime injects False → must disable formatting.
+        step = crud_read.ReadStep(file_store=store, read_step_format_session=True)
+        await step(path="session/dialog/s.jsonl", read_step_format_session=False)
+        assert "[user @" not in str(step.context.response.answer)
 
-            await store.close()
-        print("✓ test_read_format_session_injected_false_disables_yaml_true passed")
-
-    _run(run())
+        await store.close()
 
 
-def test_read_format_session_with_non_normalized_session_dir():
+@pytest.mark.asyncio
+async def test_read_format_session_with_non_normalized_session_dir():
     """Session formatting recognizes a normalized target when config contains ``./``."""
 
-    async def run():
-        from agentscope.message import Msg
+    from agentscope.message import Msg
 
-        m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
-        jsonl_body = m.model_dump_json() + "\n"
+    m = Msg(name="user", role="user", content=[{"type": "text", "text": "hello world"}])
+    jsonl_body = m.model_dump_json() + "\n"
 
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
-            session_path = workspace / "sessions" / "dialog" / "s.jsonl"
-            session_path.parent.mkdir(parents=True, exist_ok=True)
-            session_path.write_text(jsonl_body, encoding="utf-8")
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        session_path = workspace / "sessions" / "dialog" / "s.jsonl"
+        session_path.parent.mkdir(parents=True, exist_ok=True)
+        session_path.write_text(jsonl_body, encoding="utf-8")
 
-            app_context = ApplicationContext(workspace_dir=str(workspace.resolve()), session_dir="./sessions")
-            step = crud_read.ReadStep(app_context=app_context, read_step_format_session=True)
-            step.file_store = SimpleNamespace(workspace_path=workspace)
-            await step(path="sessions/dialog/s.jsonl")
+        app_context = ApplicationContext(workspace_dir=str(workspace.resolve()), session_dir="./sessions")
+        step = crud_read.ReadStep(app_context=app_context, read_step_format_session=True)
+        step.file_store = SimpleNamespace(workspace_path=workspace)
+        await step(path="sessions/dialog/s.jsonl")
 
-            assert "[user @" in str(step.context.response.answer)
-
-    _run(run())
+        assert "[user @" in str(step.context.response.answer)
 
 
 # -- write / edit --------------------------------------------------------
 
 
-def test_write_basic_with_frontmatter():
+@pytest.mark.asyncio
+async def test_write_basic_with_frontmatter():
     """`write path=... name=... description=... content=...` writes a YAML front matter block."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(
-                store,
-                path="Notes/A.md",
-                name="Greetings",
-                description="a friendly hello note",
-                content="# Hello",
-            )
-            assert resp.success is True
-            assert "Wrote" in str(resp.answer)
-            on_disk = (Path(tmp) / "Notes/A.md").read_text(encoding="utf-8")
-            assert on_disk.startswith("---\n"), on_disk
-            assert "name: Greetings" in on_disk
-            assert "description: a friendly hello note" in on_disk
-            assert "# Hello" in on_disk
-            await store.close()
-        print("✓ test_write_basic_with_frontmatter passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(
+            store,
+            path="Notes/A.md",
+            name="Greetings",
+            description="a friendly hello note",
+            content="# Hello",
+        )
+        assert resp.success is True
+        assert "Wrote" in str(resp.answer)
+        on_disk = (Path(tmp) / "Notes/A.md").read_text(encoding="utf-8")
+        assert on_disk.startswith("---\n"), on_disk
+        assert "name: Greetings" in on_disk
+        assert "description: a friendly hello note" in on_disk
+        assert "# Hello" in on_disk
+        await store.close()
 
 
-def test_write_rejects_invalid_path_components():
+@pytest.mark.asyncio
+async def test_write_rejects_invalid_path_components():
     """`resolve_path` validates each segment with the same rules as daily-note slugs:
     Windows reserved chars / device names / trailing-dot (also blocks `..` traversal)."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            for bad in (
-                "CON.md",  # Windows-reserved device name (with extension)
-                "Notes/AUX",  # device name in a sub-segment
-                "Notes/foo<bar.md",  # invalid char `<`
-                "../escape.md",  # path-traversal attempt
-                "Notes/ trim.md",  # leading whitespace
-                "lpt9.md",  # case-insensitive device name match
-            ):
-                resp = await _write(store, path=bad, content="x")
-                assert resp.success is False, f"expected reject for {bad!r}, got success"
-            # Sanity: no `Notes/` directory got created from any of the bad attempts.
-            assert not (Path(tmp) / "Notes").exists()
-            await store.close()
-        print("✓ test_write_rejects_invalid_path_components passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        for bad in (
+            "CON.md",  # Windows-reserved device name (with extension)
+            "Notes/AUX",  # device name in a sub-segment
+            "Notes/foo<bar.md",  # invalid char `<`
+            "../escape.md",  # path-traversal attempt
+            "Notes/ trim.md",  # leading whitespace
+            "lpt9.md",  # case-insensitive device name match
+        ):
+            resp = await _write(store, path=bad, content="x")
+            assert resp.success is False, f"expected reject for {bad!r}, got success"
+        # Sanity: no `Notes/` directory got created from any of the bad attempts.
+        assert not (Path(tmp) / "Notes").exists()
+        await store.close()
 
 
-def test_write_no_suffix_autoappends_md():
+@pytest.mark.asyncio
+async def test_write_no_suffix_autoappends_md():
     """`path` with no suffix gets `.md` appended."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(store, path="Notes/My", content="x")
-            assert resp.success is True
-            assert (Path(tmp) / "Notes/My.md").exists()
-            await store.close()
-        print("✓ test_write_no_suffix_autoappends_md passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(store, path="Notes/My", content="x")
+        assert resp.success is True
+        assert (Path(tmp) / "Notes/My.md").exists()
+        await store.close()
 
 
-def test_write_overwrites_with_notice():
+@pytest.mark.asyncio
+async def test_write_overwrites_with_notice():
     """Writing into an existing path overwrites the file and surfaces a system notice."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Existing.md", "old\n")
-            store = await _make_store()
-            resp = await _write(store, path="Existing.md", content="new")
-            assert resp.success is True
-            assert "Wrote" in str(resp.answer)
-            assert "already existed" in str(resp.answer)
-            assert "overwritten" in str(resp.answer)
-            on_disk = (Path(tmp) / "Existing.md").read_text(encoding="utf-8")
-            assert "new" in on_disk and "old" not in on_disk, on_disk
-            await store.close()
-        print("✓ test_write_overwrites_with_notice passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "Existing.md", "old\n")
+        store = await _make_store()
+        resp = await _write(store, path="Existing.md", content="new")
+        assert resp.success is True
+        assert "Wrote" in str(resp.answer)
+        assert "already existed" in str(resp.answer)
+        assert "overwritten" in str(resp.answer)
+        on_disk = (Path(tmp) / "Existing.md").read_text(encoding="utf-8")
+        assert "new" in on_disk and "old" not in on_disk, on_disk
+        await store.close()
 
 
-def test_write_creates_parent_dirs():
+@pytest.mark.asyncio
+async def test_write_creates_parent_dirs():
     """Nested-non-existent parents are auto-created."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(store, path="a/b/c/D.md", content="hi")
-            assert resp.success is True
-            assert (Path(tmp) / "a/b/c/D.md").exists()
-            await store.close()
-        print("✓ test_write_creates_parent_dirs passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(store, path="a/b/c/D.md", content="hi")
+        assert resp.success is True
+        assert (Path(tmp) / "a/b/c/D.md").exists()
+        await store.close()
 
 
-def test_write_no_frontmatter_when_all_empty():
+@pytest.mark.asyncio
+async def test_write_no_frontmatter_when_all_empty():
     """When both `name` and `description` are empty strings, the file is body-only.
 
     The CLI schema declares them required, but the step is intentionally lenient
     so manual calls without these fields don't fail catastrophically."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(store, path="Plain.md", name="", description="", content="# Hello")
-            assert resp.success is True
-            on_disk = (Path(tmp) / "Plain.md").read_text(encoding="utf-8")
-            assert not on_disk.startswith("---"), on_disk
-            assert "# Hello" in on_disk
-            await store.close()
-        print("✓ test_write_no_frontmatter_when_all_empty passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(store, path="Plain.md", name="", description="", content="# Hello")
+        assert resp.success is True
+        on_disk = (Path(tmp) / "Plain.md").read_text(encoding="utf-8")
+        assert not on_disk.startswith("---"), on_disk
+        assert "# Hello" in on_disk
+        await store.close()
 
 
-def test_write_ignores_arbitrary_extra_fields():
+@pytest.mark.asyncio
+async def test_write_ignores_arbitrary_extra_fields():
     """Extra kwargs beyond name/description are silently ignored (schema is strict)."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            # Extras below should NOT appear in front matter under the
-            # hardcoded-fields schema.
-            resp = await _write(
-                store,
-                path="Custom.md",
-                name="My Note",
-                description="short summary",
-                content="body",
-                title="ignored",
-                author="ignored",
-                tags='["x","y"]',
-            )
-            assert resp.success is True
-            on_disk = (Path(tmp) / "Custom.md").read_text(encoding="utf-8")
-            assert on_disk.startswith("---\n"), on_disk
-            assert "name: My Note" in on_disk
-            assert "description: short summary" in on_disk
-            assert "title:" not in on_disk
-            assert "author:" not in on_disk
-            assert "tags:" not in on_disk
-            assert "body" in on_disk
-            await store.close()
-        print("✓ test_write_ignores_arbitrary_extra_fields passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        # Extras below should NOT appear in front matter under the
+        # hardcoded-fields schema.
+        resp = await _write(
+            store,
+            path="Custom.md",
+            name="My Note",
+            description="short summary",
+            content="body",
+            title="ignored",
+            author="ignored",
+            tags='["x","y"]',
+        )
+        assert resp.success is True
+        on_disk = (Path(tmp) / "Custom.md").read_text(encoding="utf-8")
+        assert on_disk.startswith("---\n"), on_disk
+        assert "name: My Note" in on_disk
+        assert "description: short summary" in on_disk
+        assert "title:" not in on_disk
+        assert "author:" not in on_disk
+        assert "tags:" not in on_disk
+        assert "body" in on_disk
+        await store.close()
 
 
-def test_write_only_description_present():
+@pytest.mark.asyncio
+async def test_write_only_description_present():
     """Step is lenient: providing only `description` works; missing `name` is skipped."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(store, path="OnlyDesc.md", description="just a description", content="body")
-            assert resp.success is True
-            on_disk = (Path(tmp) / "OnlyDesc.md").read_text(encoding="utf-8")
-            assert on_disk.startswith("---\n"), on_disk
-            assert "description: just a description" in on_disk
-            assert "name:" not in on_disk
-            await store.close()
-        print("✓ test_write_only_description_present passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(store, path="OnlyDesc.md", description="just a description", content="body")
+        assert resp.success is True
+        on_disk = (Path(tmp) / "OnlyDesc.md").read_text(encoding="utf-8")
+        assert on_disk.startswith("---\n"), on_disk
+        assert "description: just a description" in on_disk
+        assert "name:" not in on_disk
+        await store.close()
 
 
-def test_edit_global_replace():
+@pytest.mark.asyncio
+async def test_edit_global_replace():
     """`edit` replaces every occurrence of `old` with `new`."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "E.md", "foo bar foo\nfoo\n")
-            store = await _make_store()
-            resp = await _edit(store, path="E.md", old="foo", new="qux")
-            assert resp.success is True
-            assert "3" in str(resp.answer)  # 3 replacements
-            assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "qux bar qux\nqux\n"
-            await store.close()
-        print("✓ test_edit_global_replace passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "E.md", "foo bar foo\nfoo\n")
+        store = await _make_store()
+        resp = await _edit(store, path="E.md", old="foo", new="qux")
+        assert resp.success is True
+        assert "3" in str(resp.answer)  # 3 replacements
+        assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "qux bar qux\nqux\n"
+        await store.close()
 
 
-def test_edit_old_not_found():
+@pytest.mark.asyncio
+async def test_edit_old_not_found():
     """`old` absent in the file → success=False."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "E.md", "hello world\n")
-            store = await _make_store()
-            resp = await _edit(store, path="E.md", old="absent", new="x")
-            assert resp.success is False
-            assert "not found" in str(resp.answer).lower()
-            assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "hello world\n"
-            await store.close()
-        print("✓ test_edit_old_not_found passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed_md(Path(tmp), "E.md", "hello world\n")
+        store = await _make_store()
+        resp = await _edit(store, path="E.md", old="absent", new="x")
+        assert resp.success is False
+        assert "not found" in str(resp.answer).lower()
+        assert (Path(tmp) / "E.md").read_text(encoding="utf-8") == "hello world\n"
+        await store.close()
 
 
-def test_edit_missing_file():
+@pytest.mark.asyncio
+async def test_edit_missing_file():
     """Editing a non-existent file should fail."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _edit(store, path="NotThere.md", old="x", new="y")
-            assert resp.success is False
-            assert "does not exist" in str(resp.answer).lower()
-            await store.close()
-        print("✓ test_edit_missing_file passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _edit(store, path="NotThere.md", old="x", new="y")
+        assert resp.success is False
+        assert "does not exist" in str(resp.answer).lower()
+        await store.close()
 
 
-def test_edit_skips_frontmatter():
+@pytest.mark.asyncio
+async def test_edit_skips_frontmatter():
     """A match present in both front matter and body is replaced only in the body."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            body = (
-                "---\n"
-                "name: alpha\n"
-                "description: alpha-doc\n"
-                "---\n"
-                "intro paragraph mentioning alpha and alpha again.\n"
-            )
-            _seed_md(Path(tmp), "WithFM.md", body)
-            store = await _make_store()
-            resp = await _edit(store, path="WithFM.md", old="alpha", new="beta")
-            assert resp.success is True
-            assert "2" in str(resp.answer)  # 2 body occurrences only
-            on_disk = (Path(tmp) / "WithFM.md").read_text(encoding="utf-8")
-            # Front matter untouched.
-            assert "name: alpha" in on_disk, on_disk
-            assert "description: alpha-doc" in on_disk, on_disk
-            # Body fully rewritten.
-            assert "beta and beta" in on_disk, on_disk
-            assert "alpha and alpha" not in on_disk, on_disk
-            await store.close()
-        print("✓ test_edit_skips_frontmatter passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        body = (
+            "---\n"
+            "name: alpha\n"
+            "description: alpha-doc\n"
+            "---\n"
+            "intro paragraph mentioning alpha and alpha again.\n"
+        )
+        _seed_md(Path(tmp), "WithFM.md", body)
+        store = await _make_store()
+        resp = await _edit(store, path="WithFM.md", old="alpha", new="beta")
+        assert resp.success is True
+        assert "2" in str(resp.answer)  # 2 body occurrences only
+        on_disk = (Path(tmp) / "WithFM.md").read_text(encoding="utf-8")
+        # Front matter untouched.
+        assert "name: alpha" in on_disk, on_disk
+        assert "description: alpha-doc" in on_disk, on_disk
+        # Body fully rewritten.
+        assert "beta and beta" in on_disk, on_disk
+        assert "alpha and alpha" not in on_disk, on_disk
+        await store.close()
 
 
-def test_edit_match_only_in_frontmatter_fails():
+@pytest.mark.asyncio
+async def test_edit_match_only_in_frontmatter_fails():
     """If `old` appears ONLY inside front matter, edit reports not-found and writes nothing."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            body = "---\nname: secret\ndescription: nope\n---\nplain body without the keyword.\n"
-            _seed_md(Path(tmp), "FMOnly.md", body)
-            store = await _make_store()
-            resp = await _edit(store, path="FMOnly.md", old="secret", new="leaked")
-            assert resp.success is False
-            assert "not found" in str(resp.answer).lower()
-            # File untouched.
-            assert (Path(tmp) / "FMOnly.md").read_text(encoding="utf-8") == body
-            await store.close()
-        print("✓ test_edit_match_only_in_frontmatter_fails passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        body = "---\nname: secret\ndescription: nope\n---\nplain body without the keyword.\n"
+        _seed_md(Path(tmp), "FMOnly.md", body)
+        store = await _make_store()
+        resp = await _edit(store, path="FMOnly.md", old="secret", new="leaked")
+        assert resp.success is False
+        assert "not found" in str(resp.answer).lower()
+        # File untouched.
+        assert (Path(tmp) / "FMOnly.md").read_text(encoding="utf-8") == body
+        await store.close()
 
 
 # -- non-markdown degraded mode + encoding edge cases --------------------
 
 
-def test_write_non_md_skips_frontmatter():
+@pytest.mark.asyncio
+async def test_write_non_md_skips_frontmatter():
     """Writing to a non-md path skips name/description and emits a recommendation notice."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            store = await _make_store()
-            resp = await _write(
-                store,
-                path="data/notes.txt",
-                name="Greetings",
-                description="should be ignored",
-                content="# Hello",
-            )
-            assert resp.success is True
-            assert "Wrote" in str(resp.answer)
-            assert "non-markdown" in str(resp.answer).lower()
-            on_disk = (Path(tmp) / "data/notes.txt").read_text(encoding="utf-8")
-            assert not on_disk.startswith("---"), on_disk
-            assert "name: Greetings" not in on_disk
-            assert on_disk == "# Hello"
-            await store.close()
-        print("✓ test_write_non_md_skips_frontmatter passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        store = await _make_store()
+        resp = await _write(
+            store,
+            path="data/notes.txt",
+            name="Greetings",
+            description="should be ignored",
+            content="# Hello",
+        )
+        assert resp.success is True
+        assert "Wrote" in str(resp.answer)
+        assert "non-markdown" in str(resp.answer).lower()
+        on_disk = (Path(tmp) / "data/notes.txt").read_text(encoding="utf-8")
+        assert not on_disk.startswith("---"), on_disk
+        assert "name: Greetings" not in on_disk
+        assert on_disk == "# Hello"
+        await store.close()
 
 
-def test_edit_non_md_full_text():
+@pytest.mark.asyncio
+async def test_edit_non_md_full_text():
     """Editing a non-md path operates on the full file body (no frontmatter parsing)."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            # A YAML-looking header that would otherwise be stripped as frontmatter.
-            body = "---\nname: keep-me\n---\nfoo bar foo\n"
-            _seed_md(Path(tmp), "data/code.txt", body)
-            store = await _make_store()
-            resp = await _edit(store, path="data/code.txt", old="keep-me", new="replaced")
-            assert resp.success is True
-            assert "1" in str(resp.answer)
-            assert "non-markdown" in str(resp.answer).lower()
-            on_disk = (Path(tmp) / "data/code.txt").read_text(encoding="utf-8")
-            assert "name: replaced" in on_disk, on_disk
-            assert "foo bar foo" in on_disk, on_disk
-            await store.close()
-        print("✓ test_edit_non_md_full_text passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        # A YAML-looking header that would otherwise be stripped as frontmatter.
+        body = "---\nname: keep-me\n---\nfoo bar foo\n"
+        _seed_md(Path(tmp), "data/code.txt", body)
+        store = await _make_store()
+        resp = await _edit(store, path="data/code.txt", old="keep-me", new="replaced")
+        assert resp.success is True
+        assert "1" in str(resp.answer)
+        assert "non-markdown" in str(resp.answer).lower()
+        on_disk = (Path(tmp) / "data/code.txt").read_text(encoding="utf-8")
+        assert "name: replaced" in on_disk, on_disk
+        assert "foo bar foo" in on_disk, on_disk
+        await store.close()
 
 
-def test_read_non_utf8_encoding():
+@pytest.mark.asyncio
+async def test_read_non_utf8_encoding():
     """A GBK-encoded legacy file (e.g. CN-Windows CSV) is decoded via the GBK fallback."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            target = Path(tmp) / "data.csv"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            text = "姓名,职业\n你好世界,工程师\n"
-            target.write_bytes(text.encode("gbk"))
-            store = await _make_store()
-            resp = await _read(store, path="data.csv")
-            assert resp.success is True
-            assert "你好世界" in str(resp.answer)
-            await store.close()
-        print("✓ test_read_non_utf8_encoding passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        target = Path(tmp) / "data.csv"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = "姓名,职业\n你好世界,工程师\n"
+        target.write_bytes(text.encode("gbk"))
+        store = await _make_store()
+        resp = await _read(store, path="data.csv")
+        assert resp.success is True
+        assert "你好世界" in str(resp.answer)
+        await store.close()
 
 
-def test_edit_preserves_gbk_encoding():
+@pytest.mark.asyncio
+async def test_edit_preserves_gbk_encoding():
     """Editing a GBK file keeps the file encoded in GBK after the rewrite."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            target = Path(tmp) / "notes.csv"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            text = "原始内容,占位\n" * 20
-            target.write_bytes(text.encode("gbk"))
-            store = await _make_store()
-            resp = await _edit(store, path="notes.csv", old="原始内容", new="替换后")
-            assert resp.success is True
-            raw = target.read_bytes()
-            # File still decodes as GBK (would raise if we'd silently converted to UTF-8).
-            decoded = raw.decode("gbk")
-            assert "替换后" in decoded and "原始内容" not in decoded
-            await store.close()
-        print("✓ test_edit_preserves_gbk_encoding passed")
-
-    _run(run())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        target = Path(tmp) / "notes.csv"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        text = "原始内容,占位\n" * 20
+        target.write_bytes(text.encode("gbk"))
+        store = await _make_store()
+        resp = await _edit(store, path="notes.csv", old="原始内容", new="替换后")
+        assert resp.success is True
+        raw = target.read_bytes()
+        # File still decodes as GBK (would raise if we'd silently converted to UTF-8).
+        decoded = raw.decode("gbk")
+        assert "替换后" in decoded and "原始内容" not in decoded
+        await store.close()
 
 
-def test_read_utf8_bom():
+@pytest.mark.asyncio
+async def test_read_utf8_bom():
     """Reading a UTF-8 file with BOM strips the BOM transparently."""
 
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            target = Path(tmp) / "bom.txt"
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(b"\xef\xbb\xbfhello world\n")
-            store = await _make_store()
-            resp = await _read(store, path="bom.txt")
-            assert resp.success is True
-            assert "hello world" in str(resp.answer)
-            assert "﻿" not in str(resp.answer)
-            await store.close()
-        print("✓ test_read_utf8_bom passed")
-
-    _run(run())
-
-
-# -- aggregate: reuse one store for all read cases ----------------------
-
-
-def test_all_read_cases_one_store():
-    """Run multiple read scenarios against a single shared store for efficiency."""
-
-    async def run():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            _seed_md(Path(tmp), "Templates/Recipe.md", "# Recipe\nbody\n")
-            _seed_md(Path(tmp), "Notes.md", "L1\nL2\nL3\n")
-            store = await _make_store()
-
-            resp = await _read(store, path="Templates/Recipe.md")
-            assert resp.success is True and "# Recipe" in str(resp.answer)
-
-            resp = await _read(store, path="Notes")  # auto-append .md
-            assert resp.success is True and "L1" in str(resp.answer)
-
-            resp = await _read(store, path="Notes.md", start_line=2, end_line=2)
-            assert resp.success is True and str(resp.answer).strip() == "L2"
-
-            await store.close()
-        print("✓ test_all_read_cases_one_store passed")
-
-    _run(run())
-
-
-if __name__ == "__main__":
-    print("\n=== crud step tests (opaque-byte surface) ===")
-    # stat / list / move / delete
-    test_stat_indexed_file()
-    test_stat_directory_fallback()
-    test_stat_directory_wins_over_same_name_index()
-    test_stat_shadowed_extensionless_reports_resolved_path()
-    test_stat_extensionless_file_without_md_sibling()
-    test_stat_missing_reports_probed_md_path()
-    test_list_lists_files()
-    test_list_respects_limit_and_non_recursive()
-    test_move_relocates_within_workspace()
-    test_move_refuses_overwrite_without_flag()
-    test_move_default_retargets_inbound_links()
-    test_move_opt_out_leaves_links_dangling()
-    test_delete_removes_file()
-    test_delete_missing_returns_error()
-    test_delete_reports_inbound_refs()
-    test_delete_folder_removes_tree()
-    test_delete_folder_reports_only_external_inbound()
-    test_delete_folder_empty_has_no_inbound()
-    print("\n=== crud_md (read) E2E tests ===")
-    test_read_relative_path()
-    test_read_no_suffix_autoappends_md()
-    test_read_line_range()
-    test_read_absolute_path_inside_workspace_accepted()
-    test_file_io_ops_reject_outside_workspace_path()
-    test_read_non_md_degraded()
-    test_read_missing_file()
-    test_read_start_after_end()
-    test_read_start_line_exceeds_total()
-    test_read_trailing_newline_does_not_inflate_total_lines()
-    test_read_truncation()
-    test_read_empty_path_rejected()
-    print("\n=== crud_md (write/edit) E2E tests ===")
-    test_write_basic_with_frontmatter()
-    test_write_no_suffix_autoappends_md()
-    test_write_overwrites_with_notice()
-    test_write_creates_parent_dirs()
-    test_write_no_frontmatter_when_all_empty()
-    test_write_ignores_arbitrary_extra_fields()
-    test_write_only_description_present()
-    test_edit_global_replace()
-    test_edit_old_not_found()
-    test_edit_missing_file()
-    test_edit_skips_frontmatter()
-    test_edit_match_only_in_frontmatter_fails()
-    print("\n=== crud_md (non-md degraded mode) E2E tests ===")
-    test_write_non_md_skips_frontmatter()
-    test_edit_non_md_full_text()
-    test_read_non_utf8_encoding()
-    test_edit_preserves_gbk_encoding()
-    test_read_utf8_bom()
-    print("\n所有测试通过!")
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        target = Path(tmp) / "bom.txt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"\xef\xbb\xbfhello world\n")
+        store = await _make_store()
+        resp = await _read(store, path="bom.txt")
+        assert resp.success is True
+        assert "hello world" in str(resp.answer)
+        assert "﻿" not in str(resp.answer)
+        await store.close()

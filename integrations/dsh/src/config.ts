@@ -1,4 +1,7 @@
 import z from "@deepseek-ai/schemastery";
+import { homedir } from "node:os";
+import { resolve } from "node:path";
+import { validEndpoint } from "./endpoint.js";
 
 import { validTimezone, validateDailyCron } from "./scheduling.js";
 import type { ReMeConfig, ReMeConfigInput } from "./types.js";
@@ -26,6 +29,17 @@ export const Config = z.object({
   shutdownTimeoutMs: z.natural().min(100).max(60000).default(5000).volatile(),
   autoMemoryEnabled: z.boolean().default(true).volatile(),
   autoMemoryInterval: z.natural().min(1).max(1000).default(5).volatile(),
+  autoMemoryQueueDir: z
+    .string()
+    .default("")
+    .description("Private persistent automatic-memory queue directory"),
+  autoMemoryRetryMs: z.natural().min(1000).max(60000).default(1000).volatile(),
+  autoMemoryRetryMaxMs: z
+    .natural()
+    .min(1000)
+    .max(3600000)
+    .default(60000)
+    .volatile(),
   autoDreamEnabled: z.boolean().default(true).volatile(),
   dreamCron: checkedString(
     DEFAULT_DREAM_CRON,
@@ -77,6 +91,9 @@ const DEFAULT_CONFIG: Readonly<ReMeConfig> = Object.freeze({
   shutdownTimeoutMs: 5000,
   autoMemoryEnabled: true,
   autoMemoryInterval: 5,
+  autoMemoryQueueDir: "",
+  autoMemoryRetryMs: 1000,
+  autoMemoryRetryMaxMs: 60000,
   autoDreamEnabled: true,
   dreamCron: "0 23 * * *",
   dreamHint: "",
@@ -121,6 +138,23 @@ export function resolveConfig(
 
   config.endpoint = stripTrailingSlashes(String(config.endpoint));
   assertEndpoint(config.endpoint);
+  const home = env.DSH_HOME?.trim() || `${homedir()}/.dsh`;
+  const queueDir = config.autoMemoryQueueDir || `${home}/reme-memory/outbox`;
+  config.autoMemoryQueueDir = resolve(
+    queueDir.replace(/^~(?=\/|$)/, homedir()),
+  );
+  config.autoMemoryRetryMs = integer(
+    config.autoMemoryRetryMs,
+    1000,
+    60000,
+    1000,
+  );
+  config.autoMemoryRetryMaxMs = integer(
+    config.autoMemoryRetryMaxMs,
+    config.autoMemoryRetryMs,
+    3600000,
+    60000,
+  );
   config.requestTimeoutMs = integer(
     config.requestTimeoutMs,
     1000,
@@ -163,15 +197,10 @@ export function resolveConfig(
 }
 
 function assertEndpoint(value: string): void {
-  let endpoint: URL;
-  try {
-    endpoint = new URL(value);
-  } catch {
-    throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
-  }
-  if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
-    throw new TypeError("ReMe endpoint must be an absolute http(s) URL");
-  }
+  if (!validEndpoint(value))
+    throw new TypeError(
+      "ReMe endpoint must be an absolute http(s) URL without credentials, query, or fragment",
+    );
 }
 
 function stripTrailingSlashes(value: string): string {

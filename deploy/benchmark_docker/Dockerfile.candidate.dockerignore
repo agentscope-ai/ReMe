@@ -1,0 +1,52 @@
+# Only candidate-side benchmark plugins are needed in this image.
+# Add another explicit plugin directory here before selecting it with REME_PLUGIN_PATH.
+plugins/*
+!plugins/lme
+!plugins/beam
+
+# Keep exclusions after plugin exceptions so nested secrets stay excluded.
+.git
+**/.DS_Store
+**/.ssh
+**/.codex
+**/.claude
+**/private*
+**/.env
+**/.env.*
+**/.reme
+**/.venv
+**/venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage*
+**/htmlcov
+**/node_modules
+**/dist
+**/dist-static
+**/.generated
+**/.next
+**/.vite
+**/.wrangler
+**/.cache
+**/*.egg-info
+**/build
+**/logs
+**/*.log
+**/*.tmp
+reme_studio/src/reme_studio/static
+benchmark
+cookbook
+docs
+github-pages
+integrations
+skills
+tests
+
+# Candidate build inputs do not need local benchmark results or Studio sources.
+baselines
+meta-reme
+output
+reme_studio

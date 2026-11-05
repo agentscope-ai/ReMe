@@ -4,7 +4,7 @@
 
 This guide explains how to install, configure, and use `@agentscope-ai/reme-dsh-plugin` with DeepSeek Harness (DSH), including memory guidance injection, the `reme_search` tool, automatic memory, daily consolidation, and the ReMe Status page.
 
-The screenshots record an earlier local integration test against DSH `0.1.5-rc.2`; the supported releases are `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-alpha.2`, and `0.2.1-alpha.4`. Both the interface and ReMe guidance are set to English, and the isolated DSH and ReMe workspaces contain only fictional Project Aurora data. No `.env` values, API keys, access tokens, or personal memories appear in the screenshots.
+The screenshots record an earlier local integration test against DSH `0.1.5-rc.2`; the supported releases are `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-alpha.2`, `0.2.1-alpha.4`, and `0.2.1-rc.2`. Both the interface and ReMe guidance are set to English, and the isolated DSH and ReMe workspaces contain only fictional Project Aurora data. No `.env` values, API keys, access tokens, or personal memories appear in the screenshots.
 
 ## 1. How the plugin works
 
@@ -26,7 +26,7 @@ The DSH adapter injects **usage guidance**, not every historical memory. Relevan
 ## 2. Requirements
 
 - ReMe is installed and its configuration exposes the `search`, `auto_memory`, and `auto_dream` jobs.
-- DeepSeek Harness `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-alpha.2`, or `0.2.1-alpha.4`.
+- DeepSeek Harness `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-alpha.2`, `0.2.1-alpha.4`, or `0.2.1-rc.2`.
 - Node.js `^22.19.0` or `>=24.0.0`, matching the current DSH engine range.
 - The browser running DSH can reach the configured ReMe HTTP endpoint. Cross-machine deployments must also allow the DSH browser origin.
 
@@ -110,21 +110,23 @@ If an earlier upgrade already renamed `settings.yaml` to `settings.yaml.imported
 
 ![ReMe Memory plugin configuration](./figures/reme-memory-settings.png)
 
-| UI meaning             | Configuration key     | Default                 | Description                                                     |
-| ---------------------- | --------------------- | ----------------------- | --------------------------------------------------------------- |
-| Service URL            | `endpoint`            | `http://127.0.0.1:2333` | Absolute ReMe HTTP URL using `http` or `https`.                 |
-| Guidance language      | `language`            | `en`                    | `en` or `zh`; controls guidance injected into new sessions.     |
-| Default search results | `searchLimit`         | `5`                     | Default `reme_search` result limit, from 1 to 50.               |
-| Search timeout         | `requestTimeoutMs`    | `10000`                 | Search timeout in milliseconds, from 1,000 to 120,000.          |
-| Automatic memory       | `autoMemoryEnabled`   | `true`                  | Capture completed user/assistant turns for `auto_memory`.       |
-| Exclude subagents      | `rootAgentsOnly`      | `true`                  | Inject guidance and capture conversations only for root agents. |
-| Submission interval    | `autoMemoryInterval`  | `5`                     | Submit after this many completed turns, from 1 to 1,000.        |
-| Memory consolidation   | `autoDreamEnabled`    | `true`                  | Run `auto_dream` on the daily schedule.                         |
-| Consolidation schedule | `dreamCron`           | `0 23 * * *`            | Five-field cron expression interpreted in `timezone`.           |
-| Consolidation guidance | `dreamHint`           | empty                   | Optional guidance passed to `auto_dream`.                       |
-| Workspace timezone     | `timezone`            | `Asia/Shanghai`         | IANA timezone used for batching and scheduling.                 |
-| Background timeout     | `backgroundTimeoutMs` | `3600000`               | Timeout for `auto_memory` and `auto_dream`.                     |
-| Shutdown flush timeout | `shutdownTimeoutMs`   | `5000`                  | Budget for draining background work during shutdown.            |
+| UI meaning             | Configuration key      | Default                 | Description                                                     |
+| ---------------------- | ---------------------- | ----------------------- | --------------------------------------------------------------- |
+| Service URL            | `endpoint`             | `http://127.0.0.1:2333` | Absolute HTTP(S) URL without credentials, query, or fragment.   |
+| Guidance language      | `language`             | `en`                    | `en` or `zh`; controls guidance injected into new sessions.     |
+| Default search results | `searchLimit`          | `5`                     | Default `reme_search` result limit, from 1 to 50.               |
+| Search timeout         | `requestTimeoutMs`     | `10000`                 | Search timeout in milliseconds, from 1,000 to 120,000.          |
+| Automatic memory       | `autoMemoryEnabled`    | `true`                  | Capture completed user/assistant turns for `auto_memory`.       |
+| Exclude subagents      | `rootAgentsOnly`       | `true`                  | Inject guidance and capture conversations only for root agents. |
+| Submission interval    | `autoMemoryInterval`   | `5`                     | Submit after this many completed turns, from 1 to 1,000.        |
+| Memory consolidation   | `autoDreamEnabled`     | `true`                  | Run `auto_dream` on the daily schedule.                         |
+| Consolidation schedule | `dreamCron`            | `0 23 * * *`            | Five-field cron expression interpreted in `timezone`.           |
+| Consolidation guidance | `dreamHint`            | empty                   | Optional guidance passed to `auto_dream`.                       |
+| Workspace timezone     | `timezone`             | `Asia/Shanghai`         | IANA timezone used for batching and scheduling.                 |
+| Background timeout     | `backgroundTimeoutMs`  | `3600000`               | Timeout for `auto_memory` and `auto_dream`.                     |
+| Shutdown flush timeout | `shutdownTimeoutMs`    | `5000`                  | Budget for draining background work during shutdown.            |
+| Retry delay            | `autoMemoryRetryMs`    | `1000`                  | Initial retry delay; doubles after each failure.                |
+| Maximum retry delay    | `autoMemoryRetryMaxMs` | `60000`                 | Upper bound for retry delay.                                    |
 
 Deployment configuration also supports `REME_URL`, or `REME_HOST` together with `REME_PORT`. The timer-only test option `dreamIntervalMs` is intentionally excluded from user settings.
 
@@ -169,9 +171,19 @@ An empty successful response becomes `No relevant memory found.`. Service failur
 
 With `autoMemoryEnabled=true`, the plugin listens to DSH session events and collects completed user and assistant messages per session. When `autoMemoryInterval` is reached, the batch enters a background queue and calls ReMe `auto_memory`. Plugin-generated context and tool results are excluded from capture so they cannot be laundered back into long-term memory.
 
+Each completed turn is saved in a private JSON outbox before submission. Failures use capped exponential backoff independently of new turns; recovery drains every ready batch, including ended sessions. Payload/job rejections, such as HTTP 413, pause the affected session while other sessions continue; network, authentication, rate-limit, and service failures pause the endpoint. Each endpoint drains independently and reads one batch at a time, so a stalled old destination cannot block a newly configured service. Disabling automatic memory pauses capture and further sends; queued files remain available when re-enabled.
+
+The outbox defaults to `$DSH_HOME/reme-memory/outbox` (`~/.dsh/reme-memory/outbox` without `DSH_HOME`). Set the deployment-only `autoMemoryQueueDir` field and restart to choose another directory; simultaneous Hosts must use separate directories. Batches retain their original service endpoint across settings changes. An exclusive owner lock prevents concurrent writes, and a restart recovers an exited owner's queue. Queue files contain conversation text: keep them private. Disk/permission failures are surfaced as errors; preserve DSH session logs for recovery.
+
+Owner-lock recovery is serialized. If startup reports a busy or interrupted `.lock-recovery`, retry first; if the error persists, stop all Hosts using that queue, inspect it, and remove only the empty `.lock-recovery` directory before restarting. Preserve `.lock` and all queued JSON files.
+
+New batches receive strictly increasing ordering timestamps, recovered from queued files after restart, so equal wall-clock times or a clock rollback cannot reorder them. Older batches that already share a timestamp retain their existing file order.
+
+Sealed batches keep a stable `request_id` across timeouts and restarts. The updated ReMe service stores completed request receipts under its configured metadata directory, rejects reuse with different input, and replays completed results without invoking the memory agent again. An interruption before a receipt is committed can still repeat an unfinished operation; receipts do not make arbitrary agent file edits transactional.
+
 ![Automatic-memory activity](./figures/reme-status-auto-memory.png)
 
-Chat completion and durable memory completion are asynchronous. To verify persistence, open **ReMe Status → Auto Memory**, wait until running and queued tasks return to zero, and confirm that the latest submission is marked **Completed**.
+Chat completion and durable memory completion are asynchronous. To verify persistence, open **ReMe Status → Auto Memory**, wait until queued turns, running tasks, and queued tasks return to zero, and confirm that the latest submission is marked **Completed**.
 
 ## 8. ReMe Status tabs
 

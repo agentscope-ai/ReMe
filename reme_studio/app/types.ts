@@ -150,6 +150,31 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   blocks?: ChatBlock[];
+  turnId?: string;
+  source?: "chat" | "proactive";
+  createdAt?: string | null;
+  localOnly?: boolean;
+}
+
+export interface SessionMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  source: "chat" | "proactive";
+  created_at: string | null;
+  turn_id: string | null;
+  completed: boolean;
+  chunks: StreamChunk[];
+}
+
+export interface SessionSnapshot {
+  session_id: string;
+  state: {
+    session_id: string;
+    status: "active" | "idle" | "not_loaded" | "error";
+    active_flags: string[];
+  };
+  messages: SessionMessage[];
 }
 
 export type WorkspaceTab =

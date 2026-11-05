@@ -1,0 +1,3 @@
+model: qwen3.8-max
+user_concurrency: 4
+query_concurrency: 16

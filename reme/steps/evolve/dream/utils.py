@@ -113,6 +113,72 @@ def pack_paths(
     return "\n".join(blocks)
 
 
+def _file_size(workspace: Path, rel: str) -> int:
+    """Best-effort byte size of one workspace-relative path."""
+    try:
+        return (workspace / rel).stat().st_size
+    except OSError:
+        return 0
+
+
+def _day_key(rel: str) -> str:
+    """Group key that keeps one scanned day together (``daily/<date>``)."""
+    parts = rel.split("/")
+    return "/".join(parts[:2]) if len(parts) >= 2 else rel
+
+
+def batch_paths(
+    workspace: Path,
+    paths: list[str],
+    *,
+    max_chars: int,
+) -> list[list[str]]:
+    """Split paths into size-capped batches without dropping any path.
+
+    Files belonging to the same scanned day are kept in one batch whenever the
+    day fits the budget, so cross-file extraction still sees a whole day. A day
+    larger than the budget is split by file size, and a single oversized file
+    keeps a batch of its own (``pack_paths`` still applies its per-file cap).
+
+    Every path lands in exactly one batch; callers must never mark an unseen
+    path as extracted, which is why this returns a partition and not a slice.
+    """
+    if not paths:
+        return []
+    if max_chars <= 0:
+        return [list(paths)]
+
+    groups: list[list[str]] = []
+    for rel in paths:
+        if groups and _day_key(groups[-1][0]) == _day_key(rel):
+            groups[-1].append(rel)
+        else:
+            groups.append([rel])
+
+    batches: list[list[str]] = []
+    current: list[str] = []
+    total = 0
+    for group in groups:
+        group_size = sum(_file_size(workspace, rel) for rel in group)
+        if current and total + group_size > max_chars:
+            batches.append(current)
+            current, total = [], 0
+        if group_size <= max_chars:
+            current.extend(group)
+            total += group_size
+            continue
+        for rel in group:
+            size = _file_size(workspace, rel)
+            if current and total + size > max_chars:
+                batches.append(current)
+                current, total = [], 0
+            current.append(rel)
+            total += size
+    if current:
+        batches.append(current)
+    return batches
+
+
 def clean_paths(raw_paths, allowed: set[str]) -> list[str]:
     """Clean paths."""
     if not isinstance(raw_paths, list):
@@ -134,19 +200,25 @@ def previous_dates(day: str, n_days: int) -> list[str]:
     return [(base - dt.timedelta(days=i)).isoformat() for i in range(1, max(n_days, 0) + 1)]
 
 
-def parse_structured_reply(text: str) -> dict:
-    """Parse a JSON/YAML object from an agent reply, including fenced blocks."""
+def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
+    """Parse a JSON/YAML object; strict mode rejects lossy fallbacks with diagnostics."""
     candidates = [text.strip()]
     candidates.extend(m.group(1).strip() for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", text, re.S | re.I))
+    error = "expected a JSON/YAML object"
     for raw in candidates:
         if not raw:
             continue
         try:
             data = yaml.safe_load(raw)
-        except yaml.YAMLError:
+        except yaml.YAMLError as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            if strict:
+                continue
             data = _parse_scalar_mapping(raw)
-        if isinstance(data, dict) and data:
+        if isinstance(data, dict) and (data or strict):
             return data
+    if strict:
+        raise ValueError(f"Invalid structured reply: {error}")
     return {}
 
 

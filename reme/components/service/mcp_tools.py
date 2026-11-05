@@ -13,11 +13,20 @@ def add_mcp_job(
     tool_error_on_failure: bool,
 ) -> bool:
     """Register a non-stream job as an MCP tool on ``server``."""
+    tool = make_mcp_job_tool(job, injected_job_kwargs=injected_job_kwargs, tool_error_on_failure=tool_error_on_failure)
+    if tool is None:
+        return False
+    server.add_tool(tool)
+    return True
+
+
+def make_mcp_job_tool(job: BaseJob, *, injected_job_kwargs: dict[str, Any], tool_error_on_failure: bool) -> Any:
+    """Build a tool bound to an existing job and server-owned arguments."""
     from fastmcp.exceptions import ToolError
     from fastmcp.tools import FunctionTool
 
     if isinstance(job, StreamJob):
-        return False
+        return None
 
     async def execute_tool(**kwargs):
         conflicts = sorted(injected_job_kwargs.keys() & kwargs.keys())
@@ -33,6 +42,8 @@ def add_mcp_job(
         return response.answer
 
     parameters = dict(job.parameters or {})
+    # MCP requires object inputs even when a job leaves its schema implicit.
+    parameters.setdefault("type", "object")
     injected_names = injected_job_kwargs.keys()
     if "properties" in parameters:
         parameters["properties"] = {
@@ -41,12 +52,9 @@ def add_mcp_job(
     if "required" in parameters:
         parameters["required"] = [name for name in parameters["required"] if name not in injected_names]
 
-    server.add_tool(
-        FunctionTool(
-            name=job.name,
-            description=job.description,
-            fn=execute_tool,
-            parameters=parameters,
-        ),
+    return FunctionTool(
+        name=job.name,
+        description=job.description,
+        fn=execute_tool,
+        parameters=parameters,
     )
-    return True

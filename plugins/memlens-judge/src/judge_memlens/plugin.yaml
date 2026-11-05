@@ -1,0 +1,38 @@
+backends:
+  memlens_judge_step: judge_memlens.llm_judge:MemLensJudgeStep
+
+application_defaults:
+  jobs:
+    answer_judge:
+      backend: base
+      description: "memlens official judge protocol for a saved prediction"
+      parameters:
+        type: object
+        properties:
+          question: {type: string}
+          reference: {type: string}
+          prediction: {type: string}
+          category: {type: string, default: ""}
+          subtype: {type: string, default: ""}
+          old_answer: {type: string, default: ""}
+        required: [question, reference, prediction, category]
+      steps:
+        - backend: memlens_judge_step
+          as_llm: judge
+  components:
+    as_llm:
+      judge:
+        backend: openai
+        model: ${JUDGE_MODEL_NAME:-qwen3.8-max}
+        stream: false
+        max_retries: 3
+        retry_delay: 60
+        client_kwargs: {timeout: 600, max_retries: 0}
+        credential:
+          api_key: ${LLM_API_KEY:-}
+          base_url: ${LLM_BASE_URL:-}
+        extra_body: {enable_thinking: false}
+        parameters:
+          temperature: 0
+          thinking_enable: false
+          max_tokens: 256

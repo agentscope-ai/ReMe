@@ -63,6 +63,11 @@ retarget inbound wikilinks. To see what happened on a day, start with `YYYY-MM-D
 
 ## Preserving the Original Information
 
+For retrying clients, `auto_memory` accepts an optional `request_id` of 1–128 characters. Keep the ID and input unchanged
+when retrying a batch: completed results are replayed without another memory-agent call; reuse with different input is
+rejected. Receipts live under the configured `metadata_dir/auto_memory_requests`. A process interruption before receipt
+commit may repeat an unfinished operation; arbitrary Agent file edits are not transactional.
+
 The distilled daily note is optimized for readability; a filtered source conversation record is retained for trust and
 verification.
 

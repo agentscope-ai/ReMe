@@ -12,15 +12,13 @@ When ``app_context`` is absent the same structure is mirrored under
 """
 
 import datetime
-from typing import TYPE_CHECKING, Any, Callable, Final
+from typing import Callable, Final
 
+from ._tool_context import _ToolContextMixin
 from ...schema import FileChunk
 
-if TYPE_CHECKING:
-    from ...components import ApplicationContext
 
-
-class _ToolContextDedupMixin:
+class _ToolContextDedupMixin(_ToolContextMixin):
     """Mixin providing tool_context-scoped chunk dedup with TTL.
 
     Must be mixed into a ``BaseStep`` subclass (e.g. ``SearchStep``); it
@@ -29,7 +27,6 @@ class _ToolContextDedupMixin:
     set by the host step's ``__init__`` (default 24h).
     """
 
-    TOOL_CONTEXTS_KEY: Final[str] = "tool_contexts"
     SEARCH_SEEN_RANGES_KEY: Final[str] = "search_seen_chunk_ranges"
 
     def __init_subclass__(cls, **kwargs):
@@ -53,25 +50,7 @@ class _ToolContextDedupMixin:
             )
         return super().__new__(cls, *args, **kwargs)
 
-    if TYPE_CHECKING:
-        # Declared by BaseStep; repeated here so static analysis resolves
-        # attribute access on the mixin without inheriting BaseStep.
-        app_context: "ApplicationContext | None"
-        kwargs: dict[str, Any]
-        seen_ttl_hours: float
-
-    def _tool_context_store(self, tool_context_id: str) -> dict:
-        """Return the mutable state bucket for a tool context.
-
-        The bucket is created lazily on first access and lives at
-        ``metadata["tool_contexts"][tool_context_id]`` (or the same path under
-        ``kwargs`` when no ``app_context`` is available, e.g. in unit tests).
-        """
-        if self.app_context is not None:
-            contexts = self.app_context.metadata.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        else:
-            contexts = self.kwargs.setdefault(self.TOOL_CONTEXTS_KEY, {})
-        return contexts.setdefault(tool_context_id, {})
+    seen_ttl_hours: float
 
     @staticmethod
     def _now_ts() -> float:

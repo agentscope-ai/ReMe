@@ -1,0 +1,39 @@
+# Optional decision model demo. Install reme-ai[core,decision] and set DECISION_MODEL_API_KEY.
+# Start the service: reme start config=decision_demo
+# Call it from another terminal: reme decide state="I was charged twice."
+extends: default
+
+jobs:
+  decide:
+    backend: base
+    enable_serve: true
+    description: "Classify customer requests with a decision model; returns typed answers, probabilities, and usage."
+    parameters:
+      type: object
+      properties:
+        state:
+          type: [string, object]
+          minLength: 1
+          description: "Text or JSON object to classify"
+        questions:
+          type: object
+          minProperties: 1
+          additionalProperties:
+            type: object
+          description: "Named binary, choice, or score questions; omission uses three customer-support demo questions"
+      required: [state]
+    steps:
+      - backend: decision_demo_step
+        as_decision_model: default
+
+components:
+  as_decision_model:
+    default:
+      backend: ${DECISION_MODEL_BACKEND:-agentscope}
+      model: ${DECISION_MODEL_NAME:-null}
+      credential:
+        api_key: ${DECISION_MODEL_API_KEY:-}
+        base_url: ${DECISION_MODEL_BASE_URL:-null}
+      timeout: 30
+      max_retries: 2
+      retry_delay: 0.5

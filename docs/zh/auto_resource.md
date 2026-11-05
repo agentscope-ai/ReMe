@@ -53,6 +53,38 @@ workspace/
 `AutoImageResourceStep` 声明图像后缀匹配规则，`AutoTextResourceStep` 作为最后的 fallback。后续新增模态时，
 只需注册新的 processor、提供独立 prompt 并在 `dispatch_steps` 中增加一项，无需修改 router。
 
+## 资源保留与 TTL
+
+默认配置不自动删除原始资源。`config=proactive` 显式启用以下保留协议：
+
+- 临时资源放在 `resource/YYYY-MM-DD/` 下，可包含任意层级和后缀的文件。
+- 永久资料放在 workspace 中 `resource/` 以外的目录，例如 `archive/`。
+- `resource/` 根目录文件、非日期目录、无效日期和日期目录符号链接不参与清理；这些是兼容保留项。
+
+`resource_watch_loop` 递归监控全部后缀，只更新 `file_catalog: resource`，不会调用 LLM 或自动生成 daily 卡片。
+`resource_cleanup_cron` 每小时调用 `cleanup_catalog_step`，由 local file catalog 删除过期目录的整个内容（包括尚未登记的文件和空目录），
+再删除对应 catalog 条目并持久化。文件系统是清理依据，不要求 catalog 完整，也不会根据缓存条目删除其他路径。
+清理根目录必须位于 workspace 内，且路径中不能含符号链接。
+清理要求平台支持基于目录描述符的安全删除（Linux、macOS）；不支持的平台会报错并保留文件。
+
+默认 `ttl_days: 7`。按应用 `timezone` 中的日历日期计算，目录日期距今天达到 7 天即过期，与文件 mtime 无关。
+例如 2026-11-05 清理时，`resource/2026-10-29/` 及更早日期目录会被删除，10-30 及之后保留。
+Cron 在服务启动后的下一个整点开始执行，停止服务期间不会清理。
+
+在一个终端启动服务并设置保留天数：
+
+```bash
+reme start config=proactive jobs.resource_cleanup_cron.ttl_days=7
+```
+
+`ttl_days` 必须是正整数。通过 `jobs.resource_cleanup_cron.enabled=false` 关闭清理；未配置该任务的其他配置不受影响。
+删除失败会保留该目录的 catalog 条目并标记本次任务失败，后续调度重新检查。
+实现见 [`LocalFileCatalog.cleanup_expired`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py)。
+现有 `file_catalog.delete()` 仍然只删除 catalog 条目，不删除源文件。
+
+该流程只直接清理 resource 日期目录和对应 catalog，不改写其他目录或引用。
+若在其他配置中同时启用 Auto Resource，删除事件仍会按其规则清理关联 daily 卡片。
+
 ## 图像资源
 
 文本和图像共用 agent-wrapper 与笔记写入工具；图片输入只是在理解提示词旁加入原生 AgentScope 图像块。

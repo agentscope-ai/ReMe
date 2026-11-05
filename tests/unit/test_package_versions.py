@@ -27,6 +27,19 @@ bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
 
 
+def test_home_requires_workflow_and_sandbox_release() -> None:
+    """Home requires workflow interfaces, request path rejection and environment isolation."""
+    config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))
+    requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
+
+    assert requirement.extras == {"as"}
+    assert Version("0.4.1.14") not in requirement.specifier
+    assert Version("0.4.2.0") not in requirement.specifier
+    assert Version("0.4.2.1") not in requirement.specifier
+    assert Version("0.4.2.2") in requirement.specifier
+    assert Version(bump_version.read_version()) in requirement.specifier
+
+
 def test_studio_packages_have_independent_identity() -> None:
     """Keep both Studio distributions independent from the ReMe release version."""
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
@@ -62,7 +75,12 @@ def test_studio_packages_have_independent_identity() -> None:
     assert auto_fin_config["project"]["version"] == "0.1.3"
     assert daily_paper_config["project"]["version"] == "0.1.3"
     assert dingtalk_config["project"]["version"] == "0.1.0"
-    assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == ["reme", "reme.*"]
+    assert main_config["tool"]["setuptools"]["packages"]["find"]["include"] == [
+        "reme",
+        "reme.*",
+        "deploy",
+        "deploy.*",
+    ]
     assert "reme_studio*" in main_config["tool"]["setuptools"]["packages"]["find"]["exclude"]
 
 
@@ -244,7 +262,7 @@ def test_qwen_tokenizer_dependency_is_optional() -> None:
     """Exact Qwen tokenization is opt-in and included in the full install."""
     config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
     extras = config["project"]["optional-dependencies"]
-    assert extras["qwen-tokenizer"] == ["tokenizers>=0.21,<1"]
+    assert extras["qwen-tokenizer"] == ["tokenizers>=0.23.3,<1"]
     assert "tokenizers" not in {Requirement(value).name for value in config["project"]["dependencies"]}
     assert "tokenizers" not in {Requirement(value).name for value in extras["core"]}
     assert "reme-ai[qwen-tokenizer]" in extras["full"]

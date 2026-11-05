@@ -17,7 +17,7 @@ Covers:
 
 # pylint: disable=protected-access
 
-import os
+from contextlib import chdir as temp_chdir
 import tempfile
 from pathlib import Path
 
@@ -29,22 +29,6 @@ from reme.steps.file_io.edit import EditStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
 from reme.steps.file_io.read import ReadStep
 from reme.steps.file_io.write import WriteStep
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 def _seed(workspace: Path, rel: str, body: str = "body\n") -> Path:
@@ -257,7 +241,3 @@ async def test_no_constraint_allows_all():
         resp = await _run(WriteStep, store, path="anywhere/new.md", content="ok")
         assert resp.success is True
         await store.close()
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])

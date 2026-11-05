@@ -5,14 +5,14 @@ import base64
 import aiofiles
 import aiofiles.os
 
+from ._base import _FileIOStep
 from ._path import NON_IMAGE_WARNING, gate_image, resolve_path
-from ..base_step import BaseStep
 from ...components import R
 from ...constants import DEFAULT_MAX_IMAGE_BYTES
 
 
 @R.register("read_image_step")
-class ReadImageStep(BaseStep):
+class ReadImageStep(_FileIOStep):
     """Read an image file under ``workspace_dir`` and return base64 in ``answer``.
 
     Step-level attributes (``kwargs``, configured in yaml under ``steps:`` —
@@ -31,13 +31,6 @@ class ReadImageStep(BaseStep):
         - Unknown / missing suffix (compatibility mode): ``answer`` stays pure
           base64; ``metadata.non_image_warning=True`` flags it.
     """
-
-    def _fail(self, message: str, **meta) -> None:
-        assert self.context is not None
-        self.context.response.success = False
-        self.context.response.answer = f"Error: {message}"
-        if meta:
-            self.context.response.metadata.update(meta)
 
     async def execute(self):  # pylint: disable=too-many-return-statements
         assert self.context is not None

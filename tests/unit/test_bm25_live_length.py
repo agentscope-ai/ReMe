@@ -87,23 +87,42 @@ async def test_snapshot_roundtrip_rebuilds_length_without_new_fields(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_failed_batch_counts_only_published_arrays(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
+@pytest.mark.parametrize(
+    "batch",
+    [
+        {"existing": "unavailable"},
+        {"new": "fresh memory", "failing": "unavailable"},
+        {"new": "fresh memory", "existing": "unavailable"},
+        {"existing": "replacement memory", "failing": "unavailable"},
+    ],
+)
+async def test_failed_tokenization_preserves_documents_and_allows_retry(batch):
+    """A tokenizer error must not retire old documents or leave incomplete new slots."""
     index = make_index()
-    await index.add_docs({"old": "alpha beta", "keep": "gamma"})
-    tokenize = index._tokenize
+    tokenizer = index.tokenizer
+    await index.add_docs({"existing": "original memory", "untouched": "stable memory"})
+    before = await index.retrieve("original stable fresh replacement", limit=10)
+    tokenize = tokenizer.tokenize
 
-    def fail(text):
-        if text == "fail":
-            raise ValueError("tokenizer failed")
-        return tokenize(text)
+    def fail_on_unavailable(texts, **kwargs):
+        if "unavailable" in texts:
+            raise RuntimeError("tokenizer unavailable")
+        return tokenize(texts, **kwargs)
 
-    with patch.object(index, "_tokenize", side_effect=fail):
-        with pytest.raises(ValueError, match="tokenizer failed"):
-            await index.add_docs({"pending": "alpha alpha", "old": "fail"})
-    # Existing partial-batch behavior retires old but does not append pending.
+    with patch.object(tokenizer, "tokenize", side_effect=fail_on_unavailable):
+        with pytest.raises(RuntimeError, match="tokenizer unavailable"):
+            await index.add_docs(batch)
+
     assert_length(index)
-    assert index.total_len == 1
+    assert index.total_len == 4
+    assert set(index.document_ids) == {"existing", "untouched"}
+    assert await index.retrieve("original stable fresh replacement", limit=10) == before
+
+    retry = {doc_id: "recovered memory" if text == "unavailable" else text for doc_id, text in batch.items()}
+    await index.add_docs(retry)
+    assert set(index.document_ids) == {"existing", "untouched"} | set(batch)
+    assert set(await index.retrieve("fresh replacement recovered", limit=10)) == set(batch)
+    assert set(await index.retrieve("stable")) == {"untouched"}
 
 
 @pytest.mark.asyncio

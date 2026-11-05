@@ -1,6 +1,104 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ReMeClient } from "../dist/reme/client.js";
+import { safeError } from "../dist/endpoint.js";
+
+test("redacts URL credentials containing spaces or stripped URL whitespace", async () => {
+  const originalFetch = globalThis.fetch;
+  const client = new ReMeClient({
+    endpoint: "http://localhost:2333",
+    requestTimeoutMs: 1000,
+    backgroundTimeoutMs: 1000,
+  });
+  try {
+    for (const password of [
+      "SECRET CANARY",
+      "SECRET\tCANARY",
+      "SECRET\nCANARY",
+    ]) {
+      const url = `http://alice:${password}@localhost:2333/search`;
+      assert.ok(new URL(url).password);
+      const expected = "refused http://[redacted]@localhost:2333/search";
+      globalThis.fetch = async () =>
+        Response.json({ success: false, answer: `refused ${url}` });
+      assert.equal((await client.search("fact")).error, expected);
+      globalThis.fetch = async () => {
+        throw new Error(`refused ${url}`);
+      };
+      assert.equal((await client.search("fact")).error, expected);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects credentials before fetch and redacts URL credentials from service and transport errors", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  const secretUrl = "http://alice:SECRET-CANARY@localhost:2333/search";
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ success: false, answer: `refused ${secretUrl}` });
+  };
+  try {
+    const client = new ReMeClient({
+      endpoint: secretUrl,
+      requestTimeoutMs: 1000,
+      backgroundTimeoutMs: 1000,
+    });
+    assert.doesNotMatch(
+      (await client.search("fact")).error,
+      /alice|SECRET-CANARY/,
+    );
+    assert.equal(calls, 0);
+    const valid = new ReMeClient({
+      endpoint: "http://localhost:2333",
+      requestTimeoutMs: 1000,
+      backgroundTimeoutMs: 1000,
+    });
+    assert.doesNotMatch(
+      (await valid.search("fact")).error,
+      /alice|SECRET-CANARY/,
+    );
+    globalThis.fetch = async () => {
+      throw new Error(`failed ${secretUrl}`);
+    };
+    assert.doesNotMatch(
+      (await valid.search("fact")).error,
+      /alice|SECRET-CANARY/,
+    );
+    assert.doesNotMatch(
+      safeError(new Error(`failed ${secretUrl}`)),
+      /alice|SECRET-CANARY/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uses the persisted destination and request ID when sending a recovered batch", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url, body: JSON.parse(init.body) };
+    return Response.json({ success: true });
+  };
+  try {
+    const client = new ReMeClient({
+      endpoint: "http://new.test",
+      requestTimeoutMs: 1000,
+      backgroundTimeoutMs: 1000,
+    });
+    await client.autoMemory([], "session", {
+      endpoint: "http://original.test",
+      requestId: "persisted-batch",
+    });
+    assert.equal(request.url, "http://original.test/auto_memory");
+    assert.equal(request.body.request_id, "persisted-batch");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("calls ReMe jobs with their native request and response envelopes", async () => {
   const calls = [];

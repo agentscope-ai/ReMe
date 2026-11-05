@@ -60,9 +60,8 @@ class HttpClient(BaseClient):
                     except json.JSONDecodeError:
                         continue
                     chunk = StreamChunk(**data)
-                    if chunk.chunk_type == ChunkEnum.ERROR:
-                        # Surface server-side errors as exceptions so callers don't
-                        # mistake error chunks for valid content.
+                    if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
+                        # Recoverable notifications remain visible; terminal errors stop the request.
                         raise RuntimeError(str(chunk.chunk))
                     if chunk.done:
                         return

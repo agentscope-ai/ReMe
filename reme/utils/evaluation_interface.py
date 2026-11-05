@@ -29,9 +29,7 @@ def check_job_count(job_name: str, app_context: "ApplicationContext") -> int:
     current Application instance. Unknown job names use the same ``KeyError``
     contract as :meth:`Application.run_job`.
     """
-    if job_name not in app_context.jobs:
-        raise KeyError(f"Job '{job_name}' not found")
-    return global_counter_get(app_context.metadata, ["__job_counter", job_name])
+    return app_context.get_job_count(job_name)
 
 
 class JobCountTracker:

@@ -123,6 +123,8 @@ class AutoTagStep(BaseStep):
 
         path = self.workspace_path / target.path
         metadata = dict(frontmatter.loads(path.read_text(encoding="utf-8")).metadata or {})
+        if tag_key not in metadata:
+            raise RuntimeError(f"Auto-tag agent did not write the required {tag_key!r} field")
         normalized = normalize_memory_tags(
             metadata.get(tag_key),
             max_tags_per_file=tag_index.max_tags_per_file,

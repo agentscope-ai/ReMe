@@ -8,11 +8,14 @@ single-char ASCII words dropped).
 
 # pylint: disable=protected-access
 
+from contextlib import chdir as temp_chdir
 import asyncio
 import os
 import tempfile
 import threading
 import warnings
+
+import pytest
 
 from reme.components.keyword_index import BM25Index
 from reme.components.tokenizer import RegexTokenizer
@@ -24,22 +27,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resou
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
-
-
-class temp_chdir:
-    """Context manager to temporarily chdir into a path and restore on exit."""
-
-    def __init__(self, path):
-        self.path = path
-        self.old = None
-
-    def __enter__(self):
-        self.old = os.getcwd()
-        os.chdir(self.path)
-        return self
-
-    def __exit__(self, *exc):
-        os.chdir(self.old)
 
 
 async def create_bm25(
@@ -59,58 +46,44 @@ async def create_bm25(
     return bm25
 
 
-def run(coro):
-    """Tiny shorthand to avoid repeating asyncio.run wrappers."""
-    return asyncio.run(coro)
-
-
 # --------------------------------------------------------------------------- #
 # Initialisation & lifecycle                                                  #
 # --------------------------------------------------------------------------- #
 
 
-def test_index_file_raises_when_tokenizer_is_none():
+@pytest.mark.asyncio
+async def test_index_file_raises_when_tokenizer_is_none():
     """index_file must raise when tokenizer is explicitly None."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = BM25Index()
-            bm25.tokenizer = None
-            try:
-                _ = bm25.index_file
-            except RuntimeError:
-                return
-            raise AssertionError("expected RuntimeError when tokenizer is None")
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = BM25Index()
+        bm25.tokenizer = None
+        try:
+            _ = bm25.index_file
+        except RuntimeError:
+            return
+        raise AssertionError("expected RuntimeError when tokenizer is None")
 
 
-def test_start_close_lifecycle():
+@pytest.mark.asyncio
+async def test_start_close_lifecycle():
     """start/close toggles is_started and runs underlying tokenizer."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            assert bm25.is_started
-            assert bm25.tokenizer is not None
-            await bm25.close()
-            assert not bm25.is_started
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        assert bm25.is_started
+        assert bm25.tokenizer is not None
+        await bm25.close()
+        assert not bm25.is_started
 
 
-def test_index_file_path_includes_tokenizer_and_version():
+@pytest.mark.asyncio
+async def test_index_file_path_includes_tokenizer_and_version():
     """index_file path embeds tokenizer name + index_version."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            path = str(bm25.index_file)
-            assert "bm25_BM25Index_regex_" in path
-            assert path.endswith("_v1.pkl")
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        path = str(bm25.index_file)
+        assert "bm25_BM25Index_regex_" in path
+        assert path.endswith("_v1.pkl")
+        await bm25.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -118,168 +91,141 @@ def test_index_file_path_includes_tokenizer_and_version():
 # --------------------------------------------------------------------------- #
 
 
-def test_add_empty_dict_noop():
+@pytest.mark.asyncio
+async def test_add_empty_dict_noop():
     """Adding an empty dict must not touch state."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({})
-            assert bm25.n_docs == 0
-            assert bm25.vocab == {}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({})
+        assert bm25.n_docs == 0
+        assert bm25.vocab == {}
+        await bm25.close()
 
 
-def test_add_single_doc():
+@pytest.mark.asyncio
+async def test_add_single_doc():
     """A single doc populates length, vocab and metadata."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world"})
-            assert bm25.n_docs == 1
-            assert bm25.total_len == 2  # 'hello', 'world'
-            assert bm25.avg_len == 2.0
-            assert set(bm25.vocab) == {"hello", "world"}
-            assert bm25.document_ids == {"d1"}
-            assert "d1" in bm25.doc_meta
-            assert bm25.doc_meta["d1"]["len"] == 2
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world"})
+        assert bm25.n_docs == 1
+        assert bm25.total_len == 2  # 'hello', 'world'
+        assert bm25.avg_len == 2.0
+        assert set(bm25.vocab) == {"hello", "world"}
+        assert bm25.document_ids == {"d1"}
+        assert "d1" in bm25.doc_meta
+        assert bm25.doc_meta["d1"]["len"] == 2
+        await bm25.close()
 
 
-def test_add_multiple_docs_and_inverted_index():
+@pytest.mark.asyncio
+async def test_add_multiple_docs_and_inverted_index():
     """Inverted index lists postings for every term across multiple docs."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "hello world",
-                    "d2": "hello python",
-                    "d3": "world python",
-                },
-            )
-            assert bm25.n_docs == 3
-            inv = bm25.inverted_index
-            tid_hello = bm25.vocab["hello"]
-            tid_world = bm25.vocab["world"]
-            tid_python = bm25.vocab["python"]
-            assert set(inv[tid_hello]) == {"d1", "d2"}
-            assert set(inv[tid_world]) == {"d1", "d3"}
-            assert set(inv[tid_python]) == {"d2", "d3"}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "hello world",
+                "d2": "hello python",
+                "d3": "world python",
+            },
+        )
+        assert bm25.n_docs == 3
+        inv = bm25.inverted_index
+        tid_hello = bm25.vocab["hello"]
+        tid_world = bm25.vocab["world"]
+        tid_python = bm25.vocab["python"]
+        assert set(inv[tid_hello]) == {"d1", "d2"}
+        assert set(inv[tid_world]) == {"d1", "d3"}
+        assert set(inv[tid_python]) == {"d2", "d3"}
+        await bm25.close()
 
 
-def test_add_doc_empty_or_whitespace_is_skipped():
+@pytest.mark.asyncio
+async def test_add_doc_empty_or_whitespace_is_skipped():
     """Empty / whitespace-only content yields no tokens and is silently dropped."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "", "d2": "   ", "d3": "\n\t"})
-            assert bm25.n_docs == 0
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "", "d2": "   ", "d3": "\n\t"})
+        assert bm25.n_docs == 0
+        await bm25.close()
 
 
-def test_update_existing_doc_swaps_content():
+@pytest.mark.asyncio
+async def test_update_existing_doc_swaps_content():
     """Re-adding same doc_id replaces tokens; old terms no longer match it."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world python"})
+        old_len = bm25.total_len
+        await bm25.add_docs({"d1": "java"})
+        assert bm25.n_docs == 1
+        assert bm25.total_len != old_len
+        assert bm25.doc_meta["d1"]["len"] == 1
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world python"})
-            old_len = bm25.total_len
-            await bm25.add_docs({"d1": "java"})
-            assert bm25.n_docs == 1
-            assert bm25.total_len != old_len
-            assert bm25.doc_meta["d1"]["len"] == 1
-
-            # Old term must no longer return d1.
-            assert "d1" not in await bm25.retrieve("hello", limit=5)
-            # New term does.
-            assert "d1" in await bm25.retrieve("java", limit=5)
-            await bm25.close()
-
-    run(go())
+        # Old term must no longer return d1.
+        assert "d1" not in await bm25.retrieve("hello", limit=5)
+        # New term does.
+        assert "d1" in await bm25.retrieve("java", limit=5)
+        await bm25.close()
 
 
-def test_delete_single_doc():
+@pytest.mark.asyncio
+async def test_delete_single_doc():
     """delete_docs removes a single doc from retrieval and meta."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world", "d2": "hello python"})
+        assert bm25.n_docs == 2
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world", "d2": "hello python"})
-            assert bm25.n_docs == 2
+        await bm25.delete_docs(["d1"])
+        assert bm25.n_docs == 1
+        assert "d1" not in bm25.doc_meta
+        assert "d2" in bm25.doc_meta
 
-            await bm25.delete_docs(["d1"])
-            assert bm25.n_docs == 1
-            assert "d1" not in bm25.doc_meta
-            assert "d2" in bm25.doc_meta
-
-            results = await bm25.retrieve("hello", limit=2)
-            assert "d1" not in results
-            assert "d2" in results
-            await bm25.close()
-
-    run(go())
+        results = await bm25.retrieve("hello", limit=2)
+        assert "d1" not in results
+        assert "d2" in results
+        await bm25.close()
 
 
-def test_delete_multiple_docs():
+@pytest.mark.asyncio
+async def test_delete_multiple_docs():
     """delete_docs handles a batch list."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({f"d{i}": "hello world" for i in range(5)})
+        assert bm25.n_docs == 5
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({f"d{i}": "hello world" for i in range(5)})
-            assert bm25.n_docs == 5
-
-            await bm25.delete_docs(["d0", "d2", "d4"])
-            assert bm25.n_docs == 2
-            assert set(bm25.doc_meta) == {"d1", "d3"}
-            await bm25.close()
-
-    run(go())
+        await bm25.delete_docs(["d0", "d2", "d4"])
+        assert bm25.n_docs == 2
+        assert set(bm25.doc_meta) == {"d1", "d3"}
+        await bm25.close()
 
 
-def test_delete_nonexistent_is_noop():
+@pytest.mark.asyncio
+async def test_delete_nonexistent_is_noop():
     """Deleting unknown doc_ids must not raise."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello"})
-            await bm25.delete_docs(["nope", "still_nope"])
-            assert bm25.n_docs == 1
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello"})
+        await bm25.delete_docs(["nope", "still_nope"])
+        assert bm25.n_docs == 1
+        await bm25.close()
 
 
-def test_re_add_after_delete():
+@pytest.mark.asyncio
+async def test_re_add_after_delete():
     """Adding a doc_id back after deletion yields a fresh idx and is retrievable."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello"})
-            await bm25.delete_docs(["d1"])
-            assert bm25.n_docs == 0
-            await bm25.add_docs({"d1": "world"})
-            assert bm25.n_docs == 1
-            assert "d1" in await bm25.retrieve("world", limit=1)
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello"})
+        await bm25.delete_docs(["d1"])
+        assert bm25.n_docs == 0
+        await bm25.add_docs({"d1": "world"})
+        assert bm25.n_docs == 1
+        assert "d1" in await bm25.retrieve("world", limit=1)
+        await bm25.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -287,147 +233,123 @@ def test_re_add_after_delete():
 # --------------------------------------------------------------------------- #
 
 
-def test_retrieve_empty_index():
+@pytest.mark.asyncio
+async def test_retrieve_empty_index():
     """Retrieving from an empty index returns {}."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            assert await bm25.retrieve("python", limit=3) == {}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        assert await bm25.retrieve("python", limit=3) == {}
+        await bm25.close()
 
 
-def test_retrieve_empty_or_unknown_query():
+@pytest.mark.asyncio
+async def test_retrieve_empty_or_unknown_query():
     """Empty queries and out-of-vocab queries both return {}."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world"})
-            assert await bm25.retrieve("", limit=3) == {}
-            assert await bm25.retrieve("zzzunknownxyz", limit=3) == {}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world"})
+        assert await bm25.retrieve("", limit=3) == {}
+        assert await bm25.retrieve("zzzunknownxyz", limit=3) == {}
+        await bm25.close()
 
 
-def test_retrieve_limit_caps_results():
+@pytest.mark.asyncio
+async def test_retrieve_limit_caps_results():
     """retrieve honours `limit`."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({f"d{i}": f"python lang {i}" for i in range(10)})
-            assert len(await bm25.retrieve("python", limit=3)) == 3
-            assert len(await bm25.retrieve("python", limit=5)) == 5
-            # limit greater than matches: bounded by positive matches.
-            assert len(await bm25.retrieve("python", limit=99)) == 10
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({f"d{i}": f"python lang {i}" for i in range(10)})
+        assert len(await bm25.retrieve("python", limit=3)) == 3
+        assert len(await bm25.retrieve("python", limit=5)) == 5
+        # limit greater than matches: bounded by positive matches.
+        assert len(await bm25.retrieve("python", limit=99)) == 10
+        await bm25.close()
 
 
-def test_retrieve_score_ordering_by_tf():
+@pytest.mark.asyncio
+async def test_retrieve_score_ordering_by_tf():
     """A doc with higher term frequency for the query token outranks others."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "high": "python python python",
-                    "mid": "python python other",
-                    "low": "python alpha beta",
-                },
-            )
-            results = await bm25.retrieve("python", limit=3)
-            assert list(results.keys()) == ["high", "mid", "low"]
-            scores = list(results.values())
-            assert scores[0] >= scores[1] >= scores[2]
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "high": "python python python",
+                "mid": "python python other",
+                "low": "python alpha beta",
+            },
+        )
+        results = await bm25.retrieve("python", limit=3)
+        assert list(results.keys()) == ["high", "mid", "low"]
+        scores = list(results.values())
+        assert scores[0] >= scores[1] >= scores[2]
+        await bm25.close()
 
 
-def test_filtered_scoring_preserves_global_bm25_scores():
+@pytest.mark.asyncio
+async def test_filtered_scoring_preserves_global_bm25_scores():
     """Selected-document scoring filters results without redefining the corpus."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "high": "python python python",
+                "mid": "python python other",
+                "low": "python alpha beta",
+                "unrelated": "java only",
+            },
+        )
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "high": "python python python",
-                    "mid": "python python other",
-                    "low": "python alpha beta",
-                    "unrelated": "java only",
-                },
-            )
+        global_scores = await bm25.retrieve("python", limit=4)
+        selected = await bm25.score_documents("python", {"mid", "low", "unrelated", "missing"})
+        filtered = await bm25.retrieve_filtered("python", 1, {"mid", "low", "unrelated"})
 
-            global_scores = await bm25.retrieve("python", limit=4)
-            selected = await bm25.score_documents("python", {"mid", "low", "unrelated", "missing"})
-            filtered = await bm25.retrieve_filtered("python", 1, {"mid", "low", "unrelated"})
-
-            assert selected == {"mid": global_scores["mid"], "low": global_scores["low"]}
-            assert filtered == {"mid": global_scores["mid"]}
-            await bm25.close()
-
-    run(go())
+        assert selected == {"mid": global_scores["mid"], "low": global_scores["low"]}
+        assert filtered == {"mid": global_scores["mid"]}
+        await bm25.close()
 
 
-def test_retrieve_idf_favours_rare_terms():
+@pytest.mark.asyncio
+async def test_retrieve_idf_favours_rare_terms():
     """In a query of {common, rare}, the doc containing the rare term wins."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        # 'common' appears everywhere → low IDF.
+        # 'rare' appears in only one doc → high IDF.
+        docs = {f"d{i}": "common filler text" for i in range(10)}
+        docs["target"] = "common rare term"
+        await bm25.add_docs(docs)
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            # 'common' appears everywhere → low IDF.
-            # 'rare' appears in only one doc → high IDF.
-            docs = {f"d{i}": "common filler text" for i in range(10)}
-            docs["target"] = "common rare term"
-            await bm25.add_docs(docs)
-
-            results = await bm25.retrieve("common rare", limit=3)
-            assert next(iter(results)) == "target"
-            await bm25.close()
-
-    run(go())
+        results = await bm25.retrieve("common rare", limit=3)
+        assert next(iter(results)) == "target"
+        await bm25.close()
 
 
-def test_retrieve_length_normalization():
+@pytest.mark.asyncio
+async def test_retrieve_length_normalization():
     """With b=0.75 (default), a much longer doc with same tf scores lower."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "short": "python",
-                    "long": "python " + " ".join(f"w{i}" for i in range(50)),
-                },
-            )
-            results = await bm25.retrieve("python", limit=2)
-            assert results["short"] > results["long"]
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "short": "python",
+                "long": "python " + " ".join(f"w{i}" for i in range(50)),
+            },
+        )
+        results = await bm25.retrieve("python", limit=2)
+        assert results["short"] > results["long"]
+        await bm25.close()
 
 
-def test_retrieve_duplicate_query_tokens_dont_double_count():
+@pytest.mark.asyncio
+async def test_retrieve_duplicate_query_tokens_dont_double_count():
     """Repeating the same query token should not boost its contribution."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "python rocks"})
-            once = await bm25.retrieve("python", limit=1)
-            many = await bm25.retrieve("python python python", limit=1)
-            assert once["d1"] == many["d1"]
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "python rocks"})
+        once = await bm25.retrieve("python", limit=1)
+        many = await bm25.retrieve("python python python", limit=1)
+        assert once["d1"] == many["d1"]
+        await bm25.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -435,228 +357,198 @@ def test_retrieve_duplicate_query_tokens_dont_double_count():
 # --------------------------------------------------------------------------- #
 
 
-def test_chinese_only_corpus():
+@pytest.mark.asyncio
+async def test_chinese_only_corpus():
     """Pure Chinese corpus indexes per-character and retrieves correctly."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "我爱北京天安门",
+                "d2": "北京是中国的首都",
+                "d3": "上海的天气很好",
+            },
+        )
+        # Regex tokenizer splits Chinese per character.
+        assert "北" in bm25.vocab
+        assert "京" in bm25.vocab
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "我爱北京天安门",
-                    "d2": "北京是中国的首都",
-                    "d3": "上海的天气很好",
-                },
-            )
-            # Regex tokenizer splits Chinese per character.
-            assert "北" in bm25.vocab
-            assert "京" in bm25.vocab
-
-            # Query "北京" → two tokens, both d1 and d2 match; d3 does not.
-            results = await bm25.retrieve("北京", limit=3)
-            assert set(results) == {"d1", "d2"}
-            await bm25.close()
-
-    run(go())
+        # Query "北京" → two tokens, both d1 and d2 match; d3 does not.
+        results = await bm25.retrieve("北京", limit=3)
+        assert set(results) == {"d1", "d2"}
+        await bm25.close()
 
 
-def test_english_only_corpus_is_lowercased():
+@pytest.mark.asyncio
+async def test_english_only_corpus_is_lowercased():
     """English tokens are lowercased so case-insensitive retrieval works."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "Python Programming Language",
+                "d2": "Java Programming Language",
+            },
+        )
+        assert "python" in bm25.vocab
+        assert "Python" not in bm25.vocab
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "Python Programming Language",
-                    "d2": "Java Programming Language",
-                },
-            )
-            assert "python" in bm25.vocab
-            assert "Python" not in bm25.vocab
-
-            r_upper = await bm25.retrieve("PYTHON", limit=2)
-            r_lower = await bm25.retrieve("python", limit=2)
-            assert r_upper == r_lower
-            assert "d1" in r_upper
-            await bm25.close()
-
-    run(go())
+        r_upper = await bm25.retrieve("PYTHON", limit=2)
+        r_lower = await bm25.retrieve("python", limit=2)
+        assert r_upper == r_lower
+        assert "d1" in r_upper
+        await bm25.close()
 
 
-def test_single_char_english_dropped():
+@pytest.mark.asyncio
+async def test_single_char_english_dropped():
     """RegexTokenizer's \\w\\w+ pattern drops single-letter ASCII tokens like 'I'."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "I love Beijing"})
-            # 'I' must not appear; 'love' and 'beijing' must.
-            assert "i" not in bm25.vocab
-            assert "love" in bm25.vocab
-            assert "beijing" in bm25.vocab
-            # Querying with just "I" returns nothing.
-            assert await bm25.retrieve("I", limit=1) == {}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "I love Beijing"})
+        # 'I' must not appear; 'love' and 'beijing' must.
+        assert "i" not in bm25.vocab
+        assert "love" in bm25.vocab
+        assert "beijing" in bm25.vocab
+        # Querying with just "I" returns nothing.
+        assert await bm25.retrieve("I", limit=1) == {}
+        await bm25.close()
 
 
-def test_mixed_doc_chinese_query_matches():
+@pytest.mark.asyncio
+async def test_mixed_doc_chinese_query_matches():
     """A Chinese query hits docs containing those Chinese chars even when mixed."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "Python 是一种编程语言",
-                    "d2": "Java 编程语言",
-                    "d3": "Python 数据分析",
-                },
-            )
-            results = await bm25.retrieve("编程", limit=3)
-            assert set(results) >= {"d1", "d2"}
-            assert "d3" not in results
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "Python 是一种编程语言",
+                "d2": "Java 编程语言",
+                "d3": "Python 数据分析",
+            },
+        )
+        results = await bm25.retrieve("编程", limit=3)
+        assert set(results) >= {"d1", "d2"}
+        assert "d3" not in results
+        await bm25.close()
 
 
-def test_mixed_doc_english_query_matches():
+@pytest.mark.asyncio
+async def test_mixed_doc_english_query_matches():
     """An English query hits the right mixed-language docs."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "Python 是一种编程语言",
-                    "d2": "Java 编程语言",
-                    "d3": "Python 数据分析",
-                },
-            )
-            results = await bm25.retrieve("python", limit=3)
-            assert set(results) == {"d1", "d3"}
-            assert "d2" not in results
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "Python 是一种编程语言",
+                "d2": "Java 编程语言",
+                "d3": "Python 数据分析",
+            },
+        )
+        results = await bm25.retrieve("python", limit=3)
+        assert set(results) == {"d1", "d3"}
+        assert "d2" not in results
+        await bm25.close()
 
 
-def test_mixed_query_combines_chinese_and_english_signal():
+@pytest.mark.asyncio
+async def test_mixed_query_combines_chinese_and_english_signal():
     """A query mixing English and Chinese aggregates IDF×tf contributions."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "py_cn": "Python 编程",  # matches both 'python' and '编','程'
-                    "py_only": "Python tutorial",  # matches only 'python'
-                    "cn_only": "编程入门",  # matches only '编','程'
-                    # Avoid Chinese chars that the query splits into ('编','程') — '教程' would
-                    # leak '程' into 'other' and pollute IDF, so use unrelated chars only.
-                    "other": "Java 教学",
-                },
-            )
-            results = await bm25.retrieve("Python 编程", limit=4)
-            # py_cn should rank highest because it matches both branches.
-            assert next(iter(results)) == "py_cn"
-            # 'other' should not appear.
-            assert "other" not in results
-            # Both unimodal matches should still appear.
-            assert "py_only" in results and "cn_only" in results
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "py_cn": "Python 编程",  # matches both 'python' and '编','程'
+                "py_only": "Python tutorial",  # matches only 'python'
+                "cn_only": "编程入门",  # matches only '编','程'
+                # Avoid Chinese chars that the query splits into ('编','程') — '教程' would
+                # leak '程' into 'other' and pollute IDF, so use unrelated chars only.
+                "other": "Java 教学",
+            },
+        )
+        results = await bm25.retrieve("Python 编程", limit=4)
+        # py_cn should rank highest because it matches both branches.
+        assert next(iter(results)) == "py_cn"
+        # 'other' should not appear.
+        assert "other" not in results
+        # Both unimodal matches should still appear.
+        assert "py_only" in results and "cn_only" in results
+        await bm25.close()
 
 
-def test_mixed_doc_more_matches_outrank_fewer():
+@pytest.mark.asyncio
+async def test_mixed_doc_more_matches_outrank_fewer():
     """Doc covering more query tokens (Chinese+English) outranks partial matches."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "full": "machine learning 机器 学习",
-                    "en_only": "machine learning algorithm",
-                    "cn_only": "机器 学习 算法",
-                },
-            )
-            results = await bm25.retrieve("machine 机器", limit=3)
-            # full has both English and Chinese hits → highest score.
-            assert next(iter(results)) == "full"
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "full": "machine learning 机器 学习",
+                "en_only": "machine learning algorithm",
+                "cn_only": "机器 学习 算法",
+            },
+        )
+        results = await bm25.retrieve("machine 机器", limit=3)
+        # full has both English and Chinese hits → highest score.
+        assert next(iter(results)) == "full"
+        await bm25.close()
 
 
-def test_unicode_word_with_digits_preserved():
+@pytest.mark.asyncio
+async def test_unicode_word_with_digits_preserved():
     """Alphanumeric tokens like 'iphone15' stay whole; trailing Chinese still split."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "iPhone15 Pro 售价 9999 元",
+                "d2": "Android 旗舰 999 元",
+            },
+        )
+        assert "iphone15" in bm25.vocab
+        assert "9999" in bm25.vocab
+        assert "元" in bm25.vocab
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "iPhone15 Pro 售价 9999 元",
-                    "d2": "Android 旗舰 999 元",
-                },
-            )
-            assert "iphone15" in bm25.vocab
-            assert "9999" in bm25.vocab
-            assert "元" in bm25.vocab
-
-            r1 = await bm25.retrieve("iphone15", limit=2)
-            assert list(r1) == ["d1"]
-            r2 = await bm25.retrieve("元", limit=2)
-            assert set(r2) == {"d1", "d2"}
-            await bm25.close()
-
-    run(go())
+        r1 = await bm25.retrieve("iphone15", limit=2)
+        assert list(r1) == ["d1"]
+        r2 = await bm25.retrieve("元", limit=2)
+        assert set(r2) == {"d1", "d2"}
+        await bm25.close()
 
 
-def test_chinese_punctuation_ignored():
+@pytest.mark.asyncio
+async def test_chinese_punctuation_ignored():
     """CJK punctuation should not produce tokens."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "你好，世界！这是 Python。"})
-            for sym in ["，", "！", "。"]:
-                assert sym not in bm25.vocab
-            assert "你" in bm25.vocab
-            assert "python" in bm25.vocab
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "你好，世界！这是 Python。"})
+        for sym in ["，", "！", "。"]:
+            assert sym not in bm25.vocab
+        assert "你" in bm25.vocab
+        assert "python" in bm25.vocab
+        await bm25.close()
 
 
-def test_mixed_persistence_roundtrip():
+@pytest.mark.asyncio
+async def test_mixed_persistence_roundtrip():
     """A mixed-language index round-trips through dump/load with identical retrieval."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "Python 编程语言",
+                "d2": "Java 编程",
+                "d3": "数据分析 with Python",
+            },
+        )
+        before = await bm25.retrieve("Python 编程", limit=3)
+        await bm25.close()  # close triggers dump
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "Python 编程语言",
-                    "d2": "Java 编程",
-                    "d3": "数据分析 with Python",
-                },
-            )
-            before = await bm25.retrieve("Python 编程", limit=3)
-            await bm25.close()  # close triggers dump
-
-            bm25_2 = await create_bm25()  # start triggers load
-            assert bm25_2.n_docs == 3
-            after = await bm25_2.retrieve("Python 编程", limit=3)
-            assert before == after
-            await bm25_2.close()
-
-    run(go())
+        bm25_2 = await create_bm25()  # start triggers load
+        assert bm25_2.n_docs == 3
+        after = await bm25_2.retrieve("Python 编程", limit=3)
+        assert before == after
+        await bm25_2.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -664,248 +556,221 @@ def test_mixed_persistence_roundtrip():
 # --------------------------------------------------------------------------- #
 
 
-def test_dump_load_roundtrip_preserves_state():
+@pytest.mark.asyncio
+async def test_dump_load_roundtrip_preserves_state():
     """dump → fresh instance → load reconstructs vocab, postings and params."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25(k1=2.0, b=0.4)
+        await bm25.add_docs(
+            {
+                "d1": "hello world",
+                "d2": "hello python",
+                "d3": "programming language",
+            },
+        )
+        old_vocab = dict(bm25.vocab)
+        old_meta = {k: dict(v) for k, v in bm25.doc_meta.items()}
+        await bm25.dump()
+        await bm25.close()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25(k1=2.0, b=0.4)
-            await bm25.add_docs(
-                {
-                    "d1": "hello world",
-                    "d2": "hello python",
-                    "d3": "programming language",
-                },
-            )
-            old_vocab = dict(bm25.vocab)
-            old_meta = {k: dict(v) for k, v in bm25.doc_meta.items()}
-            await bm25.dump()
-            await bm25.close()
-
-            bm25_2 = await create_bm25()  # default k1/b — load must overwrite
-            assert bm25_2.vocab == old_vocab
-            assert bm25_2.n_docs == 3
-            assert set(bm25_2.doc_meta) == set(old_meta)
-            assert bm25_2.k1 == 2.0
-            assert bm25_2.b == 0.4
-            await bm25_2.close()
-
-    run(go())
+        bm25_2 = await create_bm25()  # default k1/b — load must overwrite
+        assert bm25_2.vocab == old_vocab
+        assert bm25_2.n_docs == 3
+        assert set(bm25_2.doc_meta) == set(old_meta)
+        assert bm25_2.k1 == 2.0
+        assert bm25_2.b == 0.4
+        await bm25_2.close()
 
 
-def test_runtime_parameter_update_survives_restart():
+@pytest.mark.asyncio
+async def test_runtime_parameter_update_survives_restart():
     """Persist k1/b updates made after loading an existing index."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        seed = await create_bm25()
+        await seed.add_docs({"d1": "hello world"})
+        await seed.close()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            seed = await create_bm25()
-            await seed.add_docs({"d1": "hello world"})
-            await seed.close()
+        changed = await create_bm25()
+        assert (changed.k1, changed.b) == (1.5, 0.75)
+        changed.k1 = 2.0
+        changed.b = 0.4
+        await changed.close()
 
-            changed = await create_bm25()
-            assert (changed.k1, changed.b) == (1.5, 0.75)
-            changed.k1 = 2.0
-            changed.b = 0.4
-            await changed.close()
-
-            reopened = await create_bm25()
-            assert (reopened.k1, reopened.b) == (2.0, 0.4)
-            await reopened.close()
-
-    run(go())
+        reopened = await create_bm25()
+        assert (reopened.k1, reopened.b) == (2.0, 0.4)
+        await reopened.close()
 
 
-def test_load_missing_file_keeps_empty_state():
+@pytest.mark.asyncio
+async def test_load_missing_file_keeps_empty_state():
     """Calling load() with no file on disk is a no-op."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            # No add_docs, nothing persisted.
-            assert not bm25.index_file.exists()
-            await bm25.load()
-            assert bm25.n_docs == 0
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        # No add_docs, nothing persisted.
+        assert not bm25.index_file.exists()
+        await bm25.load()
+        assert bm25.n_docs == 0
+        await bm25.close()
 
 
-def test_load_corrupt_file_resets_index():
+@pytest.mark.asyncio
+async def test_load_corrupt_file_resets_index():
     """A corrupt pickle on disk is reported, deleted, and the index is cleared."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello"})
+        await bm25.dump()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello"})
-            await bm25.dump()
-
-            # Corrupt the file.
-            bm25.index_file.write_bytes(b"not a pickle")
-            await bm25.load()
-            assert bm25.n_docs == 0
-            assert bm25.vocab == {}
-            assert not bm25.index_file.exists()
-            await bm25.close()
-
-    run(go())
+        # Corrupt the file.
+        bm25.index_file.write_bytes(b"not a pickle")
+        await bm25.load()
+        assert bm25.n_docs == 0
+        assert bm25.vocab == {}
+        assert not bm25.index_file.exists()
+        await bm25.close()
 
 
-def test_index_file_isolated_by_component_name():
+@pytest.mark.asyncio
+async def test_index_file_isolated_by_component_name():
     """Different BM25Index names must not share one persisted pickle."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        alpha = BM25Index(name="alpha")
+        alpha_tokenizer = RegexTokenizer(filter_stopwords=False)
+        alpha.tokenizer = alpha_tokenizer
+        alpha._owned.append(alpha_tokenizer)
+        await alpha.start()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            alpha = BM25Index(name="alpha")
-            alpha_tokenizer = RegexTokenizer(filter_stopwords=False)
-            alpha.tokenizer = alpha_tokenizer
-            alpha._owned.append(alpha_tokenizer)
-            await alpha.start()
+        beta = BM25Index(name="beta")
+        beta_tokenizer = RegexTokenizer(filter_stopwords=False)
+        beta.tokenizer = beta_tokenizer
+        beta._owned.append(beta_tokenizer)
+        await beta.start()
 
-            beta = BM25Index(name="beta")
-            beta_tokenizer = RegexTokenizer(filter_stopwords=False)
-            beta.tokenizer = beta_tokenizer
-            beta._owned.append(beta_tokenizer)
-            await beta.start()
+        assert alpha.index_file != beta.index_file
 
-            assert alpha.index_file != beta.index_file
+        await alpha.add_docs({"d1": "alpha only"})
+        await alpha.dump()
+        await alpha.close()
 
-            await alpha.add_docs({"d1": "alpha only"})
-            await alpha.dump()
-            await alpha.close()
-
-            assert beta.n_docs == 0
-            assert await beta.retrieve("alpha", limit=1) == {}
-            await beta.close()
-
-    run(go())
+        assert beta.n_docs == 0
+        assert await beta.retrieve("alpha", limit=1) == {}
+        await beta.close()
 
 
-def test_index_file_isolated_by_tokenizer_config():
+@pytest.mark.asyncio
+async def test_index_file_isolated_by_tokenizer_config():
     """Tokenizer settings that affect tokens must map to different index files."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        unfiltered = BM25Index()
+        unfiltered_tokenizer = RegexTokenizer(filter_stopwords=False)
+        unfiltered.tokenizer = unfiltered_tokenizer
+        unfiltered._owned.append(unfiltered_tokenizer)
+        await unfiltered.start()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            unfiltered = BM25Index()
-            unfiltered_tokenizer = RegexTokenizer(filter_stopwords=False)
-            unfiltered.tokenizer = unfiltered_tokenizer
-            unfiltered._owned.append(unfiltered_tokenizer)
-            await unfiltered.start()
+        filtered = BM25Index()
+        filtered_tokenizer = RegexTokenizer(filter_stopwords=True)
+        filtered.tokenizer = filtered_tokenizer
+        filtered._owned.append(filtered_tokenizer)
+        await filtered.start()
 
-            filtered = BM25Index()
-            filtered_tokenizer = RegexTokenizer(filter_stopwords=True)
-            filtered.tokenizer = filtered_tokenizer
-            filtered._owned.append(filtered_tokenizer)
-            await filtered.start()
+        assert unfiltered.index_file != filtered.index_file
 
-            assert unfiltered.index_file != filtered.index_file
-
-            await unfiltered.close()
-            await filtered.close()
-
-    run(go())
+        await unfiltered.close()
+        await filtered.close()
 
 
-def test_tokenizer_fingerprint_ignores_stopwords_absolute_path():
+@pytest.mark.asyncio
+async def test_tokenizer_fingerprint_ignores_stopwords_absolute_path():
     """Same stopwords content should not fork indexes by install path."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        stopwords_a = os.path.join(tmp, "a", "stopwords")
+        stopwords_b = os.path.join(tmp, "b", "stopwords")
+        os.makedirs(os.path.dirname(stopwords_a))
+        os.makedirs(os.path.dirname(stopwords_b))
+        with open(stopwords_a, "w", encoding="utf-8") as f:
+            f.write("alpha\nbeta\n")
+        with open(stopwords_b, "w", encoding="utf-8") as f:
+            f.write("alpha\nbeta\n")
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            stopwords_a = os.path.join(tmp, "a", "stopwords")
-            stopwords_b = os.path.join(tmp, "b", "stopwords")
-            os.makedirs(os.path.dirname(stopwords_a))
-            os.makedirs(os.path.dirname(stopwords_b))
-            with open(stopwords_a, "w", encoding="utf-8") as f:
-                f.write("alpha\nbeta\n")
-            with open(stopwords_b, "w", encoding="utf-8") as f:
-                f.write("alpha\nbeta\n")
+        first = BM25Index()
+        first_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_a)
+        first.tokenizer = first_tokenizer
+        first._owned.append(first_tokenizer)
+        await first.start()
 
-            first = BM25Index()
-            first_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_a)
-            first.tokenizer = first_tokenizer
-            first._owned.append(first_tokenizer)
-            await first.start()
+        second = BM25Index()
+        second_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_b)
+        second.tokenizer = second_tokenizer
+        second._owned.append(second_tokenizer)
+        await second.start()
 
-            second = BM25Index()
-            second_tokenizer = RegexTokenizer(filter_stopwords=True, stopwords_path=stopwords_b)
-            second.tokenizer = second_tokenizer
-            second._owned.append(second_tokenizer)
-            await second.start()
+        assert first._tokenizer_config()["stopwords_sha256"] == second._tokenizer_config()["stopwords_sha256"]
+        assert "stopwords_path" not in first._tokenizer_config()
+        assert first._tokenizer_fingerprint() == second._tokenizer_fingerprint()
+        assert first.index_file == second.index_file
 
-            assert first._tokenizer_config()["stopwords_sha256"] == second._tokenizer_config()["stopwords_sha256"]
-            assert "stopwords_path" not in first._tokenizer_config()
-            assert first._tokenizer_fingerprint() == second._tokenizer_fingerprint()
-            assert first.index_file == second.index_file
+        with open(stopwords_b, "w", encoding="utf-8") as f:
+            f.write("alpha\ngamma\n")
+        assert first._tokenizer_fingerprint() != second._tokenizer_fingerprint()
 
-            with open(stopwords_b, "w", encoding="utf-8") as f:
-                f.write("alpha\ngamma\n")
-            assert first._tokenizer_fingerprint() != second._tokenizer_fingerprint()
-
-            await first.close()
-            await second.close()
-
-    run(go())
+        await first.close()
+        await second.close()
 
 
-def test_dump_failure_is_not_silent():
+@pytest.mark.asyncio
+async def test_dump_failure_is_not_silent():
     """A failed write must be observable by callers."""
+    from unittest.mock import patch
 
-    async def go():
-        from unittest.mock import patch
-
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello"})
-            with patch("builtins.open", side_effect=OSError("disk full")):
-                try:
-                    await bm25.dump()
-                except OSError:
-                    pass
-                else:
-                    raise AssertionError("expected dump() to raise OSError")
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello"})
+        with patch("builtins.open", side_effect=OSError("disk full")):
+            try:
+                await bm25.dump()
+            except OSError:
+                pass
+            else:
+                raise AssertionError("expected dump() to raise OSError")
+        await bm25.close()
 
 
-def test_concurrent_dumps_publish_in_invocation_order():
+@pytest.mark.asyncio
+async def test_concurrent_dumps_publish_in_invocation_order():
     """A newer dump must wait for and then supersede an older snapshot."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "alpha"})
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "alpha"})
+        first_started = threading.Event()
+        release_first = threading.Event()
+        dump_calls = 0
+        original_dump_sync = bm25._dump_sync
 
-            first_started = threading.Event()
-            release_first = threading.Event()
-            dump_calls = 0
-            original_dump_sync = bm25._dump_sync
+        def blocking_dump_sync(snapshot):
+            nonlocal dump_calls
+            dump_calls += 1
+            if dump_calls == 1:
+                first_started.set()
+                release_first.wait()
+            original_dump_sync(snapshot)
 
-            def blocking_dump_sync(snapshot):
-                nonlocal dump_calls
-                dump_calls += 1
-                if dump_calls == 1:
-                    first_started.set()
-                    release_first.wait()
-                original_dump_sync(snapshot)
+        bm25._dump_sync = blocking_dump_sync
+        first = asyncio.create_task(bm25.dump())
+        assert await asyncio.to_thread(first_started.wait, 1)
 
-            bm25._dump_sync = blocking_dump_sync
-            first = asyncio.create_task(bm25.dump())
-            assert await asyncio.to_thread(first_started.wait, 1)
+        await bm25.add_docs({"d2": "beta"})
+        second = asyncio.create_task(bm25.dump())
+        await asyncio.sleep(0.02)
+        assert dump_calls == 1
 
-            await bm25.add_docs({"d2": "beta"})
-            second = asyncio.create_task(bm25.dump())
-            await asyncio.sleep(0.02)
-            assert dump_calls == 1
+        release_first.set()
+        await asyncio.gather(first, second)
+        assert dump_calls == 2
+        assert set(bm25._load_sync()["doc_id_to_idx"]) == {"d1", "d2"}
 
-            release_first.set()
-            await asyncio.gather(first, second)
-            assert dump_calls == 2
-            assert set(bm25._load_sync()["doc_id_to_idx"]) == {"d1", "d2"}
-
-            bm25._dump_sync = original_dump_sync
-            await bm25.close()
-
-    run(go())
+        bm25._dump_sync = original_dump_sync
+        await bm25.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -913,107 +778,92 @@ def test_concurrent_dumps_publish_in_invocation_order():
 # --------------------------------------------------------------------------- #
 
 
-def test_clear_wipes_everything():
+@pytest.mark.asyncio
+async def test_clear_wipes_everything():
     """clear() empties state and removes the index file."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello", "d2": "world"})
+        await bm25.dump()
+        assert bm25.index_file.exists()
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello", "d2": "world"})
-            await bm25.dump()
-            assert bm25.index_file.exists()
-
-            await bm25.clear()
-            assert bm25.n_docs == 0
-            assert bm25.vocab == {}
-            assert bm25.inverted_index == {}
-            assert bm25.doc_meta == {}
-            assert bm25.total_len == 0
-            assert bm25._idf_cache == {}
-            assert not bm25.index_file.exists()
-            await bm25.close()
-            assert not bm25.index_file.exists()
-
-    run(go())
+        await bm25.clear()
+        assert bm25.n_docs == 0
+        assert bm25.vocab == {}
+        assert bm25.inverted_index == {}
+        assert bm25.doc_meta == {}
+        assert bm25.total_len == 0
+        assert bm25._idf_cache == {}
+        assert not bm25.index_file.exists()
+        await bm25.close()
+        assert not bm25.index_file.exists()
 
 
-def test_optimize_drops_deleted_only_terms():
+@pytest.mark.asyncio
+async def test_optimize_drops_deleted_only_terms():
     """After deleting, optimize_index drops vocab entries that no live doc uses."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs(
+            {
+                "d1": "alpha unique_to_d1",
+                "d2": "alpha beta",
+            },
+        )
+        assert "unique_to_d1" in bm25.vocab
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs(
-                {
-                    "d1": "alpha unique_to_d1",
-                    "d2": "alpha beta",
-                },
-            )
-            assert "unique_to_d1" in bm25.vocab
+        await bm25.delete_docs(["d1"])
+        await bm25.optimize_index()
 
-            await bm25.delete_docs(["d1"])
-            await bm25.optimize_index()
-
-            assert bm25.n_docs == 1
-            assert "d2" in bm25.doc_meta
-            # Term that only existed in d1 is gone.
-            assert "unique_to_d1" not in bm25.vocab
-            # Shared/own terms of d2 survive.
-            assert "alpha" in bm25.vocab and "beta" in bm25.vocab
-            # Retrieval still works correctly.
-            assert "d2" in await bm25.retrieve("alpha", limit=1)
-            await bm25.close()
-
-    run(go())
+        assert bm25.n_docs == 1
+        assert "d2" in bm25.doc_meta
+        # Term that only existed in d1 is gone.
+        assert "unique_to_d1" not in bm25.vocab
+        # Shared/own terms of d2 survive.
+        assert "alpha" in bm25.vocab and "beta" in bm25.vocab
+        # Retrieval still works correctly.
+        assert "d2" in await bm25.retrieve("alpha", limit=1)
+        await bm25.close()
 
 
-def test_optimize_when_all_deleted_clears_index():
+@pytest.mark.asyncio
+async def test_optimize_when_all_deleted_clears_index():
     """optimize_index on a fully-deleted state collapses to empty index."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world"})
-            await bm25.delete_docs(["d1"])
-            await bm25.optimize_index()
-            assert bm25.n_docs == 0
-            assert bm25.vocab == {}
-            assert bm25.inverted_index == {}
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world"})
+        await bm25.delete_docs(["d1"])
+        await bm25.optimize_index()
+        assert bm25.n_docs == 0
+        assert bm25.vocab == {}
+        assert bm25.inverted_index == {}
+        await bm25.close()
 
 
-def test_optimize_noop_when_no_deletions():
+@pytest.mark.asyncio
+async def test_optimize_noop_when_no_deletions():
     """With nothing deleted, optimize_index leaves state intact."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world"})
-            vocab_before = dict(bm25.vocab)
-            await bm25.optimize_index()
-            assert bm25.vocab == vocab_before
-            assert bm25.n_docs == 1
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world"})
+        vocab_before = dict(bm25.vocab)
+        await bm25.optimize_index()
+        assert bm25.vocab == vocab_before
+        assert bm25.n_docs == 1
+        await bm25.close()
 
 
-def test_reset_index_replaces_all_docs():
+@pytest.mark.asyncio
+async def test_reset_index_replaces_all_docs():
     """reset_index (inherited from base) wipes and re-adds in one call."""
-
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "old content"})
-            await bm25.reset_index({"d2": "new content"})
-            assert bm25.n_docs == 1
-            assert "d2" in bm25.doc_meta
-            assert "d1" not in bm25.doc_meta
-            await bm25.close()
-
-    run(go())
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "old content"})
+        await bm25.reset_index({"d2": "new content"})
+        assert bm25.n_docs == 1
+        assert "d2" in bm25.doc_meta
+        assert "d1" not in bm25.doc_meta
+        await bm25.close()
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,115 +871,74 @@ def test_reset_index_replaces_all_docs():
 # --------------------------------------------------------------------------- #
 
 
-def test_idf_cache_populates_and_invalidates():
+@pytest.mark.asyncio
+async def test_idf_cache_populates_and_invalidates():
     """_get_idf caches results; add/delete clear the cache."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "hello world", "d2": "hello python"})
+        tid_hello = bm25.vocab["hello"]
+        idf1 = bm25._get_idf(tid_hello)
+        assert tid_hello in bm25._idf_cache
+        assert bm25._get_idf(tid_hello) == idf1
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "hello world", "d2": "hello python"})
-            tid_hello = bm25.vocab["hello"]
-            idf1 = bm25._get_idf(tid_hello)
-            assert tid_hello in bm25._idf_cache
-            assert bm25._get_idf(tid_hello) == idf1
+        # Mutating the index must invalidate the cache.
+        await bm25.add_docs({"d3": "hello there"})
+        assert bm25._idf_cache == {}
 
-            # Mutating the index must invalidate the cache.
-            await bm25.add_docs({"d3": "hello there"})
-            assert bm25._idf_cache == {}
-
-            await bm25.delete_docs(["d1"])
-            # delete_docs also clears cache; populate again then trigger via add.
-            _ = bm25._get_idf(bm25.vocab["hello"])
-            assert bm25._idf_cache  # non-empty now
-            await bm25.add_docs({"d4": "x y z"})
-            assert bm25._idf_cache == {}
-            await bm25.close()
-
-    run(go())
+        await bm25.delete_docs(["d1"])
+        # delete_docs also clears cache; populate again then trigger via add.
+        _ = bm25._get_idf(bm25.vocab["hello"])
+        assert bm25._idf_cache  # non-empty now
+        await bm25.add_docs({"d4": "x y z"})
+        assert bm25._idf_cache == {}
+        await bm25.close()
 
 
-def test_avg_len_tracks_live_docs_only():
+@pytest.mark.asyncio
+async def test_avg_len_tracks_live_docs_only():
     """avg_len excludes deleted docs.
 
     Note: RegexTokenizer's `\\w\\w+` pattern drops 1-letter words, so we
     use multi-letter tokens to keep length math predictable.
     """
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        assert bm25.avg_len == 0.0
+        await bm25.add_docs({"d1": "alpha beta gamma delta"})  # 4 tokens
+        await bm25.add_docs({"d2": "alpha beta"})  # 2 tokens
+        assert bm25.avg_len == 3.0
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            assert bm25.avg_len == 0.0
-            await bm25.add_docs({"d1": "alpha beta gamma delta"})  # 4 tokens
-            await bm25.add_docs({"d2": "alpha beta"})  # 2 tokens
-            assert bm25.avg_len == 3.0
-
-            await bm25.delete_docs(["d1"])
-            assert bm25.avg_len == 2.0
-            await bm25.close()
-
-    run(go())
+        await bm25.delete_docs(["d1"])
+        assert bm25.avg_len == 2.0
+        await bm25.close()
 
 
-def test_deleted_docs_excluded_from_scoring():
+@pytest.mark.asyncio
+async def test_deleted_docs_excluded_from_scoring():
     """A deleted doc must score 0 and never appear in retrieve()."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "python", "d2": "python", "d3": "python"})
+        await bm25.delete_docs(["d2"])
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "python", "d2": "python", "d3": "python"})
-            await bm25.delete_docs(["d2"])
-
-            results = await bm25.retrieve("python", limit=10)
-            assert set(results) == {"d1", "d3"}
-            assert all(s > 0 for s in results.values())
-            await bm25.close()
-
-    run(go())
+        results = await bm25.retrieve("python", limit=10)
+        assert set(results) == {"d1", "d3"}
+        assert all(s > 0 for s in results.values())
+        await bm25.close()
 
 
-def test_inverted_index_hides_deleted_postings():
+@pytest.mark.asyncio
+async def test_inverted_index_hides_deleted_postings():
     """inverted_index view skips postings whose doc is deleted."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        bm25 = await create_bm25()
+        await bm25.add_docs({"d1": "alpha", "d2": "alpha beta"})
+        tid_alpha = bm25.vocab["alpha"]
+        await bm25.delete_docs(["d1"])
 
-    async def go():
-        with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
-            bm25 = await create_bm25()
-            await bm25.add_docs({"d1": "alpha", "d2": "alpha beta"})
-            tid_alpha = bm25.vocab["alpha"]
-            await bm25.delete_docs(["d1"])
-
-            inv = bm25.inverted_index
-            # 'alpha' posting now contains only the live doc.
-            assert tid_alpha in inv
-            assert set(inv[tid_alpha]) == {"d2"}
-            await bm25.close()
-
-    run(go())
-
-
-# --------------------------------------------------------------------------- #
-# Manual runner                                                               #
-# --------------------------------------------------------------------------- #
-
-
-if __name__ == "__main__":
-    import inspect
-    import sys
-
-    mod = sys.modules[__name__]
-    tests = [(name, obj) for name, obj in inspect.getmembers(mod, inspect.isfunction) if name.startswith("test_")]
-    print(f"\n=== BaseKeywordIndex / BM25Index Tests ({len(tests)}) ===\n")
-    failed = []
-    for name, fn in tests:
-        try:
-            fn()
-            print(f"✓ {name}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"✗ {name}: {exc!r}")
-            failed.append(name)
-    print()
-    if failed:
-        print(f"FAILED: {len(failed)} / {len(tests)}")
-        for n in failed:
-            print(f"  - {n}")
-        sys.exit(1)
-    print(f"所有 {len(tests)} 项测试通过!")
+        inv = bm25.inverted_index
+        # 'alpha' posting now contains only the live doc.
+        assert tid_alpha in inv
+        assert set(inv[tid_alpha]) == {"d2"}
+        await bm25.close()

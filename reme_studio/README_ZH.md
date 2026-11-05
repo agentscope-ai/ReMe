@@ -187,6 +187,29 @@ Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留
 
 内置 chat job 对工作区只读：它可以搜索和读取上下文，但不应替代明确保存长期知识的操作。Agent 对话需要有效的 Agent/模型配置；文件浏览、编辑、图谱和服务检查不需要模型。
 
+使用 `config=proactive` 时，Studio 的 Codex agent 启用完整工具访问权限，并支持主动消息。Studio 会在打开对话、流结束、页面重新获得焦点时同步历史，
+并每 5 秒刷新当前可见的对话；隐藏页面和正在流式接收的对话停止补拉。主动消息使用独立背景色和“主动提醒”标签。
+
+先在一个终端启动服务：
+
+```bash
+reme start config=proactive
+```
+
+在另一个终端中，使用对话对应的 session id 调用：
+
+```bash
+reme session_status session_id=SESSION_ID
+reme session_append session_id=SESSION_ID message_id=reminder-1 content="主人，这条信息可能与你有关。" wait_timeout=30
+reme session_read session_id=SESSION_ID
+```
+
+`session_append` 等待同会话的当前轮次结束，只追加 assistant 消息，不启动模型生成。重试必须使用相同的
+`message_id` 和内容；同一 ID 对应不同内容会报错。来源记录保存在工作区的 `{session_dir}/proactive/` 下，
+用于补齐 Codex 原生历史查询未返回的注入消息。写入与普通聊天必须经过同一个 ReMe app-server；不支持跨进程共用会话锁。
+仅支持持久化 Codex 会话；其他 wrapper 的这三个接口明确返回 `NotImplementedError`。忙碌等待有超时；一旦开始注入，
+取消请求会先完成注入结果的持久化再释放会话锁。恢复中断的发布会只读检查 Codex rollout 中的保留消息 ID，不改写原生文件。
+
 ### 7. 服务状态
 
 从顶部栏打开 **Settings**，可以检查 Studio 实际连接的后端。
@@ -357,8 +380,10 @@ npm run build:demo
 ```bash
 npm run format:check
 npm run lint
-npm run build
-npm run build:static
+npm run test:unit
+# 构建并验证 Sites、静态和演示分发：
+npm run test:build
+# 运行以上全部检查：
 npm test
 ```
 

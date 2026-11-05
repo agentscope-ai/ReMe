@@ -1,0 +1,25 @@
+{
+  "name": "reme-marketplace",
+  "owner": {
+    "name": "EconML team of Alibaba Tongyi Lab",
+    "url": "https://github.com/agentscope-ai/ReMe"
+  },
+  "metadata": {
+    "version": "0.1.0",
+    "description": "ReMe memory integration for Qoder."
+  },
+  "plugins": [
+    {
+      "name": "reme",
+      "source": "./reme",
+      "description": "Automatic recall, completed-turn recording, MCP memory tools, and the reme-memory skill for Qoder.",
+      "category": "memory",
+      "tags": [
+        "memory",
+        "reme",
+        "mcp",
+        "hooks"
+      ]
+    }
+  ]
+}

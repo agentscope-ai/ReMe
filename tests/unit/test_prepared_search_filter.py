@@ -13,8 +13,10 @@ import pytest
 
 from reme.components.file_store import FaissLocalFileStore, LocalFileStore, ZvecLocalFileStore
 from reme.components.keyword_index import BM25Index
+from reme.components.runtime_context import RuntimeContext
 from reme.components.tokenizer import RegexTokenizer
 from reme.schema import FileChunk
+from reme.steps.index import SearchStep
 
 
 def test_differential_filter_combinations():
@@ -141,6 +143,61 @@ async def test_bound_instance_matchers_preserve_search_results(override, config)
             legacy = await search("alpha", 30, config)
         assert [chunk.id for chunk in result] == ["29"]
         assert [(chunk.id, chunk.scores) for chunk in result] == [(chunk.id, chunk.scores) for chunk in legacy]
+
+
+@pytest.mark.parametrize(
+    ("search_filter", "expected"),
+    [
+        ({"tags": ["python"]}, True),
+        ({"tags": "python"}, True),
+        ({"tags": ["python", "java"]}, True),
+        ({"tags": ["java"]}, False),
+        ({"tags": "java"}, False),
+        ({"metadata": {"tags": ["notes"]}}, True),
+        ({"metadata": {"tags": ["java"]}}, False),
+        ({"tags": ["python"], "name": "note"}, True),
+        ({"tags": ["python"], "name": "other"}, False),
+        ({"absent": "value"}, False),
+    ],
+)
+def test_list_valued_metadata_matches_search_filters(search_filter, expected):
+    """Frontmatter lists are matched by content instead of raising or missing."""
+    store = make_store()
+    chunk = FileChunk(path="daily/2026-01-01/n.md", metadata={"tags": ["python", "notes"], "name": "note"})
+    assert store._prepare_search_filter(search_filter)(chunk) is expected
+    assert LocalFileStore._matches_search_filter(chunk, search_filter) is expected
+
+
+@pytest.mark.asyncio
+async def test_search_entrypoints_filter_list_valued_metadata():
+    """Vector and keyword search keep list-valued metadata filterable."""
+    store = make_store()
+    store.file_chunks["7"].metadata["tags"] = ["python", "notes"]
+    index = BM25Index()
+    index.tokenizer = RegexTokenizer(filter_stopwords=False)
+    await index.add_docs({key: chunk.text for key, chunk in store.file_chunks.items()})
+    store.keyword_index = index
+    for search in (store.vector_search, store.keyword_search):
+        assert [chunk.id for chunk in await search("alpha", 5, {"tags": ["python"]})] == ["7"]
+        assert [chunk.id for chunk in await search("alpha", 5, {"tags": "python"})] == ["7"]
+        assert await search("alpha", 5, {"tags": ["java"]}) == []
+
+
+@pytest.mark.asyncio
+async def test_search_step_returns_list_valued_metadata_matches():
+    """The search Step returns the list-valued metadata match instead of failing."""
+    store = make_store()
+    store.file_chunks["7"].metadata["tags"] = ["python", "notes"]
+    index = BM25Index()
+    index.tokenizer = RegexTokenizer(filter_stopwords=False)
+    await index.add_docs({key: chunk.text for key, chunk in store.file_chunks.items()})
+    store.keyword_index = index
+    step = SearchStep(file_store=store, expand_links=False)
+
+    resp = await step(RuntimeContext(query="alpha", limit=5, search_filter={"tags": ["python"]}))
+
+    assert resp.success is True
+    assert [item["id"] for item in resp.metadata["results"]] == ["7"]
 
 
 @pytest.mark.parametrize(

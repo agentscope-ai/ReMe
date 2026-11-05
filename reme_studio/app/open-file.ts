@@ -9,13 +9,24 @@ export async function openWorkspaceFile(path: string) {
   );
   const id = store.openMarkdown(path);
   if (existing) return;
+  await loadWorkspaceFile(id, path);
+}
+
+/** Load both newly opened and restored tabs, respecting the caller's lifetime. */
+export async function loadWorkspaceFile(
+  id: string,
+  path: string,
+  shouldApply: () => boolean = () => true,
+) {
+  const store = useWorkspaceStore.getState();
   try {
     const file = await readWorkspaceFile(path);
-    store.hydrateMarkdown(id, file.content, file.stat.mtime);
+    if (shouldApply()) store.hydrateMarkdown(id, file.content, file.stat.mtime);
   } catch (error) {
-    store.failMarkdown(
-      id,
-      error instanceof Error ? error.message : "Failed to read file",
-    );
+    if (shouldApply())
+      store.failMarkdown(
+        id,
+        error instanceof Error ? error.message : "Failed to read file",
+      );
   }
 }

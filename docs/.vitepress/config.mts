@@ -148,6 +148,7 @@ function docsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
         { text: "Auto Resource", link: `/${language}/auto_resource` },
         { text: "Auto Dream", link: `/${language}/auto_dream` },
         { text: "Proactive", link: `/${language}/proactive` },
+        { text: zh ? "决策模型上下文压缩" : "Context Compaction", link: `/${language}/context_compaction` },
       ],
     },
     {
@@ -180,6 +181,7 @@ function integrationsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] 
       { text: zh ? "集成总览" : "Overview", link: `/${language}/integrations` },
       { text: "Claude Code", link: `/${language}/integrations/claude-code` },
       { text: "Codex", link: `/${language}/integrations/codex` },
+      { text: "Qoder", link: `/${language}/integrations/qoder` },
       { text: "Hermes Agent", link: `/${language}/integrations/hermes` },
       { text: "DeepSeek Harness", link: `/${language}/integrations/dsh` },
       { text: "OpenClaw", link: `/${language}/integrations/openclaw` },

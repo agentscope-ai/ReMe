@@ -10,7 +10,7 @@ class ComponentEnum(str, Enum):
 
     AS_LLM = "as_llm"
 
-    AS_CLASSIFIER = "as_classifier"
+    AS_DECISION_MODEL = "as_decision_model"
 
     AS_EMBEDDING = "as_embedding"
 
@@ -39,6 +39,8 @@ class ComponentEnum(str, Enum):
     TOKENIZER = "tokenizer"
 
     AGENT_WRAPPER = "agent_wrapper"
+
+    CODEX_APP_SERVER = "codex_app_server"
 
     MAIL = "mail"
 

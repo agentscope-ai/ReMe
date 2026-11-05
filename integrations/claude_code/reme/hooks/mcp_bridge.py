@@ -12,7 +12,7 @@ def main() -> None:
         from fastmcp.server.providers.proxy import ProxyClient
     except ImportError as exc:
         raise SystemExit(
-            "ReMe MCP requires fastmcp>=3.1 in the host's python3 environment (included in reme-ai).",
+            "ReMe MCP requires fastmcp>=4.1.4,<5 in the host's python3 environment (included in reme-ai).",
         ) from exc
     upstream = ProxyClient(config["mcp_url"], timeout=config["request_timeout"])
     proxy = create_proxy(upstream, name="ReMe")

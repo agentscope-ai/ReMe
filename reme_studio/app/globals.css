@@ -1015,6 +1015,25 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--danger) 8%, var(--panel));
   font-size: 12px;
 }
+
+.message.proactive .bubble {
+  background: color-mix(in srgb, var(--brand-blue) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 40%, var(--line));
+  border-radius: 14px;
+  padding: 16px;
+}
+.proactive-label {
+  display: block;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.session-sync-error {
+  color: var(--danger);
+  font-size: 12px;
+  padding: 8px 24px;
+}
 .composer {
   position: absolute;
   right: 0;
@@ -1608,27 +1627,6 @@ textarea:focus-visible {
 }
 .settings-card h4 {
   margin: 8px 0 10px;
-  font-size: 12px;
-}
-.component-row {
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  border-top: 1px solid var(--line);
-}
-.component-row > span {
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-}
-.component-row small {
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 10px;
-}
-.component-row strong {
   font-size: 12px;
 }
 .index-card {

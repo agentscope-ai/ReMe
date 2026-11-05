@@ -6,7 +6,7 @@ from pathlib import Path
 
 import frontmatter
 
-from ._path import resolve_path, validate_filename_component
+from ._path import _check_path_permission, resolve_path, validate_filename_component
 from ...utils import get_logger
 
 logger = get_logger(log_to_file=False)
@@ -64,7 +64,7 @@ def _rebuild_body(body: str, notes_content: str) -> str:
     return f"{body.rstrip()}\n\n{block}\n" if body.strip() else f"{block}\n"
 
 
-def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
+def scan_notes(workspace_dir: Path, date: str, daily_dir: str, *, allowed_paths=None) -> list[dict]:
     """Walk ``<daily_dir>/<date>/*.md`` and pull each note's frontmatter.
 
     Files under the date folder are named by note ``name``. Conversation
@@ -99,6 +99,8 @@ def scan_notes(workspace_dir: Path, date: str, daily_dir: str) -> list[dict]:
                 target, err = resolve_path(workspace_dir, str(md_path))
                 if err or target is None:
                     continue
+            if not _check_path_permission(workspace_dir, target, allowed_paths):
+                continue
             if not target.is_file():
                 continue
         except RuntimeError:

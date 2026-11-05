@@ -79,6 +79,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 | `plugins` | `[]` | 为当前 Application 启用的已安装插件 |
 | `service` | HTTP | 服务端配置 |
 | `jobs` | 默认 Job | Job 名到 Job 配置的映射 |
+| `job_history_limit` | `100` | 每个 Job 在应用内存中保留的已结束执行记录数；运行中的记录始终保留 |
 | `components` | 默认组件 | 按类型和名称组织的组件配置 |
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
@@ -95,6 +96,11 @@ reme start jobs.dream_cron.enabled=false
 重启服务后生效。独立的 `auto_dream` 接口仍可调用，其他 Job 继续运行。
 `enable_serve` 独立控制接口暴露：`enabled=true, enable_serve=false` 允许本地调用。
 Background 和 cron Job 始终不暴露服务接口。
+
+`jobs.<name>.track_execution` 对 background/cron Job 默认开启，对 base/stream Job 默认关闭。
+可以显式覆盖，例如 `reme start jobs.chat.track_execution=true` 为前台聊天开启记录。
+执行记录仅保存在内存中，重新创建 Application 后清空。`job_history_limit=0` 仅保留运行中的记录。
+查询方式与 Step 路径见 [Job 执行状态](./operations.md#job-执行状态)。
 
 ## LLM 配置
 
@@ -117,40 +123,55 @@ components:
 基础文件操作、BM25 检索、wikilink 遍历和 `proactive_read` 不需要 LLM。`auto_memory`、`auto_resource`、
 `auto_dream` 和 proactive refresh 等演化流程需要可用 LLM。
 
-## Classifier 配置
+## 联网搜索
 
-`as_classifier` 是独立的概率分类组件，当前提供 `jev` backend，通过 AgentScope `2.0.10` 调用 TypeSafe API。
+安装 `reme-ai[core]` 后，默认 `dashscope_search` Job 使用 DashScope SDK 调用 `qwen3.8-flash`，独立于上述 LLM 配置。
+在一个终端设置 Key 并启动服务：
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=default
+```
+
+在另一个终端调用 `reme dashscope_search query="Qwen 最新模型"`。
+未配置 Key 不影响服务启动，但此 Job 调用会返回失败。
+结果的 `search_info.search_results` 保留供应商返回的来源字段，`content` 是单独的模型生成正文；
+网页正文和摘要不保证提供。模型、搜索策略和超时配置见 `reme/config/default.yaml`。
+
+## 决策模型配置
+
+`as_decision_model` 是不依赖供应商的概率决策模型接口；当前的 `agentscope` 适配器通过 AgentScope `2.0.11` 调用 TypeSafe API。
 它接受共享的文本或 JSON object 与命名问题，返回二分类概率、选项分类或评分结果。
 
 安装可选依赖：
 
 ```bash
-pip install "reme-ai[core,classifier-jev]"
+pip install "reme-ai[core,decision]"
 # 从源码安装时：
-pip install -e ".[core,classifier-jev]"
+pip install -e ".[core,decision]"
 ```
 
-`core` 不包含 Jev SDK，`full` 包含该 extra。只设置环境变量不会自动启用组件；默认配置中的 classifier 示例保持注释。
-组件启动不导入可选分类模块、不创建客户端，首次分类调用才检查依赖和凭证。客户端由组件复用，关闭时先等待正在执行的请求结束，再释放客户端。
+`core` 不包含决策模型 SDK，`full` 包含该 extra。只设置环境变量不会自动启用组件；默认配置中的决策模型示例保持注释。
+组件启动不导入可选决策模型模块、不创建客户端，首次决策调用才检查依赖和凭证。客户端由组件复用，关闭时先等待正在执行的请求结束，再释放客户端。
 
 | 环境变量 | 默认值 | 作用 |
 |---|---|---|
-| `CLASSIFIER_BACKEND` | `jev` | Classifier backend |
-| `CLASSIFIER_MODEL_NAME` | `jev-latest` | 模型名或别名 |
-| `CLASSIFIER_API_KEY` | 空 | TypeSafe API key，分类调用时必须提供 |
-| `CLASSIFIER_BASE_URL` | `null` | 可选 API 地址；空值使用 SDK 默认地址 |
+| `DECISION_MODEL_BACKEND` | `agentscope` | 决策模型后端 |
+| `DECISION_MODEL_NAME` | `null`（适配器默认值） | 模型名或别名 |
+| `DECISION_MODEL_API_KEY` | 空 | TypeSafe API key，决策调用时必须提供 |
+| `DECISION_MODEL_BASE_URL` | `null` | 可选 API 地址；空值使用 SDK 默认地址 |
 
 启用组件的配置示例：
 
 ```yaml
 components:
-  as_classifier:
+  as_decision_model:
     default:
-      backend: ${CLASSIFIER_BACKEND:-jev}
-      model: ${CLASSIFIER_MODEL_NAME:-jev-latest}
+      backend: ${DECISION_MODEL_BACKEND:-agentscope}
+      model: ${DECISION_MODEL_NAME:-null}
       credential:
-        api_key: ${CLASSIFIER_API_KEY:-}
-        base_url: ${CLASSIFIER_BASE_URL:-null}
+        api_key: ${DECISION_MODEL_API_KEY:-}
+        base_url: ${DECISION_MODEL_BASE_URL:-null}
       timeout: 30
       max_retries: 2
       retry_delay: 0.5
@@ -159,26 +180,26 @@ components:
 `timeout` 是单次请求的超时秒数；`max_retries` 是首次请求之外的重试次数；`retry_delay` 是初始退避秒数。
 这三个字段通过 YAML 或 CLI 覆盖配置，重试由 SDK 执行。
 
-内置 `classifier_demo` 配置通过 `extends: default` 继承默认 HTTP/MCP 服务、组件和 Job，并增加 classifier 与
-可通过服务调用的 `jev` Job。默认后台任务也会启动。先在一个终端启动服务：
+内置 `decision_demo` 配置通过 `extends: default` 继承默认 HTTP/MCP 服务、组件和 Job，并增加决策模型与
+可通过服务调用的 `decide` Job。默认后台任务也会启动。先在一个终端启动服务：
 
 ```bash
-export CLASSIFIER_API_KEY=your-typesafe-api-key
-reme start config=classifier_demo \
-  components.as_classifier.default.timeout=15
+export DECISION_MODEL_API_KEY=your-typesafe-api-key
+reme start config=decision_demo \
+  components.as_decision_model.default.timeout=15
 ```
 
 再在另一个终端调用，客户端会发现正在运行的服务配置：
 
 ```bash
-reme jev state="我的账户被重复扣款，请尽快处理"
+reme decide state="我的账户被重复扣款，请尽快处理"
 ```
 
 调用会把 `state` 和问题发送给 TypeSafe。省略 `questions` 时，demo 同时判断是否紧急、选择客服类别和评估优先级。
 可以完整替换演示问题，也可以传入 JSON object：
 
 ```bash
-reme jev \
+reme decide \
   state='{"request":"我的账户被重复扣款","channel":"email"}' \
   questions='{"urgent":{"type":"binary","instructions":"是否需要紧急处理？"}}'
 ```
@@ -187,13 +208,20 @@ reme jev \
 `choice` 需要非空 `criteria` object，key 是类别，value 是描述或 `null`；`score` 需要非空的有序描述列表，
 分数从零开始。问题可提供 `instructions`。显式传入空的 `questions` 会报错，不会退回 demo 默认问题。
 
-`reme jev` 显示标准 Response JSON，分类结果位于 `answer`，包含 `model`、`content`、
+`reme decide` 显示标准 Response JSON，决策结果位于 `answer`，包含 `model`、`content`、
 `usage`、响应标识和时间等信息。`content` 按问题名组织，保留概率与置信度；评分分布的整数 key 在 JSON 中变为字符串。
-Step 同时写入请求内的 `context.data["classifier_result"]`，可供后续 Step 消费，不自动写入记忆文件。
+Step 同时写入请求内的 `context.data["decision_result"]`，可供后续 Step 消费，不自动写入记忆文件。
 SDK 错误沿用 BaseJob 的 `success=false` 契约。
 
-在自己的 Job 中使用 `classifier_demo_step`，通过 Step 配置 `as_classifier: <组件名>` 选择命名组件。
-组件接口见 `reme/components/as_classifier/`；问题与答案契约由 AgentScope classifier schema 定义。
+在自己的 Job 中使用 `decision_demo_step`，通过 Step 配置 `as_decision_model: <组件名>` 选择命名组件。
+新增供应商时，实现 `BaseAsDecisionModel` 并注册 backend；Job 按组件名选择模型。当前适配器使用 AgentScope classifier
+schema 定义问题与答案。接口见 `reme/components/as_decision_model/`。`model` 为 null 时使用适配器默认模型。
+
+工具历史压缩使用同一决策模型接口：先启动 `reme start config=decision_compaction`，再在另一终端调用
+`reme compact_context`，传入 `messages` 以及需要的保护和预算选项。返回值是建议的快照，归档和应用由调用方负责。
+请求 token 预算使用预留开销的估算值，与宿主模型的 tokenizer 独立。
+
+完整策略、SVG 图解及真实模型用例见[基于决策模型的上下文压缩](./context_compaction.md)。
 
 ## Embedding 配置
 

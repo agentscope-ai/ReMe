@@ -406,31 +406,3 @@ def test_workspace_metadata_path_no_context():
 def test_component_metadata_path():
     comp = StubComponent()
     assert comp.component_metadata_path.name == ComponentEnum.FILE_CHUNKER.value
-
-
-if __name__ == "__main__":
-    print("\n=== BaseComponent Tests ===")
-    test_dependency_getattr_raises()
-    test_bind_returns_none_for_empty_name()
-    test_bind_returns_dependency_placeholder()
-    test_bind_rejects_base_component_type()
-    test_bind_rejects_no_component_type()
-    test_bind_with_default_factory()
-    test_bind_optional_flag()
-    test_dependencies_lists_unresolved()
-    test_start_close_idempotent()
-    test_restart()
-    test_async_context_manager()
-    test_close_closes_owned_when_parent_close_fails()
-    test_resolve_standalone_optional_becomes_none()
-    test_resolve_standalone_with_default_factory()
-    test_resolve_standalone_required_no_factory_keeps_placeholder()
-    test_owned_components_started_and_closed()
-    test_resolve_from_context()
-    test_resolve_from_context_optional_missing()
-    test_resolve_from_context_required_missing_raises()
-    test_workspace_path_no_context()
-    test_to_workspace_relative_outside_workspace()
-    test_workspace_metadata_path_no_context()
-    test_component_metadata_path()
-    print("\n所有测试通过!")
