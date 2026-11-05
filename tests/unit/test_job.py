@@ -493,3 +493,56 @@ def test_application_start_failure_propagates_and_closes_started_components():
         assert not app._started_components
 
     asyncio.run(run())
+
+
+@pytest.mark.asyncio
+async def test_job_error_metadata_preserves_status_and_causes_without_request_data(tmp_path):
+    import httpx
+
+    request = httpx.Request("POST", "https://example.test", headers={"Authorization": "secret"})
+    response = httpx.Response(429, request=request, text="private response body")
+
+    async def failing_step(context):
+        context.response.metadata["earlier_step"] = "preserved"
+        try:
+            raise httpx.HTTPStatusError("provider unavailable", request=request, response=response)
+        except httpx.HTTPStatusError as error:
+            raise RuntimeError("wrapped") from error
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    job = BaseJob(name="structured-error", app_context=app_context, track_execution=True)
+    app_context.jobs[job.name] = job
+    job._build_steps = lambda: [failing_step]
+    result = await job()
+    details = result.metadata["reme.job_error"]
+    assert not result.success
+    assert result.answer.startswith("RuntimeError: wrapped <- HTTPStatusError:")
+    assert details["type"] == "RuntimeError"
+    assert details["causes"] == [{"type": "HTTPStatusError", "module": "httpx", "status_code": 429}]
+    assert result.metadata["earlier_step"] == "preserved"
+    assert "secret" not in str(details) and "private response body" not in str(details)
+    result.model_dump_json()
+    record = app_context.get_job_status()[job.name][0]
+    assert record["status"] == "failed"
+    assert record["error"] == result.answer
+
+    job._build_steps = list
+    following = await job()
+    assert following.success
+    assert "reme.job_error" not in following.metadata
+    assert app_context.get_job_status()[job.name][0]["status"] == "succeeded"
+    assert app_context.get_job_count(job.name) == 2
+
+
+def test_job_error_metadata_handles_cyclic_and_suppressed_causes():
+    from reme.components.job.base_job import _exception_details
+
+    error = RuntimeError("outer")
+    cause = TimeoutError("inner")
+    error.__cause__ = cause
+    cause.__cause__ = error
+    assert _exception_details(error)["causes"] == [{"type": "TimeoutError", "module": "builtins"}]
+    error.__cause__ = None
+    error.__context__ = cause
+    error.__suppress_context__ = True
+    assert _exception_details(error)["causes"] == []

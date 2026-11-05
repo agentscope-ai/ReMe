@@ -59,6 +59,9 @@ docs/_build/
 site/
 
 evaluation/
+# Home's evaluation package is source code, not benchmark output.
+!plugins/home/src/reme_home/evaluation/
+!plugins/home/src/reme_home/evaluation/*.py
 # The pi-Bench suite ships its own trace-history render config, which must
 # stay in git even though it lives under an evaluation/ directory.
 !benchmark/pibench/config/bench/evaluation/

@@ -1,0 +1,13 @@
+# Independent full-dataset evaluation; paths are relative to the ReMe repository.
+source_workspace: benchmark/beam/workspaces/home-100K
+test_workspace: benchmark/beam/workspaces/home-test-100K
+code_commit: ""  # Required: set a candidate SHA/prefix, or pass --commit.
+benchmark:
+  name: beam
+  source: benchmark/beam/dataset/BEAM
+  variant: 100K
+  all_cases: true  # Full 100K evaluation; not a disjoint held-out split.
+evaluation:
+  concurrency: 4
+  timeout_seconds: 7200
+  record_history: false
