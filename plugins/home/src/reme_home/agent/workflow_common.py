@@ -8,6 +8,7 @@ from uuid import uuid4
 from agentscope.tool import BackendBase, DirEntry, Glob, Grep, Read, Toolkit, Write
 import yaml
 
+from reme.steps.evolve._evolve import agent_reply_result_text
 from reme.utils.async_utils import complete_in_thread as blocking
 
 from ..auto_bash import AutoBash
@@ -96,7 +97,7 @@ async def workflow_reply(
     if not probe.ok():
         raise RuntimeError("Home workflow sandbox unavailable: " + probe.stderr.decode(errors="replace"))
     prompt = yaml.safe_load(Path(__file__).with_name(f"{role}.yaml").read_text(encoding="utf-8"))
-    return await wrapper.reply(
+    reply = await wrapper.reply(
         task,
         system_prompt=prompt["system_prompt"].format(**scope),
         toolkit=create_toolkit(
@@ -116,6 +117,8 @@ async def workflow_reply(
         permission_mode="bypass",
         **(agent_options or {}),
     )
+    agent_reply_result_text(reply)
+    return reply
 
 
 def prepare_scope(home, role):
@@ -204,7 +207,11 @@ async def review_report(
             permission_mode="bypass",
         )
         report.update({key: reply.get(key) for key in ("session_id", "usage", "result")})
-        report.update(report_model.model_validate(parse_json_object(reply["result"], report_name=role)).model_dump())
+        report.update(
+            report_model.model_validate(
+                parse_json_object(agent_reply_result_text(reply), report_name=role),
+            ).model_dump(),
+        )
     except Exception as exc:
         report.update(
             decision=failure_decision,

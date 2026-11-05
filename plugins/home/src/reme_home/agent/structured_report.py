@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from typing import Any, TypeVar
 
 from agentscope.message import AssistantMsg, Msg, Usage, UserMsg
+from agentscope.types import ReplyFinishedReason
 from pydantic import BaseModel
 
 from .bounded import BoundedReActAgent
@@ -24,9 +27,16 @@ class StructuredReportAgent(BoundedReActAgent):
         super().__init__(*args, **kwargs)
         self.report_model = report_model
 
-    async def reply(self, *args, **kwargs) -> Msg:
+    async def _reply(self, *args, **kwargs) -> AsyncGenerator[Any, None]:
+        """Recover final reports through both native reply entry points."""
+        async with aclosing(super()._reply(*args, **kwargs)) as stream:
+            async for item in stream:
+                if isinstance(item, Msg) and item.finished_reason not in {None, ReplyFinishedReason.INTERRUPTED}:
+                    item = await self._finalize_report(item)
+                yield item
+
+    async def _finalize_report(self, reply: Msg) -> Msg:
         """Keep normal wrapper persistence and accounting around report recovery."""
-        reply = await super().reply(*args, **kwargs)
         try:
             report = self.report_model.model_validate(parse_json_object(reply, report_name=self.name))
         except ValueError as exc:
@@ -57,7 +67,17 @@ class StructuredReportAgent(BoundedReActAgent):
                 usage = Usage(
                     **{key: getattr(reply.usage, key) + getattr(corrected.usage, key, 0) for key in Usage.model_fields},
                 )
-            reply = AssistantMsg(name=self.name, content=report.model_dump_json(), usage=usage)
+            reply = reply.model_copy(
+                update={
+                    "content": AssistantMsg(name=self.name, content=report.model_dump_json()).content,
+                    "usage": usage,
+                    "finished_reason": (
+                        ReplyFinishedReason.INTERRUPTED
+                        if corrected.finished_reason == "interrupted"
+                        else reply.finished_reason
+                    ),
+                },
+            )
             self.state.context.extend([correction, reply])
             return reply
         return reply.model_copy(

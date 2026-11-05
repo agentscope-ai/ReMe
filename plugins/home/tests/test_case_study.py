@@ -225,7 +225,8 @@ async def test_invalid_scope_and_sandbox_failure_precede_llm(app, prepared, case
 
 
 @pytest.mark.asyncio
-async def test_iteration_limit_returns_final_report(app, prepared, case_run, sandbox):
+@pytest.mark.parametrize("batch", [False, True])
+async def test_iteration_limit_preserves_report_and_failure(app, prepared, case_run, sandbox, batch):
     run, case_id, _query_id, _commit, _source = case_run
     wrapper = app.context.components["agent_wrapper"]["home_case_study"]
     assert wrapper.kwargs["react_config"]["max_iters"] == 60
@@ -233,8 +234,12 @@ async def test_iteration_limit_returns_final_report(app, prepared, case_run, san
     wrapper.kwargs["react_config"] = {"max_iters": 1}
     model = RecordingModel()
     wrapper.as_llm = SimpleNamespace(model=model)
-    response = await app.run_job("home_case_study", validation_path=str(run), case_id=case_id)
-    assert response.success and response.answer == "final report"
+    arguments = {"case_ids": [case_id]} if batch else {"case_id": case_id}
+    response = await app.run_job("home_case_study", validation_path=str(run), **arguments)
+    assert not response.success
+    report = response.answer["results"][0] if batch else {**response.metadata, "report": response.answer}
+    assert report["report"] == "final report"
+    assert report["status"] == "failed" and "exceed_max_iters" in report["error"]
     assert model.calls[-1]["tools"] == []
 
 
@@ -572,7 +577,7 @@ async def test_batch_bounds_concurrency_and_preserves_order(app, many_case_run, 
             completed.append(case_id)
             if case_id == case_ids[1]:
                 raise RuntimeError("one investigator failed")
-            return {"result": f"report {case_id}"}
+            return {"result": f"report {case_id}", "status": "completed", "error": None}
         finally:
             active.remove(case_id)
 
