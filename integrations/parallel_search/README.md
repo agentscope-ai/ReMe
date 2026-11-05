@@ -16,10 +16,10 @@ python -m pip install -e .
 python integrations/parallel_search/example.py "recent ReMe memory updates" https://github.com/agentscope-ai/ReMe
 ```
 
-Python 3.11 or later is required. For higher provider rate limits, configure an
-API key using Parallel's supported MCP authentication; do not commit credentials
-to this repository. The script uses a 60-second client timeout and reports
-provider rate-limit responses separately.
+Python 3.11 or later is required. This example connects anonymously and does
+not read or persist credentials. See Parallel's documentation for authenticated
+setups. The script uses a 60-second client timeout and reports provider
+rate-limit responses separately.
 
 ## Tests
 

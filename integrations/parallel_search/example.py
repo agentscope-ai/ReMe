@@ -20,10 +20,12 @@ def create_client() -> MCPClient:
 
 
 def validate_url(value: str) -> str:
-    """Accept only absolute HTTP(S) URLs for the remote fetch tool."""
+    """Accept absolute HTTP(S) URLs without credentials for the remote fetch tool."""
     parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise argparse.ArgumentTypeError("fetch URL must be an absolute http:// or https:// URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise argparse.ArgumentTypeError("fetch URL must not include embedded credentials")
     return value
 
 
@@ -54,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     """Run the opt-in example from the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("topic", help="what to search for on the public web")
-    parser.add_argument("url", type=validate_url, help="public http(s) URL to fetch after searching")
+    parser.add_argument("url", type=validate_url, help="HTTP(S) URL to fetch after searching")
     args = parser.parse_args(argv)
 
     try:
@@ -63,7 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         status_code = getattr(getattr(exc, "response", None), "status_code", None)
         if status_code == 429:
             print(
-                "Parallel Search rate limit reached. Wait before retrying or authenticate for higher limits.",
+                "Parallel Search rate limit reached. Wait before retrying or see provider docs "
+                "for authenticated access.",
                 file=sys.stderr,
             )
         else:
