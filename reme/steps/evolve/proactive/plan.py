@@ -18,7 +18,6 @@ the LLM.
 
 import asyncio
 import json
-import time
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
@@ -128,7 +127,6 @@ class ProactivePlanStep(BaseStep):
         assert self.context is not None
         if self.context.get(self.skip_key):
             return passthrough_response(self, self.skip_key)
-        started = time.monotonic()
         raw_state = self.context.get("proactive")
         if not raw_state:
             self.context.response.success = True
@@ -174,7 +172,6 @@ class ProactivePlanStep(BaseStep):
             cards.append(card)
 
         state.scenario_cards = cards
-        state.duration_ms = state.duration_ms + int((time.monotonic() - started) * 1000)
         self._store(state)
         answer = f"Plan: {len(cards)} scenario card(s), fallback={fallbacks}, llm_calls={state.plan_llm_calls}"
         self.context.response.success = True

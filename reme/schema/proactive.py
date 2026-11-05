@@ -102,7 +102,6 @@ class ProactiveState(BaseModel):
     interests_path: str = ""
     interests_written: bool = False
     checkpoint_paths: list[str] = Field(default_factory=list)
-    duration_ms: int = 0
 
 
 class ProactiveStateFile(BaseModel):

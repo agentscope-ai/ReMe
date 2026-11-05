@@ -264,7 +264,11 @@ function Workspace() {
             {active?.type === "markdown" && (
               <TabbedEditor key={active.id} tab={active} />
             )}
-            {active?.type === "agent" && <Chat tab={active} />}
+            {tabs.map((tab) =>
+              tab.type === "agent" ? (
+                <Chat key={tab.id} tab={tab} active={activeTabId === tab.id} />
+              ) : null,
+            )}
             {active?.type === "graph" && (
               <MemoryGraphView key={active.id} root={active.root} />
             )}

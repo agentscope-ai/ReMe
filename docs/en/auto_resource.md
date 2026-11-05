@@ -59,6 +59,42 @@ whose class-level matcher accepts it. `AutoImageResourceStep` handles image suff
 final fallback. A new modality can therefore add a registered processor, its prompt, and one `dispatch_steps` entry
 without changing the router.
 
+## Resource Retention and TTL
+
+The default configuration does not automatically delete source resources. `config=proactive` explicitly enables this
+retention convention:
+
+- Put temporary resources under `resource/YYYY-MM-DD/`, with any nested paths or file extensions.
+- Keep permanent material elsewhere in the workspace, for example under `archive/`.
+- Loose root files, non-date directories, invalid dates, and date-directory symlinks are preserved for compatibility.
+
+`resource_watch_loop` recursively monitors every extension and only updates `file_catalog: resource`; it does not call
+an LLM or create daily cards. Every hour, `resource_cleanup_cron` runs `cleanup_catalog_step`. The local file catalog
+deletes entire expired directories, including uncataloged files and empty directories, then removes their catalog entries
+and persists the result. Source directories determine eligibility; an incomplete catalog does not prevent cleanup, and
+cached entries never authorize deletion elsewhere. The cleanup root must stay inside the workspace and contain no symlinks.
+Cleanup requires descriptor-relative safe directory deletion (Linux and macOS); unsupported platforms fail without deleting files.
+
+The default `ttl_days` is 7. Expiry uses calendar dates in the application `timezone`, independent of file mtimes.
+On 2026-11-05, directories dated 2026-10-29 or earlier expire; 2026-10-30 and later remain.
+Cron first runs at the next hour after startup. Cleanup does not run while the service is stopped.
+
+Start the service in one terminal and choose the retention period:
+
+```bash
+reme start config=proactive jobs.resource_cleanup_cron.ttl_days=7
+```
+
+`ttl_days` must be a positive integer. Set `jobs.resource_cleanup_cron.enabled=false` to disable cleanup. Other
+configurations without this Job retain their existing behavior. Failed deletions retain the directory's catalog entries
+and fail that execution; later scheduled runs check again. See
+[`LocalFileCatalog.cleanup_expired`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py).
+The existing `file_catalog.delete()` still removes catalog entries only.
+
+Cleanup directly affects only dated resource directories and their catalog entries; it does not rewrite other directories
+or references. If another configuration also enables Auto Resource, its existing deletion handlers still remove associated
+daily cards.
+
 ## Image Resources
 
 Text and image resources share the same agent-wrapper and note-writing tools. Image inputs add a native AgentScope

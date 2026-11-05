@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from functools import partial
 import json
 import os
@@ -15,11 +16,28 @@ from ..codex_app_server import CodexAppServer
 from ..component_registry import R
 from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk, TokenUsage
+from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncThread, RunInput
     from openai_codex.types import Notification
+
+
+@dataclass
+class _TurnUsage:
+    """Invocation-local usage derived from monotonic thread counters."""
+
+    baseline: TokenUsage
+    usage: TokenUsage | None = None
+
+    def update(self, total: TokenUsage) -> None:
+        """Keep reported spending separate from synthetic context estimates."""
+        current = TokenUsage(
+            input_tokens=max(0, total.input_tokens - self.baseline.input_tokens),
+            output_tokens=max(0, total.output_tokens - self.baseline.output_tokens),
+        )
+        if current.total_tokens or self.usage is not None:
+            self.usage = current
 
 
 @R.register("codex")
@@ -64,10 +82,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
         return self._merged_stream_kwargs(kwargs) if stream else self._merged_kwargs(kwargs)
-
-    @staticmethod
-    def _codex_usage(usage: Any) -> TokenUsage:
-        return TokenUsage.from_provider(usage)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -179,28 +193,49 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         return to_jsonable_python(value, by_alias=True)
 
+    async def _turn_stream(self, turn: Any, usage: _TurnUsage) -> AsyncIterator[Notification]:
+        """Observe only this turn's reported spending, including compaction calls."""
+        stream = turn.stream()
+        try:
+            async for event in stream:
+                if event.method == "thread/tokenUsage/updated":
+                    if event.payload.turn_id != turn.id:
+                        continue
+                    total = self.app_server.update_token_usage(
+                        turn.thread_id,
+                        TokenUsage.from_provider(event.payload.token_usage.total),
+                    )
+                    usage.update(total)
+                yield event
+        finally:
+            await stream.aclose()
+
     async def reply(self, inputs: RunInput, **kwargs) -> dict:
         """Run an isolated or explicitly resumed conversation on the shared server."""
+        from openai_codex._run import _collect_async_turn_result
+
         kwargs = self._reply_kwargs(kwargs)
         async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
             turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+            stream = self._turn_stream(turn, usage)
             try:
-                result = await turn.run()
+                result = await _collect_async_turn_result(stream, turn_id=turn.id)
             except BaseException:
                 await self._interrupt(turn)
                 raise
+            finally:
+                if usage.usage is not None:
+                    self._record_token_usage(usage.usage)
+                await stream.aclose()
         final_response = result.final_response or ""
         response = {
             "session_id": thread.id,
             "last_message": final_response,
             "result": final_response,
             "turn": self._serialize(result),
-            "usage": None,
+            "usage": usage.usage.model_dump() if usage.usage is not None else None,
         }
-        if (raw_usage := getattr(result, "usage", None)) is not None:
-            usage = self._codex_usage(raw_usage.last)
-            response["usage"] = usage.model_dump()
-            self._record_token_usage(usage)
         if kwargs.get("output_schema") is not None:
             try:
                 response["structured_output"] = json.loads(final_response)
@@ -212,6 +247,28 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Hold the conversation lock until native compaction has finished."""
         async with self._session({"session_id": session_id}, compact=True) as thread:
             await self.app_server.compact(thread)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Read history without acquiring the generation lease."""
+        await self.start()
+        return await self.app_server.read_session(session_id)
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Report native thread activity, including approval/input waits."""
+        await self.start()
+        return await self.app_server.get_session_status(session_id)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        timeout: float = 30,
+    ) -> SessionMessage:
+        """Append a proactive message through the shared session owner."""
+        await self.start()
+        return await self.app_server.append_session(session_id, content, message_id=message_id, timeout=timeout)
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
@@ -231,8 +288,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     @classmethod
     # pylint: disable=too-many-return-statements
-    def _event_to_chunks(cls, event: Notification, session_id: str) -> list[StreamChunk]:
-        """Convert one Codex app-server notification to unified stream chunks."""
+    def _event_to_chunks(
+        cls,
+        event: Notification,
+        session_id: str,
+        *,
+        usage: TokenUsage | None = None,
+    ) -> list[StreamChunk]:
+        """Map notifications; usage replaces the cumulative counts for its turn block."""
         method, payload = event.method, event.payload
         make_chunk = partial(cls._chunk, session_id=session_id)
         if method == "turn/started":
@@ -299,15 +362,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ),
             ]
         if method == "thread/tokenUsage/updated":
-            usage = payload.token_usage.last
-            normalized = cls._codex_usage(usage)
+            if usage is None:
+                return []
             return [
                 make_chunk(
                     ChunkEnum.USAGE,
-                    chunk=normalized.model_dump(),
-                    input_tokens=normalized.input_tokens,
-                    output_tokens=normalized.output_tokens,
-                    metadata={"usage": normalized.model_dump()},
+                    block_id=f"usage:{payload.turn_id}",
+                    chunk=usage.model_dump(),
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    metadata={"usage": usage.model_dump()},
                 ),
             ]
         if method == "error":
@@ -348,17 +412,25 @@ class CodexAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream notifications routed by the SDK to this conversation's turn."""
         kwargs = self._reply_kwargs(kwargs, stream=True)
+        emitted_usage = None
         async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
             turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
-            stream = turn.stream()
+            stream = self._turn_stream(turn, usage)
             completed = False
             try:
                 async for event in stream:
                     if event.method == "turn/completed":
                         completed = True
-                    for chunk in self._event_to_chunks(event, thread.id):
+                    if event.method == "thread/tokenUsage/updated":
+                        if usage.usage == emitted_usage:
+                            continue
+                        emitted_usage = usage.usage
+                    for chunk in self._event_to_chunks(event, thread.id, usage=usage.usage):
                         yield chunk
             finally:
+                if usage.usage is not None:
+                    self._record_token_usage(usage.usage)
                 if not completed:
                     await self._interrupt(turn)
                 await stream.aclose()

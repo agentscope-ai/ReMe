@@ -3,7 +3,6 @@
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
-from dataclasses import dataclass
 import json
 from pathlib import Path
 import socket
@@ -16,7 +15,15 @@ import pytest_asyncio
 from fastmcp import Client
 from fastmcp.client import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
-from openai_codex.generated.v2_all import TokenUsageBreakdown
+from openai_codex.generated.v2_all import (
+    AgentMessageThreadItem,
+    ItemCompletedNotification,
+    ThreadTokenUsage,
+    ThreadTokenUsageUpdatedNotification,
+    TokenUsageBreakdown,
+    Turn,
+    TurnCompletedNotification,
+)
 from pydantic import BaseModel
 
 from reme.application import Application
@@ -27,7 +34,8 @@ from reme.components.job import BackgroundJob, StreamJob
 from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import Response
+from reme.schema import Response, TokenUsage
+from reme.utils import global_counter_get_all
 
 
 class _Job:
@@ -49,25 +57,12 @@ class _Job:
         return Response(answer={"query": kwargs["query"], "calls": len(self.calls)})
 
 
-@dataclass
-class _Result:
-    final_response: str
-    usage: object = None
-
-
 class _Turn:
     def __init__(self, thread, inputs):
         self.thread = thread
+        self.thread_id = thread.id
         self.inputs = inputs
         self.id = f"turn-{len(thread.inputs)}"
-
-    async def run(self):
-        try:
-            if self.thread.codex.run_hook:
-                await self.thread.codex.run_hook(self.thread, self.inputs)
-            return _Result(self.inputs)
-        finally:
-            self.thread.busy = False
 
     async def interrupt(self):
         self.thread.interrupts += 1
@@ -76,17 +71,33 @@ class _Turn:
     async def stream(self):
         try:
             yield SimpleNamespace(method="turn/started", payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)))
+            for event in self.thread.codex.usage_events:
+                yield event
+            if self.thread.codex.run_hook:
+                await self.thread.codex.run_hook(self.thread, self.inputs)
             yield SimpleNamespace(
                 method="item/agentMessage/delta",
                 payload=SimpleNamespace(item_id="item", delta=self.inputs),
             )
+            item = AgentMessageThreadItem(type="agentMessage", id="item", text=str(self.inputs))
+            yield SimpleNamespace(
+                method="item/completed",
+                payload=ItemCompletedNotification(
+                    threadId=self.thread.id,
+                    turnId=self.id,
+                    item=item,
+                    completedAtMs=0,
+                ),
+            )
             self.thread.busy = False
             yield SimpleNamespace(
                 method="turn/completed",
-                payload=SimpleNamespace(
-                    turn=SimpleNamespace(
+                payload=TurnCompletedNotification(
+                    threadId=self.thread.id,
+                    turn=Turn(
                         id=self.id,
-                        status=SimpleNamespace(value="completed"),
+                        items=[item],
+                        status="completed",
                         duration_ms=1,
                         error=None,
                     ),
@@ -125,6 +136,7 @@ class _Thread:
         return SimpleNamespace(
             thread=SimpleNamespace(
                 status=SimpleNamespace(root=SimpleNamespace(type="active" if self.busy else "idle")),
+                path=getattr(self, "path", None),
             ),
         )
 
@@ -148,9 +160,14 @@ class _Codex:
         self.logins = []
         self.opened = []
         self.run_hook = None
+        self.usage_events = []
         self.compact_hook = None
         self.notifications = asyncio.Queue()
-        self._client = SimpleNamespace(request=self.request, next_notification=self.next_notification)
+        self._client = SimpleNamespace(
+            request=self.request,
+            next_notification=self.next_notification,
+            thread_read=self.thread_read,
+        )
         self.instances.append(self)
 
     async def account(self):
@@ -191,6 +208,9 @@ class _Codex:
         self.loaded.add(thread_id)
         self.opened.append(("resume", thread_id, options))
         return self.threads[thread_id]
+
+    async def thread_read(self, thread_id):
+        return await self.threads[thread_id].read()
 
     async def thread_fork(self, thread_id, **options):
         forked = await self.thread_start(**options)
@@ -234,6 +254,237 @@ async def system(tmp_path, monkeypatch):
         await first.close()
         await second.close()
         await server.close()
+
+
+def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
+    def breakdown(tokens, total_tokens=None):
+        return TokenUsageBreakdown(
+            inputTokens=tokens[0],
+            outputTokens=tokens[1],
+            totalTokens=sum(tokens) if total_tokens is None else total_tokens,
+            cachedInputTokens=0,
+            reasoningOutputTokens=0,
+        )
+
+    return SimpleNamespace(
+        method="thread/tokenUsage/updated",
+        payload=ThreadTokenUsageUpdatedNotification(
+            threadId="thread-1",
+            turnId=turn_id,
+            tokenUsage=ThreadTokenUsage(
+                last=breakdown(last, estimate),
+                total=breakdown(total),
+                modelContextWindow=934435,
+            ),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("baseline,initial_estimate", [((0, 0), False), ((50000, 1000), False), ((50000, 1000), True)])
+async def test_turn_usage_counts_all_calls_without_recounting_restored_or_duplicate_usage(
+    system,
+    stream,
+    baseline,
+    initial_estimate,
+):
+    first, _, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    server.update_token_usage(session_id, TokenUsage(input_tokens=baseline[0], output_tokens=baseline[1]))
+
+    def total(inputs, outputs):
+        return baseline[0] + inputs, baseline[1] + outputs
+
+    first_call = _usage_event((10, 2), total(10, 2))
+    client.usage_events = [_usage_event((9000, 900), (9000, 900), turn_id="turn-1")]
+    if initial_estimate:
+        client.usage_events.append(_usage_event((0, 0), baseline, estimate=800000))
+    client.usage_events.extend(
+        [
+            first_call,
+            first_call,
+            _usage_event((20, 3), total(30, 5)),
+            _usage_event((0, 0), total(30, 5), estimate=700000),
+            first_call,
+            _usage_event((7, 1), total(37, 6)),
+        ],
+    )
+    expected = {"input_tokens": 37, "output_tokens": 6, "total_tokens": 43}
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("multi-call", session_id=session_id)]
+        updates = [chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.USAGE]
+        assert updates[-1].chunk == expected
+        assert [chunk.chunk["total_tokens"] for chunk in updates] == [12, 35, 43]
+        assert {chunk.block_id for chunk in updates} == {"usage:turn-2"}
+    else:
+        response = await first.reply("multi-call", session_id=session_id)
+        assert response["result"] == "multi-call"
+        assert response["usage"] == expected
+
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert {name: data["value"] for name, data in counter.items()} == expected
+
+    client.usage_events = [_usage_event((2, 1), total(39, 7), turn_id="turn-3")]
+    response = await first.reply("next turn", session_id=session_id)
+    assert response["usage"] == {"input_tokens": 2, "output_tokens": 1, "total_tokens": 3}
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 46
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("estimate_only", [False, True])
+async def test_turn_usage_without_provider_reports_remains_unavailable(system, stream, estimate_only):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    if estimate_only:
+        first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=50000, output_tokens=1000))
+        _Codex.instances[0].usage_events = [_usage_event((0, 0), (50000, 1000), estimate=700000)]
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("no usage", session_id=session_id)]
+        assert not any(chunk.chunk_type == ChunkEnum.USAGE for chunk in chunks)
+    else:
+        assert (await first.reply("no usage", session_id=session_id))["usage"] is None
+    assert global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name]) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_failed_turn_records_reported_spending_once(system, stream):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    event = _usage_event((10, 2), (5010, 502))
+    client.usage_events = [event, event]
+
+    async def fail(*_args):
+        raise ValueError("model failed after a completed tool round")
+
+    client.run_hook = fail
+    with pytest.raises(ValueError, match="model failed"):
+        if stream:
+            _ = [chunk async for chunk in first.reply_stream("fails", session_id=session_id)]
+        else:
+            await first.reply("fails", session_id=session_id)
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["input_tokens"]["value"] == 10
+    assert counter["output_tokens"]["value"] == 2
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+async def test_closing_stream_keeps_reported_usage_and_interrupts_the_turn(system):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    client.usage_events = [_usage_event((10, 2), (5010, 502))]
+    stream = first.reply_stream("interrupted", session_id=session_id)
+    assert (await anext(stream)).chunk_type == ChunkEnum.REPLY_START
+    assert (await anext(stream)).chunk_type == ChunkEnum.USAGE
+    await stream.aclose()
+    assert client.threads[session_id].interrupts == 1
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+async def test_cancelling_reply_keeps_already_reported_usage(system):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    client.usage_events = [_usage_event((10, 2), (5010, 502))]
+    started = asyncio.Event()
+
+    async def hold(*_args):
+        started.set()
+        await asyncio.Event().wait()
+
+    client.run_hook = hold
+    task = asyncio.create_task(first.reply("cancel", session_id=session_id))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_compaction_replaying_previous_usage_under_current_turn_does_not_recount_it(system, stream):
+    first, _, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    server.update_token_usage(session_id, TokenUsage(input_tokens=1189426, output_tokens=220))
+    _Codex.instances[0].usage_events = [
+        _usage_event((610679, 61), (1189426, 220)),
+        _usage_event((606779, 471), (1796205, 691)),
+        _usage_event((0, 0), (1796205, 691), estimate=23616),
+        _usage_event((61232, 23), (1857437, 714)),
+    ]
+    expected = {"input_tokens": 668011, "output_tokens": 494, "total_tokens": 668505}
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("compaction", session_id=session_id)]
+        usages = [chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.USAGE]
+        assert [usage["total_tokens"] for usage in usages] == [607250, 668505]
+        assert usages[-1] == expected
+    else:
+        assert (await first.reply("compaction", session_id=session_id))["usage"] == expected
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert {key: value["value"] for key, value in counter.items()} == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_usage_baseline_recovers_after_lost_state_or_missed_stream_usage(system, interrupted):
+    first, second, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    if interrupted:
+        stream = first.reply_stream("interrupted", session_id=session_id)
+        assert (await anext(stream)).chunk_type == ChunkEnum.REPLY_START
+        assert (await anext(stream)).chunk_type == ChunkEnum.CONTENT
+    # Native completion can overtake a paused consumer and persist unseen usage.
+    path = server.session_path / "rollout.jsonl"
+    usage = {"total_token_usage": {"input_tokens": 5000, "output_tokens": 500}}
+    record = {"type": "event_msg", "payload": {"type": "token_count", "info": usage}}
+    path.write_text(json.dumps(record) + "\n")
+    client.threads[session_id].path = str(path)
+    if interrupted:
+        client.threads[session_id].busy = False
+        await stream.aclose()
+    else:
+        server._threads.pop(session_id)
+    turn_id = "turn-3" if interrupted else "turn-2"
+    client.usage_events = [
+        _usage_event((1000, 100), (5000, 500), turn_id=turn_id),
+        _usage_event((10, 2), (5010, 502), turn_id=turn_id),
+    ]
+    assert (await second.reply("restored", session_id=session_id))["usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "total_tokens": 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_fresh_thread_does_not_require_its_rollout_to_be_materialized(system, monkeypatch):
+    first, _, server, _ = system
+    original_start = _Codex.thread_start
+    pending = server.session_path / "not-materialized.jsonl"
+
+    async def start(client, **options):
+        thread = await original_start(client, **options)
+        thread.path = str(pending)
+        return thread
+
+    monkeypatch.setattr(_Codex, "thread_start", start)
+    assert (await first.reply("first turn"))["usage"] is None
+    assert not pending.exists()
 
 
 @pytest.mark.asyncio
@@ -306,6 +557,7 @@ async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode
     options = client.opened[0][2]
     assert options["model"] == "custom"
     assert options["developer_instructions"] == "instructions"
+    assert options["base_instructions"] is None
     assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
     assert options["sandbox"] == Sandbox.full_access
     assert options["personality"] == Personality.friendly
@@ -379,7 +631,9 @@ async def test_cancelling_reply_interrupts_only_its_turn_and_keeps_shared_server
 async def test_cancelled_dispatch_settles_before_resuming_the_thread(system, monkeypatch, operation, fail):
     first, second, server, _ = system
     thread_id = (await first.reply("initial"))["session_id"]
-    thread = _Codex.instances[0].threads[thread_id]
+    client = _Codex.instances[0]
+    thread = client.threads[thread_id]
+    server.update_token_usage(thread_id, TokenUsage(input_tokens=100, output_tokens=10))
     original = getattr(thread, operation)
     entered, release = asyncio.Event(), asyncio.Event()
 
@@ -388,6 +642,14 @@ async def test_cancelled_dispatch_settles_before_resuming_the_thread(system, mon
         await release.wait()
         if fail:
             raise ValueError("dispatch rejected")
+        if operation == "compact":
+            path = server.session_path / "rollout.jsonl"
+            path.write_text(
+                '{"type":"event_msg","payload":{"type":"token_count","info":'
+                '{"total_token_usage":{"input_tokens":500,"output_tokens":50}}}}\n',
+            )
+            thread.path = str(path)
+            client.usage_events = [_usage_event((10, 2), (510, 52))]
         return await original(*args, **kwargs)
 
     monkeypatch.setattr(thread, operation, dispatch)
@@ -409,7 +671,10 @@ async def test_cancelled_dispatch_settles_before_resuming_the_thread(system, mon
         release.set()
         with pytest.raises(asyncio.CancelledError, match="original cancellation"):
             await asyncio.wait_for(task, 2)
-        assert (await asyncio.wait_for(queued, 2))["result"] == "later"
+        result = await asyncio.wait_for(queued, 2)
+        assert result["result"] == "later"
+        if operation == "compact" and not fail:
+            assert result["usage"] == {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}
         assert thread.interrupts == int(operation == "turn" and not fail)
         await asyncio.wait_for(server.close(), 2)
     finally:
@@ -1063,7 +1328,7 @@ def test_event_to_chunks_maps_content_usage_and_completion():
     )
     usage_event = SimpleNamespace(
         method="thread/tokenUsage/updated",
-        payload=SimpleNamespace(token_usage=SimpleNamespace(last=usage)),
+        payload=SimpleNamespace(turn_id="turn-1"),
     )
     completed_event = SimpleNamespace(
         method="turn/completed",
@@ -1073,7 +1338,11 @@ def test_event_to_chunks_maps_content_usage_and_completion():
     )
 
     content = CodexAgentWrapper._event_to_chunks(content_event, "thread-1")  # pylint: disable=protected-access
-    usage_chunks = CodexAgentWrapper._event_to_chunks(usage_event, "thread-1")  # pylint: disable=protected-access
+    usage_chunks = CodexAgentWrapper._event_to_chunks(  # pylint: disable=protected-access
+        usage_event,
+        "thread-1",
+        usage=TokenUsage.from_provider(usage),
+    )
     completed = CodexAgentWrapper._event_to_chunks(completed_event, "thread-1")  # pylint: disable=protected-access
 
     assert content[0].chunk_type == ChunkEnum.CONTENT

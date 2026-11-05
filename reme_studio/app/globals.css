@@ -1015,6 +1015,25 @@ textarea:focus-visible {
   background: color-mix(in srgb, var(--danger) 8%, var(--panel));
   font-size: 12px;
 }
+
+.message.proactive .bubble {
+  background: color-mix(in srgb, var(--brand-blue) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 40%, var(--line));
+  border-radius: 14px;
+  padding: 16px;
+}
+.proactive-label {
+  display: block;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.session-sync-error {
+  color: var(--danger);
+  font-size: 12px;
+  padding: 8px 24px;
+}
 .composer {
   position: absolute;
   right: 0;
