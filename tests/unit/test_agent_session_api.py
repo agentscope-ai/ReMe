@@ -128,6 +128,28 @@ async def runtime(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_empty_session_accepts_proactive_messages_before_its_first_user_turn(runtime):
+    server, native = runtime
+    native.thread.turns.clear()
+    native.client.thread_start = AsyncMock(return_value=native.handle)
+    read = native.read
+
+    async def read_empty(**kwargs):
+        if kwargs.get("include_turns"):
+            raise RuntimeError("empty thread has no persisted turns")
+        return await read(**kwargs)
+
+    native.handle.read = AsyncMock(side_effect=read_empty)
+    async with server.thread(jobs=[], keep_empty=True) as thread:
+        assert thread.id == "session-1"
+    message = await server.append_session("session-1", "A proactive first message", message_id="first")
+    assert await server.append_session("session-1", message.content, message_id="first") == message
+    assert [entry.content for entry in (await server.read_session("session-1")).messages] == [message.content]
+    assert len(native.injected) == 1
+    native.handle.read.assert_any_call(include_turns=False)
+
+
+@pytest.mark.asyncio
 async def test_multiple_appends_are_ordered_durable_and_idempotent(runtime):
     server, native = runtime
     first = await server.append_session("session-1", "C: proactive", message_id="topic-1")

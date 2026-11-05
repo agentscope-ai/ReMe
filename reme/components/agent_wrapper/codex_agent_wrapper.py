@@ -147,7 +147,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return options
 
     @asynccontextmanager
-    async def _session(self, kwargs: dict[str, Any], *, compact: bool = False) -> AsyncIterator[AsyncThread]:
+    async def _session(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        compact: bool = False,
+        keep_empty: bool = False,
+    ) -> AsyncIterator[AsyncThread]:
         resume, session_id = kwargs.get("resume") or "", kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
             raise ValueError("resume and session_id must identify the same Codex thread")
@@ -173,6 +179,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 injected=self._resolve_injected_job_kwargs(kwargs),
                 mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
                 mcp_tool_timeout=kwargs.get("mcp_tool_timeout", 300),
+                keep_empty=keep_empty,
             ) as thread:
                 yield thread
         finally:
@@ -255,6 +262,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
             error=error,
             raw=self._serialize(result),
         )
+
+    async def create_session(self, **kwargs) -> str:
+        """Start an empty thread with the same instructions and tools as its future turns."""
+        async with self._session(self._reply_kwargs(kwargs), keep_empty=True) as thread:
+            return thread.id
+
+    async def release_session(self, session_id: str) -> None:
+        """Release a superseded empty thread; regular turns already release their leases."""
+        await self.app_server.release_session(session_id)
 
     async def compact_session(self, session_id: str) -> None:
         """Hold the conversation lock until native compaction has finished."""

@@ -39,9 +39,10 @@ from watchfiles import Change, awatch
 
 from ._change_batch import coalesce_changes
 from ._threaded_watch import watch_in_thread
-from ._watch_rules import WatchRule, build_context_watch_rules, match_file
+from ._watch_rules import build_context_watch_rules
 from ..base_step import BaseStep
 from ...components import R
+from ...utils.file_watch import WatchRule, match_file
 
 DEFAULT_WATCH_DEBOUNCE_MS = 5_000
 DEFAULT_WATCH_STEP_MS = 1_000

@@ -36,6 +36,7 @@ class _ThreadState:
     completion: asyncio.Future[None] | None = None
     operation_started: bool = False
     token_usage: TokenUsage | None = None
+    pending: AsyncThread | None = None
 
 
 @R.register("sdk")
@@ -114,6 +115,13 @@ class CodexAppServer(BaseComponent):
             if not self._active:
                 self._idle.set()
 
+    async def release_session(self, session_id: str) -> None:
+        """Unsubscribe a superseded empty thread without deleting any session files."""
+        state = self._threads.get(session_id)
+        if state is not None and state.pending is not None:
+            async with self.thread(session_id):
+                state.pending = None
+
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Inspect a thread without resuming it or waiting for an active turn."""
         from .agent_wrapper.codex_session_history import session_status
@@ -129,9 +137,10 @@ class CodexAppServer(BaseComponent):
 
         path = self._message_path(session_id)
         async with self._session_client() as codex:
+            state = self._threads.get(session_id)
             response = await codex._client.thread_read(  # pylint: disable=protected-access
                 session_id,
-                include_turns=True,
+                include_turns=state is None or state.pending is None,
             )
             thread = response.thread
             records = await asyncio.to_thread(history.read_records, path)
@@ -163,7 +172,7 @@ class CodexAppServer(BaseComponent):
 
         async with asyncio.timeout(timeout):
             async with self.thread(session_id) as loaded:
-                thread = (await loaded.read(include_turns=True)).thread
+                thread = (await loaded.read(include_turns=self._threads[session_id].pending is None)).thread
                 if history.session_status(thread).status != "idle":
                     raise RuntimeError("Session must be idle before appending")
                 accepted = await asyncio.to_thread(history.injected_ids, thread, self.session_path)
@@ -418,6 +427,7 @@ class CodexAppServer(BaseComponent):
             nonlocal turn
             async with self._operation(thread):
                 turn = await thread.turn(inputs, **kwargs)
+                self._threads[thread.id].pending = None
 
         try:
             await finish_cleanup(dispatch())
@@ -474,6 +484,7 @@ class CodexAppServer(BaseComponent):
         injected: dict[str, Any] | None = None,
         mcp_startup_timeout: float = 30,
         mcp_tool_timeout: float = 300,
+        keep_empty: bool = False,
     ) -> AsyncIterator[AsyncThread]:
         """Serialize one conversation while allowing independent conversations to run concurrently."""
         from openai_codex import TransportClosedError
@@ -533,11 +544,17 @@ class CodexAppServer(BaseComponent):
                             await finish_cleanup(self._fork_messages(thread_id, thread))
                     finally:
                         source.users -= 1
+                elif state.pending is not None:
+                    thread = state.pending
                 elif thread_id:
                     thread = await codex.thread_resume(thread_id, **options)
                 else:
                     thread = await codex.thread_start(**options)
                     state.token_usage = TokenUsage()
+                    if keep_empty:
+                        # Native rollouts are materialized by the first turn, so an empty
+                        # thread must stay loaded and reuse its handle rather than resume.
+                        state.pending = thread
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
@@ -546,7 +563,7 @@ class CodexAppServer(BaseComponent):
                 finally:
                     # Interrupt acknowledgement alone does not mean that tool execution stopped.
                     error = sys.exception()
-                    if error is not None:
+                    if error is not None and state.pending is None:
                         # A paused/closed consumer can miss usage emitted by native completion.
                         # Recover from the persisted rollout before the next turn starts.
                         state.token_usage = None
@@ -563,11 +580,12 @@ class CodexAppServer(BaseComponent):
                         from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
 
                         try:
-                            await codex._client.request(  # pylint: disable=protected-access
-                                "thread/unsubscribe",
-                                {"threadId": thread.id},
-                                response_model=ThreadUnsubscribeResponse,
-                            )
+                            if state.pending is None:
+                                await codex._client.request(  # pylint: disable=protected-access
+                                    "thread/unsubscribe",
+                                    {"threadId": thread.id},
+                                    response_model=ThreadUnsubscribeResponse,
+                                )
                         except Exception as exc:
                             self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
         except TransportClosedError:

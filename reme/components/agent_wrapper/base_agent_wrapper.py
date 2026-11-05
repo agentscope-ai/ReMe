@@ -277,6 +277,13 @@ class BaseAgentWrapper(BaseComponent):
         """Request compaction of one persisted agent session."""
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
+    async def create_session(self, **kwargs) -> str:
+        """Create a resumable empty session without generating a reply."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session creation")
+
+    async def release_session(self, session_id: str) -> None:
+        """Release idle runtime resources; persisted session history remains available."""
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
         raise NotImplementedError(f"{type(self).__name__} does not support session reading")

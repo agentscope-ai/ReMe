@@ -49,6 +49,28 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
+Studio shares one conversation UI between **Chat** and **Proactive Chat**. The default configuration exposes only
+`chat`, with `query` and an optional `session_id` for independent conversations. Start with `config=proactive` to expose
+the three `pa_*` Jobs instead of `chat`. Entries are enabled according to the service's exposed Jobs.
+
+Proactive Chat uses the application-owned `pa_chat` stream with only `query`. `pa_session` takes no parameters and returns
+`{"session_id": "...", "status": "idle"}` in `answer` (both values are null before a session exists). `pa_new_session` takes
+no parameters, creates and selects an empty session, and returns its ID in `answer` without model generation.
+
+Start the service with `reme start config=proactive` in one terminal, then use another terminal:
+
+```bash
+reme pa_session
+reme pa_chat query="What should I follow up on?"
+reme pa_new_session
+```
+
+The current session is shared within one Application and resets on restart; session files remain on disk. Chat and
+session creation reject concurrent operations. Status queries do not wait for generation. Empty-session creation is
+supported by AgentScope and Codex; other wrappers fail explicitly.
+If the current native session is unavailable, `pa_session` returns `status: "error"`; create a new session to recover.
+Once empty-session creation starts, selecting that session completes before cancellation is propagated.
+
 MCP does not expose Stream Jobs.
 
 ## MCP

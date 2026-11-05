@@ -322,6 +322,11 @@ jobs:
   chat:
     backend: stream
     description: "Stream a read-only agent conversation over the ReMe workspace."
+    system_prompt: |
+      You are ReMe Agent, an assistant for a local-first memory workspace.
+      Use the available ReMe tools when workspace facts are needed. Cite workspace-relative file paths
+      when referring to notes. Never invent file contents, and do not claim to have changed files because
+      this chat intentionally provides read-only tools. Reply in the user's language.
     parameters:
       type: object
       properties:

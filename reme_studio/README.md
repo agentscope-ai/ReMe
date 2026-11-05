@@ -204,10 +204,23 @@ The conversation surface supports:
 - Token-by-token streaming from the ReMe Agent.
 - Separate rendering for answer text, reasoning, tool calls, structured data, approvals, and usage information.
 - Collapsible completed reasoning and tool blocks to keep long conversations readable.
-- Multiple independent chat tabs and resumable backend session identifiers.
+- Independent Chat tabs and one application-owned Proactive Chat view, sharing the same conversation component.
 - Starter prompts for common memory questions.
 - Dragging a workspace file into the composer to insert a path reference.
 - `Enter` to send and `Shift+Enter` for a new line.
+
+The two entries follow the service's exposed Jobs. The default configuration enables **Chat**, which sends `query` and
+an optional `session_id` to `chat`. Each tab owns its session; **New chat** opens an independent conversation without
+calling the PA APIs. Start `reme start config=proactive` to enable **Proactive Chat** instead. Unavailable entries show
+configuration guidance. Custom configurations can expose both modes.
+
+Proactive Chat has one current conversation shared by clients of the same Application. Its requests use `pa_chat(query)`;
+`pa_session()` returns a dictionary containing `session_id` and `status`, and `pa_new_session()` creates and selects an
+empty session and returns its ID without generating a reply. **New chat** changes the conversation while preserving
+workspace memory. Chat and session creation reject concurrent operations; status remains readable during generation.
+The current selection is held in ApplicationContext and resets when the service restarts. Browser history is a display
+cache and never selects the backend session. AgentScope and Codex support empty-session creation; full server history
+reading currently requires Codex. The proactive configuration exposes only the `pa_*` conversation Jobs.
 
 The built-in chat job is read-only with respect to the workspace. It can search and read context but should not be used
 as a substitute for explicitly saving durable knowledge. Chat requires a valid Agent/model configuration; file browsing,
@@ -223,10 +236,11 @@ Start the service in one terminal:
 reme start config=proactive
 ```
 
-From another terminal, use the conversation's session identifier:
+From another terminal, inspect or rotate the current session, then use its ID for history and proactive messages:
 
 ```bash
-reme session_status session_id=SESSION_ID
+reme pa_session
+reme pa_new_session
 reme session_append session_id=SESSION_ID message_id=reminder-1 content="This information may be useful to you." wait_timeout=30
 reme session_read session_id=SESSION_ID
 ```

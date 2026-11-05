@@ -3,14 +3,12 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ...utils.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
+from ...utils.file_watch import WatchRule, build_watch_rules
 
 if TYPE_CHECKING:
     from ...schema import ApplicationConfig
     from ...components.file_catalog import BaseFileCatalog
     from ...components.runtime_context import RuntimeContext
-
-__all__ = ["WatchRule", "build_watch_rules", "collect_existing", "match_file", "build_context_watch_rules"]
 
 
 def build_context_watch_rules(

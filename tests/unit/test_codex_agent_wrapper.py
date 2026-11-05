@@ -295,6 +295,54 @@ def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
 
 
 @pytest.mark.asyncio
+async def test_rejected_first_turn_keeps_the_empty_session_and_zero_usage_cache(system):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    thread = _Codex.instances[0].threads[session_id]
+    thread.path = str(server.session_path / "not-materialized.jsonl")
+    turn = thread.turn
+    thread.turn = AsyncMock(side_effect=RuntimeError("turn rejected before acceptance"))
+    with pytest.raises(RuntimeError, match="turn rejected"):
+        await first.reply("rejected", resume=session_id, job_tools=[])
+    assert server._threads[session_id].pending is thread
+    assert server._threads[session_id].token_usage == TokenUsage()
+    thread.turn = turn
+    assert (await first.reply("retry", resume=session_id, job_tools=[]))["result"] == "retry"
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
+    first, _, server, _ = system
+    previous = await first.create_session(job_tools=[])
+    current = await first.create_session(job_tools=[])
+    client = _Codex.instances[0]
+    await first.release_session(previous)
+    assert server._threads[previous].pending is None
+    assert server._threads[current].pending is not None
+    assert client.unsubscribed == [previous]
+    assert not client.threads[previous].inputs and not client.threads[current].inputs
+
+
+@pytest.mark.asyncio
+async def test_empty_session_preserves_thread_options_and_resumes_without_generation(system):
+    first, _, _, job = system
+    options = {"job_tools": [job.name], "system_prompt": "Session instructions."}
+    session_id = await first.create_session(**options)
+    client = _Codex.instances[0]
+    assert client.opened[0][0] == "start"
+    assert client.opened[0][2]["developer_instructions"] == options["system_prompt"]
+    assert first.app_server._threads[session_id].binding is not None
+    assert client.unsubscribed == []
+    assert not client.threads[session_id].inputs
+    result = await first.reply("first message", resume=session_id, **options)
+    assert result["session_id"] == session_id
+    assert [operation for operation, _, _ in client.opened] == ["start"]
+    assert client.unsubscribed == [session_id]
+    await first.reply("next message", resume=session_id, **options)
+    assert [operation for operation, _, _ in client.opened] == ["start", "resume"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("baseline,initial_estimate", [((0, 0), False), ((50000, 1000), False), ((50000, 1000), True)])
 async def test_turn_usage_counts_all_calls_without_recounting_restored_or_duplicate_usage(

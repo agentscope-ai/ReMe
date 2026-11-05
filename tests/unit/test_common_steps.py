@@ -13,6 +13,8 @@ import pytest
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.file_store import LocalFileStore
+from reme.components.job import BaseJob, StreamJob
+from reme.config.config_parser import _load_config
 from reme.enumeration import ChunkEnum
 from reme.schema import FileFrontMatter, FileLink, FileNode, StreamChunk, TokenUsage, TraverseGraph
 from reme.steps.common.add import AddStep
@@ -172,6 +174,7 @@ async def test_llm_demo_always_registers_add_tool():
     resp = await step(query="hello", agent_wrapper=wrapper)
     assert resp.success is True
     assert wrapper.last_kwargs["job_tools"] == ["add"]
+    assert wrapper.last_kwargs["system_prompt"] == ""
     assert "job_tools" not in resp.metadata
 
 
@@ -196,6 +199,31 @@ async def test_nonstream_demo_forwards_outcome_and_native_details(step_class, st
     assert response.success is (status == "completed")
     assert response.answer == ("provider failure" if status == "failed" else "partial or final")
     assert all(response.metadata[key] == value for key, value in reply.items())
+    assert wrapper.reply.call_args.kwargs["system_prompt"] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("job_name", "job_class"), [("llm_demo", BaseJob), ("stream_llm_demo", StreamJob)])
+async def test_llm_demo_jobs_use_configured_prompt_and_allow_empty_override(tmp_path, job_name, job_class):
+    """Demo instructions come from config and explicit empty values clear them."""
+    config = _load_config("demo")["jobs"][job_name]
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = _FakeAgentWrapper()
+    wrapper.stream_chunks = [
+        StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            status="completed",
+            session_id="session-1",
+            chunk=wrapper._reply_result(session_id="session-1", result="ok", raw={}),
+        ),
+    ]
+    context.components["agent_wrapper"] = {"codex": wrapper}
+
+    async with job_class(name=job_name, app_context=context, **config) as job:
+        await job(stream_queue=asyncio.Queue())
+        assert wrapper.last_kwargs["system_prompt"] == config["sys_prompt"]
+        await job(sys_prompt="", stream_queue=asyncio.Queue())
+        assert wrapper.last_kwargs["system_prompt"] == ""
 
 
 @pytest.mark.asyncio
@@ -226,6 +254,7 @@ async def test_stream_llm_demo_preserves_backend_chunk_metadata():
     assert response.success
     assert response.answer == "hello"
     assert response.metadata["session_id"] == "session-1"
+    assert wrapper.last_kwargs["system_prompt"] == ""
 
 
 def test_file_graph_health_reports_neo4j_cached_counts():

@@ -192,13 +192,14 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
 
         def __init__(self, **kwargs):
             self.state = kwargs["state"]
+            observed["system_prompt"] = kwargs["system_prompt"]
 
     monkeypatch.setattr(wrapper, "_builtin_tools", builtin_tools)
     monkeypatch.setattr(as_agent_wrapper, "Agent", FakeAgent)
 
     await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
 
-    assert observed == {"names": expected, "sequential_tool_calls": True}
+    assert observed == {"names": expected, "sequential_tool_calls": True, "system_prompt": ""}
 
 
 @pytest.mark.asyncio

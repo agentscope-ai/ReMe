@@ -55,6 +55,26 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"总结我的长期偏好"}'
 ```
 
+Studio 的普通对话和 **Proactive Chat** 共用一套界面。默认配置只提供 `chat`，接收 `query` 和可选的 `session_id`，
+各对话独立。使用 `config=proactive` 启动后，只提供三个 `pa_*` Job，不再提供 `chat`。前端按服务实际开放的 Job 启用对应入口。
+
+Proactive Chat 使用由 Application 管理当前会话的 `pa_chat`，发送时只传 `query`。`pa_session` 无参数，`answer` 返回
+`{"session_id": "...", "status": "idle"}`；尚未创建会话时两个字段均为 null。`pa_new_session` 无参数，创建并切换空会话，
+在 `answer` 返回新 ID，不触发模型生成。
+
+先在一个终端运行 `reme start config=proactive`，再从另一个终端调用：
+
+```bash
+reme pa_session
+reme pa_chat query="有哪些事项值得继续？"
+reme pa_new_session
+```
+
+当前会话在同一 Application 内共享，重启后清空指针，会话文件保留。生成期间拒绝并发发送和新建，状态查询无需等待生成。
+AgentScope 和 Codex 支持创建空会话，其他 wrapper 明确报错。
+当前原生会话不可用时，`pa_session` 返回 `status: "error"`，可通过新建会话恢复。
+空会话创建一旦开始，会先完成当前会话的切换，再传播取消信号。
+
 MCP 不暴露 Stream Job。
 
 ## MCP

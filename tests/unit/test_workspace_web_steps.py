@@ -28,6 +28,9 @@ class _StreamingAgent(BaseAgentWrapper):
     async def reply(self, inputs, **kwargs) -> dict:
         raise AssertionError("ChatStep must always use reply_stream()")
 
+    async def create_session(self, **kwargs) -> str:
+        return "session-new"
+
     async def reply_stream(self, inputs, **kwargs):
         self.reply_kwargs = kwargs
         yield StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, chunk="{}", tool_call_id="tool-1", tool_call_name="search")
@@ -147,11 +150,12 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         "traverse",
     ]
     assert agent.reply_kwargs["builtin_tools"] == []
-    assert agent.reply_kwargs["system_prompt"] == ChatStep.DEFAULT_SYSTEM_PROMPT
+    assert agent.reply_kwargs["system_prompt"] == ""
 
 
 @pytest.mark.asyncio
-async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path):
+@pytest.mark.parametrize("system_prompt", ["", None, "Custom prompt.\n"])
+async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path, system_prompt):
     """A caller prompt reaches the wrapper without extra environment text."""
 
     app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
@@ -159,11 +163,28 @@ async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path):
 
     await ChatStep(agent_wrapper=agent, app_context=app_context)(
         query="hello",
-        system_prompt="Custom prompt.\n",
+        system_prompt=system_prompt,
         stream_queue=asyncio.Queue(),
     )
 
-    assert agent.reply_kwargs["system_prompt"] == "Custom prompt.\n"
+    assert agent.reply_kwargs["system_prompt"] == (system_prompt or "")
+
+
+@pytest.mark.asyncio
+async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp_path):
+    """The built-in prompt comes from config and can be explicitly cleared."""
+    config = _load_config("default")
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    agent = _StreamingAgent(app_context=app_context)
+    app_context.components["agent_wrapper"] = {"default": agent}
+    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
+
+    async with chat:
+        await chat(query="hello", stream_queue=asyncio.Queue())
+        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
+        assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
+        await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
+        assert agent.reply_kwargs["system_prompt"] == ""
 
 
 @pytest.mark.asyncio
@@ -174,16 +195,18 @@ async def test_proactive_chat_uses_native_tools_and_preserves_configured_prompt(
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
     agent = _StreamingAgent(app_context=app_context)
     app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
+    chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
     queue = asyncio.Queue()
 
     await chat.start()
     try:
         await chat(query="Help plan my day", stream_queue=queue)
         assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
-        chunks = [await queue.get() for _ in range(4)]
+        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["pa_chat"]["steps"][0]["system_prompt"]
+        assert agent.reply_kwargs["resume"] == "session-new"
+        chunks = [await queue.get() for _ in range(5)]
         assert [chunk.chunk_type for chunk in chunks] == [
+            ChunkEnum.DATA,
             ChunkEnum.TOOL_CALL,
             ChunkEnum.CONTENT,
             ChunkEnum.REPLY_END,

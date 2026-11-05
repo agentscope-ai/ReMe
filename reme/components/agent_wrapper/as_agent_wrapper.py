@@ -58,7 +58,7 @@ from .base_agent_wrapper import BaseAgentWrapper
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import AgentReply, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 from ...utils import AsStateHandler
 
@@ -313,7 +313,7 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         self._cleanup_expired_sessions()
 
-        system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
+        system_prompt = kwargs.get("system_prompt") or ""
         job_tools: list[str] = kwargs.get("job_tools", [])
         resolved_jobs = self._resolve_job_tools(job_tools)
         skills = self._resolve_skills(kwargs.get("skills"))
@@ -408,6 +408,23 @@ class AsAgentWrapper(BaseAgentWrapper):
             error=error,
             raw=raw,
         )
+
+    async def create_session(self, **kwargs) -> str:
+        """Persist an empty state so the next turn can resume without calling a model."""
+        kwargs = self._merged_kwargs(kwargs)
+        state = AgentState(
+            session_id=str(uuid4()),
+            permission_context=PermissionContext(mode=PermissionMode(kwargs.get("permission_mode", "bypass"))),
+        )
+        await self._dump_state(state)
+        return state.session_id
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Stored states are idle between application-owned turns."""
+        session_id = self._validate_session_id(session_id)
+        if not AsStateHandler.for_session(self.session_path, session_id).exists():
+            raise FileNotFoundError(f"AgentScope session not found: {session_id}")
+        return SessionStatus(session_id=session_id, status="idle")
 
     async def compact_session(self, session_id: str) -> None:
         """Force compression of an AgentScope session."""
