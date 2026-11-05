@@ -20,7 +20,7 @@ from ..keyword_index import BaseKeywordIndex
 from ..tag_index import BaseTagIndex
 from ...enumeration import LinkScopeEnum
 from ...schema import FileChunk, FileLink, FileNode
-from ...utils import batch_cosine_similarity
+from ...utils import batch_cosine_similarity, canonical_index_path
 from ...utils.async_utils import complete_in_thread
 from ...utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
@@ -305,7 +305,7 @@ class LocalFileStore(BaseFileStore):
                 for line in read_jsonl_zst(self.chunks_path, self.encoding):
                     line = line.strip()
                     if line:
-                        chunk = self._deserialize_chunk(line)
+                        chunk = self._canonical_chunk(self._deserialize_chunk(line))
                         self.file_chunks[chunk.id] = chunk
                 self.logger.info(f"Loaded {len(self.file_chunks)} chunks from {self.chunks_path}")
             except Exception as e:
@@ -316,6 +316,7 @@ class LocalFileStore(BaseFileStore):
         )
 
         graph_repair_started_at = time.monotonic()
+        await self._drop_superseded_chunks()
         graph_repaired = await self._repair_graph_chunk_consistency()
         self.logger.info(
             f"{self.name}: graph consistency check complete: repaired={graph_repaired}, "
@@ -342,6 +343,31 @@ class LocalFileStore(BaseFileStore):
         self.logger.info(
             f"{self.name}: file store load phases complete: " f"elapsed={time.monotonic() - started_at:.3f}s",
         )
+
+    async def _drop_superseded_chunks(self) -> list[str]:
+        """Remove chunk handles that lost a duplicate path-spelling merge.
+
+        The graph reports the handles no surviving record references any more.
+        Keeping them made the superseded text searchable under the surviving
+        path and tags, and the store then saw them as orphans, which made
+        :meth:`_repair_graph_chunk_consistency` clear the whole derived index
+        on the next start.  The reported handles are returned so native vector
+        indexes can drop their rows too.
+        """
+        assert self.file_graph is not None
+        dropped = await self.file_graph.take_dropped_chunk_ids()
+        if not dropped:
+            return []
+        removed = [chunk_id for chunk_id in dropped if self.file_chunks.pop(chunk_id, None) is not None]
+        for chunk_id in removed:
+            self._keyword_indexed_text.pop(chunk_id, None)
+        if removed and self.keyword_index is not None:
+            with suppress(Exception):
+                await self.keyword_index.delete_docs(removed)
+        self.logger.warning(
+            f"{self.name}: dropped {len(removed)} superseded chunk(s) from a conflicting path spelling",
+        )
+        return dropped
 
     async def _repair_graph_chunk_consistency(self) -> bool:
         """Clear torn graph/chunk state so the filesystem scan rebuilds it.
@@ -370,6 +396,16 @@ class LocalFileStore(BaseFileStore):
         # chunks, and search indexes from the user-owned files.
         await self.clear()
         return True
+
+    @staticmethod
+    def _canonical_chunk(chunk: FileChunk) -> FileChunk:
+        """Return ``chunk`` carrying the canonical workspace-relative POSIX path.
+
+        The chunk id is intentionally left untouched: it is an opaque handle that
+        ``FileNode.chunk_ids`` and every derived index already reference.
+        """
+        path = canonical_index_path(chunk.path)
+        return chunk if path == chunk.path else chunk.model_copy(update={"path": path})
 
     @staticmethod
     def _deserialize_chunk(line: str) -> FileChunk:
@@ -849,6 +885,34 @@ class LocalFileStore(BaseFileStore):
         """Replace file chunks, retaining unchanged live keyword documents."""
         if not files:
             return
+        await self._upsert_canonical_batch(self.prepare_upsert_batch(files))
+
+    def prepare_upsert_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[tuple[FileNode, list[FileChunk]]]:
+        """Return the batch every backend stages and indexes.
+
+        Persisted spellings and freshly chunked files must share one identity,
+        otherwise the same file is stored and queried as two different paths.
+        Normalizing here keeps the graph, the chunk map, the keyword index and
+        the native vector indexes on the same records and paths.
+        """
+        assert self.file_graph is not None
+        canonical = [
+            (
+                self.file_graph.canonical_node(node),
+                [self._canonical_chunk(chunk) for chunk in chunks],
+            )
+            for node, chunks in files
+        ]
+        return self._dedupe_upsert_batch(canonical)
+
+    async def _upsert_canonical_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[str]:
+        """Store a normalized batch; return the handles the graph dropped."""
         assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
@@ -894,6 +958,28 @@ class LocalFileStore(BaseFileStore):
             self._keyword_indexed_text.update(keyword_docs)
         self._keyword_pending_paths.difference_update(node.path for node, _ in files)
         self._mutation_generation += 1
+        return await self._drop_superseded_chunks()
+
+    def _dedupe_upsert_batch(
+        self,
+        files: list[tuple[FileNode, list[FileChunk]]],
+    ) -> list[tuple[FileNode, list[FileChunk]]]:
+        """Keep only the last entry per canonical path within one write batch.
+
+        Two spellings of the same file in a single batch would stage the first
+        entry's chunks and then publish only the second entry's handles, so the
+        earlier chunks stayed reachable from neither the graph nor the indexes.
+        A later start then treated them as orphans and cleared the index.
+        """
+        latest: dict[str, tuple[FileNode, list[FileChunk]]] = {}
+        for node, chunks in files:
+            if node.path in latest:
+                self.logger.warning(
+                    f"{self.name}: collapsing duplicate upsert of {node.path} in one batch; keeping the last entry",
+                )
+                del latest[node.path]
+            latest[node.path] = (node, chunks)
+        return list(latest.values())
 
     def _stage_upsert(
         self,
@@ -1161,9 +1247,11 @@ class LocalFileStore(BaseFileStore):
             for key in ("path", "paths"):
                 if key in search_filter:
                     has_exact_paths = True
-                    exact_paths.update(self._as_filter_values(search_filter[key]))
+                    exact_paths.update(
+                        canonical_index_path(str(value)) for value in self._as_filter_values(search_filter[key])
+                    )
             prefixes = tuple(
-                str(value)
+                canonical_index_path(str(value))
                 for key in ("path_prefix", "path_prefixes", "prefix", "prefixes")
                 if key in search_filter
                 for value in self._as_filter_values(search_filter[key])
@@ -1184,12 +1272,13 @@ class LocalFileStore(BaseFileStore):
             return legacy
 
         def matches(chunk: FileChunk) -> bool:
-            if has_exact_paths and chunk.path not in exact_paths:
+            path = canonical_index_path(chunk.path)
+            if has_exact_paths and path not in exact_paths:
                 return False
-            if prefixes and not chunk.path.startswith(prefixes):
+            if prefixes and not path.startswith(prefixes):
                 return False
             if start_date or end_date:
-                path_date = self._extract_date_from_path(chunk.path)
+                path_date = self._extract_date_from_path(path)
                 if not path_date:
                     if strict_date:
                         return False
@@ -1225,7 +1314,7 @@ class LocalFileStore(BaseFileStore):
 
         Returns a validated YYYY-MM-DD string, or None if no date is found.
         """
-        parts = path.split("/")
+        parts = canonical_index_path(path).split("/")
         if len(parts) < 2:
             return None
         # Accept only exact "YYYY-MM-DD" (dir) or "YYYY-MM-DD.md" (day index).
@@ -1244,20 +1333,23 @@ class LocalFileStore(BaseFileStore):
         if not search_filter:
             return True
 
+        path = canonical_index_path(chunk.path)
         exact_paths = set()
         has_exact_path_filter = False
         for key in ("path", "paths"):
             if key in search_filter:
                 has_exact_path_filter = True
-                exact_paths.update(cls._as_filter_values(search_filter[key]))
-        if has_exact_path_filter and chunk.path not in exact_paths:
+                exact_paths.update(
+                    canonical_index_path(str(value)) for value in cls._as_filter_values(search_filter[key])
+                )
+        if has_exact_path_filter and path not in exact_paths:
             return False
 
         prefixes = []
         for key in ("path_prefix", "path_prefixes", "prefix", "prefixes"):
             if key in search_filter:
-                prefixes.extend(str(v) for v in cls._as_filter_values(search_filter[key]))
-        if prefixes and not any(chunk.path.startswith(prefix) for prefix in prefixes):
+                prefixes.extend(canonical_index_path(str(v)) for v in cls._as_filter_values(search_filter[key]))
+        if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
             return False
 
         # Date range filtering based on date embedded in chunk path.
@@ -1267,7 +1359,7 @@ class LocalFileStore(BaseFileStore):
         end_date = search_filter.get("end_date")
         strict_date = bool(search_filter.get("strict_date_filter", False))
         if start_date or end_date:
-            path_date = cls._extract_date_from_path(chunk.path)
+            path_date = cls._extract_date_from_path(path)
             if not path_date:
                 if strict_date:
                     return False
