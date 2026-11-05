@@ -195,7 +195,7 @@ try {
       .map((file) => path.join("tests", file));
     const tested = await run(
       process.execPath,
-      ["--test", ...testFiles],
+      ["--test", "--test-reporter=tap", ...testFiles],
       installed,
       `tests DSH ${release.dsh}`,
     );

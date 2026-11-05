@@ -4,10 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-  canHostService,
-  hasCoreFeatures,
-} from "../dist/environment/dependency.js";
+import { canHostService } from "../dist/environment/dependency.js";
 import {
   isLocalEndpoint,
   parseLocalEndpoint,
@@ -45,8 +42,7 @@ const INSTALLED = {
 };
 
 test("the interpreter readiness has one definition", () => {
-  // The Host refuses a start unless reme-ai is installed and new enough, so
-  // the tab must offer exactly the same starts.
+  // Supported CLI releases need AgentScope even before running any jobs.
   assert.equal(canHostService(INSTALLED), true);
   assert.equal(canHostService(undefined), false);
   assert.equal(
@@ -55,11 +51,7 @@ test("the interpreter readiness has one definition", () => {
   );
   assert.equal(canHostService({ ...INSTALLED, versionOk: false }), false);
 
-  // The [core] extras are a stronger state: without them the service still
-  // starts, but automatic memory and consolidation do not.
-  assert.equal(hasCoreFeatures(INSTALLED), true);
-  assert.equal(hasCoreFeatures({ ...INSTALLED, hasCore: false }), false);
-  assert.equal(hasCoreFeatures({ ...INSTALLED, versionOk: false }), false);
+  assert.equal(canHostService({ ...INSTALLED, hasCore: false }), false);
 });
 
 test("only a loopback HTTP endpoint is a manageable local service", () => {

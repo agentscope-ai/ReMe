@@ -5,7 +5,7 @@ import type { StatusRpc } from "../../client/status-page.js";
 import { safeError } from "../../endpoint.js";
 import { serviceEndpointKey } from "../endpoint-key.js";
 import { isLocalEndpoint } from "../endpoint-rules.js";
-import { hasCoreFeatures } from "../dependency.js";
+import { canHostService } from "../dependency.js";
 import type { HealthErrorCode, RemeCheck } from "../types.js";
 import type { ReMeSettings } from "../../types.js";
 import { DependencySection, useDependency } from "./dependency.js";
@@ -60,7 +60,10 @@ function healthErrorText(
   connection: ConnectionState,
 ): string {
   if (connection.phase !== "fail") return "";
-  const key = connection.code ? HEALTH_ERROR_KEYS[connection.code] : undefined;
+  const key =
+    connection.code && Object.hasOwn(HEALTH_ERROR_KEYS, connection.code)
+      ? HEALTH_ERROR_KEYS[connection.code]
+      : undefined;
   return key ? t(key) : connection.error ?? "";
 }
 
@@ -95,7 +98,7 @@ function remeSummaryBadge(
       text: `${t("heroReme")} · ${t("notInstalled")}`,
     };
   return {
-    tone: check.versionOk && check.hasCore ? "ok" : "progress",
+    tone: canHostService(check) ? "ok" : "progress",
     text: `${t("heroReme")} ${check.version}`,
   };
 }
@@ -215,7 +218,7 @@ export function ReMeEnvironmentTab({
   const ready =
     current &&
     connection.phase === "ok" &&
-    (!local || hasCoreFeatures(dependency.checkData));
+    (!local || canHostService(dependency.checkData));
   const scannedAt = python.detection.data?.scannedAt
     ? Date.parse(python.detection.data.scannedAt)
     : Number.NaN;

@@ -1,5 +1,22 @@
 import { spawn } from "node:child_process";
 
+/** Only ESRCH proves a detached POSIX process group is empty. */
+export function processGroupAlive(pid: number | undefined): boolean {
+  if (
+    process.platform === "win32" ||
+    pid === undefined ||
+    !Number.isInteger(pid) ||
+    pid <= 1
+  )
+    return false;
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+  }
+}
+
 export interface RunResult {
   code: number | null;
   stdout: string;

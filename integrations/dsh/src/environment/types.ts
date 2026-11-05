@@ -164,6 +164,7 @@ export type ServiceStartErrorCode =
   | "no-python"
   | "not-installed"
   | "version-too-old"
+  | "core-missing"
   | "start-failed";
 
 /** Stable reason for a refused/unsuccessful stop, so the client can localize it. */

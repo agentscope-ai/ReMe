@@ -6,6 +6,7 @@ import type { InstallPhase, InstallRequest, InstallStatus } from "../types.js";
 import { interpreterKey } from "../interpreter-key.js";
 import { INSTALL_LOG_KEEP, openAppendLog, pruneInstallLogs } from "./log.js";
 import { isAbsolutePath } from "./paths.js";
+import { processGroupAlive } from "./runner.js";
 
 export interface InstallChild {
   pid: number | undefined;
@@ -172,18 +173,7 @@ export function createInstallSpawner(
           }
         },
         groupAlive() {
-          // Only POSIX puts the install in its own process group, and only
-          // there can the leader exit while the group outlives it.
-          if (process.platform === "win32" || child.pid === undefined)
-            return false;
-          try {
-            process.kill(-child.pid, 0);
-            return true;
-          } catch (error) {
-            // ESRCH means the group is empty; anything else cannot be proven
-            // empty, so the job waits instead of settling early.
-            return (error as NodeJS.ErrnoException).code !== "ESRCH";
-          }
+          return processGroupAlive(child.pid);
         },
       };
     },

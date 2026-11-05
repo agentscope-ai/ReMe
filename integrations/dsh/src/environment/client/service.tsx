@@ -39,6 +39,7 @@ const START_ERROR_KEYS: Record<string, EnvKey> = {
   "no-python": "startErrorNoPython",
   "not-installed": "startErrorNotInstalled",
   "version-too-old": "startErrorVersionTooOld",
+  "core-missing": "startErrorCoreMissing",
   "start-failed": "startErrorFailed",
 };
 
@@ -47,7 +48,10 @@ function startErrorText(t: EnvTranslator, result: ServiceStartResult): string {
   // can tell the user what to look for instead of a generic sentence.
   if (result.code === "unverified-record" && result.pid !== undefined)
     return fill(t("startErrorUnverifiedRecordPid"), { pid: result.pid });
-  const key = result.code ? START_ERROR_KEYS[result.code] : undefined;
+  const key =
+    result.code && Object.hasOwn(START_ERROR_KEYS, result.code)
+      ? START_ERROR_KEYS[result.code]
+      : undefined;
   return key ? t(key) : result.error || t("serviceError");
 }
 
@@ -63,7 +67,10 @@ function stopReasonText(
   t: EnvTranslator,
   result: { code?: string; reason?: string },
 ): string {
-  const key = result.code ? STOP_REASON_KEYS[result.code] : undefined;
+  const key =
+    result.code && Object.hasOwn(STOP_REASON_KEYS, result.code)
+      ? STOP_REASON_KEYS[result.code]
+      : undefined;
   return key ? t(key) : result.reason || t("serviceError");
 }
 
@@ -84,15 +91,15 @@ const RECORD_ONLY_CODES = new Set([
  * The Host names the record it refused on: that record may belong to another
  * endpoint than the one on screen, and forgetting the endpoint on screen
  * would be refused as foreign. A refusal that names no record (a conflict, a
- * missing interpreter) has no record-only way out. An older Host names no
- * record either, so the endpoint on screen stays the fallback.
+ * missing interpreter) has no record-only way out. An older Host that names
+ * no record cannot safely offer Forget for the endpoint on screen.
  */
-function recoveryFor(
-  result: { code?: string; record?: ServiceRecordRef },
-  endpoint: string,
-): ServiceRecordRef | undefined {
+function recoveryFor(result: {
+  code?: string;
+  record?: ServiceRecordRef;
+}): ServiceRecordRef | undefined {
   if (!result.code || !RECORD_ONLY_CODES.has(result.code)) return undefined;
-  return result.record ?? { endpoint };
+  return result.record;
 }
 
 export interface ServiceViewState {
@@ -313,7 +320,7 @@ export function useService(
         // the record-only escape hatch, aimed at the record the Host named.
         // A refusal that names no record leaves an existing offer alone: the
         // record it describes is still there.
-        const recovery = recoveryFor(started, endpoint);
+        const recovery = recoveryFor(started);
         if (recovery) setForgetTarget(recovery);
         applyState({ phase: "error", error: startErrorText(t, started) });
         return;
@@ -415,7 +422,7 @@ export function useService(
       // A record the Host refuses to stop (unverifiable, or a process that
       // survived the force-kill) cannot be cleared by either button: offer the
       // record-only way out instead of leaving two actions that both fail.
-      const recovery = recoveryFor(result, target);
+      const recovery = recoveryFor(result);
       if (recovery) setForgetTarget(recovery);
       // A stopped service has no record left; a refusal that names none (a
       // foreign record, a missing one) leaves an existing offer alone.

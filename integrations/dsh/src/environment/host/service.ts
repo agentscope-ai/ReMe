@@ -26,6 +26,7 @@ import type {
 } from "../types.js";
 import { openAppendLog } from "./log.js";
 import { isWindowsPath } from "./paths.js";
+import { processGroupAlive } from "./runner.js";
 
 export { serviceEndpointKey, serviceOriginKey } from "../endpoint-key.js";
 export { parseLocalEndpoint } from "../endpoint-rules.js";
@@ -73,6 +74,8 @@ export interface ServiceIO {
    */
   killTree(pid: number, force?: boolean): void;
   probePid(pid: number): void;
+  /** Whether the detached POSIX process group still exists after its leader exits. */
+  groupAlive?(pid: number): boolean;
   /** OS image name of a pid, or "" when it cannot be read. */
   processImage(pid: number): Promise<string>;
   /** Full command line of a pid, or "" when it cannot be read. */
@@ -208,9 +211,9 @@ function alive(io: ServiceIO, pid?: number): boolean {
   }
 }
 
-/** Whether a pid is alive, rejecting pids this plugin never records. */
+/** Whether the recorded pid or its detached process group still exists. */
 export function processAlive(io: ServiceIO, pid?: number): boolean {
-  return alive(io, pid);
+  return isValidPid(pid) && (alive(io, pid) || io.groupAlive?.(pid) === true);
 }
 
 /**
@@ -305,7 +308,10 @@ export async function serviceOwnership(
   if (!persisted || !isValidPid(persisted.pid)) return "foreign";
   if (serviceEndpointKey(persisted.endpoint) !== serviceEndpointKey(endpoint))
     return "foreign";
-  if (!alive(io, persisted.pid)) return "foreign";
+  // A failed stop may leave children after the verified leader exited. Keep
+  // the record, but do not claim ownership we can no longer verify.
+  if (!alive(io, persisted.pid))
+    return processAlive(io, persisted.pid) ? "unknown" : "foreign";
   let image = "";
   try {
     image = await io.processImage(persisted.pid);
@@ -358,7 +364,7 @@ export async function serviceStatus(
     persisted !== undefined &&
     serviceEndpointKey(persisted.endpoint) ===
       serviceEndpointKey(options.endpoint);
-  const recordAlive = alive(io, persisted?.pid);
+  const recordAlive = processAlive(io, persisted?.pid);
   // A record whose process is gone must not be reported, or a later start
   // would keep seeing a stale pid. Remove it while nobody can be relying on it.
   if (persisted && !recordAlive) clearServiceState(options.statePath);
@@ -562,7 +568,7 @@ function delay(ms: number): Promise<void> {
   });
 }
 
-/** Poll until the pid disappears; true when it exited within `timeoutMs`. */
+/** Wait for both the leader and its detached process group to disappear. */
 async function waitForExit(
   io: ServiceIO,
   pid: number,
@@ -571,7 +577,7 @@ async function waitForExit(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (!alive(io, pid)) return true;
+    if (!processAlive(io, pid)) return true;
     const remaining = deadline - Date.now();
     if (remaining <= 0) return false;
     await delay(Math.max(1, Math.min(pollMs, remaining)));
@@ -582,7 +588,7 @@ async function waitForExit(
  * Stop the service this plugin started for the endpoint, and only that one: a
  * service on another port, or a foreign process, is left running.
  *
- * The record is removed only after the process is confirmed gone. Otherwise a
+ * The record is removed only after the process group is confirmed gone. Otherwise a
  * SIGTERM the service ignored would delete the pid, leaving a running process
  * that the tab can never stop again.
  */
@@ -591,12 +597,12 @@ export async function stopService(
   options: {
     statePath: string;
     endpoint: string;
+    /** Pin a replacement to the process inspected before dependency checks. */
+    expectPid?: number;
     /** Grace period before escalating to SIGKILL (tests shorten it). */
     timeoutMs?: number;
     forceTimeoutMs?: number;
     pollMs?: number;
-    /** Precomputed ownership from the caller; avoids a second process probe. */
-    ownership?: ServiceOwnership;
   },
 ): Promise<ServiceStopResult> {
   const persisted = readServiceState(options.statePath);
@@ -608,9 +614,14 @@ export async function stopService(
       code: "no-record",
     };
   }
-  const ownership =
-    options.ownership ??
-    (await serviceOwnership(io, persisted, options.endpoint));
+  if (options.expectPid !== undefined && persisted.pid !== options.expectPid)
+    return {
+      stopped: false,
+      reason: "The recorded service changed since it was inspected",
+      code: "record-changed",
+      record: serviceRecordRef(persisted),
+    };
+  const ownership = await serviceOwnership(io, persisted, options.endpoint);
   if (ownership === "unknown")
     return {
       stopped: false,
@@ -626,6 +637,24 @@ export async function stopService(
       code: "foreign",
     };
   const pid = persisted.pid;
+  const isCurrentRecord = (): boolean => {
+    const current = readServiceState(options.statePath);
+    return (
+      current?.pid === pid &&
+      current.endpoint === persisted.endpoint &&
+      current.startedAt === persisted.startedAt
+    );
+  };
+  // Identity reads yield to the event loop. Never signal a record that was
+  // replaced while those reads were in flight, or erase a newer launch later.
+  if (!isCurrentRecord())
+    return {
+      stopped: false,
+      pid,
+      reason: "The recorded service changed since it was inspected",
+      code: "record-changed",
+      record: serviceRecordRef(readServiceState(options.statePath)),
+    };
   const pollMs = options.pollMs ?? STOP_POLL_MS;
   try {
     io.killTree(pid);
@@ -635,7 +664,7 @@ export async function stopService(
   if (
     await waitForExit(io, pid, options.timeoutMs ?? STOP_TIMEOUT_MS, pollMs)
   ) {
-    clearServiceState(options.statePath);
+    if (isCurrentRecord()) clearServiceState(options.statePath);
     return { stopped: true, pid };
   }
   // The service ignored (or slowly handled) SIGTERM: escalate, then only drop
@@ -653,7 +682,7 @@ export async function stopService(
       pollMs,
     )
   ) {
-    clearServiceState(options.statePath);
+    if (isCurrentRecord()) clearServiceState(options.statePath);
     return { stopped: true, pid };
   }
   return {
@@ -863,6 +892,7 @@ export function createServiceIO(): ServiceIO {
         throw new RangeError("Refusing to probe an invalid pid");
       process.kill(pid, 0);
     },
+    groupAlive: processGroupAlive,
     processImage(pid) {
       return new Promise((resolve) => {
         if (!isValidPid(pid)) {

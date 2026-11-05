@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -541,6 +541,101 @@ test("refuses to stop a service recorded for another endpoint", async (t) => {
   assert.ok(readServiceState(statePath), "the foreign record is left in place");
 });
 
+for (const exits of [true, false]) {
+  test(`a parent-first exit ${
+    exits ? "waits for" : "retains"
+  } its process group`, async (t) => {
+    const { directory, statePath } = tempState(t, "reme-stop-group-");
+    record(statePath, { pid: 999, workspaceDir: directory });
+    let parent = true;
+    let group = true;
+    const { io, calls } = fakeIO({
+      platform: "linux",
+      processCommandLine: async () => commandFor(statePath),
+      probePid() {
+        if (!parent) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+      },
+      groupAlive: () => group,
+      killTree(pid, force = false) {
+        calls.killTree.push(pid);
+        parent = false;
+        if (force) {
+          calls.force.push(pid);
+          group = !exits;
+        }
+      },
+    });
+    const result = await stopService(io, {
+      statePath,
+      endpoint: ENDPOINT,
+      timeoutMs: 10,
+      forceTimeoutMs: 10,
+      pollMs: 2,
+    });
+    assert.deepEqual(calls.force, [999], "the surviving child gets SIGKILL");
+    assert.equal(result.stopped, exits);
+    if (exits) {
+      assert.equal(readServiceState(statePath), undefined);
+    } else {
+      assert.equal(result.code, "not-exited");
+      const status = await serviceStatus(io, {
+        statePath,
+        endpoint: ENDPOINT,
+        logPath: join(directory, "service.log"),
+      });
+      assert.equal(readServiceState(statePath)?.pid, 999);
+      assert.equal(status.pid, 999);
+      assert.equal(
+        await serviceOwnership(io, readServiceState(statePath), ENDPOINT),
+        "unknown",
+      );
+      // A later stop no longer has a leader whose identity it can verify.
+      const later = await stopService(io, { statePath, endpoint: ENDPOINT });
+      assert.equal(later.code, "unverified");
+      assert.deepEqual(
+        calls.force,
+        [999],
+        "an unverified group is not signalled again",
+      );
+    }
+  });
+}
+
+test("a stop never signals a record replaced during the ownership probe", async (t) => {
+  const { statePath } = tempState(t, "reme-stop-race-");
+  record(statePath);
+  const command = commandFor(statePath);
+  const { io, calls } = fakeIO({
+    processCommandLine: async () => {
+      record(statePath, { pid: 888, startedAt: "new" });
+      return command;
+    },
+  });
+  const result = await stopService(io, { statePath, endpoint: ENDPOINT });
+  assert.equal(result.code, "record-changed");
+  assert.deepEqual(calls.killTree, []);
+  assert.equal(readServiceState(statePath)?.pid, 888);
+});
+
+test("finishing an old stop does not erase a newer service record", async (t) => {
+  const { statePath } = tempState(t, "reme-stop-new-record-");
+  record(statePath);
+  let running = true;
+  const { io } = fakeIO({
+    processCommandLine: async () => commandFor(statePath),
+    probePid() {
+      if (!running) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+    },
+    killTree() {
+      running = false;
+      record(statePath, { pid: 888, startedAt: "new" });
+    },
+  });
+  const result = await stopService(io, { statePath, endpoint: ENDPOINT });
+  assert.equal(result.stopped, true);
+  assert.equal(readServiceState(statePath)?.pid, 888);
+});
+
 test("refuses to stop a process whose identity cannot be verified", async (t) => {
   const { statePath } = tempState(t, "reme-unknown-");
   record(statePath);
@@ -710,3 +805,92 @@ test("real IO spawns, identifies and stops a detached process", async (t) => {
   }
   assert.equal(running, false, "the detached process must actually exit");
 });
+
+test(
+  "real POSIX stop kills a listening child after its parent exits",
+  {
+    skip: process.platform === "win32",
+    timeout: 15_000,
+  },
+  async (t) => {
+    const { directory, statePath } = tempState(t, "reme-real-group-");
+    const io = createServiceIO();
+    const logPath = join(directory, "service.log");
+    const childCode = `
+    process.on('SIGTERM', () => {});
+    const server = require('node:net').createServer(socket => socket.end());
+    server.listen(0, '127.0.0.1', () => {
+      console.log(JSON.stringify({ port: server.address().port, pid: process.pid }));
+    });
+  `;
+    const parentCode = `
+    process.on('SIGTERM', () => process.exit(0));
+    const child = require('node:child_process').spawn(process.execPath,
+      ['-e', ${JSON.stringify(
+        childCode,
+      )}], { stdio: ['ignore', 'pipe', 'ignore'] });
+    child.stdout.pipe(process.stdout);
+  `;
+    const { pid } = await io.spawnService({
+      exe: process.execPath,
+      args: [
+        "-e",
+        parentCode,
+        `workspace_dir=${directory}`,
+        "service.port=2334",
+      ],
+      cwd: directory,
+      logPath,
+      env: process.env,
+    });
+    const kill = io.killTree;
+    t.after(() => kill(pid, true));
+    let ready;
+    const deadline = Date.now() + 5_000;
+    while (!ready && Date.now() < deadline) {
+      try {
+        ready = JSON.parse(readFileSync(logPath, "utf8").trim());
+      } catch {
+        /* not listening yet */
+      }
+      if (!ready) await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(ready, "the child listener must be ready before signalling");
+    assert.equal(await io.portOpen("127.0.0.1", ready.port), true);
+    record(statePath, { pid, workspaceDir: directory });
+    // The fixture uses Node instead of Python; spawn, command line, signals,
+    // group liveness and socket checks still use the real service adapter.
+    io.processImage = async () => "python";
+    let escalated = false;
+    io.killTree = (target, force) => {
+      if (force) {
+        escalated = true;
+        assert.throws(() => io.probePid(pid), { code: "ESRCH" });
+        assert.doesNotThrow(() => io.probePid(ready.pid));
+      }
+      kill(target, force);
+    };
+    const result = await stopService(io, {
+      statePath,
+      endpoint: ENDPOINT,
+      timeoutMs: 200,
+      forceTimeoutMs: 2_000,
+      pollMs: 20,
+    });
+    assert.equal(
+      escalated,
+      true,
+      "parent exit must not bypass child termination",
+    );
+    assert.equal(await io.portOpen("127.0.0.1", ready.port), false);
+    // Some container init processes leave orphaned zombies unreaped. A group
+    // still visible to signal 0 conservatively retains its record.
+    if (result.stopped) {
+      assert.equal(io.groupAlive(pid), false);
+      assert.equal(readServiceState(statePath), undefined);
+    } else {
+      assert.equal(result.code, "not-exited");
+      assert.equal(readServiceState(statePath)?.pid, pid);
+    }
+  },
+);

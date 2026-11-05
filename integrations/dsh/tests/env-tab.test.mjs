@@ -230,6 +230,99 @@ test("renders the status hero and the four setup steps", async (t) => {
   assert.match(copy, /C:\\Users\\test\\\.reme\\\.env/);
 });
 
+test("an interpreter without AgentScope cannot offer Start or report ready", async (t) => {
+  const { renderer, restore } = await mount(
+    {},
+    {
+      responses: {
+        "remeEnv/checkReme": {
+          ...RESPONSES["remeEnv/checkReme"],
+          hasCore: false,
+        },
+        "remeEnv/serviceStatus": {
+          ...RESPONSES["remeEnv/serviceStatus"],
+          phase: "stopped",
+          pid: undefined,
+        },
+      },
+    },
+  );
+  t.after(restore);
+  assert.equal(buttonByText(renderer, envZh.startService).props.disabled, true);
+  const copy = texts(renderer.toJSON()).join(" ");
+  assert.ok(copy.includes(envZh.coreMissing));
+  assert.equal(copy.includes(envZh.heroReady), false);
+});
+
+for (const [code, error, expected] of [
+  ["core-missing", "AgentScope missing", envZh.startErrorCoreMissing],
+  ["constructor", "Unknown Host refusal", "Unknown Host refusal"],
+]) {
+  test(`localizes or safely falls back for the ${code} start refusal`, async (t) => {
+    const { renderer, restore } = await mount(
+      {},
+      {
+        responses: {
+          "remeEnv/serviceStatus": {
+            ...RESPONSES["remeEnv/serviceStatus"],
+            phase: "stopped",
+            pid: undefined,
+          },
+          "remeEnv/serviceStart": {
+            started: false,
+            alreadyRunning: false,
+            command: "",
+            logPath: "",
+            startedAt: new Date().toISOString(),
+            code,
+            error,
+          },
+        },
+      },
+    );
+    t.after(restore);
+    await act(async () =>
+      buttonByText(renderer, envZh.startService).props.onClick(),
+    );
+    assert.ok(texts(renderer.toJSON()).join(" ").includes(expected));
+  });
+}
+
+test("an older Host refusal without a record never guesses a Forget target", async (t) => {
+  const { renderer, calls, restore } = await mount(
+    {},
+    {
+      responses: {
+        "remeEnv/serviceStatus": {
+          ...RESPONSES["remeEnv/serviceStatus"],
+          phase: "stopped",
+          pid: undefined,
+        },
+        "remeEnv/serviceStart": {
+          started: false,
+          alreadyRunning: false,
+          command: "",
+          logPath: "",
+          startedAt: new Date().toISOString(),
+          code: "unverified-record",
+        },
+      },
+    },
+  );
+  t.after(restore);
+  await act(async () =>
+    buttonByText(renderer, envZh.startService).props.onClick(),
+  );
+  assert.equal(
+    texts(renderer.toJSON()).join(" ").includes(envZh.forgetRecord),
+    false,
+  );
+  assert.equal(
+    calls.rpc.some((call) => call.method === "remeEnv/serviceForget"),
+    false,
+  );
+});
+
 test("keeps the interpreter list collapsed until asked, then paginates", async (t) => {
   const { renderer, restore } = await mount();
   t.after(restore);
@@ -474,6 +567,7 @@ test("shows why Stop left the service alone", async (t) => {
           stopped: false,
           reason: "The recorded process identity could not be verified",
           code: "unverified",
+          record: { endpoint: "http://127.0.0.1:2333", pid: 98820 },
         },
       },
     },
@@ -514,6 +608,7 @@ test("a process that survived the force-kill still offers forgetting the record"
           stopped: false,
           reason: "The service did not exit after the force-kill",
           code: "not-exited",
+          record: { endpoint: "http://127.0.0.1:2333", pid: 98820 },
         },
       },
     },
@@ -1335,6 +1430,7 @@ test("an unverified record reports the pid it refused to touch", async (t) => {
           alreadyRunning: false,
           error: "The recorded service identity could not be verified",
           code: "unverified-record",
+          record: { endpoint: "http://127.0.0.1:2333", pid: 6000 },
           pid: 6000,
           command: "",
           logPath: stopped.logPath,

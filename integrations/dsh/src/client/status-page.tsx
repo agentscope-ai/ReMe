@@ -1224,7 +1224,8 @@ function componentGroupLabel(group: string, t: StatusTranslator): string {
     file_store: "fileStore",
     keyword_index: "keywordIndex",
   };
-  return labels[group] === undefined ? readableName(group) : t(labels[group]);
+  const key = Object.hasOwn(labels, group) ? labels[group] : undefined;
+  return key === undefined ? readableName(group) : t(key);
 }
 
 function componentFieldLabel(field: string, t: StatusTranslator): string {
@@ -1242,7 +1243,8 @@ function componentFieldLabel(field: string, t: StatusTranslator): string {
     vocab_size: "vocabulary",
     memory: "memoryUsage",
   };
-  return labels[field] === undefined ? readableName(field) : t(labels[field]);
+  const key = Object.hasOwn(labels, field) ? labels[field] : undefined;
+  return key === undefined ? readableName(field) : t(key);
 }
 
 function readableName(value: string): string {

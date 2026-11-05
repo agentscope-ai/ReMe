@@ -57,7 +57,8 @@ The check asks the selected interpreter three questions and reports them as metr
 
 - `reme-ai` metadata version (`importlib.metadata.version("reme-ai")`), and whether it satisfies the minimum
   this integration targets.
-- `[core]` extras: whether `import agentscope` works. Without it, `auto_memory` and `auto_dream` are unavailable.
+- `[core]` extras: whether `import agentscope` works. Supported ReMe releases import AgentScope while loading the
+  CLI, so it is required to start the service. Install or reinstall `reme-ai[core]` when it is missing.
 - `reme` CLI: the console script beside the interpreter, or the Python wrapper fallback used at start time.
 
 **Install reme-ai[core]** runs `python -m pip install reme-ai[core]`, optionally with a package index (PyPI,
@@ -186,14 +187,18 @@ processes it manages when the Host exits. The plugin owns a small service adapte
   user with a process to kill by hand.
 - **Stop** tree-kills the recorded process (process group on POSIX, `taskkill /T /F` on Windows), waits for it to
   exit, escalates (POSIX: `SIGTERM` then `SIGKILL`; Windows: force `taskkill` again), and clears the record only
-  after the pid is gone. A service started elsewhere stays untouched and is only observed.
+  after the pid and the POSIX process group are gone. A child that outlives its parent still receives the force-kill.
+  If the group cannot be confirmed empty, its record is retained; a later unverifiable group is never signalled again.
+  A service started elsewhere stays untouched and is only observed.
 - A recorded launch that is still alive but never became healthy is shown as **Last launch not ready** with both
   **Stop** and **Start**: Stop clears the record, while Start makes the Host stop a provably owned previous launch or
   discard a proven-foreign one. It is not shown as "Starting" unless a start from this tab is actually in flight.
 - **Start** is serialized: two requests cannot spawn two services, and a second request observes the launch
   already in flight. Before replacing a recorded launch that never became healthy, Start only kills it when
-  ownership is proven; an unproven record is kept and reported, never silently dropped.
+  ownership is proven; an unproven record is kept and reported, never silently dropped. The selected interpreter's
+  dependencies are checked before stopping the previous service.
 - **Auto-start** (`autoStart`, off by default) pulls the service up when DSH starts, if it is not already running.
+  A refused launch is reported in the DSH Host log.
 
 Python probes and pip installs are bounded Host operations; the service is the only process that must outlive DSH.
 
@@ -221,7 +226,8 @@ with other projects.
 **Saving `.env` is refused.** `LLM_API_KEY` and `EMBEDDING_API_KEY` must both be non-empty in the saved file;
 use `EMPTY` for the embedding key when vector search is off. Emptying a secret field never reaches the file, so
 the stored key is kept; a required key that is not stored at all still fails the save, and the file is left
-unchanged.
+unchanged. Only a missing file is treated as a first save; permission or I/O read errors abort the save without
+replacing the active file or its backup.
 
 **The service reports “Port occupied”.** Something else listens on the endpoint. Change the port in the service
 URL (Memory settings) or stop the other program.

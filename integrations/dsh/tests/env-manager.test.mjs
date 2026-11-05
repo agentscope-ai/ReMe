@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import {
   mkdirSync,
   mkdtempSync,
@@ -137,6 +139,130 @@ test("a failed spawn can be retried immediately", async (t) => {
   const second = await manager.serviceStart(...options);
   assert.equal(second.started, true);
   assert.equal(calls.spawn.length, 2);
+});
+
+test("auto-start reports a refused launch to the Host logger boundary", async (t) => {
+  const { manager, directory, calls } = managerIn(t);
+  manager.checkReme = async () => ({
+    installed: true,
+    version: "0.4.2.1",
+    versionOk: true,
+    hasCore: false,
+    cliPath: "",
+    error: "",
+  });
+  await assert.rejects(
+    manager.autoStart({
+      endpoint: "http://127.0.0.1:2334",
+      pythonPath: "/env/bin/python",
+      workspaceDir: directory,
+    }),
+    /AgentScope/,
+  );
+  assert.equal(calls.spawn.length, 0);
+});
+
+test("missing core dependencies leave the previous service untouched", async (t) => {
+  const { manager, directory, calls, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  writeServiceState(statePath, {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334",
+    workspaceDir: directory,
+    pythonPath: "/old/bin/python",
+    command: "reme start",
+    startedAt: "old",
+  });
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  io.killTree = (pid) => calls.killTree.push(pid);
+  manager.checkReme = async () => ({
+    installed: true,
+    version: "0.4.2.1",
+    versionOk: true,
+    hasCore: false,
+    cliPath: "",
+    error: "",
+  });
+  const result = await manager.serviceStart(
+    "http://127.0.0.1:2334",
+    "/bare/bin/python",
+    directory,
+  );
+  assert.equal(result.started, false);
+  assert.equal(result.code, "core-missing");
+  assert.match(result.error, /AgentScope/);
+  assert.deepEqual(calls.killTree, []);
+  assert.deepEqual(calls.spawn, []);
+  assert.equal(readServiceState(statePath)?.pid, 6000);
+});
+
+test("a replacement never stops a launch recorded during the dependency check", async (t) => {
+  const { manager, directory, calls, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  const original = {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334",
+    workspaceDir: directory,
+    pythonPath: "/old/bin/python",
+    command: "reme start",
+    startedAt: "old",
+  };
+  writeServiceState(statePath, original);
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  io.killTree = (pid) => calls.killTree.push(pid);
+  const check = manager.checkReme;
+  manager.checkReme = async (path) => {
+    writeServiceState(statePath, { ...original, pid: 7000, startedAt: "new" });
+    return check(path);
+  };
+  const result = await manager.serviceStart(
+    original.endpoint,
+    "/new/bin/python",
+    directory,
+  );
+  assert.equal(result.code, "previous-not-stopped");
+  assert.deepEqual(result.record, { endpoint: original.endpoint, pid: 7000 });
+  assert.deepEqual(calls.killTree, []);
+  assert.deepEqual(calls.spawn, []);
+  assert.equal(readServiceState(statePath)?.pid, 7000);
+});
+
+test("a replacement never overwrites a launch recorded while the old service stops", async (t) => {
+  const { manager, directory, calls, io } = managerIn(t);
+  const statePath = join(directory, "reme-memory", "service.json");
+  const original = {
+    pid: 6000,
+    endpoint: "http://127.0.0.1:2334",
+    workspaceDir: directory,
+    pythonPath: "/old/bin/python",
+    command: "reme start",
+    startedAt: "old",
+  };
+  writeServiceState(statePath, original);
+  io.processCommandLine = async () =>
+    `reme start workspace_dir=${directory} service.port=2334`;
+  let running = true;
+  io.probePid = (pid) => {
+    if (pid === 6000 && !running)
+      throw Object.assign(new Error("gone"), { code: "ESRCH" });
+  };
+  io.killTree = (pid) => {
+    calls.killTree.push(pid);
+    running = false;
+    writeServiceState(statePath, { ...original, pid: 7000, startedAt: "new" });
+  };
+  const result = await manager.serviceStart(
+    original.endpoint,
+    "/new/bin/python",
+    directory,
+  );
+  assert.equal(result.code, "previous-not-stopped");
+  assert.deepEqual(result.record, { endpoint: original.endpoint, pid: 7000 });
+  assert.deepEqual(calls.killTree, [6000]);
+  assert.deepEqual(calls.spawn, []);
+  assert.equal(readServiceState(statePath)?.pid, 7000);
 });
 
 test("refuses to spawn while another process owns the port", async (t) => {
@@ -862,4 +988,44 @@ test("writes .env atomically with a backup and owner-only mode", (t) => {
   assert.match(backup, /^LLM_API_KEY=sk-old$/m);
   if (process.platform !== "win32")
     assert.equal(statSync(envPath).mode & 0o777, 0o600);
+});
+
+for (const code of ["EIO", "EACCES"]) {
+  test(`a ${code} .env read failure preserves the file and backup`, (t) => {
+    const { manager, directory } = managerIn(t);
+    const envPath = join(directory, ".env");
+    const original = "# keep\r\nLLM_API_KEY=old\r\nUNRELATED=keep\r\n";
+    writeFileSync(envPath, original);
+    writeFileSync(`${envPath}.bak`, "previous backup");
+    const read = fs.readFileSync;
+    let injected = false;
+    const stub = t.mock.method(fs, "readFileSync", (path, ...args) => {
+      if (path === envPath && !injected) {
+        injected = true;
+        throw Object.assign(new Error(code), { code });
+      }
+      return read(path, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.throws(() => manager.writeEnv(directory, { LLM_API_KEY: "new" }), {
+        code,
+      });
+    } finally {
+      stub.mock.restore();
+      syncBuiltinESMExports();
+    }
+    assert.equal(injected, true);
+    assert.equal(readFileSync(envPath, "utf8"), original);
+    assert.equal(readFileSync(`${envPath}.bak`, "utf8"), "previous backup");
+  });
+}
+
+test("a missing .env can still be created on the first save", (t) => {
+  const { manager, directory } = managerIn(t);
+  manager.writeEnv(directory, { LLM_API_KEY: "new" });
+  assert.match(
+    readFileSync(join(directory, ".env"), "utf8"),
+    /^LLM_API_KEY=new$/m,
+  );
 });

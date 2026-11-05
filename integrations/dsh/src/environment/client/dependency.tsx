@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StatusRpc } from "../../client/status-page.js";
 import { safeError } from "../../endpoint.js";
+import { canHostService } from "../dependency.js";
 import { interpreterKey } from "../interpreter-key.js";
 import type { InstallStatus, RemeCheck } from "../types.js";
 import { fill, type EnvTranslator } from "./locales.js";
@@ -368,7 +369,7 @@ export function DependencySection({
     ? undefined
     : !checkData.installed
     ? { tone: "progress" as const, text: t("depMissing") }
-    : checkData.versionOk && checkData.hasCore
+    : canHostService(checkData)
     ? { tone: "ok" as const, text: t("depReady") }
     : checkData.versionOk
     ? { tone: "progress" as const, text: t("coreMissingBadge") }
