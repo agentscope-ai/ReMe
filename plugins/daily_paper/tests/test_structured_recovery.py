@@ -134,7 +134,7 @@ async def test_codex_json_parse_failure_gets_one_shorter_retry(tmp_path, monkeyp
     downloader.download.assert_awaited_once()
 
 
-@pytest.mark.parametrize("empty_frontmatter", ["---\n---", "---\n---\n"])
+@pytest.mark.parametrize("empty_frontmatter", ["---\n---", "---\n---\n", "---\r\n---\r\n"])
 @pytest.mark.asyncio
 async def test_empty_frontmatter_retries_once_without_repeating_pdf_work(tmp_path, monkeypatch, empty_frontmatter):
     """An empty frontmatter-only note triggers one shorter retry after one PDF extraction."""
@@ -173,9 +173,16 @@ async def test_empty_frontmatter_retries_once_without_repeating_pdf_work(tmp_pat
     assert extraction_calls == [True]
 
 
-@pytest.mark.parametrize("body", ["---\n---\nUseful note", "---\n---\n\nUseful note"])
-def test_content_after_empty_frontmatter_is_retained(body):
-    """Removing an empty frontmatter block must leave the Markdown body intact."""
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("---\n---\nUseful note", "Useful note"),
+        ("---\n---\n\nUseful note", "Useful note"),
+        ("---\r\ntitle: generated\r\n---\r\nUseful note", "Useful note"),
+    ],
+)
+def test_frontmatter_removal_preserves_content(body, expected):
+    """Removing a document-leading frontmatter block must retain following Markdown."""
     result = markdown_output(
         {
             "status": "completed",
@@ -184,4 +191,21 @@ def test_content_after_empty_frontmatter_is_retained(body):
         },
     )
 
-    assert result.body == "Useful note"
+    assert result.body == expected
+
+
+def test_horizontal_rules_in_markdown_body_are_not_frontmatter():
+    """Frontmatter removal must only consider a delimiter at the document start."""
+    result = markdown_output(
+        {
+            "status": "completed",
+            "error": None,
+            "structured_output": {
+                "title": "Title",
+                "desc": "Description",
+                "body": "# Findings\n\nIntroduction.\n\n---\nImportant supported finding.\n---\nConclusion.",
+            },
+        },
+    )
+
+    assert result.body == "# Findings\n\nIntroduction.\n\n---\nImportant supported finding.\n---\nConclusion."
