@@ -3,6 +3,7 @@
 # pylint: disable=protected-access,missing-function-docstring,missing-class-docstring
 
 import datetime
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -38,3 +39,28 @@ def test_cron_delay_uses_elapsed_seconds(monkeypatch, timezone, instant, expecte
     job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone=timezone))
 
     assert job._next_fire_delay() == expected_delay
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="requires time.tzset")
+@pytest.mark.parametrize("with_app_context", [True, False], ids=["local-timezone", "standalone"])
+def test_cron_local_time_after_dst_fallback(monkeypatch, with_app_context):
+    fixed = datetime.datetime.fromisoformat("2026-11-01T06:30:00+00:00")
+
+    class FixedDatetime(datetime.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.datetime.fromtimestamp(fixed.timestamp(), tz)
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setenv("TZ", "America/New_York")
+            time.tzset()
+            patch.setattr(cron_job_module, "datetime", SimpleNamespace(datetime=FixedDatetime))
+            job = CronJob(cron="* * * * *")
+            if with_app_context:
+                job.app_context = SimpleNamespace(app_config=SimpleNamespace(timezone=None))
+
+            assert FixedDatetime.now().fold == 1
+            assert job._next_fire_delay() == 60
+    finally:
+        time.tzset()
