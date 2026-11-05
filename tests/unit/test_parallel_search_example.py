@@ -60,13 +60,15 @@ def test_create_client_uses_current_parallel_endpoint(monkeypatch):
 
 
 def test_validate_url_requires_public_http_url():
-    """Only absolute HTTP(S) fetch targets are accepted."""
+    """Only absolute HTTP(S) fetch targets without embedded credentials are accepted."""
     assert example.validate_url("https://example.com/article") == "https://example.com/article"
     assert example.validate_url("http://example.com/article") == "http://example.com/article"
     with pytest.raises(argparse.ArgumentTypeError, match="absolute http"):
         example.validate_url("file:///etc/passwd")
     with pytest.raises(argparse.ArgumentTypeError, match="absolute http"):
         example.validate_url("example.com/article")
+    with pytest.raises(argparse.ArgumentTypeError, match="embedded credentials"):
+        example.validate_url("https://user:password@example.com/article")
 
 
 def test_run_example_discovers_and_calls_both_tools_in_order():
