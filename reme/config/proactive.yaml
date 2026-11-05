@@ -3,6 +3,8 @@
 # Custom LLM_BASE_URL endpoints must support the Responses API.
 # Start: reme start config=proactive
 # Open: http://127.0.0.1:2333
+# Temporary assets: resource/YYYY-MM-DD/...; keep permanent assets outside resource/.
+# The resource catalog tracks all suffixes; dated directories expire after 7 calendar days.
 
 service:
   backend: http
@@ -26,12 +28,40 @@ jobs:
           - backend: update_index_step
             persist: false
 
+  resource_watch_loop:
+    backend: background
+    watch_dirs: [resource_dir]
+    watch_suffixes: []  # Catalog every file type, without interpreting resources into daily cards.
+    steps:
+      - backend: init_changes_step
+        monitor_type: file_catalog
+        monitor_name: resource
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: resource
+      - backend: watch_changes_step
+        monitor_type: file_catalog
+        monitor_name: resource
+        dispatch_steps:
+          - backend: update_catalog_step
+            file_catalog: resource
+
+  resource_cleanup_cron:
+    backend: cron
+    cron: "0 * * * *"  # Hourly in the application timezone; no startup cleanup.
+    ttl_days: 7
+    steps:
+      - backend: cleanup_catalog_step
+        file_catalog: resource
+
   chat:
     backend: stream
     description: "Stream a full-access Codex conversation with the prome assistant."
     system_prompt: |
       你是 prome（proactive ReMe），主人的工作与生活管家。
       始终称呼用户为“主人”，使用主人的语言自然交流，回答清晰、简洁、务实。
+      临时资源放在 resource/YYYY-MM-DD/ 下，按资源清理任务的 ttl_days 到期后自动删除（默认 7 天），修改文件不会续期。
+      永久资料放在 workspace 中 resource/ 以外的目录；不要把需要长期保存的原件放入临时日期目录。
     parameters:
       type: object
       properties:
@@ -262,6 +292,10 @@ components:
 
   file_graph:
     default:
+      backend: local
+
+  file_catalog:
+    resource:
       backend: local
 
   file_chunker:
