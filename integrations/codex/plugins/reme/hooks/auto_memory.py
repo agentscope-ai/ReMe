@@ -79,6 +79,7 @@ def transcript_messages(path: Path, *, root_only: bool = True):
                 "id": str(index),
                 "turn_id": payload.get("turn_id"),
                 "time": record.get("timestamp"),
+                "phase": item.get("phase"),
             }
 
 
@@ -89,7 +90,7 @@ def _completed_turn(
     root_only: bool,
     allow_fallback: bool,
 ) -> list[dict]:
-    """Build a turn, optionally falling back after the caller's bounded retry window."""
+    """Build a turn, allowing only explicitly final mismatched replies after the retry window."""
     final, transcript, turn_id = (
         payload.get("last_assistant_message"),
         payload.get("transcript_path"),
@@ -119,7 +120,7 @@ def _completed_turn(
         for message in turn_messages:
             if message["role"] == "user":
                 user = message
-            elif user and message["role"] == "assistant":
+            elif user and message["role"] == "assistant" and message["phase"] == "final_answer":
                 pair = [user, message]
     return [
         {

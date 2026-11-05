@@ -48,14 +48,16 @@ def test_accepts_unterminated_final_transcript_line(codex_hook, tmp_path):
     assert [message["content"][0]["text"] for message in pair] == ["question", "answer"]
 
 
-def test_uses_last_same_turn_assistant_when_stop_text_differs(codex_hook, tmp_path):
-    """Fall back only after the retry window when completed Stop text differs."""
+def test_uses_last_same_turn_final_answer_when_stop_text_differs(codex_hook, tmp_path):
+    """Fall back to an explicitly final item after the retry window when Stop text differs."""
     path = tmp_path / "rollout.jsonl"
     rows = [
         completed("turn-one", "UserMessage", "question"),
         completed("turn-one", "AgentMessage", "progress"),
         completed("turn-one", "AgentMessage", "final answer"),
     ]
+    rows[-1]["payload"]["item"]["phase"] = "final_answer"
+    rows.append(completed("turn-one", "AgentMessage", "later phase-less progress"))
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     payload = {
         "transcript_path": str(path),
@@ -67,6 +69,63 @@ def test_uses_last_same_turn_assistant_when_stop_text_differs(codex_hook, tmp_pa
     assert [message["content"][0]["text"] for message in pair] == ["question", "final answer"]
     payload["last_assistant_message"] = None
     assert codex_hook.completed_turn_with_retry(payload, "session", timeout=0) == []
+
+
+@pytest.mark.parametrize("final_turn", ["turn-one", "other-turn"])
+def test_capture_rejects_mismatched_phase_less_reply(codex_hook, tmp_path, final_turn):
+    """A complete phase-less row or another turn's final phase cannot authorize a fallback."""
+    path = tmp_path / "rollout.jsonl"
+    rows = [
+        completed("turn-one", "UserMessage", "question"),
+        completed("turn-one", "AgentMessage", "progress"),
+        completed(final_turn, "AgentMessage", "final answer"),
+    ]
+    if final_turn == "other-turn":
+        rows[-1]["payload"]["item"]["phase"] = "final_answer"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    payload = {
+        "session_id": "session",
+        "transcript_path": str(path),
+        "last_assistant_message": "rendered final answer",
+        "turn_id": "turn-one",
+    }
+    config = codex_hook.load_config()
+    assert codex_hook.capture(config, payload) is None
+    assert not list(codex_hook.queue_root(config).rglob("*.json"))
+
+
+@pytest.mark.parametrize("progress_phase", [None, "commentary"])
+def test_capture_skips_unfinished_final_record_after_retry_expires(codex_hook, tmp_path, monkeypatch, progress_phase):
+    """An expired retry window must not persist progress while the final JSON is incomplete at EOF."""
+    path = tmp_path / "rollout.jsonl"
+    question = completed("turn-one", "UserMessage", "question")
+    progress = completed("turn-one", "AgentMessage", "progress")
+    if progress_phase is not None:
+        progress["payload"]["item"]["phase"] = progress_phase
+    final = completed("turn-one", "AgentMessage", "final answer")
+    final["payload"]["item"]["phase"] = "final_answer"
+    prefix = "".join(json.dumps(row) + "\n" for row in (question, progress))
+    final_json = json.dumps(final)
+    path.write_text(prefix + final_json[:-2], encoding="utf-8")
+    payload = {
+        "session_id": "session",
+        "transcript_path": str(path),
+        "last_assistant_message": "final answer",
+        "turn_id": "turn-one",
+    }
+    monkeypatch.setattr(codex_hook, "CAPTURE_SETTLE_SECONDS", 3.0)
+    clock = iter([0.0, 3.0, 3.0])
+    monkeypatch.setattr(codex_hook.time, "monotonic", lambda: next(clock))
+    config = codex_hook.load_config()
+
+    assert codex_hook.capture(config, payload) is None
+    assert not list(codex_hook.queue_root(config).rglob("*.json"))
+    assert not list(codex_hook.queue_root(config).rglob("*.done"))
+
+    path.write_text(prefix + final_json, encoding="utf-8")
+    root = codex_hook.capture(config, payload)
+    queued = json.loads(next(root.glob("*.json")).read_text(encoding="utf-8"))
+    assert [message["content"][0]["text"] for message in queued["messages"]] == ["question", "final answer"]
 
 
 def test_does_not_cross_turns_when_turn_id_is_unknown(codex_hook, tmp_path):
