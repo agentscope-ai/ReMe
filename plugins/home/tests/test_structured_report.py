@@ -3,6 +3,7 @@
 # pylint: disable=missing-function-docstring,missing-class-docstring,protected-access,unused-argument
 
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -51,17 +52,19 @@ def test_invalid_or_ambiguous_reports_require_correction(text):
         parse_json_object(AssistantMsg(name="review", content=text), report_name="review")
 
 
-@pytest.mark.parametrize("template", ["{}", "Completed.\n```json\n{}\n```"])
-def test_text_input_preserves_literal_formatting_inside_json_strings(template):
-    text = template.format('{"reason":"literal ```json"}')
-    assert parse_json_object(text, report_name="review") == {
-        "reason": "literal ```json",
-    }
-
-
-def test_bare_json_preserves_literal_thinking_tags():
-    text = '{"reason":"literal <think>evidence</think>"}'
-    assert parse_json_object(text, report_name="review") == {"reason": "literal <think>evidence</think>"}
+@pytest.mark.parametrize(
+    "template",
+    [
+        "{}",
+        "Completed. {}",
+        "Completed.\n```json\n{}\n```",
+        '<think>{{"draft": "ignored"}}</think>\n<think>More analysis.</think>\n{}',
+    ],
+)
+@pytest.mark.parametrize("literal", ["literal ```json", "literal <think>evidence</think>", "<think>evidence</think>"])
+def test_text_input_preserves_literal_formatting_inside_json_strings(template, literal):
+    value = {"reason": literal}
+    assert parse_json_object(template.format(json.dumps(value)), report_name="review") == value
 
 
 def test_repairs_preserve_strings_and_nested_json():

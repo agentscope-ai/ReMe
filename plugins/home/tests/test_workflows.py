@@ -115,6 +115,17 @@ def test_parse_optimizer_result_formats(template):
     assert optimizer_module.parse_result(template.format(json.dumps(claim))).model_dump() == claim
 
 
+@pytest.mark.asyncio
+async def test_optimizer_job_preserves_literal_formatting_in_final_report(app, prepared, sandbox):
+    path = await baseline(app)
+    claim = json.loads(final_report(prepared, path=path))
+    claim["report"] = "<think>Evidence from the evaluated source</think>\n```python\nexample\n```"
+    set_model(app, "home_optimizer", ScriptedModel(final="```json\n" + json.dumps(claim) + "\n```"))
+    response = await app.run_job("home_optimize")
+    assert response.success, response.answer
+    assert response.answer["report"] == claim["report"]
+
+
 def test_optimizer_shared_recovery_rejects_competing_and_non_object_reports():
     claim = {"branch_name": "candidate", "commit_sha": "a" * 40, "evaluation_path": "run", "report": "Evidence"}
     text = json.dumps(claim)

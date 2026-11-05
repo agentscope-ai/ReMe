@@ -72,8 +72,9 @@ def parse_json_object(message: Msg | str, *, report_name: str) -> dict[str, Any]
     try:
         payload = json.loads(_remove_trailing_commas(text.strip()))
     except json.JSONDecodeError:
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        if "```" in text:
+        # Strip only leading reasoning blocks; formatting inside report strings is data.
+        text = re.sub(r"^(?:\s*<think>.*?</think>)+\s*", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+        if re.search(r"^[ \t]*```", text, flags=re.MULTILINE):
             fences = list(
                 re.finditer(
                     r"^[ \t]*```(?:json)?[ \t]*\r?\n(.*?)^[ \t]*```[ \t]*\r?$",
