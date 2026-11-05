@@ -19,7 +19,7 @@ from .schema import AnalyzedPaper, DailyPaperMarkdownOutput
 # Number of papers selected, analyzed, and digested each run. Shared across steps.
 PAPER_COUNT = 3
 _STATE_PREFIX = "daily_paper_"
-_FRONTMATTER_PATTERN = re.compile(r"^---[ \t]*\n.*?^---[ \t]*(?:\n|$)", re.DOTALL | re.MULTILINE)
+_FRONTMATTER_PATTERN = re.compile(r"\A---[ \t]*\r?\n.*?^---[ \t]*(?:\r?\n|$)", re.DOTALL | re.MULTILINE)
 _MARKDOWN_HEADING_PATTERN = re.compile(r"^#+\s*")
 _UNSAFE_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _CHINESE_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
