@@ -17,6 +17,8 @@ reme start
 reme start service.host=127.0.0.1 service.port=8181
 ```
 
+IPv6 literals such as `::1` can be used as the host; ReMe formats them correctly when HTTP or MCP clients connect.
+
 From another terminal, call a Job through the CLI client:
 
 ```bash

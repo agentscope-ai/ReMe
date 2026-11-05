@@ -28,6 +28,17 @@ def test_mcp_client_converts_wildcard_bind_address_to_loopback():
     assert client.port == 8123
 
 
+@pytest.mark.parametrize(
+    ("transport", "expected_path"),
+    [("sse", "/sse"), ("streamable-http", "/mcp")],
+)
+def test_mcp_client_brackets_ipv6_service_addresses(transport, expected_path):
+    """Both network MCP transports construct valid URLs for IPv6 literals."""
+    client = MCPClient(transport=transport, host="::1", port=8123)
+
+    assert client._build_transport().url == f"http://[::1]:8123{expected_path}"
+
+
 @pytest.mark.asyncio
 async def test_mcp_catalog_uses_sdk_field_names():
     """Tool catalogs expose SDK 2 fields while preserving schemas and user metadata."""

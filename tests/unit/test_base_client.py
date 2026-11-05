@@ -31,6 +31,11 @@ def test_explicit_host_only_keeps_host_and_defaults_port():
     assert client.port == REME_DEFAULT_PORT
 
 
+def test_ipv6_host_builds_a_valid_http_base_url():
+    """IPv6 literals are bracketed by URL construction rather than string interpolation."""
+    assert HttpClient(host="::1", port=8123).base_url == "http://[::1]:8123"
+
+
 def test_explicit_fields_win_over_service_discovery(monkeypatch):
     """Discovery fills only the missing field; explicit fields are kept."""
     monkeypatch.setenv(REME_SERVICE_INFO, '{"host": "10.0.0.1", "port": 9000}')
@@ -57,6 +62,13 @@ def test_service_discovery_fills_both_fields_when_nothing_is_explicit(monkeypatc
     client = MCPClient()
     assert client.host == "10.0.0.1"
     assert client.port == 9000
+
+
+def test_ipv6_service_discovery_builds_a_valid_http_base_url(monkeypatch):
+    """Discovered IPv6 service addresses use the same URL-safe construction."""
+    monkeypatch.setenv(REME_SERVICE_INFO, '{"host": "::1", "port": 9000}')
+
+    assert HttpClient().base_url == "http://[::1]:9000"
 
 
 def test_invalid_service_info_keeps_explicit_fields_and_defaults_the_rest(monkeypatch):
