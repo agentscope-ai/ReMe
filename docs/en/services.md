@@ -74,9 +74,38 @@ Once empty-session creation starts, selecting that session completes before canc
 Each new PA session loads workspace-relative `personal/REME_MEMORY.md` into its configured prompt. Missing or empty
 files instruct the agent to naturally ask about preferences, current situation, interests, and projects in its first
 reply, then create the file from confirmed information. The agent is instructed to read the latest file before updates
-and keep it concise, complete, and current. Creating a session itself does not generate a reply or write memory.
+and keep it concise, complete, and current. PA persona, memory, onboarding, and forgetting prompts are loaded by
+`PromptHandler` from `reme/steps/proactive/pa.yaml`, with English defaults and Chinese variants. The proactive config
+defaults to `language=zh`; use `language=en` for English or a Step's `language` to override the application language.
+Customize localized keys through the Step `prompt_dict` (for example, `system_prompt_zh`). Loaded memory text
+is preserved. Explicit requests to forget information instruct the agent to
+delete the matching content without copying it elsewhere or restoring it from old conversations or snapshots.
+Maintenance also removes confirmed obsolete state, superseded preferences, abandoned interests, and finished project
+details without lasting value, while retaining valid long-term facts. Creating a session itself does not generate a
+reply or write memory.
 The prompt snapshot is reused for that session; new sessions reload the file. Reads must be complete and at most
 50 KiB; read errors or workspace-escaping paths fail session creation without replacing the current selection.
+
+The `proactive` config also starts `pa_loop`: wait five minutes after startup or restart, discover interesting resources,
+then decide whether the current PA conversation would benefit from a reminder. Both roles and their bilingual prompts
+live in `reme/steps/proactive/`. Background rounds require a nonempty `personal/REME_MEMORY.md`; missing or unreadable
+memory fails the round before agent calls or resource acknowledgements, then retries after five minutes.
+The discovery agent calls `resource_changes` and `resource_processed` itself: acknowledge unrelated packages after assessment,
+relevant packages after saving their findings, and leave failed packages pending. Notes live at
+`{daily_dir}/YYYY-MM-DD/interest_HHMMSS.md`, with a numeric suffix for same-second collisions. Frontmatter `status` is
+`unsent`, `ready`, `sent`, or `discarded`; code supplies IDs and timestamps and repairs notes with missing metadata.
+Discovery may create only its requested output path and must preserve existing notes. The push role may edit only
+`status` and `message` on existing candidates; invalid edits fail the round.
+The push agent considers candidates across all dates, including rounds without new findings, with the current session
+ID, native session file path, activity, and recent messages. At most one note may be `ready`, with reminder text in
+frontmatter `message`. Code rechecks the target session and conversation turn before delivery, recovers interrupted
+delivery with a stable message ID, rejects concurrent note changes, and records `target_session_id`, `sent_at`, and related
+metadata. `sent` means appended
+to the conversation, not read by the user.
+The push agent may call private Job `set_next_wakeup(minutes=...)`, communicating through `ApplicationContext.metadata`.
+The override applies once after the current round; omission, failure, and restart restore five minutes. `pa_proactive`
+and `set_next_wakeup` are not exposed through the HTTP/MCP service; the latter is bound to the background agent's tools.
+Disable background reminders with `jobs.pa_loop.enabled=false`.
 
 MCP does not expose Stream Jobs.
 

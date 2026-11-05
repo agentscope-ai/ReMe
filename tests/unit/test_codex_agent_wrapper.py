@@ -325,9 +325,11 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
 
 
 @pytest.mark.asyncio
-async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rotation(system):
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rotation(system, language):
     agent, _, _, _ = system
     context = agent.app_context
+    context.app_config.language = language
     context.components["agent_wrapper"] = {"default": agent}
     memory = agent.workspace_path / "personal/REME_MEMORY.md"
     memory.parent.mkdir()
@@ -335,7 +337,10 @@ async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rota
     session_id = (await PaNewSessionStep(app_context=context)()).answer
     client = _Codex.instances[0]
     prompt = client.opened[-1][2]["developer_instructions"]
-    assert "Use Chinese." in prompt and "read the latest complete file" in prompt
+    assert "Use Chinese." in prompt
+    assert ("先读取最新完整文件" if language == "zh" else "read the latest complete file") in prompt
+    assert ("立即从该文件删除对应内容" if language == "zh" else "immediately remove the matching content") in prompt
+    assert ("恢复已遗忘或删除的内容" if language == "zh" else "never restore forgotten or deleted content") in prompt
     assert not client.threads[session_id].inputs
     memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
     for _ in range(2):

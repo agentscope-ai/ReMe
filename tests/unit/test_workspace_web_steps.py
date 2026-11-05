@@ -188,8 +188,8 @@ async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp
 
 
 @pytest.mark.asyncio
-async def test_proactive_chat_uses_native_tools_and_preserves_configured_prompt(tmp_path):
-    """The proactive stream opts out of ReMe tools and adds only its configured prompt."""
+async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
+    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
 
     config = _load_config("proactive")
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
@@ -202,7 +202,7 @@ async def test_proactive_chat_uses_native_tools_and_preserves_configured_prompt(
     try:
         await chat(query="Help plan my day", stream_queue=queue)
         assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith(config["jobs"]["pa_chat"]["steps"][0]["system_prompt"])
+        assert agent.reply_kwargs["system_prompt"].startswith("You are prome")
         assert "Personal memory file:" in agent.reply_kwargs["system_prompt"]
         assert agent.reply_kwargs["resume"] == "session-new"
         chunks = [await queue.get() for _ in range(5)]

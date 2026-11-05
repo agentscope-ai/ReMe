@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
 
 
+class SessionChangedError(RuntimeError):
+    """A reminder's conversation anchor no longer matches the target session."""
+
+
 @dataclass
 class _ThreadState:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -149,7 +153,13 @@ class CodexAppServer(BaseComponent):
                 if any(not record["injected"] for record in records)
                 else set()
             )
-            return history.session_snapshot(thread, records, recovered)
+            snapshot = history.session_snapshot(thread, records, recovered)
+            if getattr(thread, "path", None):
+                session_file = Path(thread.path).resolve()
+                if not session_file.is_relative_to(self.session_path.resolve()):
+                    raise ValueError("Codex session path is outside its configured home")
+                snapshot.path = str(session_file)
+            return snapshot
 
     async def append_session(
         self,
@@ -158,6 +168,7 @@ class CodexAppServer(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
         """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
         from openai_codex.generated.v2_all import ThreadInjectItemsResponse
@@ -187,7 +198,9 @@ class CodexAppServer(BaseComponent):
                             record["injected"] = True
                             await complete_in_thread(history.write_records, path, records)
                         return SessionMessage.model_validate(record["message"])
-                else:
+                if expected_turn_id is not None and (thread.turns[-1].id if thread.turns else "") != expected_turn_id:
+                    raise SessionChangedError("Session changed before appending")
+                if record is None:
                     record = history.new_record(message_id, content, thread)
                     records.append(record)
                 # An unaccepted attempt may be retried after later user turns.

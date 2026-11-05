@@ -197,7 +197,9 @@ Proactive Chat 目前只支持 `CodexAgentWrapper`，其他 wrapper 抛出 `NotI
 proactive 配置只提供 `pa_*` 对话接口。
 
 新 PA 会话会加载工作区的 `personal/REME_MEMORY.md`；文件不存在或正文为空时，提示 Agent 在首次回复中了解用户，
-建立简洁完整的个人记忆，并在信息变化时维护。当前会话复用初始化时的 Prompt，新会话重新读取文件。
+建立简洁完整的个人记忆，并在信息变化时维护；用户要求遗忘或信息确认失效时清理，不从旧上下文恢复已删除内容。
+PA Prompt 统一通过 `PromptHandler` 加载 `reme/steps/proactive/pa.yaml` 中的中英文模板，proactive 默认 `language=zh`，
+可用 `language=en` 切换英文。当前会话复用初始化时的 Prompt，新会话重新读取文件。
 创建会话本身不生成回复，也不写入记忆。
 
 内置 chat job 对工作区只读：它可以搜索和读取上下文，但不应替代明确保存长期知识的操作。Agent 对话需要有效的 Agent/模型配置；文件浏览、编辑、图谱和服务检查不需要模型。

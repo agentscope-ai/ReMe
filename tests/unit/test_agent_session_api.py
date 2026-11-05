@@ -126,6 +126,40 @@ class NativeSession:
         return SimpleNamespace()
 
 
+@pytest.mark.asyncio
+async def test_session_snapshot_exposes_the_validated_native_file_and_turn(runtime, tmp_path):
+    server, native = runtime
+    snapshot = await server.read_session("session-1")
+    assert snapshot.path == native.thread.path
+    assert snapshot.last_turn_id == "turn-1"
+    native.thread.path = str(tmp_path.parent / "outside.jsonl")
+    with pytest.raises(ValueError, match="outside its configured home"):
+        await server.read_session("session-1")
+
+
+@pytest.mark.asyncio
+async def test_context_guard_rejects_stale_reminder_but_recovers_accepted_delivery(runtime):
+    from reme.components.codex_app_server import SessionChangedError
+
+    server, native = runtime
+    native.thread.turns.append(turn("turn-2", "new question", "new answer"))
+    with pytest.raises(SessionChangedError):
+        await server.append_session("session-1", "stale", message_id="guard", expected_turn_id="turn-1")
+    assert native.injected == []
+    accepted = await server.append_session("session-1", "current", message_id="guard", expected_turn_id="turn-2")
+    native.thread.turns.append(turn("turn-3", "later", "later answer"))
+    assert (
+        await server.append_session(
+            "session-1",
+            "current",
+            message_id="guard",
+            expected_turn_id="turn-2",
+        )
+        == accepted
+    )
+    assert len(native.injected) == 1
+
+
 @pytest_asyncio.fixture
 async def runtime(tmp_path, monkeypatch):
     server = CodexAppServer(

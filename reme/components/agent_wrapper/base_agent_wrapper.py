@@ -299,8 +299,9 @@ class BaseAgentWrapper(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
-        """Append an idempotent proactive assistant message after the active turn finishes."""
+        """Append an idempotent assistant message, optionally requiring the current conversation turn."""
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:

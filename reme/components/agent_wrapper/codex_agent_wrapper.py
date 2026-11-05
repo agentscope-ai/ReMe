@@ -294,10 +294,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
         """Append a proactive message through the shared session owner."""
         await self.start()
-        return await self.app_server.append_session(session_id, content, message_id=message_id, timeout=timeout)
+        return await self.app_server.append_session(
+            session_id,
+            content,
+            message_id=message_id,
+            timeout=timeout,
+            expected_turn_id=expected_turn_id,
+        )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox

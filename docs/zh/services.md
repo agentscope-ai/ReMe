@@ -77,9 +77,28 @@ PA Job 目前只支持 `CodexAgentWrapper`，其他 wrapper 抛出 `NotImplement
 
 每个新 PA 会话都会将工作区的 `personal/REME_MEMORY.md` 加入配置的 Prompt。文件不存在或正文为空时，提示
 Agent 在首次回复中自然了解用户的偏好、当前状态、关注事项和项目，并根据确认的信息创建文件；后续出现新增或变化时，
-要求先读取最新文件，再合并更新，保持内容简洁、完整、有效。创建会话本身不生成回复，也不写入记忆。
+要求先读取最新文件，再合并更新，保持内容简洁、完整、有效。PA 人设、记忆、首次询问和遗忘提示词统一由 `PromptHandler`
+从 `reme/steps/proactive/pa.yaml` 加载，提供英文默认版本和中文版本。proactive 默认 `language=zh`，可用 `language=en`
+切换英文；Step 的 `language` 优先于 Application。定制时使用 Step 的 `prompt_dict` 覆盖对应语言的键（如 `system_prompt_zh`）。
+加载的记忆正文保留原文。用户明确要求遗忘时，提示 Agent 删除对应内容，不得转存，也不得从旧会话、摘要或记忆副本恢复。
+维护时还应清理确认失效的状态、被替代的偏好、不再关注的事项及没有长期价值的已结束项目细节，保留仍有效的长期事实。
+创建会话本身不生成回复，也不写入记忆。
 同一会话复用初始化时的 Prompt，新会话重新读取文件。文件必须完整读取且不超过 50 KiB；读取失败或路径逃出工作区时，
 新建失败并保留原来的当前会话。
+
+`proactive` 配置还启动 `pa_loop` 后台任务：启动及重启后先等五分钟，每轮先发现用户可能感兴趣的资源，再结合当前
+PA 会话决定是否提醒。两个角色的实现与双语提示词位于 `reme/steps/proactive/`。后台要求存在非空的
+`personal/REME_MEMORY.md`；缺失或读取失败时本轮失败，五分钟后重试，不调用 agent 或确认消费资源。
+发现 agent 自行调用 `resource_changes` 和 `resource_processed`：无关资源完整判断后确认，相关资源成功保存后确认，失败项留待后续。
+文档保存为 `{daily_dir}/YYYY-MM-DD/interest_HHMMSS.md`，同秒重名追加数字后缀。frontmatter 的 `status` 为
+`unsent`、`ready`、`sent` 或 `discarded`；代码补齐 ID、创建和更新时间，也会恢复缺失元数据的文档。
+发现角色只能创建指定输出路径，必须保留已有文档；推送角色只能修改已有候选的 `status` 和 `message`，越界修改会使本轮失败。
+推送 agent 每轮评估所有日期的历史候选，获得当前会话 ID、原生会话文件路径、状态与近期消息；没有新文档也会继续评估旧候选。
+每轮最多一篇 `ready`，提醒正文写入 frontmatter 的 `message`。代码投递前复查目标会话和对话轮次，通过稳定消息 ID
+恢复中断的投递，拒绝覆盖并发修改过的文档，并记录 `target_session_id`、`sent_at` 等元数据；`sent` 表示写入会话成功，不表示用户已读。
+推送 agent 可调用私有 Job `set_next_wakeup(minutes=...)`，通过 `ApplicationContext.metadata` 调整本轮结束后的下一次等待。
+该设置消费一次，未设置、执行失败或服务重启时恢复五分钟。`pa_proactive` 和 `set_next_wakeup` 不暴露为 HTTP/MCP 服务接口；
+后者只通过后台 agent 的工具列表使用。关闭后台提醒可配置 `jobs.pa_loop.enabled=false`。
 
 MCP 不暴露 Stream Job。
 
