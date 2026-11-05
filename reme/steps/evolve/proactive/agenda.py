@@ -216,6 +216,7 @@ class ProactiveAgendaStep(BaseStep):
                 wrapper.reply(user_message, system_prompt=system_prompt),
                 timeout=self.llm_timeout_seconds,
             )
+            raw = agent_reply_result_text(result)
         except asyncio.TimeoutError:
             self.logger.warning(f"[{self.name}] LLM reply timed out after {self.llm_timeout_seconds}s")
             return self._fallback_agenda(carded_ids)
@@ -224,7 +225,6 @@ class ProactiveAgendaStep(BaseStep):
                 f"[{self.name}] LLM reply failed ({type(e).__name__}: {e}); using fallback agenda",
             )
             return self._fallback_agenda(carded_ids)
-        raw = agent_reply_result_text(result)
         agenda_raw, suppressed_raw = parse_agenda_reply(raw)
 
         allowed = set(carded_ids)

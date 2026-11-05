@@ -6,6 +6,7 @@ from contextlib import chdir as _temp_chdir
 import asyncio
 import tempfile
 import warnings
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -13,7 +14,7 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.file_store import LocalFileStore
 from reme.enumeration import ChunkEnum
-from reme.schema import FileFrontMatter, FileLink, FileNode, StreamChunk, TraverseGraph
+from reme.schema import FileFrontMatter, FileLink, FileNode, StreamChunk, TokenUsage, TraverseGraph
 from reme.steps.common.add import AddStep
 from reme.steps.common.health_check import _file_graph_status
 from reme.steps.common.llm_demo import LLMDemoStep
@@ -154,7 +155,7 @@ class _FakeAgentWrapper(BaseAgentWrapper):
 
     async def reply(self, inputs, **kwargs) -> dict:
         self.last_kwargs = kwargs
-        return {"result": "ok"}
+        return self._reply_result(session_id="session-1", result="ok", raw={})
 
     async def reply_stream(self, inputs, **kwargs):
         self.last_kwargs = kwargs
@@ -175,6 +176,29 @@ async def test_llm_demo_always_registers_add_tool():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("step_class", [LLMDemoStep, StreamLLMDemoStep])
+@pytest.mark.parametrize("status", ["completed", "failed", "interrupted", "waiting"])
+async def test_nonstream_demo_forwards_outcome_and_native_details(step_class, status):
+    """HTTP/tool results retain native details and never report incomplete calls as successes."""
+    wrapper = _FakeAgentWrapper()
+    reply = wrapper._reply_result(
+        session_id="session-1",
+        result="partial or final",
+        status=status,
+        error="provider failure" if status == "failed" else None,
+        structured_output=False,
+        usage=TokenUsage(input_tokens=10, output_tokens=2),
+        raw={"native": "preserved"},
+    )
+    wrapper.reply = AsyncMock(return_value=reply)
+    response = await step_class()(query="hello", agent_wrapper=wrapper)
+
+    assert response.success is (status == "completed")
+    assert response.answer == ("provider failure" if status == "failed" else "partial or final")
+    assert all(response.metadata[key] == value for key, value in reply.items())
+
+
+@pytest.mark.asyncio
 async def test_stream_llm_demo_preserves_backend_chunk_metadata():
     """Forward retry flags, tool identities, usage, and completion status without rebuilding chunks."""
     wrapper = _FakeAgentWrapper()
@@ -183,7 +207,16 @@ async def test_stream_llm_demo_preserves_backend_chunk_metadata():
         StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, tool_call_id="call-1", tool_call_name="add", chunk={"a": 1}),
         StreamChunk(chunk_type=ChunkEnum.CONTENT, session_id="session-1", block_id="text-1", chunk="hello"),
         StreamChunk(chunk_type=ChunkEnum.USAGE, input_tokens=3, output_tokens=1),
-        StreamChunk(chunk_type=ChunkEnum.REPLY_END, metadata={"status": "completed"}),
+        StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            event="end",
+            status="completed",
+            chunk={
+                key: value
+                for key, value in wrapper._reply_result(session_id="session-1", result="hello", raw={}).items()
+                if key != "events"
+            },
+        ),
     ]
     queue = asyncio.Queue()
     response = await StreamLLMDemoStep()(query="hello", stream_queue=queue, agent_wrapper=wrapper)

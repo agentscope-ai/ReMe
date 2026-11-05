@@ -25,7 +25,7 @@ def fixture_judge(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw,expected", [("YES", "yes"), (" No, incorrect.", "no")])
 async def test_valid_judgement_does_not_retry(judge, raw, expected):
-    judge.agent_wrapper.reply.return_value = {"result": raw}
+    judge.agent_wrapper.reply.return_value = {"result": raw, "status": "completed", "error": None}
     response = await judge.execute()
     assert response.success
     assert response.answer == expected
@@ -35,7 +35,10 @@ async def test_valid_judgement_does_not_retry(judge, raw, expected):
 
 @pytest.mark.asyncio
 async def test_invalid_output_retries_once_and_recovers(judge):
-    judge.agent_wrapper.reply.side_effect = [{"result": "mostly correct"}, {"result": "yes"}]
+    judge.agent_wrapper.reply.side_effect = [
+        {"result": "mostly correct", "status": "completed", "error": None},
+        {"result": "yes", "status": "completed", "error": None},
+    ]
     response = await judge.execute()
     assert response.success and response.answer == "yes"
     assert response.metadata["raw_answer_judgement"] == "yes"
@@ -46,7 +49,7 @@ async def test_invalid_output_retries_once_and_recovers(judge):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["", "maybe", "yesterday", "correct"])
 async def test_two_invalid_outputs_fail_without_a_score(judge, raw):
-    judge.agent_wrapper.reply.return_value = {"result": raw}
+    judge.agent_wrapper.reply.return_value = {"result": raw, "status": "completed", "error": None}
     with pytest.raises(ValueError, match="invalid yes/no judgement after 2 attempts"):
         await judge.execute()
     assert judge.agent_wrapper.reply.await_count == 2
@@ -59,3 +62,13 @@ async def test_transport_errors_are_not_invalid_output_retries(judge):
     with pytest.raises(TimeoutError):
         await judge.execute()
     assert judge.agent_wrapper.reply.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+async def test_incomplete_replies_are_neither_scored_nor_retried(judge, status):
+    judge.agent_wrapper.reply.return_value = {"result": "yes", "status": status, "error": None}
+    with pytest.raises(RuntimeError, match=status):
+        await judge.execute()
+    assert judge.agent_wrapper.reply.await_count == 1
+    assert "answer_judgement" not in judge.context.response.metadata

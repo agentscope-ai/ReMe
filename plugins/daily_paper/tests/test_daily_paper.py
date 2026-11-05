@@ -82,7 +82,12 @@ class _QueuedAgentWrapper(BaseAgentWrapper):
     async def reply(self, inputs, **kwargs) -> dict:
         """Record the request and pop the next structured fixture."""
         self.calls.append({"inputs": inputs, "kwargs": kwargs})
-        return {"structured_output": self.outputs.pop(0), "result": "ok"}
+        return self._reply_result(
+            session_id="session",
+            result="ok",
+            raw={},
+            structured_output=self.outputs.pop(0),
+        )
 
 
 def _paper(arxiv_id: str, *, title: str = "Paper", upvotes: int = 10) -> PaperInfo:

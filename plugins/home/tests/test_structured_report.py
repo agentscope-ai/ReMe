@@ -4,16 +4,22 @@
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 from agentscope.agent import ReActConfig
-from agentscope.message import AssistantMsg, UserMsg
-from agentscope.model import ChatUsage, StructuredResponse
+from agentscope.message import AssistantMsg, Msg, UserMsg
+from agentscope.model import ChatUsage, FinishedReason, StructuredResponse
+from reme_home.agent import BoundedAgentWrapper, BoundedReActAgent
 from reme_home.agent.candidate_gate import CandidateGateReport
 from reme_home.agent.structured_report import StructuredReportAgent, parse_json_object
 
 from test_workflows import ScriptedModel
+
+from reme.components.application_context import ApplicationContext
+from reme.schema import collect_reply, replay_reply
+from reme.utils import global_counter_get
 
 
 @pytest.mark.parametrize(
@@ -87,11 +93,12 @@ def make_agent(model):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("missing_usage", [False, True])
+@pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize(
     "initial",
     ["Reject: mechanism unchanged.", '{"decision":"reject","reason":"x","extra":true}'],
 )
-async def test_one_correction_retains_history_disables_tools_and_accounts_usage(missing_usage, initial):
+async def test_one_correction_retains_history_disables_tools_and_accounts_usage(missing_usage, streaming, initial):
     model = ScriptedModel(final=initial)
     model.extra_body = {"enable_thinking": True, "thinking_budget": 100, "host_option": "retained"}
     model.generate_structured_output = AsyncMock(
@@ -102,7 +109,14 @@ async def test_one_correction_retains_history_disables_tools_and_accounts_usage(
     )
     agent = make_agent(model)
     agent.state.summary = "Earlier investigation summary."
-    reply = await agent.reply(UserMsg(name="host", content="Review this candidate."))
+    inputs = UserMsg(name="host", content="Review this candidate.")
+    if streaming:
+        items = [item async for item in agent.reply_stream(inputs, yield_final_msg=True)]
+        reply = items[-1]
+        assert isinstance(reply, Msg)
+    else:
+        reply = await agent.reply(inputs)
+    assert reply.finished_reason == "completed"
     assert CandidateGateReport.model_validate_json(reply.get_text_content()).decision == "reject"
     assert len(model.calls) == 1
     model.generate_structured_output.assert_awaited_once()
@@ -158,3 +172,50 @@ async def test_correction_is_not_retried_and_cancellation_propagates(failure):
     with pytest.raises(expected):
         await make_agent(model).reply(UserMsg(name="host", content="Review."))
     model.generate_structured_output.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_wrapper_collects_and_persists_recovered_report(tmp_path, streaming, interrupted):
+    model = ScriptedModel(final="Reject: mechanism unchanged.")
+    model.generate_structured_output = AsyncMock(
+        return_value=StructuredResponse(
+            content={"decision": "reject", "reason": "Mechanism unchanged"},
+            usage=ChatUsage(input_tokens=7, output_tokens=11, time=0),
+            finished_reason=FinishedReason.INTERRUPTED if interrupted else FinishedReason.COMPLETED,
+        ),
+    )
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    wrapper = BoundedAgentWrapper(app_context=context, as_llm="", name="review")
+    wrapper.as_llm = SimpleNamespace(model=model)
+    options = {"_structured_report_model": CandidateGateReport, "builtin_tools": []}
+    if streaming:
+        result = await collect_reply(wrapper.reply_stream("Review this candidate.", **options))
+    else:
+        result = await wrapper.reply("Review this candidate.", **options)
+    assert result["status"] == ("interrupted" if interrupted else "completed")
+    assert result["error"] is None
+    assert CandidateGateReport.model_validate_json(result["result"]).decision == "reject"
+    assert result["raw"]["message"]["finished_reason"] == result["status"]
+    assert result["usage"] == {"input_tokens": 9, "output_tokens": 14, "total_tokens": 23}
+    assert global_counter_get(context.metadata, ["__token_counter", "review", "total_tokens"]) == 23
+    assert await collect_reply(replay_reply(result)) == result
+    saved = (wrapper.session_path / f"{result['session_id']}.jsonl").read_text()
+    assert "home_report_recovery" in saved and "Mechanism unchanged" in saved
+    model.generate_structured_output.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, "interrupted"])
+async def test_incomplete_native_reply_does_not_request_report_correction(monkeypatch, reason):
+    reply = AssistantMsg(name="review", content="partial", finished_reason=reason)
+
+    async def incomplete_reply(self, *args, **kwargs):
+        yield reply
+
+    monkeypatch.setattr(BoundedReActAgent, "_reply", incomplete_reply)
+    model = ScriptedModel()
+    model.generate_structured_output = AsyncMock()
+    assert await make_agent(model).reply() is reply
+    model.generate_structured_output.assert_not_awaited()

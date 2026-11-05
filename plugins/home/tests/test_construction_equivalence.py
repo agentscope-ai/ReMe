@@ -51,7 +51,13 @@ def real_reviewer(app, prepared, monkeypatch):
     wrapper = app.context.components["agent_wrapper"]["home_construction_equivalence"]
     monkeypatch.setattr(wrapper, "reply", MethodType(type(wrapper).reply, wrapper))
     gate = app.context.components["agent_wrapper"]["home_candidate_gate"]
-    monkeypatch.setattr(gate, "reply", AsyncMock(return_value={"result": '{"decision":"accept","reason":"Mechanism"}'}))
+    monkeypatch.setattr(
+        gate,
+        "reply",
+        AsyncMock(
+            return_value={"result": '{"decision":"accept","reason":"Mechanism"}', "status": "completed", "error": None},
+        ),
+    )
     return wrapper
 
 
@@ -116,7 +122,7 @@ async def test_large_resources_export_for_both_reviewers(app, prepared, reviewer
 
     async def accept(*args, **kwargs):
         inspect_export("candidate-gate")
-        return {"result": '{"decision":"accept","reason":"Fixture export check"}'}
+        return {"result": '{"decision":"accept","reason":"Fixture export check"}', "status": "completed", "error": None}
 
     def finish():
         inspect_export("construction-equivalence")
@@ -375,7 +381,11 @@ async def test_review_checkout_race_and_cancellation_do_not_sample(app, prepared
     async def paused(*args, **kwargs):
         entered.set()
         await release.wait()
-        return {"result": '{"decision":"construction_unchanged","reason":"Query only"}'}
+        return {
+            "result": '{"decision":"construction_unchanged","reason":"Query only"}',
+            "status": "completed",
+            "error": None,
+        }
 
     monkeypatch.setattr(reviewer, "reply", paused)
     task = asyncio.create_task(app.run_job("home_evaluate", sampling=True))

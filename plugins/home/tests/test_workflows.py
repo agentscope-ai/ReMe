@@ -84,6 +84,19 @@ async def baseline(app):
     return result.answer["result_dir"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+async def test_workflow_rejects_incomplete_agent_reports(app, prepared, sandbox, monkeypatch, status):
+    wrapper = app.context.components["agent_wrapper"]["home_diagnostic"]
+    monkeypatch.setattr(
+        wrapper,
+        "reply",
+        AsyncMock(return_value={"result": "Unfinished diagnosis", "status": status, "error": None}),
+    )
+    with pytest.raises(RuntimeError, match=status):
+        await workflow_common.workflow_reply(wrapper, prepared, "diagnostic", "Diagnose this failure.")
+
+
 def final_report(home, branch="init", path=None):
     repo = home / "code/repo"
     if path is None:

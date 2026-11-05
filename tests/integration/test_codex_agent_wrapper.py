@@ -98,7 +98,7 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
             job_tools=["add_draft", "read_draft"],
             tool_context_id="one",
         )
-        assert "FIRST_OK" in original["last_message"]
+        assert "FIRST_OK" in original["result"]
         resumed = await second.reply(
             "Call read_draft and include its exact result.",
             session_id=original["session_id"],
@@ -106,20 +106,20 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
             tool_context_id="one",
         )
         assert resumed["session_id"] == original["session_id"]
-        assert "STATE_OK" in resumed["last_message"]
+        assert "STATE_OK" in resumed["result"]
         isolated = await second.reply(
             "Call read_draft. If it is empty, reply ISOLATED_OK.",
             job_tools=["read_draft"],
             tool_context_id="two",
         )
         assert isolated["session_id"] != original["session_id"]
-        assert "ISOLATED_OK" in isolated["last_message"]
-        assert "STATE_OK" not in isolated["last_message"]
+        assert "ISOLATED_OK" in isolated["result"]
+        assert "STATE_OK" not in isolated["result"]
         forked = await first.reply("Reply FORK_OK.", resume=original["session_id"], fork_session=True)
         assert forked["session_id"] != original["session_id"]
-        assert "FORK_OK" in forked["last_message"]
+        assert "FORK_OK" in forked["result"]
         custom = await first.reply("Call only_custom and include its result.", job_tools=["only_custom"])
-        assert "CUSTOM_JOB_OK" in custom["last_message"]
+        assert "CUSTOM_JOB_OK" in custom["result"]
         assert app.context.metadata["live_custom_calls"] >= 1
         structured = await first.reply("Return marker STRUCTURED_OK.", output_schema=_StructuredResult)
         assert structured["structured_output"] == {"marker": "STRUCTURED_OK"}
@@ -128,7 +128,7 @@ async def test_live_shared_codex_sessions_tools_streaming_and_close(tmp_path):
             "Read the reme_memory skill instructions and reply SKILL_OK. Do not execute its scripts.",
             skills=["reme_memory"],
         )
-        assert "SKILL_OK" in skill["last_message"]
+        assert "SKILL_OK" in skill["result"]
         assert (workspace / ".agents/skills/reme_memory").is_symlink()
         concurrent = await asyncio.gather(first.reply("Reply ONE."), second.reply("Reply TWO."))
         assert concurrent[0]["session_id"] != concurrent[1]["session_id"]

@@ -291,15 +291,14 @@ def observe_usage(app) -> None:
 
 
 def observe_completion(app) -> None:
-    """Keep native interrupted replies unscored; successful replies are unchanged."""
+    """Keep incomplete native replies unscored; completed replies are unchanged."""
     for wrapper in app.context.components.get("agent_wrapper", {}).values():
         original = wrapper.reply
 
         async def reply(inputs, *args, _reply=original, **kwargs):
             result = await _reply(inputs, *args, **kwargs)
-            last = result.get("last_message") or {}
-            if str(last.get("finished_reason")) == "interrupted" or last.get("error") is not None:
-                raise RuntimeError("Native Agent was interrupted; its state remains saved.")
+            if result["status"] != "completed":
+                raise RuntimeError(result["error"] or f"Native Agent reply ended: {result['status']}")
             return result
 
         wrapper.reply = reply
