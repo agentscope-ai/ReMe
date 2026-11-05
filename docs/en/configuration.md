@@ -107,6 +107,11 @@ bridge forwards to this service without creating another Application and preserv
 The multi-workspace one-shot CLI combination is not supported; `mcp_config` retains its legacy meaning only for
 single-workspace Codex job tools.
 
+Once a Codex thread operation enters the SDK, cancellation or an unknown RPC outcome retains that thread's
+workspace ownership across restarts: cancelling the caller does not prove that submitted work stopped.
+A provisional claim can be released before SDK entry or after an explicit request-shape, method, or parameter
+rejection, provided no other operation still uses or has confirmed it.
+
 Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
 explicit per-alias variants:
 

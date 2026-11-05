@@ -108,6 +108,10 @@ Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
 Job 保留为 tool error。多 workspace 与 one-shot CLI 的组合暂不支持；`mcp_config` 仅在单 workspace 的
 Codex job tools 中保留原有语义。
 
+Codex thread 操作进入 SDK 后，若调用被取消或 RPC 结果不明，会保留 thread 的 workspace 归属，重启后仍然有效；
+取消调用方并不能证明已提交的操作停止执行。临时归属仅在进入 SDK 前，或收到明确的请求格式、方法或参数拒绝后，
+且没有其他操作仍在使用或已确认该归属时，才可以释放。
+
 Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
 
 ```yaml

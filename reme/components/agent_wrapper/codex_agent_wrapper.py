@@ -393,9 +393,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
             try:
                 thread = await codex.thread_resume(thread_id, personality=personality, **common)
                 await self._record_thread_ownership(alias, thread.id)
-            except BaseException:
+            except BaseException as exc:
                 if reserved:
-                    await self._forget_thread_ownership(alias, thread_id)
+                    await self._settle_failed_thread_claim(alias, thread_id, exc, sdk_entered=True)
                 raise
         else:
             thread = await codex.thread_start(
@@ -549,6 +549,28 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     self._write_owned_thread_ids(path, updated)
                 ids.discard(thread_id)
                 state.provisional_claims.pop(thread_id, None)
+
+    async def _settle_failed_thread_claim(
+        self,
+        alias: str,
+        thread_id: str,
+        error: BaseException,
+        *,
+        sdk_entered: bool,
+    ) -> None:
+        """Roll back only when no thread RPC ran or the server rejected its input.
+
+        The SDK offloads RPCs to worker threads. Cancellation, transport errors,
+        and other unknown outcomes cannot establish that submitted work stopped.
+        Confirm those claims so later rollback and Context recreation stay safe.
+        """
+        if sdk_entered:
+            from openai_codex.errors import InvalidParamsError, InvalidRequestError, MethodNotFoundError
+
+            if not isinstance(error, (InvalidParamsError, InvalidRequestError, MethodNotFoundError)):
+                await self._record_thread_ownership(alias, thread_id)
+                return
+        await self._forget_thread_ownership(alias, thread_id)
 
     async def _check_thread_ownership(self, thread_id: str, alias: str) -> None:
         """Reject resume/fork/compact of a thread owned by another workspace.
@@ -710,8 +732,10 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         The alias is validated and the cross-workspace claim is settled before
         any SDK call, so a losing request cannot compact. A claim made for this
-        call is removed on failure only if no other operation still uses or has
-        confirmed it. Thread release still runs once a thread was resumed.
+        call is removed only before SDK entry or on explicit input rejection,
+        and only if no other operation uses or has confirmed it. Cancellation
+        after SDK entry retains ownership because the RPC may still execute.
+        Thread release still runs once a thread was resumed.
         """
         await self.start()
         alias = str(workspace or "")
@@ -719,14 +743,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
             reserved = await self._record_thread_ownership(alias, session_id, provisional=True)
             codex = None
             thread = None
+            sdk_entered = False
             try:
                 codex = await self._get_codex()
+                sdk_entered = True
                 thread = await codex.thread_resume(session_id)
                 await thread.compact()
                 await self._record_thread_ownership(alias, session_id)
-            except BaseException:
+            except BaseException as exc:
                 if reserved:
-                    await self._forget_thread_ownership(alias, session_id)
+                    await self._settle_failed_thread_claim(alias, session_id, exc, sdk_entered=sdk_entered)
                 raise
             finally:
                 if thread is not None and codex is not None and self._release_threads:
