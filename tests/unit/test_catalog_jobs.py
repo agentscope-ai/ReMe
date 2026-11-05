@@ -66,6 +66,29 @@ async def test_pending_is_read_only_and_ack_confirms_only_selected_paths(catalog
 
 
 @pytest.mark.asyncio
+async def test_pending_limits_sorted_batches_until_acknowledged(catalog, tmp_path):
+    """Default and custom caps leave remaining resources available after acknowledgement."""
+    paths = [f"resource/2026-11-05/{index:02}.txt" for index in range(13)]
+    for path in reversed(paths):
+        _write(tmp_path, path)
+    assert await catalog.pending() == paths[:10]
+    assert await catalog.pending() == paths[:10]
+    assert await catalog.pending(limit=3) == paths[:3]
+    assert await catalog.ack(paths[:10]) is True
+    assert await catalog.pending() == paths[10:]
+    assert await catalog.ack(paths[10:]) is True
+    assert await catalog.pending() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5, None, "10"])
+async def test_pending_requires_a_positive_integer_limit(catalog, limit):
+    """Malformed limits cannot disable the response cap."""
+    with pytest.raises(ValueError, match="limit must be a positive integer"):
+        await catalog.pending(limit=limit)
+
+
+@pytest.mark.asyncio
 async def test_modified_paths_become_pending_and_deleted_paths_are_omitted(catalog, tmp_path):
     """Acknowledgement records current mtime; missing files are never pending work."""
     path = "resource/2026-11-05/note.txt"
@@ -196,26 +219,30 @@ async def test_jobs_bind_the_resource_catalog_and_return_paths_or_boolean(
     other = LocalFileCatalog(name="other", app_context=app, watch_dirs=["inbox"])
     app.components["file_catalog"] = {"resource": resource, "other": other}
     path = "resource/2026-11-05/a/metadata.json"
+    second_path = "resource/2026-11-05/b/metadata.json"
     _write(tmp_path, path)
+    _write(tmp_path, second_path)
     _write(tmp_path, "resource/2026-11-05/a/image.png")
     _write(tmp_path, "inbox/b.txt")
     pending = BaseJob(name="resource_pending", app_context=app, **app.app_config.jobs["resource_pending"].model_dump())
     ack = BaseJob(name="resource_ack", app_context=app, **app.app_config.jobs["resource_ack"].model_dump())
-    assert pending.parameters == {"type": "object", "properties": {}, "additionalProperties": False}
+    assert pending.parameters["properties"]["limit"]["default"] == 10
+    assert pending.parameters["properties"]["limit"]["minimum"] == 1
     assert set(ack.parameters["properties"]) == {"paths"}
     assert ack.parameters["required"] == ["paths"]
     await pending.start()
     await ack.start()
     try:
         response = await pending()
-        assert response.answer == [path]
+        assert response.answer == [path, second_path]
         assert response.success is True
-        assert (await pending(file_catalog="other")).answer == [path]
-        response = await ack(file_catalog="other", paths=[path])
+        assert (await pending(file_catalog="other", limit=1)).answer == [path]
+        assert (await pending(limit=0)).success is False
+        response = await ack(file_catalog="other", paths=[path, second_path])
         assert response.success is True
         assert response.answer is True
         assert (await pending()).answer == []
-        assert len(await resource.get_nodes()) == 1
+        assert len(await resource.get_nodes()) == 2
         assert await other.get_nodes() == []
         response = await ack(paths=["inbox/b.txt"])
         assert response.success is False

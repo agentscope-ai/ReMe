@@ -89,7 +89,7 @@ empty filters accept every file. Physical cleanup ignores file filters and delet
 including uncataloged images and empty directories.
 
 `resource_watch_loop` selects this scope with `file_catalog: resource`. It only watches and logs live events; it does not
-advance the catalog, call an LLM, or create daily cards. `resource_pending` takes no arguments and scans source files on
+advance the catalog, call an LLM, or create daily cards. `resource_pending` scans source files on
 each call, returning existing, unexpired `metadata.json` paths added or modified since acknowledgement.
 It works without a running watcher, does not advance the catalog, and repeats unacknowledged paths. Deleted files are omitted.
 
@@ -103,14 +103,18 @@ Query pending resources from another terminal:
 
 ```bash
 reme resource_pending
+reme resource_pending limit=20
 ```
 
-`answer` is a sorted list of workspace-relative path strings. Read each manifest's `description` and `files`, process the
+`answer` is a sorted list of workspace-relative path strings, capped by `limit` (a positive integer, default `10`).
+Unreturned resources remain pending. Read each manifest's `description` and `files`, process the
 whole package, then pass only successfully processed manifest paths to `resource_ack`:
 
 ```bash
 reme resource_ack paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
 ```
+
+After acknowledging a batch, call `resource_pending` again to retrieve the next batch.
 
 Both `answer` and `success` are booleans: `true` confirms the whole batch; out-of-scope, missing, non-regular, or expired
 paths and I/O failures return `false` without advancing any checkpoint in the batch. `paths` is required; an empty list

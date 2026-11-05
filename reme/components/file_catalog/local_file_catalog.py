@@ -69,11 +69,13 @@ class LocalFileCatalog(BaseFileCatalog):
             absolute.is_relative_to(rule.path) and absolute.resolve().is_relative_to(rule.path) for rule in rules
         )
 
-    async def pending(self) -> list[str]:
+    async def pending(self, limit: int = 10) -> list[str]:
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
         async with self._io_lock:
-            return await complete_in_thread(self._pending)
+            return await complete_in_thread(self._pending, limit)
 
-    def _pending(self) -> list[str]:
+    def _pending(self, limit: int) -> list[str]:
         rules, today = self.watch_rules, self._today()
         pending = []
         for source, mtime in collect_existing(rules, recursive=True).items():
@@ -83,7 +85,7 @@ class LocalFileCatalog(BaseFileCatalog):
             node = self._nodes.get(path)
             if node is None or node.st_mtime != mtime:
                 pending.append(path)
-        return sorted(pending)
+        return sorted(pending)[:limit]
 
     async def ack(self, paths: list[str]) -> bool:
         if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):

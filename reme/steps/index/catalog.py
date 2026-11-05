@@ -13,7 +13,7 @@ class ResourcePendingStep(BaseStep):
         if self.file_catalog is None:
             raise RuntimeError("resource_pending_step requires file_catalog")
         self.context.response.success = True
-        self.context.response.answer = await self.file_catalog.pending()
+        self.context.response.answer = await self.file_catalog.pending(limit=self.context.get("limit", 10))
         return self.context.response
 
 
