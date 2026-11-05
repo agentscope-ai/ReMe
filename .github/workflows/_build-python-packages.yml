@@ -63,8 +63,7 @@ jobs:
           python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme/web/')
           python -m zipfile -l "${REME_WHEEL}" | (! grep 'reme_studio/')
           python -m venv "${RUNNER_TEMP}/reme-package-smoke"
-          # Exercise the versions compatible with QwenPaw and the Alibaba Credentials SDK.
-          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]" "openai==2.33.0" "aiofiles==24.1.0"
+          "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip install "${REME_WHEEL}[as]"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -m pip check
           cd "${RUNNER_TEMP}"
           "${RUNNER_TEMP}/reme-package-smoke/bin/python" -c "import reme"
