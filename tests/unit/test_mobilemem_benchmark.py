@@ -114,7 +114,9 @@ def fixture_candidate(tmp_path, monkeypatch):
         components={},
     )
     wrapper = AsAgentWrapper(backend="agentscope", as_llm="", app_context=app)
-    wrapper.reply = AsyncMock(return_value={"result": "answer", "session_id": "new", "usage": {"input_tokens": 7}})
+    wrapper.reply = AsyncMock(
+        return_value={"status": "completed", "result": "answer", "session_id": "new", "usage": {"input_tokens": 7}},
+    )
     store = LocalFileStore(embedding_store="", app_context=app)
     return name, memory, answer, prefix, app, wrapper, store, tmp_path
 
@@ -183,7 +185,7 @@ async def test_candidate_and_judge_start_with_native_settings(tmp_path, monkeypa
         monkeypatch.setattr(MobileMemAutoMemoryStep, "_list_session_note", AsyncMock(return_value=None))
         wrappers = candidate_app.context.components["agent_wrapper"]
         for wrapper in wrappers.values():
-            wrapper.reply = AsyncMock(return_value={"result": "answer"})
+            wrapper.reply = AsyncMock(return_value={"status": "completed", "result": "answer"})
         _, scene = mobile_scene
         messages = mobilemem.session_messages(scene["sessions"][0], scene["image_root"])
         for images, kwargs in ((True, {}), (False, {"include_images": False})):
@@ -396,12 +398,13 @@ async def test_image_only_pipeline_keeps_all_sessions_and_gold_is_judge_only(mob
         ]
         == 70
     )
-    raw = {"last_message": {"finished_reason": "exceed_max_iters"}, "result": "native answer"}
+    raw = {"status": "completed", "error": None, "result": "native answer"}
     native = AsyncMock(return_value=raw)
     wrapper = SimpleNamespace(reply=native)
     observe_completion(SimpleNamespace(context=SimpleNamespace(components={"agent_wrapper": {"bench": wrapper}})))
     assert await wrapper.reply("unchanged input", max_iters=30) is raw
     native.assert_awaited_once_with("unchanged input", max_iters=30)
-    native.return_value = {"last_message": {"finished_reason": "interrupted"}}
-    with pytest.raises(RuntimeError, match="interrupted"):
-        await wrapper.reply("unchanged input")
+    for status in ("interrupted", "failed", "waiting"):
+        native.return_value = {"status": status, "error": None}
+        with pytest.raises(RuntimeError, match=status):
+            await wrapper.reply("unchanged input")

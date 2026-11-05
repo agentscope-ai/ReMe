@@ -164,6 +164,8 @@ test("history polling preserves running tools until a native completion snapshot
     done: false,
     tool_call_id: "tool-1",
     tool_call_name: "search",
+    event: "end",
+    status: status === "inProgress" ? "running" : status,
   });
   const active = snapshot([
     entry("a1", "assistant", "", {
@@ -192,6 +194,8 @@ test("native history repairs interrupted tools and restores missed failures", ()
             chunk: { id: "tool-1", type: "commandExecution", status },
             done: false,
             tool_call_id: "tool-1",
+            event: "end",
+            status,
           },
         ],
       }),
@@ -208,4 +212,22 @@ test("native history repairs interrupted tools and restores missed failures", ()
 
   const failed = mergeSessionMessages(recovered, data("failed"));
   assert.equal(failed[0].blocks[0].status, "error");
+});
+
+test("history refresh preserves the exact live event trace and structured outcome", () => {
+  const streamed = turn("temporary-assistant", "B");
+  streamed.events = [
+    { chunk_type: "data", chunk: { signature: "signed" }, done: false },
+  ];
+  streamed.reply = {
+    result: "B",
+    structured_output: false,
+    raw: { signature: "signed" },
+  };
+  const result = mergeSessionMessages(
+    [streamed],
+    snapshot([entry("a1", "assistant", "B")]),
+  );
+  assert.deepEqual(result[0].events, streamed.events);
+  assert.deepEqual(result[0].reply, streamed.reply);
 });

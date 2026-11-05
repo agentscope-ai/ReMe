@@ -111,7 +111,9 @@ def fixture_candidate(tmp_path, monkeypatch):
         components={},
     )
     wrapper = AsAgentWrapper(backend="agentscope", as_llm="", app_context=app)
-    wrapper.reply = AsyncMock(return_value={"result": "answer", "session_id": "new", "usage": {"input_tokens": 7}})
+    wrapper.reply = AsyncMock(
+        return_value={"status": "completed", "result": "answer", "session_id": "new", "usage": {"input_tokens": 7}},
+    )
     store = LocalFileStore(embedding_store="", app_context=app)
     return memory, answer, app, wrapper, store, tmp_path
 
@@ -320,16 +322,17 @@ async def test_image_only_pipeline_preserves_sessions_and_official_query(candida
 
 
 @pytest.mark.asyncio
-async def test_observation_preserves_native_reply_and_rejects_only_interrupted():
+async def test_observation_preserves_completed_reply_and_rejects_incomplete():
     from benchmark.memlens.run import observe_usage
 
-    result = {"result": "", "last_message": {"finished_reason": "exceed_max_iters", "error": None}}
+    result = {"result": "answer", "status": "completed", "error": None}
     reply = AsyncMock(return_value=result)
     wrapper = SimpleNamespace(reply=reply)
     app = SimpleNamespace(context=SimpleNamespace(components={"agent_wrapper": {"default": wrapper}}))
     observe_usage(app)
     assert await wrapper.reply("Original input", react_config={"max_iters": 30}) is result
     reply.assert_awaited_once_with("Original input", react_config={"max_iters": 30})
-    reply.return_value = {"last_message": {"finished_reason": "interrupted"}}
-    with pytest.raises(RuntimeError, match="interrupted"):
-        await wrapper.reply("Original input")
+    for status in ("interrupted", "failed", "waiting"):
+        reply.return_value = {"status": status, "error": None}
+        with pytest.raises(RuntimeError, match=status):
+            await wrapper.reply("Original input")

@@ -146,6 +146,7 @@ class DreamIntegrateStep(BaseStep):
                     ),
                     job_tools=list(_TOOLS),
                 )
+                raw_result = agent_reply_result_text(result)
             except Exception as e:  # noqa: BLE001
                 after = _snapshot_digest(workspace, digest_dir)
                 changed = _changed_digest_paths(before, after)
@@ -177,7 +178,6 @@ class DreamIntegrateStep(BaseStep):
                 return
 
             try:
-                raw_result = agent_reply_result_text(result)
                 outcome = IntegrateOutcome.model_validate(parse_structured_reply(raw_result))
                 if not self._valid_target(
                     workspace,

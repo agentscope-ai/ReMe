@@ -32,7 +32,17 @@ class _StreamingAgent(BaseAgentWrapper):
         self.reply_kwargs = kwargs
         yield StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, chunk="{}", tool_call_id="tool-1", tool_call_name="search")
         yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="hello", session_id="session-new")
-        yield StreamChunk(chunk_type=ChunkEnum.REPLY_END, chunk="", session_id="session-new")
+        yield StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            event="end",
+            status="completed",
+            session_id="session-new",
+            chunk={
+                key: value
+                for key, value in self._reply_result(session_id="session-new", result="hello", raw={}).items()
+                if key != "events"
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -125,7 +135,7 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
     assert response.answer == "hello"
     assert chunks[0].tool_call_name == "search"
     assert chunks[1].session_id == "session-new"
-    assert chunks[2].metadata["answer"] == "hello"
+    assert chunks[2].chunk["result"] == "hello"
     assert agent.reply_kwargs["resume"] == "session-old"
     assert agent.reply_kwargs["job_tools"] == [
         "search",

@@ -631,6 +631,7 @@ class AutoMemoryStep(BaseStep):
             job_tools=self.create_tools if created else self.update_tools,
             **reply_kwargs,
         )
+        text = agent_reply_result_text(result)
         self.logger.info(f"[{self.name}] agent done path={note_path} has_result={bool(result.get('result'))}")
 
         if created:
@@ -646,7 +647,7 @@ class AutoMemoryStep(BaseStep):
                 return
             if note is None:
                 self.context.response.success = True
-                self.context.response.answer = agent_reply_result_text(result)
+                self.context.response.answer = text
                 self.context.response.metadata.update(
                     {"date": day, "path": None, "created": False, "modified": False, "n_messages": len(messages)},
                 )
@@ -684,7 +685,7 @@ class AutoMemoryStep(BaseStep):
 
         source_conversation = self._session_link(session_id)
         self.context.response.success = True
-        self.context.response.answer = agent_reply_result_text(result)
+        self.context.response.answer = text
         self.context.response.metadata.update(
             {
                 "date": day,

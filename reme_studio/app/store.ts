@@ -217,7 +217,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
               applyStreamChunk(message, chunk),
             );
             const turnId =
-              chunk.chunk_type === "reply_start" && chunk.metadata?.turn_id;
+              chunk.chunk_type === "reply_start" &&
+              (chunk.turn_id || chunk.metadata?.turn_id);
             if (typeof turnId === "string") {
               const assistantIndex = updated.messages.findIndex(
                 (message) => message.id === messageId,

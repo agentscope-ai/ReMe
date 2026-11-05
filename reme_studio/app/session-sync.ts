@@ -60,6 +60,10 @@ export function mergeSessionMessages(
           ];
       for (const chunk of chunks) message = applyStreamChunk(message, chunk);
       if (entry.completed) message = finishChatMessage(message);
+      if (previous?.events?.length) {
+        message.events = previous.events;
+        message.reply = previous.reply;
+      }
       const failed = message.blocks?.some(
         (block) =>
           block.type === "error" ||

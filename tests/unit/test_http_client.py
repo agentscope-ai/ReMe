@@ -44,7 +44,7 @@ def test_format_for_display_shows_metadata_when_requested():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("will_retry", [True, False, None, "false"])
-async def test_stream_retry_notifications_continue_but_terminal_errors_raise(will_retry):
+async def test_raw_stream_preserves_errors_and_done_but_cli_raises_terminal_errors(will_retry):
     """A temporary Codex reconnect must not prevent CLI callers from receiving the answer."""
     events = [
         {"chunk_type": "error", "chunk": "upstream error", "metadata": {"will_retry": will_retry}},
@@ -59,11 +59,69 @@ async def test_stream_retry_notifications_continue_but_terminal_errors_raise(wil
     client = HttpClient()
     client.client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handle))
     async with client:
+        chunks = [chunk async for chunk in client.stream_chunks("stream_llm_demo")]
+        assert [chunk.chunk_type for chunk in chunks] == [ChunkEnum.ERROR, ChunkEnum.CONTENT, ChunkEnum.DONE]
+        assert chunks[0].metadata == {"will_retry": will_retry}
+        assert chunks[1].chunk == "recovered answer"
         if will_retry is True:
-            chunks = [chunk async for chunk in client.stream_chunks("stream_llm_demo")]
-            assert [chunk.chunk_type for chunk in chunks] == [ChunkEnum.ERROR, ChunkEnum.CONTENT]
-            assert chunks[0].metadata == {"will_retry": True}
-            assert chunks[-1].chunk == "recovered answer"
+            assert "recovered answer" in "".join([text async for text in client._execute("stream_llm_demo", {})])
         else:
             with pytest.raises(RuntimeError, match="upstream error"):
-                _ = [chunk async for chunk in client.stream_chunks("stream_llm_demo")]
+                _ = [text async for text in client._execute("stream_llm_demo", {})]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["completed", "failed", "interrupted", "waiting"])
+async def test_http_collection_and_replay_preserve_complete_outcomes(status):
+    """Raw HTTP consumption preserves failures and native metadata all the way through DONE."""
+    from reme.schema import StreamChunk, collect_reply, replay_reply
+
+    events = [
+        StreamChunk(chunk_type=ChunkEnum.REPLY_START, status="running", chunk=None),
+        StreamChunk(chunk="draft", block_id="text"),
+        StreamChunk(chunk="corrected", event="end", block_id="text", metadata={"native": {"signature": "signed"}}),
+        StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            event="end",
+            status=status,
+            chunk={
+                "session_id": "session",
+                "result": "corrected",
+                "structured_output": [],
+                "usage": None,
+                "status": status,
+                "error": "failure" if status == "failed" else None,
+                "raw": {"cache": 7, "future": False},
+            },
+        ),
+        StreamChunk(chunk_type=ChunkEnum.DONE, done=True),
+    ]
+    if status == "failed":
+        events.insert(1, StreamChunk(chunk_type=ChunkEnum.ERROR, chunk="failure"))
+    body = "".join(f"data: {event.model_dump_json()}\n\n" for event in events)
+
+    def handle(_request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    client = HttpClient()
+    client.client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handle))
+    async with client:
+        reply = await collect_reply(client.stream_chunks("chat"))
+    assert reply["status"] == status
+    assert reply["events"] == [event.model_dump(mode="json") for event in events]
+    assert await collect_reply(replay_reply(json.loads(json.dumps(reply)))) == reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", ["data: invalid\n\n", 'data: {"chunk":"partial"}\n\n'])
+async def test_raw_http_stream_rejects_corruption_or_missing_done(body):
+    """Broken streams must not silently lose events or become successful replies."""
+
+    def handle(_request):
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, text=body)
+
+    client = HttpClient()
+    client.client = httpx.AsyncClient(base_url=client.base_url, transport=httpx.MockTransport(handle))
+    async with client:
+        with pytest.raises((ValueError, RuntimeError)):
+            _ = [chunk async for chunk in client.stream_chunks("chat")]

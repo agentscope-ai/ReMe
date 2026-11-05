@@ -42,7 +42,7 @@ class _TaggingWrapper(BaseAgentWrapper):
         post = frontmatter.loads(target.read_text(encoding="utf-8"))
         post.metadata[self.tag_key] = self.tags
         target.write_text(frontmatter.dumps(post), encoding="utf-8")
-        return {"result": f"tagged {path}", "last_message": {}}
+        return {"result": f"tagged {path}", "status": "completed"}
 
 
 def _write_note(path: Path) -> None:
@@ -63,7 +63,7 @@ async def test_auto_tag_reports_missing_agent_write_without_inventing_empty_tags
     _write_note(note)
     original = note.read_bytes()
     wrapper = _TaggingWrapper(tmp_path)
-    monkeypatch.setattr(wrapper, "reply", AsyncMock(return_value={"result": "", "last_message": {}}))
+    monkeypatch.setattr(wrapper, "reply", AsyncMock(return_value={"result": "", "status": "completed"}))
     step = AutoTagStep(agent_wrapper=wrapper, file_store=_file_store())
 
     response = await step(RuntimeContext(changes=[{"change": "added", "path": "memory/note.md"}]))

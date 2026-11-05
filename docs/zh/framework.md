@@ -538,6 +538,26 @@ flowchart LR
 | `keyword_index`   | `default`                       | `bm25`                      | BM25 关键词索引                                            |
 | `file_store`      | `default`                       | `local`                     | 组合 file_graph、keyword_index；默认 `embedding_store: ""` |
 
+三个 agent 后端统一通过 `reply_stream()` 执行，`reply()` 收集同一条流，返回
+[`AgentReply`](../../reme/schema/agent_reply.py) 字典：`session_id`、最终文本 `result`、`structured_output`、
+本次调用的 `usage`、`status`、`error`、`raw` 和完整、有序的 JSON `events`。两种模式均支持 `output_schema`。
+只有 `completed` 表示成功；`failed`、`interrupted` 和 `waiting` 保留未完成的结果。启动、传输异常和调用方的
+取消继续传播。两种模式均按调用记录一次已报告的 token 用量；无法获取用量时为 null。
+
+[`StreamChunk`](../../reme/schema/stream_chunk.py) 使用 `start`、追加内容的 `delta` 和 `end` 操作。
+start/end 的非 null 内容替换对应块的累计内容；null 表示不变，空字符串表示清空。会话、调用、消息、内容块和
+工具调用 ID 用于关联更新。`metadata.native` 保留完整原生事件，包括未知字段和诊断通知。
+`reply_end.chunk` 携带上述结果字段，不含 `events`；`reply_start`/`reply_end` 包含一次 agent 调用内的模型与工具
+循环，DONE 仅关闭传输。`collect_reply(stream)` 与 `replay_reply(reply)` 在异步流和 JSON 结果间无损转换，保留
+payload、顺序、原生元数据和终止状态；缺少或重复的终止结果会明确报错。
+
+`raw` 保留原生结果：AgentScope 的最终消息在 `raw.message`，额外结构化结果在 `raw.structured_response`；
+Claude 保留 `ResultMessage`，Codex 保留 `TurnResult`。需要原样重放时应保存完整 AgentReply；原生会话历史提供
+item 快照，不含原始流的逐次增量。Studio 合并内容快照，展示结构化输出和终止状态，历史刷新保留已有实时事件。
+HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函数单独处理报错。
+迁移：用 `result`/`raw` 替代 `last_message`/`turn`，消费终止结果，不再拼接所有流式 payload。
+纯文本生产者使用默认 `delta` 操作。
+
 Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
