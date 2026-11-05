@@ -8,7 +8,7 @@ from pathlib import Path
 from packaging.requirements import Requirement
 from packaging.version import Version
 
-_PIN = re.compile(r'"agentscope\[model-ollama\]==[^"\n]+"')
+_PIN = re.compile(r'"agentscope\[(model-ollama|classifier-jev)\]==[^"\n]+"')
 
 
 def _exact_agentscope_version(dependencies: list[str]) -> str:
@@ -18,14 +18,9 @@ def _exact_agentscope_version(dependencies: list[str]) -> str:
         raise ValueError(f"Expected one AgentScope dependency, found {len(matches)}")
     requirement = matches[0]
     specifiers = list(requirement.specifier)
-    if (
-        requirement.extras != {"model-ollama"}
-        or requirement.marker is not None
-        or len(specifiers) != 1
-        or specifiers[0].operator != "=="
-    ):
+    if requirement.marker is not None or len(specifiers) != 1 or specifiers[0].operator != "==":
         raise ValueError(
-            f"Expected an exact agentscope[model-ollama] pin, found {requirement}",
+            f"Expected an exact AgentScope pin, found {requirement}",
         )
     version = Version(specifiers[0].version)
     if version.is_prerelease or version.is_devrelease:
@@ -38,16 +33,16 @@ def sync_pin(qwenpaw_text: str, reme_text: str) -> tuple[str, str]:
     qwenpaw = tomllib.loads(qwenpaw_text)
     reme = tomllib.loads(reme_text)
     version = _exact_agentscope_version(qwenpaw["project"]["dependencies"])
-    _exact_agentscope_version(reme["project"]["optional-dependencies"]["as"])
+    for extra in ("as", "decision"):
+        _exact_agentscope_version(reme["project"]["optional-dependencies"][extra])
     matches = list(_PIN.finditer(reme_text))
-    if len(matches) != 1:
+    if len(matches) != 2 or {match.group(1) for match in matches} != {"model-ollama", "classifier-jev"}:
         raise ValueError(
-            f"Expected one replaceable ReMe AgentScope pin, found {len(matches)}",
+            f"Expected replaceable ReMe as and decision pins, found {len(matches)}",
         )
-    replacement = f'"agentscope[model-ollama]=={version}"'
     return (
         version,
-        reme_text[: matches[0].start()] + replacement + reme_text[matches[0].end() :],
+        _PIN.sub(lambda match: f'"agentscope[{match.group(1)}]=={version}"', reme_text),
     )
 
 
