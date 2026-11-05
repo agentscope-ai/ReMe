@@ -174,7 +174,53 @@ def test_scan_reme_procs_skips_access_denied(monkeypatch):
 
 def test_connect_host_converts_wildcard_bind_address():
     assert normalize_connect_host("0.0.0.0") == "127.0.0.1"
+    assert normalize_connect_host("::") == "::1"
     assert normalize_connect_host("192.0.2.10") == "192.0.2.10"
+
+
+@pytest.mark.asyncio
+async def test_find_reme_uses_ipv6_for_wildcard_listener_probe(monkeypatch):
+    """IPv6 listener probes use IPv6 sockets and clients connect through loopback."""
+    probed_hosts = []
+
+    class FailedProbeClient:
+        """Client probe that simulates no running service."""
+
+        def __init__(self, *, host, **_kwargs):
+            probed_hosts.append(host)
+
+        async def __aenter__(self):
+            raise OSError("no running service")
+
+        async def __aexit__(self, *_args):
+            return None
+
+    socket_families = []
+
+    class FakeSocket:
+        """Socket probe that records the selected address family."""
+
+        def __init__(self, family, _kind):
+            socket_families.append(family)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def setsockopt(self, *_args):
+            return None
+
+        def bind(self, address):
+            assert address == ("::", 8123)
+
+    monkeypatch.setattr("reme.components.client.http_client.HttpClient", FailedProbeClient)
+    monkeypatch.setattr(su.socket, "socket", FakeSocket)
+
+    assert await su.find_reme("::", 8123) == "free"
+    assert probed_hosts == ["::1"]
+    assert socket_families == [socket.AF_INET6]
 
 
 def test_running_app_config_preserves_plugins(monkeypatch):

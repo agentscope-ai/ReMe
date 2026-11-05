@@ -36,6 +36,14 @@ def test_ipv6_host_builds_a_valid_http_base_url():
     assert HttpClient(host="::1", port=8123).base_url == "http://[::1]:8123"
 
 
+def test_ipv6_wildcard_bind_host_resolves_to_loopback_destination():
+    """An IPv6 wildcard listener advertises a connectable IPv6 loopback address."""
+    assert HttpClient(host="::", port=8123).base_url == "http://[::1]:8123"
+
+    client = MCPClient(host="::", port=8123)
+    assert client.host == "::1"
+
+
 def test_explicit_fields_win_over_service_discovery(monkeypatch):
     """Discovery fills only the missing field; explicit fields are kept."""
     monkeypatch.setenv(REME_SERVICE_INFO, '{"host": "10.0.0.1", "port": 9000}')

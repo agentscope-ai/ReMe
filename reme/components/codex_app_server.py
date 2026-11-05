@@ -429,7 +429,6 @@ class CodexAppServer(BaseComponent):
         ):
             if self._http_url is None:
                 host = normalize_connect_host(service.host)
-                host = "::1" if host == "::" else host
                 # Background jobs can run before uvicorn finishes binding the main listener.
                 async with asyncio.timeout(30):
                     while True:
