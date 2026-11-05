@@ -37,7 +37,7 @@ test("workspace snapshot reloads saved files but preserves unsaved drafts", () =
   assert.equal(snapshot.activeTabId, draft.id);
 });
 
-test("workspace snapshot keeps chat session and finishes interrupted blocks", () => {
+test("workspace snapshot keeps chat session and marks interrupted blocks failed", () => {
   const chat = {
     id: "agent:one",
     type: "agent",
@@ -58,6 +58,15 @@ test("workspace snapshot keeps chat session and finishes interrupted blocks", ()
             status: "streaming",
             expanded: true,
           },
+          {
+            id: "tool:completed",
+            type: "tool",
+            name: "search",
+            callPayloads: [],
+            resultPayloads: ["Found"],
+            status: "done",
+            expanded: false,
+          },
         ],
       },
     ],
@@ -68,8 +77,9 @@ test("workspace snapshot keeps chat session and finishes interrupted blocks", ()
 
   assert.equal(restored.sessionId, "session-1");
   assert.equal(restored.streaming, false);
-  assert.equal(restored.messages[0].blocks[0].status, "done");
+  assert.equal(restored.messages[0].blocks[0].status, "error");
   assert.equal(restored.messages[0].blocks[0].expanded, false);
+  assert.equal(restored.messages[0].blocks[1].status, "done");
 });
 
 test("workspace snapshot preserves an open memory graph", () => {

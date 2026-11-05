@@ -45,6 +45,10 @@ export async function getAppConfig(): Promise<AppConfig> {
     resource_dir: "resources",
   };
 }
+
+export async function readChatSession() {
+  return undefined;
+}
 export async function listWorkspaceFiles(extensions: string[]) {
   return {
     paths: Object.keys(demoWorkspace().files()).filter((path) =>

@@ -16,7 +16,6 @@ workflow continues on exact comparison (BM25-only deployments).
 
 import datetime as dt
 import re
-import time
 
 from ...base_step import BaseStep
 from .._evolve import passthrough_response
@@ -79,7 +78,6 @@ class ProactiveTopicsStep(BaseStep):
         assert self.context is not None
         if self.context.get(self.skip_key):
             return passthrough_response(self, self.skip_key)
-        started = time.monotonic()
         if not self.context.get("proactive"):
             self.context.response.success = True
             self.context.response.answer = "Skipped topics: no proactive extract state in context"
@@ -265,7 +263,6 @@ class ProactiveTopicsStep(BaseStep):
         state.file_skip_reason = file_skip_reason
         state.interests_path = rel_path
         state.interests_written = written
-        state.duration_ms = int((time.monotonic() - started) * 1000)
         self._store(state)
         answer = (
             f"Topics: {len(topics_out)} rendered, push={push}, "

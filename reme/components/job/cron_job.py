@@ -37,10 +37,13 @@ class CronJob(BackgroundJob):
     async def _execute_steps(self) -> Response:
         merged = dict(self.kwargs)
         workspace = self._bind_workspace(merged)
-        context = RuntimeContext(workspace=workspace, **merged)
-        for step in self._build_steps():
-            await step(context)
-        return context.response
+        context = RuntimeContext(stop_event=self._stop_event, workspace=workspace, **merged)
+        with self._execution(context):
+            return await self._run_steps(context)
+
+    async def _run_once(self) -> None:
+        # The scheduler waits between executions; only individual triggers are recorded.
+        await self()
 
     async def __call__(self, **kwargs) -> Response:
         self.check_enabled()
@@ -50,7 +53,6 @@ class CronJob(BackgroundJob):
             if self._stop_event.is_set():
                 break
             try:
-                self._record_call()
                 await self._execute_steps()
             except Exception as exc:
                 self.logger.exception(f"Cron job '{self.name}' failed: {exc}")

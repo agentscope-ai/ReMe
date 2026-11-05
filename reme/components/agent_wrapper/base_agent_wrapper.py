@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from ..base_component import BaseComponent, _context_workspaces
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
-from ...schema import StreamChunk, TokenUsage
+from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...utils import global_counter_add_many
 
 if TYPE_CHECKING:
@@ -295,6 +295,26 @@ class BaseAgentWrapper(BaseComponent):
     async def compact_session(self, session_id: str) -> None:
         """Request compaction of one persisted agent session."""
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
+
+    async def read_session(self, session_id: str, *, workspace: str | None = None) -> SessionSnapshot:
+        """Read display history without waiting for the session to become idle."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session reading")
+
+    async def get_session_status(self, session_id: str, *, workspace: str | None = None) -> SessionStatus:
+        """Read activity without resuming or waiting for the session."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session status")
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        timeout: float = 30,
+        workspace: str | None = None,
+    ) -> SessionMessage:
+        """Append an idempotent proactive assistant message after the active turn finishes."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream agent events as unified StreamChunk objects."""

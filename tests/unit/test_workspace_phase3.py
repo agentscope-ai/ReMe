@@ -502,3 +502,69 @@ async def test_codex_scoped_mcp_calls_original_workspace_jobs(tmp_path, monkeypa
                     assert not await workspace.get_component(ComponentEnum.FILE_STORE, "default").get_nodes()
         finally:
             await wrapper.close()
+
+
+@pytest.mark.asyncio
+async def test_codex_session_history_and_appends_follow_workspace_binding(tmp_path, monkeypatch):
+    """New session endpoints cannot read or inject another workspace's thread."""
+    from unittest.mock import AsyncMock
+
+    from reme.components.codex_app_server import CodexAppServer
+    from reme.steps.common.session import SessionAppendStep, SessionReadStep, SessionStatusStep
+
+    from .test_agent_session_api import NativeSession
+
+    context = _context(tmp_path)
+    server = CodexAppServer(app_context=context)
+    context.shared_components[ComponentEnum.CODEX_APP_SERVER] = {"default": server}
+    native = NativeSession(server)
+    monkeypatch.setattr(server, "_get_client", AsyncMock(return_value=native.client))
+    wrapper = CodexAgentWrapper(app_context=context)
+    configured_beta = CodexAgentWrapper(name="beta", app_context=context, workspace="beta")
+    session_id = native.thread.id
+    try:
+        for step_type in (SessionAppendStep, SessionReadStep, SessionStatusStep):
+            step = step_type(app_context=context, agent_wrapper=wrapper)
+            runtime = RuntimeContext(
+                workspace=context.workspaces["beta"],
+                session_id=session_id,
+                content="beta proactive message",
+                message_id="beta-message",
+            )
+            await step(runtime)
+            assert runtime.response.success
+        beta_path = server._message_path(session_id, "beta")
+        assert beta_path.is_relative_to(tmp_path / "beta") and beta_path.is_file()
+        assert not server._message_path(session_id, "alpha").exists()
+        assert (await configured_beta.read_session(session_id)).session_id == session_id
+        fork_path = server.session_path / "sessions" / "fork.jsonl"
+        fork_path.write_text("")
+        fork_thread = SimpleNamespace(
+            id="fork-beta",
+            path=str(fork_path),
+            turns=native.thread.turns,
+            status=native.thread.status,
+        )
+        native.threads[fork_thread.id] = fork_thread
+        fork_handle = SimpleNamespace(
+            id=fork_thread.id,
+            read=AsyncMock(return_value=SimpleNamespace(thread=fork_thread)),
+        )
+        native.client.thread_fork = AsyncMock(return_value=fork_handle)
+        async with server.thread(session_id, fork=True, workspace="beta") as forked:
+            assert forked.id == "fork-beta"
+        fork_snapshot = await server.read_session("fork-beta", workspace="beta")
+        assert any(message.content == "beta proactive message" for message in fork_snapshot.messages)
+        assert server._message_path("fork-beta", "beta").is_file()
+        assert not server._message_path("fork-beta", "alpha").exists()
+        reads = native.client._client.thread_read.await_count
+        for operation in ("read_session", "get_session_status", "append_session"):
+            kwargs = {"content": "wrong", "message_id": "wrong"} if operation == "append_session" else {}
+            with pytest.raises(ValueError, match="belongs to workspace 'beta'"):
+                await getattr(wrapper, operation)(session_id, **kwargs)
+        assert native.client._client.thread_read.await_count == reads
+        assert len(native.injected) == 1
+    finally:
+        await wrapper.close()
+        await configured_beta.close()
+        await server.close()

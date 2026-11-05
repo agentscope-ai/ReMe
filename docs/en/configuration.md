@@ -74,6 +74,7 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 | `plugins` | `[]` | Installed plugins enabled for this Application |
 | `service` | HTTP | Service configuration |
 | `jobs` | default Jobs | Job configurations by name |
+| `job_history_limit` | `100` | Completed executions retained per Job in application memory; running records are always retained |
 | `components` | defaults | Components grouped by type and name |
 
 `session_dir` must remain workspace-relative.
@@ -111,7 +112,8 @@ Once a Codex thread operation enters the SDK, cancellation or an unknown RPC out
 workspace ownership across restarts: cancelling the caller does not prove that submitted work stopped.
 A provisional claim can be released before SDK entry or after an explicit request-shape, method, or parameter
 rejection, provided no other operation still uses or has confirmed it. A successful resume confirms ownership even
-if a subsequent turn or compaction fails.
+if a subsequent turn or compaction fails. History, status, and proactive append jobs use the same workspace binding;
+application-authored session records live under the selected workspace's `session_dir`.
 
 Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
 explicit per-alias variants:
@@ -145,6 +147,11 @@ reme start jobs.dream_cron.enabled=false
 Restart the service to apply the override. The separate `auto_dream` API remains available, and other jobs continue running.
 `enable_serve` independently controls service exposure: `enabled=true, enable_serve=false` keeps a Job available for
 local calls. Background and cron jobs are never service-exposed.
+
+`jobs.<name>.track_execution` defaults to `true` for background/cron Jobs and `false` for base/stream Jobs.
+Set it explicitly to override either default, for example `reme start jobs.chat.track_execution=true`.
+Execution records are memory-only and disappear when the Application is recreated. `job_history_limit=0` retains only
+running executions. See [Job execution status](./operations.md#job-execution-status) for queries and step paths.
 
 ## LLM
 

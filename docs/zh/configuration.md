@@ -79,6 +79,7 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 | `plugins` | `[]` | 为当前 Application 启用的已安装插件 |
 | `service` | HTTP | 服务端配置 |
 | `jobs` | 默认 Job | Job 名到 Job 配置的映射 |
+| `job_history_limit` | `100` | 每个 Job 在应用内存中保留的已结束执行记录数；运行中的记录始终保留 |
 | `components` | 默认组件 | 按类型和名称组织的组件配置 |
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
@@ -111,6 +112,7 @@ HTTP 服务可挂载该端点；嵌入式和 one-shot CLI 宿主使用受生命�
 Codex thread 操作进入 SDK 后，若调用被取消或 RPC 结果不明，会保留 thread 的 workspace 归属，重启后仍然有效；
 取消调用方并不能证明已提交的操作停止执行。临时归属仅在进入 SDK 前，或收到明确的请求格式、方法或参数拒绝后，
 且没有其他操作仍在使用或已确认该归属时，才可以释放。成功 resume 即确认归属，后续 turn 或 compact 失败不会撤销它。
+会话历史、状态和主动消息 Job 使用相同的 workspace 绑定；Application 写入的会话记录保存在所选 workspace 的 `session_dir` 下。
 
 Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
 
@@ -142,6 +144,11 @@ reme start jobs.dream_cron.enabled=false
 重启服务后生效。独立的 `auto_dream` 接口仍可调用，其他 Job 继续运行。
 `enable_serve` 独立控制接口暴露：`enabled=true, enable_serve=false` 允许本地调用。
 Background 和 cron Job 始终不暴露服务接口。
+
+`jobs.<name>.track_execution` 对 background/cron Job 默认开启，对 base/stream Job 默认关闭。
+可以显式覆盖，例如 `reme start jobs.chat.track_execution=true` 为前台聊天开启记录。
+执行记录仅保存在内存中，重新创建 Application 后清空。`job_history_limit=0` 仅保留运行中的记录。
+查询方式与 Step 路径见 [Job 执行状态](./operations.md#job-执行状态)。
 
 ## LLM 配置
 

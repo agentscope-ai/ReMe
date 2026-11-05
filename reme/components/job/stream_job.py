@@ -1,6 +1,6 @@
 """Streaming job for real-time output delivery."""
 
-from .base_job import BaseJob
+from .base_job import BaseJob, _describe_exception
 from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...enumeration import ChunkEnum
@@ -12,15 +12,15 @@ class StreamJob(BaseJob):
 
     async def __call__(self, **kwargs) -> None:
         """Run steps; emit failures as ERROR chunks, then a terminal DONE marker."""
-        self.check_enabled()
-        self._record_call()
         merged = {**self.kwargs, **kwargs}
         workspace = self._bind_workspace(merged)
         context = RuntimeContext(workspace=workspace, **merged)
-        try:
-            for step in self._build_steps():
-                await step(context)
-        except Exception as e:
-            await context.add_stream_string(str(e), ChunkEnum.ERROR)
-        # Always emit DONE so consumers can detach even after an error.
-        await context.add_stream_done()
+        with self._execution(context):
+            try:
+                await self._run_steps(context)
+            except Exception as e:
+                context.response.success = False
+                context.response.answer = _describe_exception(e)
+                await context.add_stream_string(str(e), ChunkEnum.ERROR)
+            # Always emit DONE so consumers can detach even after an error.
+            await context.add_stream_done()

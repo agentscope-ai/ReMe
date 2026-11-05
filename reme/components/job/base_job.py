@@ -1,13 +1,15 @@
 """Base job component for sequential step execution."""
 
+import asyncio
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
+from ..application_context import ApplicationContext
 from ..base_component import BaseComponent, _context_workspaces
 from ..component_registry import R
-from ..runtime_context import RuntimeContext
+from ..runtime_context import RuntimeContext, _current_job_execution
 from ...enumeration import ComponentEnum
 from ...schema import ComponentConfig, Response
-from ...utils import global_counter_inc
 
 if TYPE_CHECKING:
     from ...steps import BaseStep
@@ -37,6 +39,7 @@ class BaseJob(BaseComponent):
     """Job that executes steps sequentially and returns a Response."""
 
     component_type = ComponentEnum.JOB
+    _track_execution_default = False
 
     def __init__(
         self,
@@ -45,6 +48,7 @@ class BaseJob(BaseComponent):
         steps: list[ComponentConfig | dict] | None = None,
         enable_serve: bool = True,
         enabled: bool = True,
+        track_execution: bool | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -53,6 +57,7 @@ class BaseJob(BaseComponent):
         self.step_configs = steps or []
         self.enabled = enabled
         self.enable_serve = enable_serve
+        self.track_execution = self._track_execution_default if track_execution is None else track_execution
         self.step_specs: list[tuple[type["BaseStep"], dict]] = []
 
     async def _start(self) -> None:
@@ -79,12 +84,6 @@ class BaseJob(BaseComponent):
         # dict(params) copies kwargs so steps cannot mutate the shared spec.
         return [step_cls(**dict(params)) for step_cls, params in self.step_specs]
 
-    def _record_call(self) -> None:
-        """Increment this job's application-lifetime call counter."""
-        metadata = getattr(self.app_context, "metadata", None)
-        if isinstance(metadata, dict):
-            global_counter_inc(metadata, ["__job_counter", self.name])
-
     def check_enabled(self) -> None:
         """Reject execution of a disabled job."""
         if not self.enabled:
@@ -109,18 +108,55 @@ class BaseJob(BaseComponent):
             raise ValueError(f"Unknown workspace {alias!r}; configured: {sorted(workspaces)}")
         return workspace
 
+    @contextmanager
+    def _execution(self, context: RuntimeContext):
+        """Count one call and optionally track it, preserving the caller's error handling."""
+        self.check_enabled()
+        owner = self.app_context
+        execution = (
+            owner.start_job_execution(self.name, track_execution=self.track_execution)
+            if isinstance(owner, ApplicationContext)
+            else None
+        )
+        context.job_execution = execution
+        token = _current_job_execution.set(execution)
+        try:
+            yield
+        except BaseException as exc:
+            if execution is not None:
+                status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "failed"
+                owner.finish_job_execution(self.name, execution, status, _describe_exception(exc))
+            raise
+        else:
+            if execution is not None:
+                if not context.response.success:
+                    status, error = "failed", str(context.response.answer)
+                elif context.stream_error is not None:
+                    status, error = "failed", context.stream_error
+                elif context.stop_event is not None and context.stop_event.is_set():
+                    status, error = "stopped", None
+                else:
+                    status, error = "succeeded", None
+                owner.finish_job_execution(self.name, execution, status, error)
+        finally:
+            _current_job_execution.reset(token)
+
+    async def _run_steps(self, context: RuntimeContext) -> Response:
+        """Execute fresh steps against a single invocation context."""
+        for step in self._build_steps():
+            await step(context)
+        return context.response
+
     async def __call__(self, **kwargs) -> Response:
         """Run all steps in order, capturing any failure into the response."""
-        self.check_enabled()
-        self._record_call()
         merged = {**self.kwargs, **kwargs}
         workspace = self._bind_workspace(merged)
         context = RuntimeContext(workspace=workspace, **merged)
-        try:
-            for step in self._build_steps():
-                await step(context)
-        except Exception as e:
-            self.logger.exception(f"Failed to execute job: {e}")
-            context.response.success = False
-            context.response.answer = _describe_exception(e)
+        with self._execution(context):
+            try:
+                await self._run_steps(context)
+            except Exception as e:
+                self.logger.exception(f"Failed to execute job: {e}")
+                context.response.success = False
+                context.response.answer = _describe_exception(e)
         return context.response

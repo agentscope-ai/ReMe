@@ -2,9 +2,12 @@
 
 import asyncio
 from typing import TYPE_CHECKING
+from contextvars import ContextVar
 
 from ..enumeration import ChunkEnum
-from ..schema import Response, StreamChunk
+from ..schema import JobExecution, Response, StreamChunk
+
+_current_job_execution: ContextVar[JobExecution | None] = ContextVar("reme_job_execution", default=None)
 
 if TYPE_CHECKING:
     from ..schema import WorkspaceContext
@@ -32,6 +35,10 @@ class RuntimeContext:
         self.stop_event: asyncio.Event | None = stop_event
         self.workspace: "WorkspaceContext | None" = workspace
         self.data: dict = kwargs
+        self.job_execution: JobExecution | None = _current_job_execution.get()
+        self.step_error: Exception | None = None
+        # Providers can emit terminal errors without raising or changing the Response.
+        self.stream_error: str | None = None
 
     # ----- Data dict access ----------------------------------------------
 
@@ -74,6 +81,8 @@ class RuntimeContext:
         """Put a chunk on the stream queue; raises when streaming is disabled."""
         if self.stream_queue is None:
             raise RuntimeError("Stream queue not initialized")
+        if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
+            self.stream_error = str(chunk.chunk)
         await self.stream_queue.put(chunk)
 
     async def add_stream_string(self, chunk: str, chunk_type: ChunkEnum) -> "RuntimeContext":

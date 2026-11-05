@@ -10,7 +10,7 @@ function finishInterruptedMessage(message: ChatMessage): ChatMessage {
     if (block.type === "content" || block.type === "error") return block;
     return {
       ...block,
-      status: block.status === "error" ? "error" : "done",
+      status: block.status === "done" ? "done" : "error",
       expanded: false,
     };
   });
