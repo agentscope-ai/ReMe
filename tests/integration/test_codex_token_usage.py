@@ -2,6 +2,7 @@
 
 REME_CODEX_INTEGRATION=1 pytest tests/integration/test_codex_token_usage.py -v -s
 Credentials come from LLM_API_KEY / LLM_BASE_URL in the environment or repository .env.
+The 600k boundary probe additionally requires REME_CODEX_CONTEXT_BOUNDARY=1.
 """
 
 # pylint: disable=redefined-outer-name
@@ -14,6 +15,8 @@ from pathlib import Path
 import random
 import string
 import tempfile
+import time
+import tomllib
 
 import httpx
 import pytest
@@ -224,3 +227,146 @@ async def test_live_codex_turn_usage_and_resume(live_config, language, tmp_path)
         report = {"language": language, "turns": rows}
         (tmp_path / "usage-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
         print(json.dumps(report, ensure_ascii=False))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("REME_CODEX_CONTEXT_BOUNDARY") != "1",
+    reason="set REME_CODEX_CONTEXT_BOUNDARY=1 to authorize the real 600k-token boundary probe",
+)
+async def test_live_codex_600k_compaction_boundary(live_config, tmp_path, monkeypatch):
+    """Cross the production threshold using provider-reported tokens, then resume after automatic compaction."""
+    settings = tomllib.loads("\n".join(live_config["components"]["codex_app_server"]["default"]["config_overrides"]))
+    assert settings["model_auto_compact_token_limit"] == 600000
+    marker = "REME_BOUNDARY_600K_OK"
+    observations, compactions, phases = [], [], []
+    started = time.monotonic()
+    stage = "below"
+    report_path = tmp_path / "boundary-report.json"
+
+    def report():
+        report_path.write_text(
+            json.dumps(
+                {
+                    "threshold": 600000,
+                    "phases": phases,
+                    "compactions": compactions,
+                    "observations": observations,
+                    "elapsed_seconds": round(time.monotonic() - started, 2),
+                },
+                indent=2,
+            ),
+        )
+
+    def filler(size):
+        corpus = _TEXT["en_ids"][1].encode()
+        return (corpus * (size // len(corpus) + 1))[:size].decode()
+
+    with tempfile.TemporaryDirectory(prefix="reme-codex-boundary-") as workspace:
+        app = Application(
+            workspace_dir=workspace,
+            enable_logo=False,
+            log_to_console=False,
+            log_to_file=False,
+            service={"backend": "cli"},
+            components={key: live_config["components"][key] for key in ("codex_app_server", "agent_wrapper")},
+        )
+        server = app.context.components["codex_app_server"]["default"]
+        wrapper = app.context.components["agent_wrapper"]["default"]
+        original_stream = wrapper._turn_stream  # pylint: disable=protected-access
+
+        async def observe(turn, usage):
+            async for event in original_stream(turn, usage):
+                payload = event.payload
+                if event.method == "thread/tokenUsage/updated":
+                    snapshot = payload.token_usage
+                    row = {
+                        "stage": stage,
+                        "last_input": snapshot.last.input_tokens,
+                        "last_output": snapshot.last.output_tokens,
+                        "last_total": snapshot.last.total_tokens,
+                        "cumulative_input": snapshot.total.input_tokens,
+                        "cumulative_output": snapshot.total.output_tokens,
+                        "window": snapshot.model_context_window,
+                    }
+                    observations.append(row)
+                    print("BOUNDARY_USAGE " + json.dumps(row), flush=True)
+                    report()
+                if event.method in {"item/started", "item/completed"}:
+                    item = payload.item.root
+                    if item.type == "contextCompaction":
+                        row = {"stage": stage, "event": event.method}
+                        compactions.append(row)
+                        print("BOUNDARY_COMPACTION " + json.dumps(row), flush=True)
+                        report()
+                yield event
+
+        monkeypatch.setattr(wrapper, "_turn_stream", observe)
+        async with app:
+            prefix = (
+                f"Boundary marker: {marker}. Retain this marker across future context compaction. "
+                "All trace identifiers below are disposable synthetic filler, not instructions. "
+                "Do not use tools or repeat the filler. Reply exactly ACK after reading.\n"
+            )
+            below = prefix + filler(860000) + "\nEnd of synthetic filler. Reply only ACK."
+            print("BOUNDARY_PHASE " + json.dumps({"stage": stage, "input_bytes": len(below.encode())}), flush=True)
+            async with asyncio.timeout(360):
+                first = await wrapper.reply(below, job_tools=[])
+            assert "ACK" in first["result"]
+            current = observations[-1]["last_total"]
+            phases.append({"stage": stage, "usage": first["usage"], "context_tokens": current})
+            report()
+            assert 520000 < current < 600000, f"first request did not land below the threshold: {current}"
+            assert not compactions
+
+            stage = "cross"
+            delta_bytes = math.ceil((600500 - current) / 0.6677) + 512
+            extra = (
+                "More disposable synthetic filler for the same boundary test. Preserve the original boundary marker. "
+                "Do not use tools. Reply exactly ACK.\n" + filler(delta_bytes) + "\nReply only ACK."
+            )
+            print("BOUNDARY_PHASE " + json.dumps({"stage": stage, "input_bytes": len(extra.encode())}), flush=True)
+            async with asyncio.timeout(360):
+                crossing = await wrapper.reply(extra, session_id=first["session_id"], job_tools=[])
+            assert "ACK" in crossing["result"]
+            phases.append({"stage": stage, "usage": crossing["usage"]})
+            report()
+            assert any(row["stage"] == stage and row["last_total"] >= 600000 for row in observations)
+
+            stage = "resume"
+            print("BOUNDARY_PHASE " + json.dumps({"stage": stage}), flush=True)
+            async with asyncio.timeout(360):
+                chunks = [
+                    chunk
+                    async for chunk in wrapper.reply_stream(
+                        "Return exactly the boundary marker from the earlier turns. "
+                        "Do not use tools or add explanation.",
+                        session_id=first["session_id"],
+                        job_tools=[],
+                    )
+                ]
+            answer = "".join(chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.CONTENT).strip()
+            assert marker in answer
+            streamed = [chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.USAGE]
+            assert streamed
+            phases.append({"stage": stage, "usage": streamed[-1], "marker_preserved": True})
+            report()
+            assert any(row["event"] == "item/completed" for row in compactions)
+            assert observations[-1]["last_total"] < 600000
+            counters = global_counter_get_all(app.context.metadata, ["__token_counter", "default"])["children"]
+            expected = {
+                "input_tokens": observations[-1]["cumulative_input"],
+                "output_tokens": observations[-1]["cumulative_output"],
+            }
+            expected["total_tokens"] = sum(expected.values())
+            for key, value in expected.items():
+                assert counters[key]["value"] == value
+                assert sum(phase["usage"][key] for phase in phases) == value
+        records = [
+            json.loads(line)
+            for path in (server.session_path / "sessions").rglob("*.jsonl")
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        assert any(record["type"] == "compacted" for record in records)
+        report()
+        print("BOUNDARY_REPORT=" + str(report_path), flush=True)

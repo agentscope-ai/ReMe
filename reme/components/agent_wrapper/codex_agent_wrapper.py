@@ -27,32 +27,17 @@ if TYPE_CHECKING:
 class _TurnUsage:
     """Invocation-local usage derived from monotonic thread counters."""
 
-    baseline: TokenUsage | None = None
+    baseline: TokenUsage
     usage: TokenUsage | None = None
 
-    def update(self, snapshot: Any) -> None:
+    def update(self, total: TokenUsage) -> None:
         """Keep reported spending separate from synthetic context estimates."""
-        total = TokenUsage.from_provider(snapshot.total)
-        last = TokenUsage.from_provider(snapshot.last)
-        if self.baseline is None:
-            # Remove prior turns; synthetic context estimates have zero input/output counters.
-            self.baseline = TokenUsage(
-                input_tokens=max(0, total.input_tokens - last.input_tokens),
-                output_tokens=max(0, total.output_tokens - last.output_tokens),
-            )
-        previous = self.usage or TokenUsage()
         current = TokenUsage(
-            input_tokens=max(previous.input_tokens, total.input_tokens - self.baseline.input_tokens),
-            output_tokens=max(previous.output_tokens, total.output_tokens - self.baseline.output_tokens),
+            input_tokens=max(0, total.input_tokens - self.baseline.input_tokens),
+            output_tokens=max(0, total.output_tokens - self.baseline.output_tokens),
         )
-        if (
-            self.usage is None
-            and current.total_tokens == 0
-            and last.total_tokens == 0
-            and snapshot.last.total_tokens > 0
-        ):
-            return
-        self.usage = current
+        if current.total_tokens or self.usage is not None:
+            self.usage = current
 
 
 @R.register("codex")
@@ -208,8 +193,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         return to_jsonable_python(value, by_alias=True)
 
-    @staticmethod
-    async def _turn_stream(turn: Any, usage: _TurnUsage) -> AsyncIterator[Notification]:
+    async def _turn_stream(self, turn: Any, usage: _TurnUsage) -> AsyncIterator[Notification]:
         """Observe only this turn's reported spending, including compaction calls."""
         stream = turn.stream()
         try:
@@ -217,7 +201,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 if event.method == "thread/tokenUsage/updated":
                     if event.payload.turn_id != turn.id:
                         continue
-                    usage.update(event.payload.token_usage)
+                    total = self.app_server.update_token_usage(
+                        turn.thread_id,
+                        TokenUsage.from_provider(event.payload.token_usage.total),
+                    )
+                    usage.update(total)
                 yield event
         finally:
             await stream.aclose()
@@ -227,8 +215,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex._run import _collect_async_turn_result
 
         kwargs = self._reply_kwargs(kwargs)
-        usage = _TurnUsage()
         async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
             turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
             stream = self._turn_stream(turn, usage)
             try:
@@ -424,9 +412,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Stream notifications routed by the SDK to this conversation's turn."""
         kwargs = self._reply_kwargs(kwargs, stream=True)
-        usage = _TurnUsage()
         emitted_usage = None
         async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
             turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
             stream = self._turn_stream(turn, usage)
             completed = False

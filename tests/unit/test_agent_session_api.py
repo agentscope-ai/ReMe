@@ -20,6 +20,42 @@ from reme.components.codex_app_server import CodexAppServer
 from reme.config import resolve_app_config
 
 
+def test_read_native_usage_ignores_estimates_and_an_incomplete_tail_without_writing(tmp_path):
+    path = tmp_path / "rollout.jsonl"
+    records = [
+        {"type": "session_meta", "payload": {}},
+        {
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "last_token_usage": {"total_tokens": 900000},
+                    "total_token_usage": {"input_tokens": 50, "output_tokens": 7, "total_tokens": 57},
+                },
+            },
+        },
+        {"type": "event_msg", "payload": {"type": "token_count", "info": None}},
+    ]
+    original = "\n".join(json.dumps(row) for row in records) + '\n{"type":'
+    path.write_text(original)
+    assert history.read_token_usage(SimpleNamespace(path=str(path)), tmp_path).model_dump() == {
+        "input_tokens": 50,
+        "output_tokens": 7,
+        "total_tokens": 57,
+    }
+    assert path.read_text() == original
+    assert history.read_token_usage(SimpleNamespace(path=None), tmp_path).total_tokens == 0
+
+
+def test_read_native_usage_rejects_escaped_paths_and_complete_corruption(tmp_path):
+    with pytest.raises(ValueError, match="outside"):
+        history.read_token_usage(SimpleNamespace(path=str(tmp_path.parent / "outside.jsonl")), tmp_path)
+    path = tmp_path / "bad.jsonl"
+    path.write_text("{broken}\n")
+    with pytest.raises(json.JSONDecodeError):
+        history.read_token_usage(SimpleNamespace(path=str(path)), tmp_path)
+
+
 def turn(identifier, query, answer):
     return SimpleNamespace(
         id=identifier,

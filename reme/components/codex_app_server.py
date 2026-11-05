@@ -20,7 +20,7 @@ from ..constants import normalize_connect_host
 from ..enumeration import ComponentEnum
 from ..utils.async_utils import finish_cleanup
 from ..utils.async_utils import complete_in_thread
-from ..schema import SessionMessage, SessionSnapshot, SessionStatus
+from ..schema import SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
@@ -35,6 +35,7 @@ class _ThreadState:
     token: str | None = None
     completion: asyncio.Future[None] | None = None
     operation_started: bool = False
+    token_usage: TokenUsage | None = None
 
 
 @R.register("sdk")
@@ -388,6 +389,27 @@ class CodexAppServer(BaseComponent):
             state.completion = None
             raise
 
+    async def token_usage(self, thread_id: str) -> TokenUsage:
+        """Read the pre-turn baseline under the conversation lease, recovering it after restart."""
+        from .agent_wrapper.codex_session_history import read_token_usage
+
+        state = self._threads[thread_id]
+        if state.token_usage is None:
+            codex = await self._get_client()
+            view = (await codex._client.thread_read(thread_id)).thread  # pylint: disable=protected-access
+            state.token_usage = await asyncio.to_thread(read_token_usage, view, self.session_path)
+        return state.token_usage
+
+    def update_token_usage(self, thread_id: str, total: TokenUsage) -> TokenUsage:
+        """Keep cumulative provider counters monotonic across wrappers and duplicate notifications."""
+        state = self._threads[thread_id]
+        previous = state.token_usage or TokenUsage()
+        state.token_usage = TokenUsage(
+            input_tokens=max(previous.input_tokens, total.input_tokens),
+            output_tokens=max(previous.output_tokens, total.output_tokens),
+        )
+        return state.token_usage
+
     async def turn(self, thread: AsyncThread, inputs: Any, **kwargs):
         """Start a normal SDK turn with completion tracking owned by this server."""
         turn = None
@@ -417,6 +439,7 @@ class CodexAppServer(BaseComponent):
             async with self._operation(thread):
                 await thread.compact()
 
+        self._threads[thread.id].token_usage = None
         await finish_cleanup(dispatch())
 
     @asynccontextmanager
@@ -484,6 +507,7 @@ class CodexAppServer(BaseComponent):
                     source.revision += 1
                     try:
                         async with source.lock:
+                            state.token_usage = await self.token_usage(thread_id)
                             thread = await codex.thread_fork(thread_id, **options)
                     finally:
                         source.users -= 1
@@ -491,6 +515,7 @@ class CodexAppServer(BaseComponent):
                     thread = await codex.thread_resume(thread_id, **options)
                 else:
                     thread = await codex.thread_start(**options)
+                    state.token_usage = TokenUsage()
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)

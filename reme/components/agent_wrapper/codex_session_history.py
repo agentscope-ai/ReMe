@@ -8,7 +8,7 @@ import re
 from uuid import uuid4
 
 from ...enumeration import ChunkEnum
-from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
+from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 
@@ -84,6 +84,30 @@ def injected_ids(thread, home: Path) -> set[str]:
         if isinstance(item_id, str) and item_id.startswith("reme-proactive-"):
             found.add(item_id)
     return found
+
+
+def read_token_usage(thread, home: Path) -> TokenUsage:
+    """Recover reported cumulative spending before starting a restored native session's next turn."""
+    raw_path = getattr(thread, "path", None)
+    if not raw_path:
+        return TokenUsage()
+    path = Path(raw_path).resolve()
+    if not path.is_relative_to(home.resolve()):
+        raise ValueError("Codex session path is outside its configured home")
+    usage = TokenUsage()
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                if not line.endswith("\n"):
+                    break
+                raise
+            payload = record.get("payload", {})
+            if record.get("type") == "event_msg" and payload.get("type") == "token_count":
+                if info := payload.get("info"):
+                    usage = TokenUsage.from_provider(info["total_token_usage"])
+    return usage
 
 
 def new_record(message_id: str, content: str, thread) -> dict:
