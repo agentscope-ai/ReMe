@@ -197,6 +197,9 @@ processes it manages when the Host exits. The plugin owns a small service adapte
   already in flight. Before replacing a recorded launch that never became healthy, Start only kills it when
   ownership is proven; an unproven record is kept and reported, never silently dropped. The selected interpreter's
   dependencies are checked before stopping the previous service.
+  Status reads before spawn acknowledgement keep the launch in flight. If a newer service record appears during
+  probing or spawning, it is preserved and any unrecorded new child is stopped before reporting failure.
+  Service-record read errors abort the operation instead of being treated as an absent record.
 - **Auto-start** (`autoStart`, off by default) pulls the service up when DSH starts, if it is not already running.
   A refused launch is reported in the DSH Host log.
 
@@ -227,7 +230,8 @@ with other projects.
 use `EMPTY` for the embedding key when vector search is off. Emptying a secret field never reaches the file, so
 the stored key is kept; a required key that is not stored at all still fails the save, and the file is left
 unchanged. Only a missing file is treated as a first save; permission or I/O read errors abort the save without
-replacing the active file or its backup.
+replacing the active file or its backup. Names must start with a letter or underscore and contain only letters, digits and underscores; values must be single-line strings;
+invalid updates leave both files unchanged.
 
 **The service reports “Port occupied”.** Something else listens on the endpoint. Change the port in the service
 URL (Memory settings) or stop the other program.

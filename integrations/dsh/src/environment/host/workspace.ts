@@ -63,6 +63,12 @@ export function mergeEnvFile(
   updates: Record<string, string>,
 ): string {
   const pending = new Map(Object.entries(updates));
+  for (const [key, value] of pending) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
+      throw new TypeError("Invalid environment variable name");
+    if (typeof value !== "string" || /[\r\n\0]/.test(value))
+      throw new TypeError("Environment values must be single-line strings");
+  }
   const eol = /\r\n/.test(existingText) ? "\r\n" : "\n";
   const lines = existingText.length ? existingText.split(/\r?\n/) : [];
   const output: string[] = [];

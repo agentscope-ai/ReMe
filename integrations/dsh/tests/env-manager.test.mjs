@@ -66,6 +66,176 @@ function managerIn(t) {
   return { manager, calls, directory, io };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+for (const delayed of [false, true]) {
+  test(`a ${
+    delayed ? "delayed" : "completed"
+  } status read before spawn acknowledgement preserves the start`, async (t) => {
+    const { manager, calls, directory, io } = managerIn(t);
+    manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+    const spawned = deferred(),
+      acknowledgement = deferred();
+    const statusEntered = deferred(),
+      statusReply = deferred();
+    t.after(() => {
+      acknowledgement.resolve();
+      statusReply.resolve();
+    });
+    let pauseStatus = false;
+    let running = true;
+    io.portOpen = async () => {
+      if (pauseStatus) {
+        pauseStatus = false;
+        statusEntered.resolve();
+        await statusReply.promise;
+      }
+      return false;
+    };
+    io.spawnService = async (options) => {
+      calls.spawn.push(options);
+      spawned.resolve();
+      if (calls.spawn.length === 1) await acknowledgement.promise;
+      running = true;
+      return { pid: 5000 + calls.spawn.length };
+    };
+    io.probePid = () => {
+      if (!running) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+    };
+    io.killTree = (pid) => {
+      calls.killTree.push(pid);
+      running = false;
+    };
+    io.processCommandLine = async () =>
+      `reme start workspace_dir=${directory} service.port=2334`;
+    const options = ["http://127.0.0.1:2334", "/env/bin/python", directory];
+    const first = manager.serviceStart(...options);
+    await spawned.promise;
+    const second = manager.serviceStart(...options);
+    pauseStatus = delayed;
+    const status = manager.serviceStatus(options[0]);
+    if (delayed) {
+      await statusEntered.promise;
+      acknowledgement.resolve();
+      await first;
+      statusReply.resolve();
+    } else {
+      await status;
+      acknowledgement.resolve();
+    }
+    const [started, repeated] = await Promise.all([first, second, status]);
+    assert.equal(started.started, true);
+    assert.equal(repeated.alreadyRunning, true);
+    assert.equal(calls.spawn.length, 1);
+    assert.deepEqual(calls.killTree, []);
+    assert.equal(
+      readServiceState(join(directory, "reme-memory", "service.json"))?.pid,
+      5001,
+    );
+  });
+}
+
+test("an acknowledged launch that exits before listening can be retried", async (t) => {
+  const { manager, calls, directory, io } = managerIn(t);
+  manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+  io.probePid = () => {
+    throw Object.assign(new Error("gone"), { code: "ESRCH" });
+  };
+  const options = ["http://127.0.0.1:2334", "/env/bin/python", directory];
+  assert.equal((await manager.serviceStart(...options)).started, true);
+  const status = await manager.serviceStatus(options[0]);
+  assert.equal(status.phase, "stopped");
+  assert.equal(status.pid, undefined);
+  assert.equal((await manager.serviceStart(...options)).started, true);
+  assert.equal(calls.spawn.length, 2);
+});
+
+for (const initial of ["missing", "dead", "foreign"]) {
+  test(`a ${initial} record snapshot cannot overwrite a launch published during the dependency check`, async (t) => {
+    const { manager, calls, directory, io } = managerIn(t);
+    const statePath = join(directory, "reme-memory", "service.json");
+    const record = {
+      pid: 7000,
+      endpoint: "http://127.0.0.1:2334",
+      workspaceDir: directory,
+      pythonPath: "/other/bin/python",
+      command: "reme start",
+      startedAt: "new",
+    };
+    if (initial !== "missing")
+      writeServiceState(statePath, { ...record, pid: 6000, startedAt: "old" });
+    io.probePid = () => {
+      if (initial === "dead")
+        throw Object.assign(new Error("gone"), { code: "ESRCH" });
+    };
+    io.processImage = async () => "node";
+    const check = manager.checkReme;
+    manager.checkReme = async (path) => {
+      writeServiceState(statePath, record);
+      return check(path);
+    };
+    const result = await manager.serviceStart(
+      record.endpoint,
+      "/env/bin/python",
+      directory,
+    );
+    assert.equal(result.started, false);
+    assert.equal(result.code, "previous-not-stopped");
+    assert.deepEqual(result.record, {
+      endpoint: record.endpoint,
+      pid: record.pid,
+    });
+    assert.deepEqual(calls.spawn, []);
+    assert.deepEqual(calls.killTree, []);
+    assert.deepEqual(readServiceState(statePath), record);
+  });
+}
+
+for (const code of ["EIO", "EACCES"]) {
+  test(`a ${code} service-record read failure cannot discard ownership`, async (t) => {
+    const { manager, calls, directory } = managerIn(t);
+    manager.serviceStatus = ReMeEnvManager.prototype.serviceStatus;
+    const statePath = join(directory, "reme-memory", "service.json");
+    writeServiceState(statePath, {
+      pid: 7000,
+      endpoint: "http://127.0.0.1:2333",
+      workspaceDir: directory,
+      pythonPath: "/env/bin/python",
+      command: "reme start",
+      startedAt: "old",
+    });
+    const original = readFileSync(statePath, "utf8");
+    const read = fs.readFileSync;
+    const stub = t.mock.method(fs, "readFileSync", (path, ...args) => {
+      if (path === statePath) throw Object.assign(new Error(code), { code });
+      return read(path, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(
+        manager.serviceStart(
+          "http://127.0.0.1:2334",
+          "/env/bin/python",
+          directory,
+        ),
+        { code },
+      );
+    } finally {
+      stub.mock.restore();
+      syncBuiltinESMExports();
+    }
+    assert.equal(readFileSync(statePath, "utf8"), original);
+    assert.deepEqual(calls.spawn, []);
+    assert.deepEqual(calls.killTree, []);
+  });
+}
+
 test("serializes concurrent starts into one service launch", async (t) => {
   const { manager, calls, directory } = managerIn(t);
   const options = [
@@ -1028,4 +1198,22 @@ test("a missing .env can still be created on the first save", (t) => {
     readFileSync(join(directory, ".env"), "utf8"),
     /^LLM_API_KEY=new$/m,
   );
+});
+
+test(".env updates cannot inject additional configuration lines", (t) => {
+  const { manager, directory } = managerIn(t);
+  const envPath = join(directory, ".env");
+  const original = "UNRELATED=keep\nLLM_API_KEY=old\nEMBEDDING_API_KEY=EMPTY\n";
+  writeFileSync(envPath, original);
+  writeFileSync(`${envPath}.bak`, "previous backup");
+  for (const values of [
+    { LLM_API_KEY: "new\nUNRELATED=changed" },
+    { LLM_API_KEY: "new\r\nUNRELATED=changed" },
+    { "LLM_API_KEY\nUNRELATED": "changed" },
+    { LLM_API_KEY: 123 },
+  ]) {
+    assert.throws(() => manager.writeEnv(directory, values), TypeError);
+    assert.equal(readFileSync(envPath, "utf8"), original);
+    assert.equal(readFileSync(`${envPath}.bak`, "utf8"), "previous backup");
+  }
 });

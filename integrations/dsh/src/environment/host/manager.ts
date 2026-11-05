@@ -16,6 +16,7 @@ import {
   processAlive,
   readServiceState,
   removeServiceState,
+  sameServiceRecord,
   serviceEndpointKey,
   serviceOriginKey,
   serviceOwnership,
@@ -82,7 +83,7 @@ export class ReMeEnvManager {
   private readonly serviceStatePath: string;
   /** Serializes starts so two requests cannot spawn two services. */
   private startQueue: Promise<unknown> = Promise.resolve();
-  private starting?: { endpoint: string; at: number };
+  private starting?: { endpoint: string; at: number; pid?: number };
 
   constructor(
     env: NodeJS.ProcessEnv = process.env,
@@ -210,6 +211,8 @@ export class ReMeEnvManager {
   /** Current service phase (running / conflict / stopped) and ownership. */
   async serviceStatus(endpoint: string, authToken = ""): Promise<ServiceState> {
     const endpointValue = this.endpoint(endpoint);
+    const starting = this.starting;
+    const acknowledged = starting?.pid !== undefined;
     // A record left under a path prefix of the same origin describes the
     // service this endpoint talks to. It is re-keyed to the endpoint on screen
     // first, so the tab can manage (stop) it and the start path can replace
@@ -232,7 +235,11 @@ export class ReMeEnvManager {
       authToken,
       logPath: join(logDir, "service.log"),
     });
-    if (this.starting?.endpoint === endpointValue) {
+    if (
+      starting &&
+      this.starting === starting &&
+      starting.endpoint === endpointValue
+    ) {
       // Running and conflict both mean the port answered: the launch is no
       // longer "in flight". Stopped without a live pid means it died before it
       // ever listened, so a retry must not be blocked either. A stopped status
@@ -240,7 +247,7 @@ export class ReMeEnvManager {
       if (
         status.phase === "running" ||
         status.phase === "conflict" ||
-        (status.phase === "stopped" && status.pid === undefined)
+        (acknowledged && status.phase === "stopped" && status.pid === undefined)
       )
         this.starting = undefined;
     }
@@ -510,15 +517,10 @@ export class ReMeEnvManager {
       return;
     if (!this.sameOrigin(record.endpoint, endpointValue)) return;
     const current = readServiceState(this.serviceStatePath);
-    if (
-      !current ||
-      current.pid !== record.pid ||
-      current.endpoint !== record.endpoint
-    )
-      return;
+    if (!sameServiceRecord(current, record)) return;
     try {
       writeServiceState(this.serviceStatePath, {
-        ...current,
+        ...record,
         endpoint: endpointValue,
       });
     } catch {
@@ -636,6 +638,15 @@ export class ReMeEnvManager {
       };
       return this.refused(logPath, now, code, errors[code]);
     }
+    const inspected = readServiceState(this.serviceStatePath);
+    if (!sameServiceRecord(inspected, record))
+      return this.refused(
+        logPath,
+        now,
+        "previous-not-stopped",
+        "The service record changed during the dependency check; retry with its current state",
+        { record: serviceRecordRef(inspected) },
+      );
     // All replacement cases share this path. Validate the new interpreter
     // before stopping anything, then re-verify ownership at the stop boundary.
     if (replace && record) {
@@ -663,6 +674,7 @@ export class ReMeEnvManager {
     // booting observes the first launch instead of spawning another one. It is
     // cleared again when the spawn fails, so a retry is possible immediately.
     this.starting = { endpoint: endpointValue, at: Date.now() };
+    const launch = this.starting;
     try {
       const result = await startService(this.serviceIO, {
         endpoint: endpointValue,
@@ -676,6 +688,7 @@ export class ReMeEnvManager {
         env: this.env,
       });
       if (!result.started) this.starting = undefined;
+      else if (result.pid !== undefined) launch.pid = result.pid;
       return result;
     } catch (error) {
       this.starting = undefined;

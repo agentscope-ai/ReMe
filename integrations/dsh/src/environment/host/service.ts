@@ -137,9 +137,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Read a record defensively: a malformed file is "no record", not a crash. */
 export function readServiceState(path: string): PersistedService | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
   let value: unknown;
   try {
-    value = JSON.parse(readFileSync(path, "utf8"));
+    value = JSON.parse(text);
   } catch {
     return undefined;
   }
@@ -155,6 +162,21 @@ export function readServiceState(path: string): PersistedService | undefined {
     command: typeof value.command === "string" ? value.command : "",
     startedAt: typeof value.startedAt === "string" ? value.startedAt : "",
   };
+}
+
+/** Compare observed records before changing ownership metadata after an await. */
+export function sameServiceRecord(
+  left: PersistedService | undefined,
+  right: PersistedService | undefined,
+): boolean {
+  return (
+    left?.pid === right?.pid &&
+    left?.endpoint === right?.endpoint &&
+    left?.startedAt === right?.startedAt &&
+    left?.workspaceDir === right?.workspaceDir &&
+    left?.pythonPath === right?.pythonPath &&
+    left?.command === right?.command
+  );
 }
 
 export function writeServiceState(path: string, state: PersistedService): void {
@@ -522,6 +544,12 @@ export async function startService(
     };
   }
   try {
+    // Another manager may have published a launch while spawn acknowledgement
+    // was pending. Keep its record and terminate only our unrecorded child.
+    if (readServiceState(options.statePath))
+      throw new Error(
+        "Another service was recorded while this launch was starting",
+      );
     writeServiceState(options.statePath, {
       pid: child.pid,
       endpoint: options.endpoint,
@@ -533,10 +561,19 @@ export async function startService(
   } catch (error) {
     // The process exists but could not be recorded; leaving it running would
     // make it unmanageable, so stop it before reporting the failure.
-    try {
-      if (child.pid !== undefined) io.killTree(child.pid, true);
-    } catch {
-      // Best effort: the error below already explains the launch failed.
+    let exited = child.pid === undefined;
+    if (child.pid !== undefined) {
+      try {
+        io.killTree(child.pid, true);
+      } catch {
+        // Still confirm whether it exited before reporting the failure.
+      }
+      exited = await waitForExit(
+        io,
+        child.pid,
+        STOP_FORCE_TIMEOUT_MS,
+        STOP_POLL_MS,
+      );
     }
     return {
       started: false,
@@ -544,7 +581,10 @@ export async function startService(
       command: command.display,
       logPath: options.logPath,
       startedAt,
-      error: `Could not record the ReMe service: ${safeError(error)}`,
+      error: `Could not record the ReMe service: ${safeError(error)}${
+        exited ? "" : `; process ${child.pid} could not be confirmed stopped`
+      }`,
+      ...(!exited && child.pid !== undefined ? { pid: child.pid } : {}),
       code: "start-failed",
     };
   }
@@ -639,11 +679,7 @@ export async function stopService(
   const pid = persisted.pid;
   const isCurrentRecord = (): boolean => {
     const current = readServiceState(options.statePath);
-    return (
-      current?.pid === pid &&
-      current.endpoint === persisted.endpoint &&
-      current.startedAt === persisted.startedAt
-    );
+    return sameServiceRecord(current, persisted);
   };
   // Identity reads yield to the event loop. Never signal a record that was
   // replaced while those reads were in flight, or erase a newer launch later.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -474,6 +474,62 @@ test("records nothing when the spawn fails", async (t) => {
   assert.equal(result.started, false);
   assert.match(result.error, /ENOENT/);
   assert.equal(readServiceState(statePath), undefined);
+});
+
+test("missing and malformed service records remain rebuildable", (t) => {
+  const { statePath } = tempState(t, "reme-malformed-record-");
+  assert.equal(readServiceState(statePath), undefined);
+  for (const text of ["{", "{}", '{"endpoint":7}']) {
+    writeFileSync(statePath, text);
+    assert.equal(readServiceState(statePath), undefined);
+  }
+});
+
+test("a launch never overwrites a service recorded before its spawn acknowledgement", async (t) => {
+  const { directory, statePath } = tempState(t, "reme-publish-race-");
+  let running = true;
+  let group = true;
+  const { io, calls } = fakeIO({
+    async spawnService() {
+      record(statePath, { pid: 777 });
+      return { pid: 4321 };
+    },
+    killTree(pid, force) {
+      calls.killTree.push(pid);
+      assert.equal(force, true);
+      running = false;
+      setTimeout(() => {
+        group = false;
+      }, 5);
+    },
+    probePid() {
+      if (!running) throw Object.assign(new Error("gone"), { code: "ESRCH" });
+    },
+    groupAlive: () => group,
+  });
+  const result = await startService(io, {
+    endpoint: ENDPOINT,
+    workspaceDir: directory,
+    pythonPath: "/env/bin/python",
+    cliPath: "",
+    disableDreamCron: false,
+    statePath,
+    logPath: join(directory, "service.log"),
+    env: {},
+  });
+  assert.equal(result.started, false);
+  assert.equal(result.code, "start-failed");
+  assert.equal(
+    group,
+    false,
+    "the unrecorded process group must exit before failure is reported",
+  );
+  assert.deepEqual(
+    calls.killTree,
+    [4321],
+    "only the new unrecorded launch is stopped",
+  );
+  assert.equal(readServiceState(statePath)?.pid, 777);
 });
 
 test("stops the managed pid and clears the state file after it exits", async (t) => {
