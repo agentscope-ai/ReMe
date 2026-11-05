@@ -10,6 +10,7 @@ import pytest
 from pydantic import BaseModel
 
 from reme_daily_paper.analyze import DailyPaperAnalyzeStep
+from reme_daily_paper.base import markdown_output
 from reme_daily_paper.schema import PaperInfo, PaperPick
 from reme.components import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import AsAgentWrapper
@@ -134,3 +135,46 @@ async def test_codex_json_parse_failure_gets_one_shorter_retry(tmp_path, monkeyp
     assert instruction not in thread.run.await_args_list[0].args[0]
     assert instruction in thread.run.await_args_list[1].args[0]
     downloader.download.assert_awaited_once()
+
+
+@pytest.mark.parametrize("empty_frontmatter", ["---\n---", "---\n---\n"])
+@pytest.mark.asyncio
+async def test_empty_frontmatter_retries_once_without_repeating_pdf_work(tmp_path, monkeypatch, empty_frontmatter):
+    """An empty frontmatter-only note triggers one shorter retry after one PDF extraction."""
+    app = ApplicationContext(workspace_dir=str(tmp_path))
+    valid = {"title": "论文摘要", "desc": "summary", "body": "Recovered result"}
+    reply = AsyncMock(
+        side_effect=[
+            {"structured_output": {"title": "论文摘要", "desc": "summary", "body": empty_frontmatter}},
+            {"structured_output": valid},
+        ],
+    )
+    step = DailyPaperAnalyzeStep(app_context=app)
+    step.agent_wrapper = SimpleNamespace(reply=reply)
+    step.context = RuntimeContext(daily_paper_run_date="2026-07-21")
+    extraction_calls = []
+
+    def extract(*_args):
+        extraction_calls.append(True)
+        return "Evidence [p. 1]", 1, False
+
+    monkeypatch.setattr(step, "_extract_pdf_text_sync", extract)
+    downloader = SimpleNamespace(download=AsyncMock())
+    paper = PaperInfo(arxiv_id="2607.10001")
+    pick = PaperPick(arxiv_id=paper.arxiv_id, reasoning="test")
+
+    result = await step._analyze_one(downloader, paper, pick, set())
+
+    note = (tmp_path / result.note_path).read_text(encoding="utf-8")
+    assert "Recovered result" in note
+    assert reply.await_count == 2
+    downloader.download.assert_awaited_once()
+    assert extraction_calls == [True]
+
+
+@pytest.mark.parametrize("body", ["---\n---\nUseful note", "---\n---\n\nUseful note"])
+def test_content_after_empty_frontmatter_is_retained(body):
+    """Removing an empty frontmatter block must leave the Markdown body intact."""
+    result = markdown_output({"structured_output": {"title": "Title", "desc": "Description", "body": body}})
+
+    assert result.body == "Useful note"
