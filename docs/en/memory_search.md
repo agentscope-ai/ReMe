@@ -287,6 +287,17 @@ The `results` list is empty and `counts.returned` is `0`. An optional `response.
 The field also contains a human-readable `message`. Programmatic consumers should use `reason` to distinguish the
 outcomes. Normal hits omit `empty_result` and keep their existing answer format.
 
+## Traverse return format
+
+`TraverseStep` returns a readable summary of reached nodes and directed edges in `response.answer`. Node lines include
+available frontmatter names and concise descriptions; an unindexed path is marked as lacking indexed frontmatter while noting
+that the file may still exist on disk. When no edges are reached within the requested depth and direction, the answer
+says so explicitly.
+
+The complete structured `TraverseGraph` is available in `response.metadata.graph`. This changes the type of
+`response.answer` from a graph dictionary to a string. Programmatic callers that parsed the old answer should migrate
+to `response.metadata.graph` for seeds, direction, depth, nodes, and edges.
+
 To show the explanation through the running service's CLI client, enable the existing metadata display option:
 
 ```bash
