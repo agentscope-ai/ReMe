@@ -104,6 +104,10 @@ HTTP Job API. Keep the ReMe service running while using the plugin.
 
 `integrations/hermes_agent/` provides a memory provider with HTTP and embedded modes. It recalls context before model calls and asynchronously invokes `auto_memory` after each turn. Its `config_schema.py` is rendered by Hermes' generic memory settings UI.
 
+## Community companions
+
+- [SemanticMemory](https://github.com/star-nebula/SemanticMemory) keeps reviewed current facts, source quotes, decisions, and tasks as Markdown, with an optional `reme_ref` pointer back to ReMe evidence. It is an independent community project, not part of ReMe core. See the [community introduction](https://github.com/agentscope-ai/ReMe/discussions/703).
+
 ## Production guidance
 
 - choose a stable absolute `workspace_dir`;
