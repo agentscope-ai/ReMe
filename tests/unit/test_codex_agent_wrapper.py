@@ -1,340 +1,1317 @@
-"""Unit tests for the Codex agent wrapper and its FastMCP bridge."""
+"""Shared Codex runtime, isolated conversations, and same-Application MCP tools."""
 
-# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access,too-many-lines
+# pylint: disable=missing-class-docstring,missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
-from dataclasses import dataclass
 import json
-import os
 from pathlib import Path
-import stat
-import sys
+import socket
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from openai_codex.generated.v2_all import TokenUsageBreakdown
+import pytest_asyncio
+from fastmcp import Client
+from fastmcp.client import StreamableHttpTransport
+from fastmcp.exceptions import ToolError
+from openai_codex.generated.v2_all import (
+    AgentMessageThreadItem,
+    ItemCompletedNotification,
+    ThreadTokenUsage,
+    ThreadTokenUsageUpdatedNotification,
+    TokenUsageBreakdown,
+    Turn,
+    TurnCompletedNotification,
+)
 from pydantic import BaseModel
 
+from reme.application import Application
+from reme.components.application_context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_mcp_server import _prepare_config
-from reme.components.job import BackgroundJob
-from reme.components.outbound_proxy import FixedHttpOutboundProxy
+from reme.components.codex_app_server import CodexAppServer
+from reme.components.job import BackgroundJob, StreamJob
+from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import ApplicationConfig, Response
-
-# A fresh bridge imports ReMe before replying to initialize; keep this separate
-# from the 10-second budget for requests to an already initialized server.
-STDIO_INIT_TIMEOUT = 30
+from reme.schema import Response, TokenUsage
+from reme.utils import global_counter_get_all
 
 
 class _Job:
-    def __init__(self, name="search"):
-        self.name = name
-        self.description = "Search memory"
-        self.parameters = {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        }
+    name = "search"
+    description = "Search memory"
+    enabled = True
+    enable_serve = False
+    parameters = {
+        "type": "object",
+        "properties": {"query": {"type": "string"}, "_allowed_paths": {"type": "array"}},
+        "required": ["query"],
+    }
+
+    def __init__(self):
         self.calls = []
 
     async def __call__(self, **kwargs):
         self.calls.append(kwargs)
-        return Response(answer=f"found:{kwargs['query']}")
+        return Response(answer={"query": kwargs["query"], "calls": len(self.calls)})
+
+
+class _Turn:
+    def __init__(self, thread, inputs):
+        self.thread = thread
+        self.thread_id = thread.id
+        self.inputs = inputs
+        self.id = f"turn-{len(thread.inputs)}"
+
+    async def interrupt(self):
+        self.thread.interrupts += 1
+        self.thread.busy = False
+
+    async def stream(self):
+        try:
+            yield SimpleNamespace(method="turn/started", payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)))
+            for event in self.thread.codex.usage_events:
+                yield event
+            if self.thread.codex.run_hook:
+                await self.thread.codex.run_hook(self.thread, self.inputs)
+            yield SimpleNamespace(
+                method="item/agentMessage/delta",
+                payload=SimpleNamespace(item_id="item", delta=self.inputs),
+            )
+            item = AgentMessageThreadItem(type="agentMessage", id="item", text=str(self.inputs))
+            yield SimpleNamespace(
+                method="item/completed",
+                payload=ItemCompletedNotification(
+                    threadId=self.thread.id,
+                    turnId=self.id,
+                    item=item,
+                    completedAtMs=0,
+                ),
+            )
+            self.thread.busy = False
+            yield SimpleNamespace(
+                method="turn/completed",
+                payload=TurnCompletedNotification(
+                    threadId=self.thread.id,
+                    turn=Turn(
+                        id=self.id,
+                        items=[item],
+                        status="completed",
+                        duration_ms=1,
+                        error=None,
+                    ),
+                ),
+            )
+        finally:
+            self.thread.stream_closed = True
+
+
+class _Thread:
+    def __init__(self, codex, thread_id):
+        self.codex, self.id = codex, thread_id
+        self.inputs = []
+        self.options = []
+        self._busy = False
+        self.interrupts = 0
+        self.stream_closed = False
+
+    @property
+    def busy(self):
+        return self._busy
+
+    @busy.setter
+    def busy(self, value):
+        self._busy = value
+        self.codex.notify_status(self.id, "active" if value else "idle")
+
+    async def turn(self, inputs, **kwargs):
+        assert not self.busy, "overlapping turns on one thread"
+        self.inputs.append(inputs)
+        self.options.append(kwargs)
+        self.busy = True
+        return _Turn(self, inputs)
+
+    async def read(self):
+        return SimpleNamespace(
+            thread=SimpleNamespace(
+                status=SimpleNamespace(root=SimpleNamespace(type="active" if self.busy else "idle")),
+                path=getattr(self, "path", None),
+            ),
+        )
+
+    async def compact(self):
+        self.busy = True
+        if self.codex.compact_hook:
+            await self.codex.compact_hook(self)
+        else:
+            self.busy = False
+
+
+class _Codex:
+    instances = []
+
+    def __init__(self, config):
+        self.config = config
+        self.threads = {}
+        self.loaded = set()
+        self.unsubscribed = []
+        self.closed = 0
+        self.logins = []
+        self.opened = []
+        self.run_hook = None
+        self.usage_events = []
+        self.compact_hook = None
+        self.notifications = asyncio.Queue()
+        self._client = SimpleNamespace(
+            request=self.request,
+            next_notification=self.next_notification,
+            thread_read=self.thread_read,
+        )
+        self.instances.append(self)
+
+    async def account(self):
+        await asyncio.sleep(0)
+        return SimpleNamespace(account=object())
+
+    async def login_api_key(self, key):
+        self.logins.append(key)
+
+    async def close(self):
+        from openai_codex import TransportClosedError
+
+        self.closed += 1
+        self.notifications.put_nowait(TransportClosedError("closed"))
+
+    def notify_status(self, thread_id, status):
+        self.notifications.put_nowait(
+            SimpleNamespace(
+                method="thread/status/changed",
+                payload=SimpleNamespace(thread_id=thread_id, status=SimpleNamespace(root=SimpleNamespace(type=status))),
+            ),
+        )
+
+    async def next_notification(self):
+        notification = await self.notifications.get()
+        if isinstance(notification, Exception):
+            raise notification
+        return notification
+
+    async def thread_start(self, **options):
+        thread = _Thread(self, f"thread-{len(self.threads) + 1}")
+        self.threads[thread.id] = thread
+        self.loaded.add(thread.id)
+        self.opened.append(("start", thread.id, options))
+        return thread
+
+    async def thread_resume(self, thread_id, **options):
+        self.loaded.add(thread_id)
+        self.opened.append(("resume", thread_id, options))
+        return self.threads[thread_id]
+
+    async def thread_read(self, thread_id):
+        return await self.threads[thread_id].read()
+
+    async def thread_fork(self, thread_id, **options):
+        forked = await self.thread_start(**options)
+        self.opened[-1] = ("fork", thread_id, options)
+        return forked
+
+    async def request(self, method, params, **_kwargs):
+        if method == "thread/loaded/list":
+            return SimpleNamespace(data=list(self.loaded), next_cursor=None)
+        assert method == "thread/unsubscribe"
+        self.unsubscribed.append(params["threadId"])
+        return SimpleNamespace(status="unsubscribed")
 
 
 def _wrapper(tmp_path, **kwargs):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
     job = _Job()
-    config = SimpleNamespace(
-        workspace_dir=str(tmp_path),
-        mem_session_dir="mem_session",
-        environment={},
-        components={ComponentEnum.AS_LLM: {}},
-        model_dump=lambda **_kwargs: {
-            "workspace_dir": str(tmp_path),
-            "enable_logo": False,
-            "log_to_console": False,
-            "log_to_file": False,
-            "jobs": {},
-            "components": {},
-        },
+    context.jobs[job.name] = job
+    server = CodexAppServer(
+        name="default",
+        app_context=context,
+        auth_mode="oauth",
+        codex_home=kwargs.pop("codex_home", None),
     )
-    context = SimpleNamespace(app_config=config, components={}, jobs={job.name: job})
+    context.components = {ComponentEnum.CODEX_APP_SERVER: {"default": server}}
     return CodexAgentWrapper(app_context=context, **kwargs), job
 
 
-def test_mcp_config_uses_stdio_bridge_and_selected_jobs(tmp_path):
-    wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
-
-    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
-        {"job_tools": ["search", "search"], "tool_context_id": "ctx-1"},
-    )
-
-    assert config["command"]
-    assert config["enabled_tools"] == ["search"]
-    assert config["args"].count("--job") == 1
-    assert config["args"][config["args"].index("--job") + 1] == "search"
-    assert "reme.components.agent_wrapper.codex_mcp_server" in config["args"]
-    assert config["args"][config["args"].index("--config") + 1] == str(tmp_path / "custom.yaml")
-    assert config["args"][config["args"].index("--tool-context-id") + 1] == "ctx-1"
-
-
-def test_mcp_config_serializes_injected_job_kwargs(tmp_path):
-    wrapper, _job = _wrapper(tmp_path, mcp_config="custom.yaml")
-
-    config = wrapper._mcp_server_config(  # pylint: disable=protected-access
-        {
-            "job_tools": ["search"],
-            "tool_context_id": "ctx-1",
-            "injected_job_kwargs": {"_allowed_paths": ["daily/2025-06-01/note.md"]},
-        },
-    )
-
-    raw = config["args"][config["args"].index("--injected-job-kwargs") + 1]
-    assert json.loads(raw) == {"_allowed_paths": ["daily/2025-06-01/note.md"]}
-
-    plain = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
-    assert "--injected-job-kwargs" not in plain["args"]
-
-
-def test_prepare_config_merges_injected_job_kwargs_with_tool_context():
-    prepared = _prepare_config(
-        {"jobs": {"selected": {"backend": "base"}}},
-        ["selected"],
-        "ctx-1",
-        {"_allowed_paths": ["daily/2025-06-01/note.md"]},
-    )
-
-    assert prepared["service"]["injected_job_kwargs"] == {
-        "_allowed_paths": ["daily/2025-06-01/note.md"],
-        "tool_context_id": "ctx-1",
-    }
-
-
-def test_thread_config_preserves_other_mcp_servers(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    config = wrapper._thread_config(  # pylint: disable=protected-access
-        {
-            "job_tools": ["search"],
-            "config": {"mcp_servers": {"docs": {"url": "https://example.test/mcp"}}},
-        },
-    )
-
-    assert "docs" in config["mcp_servers"]
-    assert len(config["mcp_servers"]) == 2
-    assert next(name for name in config["mcp_servers"] if name != "docs").startswith("reme_jobs_")
-
-
-@pytest.mark.asyncio
-async def test_thread_config_injects_proxy_only_into_codex_shell_policy(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    proxy = FixedHttpOutboundProxy(url="http://127.0.0.1:18080")
-    await proxy.start()
-    wrapper.app_context.components = {ComponentEnum.OUTBOUND_PROXY: {"default": proxy}}
-    await wrapper.start()
-
-    config = wrapper._thread_config(  # pylint: disable=protected-access
-        {
-            "config": {
-                "shell_environment_policy": {
-                    "inherit": "core",
-                    "set": {
-                        "CUSTOM": "preserved",
-                        "HTTP_PROXY": "http://user-proxy.example:8080",
-                    },
-                },
-            },
-        },
-    )
-    environment = config["shell_environment_policy"]["set"]
-
-    assert config["shell_environment_policy"]["inherit"] == "core"
-    assert environment["CUSTOM"] == "preserved"
-    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
-        assert environment[key] == proxy.http_url
-
-    auth = wrapper._resolve_auth_config("oauth")  # pylint: disable=protected-access
-    client_config = wrapper._build_client_config(auth)  # pylint: disable=protected-access
-    assert "HTTP_PROXY" not in client_config.env
-    assert "HTTPS_PROXY" not in client_config.env
-
-    await wrapper.close()
-    await proxy.close()
-
-
-def test_mcp_config_rejects_background_jobs(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    wrapper.app_context.jobs["watch"] = BackgroundJob(name="watch", app_context=wrapper.app_context)
-
-    with pytest.raises(TypeError, match="non-stream request jobs"):
-        wrapper._mcp_server_config({"job_tools": ["watch"]})
-
-
-def test_prepare_config_reuses_selected_stdio_mcp_service():
-    prepared = _prepare_config(
-        {
-            "service": {"backend": "http"},
-            "jobs": {
-                "selected": {"backend": "base", "enable_serve": False},
-                "helper": {"backend": "base"},
-                "watch": {"backend": "background"},
-            },
-        },
-        ["selected"],
-        "ctx-1",
-    )
-
-    assert prepared["service"] == {
-        "backend": "mcp",
-        "transport": "stdio",
-        "jobs": ["selected"],
-        "tool_error_on_failure": True,
-        "injected_job_kwargs": {"tool_context_id": "ctx-1"},
-    }
-    assert set(prepared["jobs"]) == {"selected", "helper"}
-    assert prepared["jobs"]["selected"]["enable_serve"] is True
-
-
-def test_prepare_config_rejects_missing_or_background_selected_jobs():
-    with pytest.raises(KeyError, match="missing"):
-        _prepare_config({"jobs": {}}, ["missing"])
-    with pytest.raises(KeyError, match="watch"):
-        _prepare_config({"jobs": {"watch": {"backend": "background"}}}, ["watch"])
-
-
-@pytest.mark.asyncio
-async def test_stdio_bridge_starts_and_lists_selected_job(tmp_path):
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    config_path = tmp_path / "bridge.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "service": {"backend": "mcp"},
-                "workspace_dir": str(tmp_path / "workspace"),
-                "jobs": {
-                    "empty": {
-                        "backend": "base",
-                        "description": "Return an empty response",
-                        "parameters": {"type": "object", "properties": {}},
-                        "steps": [],
-                    },
-                },
-            },
-        ),
-        encoding="utf-8",
-    )
-    transport = StdioTransport(
-        command=sys.executable,
-        args=[
-            "-m",
-            "reme.components.agent_wrapper.codex_mcp_server",
-            "--config",
-            str(config_path),
-            "--workspace",
-            str(tmp_path / "workspace"),
-            "--job",
-            "empty",
-        ],
-        cwd=str(Path(__file__).resolve().parents[2]),
-        keep_alive=False,
-    )
-
-    async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
-        tools = await asyncio.wait_for(client.list_tools(), timeout=10)
-
-    assert [tool.name for tool in tools] == ["empty"]
-
-
-@pytest.mark.asyncio
-async def test_stdio_bridge_stdout_is_protocol_clean(tmp_path):
-    config_path = tmp_path / "bridge.json"
-    config_path.write_text(
-        json.dumps(
-            {
-                "service": {"backend": "mcp"},
-                "workspace_dir": str(tmp_path / "workspace"),
-                "jobs": {
-                    "empty": {
-                        "backend": "base",
-                        "description": "Empty",
-                        "parameters": {"type": "object", "properties": {}},
-                        "steps": [],
-                    },
-                },
-            },
-        ),
-        encoding="utf-8",
-    )
-    proc = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "reme.components.agent_wrapper.codex_mcp_server",
-        "--config",
-        str(config_path),
-        "--workspace",
-        str(tmp_path / "workspace"),
-        "--job",
-        "empty",
-        cwd=str(Path(__file__).resolve().parents[2]),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    request = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "clientInfo": {"name": "test", "version": "1"},
-        },
-    }
+@pytest_asyncio.fixture
+async def system(tmp_path, monkeypatch):
+    _Codex.instances = []
+    monkeypatch.setattr("openai_codex.AsyncCodex", _Codex)
+    first, job = _wrapper(tmp_path, name="first")
+    context = first.app_context
+    second = CodexAgentWrapper(name="second", app_context=context)
+    server = context.components[ComponentEnum.CODEX_APP_SERVER]["default"]
+    monkeypatch.setattr(server, "_mcp_url", AsyncMock(return_value="http://127.0.0.1/mcp"))
     try:
-        assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None
-        proc.stdin.write((json.dumps(request) + "\n").encode())
-        await proc.stdin.drain()
-        first_line = await asyncio.wait_for(proc.stdout.readline(), timeout=STDIO_INIT_TIMEOUT)
-        message = json.loads(first_line)
-        assert message["jsonrpc"] == "2.0"
-        assert message["id"] == 1
+        yield first, second, server, job
     finally:
-        if proc.returncode is None:
-            proc.terminate()
+        await first.close()
+        await second.close()
+        await server.close()
+
+
+def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
+    def breakdown(tokens, total_tokens=None):
+        return TokenUsageBreakdown(
+            inputTokens=tokens[0],
+            outputTokens=tokens[1],
+            totalTokens=sum(tokens) if total_tokens is None else total_tokens,
+            cachedInputTokens=0,
+            reasoningOutputTokens=0,
+        )
+
+    return SimpleNamespace(
+        method="thread/tokenUsage/updated",
+        payload=ThreadTokenUsageUpdatedNotification(
+            threadId="thread-1",
+            turnId=turn_id,
+            tokenUsage=ThreadTokenUsage(
+                last=breakdown(last, estimate),
+                total=breakdown(total),
+                modelContextWindow=934435,
+            ),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("baseline,initial_estimate", [((0, 0), False), ((50000, 1000), False), ((50000, 1000), True)])
+async def test_turn_usage_counts_all_calls_without_recounting_restored_or_duplicate_usage(
+    system,
+    stream,
+    baseline,
+    initial_estimate,
+):
+    first, _, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    server.update_token_usage(session_id, TokenUsage(input_tokens=baseline[0], output_tokens=baseline[1]))
+
+    def total(inputs, outputs):
+        return baseline[0] + inputs, baseline[1] + outputs
+
+    first_call = _usage_event((10, 2), total(10, 2))
+    client.usage_events = [_usage_event((9000, 900), (9000, 900), turn_id="turn-1")]
+    if initial_estimate:
+        client.usage_events.append(_usage_event((0, 0), baseline, estimate=800000))
+    client.usage_events.extend(
+        [
+            first_call,
+            first_call,
+            _usage_event((20, 3), total(30, 5)),
+            _usage_event((0, 0), total(30, 5), estimate=700000),
+            first_call,
+            _usage_event((7, 1), total(37, 6)),
+        ],
+    )
+    expected = {"input_tokens": 37, "output_tokens": 6, "total_tokens": 43}
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("multi-call", session_id=session_id)]
+        updates = [chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.USAGE]
+        assert updates[-1].chunk == expected
+        assert [chunk.chunk["total_tokens"] for chunk in updates] == [12, 35, 43]
+        assert {chunk.block_id for chunk in updates} == {"usage:turn-2"}
+    else:
+        response = await first.reply("multi-call", session_id=session_id)
+        assert response["result"] == "multi-call"
+        assert response["usage"] == expected
+
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert {name: data["value"] for name, data in counter.items()} == expected
+
+    client.usage_events = [_usage_event((2, 1), total(39, 7), turn_id="turn-3")]
+    response = await first.reply("next turn", session_id=session_id)
+    assert response["usage"] == {"input_tokens": 2, "output_tokens": 1, "total_tokens": 3}
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 46
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("estimate_only", [False, True])
+async def test_turn_usage_without_provider_reports_remains_unavailable(system, stream, estimate_only):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    if estimate_only:
+        first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=50000, output_tokens=1000))
+        _Codex.instances[0].usage_events = [_usage_event((0, 0), (50000, 1000), estimate=700000)]
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("no usage", session_id=session_id)]
+        assert not any(chunk.chunk_type == ChunkEnum.USAGE for chunk in chunks)
+    else:
+        assert (await first.reply("no usage", session_id=session_id))["usage"] is None
+    assert global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name]) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_failed_turn_records_reported_spending_once(system, stream):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    event = _usage_event((10, 2), (5010, 502))
+    client.usage_events = [event, event]
+
+    async def fail(*_args):
+        raise ValueError("model failed after a completed tool round")
+
+    client.run_hook = fail
+    with pytest.raises(ValueError, match="model failed"):
+        if stream:
+            _ = [chunk async for chunk in first.reply_stream("fails", session_id=session_id)]
+        else:
+            await first.reply("fails", session_id=session_id)
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["input_tokens"]["value"] == 10
+    assert counter["output_tokens"]["value"] == 2
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+async def test_closing_stream_keeps_reported_usage_and_interrupts_the_turn(system):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    client.usage_events = [_usage_event((10, 2), (5010, 502))]
+    stream = first.reply_stream("interrupted", session_id=session_id)
+    assert (await anext(stream)).chunk_type == ChunkEnum.REPLY_START
+    assert (await anext(stream)).chunk_type == ChunkEnum.USAGE
+    await stream.aclose()
+    assert client.threads[session_id].interrupts == 1
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+async def test_cancelling_reply_keeps_already_reported_usage(system):
+    first, _, _, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    first.app_server.update_token_usage(session_id, TokenUsage(input_tokens=5000, output_tokens=500))
+    client.usage_events = [_usage_event((10, 2), (5010, 502))]
+    started = asyncio.Event()
+
+    async def hold(*_args):
+        started.set()
+        await asyncio.Event().wait()
+
+    client.run_hook = hold
+    task = asyncio.create_task(first.reply("cancel", session_id=session_id))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert counter["total_tokens"]["value"] == 12
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_compaction_replaying_previous_usage_under_current_turn_does_not_recount_it(system, stream):
+    first, _, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    server.update_token_usage(session_id, TokenUsage(input_tokens=1189426, output_tokens=220))
+    _Codex.instances[0].usage_events = [
+        _usage_event((610679, 61), (1189426, 220)),
+        _usage_event((606779, 471), (1796205, 691)),
+        _usage_event((0, 0), (1796205, 691), estimate=23616),
+        _usage_event((61232, 23), (1857437, 714)),
+    ]
+    expected = {"input_tokens": 668011, "output_tokens": 494, "total_tokens": 668505}
+    if stream:
+        chunks = [chunk async for chunk in first.reply_stream("compaction", session_id=session_id)]
+        usages = [chunk.chunk for chunk in chunks if chunk.chunk_type == ChunkEnum.USAGE]
+        assert [usage["total_tokens"] for usage in usages] == [607250, 668505]
+        assert usages[-1] == expected
+    else:
+        assert (await first.reply("compaction", session_id=session_id))["usage"] == expected
+    counter = global_counter_get_all(first.app_context.metadata, ["__token_counter", first.name])["children"]
+    assert {key: value["value"] for key, value in counter.items()} == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interrupted", [False, True])
+async def test_usage_baseline_recovers_after_lost_state_or_missed_stream_usage(system, interrupted):
+    first, second, server, _ = system
+    session_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    if interrupted:
+        stream = first.reply_stream("interrupted", session_id=session_id)
+        assert (await anext(stream)).chunk_type == ChunkEnum.REPLY_START
+        assert (await anext(stream)).chunk_type == ChunkEnum.CONTENT
+    # Native completion can overtake a paused consumer and persist unseen usage.
+    path = server.session_path / "rollout.jsonl"
+    usage = {"total_token_usage": {"input_tokens": 5000, "output_tokens": 500}}
+    record = {"type": "event_msg", "payload": {"type": "token_count", "info": usage}}
+    path.write_text(json.dumps(record) + "\n")
+    client.threads[session_id].path = str(path)
+    if interrupted:
+        client.threads[session_id].busy = False
+        await stream.aclose()
+    else:
+        server._threads.pop(session_id)
+    turn_id = "turn-3" if interrupted else "turn-2"
+    client.usage_events = [
+        _usage_event((1000, 100), (5000, 500), turn_id=turn_id),
+        _usage_event((10, 2), (5010, 502), turn_id=turn_id),
+    ]
+    assert (await second.reply("restored", session_id=session_id))["usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "total_tokens": 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_fresh_thread_does_not_require_its_rollout_to_be_materialized(system, monkeypatch):
+    first, _, server, _ = system
+    original_start = _Codex.thread_start
+    pending = server.session_path / "not-materialized.jsonl"
+
+    async def start(client, **options):
+        thread = await original_start(client, **options)
+        thread.path = str(pending)
+        return thread
+
+    monkeypatch.setattr(_Codex, "thread_start", start)
+    assert (await first.reply("first turn"))["usage"] is None
+    assert not pending.exists()
+
+
+@pytest.mark.asyncio
+async def test_wrappers_share_one_lazy_client_and_keep_independent_sessions(system):
+    first, second, server, _ = system
+    await first.start()
+    assert not _Codex.instances
+    results = await asyncio.gather(first.reply("first"), second.reply("second"))
+    assert len(_Codex.instances) == 1
+    assert results[0]["session_id"] != results[1]["session_id"]
+    assert first.app_server is second.app_server is server
+    client = _Codex.instances[0]
+    await first.close()
+    assert client.closed == 0
+    assert (await second.reply("still running"))["result"] == "still running"
+    await server.close()
+    assert client.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_different_threads_run_concurrently_and_same_thread_serializes_across_wrappers(system):
+    first, second, server, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    observed = []
+
+    async def run_hook(thread, inputs):
+        observed.append((thread.id, inputs))
+        if inputs == "hold":
+            entered.set()
+            await release.wait()
+
+    client.run_hook = run_hook
+    async with asyncio.TaskGroup() as group:
+        held = group.create_task(first.reply("hold", session_id=thread_id))
+        await asyncio.wait_for(entered.wait(), 2)
+        queued = group.create_task(second.reply("same", session_id=thread_id))
         try:
-            await asyncio.wait_for(proc.wait(), timeout=10)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-    stdout = first_line + await proc.stdout.read()
-    stderr = (await proc.stderr.read()).decode()
-    assert b"Loading config" not in stdout
-    assert b"INFO" not in stdout
-    assert b"WARNING" not in stdout
-    assert b"2026-" not in stdout
-    assert "Failed to parse JSONRPC message" not in stderr
-    assert "Invalid JSON" not in stderr
+            independent = await asyncio.wait_for(second.reply("other"), 2)
+            assert independent["session_id"] != thread_id
+            assert not queued.done()
+            assert (thread_id, "same") not in observed
+        finally:
+            release.set()
+    assert held.result()["session_id"] == queued.result()["session_id"] == thread_id
+    assert len(server._threads) == 2
 
 
-def test_sdk_responds_to_interactive_approval_server_requests():
-    from openai_codex.client import CodexClient
+@pytest.mark.asyncio
+@pytest.mark.parametrize("approval_mode", [None, "auto_review"])
+async def test_resume_fork_and_sdk_options_remain_explicit(system, approval_mode):
+    from openai_codex import ApprovalMode, Sandbox
+    from openai_codex.types import Personality, ReasoningEffort
 
-    client = CodexClient()
-    assert client._default_approval_handler(
-        "item/commandExecution/requestApproval",
-        {},
-    ) == {  # pylint: disable=protected-access
-        "decision": "accept",
+    first, _, _, _ = system
+    original = await first.reply(
+        "one",
+        model="custom",
+        system_prompt="instructions",
+        personality="friendly",
+        approval_mode=approval_mode,
+    )
+    thread_id = original["session_id"]
+    resumed = await first.reply("two", resume=thread_id, effort="high")
+    forked = await first.reply("three", session_id=thread_id, fork_session=True)
+    assert resumed["session_id"] == thread_id
+    assert forked["session_id"] != thread_id
+    client = _Codex.instances[0]
+    options = client.opened[0][2]
+    assert options["model"] == "custom"
+    assert options["developer_instructions"] == "instructions"
+    assert options["base_instructions"] is None
+    assert options["approval_mode"] == (ApprovalMode.auto_review if approval_mode else ApprovalMode.deny_all)
+    assert options["sandbox"] == Sandbox.full_access
+    assert options["personality"] == Personality.friendly
+    assert client.threads[thread_id].options[-1]["effort"] == ReasoningEffort.high
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"tool_context_id": "other"},
+        {"job_tools": []},
+        {"injected_job_kwargs": {"_allowed_paths": ["other.md"]}},
+    ],
+)
+async def test_loaded_thread_constraints_cannot_be_changed_by_another_wrapper(system, changes):
+    first, second, server, _ = system
+    binding = {
+        "job_tools": ["search"],
+        "tool_context_id": "one",
+        "injected_job_kwargs": {"_allowed_paths": ["one.md"]},
     }
-    assert client._default_approval_handler(
-        "item/fileChange/requestApproval",
-        {},
-    ) == {  # pylint: disable=protected-access
-        "decision": "accept",
-    }
+    original = await first.reply("one", **binding)
+    thread_id = original["session_id"]
+    token = server._threads[thread_id].token
+    with pytest.raises(ValueError, match="cannot change"):
+        await second.reply("two", session_id=thread_id, **{**binding, **changes})
+    assert token in server.jobs_mcp.scopes
+    await second.reply("three", session_id=thread_id, **binding)
+
+
+@pytest.mark.asyncio
+async def test_unloaded_thread_rebinds_tools_and_revokes_old_token(system):
+    first, _, server, _ = system
+    original = await first.reply("one", job_tools=["search"], tool_context_id="one")
+    thread_id = original["session_id"]
+    token = server._threads[thread_id].token
+    _Codex.instances[0].loaded.clear()
+    await first.reply("two", session_id=thread_id, job_tools=["search"], tool_context_id="two")
+    assert token not in server.jobs_mcp.scopes
+    assert server._threads[thread_id].token != token
+
+
+@pytest.mark.asyncio
+async def test_cancelling_reply_interrupts_only_its_turn_and_keeps_shared_server(system):
+    first, second, _, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    entered = asyncio.Event()
+
+    async def hold(_thread, _inputs):
+        entered.set()
+        await asyncio.Event().wait()
+
+    client = _Codex.instances[0]
+    client.run_hook = hold
+    task = asyncio.create_task(first.reply("cancel", session_id=thread_id))
+    await asyncio.wait_for(entered.wait(), 2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    client.run_hook = None
+    assert client.threads[thread_id].interrupts == 1
+    assert client.closed == 0
+    assert (await second.reply("okay"))["result"] == "okay"
+    assert not client.threads[thread_id].busy
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["turn", "compact"])
+@pytest.mark.parametrize("fail", [False, True])
+async def test_cancelled_dispatch_settles_before_resuming_the_thread(system, monkeypatch, operation, fail):
+    first, second, server, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    thread = client.threads[thread_id]
+    server.update_token_usage(thread_id, TokenUsage(input_tokens=100, output_tokens=10))
+    original = getattr(thread, operation)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def dispatch(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        if fail:
+            raise ValueError("dispatch rejected")
+        if operation == "compact":
+            path = server.session_path / "rollout.jsonl"
+            path.write_text(
+                '{"type":"event_msg","payload":{"type":"token_count","info":'
+                '{"total_token_usage":{"input_tokens":500,"output_tokens":50}}}}\n',
+            )
+            thread.path = str(path)
+            client.usage_events = [_usage_event((10, 2), (510, 52))]
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(thread, operation, dispatch)
+    request = (
+        first.compact_session(thread_id) if operation == "compact" else first.reply("cancel", session_id=thread_id)
+    )
+    task = asyncio.create_task(request)
+    queued = None
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        task.cancel("original cancellation")
+        await asyncio.sleep(0)
+        task.cancel("cancel again")
+        await asyncio.sleep(0)
+        queued = asyncio.create_task(second.reply("later", session_id=thread_id))
+        await asyncio.sleep(0.01)
+        assert not queued.done()
+        monkeypatch.setattr(thread, operation, original)
+        release.set()
+        with pytest.raises(asyncio.CancelledError, match="original cancellation"):
+            await asyncio.wait_for(task, 2)
+        result = await asyncio.wait_for(queued, 2)
+        assert result["result"] == "later"
+        if operation == "compact" and not fail:
+            assert result["usage"] == {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}
+        assert thread.interrupts == int(operation == "turn" and not fail)
+        await asyncio.wait_for(server.close(), 2)
+    finally:
+        release.set()
+        task.cancel()
+        if queued is not None:
+            queued.cancel()
+        await asyncio.gather(task, *([queued] if queued is not None else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_stream_close_interrupts_and_routes_chunks_per_session(system):
+    first, second, _, _ = system
+    stream = first.reply_stream("early")
+    start = await anext(stream)
+    thread_id = start.session_id
+    await stream.aclose()
+    thread = _Codex.instances[0].threads[thread_id]
+    assert thread.interrupts == 1
+    assert thread.stream_closed
+    chunks = [chunk async for chunk in second.reply_stream("complete")]
+    assert chunks[0].chunk_type == ChunkEnum.REPLY_START
+    assert chunks[-1].chunk_type == ChunkEnum.REPLY_END
+    assert all(chunk.session_id != thread_id for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_compaction_holds_thread_lock_until_it_finishes(system):
+    first, second, _, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def compact_hook(thread):
+        entered.set()
+
+        async def finish():
+            await release.wait()
+            thread.busy = False
+
+        asyncio.create_task(finish())
+
+    _Codex.instances[0].compact_hook = compact_hook
+    async with asyncio.TaskGroup() as group:
+        group.create_task(first.compact_session(thread_id))
+        await asyncio.wait_for(entered.wait(), 2)
+        queued = group.create_task(second.reply("later", session_id=thread_id))
+        try:
+            await asyncio.sleep(0.02)
+            assert not queued.done()
+        finally:
+            release.set()
+    assert queued.result()["session_id"] == thread_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_compaction_acknowledgement_does_not_release_the_thread_before_it_starts(system, monkeypatch, cancelled):
+    first, second, _, _ = system
+    thread_id = (await first.reply("initial"))["session_id"]
+    client = _Codex.instances[0]
+    thread = client.threads[thread_id]
+    acknowledged = asyncio.Event()
+
+    async def compact():
+        acknowledged.set()
+
+    monkeypatch.setattr(thread, "compact", compact)
+    async with asyncio.TaskGroup() as group:
+        compacting = group.create_task(first.compact_session(thread_id))
+        await asyncio.wait_for(acknowledged.wait(), 2)
+        if cancelled:
+            compacting.cancel()
+        queued = group.create_task(second.reply("later", session_id=thread_id))
+        try:
+            await asyncio.sleep(0.01)
+            # Cancellation may end the caller during cleanup; its barrier must still block the next turn.
+            if not cancelled:
+                assert not compacting.done()
+            assert not queued.done()
+            client.notify_status(thread_id, "idle")
+            await asyncio.sleep(0)
+            if not cancelled:
+                assert not compacting.done()
+            assert not queued.done()
+        finally:
+            client.notify_status(thread_id, "active")
+            client.notify_status(thread_id, "idle")
+    if cancelled:
+        assert compacting.cancelled()
+    assert queued.result()["session_id"] == thread_id
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_active_request_without_closing_other_wrappers(system):
+    first, second, server, _ = system
+    await first.reply("initial")
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hold(_thread, _inputs):
+        entered.set()
+        await release.wait()
+
+    client = _Codex.instances[0]
+    client.run_hook = hold
+    async with asyncio.TaskGroup() as group:
+        group.create_task(first.reply("held"))
+        await asyncio.wait_for(entered.wait(), 2)
+        closing = group.create_task(first.close())
+        try:
+            await asyncio.sleep(0)
+            assert not closing.done()
+            assert client.closed == 0
+        finally:
+            release.set()
+    client.run_hook = None
+    await second.reply("still works")
+    assert server.is_started
+
+
+class _StructuredModel(BaseModel):
+    ok: bool
+
+
+@pytest.mark.asyncio
+async def test_structured_reply_and_native_inputs(system):
+    from openai_codex import LocalImageInput, TextInput
+
+    first, _, _, _ = system
+    result = await first.reply('{"ok": true}', output_schema=_StructuredModel)
+    assert result["structured_output"] == {"ok": True}
+    inputs = [TextInput("describe"), LocalImageInput("image.png")]
+    await first.reply(inputs)
+    assert _Codex.instances[0].threads["thread-2"].inputs[0] is inputs
+    with pytest.raises(NotImplementedError):
+        await anext(first.reply_stream("no", output_schema=_StructuredModel))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kwargs", [{"resume": "a", "session_id": "b"}, {"fork_session": True}])
+async def test_invalid_session_selection_fails_without_starting_client(system, kwargs):
+    first, _, _, _ = system
+    with pytest.raises(ValueError):
+        await first.reply("invalid", **kwargs)
+    assert not _Codex.instances
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("job_class", [BackgroundJob, StreamJob])
+async def test_unsupported_job_types_are_rejected(system, job_class):
+    first, _, _, _ = system
+    first.app_context.jobs["unsupported"] = job_class(name="unsupported")
+    with pytest.raises(TypeError, match="non-stream"):
+        await first.reply("invalid", job_tools=["unsupported"])
+
+
+@pytest.mark.parametrize("name", sorted(CodexAgentWrapper._SERVER_OPTIONS))
+def test_process_options_must_be_configured_on_server(name):
+    with pytest.raises(TypeError, match="codex_app_server"):
+        CodexAgentWrapper(**{name: "invalid"})
+
+
+def test_server_config_authentication_environment_and_home(tmp_path):
+    context = ApplicationContext(workspace_dir=str(tmp_path), environment={"CUSTOM": "preserved"})
+    server = CodexAppServer(
+        name="one",
+        app_context=context,
+        auth_mode="api_key",
+        api_key="key",
+        base_url="https://proxy.test/v1",
+    )
+    config = server._client_config()
+    assert config.env["CUSTOM"] == "preserved"
+    assert config.env["CODEX_HOME"] == str(tmp_path / ".codex")
+    assert 'forced_login_method="api"' in config.config_overrides
+    assert 'model_provider="reme"' in config.config_overrides
+    assert 'model_providers.reme.base_url="https://proxy.test/v1"' in config.config_overrides
+    assert "model_providers.reme.requires_openai_auth=true" in config.config_overrides
+    assert "model_providers.reme.supports_websockets=false" in config.config_overrides
+    oauth = CodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
+    assert CodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
+    assert CodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
+    assert oauth._client_config().config_overrides == ('forced_login_method="chatgpt"',)
+    with pytest.raises(ValueError, match="requires a non-empty"):
+        CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
+
+
+def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(tmp_path):
+    server = CodexAppServer(
+        app_context=ApplicationContext(workspace_dir=str(tmp_path)),
+        auth_mode="api_key",
+        api_key="key",
+        base_url="https://proxy.test/v1",
+        supports_websockets=True,
+        config_overrides=['model_provider="custom"'],
+    )
+    overrides = server._client_config().config_overrides
+    assert "model_providers.reme.supports_websockets=true" in overrides
+    assert overrides.index('model_provider="custom"') > overrides.index('model_provider="reme"')
+
+
+def test_server_materializes_model_catalog_inside_its_private_home(tmp_path):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    catalog = {"models": [{"slug": "main", "auto_review_model_override": "reviewer"}, {"slug": "reviewer"}]}
+    server = CodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
+    config = server._client_config()
+    path = server.session_path / "reme-model-catalog.json"
+    assert json.loads(path.read_text(encoding="utf-8")) == catalog
+    assert f"model_catalog_json={json.dumps(str(path))}" in config.config_overrides
+    assert path.is_relative_to(tmp_path)
+    with pytest.raises(ValueError, match="not both"):
+        CodexAppServer(
+            app_context=context,
+            model_catalog=catalog,
+            config_overrides=['model_catalog_json="external.json"'],
+        )._client_config()
+
+
+@pytest.mark.asyncio
+async def test_client_initialization_failure_is_closed_and_retryable(system, monkeypatch):
+    first, _, server, _ = system
+    monkeypatch.setattr(_Codex, "account", AsyncMock(side_effect=RuntimeError("login failed")))
+    with pytest.raises(RuntimeError, match="login failed"):
+        await first.reply("fails")
+    assert _Codex.instances[0].closed == 1
+    assert server._codex is None
+    assert server._active == 0
+
+
+def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("CODEX_MODEL_NAME", raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "demo-api-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://demo.invalid/v1")
+    for name in ("default", "demo"):
+        config = resolve_app_config(config=name, log_config=False)
+        wrappers = config["components"]["agent_wrapper"]
+        assert wrappers["codex"]["app_server"] == "default"
+        assert "auth_mode" not in wrappers["codex"]
+        servers = config["components"]["codex_app_server"]
+        assert servers["default"]["auth_mode"] == "api_key"
+        assert servers["default"]["codex_home"] == ".codex"
+        assert servers["default"]["supports_websockets"] is False
+        assert wrappers["codex"]["model"] == "qwen3.8-max"
+        assert wrappers["codex"]["approval_mode"] == "deny_all"
+        assert wrappers["codex"]["effort"] == "xhigh"
+        models = servers["default"]["model_catalog"]["models"]
+        assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}
+        assert all(model["auto_review_model_override"] == "qwen3.8-flash" for model in models)
+        assert all(model["default_reasoning_level"] == "xhigh" for model in models)
+        assert all(model["multi_agent_reasoning_effort"] == "xhigh" for model in models)
+        assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"] for model in models)
+        assert set(servers["default"]["config_overrides"]) == {
+            'model_reasoning_effort="xhigh"',
+            'review_model="qwen3.8-max"',
+            'agents.default_subagent_model="qwen3.8-max"',
+            'agents.default_subagent_reasoning_effort="xhigh"',
+            'memories.extract_model="qwen3.8-flash"',
+            'memories.consolidation_model="qwen3.8-max"',
+        }
+        if name == "demo":
+            assert servers["default"]["api_key"] == "demo-api-key"
+            assert servers["default"]["base_url"] == "https://demo.invalid/v1"
+        else:
+            assert servers["oauth"]["codex_home"] == "~/.codex"
+
+
+@pytest.mark.asyncio
+async def test_scoped_mcp_calls_original_jobs_and_isolates_catalog_arguments_and_failures():
+    gateway = ScopedMCP()
+    job = _Job()
+    first = gateway.register([job], {"tool_context_id": "one", "_allowed_paths": ["one.md"]})
+    second = gateway.register([job], {"tool_context_id": "two", "_allowed_paths": ["two.md"]})
+    empty = gateway.register([], {})
+    try:
+        url = await gateway.listen()
+        async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {first}"})) as one:
+            async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {second}"})) as two:
+                tools = await one.list_tools()
+                assert [tool.name for tool in tools] == ["search"]
+                assert "_allowed_paths" not in tools[0].input_schema["properties"]
+                await one.call_tool("search", {"query": "a"})
+                await two.call_tool("search", {"query": "b"})
+                await one.call_tool("search", {"query": "c"})
+                with pytest.raises(ToolError, match="injected"):
+                    await one.call_tool("search", {"query": "bad", "_allowed_paths": ["escape"]})
+        assert [call["tool_context_id"] for call in job.calls] == ["one", "two", "one"]
+        assert job.calls[1]["_allowed_paths"] == ["two.md"]
+        async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {empty}"})) as client:
+            assert not await client.list_tools()
+            with pytest.raises(ToolError):
+                await client.call_tool("search", {"query": "not allowed"})
+        async with httpx.AsyncClient() as client:
+            assert (await client.post(url, json={})).status_code == 403
+            assert (await client.post(url, headers={"Authorization": "Bearer unknown"}, json={})).status_code == 403
+    finally:
+        await gateway.close()
+    assert gateway._task is None
+    assert not gateway.scopes
+
+
+@pytest.mark.asyncio
+async def test_mounted_mcp_transport_lifespan_can_restart():
+    gateway = ScopedMCP()
+    app = gateway.app
+    for _ in range(2):
+        async with app.lifespan(app):
+            assert gateway.app is app
+
+
+@pytest.mark.asyncio
+async def test_scoped_mcp_can_restart_its_loopback_listener():
+    gateway = ScopedMCP()
+    job = _Job()
+    try:
+        for _ in range(2):
+            token = gateway.register([job], {})
+            url = await gateway.listen()
+            async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {token}"})) as client:
+                await client.call_tool("search", {"query": "same application"})
+            await gateway.close()
+        assert len(job.calls) == 2
+    finally:
+        await gateway.close()
+
+
+@pytest.mark.asyncio
+async def test_http_service_mounts_scoped_tools_without_another_listener(tmp_path, monkeypatch):
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "http", "web_enabled": False},
+        components={
+            "codex_app_server": {"default": {"backend": "sdk", "auth_mode": "oauth"}},
+            "agent_wrapper": {"one": {"backend": "codex"}, "two": {"backend": "codex"}},
+        },
+    )
+    service = app.context.service
+    service.build_service(app)
+    server = app.context.components["codex_app_server"]["default"]
+    writer = SimpleNamespace(close=lambda: None, wait_closed=AsyncMock())
+    monkeypatch.setattr(asyncio, "open_connection", AsyncMock(return_value=(None, writer)))
+    job = _Job()
+    token = server.jobs_mcp.register([job], {"tool_context_id": "parent"})
+
+    def factory(**kwargs):
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=service.service), **kwargs)
+
+    async with service.service.router.lifespan_context(service.service):
+        url = await server._mcp_url()
+        async with Client(
+            StreamableHttpTransport(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                httpx_client_factory=factory,
+            ),
+        ) as client:
+            await client.call_tool("search", {"query": "same application"})
+        assert job.calls == [{"query": "same application", "tool_context_id": "parent"}]
+        assert server.jobs_mcp._server is None
+        assert app.context.components["agent_wrapper"]["one"].app_server is server
+        assert app.context.components["agent_wrapper"]["two"].app_server is server
+    assert not server.is_started
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tls_options", [{"ssl_certfile": "server.pem"}, {"ssl_keyfile": "server.key"}])
+async def test_tls_http_service_uses_managed_loopback_for_scoped_tools(tmp_path, monkeypatch, tls_options):
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "http", "web_enabled": False, **tls_options},
+        components={"codex_app_server": {"default": {"backend": "sdk"}}},
+    )
+    service = app.context.service
+    service.build_service(app)
+    server = app.context.components["codex_app_server"]["default"]
+    probe = AsyncMock(side_effect=AssertionError("must not probe the TLS listener"))
+    monkeypatch.setattr(asyncio, "open_connection", probe)
+    job = _Job()
+    token = server.jobs_mcp.register([job], {"tool_context_id": "parent"})
+    listener_task = None
+    async with service.service.router.lifespan_context(service.service):
+        url = await server._mcp_url()
+        assert url.startswith("http://127.0.0.1:")
+        assert await server._mcp_url() == url
+        listener_task = server.jobs_mcp._task
+        assert listener_task is not None
+        async with Client(StreamableHttpTransport(url, headers={"Authorization": f"Bearer {token}"})) as client:
+            await client.call_tool("search", {"query": "TLS host"})
+        assert job.calls == [{"query": "TLS host", "tool_context_id": "parent"}]
+        probe.assert_not_awaited()
+    assert listener_task.done()
+    assert server.jobs_mcp._task is None
+    assert not server.jobs_mcp.scopes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("option", ["cwd", "app_server"])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_call_time_wrapper_options_are_rejected_instead_of_silently_ignored(system, option, stream):
+    first, _, _, _ = system
+    with pytest.raises(TypeError, match="wrapper options"):
+        if stream:
+            await anext(first.reply_stream("invalid", **{option: "ignored"}))
+        else:
+            await first.reply("invalid", **{option: "ignored"})
+    assert not _Codex.instances
+
+
+@pytest.mark.asyncio
+async def test_mounted_tools_wait_for_the_main_listener_before_returning_a_url(tmp_path):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sock.setblocking(False)
+    port = sock.getsockname()[1]
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "http", "port": port, "web_enabled": False},
+        components={"codex_app_server": {"default": {"backend": "sdk"}}},
+    )
+    app.context.service.build_service(app)
+    server = app.context.components["codex_app_server"]["default"]
+    lookup = asyncio.create_task(server._mcp_url())
+    listener = None
+
+    async def accept(_reader, writer):
+        writer.close()
+        await writer.wait_closed()
+
+    try:
+        await asyncio.sleep(0.02)
+        assert not lookup.done()
+        listener = await asyncio.start_server(accept, sock=sock)
+        url = await asyncio.wait_for(lookup, 2)
+        assert url == f"http://127.0.0.1:{port}{server.jobs_mcp.path}"
+        assert server.jobs_mcp._task is None
+    finally:
+        lookup.cancel()
+        await asyncio.gather(lookup, return_exceptions=True)
+        if listener is not None:
+            listener.close()
+            await listener.wait_closed()
+        sock.close()
+
+
+@pytest.mark.asyncio
+async def test_replaced_runtime_uses_loopback_when_its_gateway_is_not_mounted(tmp_path, monkeypatch):
+    app = Application(
+        workspace_dir=str(tmp_path),
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+        service={"backend": "http", "web_enabled": False},
+        components={"codex_app_server": {"default": {"backend": "sdk"}}},
+    )
+    app.context.service.build_service(app)
+    replacement = CodexAppServer(app_context=app.context)
+    app.context.service.service.mount("/assets", app=ScopedMCP())
+    listen = AsyncMock(return_value="http://127.0.0.1:1234/local")
+    monkeypatch.setattr(replacement.jobs_mcp, "listen", listen)
+    assert await replacement._mcp_url() == "http://127.0.0.1:1234/local"
+    listen.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_failed_cleanup_preserves_the_original_request_error(system, monkeypatch):
+    first, _, server, _ = system
+    await first.reply("initial")
+    client = _Codex.instances[0]
+
+    async def fail(_thread, _inputs):
+        raise ValueError("original failure")
+
+    client.run_hook = fail
+    monkeypatch.setattr(server, "wait_idle", AsyncMock(side_effect=RuntimeError("cleanup failure")))
+    with pytest.raises(ValueError, match="original failure"):
+        await first.reply("failed")
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_keeps_the_running_threads_tool_binding(system):
+    first, second, server, _ = system
+    binding = {"job_tools": ["search"], "tool_context_id": "one"}
+    thread_id = (await first.reply("initial", **binding))["session_id"]
+    token = server._threads[thread_id].token
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def hold(_thread, _inputs):
+        entered.set()
+        await release.wait()
+
+    client = _Codex.instances[0]
+    client.run_hook = hold
+    async with asyncio.TaskGroup() as group:
+        group.create_task(first.reply("held", session_id=thread_id, **binding))
+        await asyncio.wait_for(entered.wait(), 2)
+        waiting = group.create_task(second.reply("queued", session_id=thread_id, **binding))
+        try:
+            await asyncio.sleep(0)
+            waiting.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiting
+            assert token in server.jobs_mcp.scopes
+        finally:
+            release.set()
+    client.run_hook = None
+    await second.reply("still authorized", session_id=thread_id, **binding)
+    assert "queued" not in client.threads[thread_id].inputs
+
+
+@pytest.mark.asyncio
+async def test_disconnected_turn_is_not_replayed_and_next_request_reconnects(system):
+    from openai_codex import TransportClosedError
+
+    first, _, server, _ = system
+    await first.reply("initial")
+    old_client = _Codex.instances[0]
+
+    async def disconnect(_thread, _inputs):
+        raise TransportClosedError("disconnected")
+
+    old_client.run_hook = disconnect
+    with pytest.raises(TransportClosedError):
+        await first.reply("do not replay")
+    assert server._failed
+    assert old_client.threads["thread-2"].inputs == ["do not replay"]
+    assert (await first.reply("new request"))["result"] == "new request"
+    assert len(_Codex.instances) == 2
+    assert old_client.closed == 1
+    assert _Codex.instances[1].threads["thread-1"].inputs == ["new request"]
+
+
+@pytest.mark.asyncio
+async def test_initial_transport_failure_does_not_poison_client_retry(system, monkeypatch):
+    from openai_codex import TransportClosedError
+
+    first, _, server, _ = system
+    monkeypatch.setattr(
+        _Codex,
+        "account",
+        AsyncMock(
+            side_effect=[
+                TransportClosedError("initialize failed"),
+                SimpleNamespace(account=object()),
+            ],
+        ),
+    )
+    with pytest.raises(TransportClosedError):
+        await first.reply("failed initialization")
+    assert not server._failed
+    assert (await first.reply("retry"))["result"] == "retry"
+    assert _Codex.instances[0].closed == 1
+
+
+@pytest.mark.asyncio
+async def test_thread_pruning_waits_for_complete_pagination_and_preserves_tokens_on_error(system, monkeypatch):
+    first, _, server, _ = system
+    one = (await first.reply("one", job_tools=["search"]))["session_id"]
+    two = (await first.reply("two", job_tools=["search"]))["session_id"]
+    token = server._threads[two].token
+    client = _Codex.instances[0]
+    pages = [SimpleNamespace(data=[one], next_cursor="next"), RuntimeError("incomplete listing")]
+    request = AsyncMock(side_effect=pages)
+    monkeypatch.setattr(client._client, "request", request)
+    await server._prune_threads(client)
+    assert token in server.jobs_mcp.scopes
+    request.side_effect = [
+        SimpleNamespace(data=[one], next_cursor="next"),
+        SimpleNamespace(data=[], next_cursor=None),
+    ]
+    await server._prune_threads(client)
+    assert one in server._threads
+    assert two not in server._threads
+    assert token not in server.jobs_mcp.scopes
+
+
+@pytest.mark.asyncio
+async def test_stale_unload_snapshot_does_not_revoke_a_resumed_threads_tools(system, monkeypatch):
+    first, second, server, _ = system
+    binding = {"job_tools": ["search"], "tool_context_id": "one"}
+    thread_id = (await first.reply("initial", **binding))["session_id"]
+    state = server._threads[thread_id]
+    token = state.token
+    client = _Codex.instances[0]
+    original_request = client.request
+    resume_snapshot, stale_snapshot = asyncio.Event(), asyncio.Event()
+    resume_query, stale_query = asyncio.Event(), asyncio.Event()
+    queries = 0
+
+    async def request(method, params, **kwargs):
+        nonlocal queries
+        if method == "thread/loaded/list":
+            queries += 1
+            if queries == 1:
+                resume_snapshot.set()
+                await resume_query.wait()
+                return SimpleNamespace(data=[thread_id], next_cursor=None)
+            if queries == 2:
+                stale_snapshot.set()
+                await stale_query.wait()
+                return SimpleNamespace(data=[], next_cursor=None)
+        return await original_request(method, params, **kwargs)
+
+    monkeypatch.setattr(client._client, "request", request)
+    async with asyncio.TaskGroup() as group:
+        resumed = group.create_task(second.reply("resume", session_id=thread_id, **binding))
+        await asyncio.wait_for(resume_snapshot.wait(), 2)
+        client.loaded.clear()
+        pruning = group.create_task(server._prune_threads(client))
+        await asyncio.wait_for(stale_snapshot.wait(), 2)
+        try:
+            resume_query.set()
+            await asyncio.wait_for(asyncio.shield(resumed), 2)
+        finally:
+            resume_query.set()
+            stale_query.set()
+        await pruning
+    assert server._threads.get(thread_id) is state
+    assert token in server.jobs_mcp.scopes
+
+
+@pytest.mark.asyncio
+async def test_tool_arguments_are_snapshotted_before_the_caller_mutates_them(system):
+    first, _, server, job = system
+    allowed = ["one.md"]
+    result = await first.reply("one", job_tools=["search"], injected_job_kwargs={"_allowed_paths": allowed})
+    allowed[:] = ["other.md"]
+    token = server._threads[result["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="read")
+    assert job.calls[0]["_allowed_paths"] == ["one.md"]
 
 
 def test_event_to_chunks_maps_content_usage_and_completion():
@@ -351,7 +1328,7 @@ def test_event_to_chunks_maps_content_usage_and_completion():
     )
     usage_event = SimpleNamespace(
         method="thread/tokenUsage/updated",
-        payload=SimpleNamespace(token_usage=SimpleNamespace(last=usage)),
+        payload=SimpleNamespace(turn_id="turn-1"),
     )
     completed_event = SimpleNamespace(
         method="turn/completed",
@@ -361,7 +1338,11 @@ def test_event_to_chunks_maps_content_usage_and_completion():
     )
 
     content = CodexAgentWrapper._event_to_chunks(content_event, "thread-1")  # pylint: disable=protected-access
-    usage_chunks = CodexAgentWrapper._event_to_chunks(usage_event, "thread-1")  # pylint: disable=protected-access
+    usage_chunks = CodexAgentWrapper._event_to_chunks(  # pylint: disable=protected-access
+        usage_event,
+        "thread-1",
+        usage=TokenUsage.from_provider(usage),
+    )
     completed = CodexAgentWrapper._event_to_chunks(completed_event, "thread-1")  # pylint: disable=protected-access
 
     assert content[0].chunk_type == ChunkEnum.CONTENT
@@ -395,89 +1376,6 @@ def test_event_to_chunks_preserves_new_turn_scoped_notifications():
         "diff": "diff --git a/a b/a",
     }
     assert chunk.metadata == {"codex_method": "turn/diff/updated"}
-
-
-@dataclass
-class _TurnResult:
-    final_response: str
-    status: str = "completed"
-
-
-@pytest.mark.asyncio
-async def test_reply_returns_thread_id_and_structured_output(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, inputs, **kwargs):
-            assert inputs == "answer"
-            assert kwargs["output_schema"] == {"type": "object"}
-            return _TurnResult(final_response=json.dumps({"ok": True}))
-
-    class FakeCodex:
-        def __init__(self, _config):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, _exc_type, _exc, _tb):
-            return None
-
-        async def close(self):
-            return None
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    result = await wrapper.reply("answer", output_schema={"type": "object"})
-    await wrapper.close()
-
-    assert result["session_id"] == "thread-1"
-    assert result["structured_output"] == {"ok": True}
-
-
-@pytest.mark.asyncio
-async def test_reply_accepts_latest_sdk_run_input(tmp_path, monkeypatch):
-    from openai_codex import LocalImageInput, TextInput
-
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    inputs = [TextInput("describe this image"), LocalImageInput("image.png")]
-    observed = {}
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, run_input, **_kwargs):
-            observed["input"] = run_input
-            return _TurnResult(final_response="done")
-
-    class FakeCodex:
-        def __init__(self, _config):
-            pass
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def close(self):
-            return None
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    result = await wrapper.reply(inputs)
-    await wrapper.close()
-
-    assert observed["input"] is inputs
-    assert result["last_message"] == "done"
 
 
 def test_codex_skills_add_all_without_deleting_existing_content(tmp_path):
@@ -560,603 +1458,6 @@ def test_codex_skills_do_not_modify_codex_home(tmp_path):
     assert marker.read_text(encoding="utf-8") == "keep"
 
 
-def test_effective_mcp_config_snapshot_is_private_and_removed_on_close(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    config = wrapper._mcp_server_config({"job_tools": ["search"]})  # pylint: disable=protected-access
-    snapshot = Path(config["args"][config["args"].index("--config") + 1])
-    assert snapshot.exists()
-    assert stat.S_IMODE(snapshot.stat().st_mode) == 0o600
-    assert json.loads(snapshot.read_text(encoding="utf-8"))["workspace_dir"] == str(tmp_path)
-
-    async def close_started_wrapper():
-        await wrapper.start()
-        await wrapper.close()
-
-    asyncio.run(close_started_wrapper())
-    assert not snapshot.exists()
-
-
-def test_effective_mcp_config_snapshot_needs_no_fchmod(tmp_path, monkeypatch):
-    """A platform without ``os.fchmod`` (Windows) still gets a usable snapshot."""
-    monkeypatch.delattr(os, "fchmod", raising=False)
-
-    wrapper, _job = _wrapper(tmp_path)
-    config = wrapper._mcp_server_config({"job_tools": ["search"]})
-    snapshot = Path(config["args"][config["args"].index("--config") + 1])
-
-    assert snapshot.exists()
-    assert json.loads(snapshot.read_text(encoding="utf-8"))["workspace_dir"] == str(tmp_path)
-
-
-@pytest.mark.asyncio
-async def test_effective_snapshot_exposes_parent_only_custom_job(tmp_path):
-    from fastmcp import Client
-    from fastmcp.client import StdioTransport
-
-    app_config = ApplicationConfig(
-        workspace_dir=str(tmp_path),
-        enable_logo=False,
-        log_to_console=False,
-        log_to_file=False,
-        service={"backend": "mcp"},
-        jobs={
-            "only_custom": {
-                "backend": "base",
-                "description": "Parent-only inline job",
-                "parameters": {"type": "object", "properties": {}},
-                "steps": [],
-            },
-            "referenced_helper": {
-                "backend": "base",
-                "description": "A normal job that custom jobs may reference.",
-                "parameters": {"type": "object", "properties": {}},
-                "steps": [],
-            },
-        },
-    )
-    job = _Job("only_custom")
-    context = SimpleNamespace(app_config=app_config, components={}, jobs={"only_custom": job})
-    wrapper = CodexAgentWrapper(app_context=context)
-    server_config = wrapper._mcp_server_config({"job_tools": ["only_custom"]})  # pylint: disable=protected-access
-    transport = StdioTransport(
-        command=server_config["command"],
-        args=server_config["args"],
-        cwd=server_config["cwd"],
-        keep_alive=False,
-    )
-
-    await wrapper.start()
-    try:
-        async with Client(transport, timeout=None, init_timeout=STDIO_INIT_TIMEOUT) as client:
-            tools = await asyncio.wait_for(client.list_tools(), timeout=10)
-            snapshot = Path(server_config["args"][server_config["args"].index("--config") + 1])
-            assert snapshot.exists()
-            assert set(json.loads(snapshot.read_text(encoding="utf-8"))["jobs"]) == {
-                "only_custom",
-                "referenced_helper",
-            }
-    finally:
-        await wrapper.close()
-
-    assert [tool.name for tool in tools] == ["only_custom"]
-    assert not snapshot.exists()
-
-
-@pytest.mark.asyncio
-async def test_open_thread_defaults_to_full_access(tmp_path):
-    from openai_codex import ApprovalMode, Sandbox
-
-    wrapper, _job = _wrapper(tmp_path)
-    observed = {}
-
-    class FakeCodex:
-        async def thread_start(self, **kwargs):
-            observed.update(kwargs)
-            return SimpleNamespace(id="thread-1")
-
-    await wrapper._open_thread(FakeCodex(), {})  # pylint: disable=protected-access
-
-    assert observed["approval_mode"] == ApprovalMode.auto_review
-    assert observed["sandbox"] == Sandbox.full_access
-
-
-@pytest.mark.asyncio
-async def test_compact_session_uses_native_thread_operation(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
-    observed = {}
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def compact(self):
-            observed["compacted"] = True
-
-    async def start():
-        observed["started"] = True
-
-    async def resume(session_id):
-        observed["resume"] = session_id
-        return FakeThread()
-
-    async def get_codex():
-        return SimpleNamespace(thread_resume=resume)
-
-    monkeypatch.setattr(wrapper, "start", start)
-    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
-
-    await wrapper.compact_session("thread-1")
-
-    assert observed["started"] is True
-    assert observed["resume"] == "thread-1"
-    assert observed["compacted"] is True
-
-
-@pytest.mark.asyncio
-async def test_open_thread_forwards_latest_sdk_options(tmp_path):
-    from openai_codex.types import Personality, ThreadSource, ThreadStartSource
-
-    wrapper, _job = _wrapper(tmp_path)
-    observed = {}
-
-    class FakeCodex:
-        async def thread_start(self, **kwargs):
-            observed["start"] = kwargs
-            return SimpleNamespace(id="thread-1")
-
-        async def thread_resume(self, _thread_id, **kwargs):
-            observed["resume"] = kwargs
-            return SimpleNamespace(id="thread-1")
-
-        async def thread_fork(self, _thread_id, **kwargs):
-            observed["fork"] = kwargs
-            return SimpleNamespace(id="thread-2")
-
-    codex = FakeCodex()
-    await wrapper._open_thread(  # pylint: disable=protected-access
-        codex,
-        {
-            "personality": "friendly",
-            "service_name": "reme",
-            "session_start_source": "startup",
-            "thread_source": "user",
-        },
-    )
-    await wrapper._open_thread(  # pylint: disable=protected-access
-        codex,
-        {"session_id": "thread-1", "personality": "pragmatic"},
-    )
-    await wrapper._open_thread(  # pylint: disable=protected-access
-        codex,
-        {"session_id": "thread-1", "fork_session": True, "thread_source": "subagent"},
-    )
-
-    assert observed["start"]["personality"] == Personality.friendly
-    assert observed["start"]["service_name"] == "reme"
-    assert observed["start"]["session_start_source"] == ThreadStartSource.startup
-    assert observed["start"]["thread_source"] == ThreadSource.user
-    assert observed["resume"]["personality"] == Personality.pragmatic
-    assert observed["fork"]["thread_source"] == ThreadSource.subagent
-
-
-@pytest.mark.asyncio
-async def test_resume_reuses_tool_context_and_rejects_context_change(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-
-    class FakeCodex:
-        async def thread_start(self, **_kwargs):
-            return SimpleNamespace(id="thread-1")
-
-        async def thread_resume(self, _thread_id, **_kwargs):
-            return SimpleNamespace(id="thread-1")
-
-    await wrapper._open_thread(FakeCodex(), {"tool_context_id": "ctx-a"})  # pylint: disable=protected-access
-    await wrapper._open_thread(  # pylint: disable=protected-access
-        FakeCodex(),
-        {"resume": "thread-1", "tool_context_id": "ctx-a"},
-    )
-    with pytest.raises(ValueError, match="cannot change"):
-        await wrapper._open_thread(  # pylint: disable=protected-access
-            FakeCodex(),
-            {"resume": "thread-1", "tool_context_id": "ctx-b"},
-        )
-
-
-class _StructuredModel(BaseModel):
-    ok: bool
-
-
-@pytest.mark.parametrize("schema", [_StructuredModel(ok=True), str])
-def test_output_schema_rejects_instances_and_arbitrary_classes(tmp_path, schema):
-    wrapper, _job = _wrapper(tmp_path)
-    with pytest.raises(TypeError, match="JSON schema dict or BaseModel class"):
-        wrapper._merged_kwargs({"output_schema": schema})  # pylint: disable=protected-access
-
-
-def test_output_schema_normalizes_model_class_and_preserves_dict(tmp_path):
-    wrapper, _job = _wrapper(tmp_path)
-    schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}}
-
-    assert (
-        wrapper._merged_kwargs({"output_schema": _StructuredModel})["output_schema"]  # pylint: disable=protected-access
-        == _StructuredModel.model_json_schema()
-    )
-    assert (
-        wrapper._merged_kwargs({"output_schema": schema})["output_schema"] is schema
-    )  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_normalizes_schema_and_reuses_persistent_client(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    clients = []
-    observed_schemas = []
-    close_count = 0
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **kwargs):
-            observed_schemas.append(kwargs["output_schema"])
-            return _TurnResult(final_response=json.dumps({"ok": True}))
-
-    class FakeCodex:
-        def __init__(self, _config):
-            clients.append(self)
-
-        async def __aenter__(self):
-            return self
-
-        async def close(self):
-            nonlocal close_count
-            close_count += 1
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    await wrapper.start()
-    result = await wrapper.reply("first", output_schema=_StructuredModel)
-    await wrapper.close()
-
-    assert result["structured_output"] == {"ok": True}
-    assert observed_schemas == [_StructuredModel.model_json_schema()]
-    assert len(clients) == 1
-    assert close_count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("schema", [{}, _StructuredModel])
-async def test_reply_stream_rejects_output_schema(tmp_path, schema):
-    wrapper, _job = _wrapper(tmp_path)
-
-    with pytest.raises(NotImplementedError, match="Structured output is not supported"):
-        await anext(wrapper.reply_stream("answer", output_schema=schema))
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_interrupts_turn_when_consumer_closes_early(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    stream_closed = False
-    interrupt_count = 0
-
-    class FakeTurn:
-        id = "turn-1"
-
-        async def stream(self):
-            nonlocal stream_closed
-            try:
-                yield SimpleNamespace(
-                    method="turn/started",
-                    payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)),
-                )
-                await asyncio.Event().wait()
-            finally:
-                stream_closed = True
-
-        async def interrupt(self):
-            nonlocal interrupt_count
-            interrupt_count += 1
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            return FakeTurn()
-
-    class FakeCodex:
-        def __init__(self, _config):
-            pass
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def close(self):
-            return None
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    stream = wrapper.reply_stream("answer")
-    first = await anext(stream)
-    assert first.chunk_type == ChunkEnum.REPLY_START
-    await stream.aclose()
-    await wrapper.close()
-
-    assert interrupt_count == 1
-    assert stream_closed
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_does_not_record_token_usage(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    recorded_usages = []
-    usage = TokenUsageBreakdown(
-        cachedInputTokens=0,
-        inputTokens=3,
-        outputTokens=5,
-        reasoningOutputTokens=0,
-        totalTokens=8,
-    )
-
-    class FakeTurn:
-        id = "turn-1"
-
-        async def stream(self):
-            yield SimpleNamespace(
-                method="thread/tokenUsage/updated",
-                payload=SimpleNamespace(token_usage=SimpleNamespace(last=usage)),
-            )
-            yield SimpleNamespace(
-                method="turn/completed",
-                payload=SimpleNamespace(
-                    turn=SimpleNamespace(
-                        id=self.id,
-                        status=SimpleNamespace(value="completed"),
-                        duration_ms=1,
-                        error=None,
-                    ),
-                ),
-            )
-
-        async def interrupt(self):
-            raise AssertionError("Completed turns must not be interrupted")
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            return FakeTurn()
-
-    class FakeCodex:
-        def __init__(self, _config):
-            pass
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def close(self):
-            return None
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-    monkeypatch.setattr(wrapper, "_record_token_usage", recorded_usages.append)
-
-    chunks = [chunk async for chunk in wrapper.reply_stream("answer")]
-    await wrapper.close()
-
-    assert any(chunk.chunk_type == ChunkEnum.USAGE for chunk in chunks)
-    assert not recorded_usages
-
-
-@pytest.mark.asyncio
-async def test_close_waits_for_active_turn(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    turn_started = asyncio.Event()
-    release_turn = asyncio.Event()
-    client_closed = asyncio.Event()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            turn_started.set()
-            await release_turn.wait()
-            return _TurnResult(final_response="done")
-
-    class FakeCodex:
-        def __init__(self, _config):
-            pass
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def close(self):
-            client_closed.set()
-
-        async def thread_start(self, **_kwargs):
-            return FakeThread()
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    await wrapper.start()
-    reply_task = asyncio.create_task(wrapper.reply("answer"))
-    await turn_started.wait()
-    close_task = asyncio.create_task(wrapper.close())
-    await asyncio.sleep(0)
-
-    assert not client_closed.is_set()
-    assert not close_task.done()
-
-    release_turn.set()
-    result = await reply_task
-    await close_task
-
-    assert result["last_message"] == "done"
-    assert client_closed.is_set()
-
-
-@pytest.mark.asyncio
-async def test_component_start_keeps_optional_client_lazy(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="api_key", api_key="")
-
-    def fail_if_constructed(_config):
-        raise AssertionError("Codex client should be lazy")
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", fail_if_constructed)
-
-    await wrapper.start()
-    await wrapper.close()
-
-    assert wrapper._codex is None
-
-
-@pytest.mark.asyncio
-async def test_client_config_is_fixed_for_component_lifetime(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="api_key", api_key="one")
-    clients = []
-
-    class FakeCodex:
-        def __init__(self, _config):
-            clients.append(self)
-
-        async def login_api_key(self, _api_key):
-            return None
-
-        async def close(self):
-            return None
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    await wrapper.start()
-    assert await wrapper._get_codex() is clients[0]  # pylint: disable=protected-access
-    with pytest.raises(TypeError, match="configured on the wrapper: api_key"):
-        await wrapper.reply("answer", api_key="two")
-    await wrapper.close()
-
-    assert len(clients) == 1
-
-
-@pytest.mark.parametrize(
-    ("name", "value"),
-    [
-        ("auth_mode", "oauth"),
-        ("base_url", "https://example.test/v1"),
-        ("codex_bin", "/tmp/codex"),
-        ("codex_home", "/tmp/codex-home"),
-        ("config_overrides", ['model="test"']),
-        ("cwd", "/tmp"),
-        ("experimental_api", False),
-        ("launch_args_override", ["codex", "app-server"]),
-    ],
-)
-@pytest.mark.asyncio
-async def test_reply_rejects_call_time_client_options(tmp_path, name, value):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-
-    with pytest.raises(TypeError, match=f"configured on the wrapper: {name}"):
-        await wrapper.reply("answer", **{name: value})
-
-    assert wrapper._codex is None
-
-
-def test_constructor_rejects_launch_args_override(tmp_path):
-    with pytest.raises(TypeError, match="configure codex_bin instead"):
-        _wrapper(tmp_path, launch_args_override=["codex", "app-server"])
-
-
-def test_oauth_mode_ignores_api_credentials_and_forces_chatgpt(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(
-        tmp_path,
-        auth_mode="oauth",
-        api_key="explicit-key",
-        base_url="https://explicit.example.test/v1",
-    )
-    wrapper.app_context.app_config.environment = {"TOOL_ENV": "preserved"}
-    monkeypatch.setenv("CODEX_API_KEY", "ambient-key")
-    monkeypatch.setenv("CODEX_BASE_URL", "https://ambient.example.test/v1")
-
-    auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
-        "oauth",
-        "explicit-key",
-        "https://explicit.example.test/v1",
-    )
-    config = wrapper._build_client_config(auth)  # pylint: disable=protected-access
-
-    assert auth.mode == "oauth"
-    assert auth.api_key == ""
-    assert auth.base_url == ""
-    assert config.env["TOOL_ENV"] == "preserved"
-    assert "CODEX_HOME" not in wrapper.app_context.app_config.environment
-    assert 'forced_login_method="chatgpt"' in config.config_overrides
-    assert not any(value.startswith("openai_base_url=") for value in config.config_overrides)
-
-
-@pytest.mark.asyncio
-async def test_api_key_mode_logs_in_app_server_explicitly(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(
-        tmp_path,
-        auth_mode="api_key",
-        api_key="explicit-key",
-        base_url="https://proxy.example.test/v1",
-    )
-    observed = {}
-
-    class FakeCodex:
-        def __init__(self, config):
-            observed["config"] = config
-
-        async def login_api_key(self, api_key):
-            observed["api_key"] = api_key
-
-        async def close(self):
-            observed["closed"] = True
-
-    monkeypatch.setattr("reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex", FakeCodex)
-
-    await wrapper.start()
-    await wrapper._get_codex()  # pylint: disable=protected-access
-    await wrapper.close()
-
-    config = observed["config"]
-    assert observed["api_key"] == "explicit-key"
-    assert 'openai_base_url="https://proxy.example.test/v1"' in config.config_overrides
-    assert 'forced_login_method="api"' in config.config_overrides
-    assert observed["closed"] is True
-
-
-def test_auth_selection_uses_explicit_wrapper_options(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
-    wrapper.app_context.app_config.components[ComponentEnum.AS_LLM]["default"] = SimpleNamespace(
-        credential={"api_key": "default-key", "base_url": "https://default.example.test/v1"},
-    )
-    for name in ("CODEX_API_KEY", "OPENAI_API_KEY", "LLM_API_KEY"):
-        monkeypatch.setenv(name, "ambient-key")
-    for name in ("CODEX_BASE_URL", "OPENAI_BASE_URL", "LLM_BASE_URL"):
-        monkeypatch.setenv(name, "https://ambient.example.test/v1")
-
-    auth = wrapper._resolve_auth_config(  # pylint: disable=protected-access
-        "api_key",
-        "configured-key",
-    )
-
-    assert auth.mode == "api_key"
-    assert auth.api_key == "configured-key"
-    assert auth.base_url == ""
-
-    with pytest.raises(ValueError, match="requires a non-empty API key"):
-        wrapper._resolve_auth_config(  # pylint: disable=protected-access
-            "api_key",
-        )
-
-
 @pytest.mark.parametrize("review_status", ["approved", "denied"])
 def test_event_to_chunks_maps_approval_started_and_completed(review_status):
     action = {"type": "futureApprovalAction", "value": "preserved"}
@@ -1192,464 +1493,3 @@ def test_event_to_chunks_maps_approval_started_and_completed(review_status):
     assert completed_chunk.metadata["status"] == "completed"
     assert completed_chunk.metadata["review"]["status"] == review_status
     assert completed_chunk.metadata["decision_source"] == {"type": "guardian"}
-
-
-def test_codex_home_expands_user_directory(tmp_path):
-    wrapper, _job = _wrapper(tmp_path, codex_home="~/.codex")
-    assert wrapper.session_path == Path.home() / ".codex"
-
-
-def test_named_default_mcp_config_remains_supported(tmp_path):
-    wrapper, _job = _wrapper(tmp_path, mcp_config="default")
-    assert wrapper._mcp_config_source({}) == "default"  # pylint: disable=protected-access
-
-
-def test_default_config_provides_codex_oauth_wrapper(monkeypatch):
-    monkeypatch.delenv("CODEX_HOME", raising=False)
-    config = resolve_app_config(log_config=False)
-    oauth = config["components"]["agent_wrapper"]["codex_oauth"]
-    codex = config["components"]["agent_wrapper"]["codex"]
-    assert oauth["backend"] == "codex"
-    assert oauth["auth_mode"] == "oauth"
-    assert oauth["codex_home"] == "~/.codex"
-    assert oauth["sandbox"] == "full-access"
-    assert "api_key" not in oauth
-    assert codex["auth_mode"] == "api_key"
-    assert codex["sandbox"] == "full-access"
-
-
-class _RecordingClient:
-    def __init__(self, fail: bool = False):
-        self.requests = []
-        self.fail = fail
-        self.loaded_threads = ["thread-1"]
-
-    async def request(self, method, params, *, response_model):
-        self.requests.append({"method": method, "params": params, "response_model": response_model})
-        if self.fail:
-            raise RuntimeError("unsubscribe failed")
-        if method == "thread/loaded/list":
-            return SimpleNamespace(data=self.loaded_threads, next_cursor=None)
-        return SimpleNamespace(status="unsubscribed")
-
-
-def _assert_unsubscribed(client, thread_id="thread-1"):
-    from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
-
-    assert client.requests == [
-        {
-            "method": "thread/unsubscribe",
-            "params": {"threadId": thread_id},
-            "response_model": ThreadUnsubscribeResponse,
-        },
-    ]
-
-
-def _fake_codex(client, thread):
-    class FakeCodex:
-        def __init__(self, _config):
-            self._client = client
-
-        async def account(self):
-            return SimpleNamespace(account=SimpleNamespace())
-
-        async def close(self):
-            return None
-
-        async def thread_start(self, **_kwargs):
-            return thread
-
-        async def thread_resume(self, _thread_id, **_kwargs):
-            return thread
-
-    return FakeCodex
-
-
-@pytest.mark.asyncio
-async def test_reply_releases_thread_after_turn(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            return _TurnResult(final_response="done")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    result = await wrapper.reply("answer")
-    await wrapper.close()
-
-    assert result["last_message"] == "done"
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_releases_thread_when_turn_fails(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            raise ValueError("turn failed")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    with pytest.raises(ValueError, match="turn failed"):
-        await wrapper.reply("answer")
-    await wrapper.close()
-
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_ignores_unsubscribe_failure(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient(fail=True)
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            return _TurnResult(final_response="done")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    result = await wrapper.reply("answer")
-
-    assert result["last_message"] == "done"
-    assert len(client.requests) == 1
-    # The thread is still loaded, so its tool-context guard must survive.
-    assert "thread-1" in wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_failed_release_keeps_tool_context_guard_on_resume(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient(fail=True)
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            return _TurnResult(final_response="done")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    result = await wrapper.reply("answer", tool_context_id="ctx-a")
-    assert result["session_id"] == "thread-1"
-    assert len(client.requests) == 1
-
-    with pytest.raises(ValueError, match="cannot change"):
-        await wrapper.reply("answer", session_id="thread-1", tool_context_id="ctx-b")
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_release_threads_disabled_keeps_threads_loaded(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth", release_threads=False)
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            return _TurnResult(final_response="done")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    result = await wrapper.reply("answer")
-
-    assert result["last_message"] == "done"
-    assert not client.requests
-    assert "thread-1" in wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-    await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_releases_thread_on_completion(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeTurn:
-        id = "turn-1"
-
-        async def stream(self):
-            yield SimpleNamespace(
-                method="turn/completed",
-                payload=SimpleNamespace(
-                    turn=SimpleNamespace(
-                        id="turn-1",
-                        status=SimpleNamespace(value="completed"),
-                        duration_ms=1,
-                        error=None,
-                    ),
-                ),
-            )
-
-        async def interrupt(self):
-            raise AssertionError("Completed turns must not be interrupted")
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            return FakeTurn()
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    chunks = [chunk async for chunk in wrapper.reply_stream("answer")]
-    await wrapper.close()
-
-    assert chunks[-1].chunk_type == ChunkEnum.REPLY_END
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_releases_thread_on_early_close(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-    interrupt_count = 0
-
-    class FakeTurn:
-        id = "turn-1"
-
-        async def stream(self):
-            yield SimpleNamespace(
-                method="turn/started",
-                payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)),
-            )
-            await asyncio.Event().wait()
-
-        async def interrupt(self):
-            nonlocal interrupt_count
-            interrupt_count += 1
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            return FakeTurn()
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    stream = wrapper.reply_stream("answer")
-    first = await anext(stream)
-    assert first.chunk_type == ChunkEnum.REPLY_START
-    await stream.aclose()
-    await wrapper.close()
-
-    assert interrupt_count == 1
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_compact_session_releases_thread(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path)
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def compact(self):
-            return None
-
-    async def start():
-        return None
-
-    async def resume(_thread_id):
-        return FakeThread()
-
-    async def get_codex():
-        return SimpleNamespace(_client=client, thread_resume=resume)
-
-    monkeypatch.setattr(wrapper, "start", start)
-    monkeypatch.setattr(wrapper, "_get_codex", get_codex)
-
-    await wrapper.compact_session("thread-1")
-
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_releases_thread_when_turn_start_fails(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            raise RuntimeError("turn/start failed")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    with pytest.raises(RuntimeError, match="turn/start failed"):
-        _ = [chunk async for chunk in wrapper.reply_stream("answer")]
-    await wrapper.close()
-
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-async def test_reply_stream_releases_thread_when_turn_start_is_cancelled(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def turn(self, _inputs, **_kwargs):
-            raise asyncio.CancelledError("cancelled during turn/start")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-
-    with pytest.raises(asyncio.CancelledError):
-        _ = [chunk async for chunk in wrapper.reply_stream("answer")]
-    await wrapper.close()
-
-    _assert_unsubscribed(client)
-    assert not wrapper._thread_tool_contexts  # pylint: disable=protected-access
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("original", "changed"),
-    [
-        ({"tool_context_id": "ctx-a"}, {"tool_context_id": "ctx-b"}),
-        ({"injected_job_kwargs": {"tenant": "a"}}, {"injected_job_kwargs": {"tenant": "b"}}),
-    ],
-)
-async def test_cancelled_reply_keeps_loaded_thread_constraints(tmp_path, monkeypatch, original, changed):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-    entered = asyncio.Event()
-
-    class FakeThread:
-        id = "thread-1"
-        calls = 0
-
-        async def run(self, _inputs, **_kwargs):
-            self.calls += 1
-            if self.calls > 1:
-                return _TurnResult(final_response="old MCP constraints")
-            entered.set()
-            await asyncio.Event().wait()
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-    task = asyncio.create_task(wrapper.reply("answer", **original))
-    try:
-        await asyncio.wait_for(entered.wait(), timeout=5)
-    finally:
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    try:
-        _assert_unsubscribed(client)
-        with pytest.raises(ValueError, match="cannot change"):
-            await wrapper.reply("answer", session_id="thread-1", **changed)
-    finally:
-        await wrapper.close()
-
-
-@pytest.mark.asyncio
-async def test_unloaded_thread_can_resume_with_new_constraints(tmp_path, monkeypatch):
-    wrapper, _job = _wrapper(tmp_path, auth_mode="oauth")
-    client = _RecordingClient()
-
-    class FakeThread:
-        id = "thread-1"
-
-        async def run(self, _inputs, **_kwargs):
-            return _TurnResult(final_response="done")
-
-    monkeypatch.setattr(
-        "reme.components.agent_wrapper.codex_agent_wrapper.AsyncCodex",
-        _fake_codex(client, FakeThread()),
-    )
-    try:
-        await wrapper.reply("answer", tool_context_id="ctx-a")
-        assert "thread-1" in wrapper._thread_tool_contexts
-        await wrapper.reply("answer", session_id="thread-1", tool_context_id="ctx-a")
-        with pytest.raises(ValueError, match="cannot change"):
-            await wrapper.reply("answer", session_id="thread-1", tool_context_id="ctx-b")
-        # Unsubscribe schedules delayed unload; only a later loaded-list query
-        # establishes that a resume will create a fresh runtime and MCP config.
-        client.loaded_threads.clear()
-        result = await wrapper.reply("answer", session_id="thread-1", tool_context_id="ctx-b")
-        assert result["last_message"] == "done"
-        assert json.loads(wrapper._thread_tool_contexts["thread-1"])["tool_context_id"] == "ctx-b"
-    finally:
-        await wrapper.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("fail_second_page", [False, True])
-async def test_prune_thread_constraints_reads_all_pages_before_removing_entries(tmp_path, fail_second_page):
-    from openai_codex.generated.v2_all import ThreadLoadedListResponse
-
-    wrapper, _job = _wrapper(tmp_path)
-    wrapper._thread_tool_contexts = {"first": "a", "last": "b", "unloaded": "c"}
-    cursors = []
-
-    class Client:
-        async def request(self, method, params, *, response_model):
-            assert method == "thread/loaded/list"
-            assert response_model is ThreadLoadedListResponse
-            cursors.append(params["cursor"])
-            if params["cursor"] is None:
-                return ThreadLoadedListResponse(data=["first"], nextCursor="page-2")
-            if fail_second_page:
-                raise RuntimeError("loaded-list unavailable")
-            return ThreadLoadedListResponse(data=["last"])
-
-    await wrapper._prune_thread_tool_contexts(SimpleNamespace(_client=Client()))
-
-    assert cursors == [None, "page-2"]
-    expected = {"first": "a", "last": "b"}
-    if fail_second_page:
-        expected["unloaded"] = "c"
-    assert wrapper._thread_tool_contexts == expected

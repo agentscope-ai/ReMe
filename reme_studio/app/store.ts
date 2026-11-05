@@ -20,6 +20,8 @@ import {
   type PersistedWorkspaceState,
 } from "./workspace-persistence";
 import { markMarkdownContentSaved } from "./markdown-save";
+import { mergeSessionTab } from "./session-sync";
+import type { SessionSnapshot } from "./types";
 import { unsavedTabsClosedBy } from "./tab-close";
 
 interface WorkspaceState {
@@ -52,6 +54,11 @@ interface WorkspaceState {
     expanded: boolean,
   ) => void;
   finishChat: (tabId: string, messageId: string, error?: string) => void;
+  syncChatSession: (
+    tabId: string,
+    snapshot: SessionSnapshot,
+    expectedLastId?: string,
+  ) => void;
 }
 
 function updateChatMessage(
@@ -197,16 +204,33 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           updateTab(tabId, "agent", (tab) => ({
             ...tab,
             title: tab.messages.length ? tab.title : user.content.slice(0, 18),
-            messages: [...tab.messages, user, assistant],
+            messages: [
+              ...tab.messages,
+              { ...user, localOnly: true },
+              { ...assistant, localOnly: true },
+            ],
             streaming: true,
           })),
         applyChatChunk: (tabId, messageId, chunk) =>
-          updateTab(tabId, "agent", (tab) => ({
-            ...updateChatMessage(tab, messageId, (message) =>
+          updateTab(tabId, "agent", (tab) => {
+            const updated = updateChatMessage(tab, messageId, (message) =>
               applyStreamChunk(message, chunk),
-            ),
-            sessionId: chunk.session_id || tab.sessionId,
-          })),
+            );
+            const turnId =
+              chunk.chunk_type === "reply_start" && chunk.metadata?.turn_id;
+            if (typeof turnId === "string") {
+              const assistantIndex = updated.messages.findIndex(
+                (message) => message.id === messageId,
+              );
+              updated.messages = updated.messages.map((message, index) =>
+                index === assistantIndex ||
+                (index === assistantIndex - 1 && message.role === "user")
+                  ? { ...message, turnId, localOnly: false }
+                  : message,
+              );
+            }
+            return { ...updated, sessionId: chunk.session_id || tab.sessionId };
+          }),
         toggleChatBlock: (tabId, messageId, blockId, expanded) =>
           updateTab(tabId, "agent", (tab) =>
             updateChatMessage(tab, messageId, (message) =>
@@ -220,6 +244,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ),
             streaming: false,
           })),
+        syncChatSession: (tabId, snapshot, expectedLastId) =>
+          updateTab(tabId, "agent", (tab) =>
+            mergeSessionTab(tab, snapshot, expectedLastId),
+          ),
       };
     },
     {

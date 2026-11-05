@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 from contextlib import chdir as _temp_chdir
+import asyncio
 import tempfile
 import warnings
 
@@ -11,11 +12,13 @@ import pytest
 from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.file_store import LocalFileStore
-from reme.schema import FileFrontMatter, FileLink, FileNode, TraverseGraph
+from reme.enumeration import ChunkEnum
+from reme.schema import FileFrontMatter, FileLink, FileNode, StreamChunk, TraverseGraph
 from reme.steps.common.add import AddStep
 from reme.steps.common.health_check import _file_graph_status
 from reme.steps.common.llm_demo import LLMDemoStep
 from reme.steps.common.python_execute import PythonExecuteStep
+from reme.steps.common.stream_llm_demo import StreamLLMDemoStep
 from reme.steps.index import traverse as traverse_mod
 from reme.utils.local_backend import LocalProcessBackend
 
@@ -147,10 +150,16 @@ class _FakeAgentWrapper(BaseAgentWrapper):
     def __init__(self):
         super().__init__()
         self.last_kwargs = None
+        self.stream_chunks = []
 
     async def reply(self, inputs, **kwargs) -> dict:
         self.last_kwargs = kwargs
         return {"result": "ok"}
+
+    async def reply_stream(self, inputs, **kwargs):
+        self.last_kwargs = kwargs
+        for chunk in self.stream_chunks:
+            yield chunk
 
 
 @pytest.mark.asyncio
@@ -163,6 +172,27 @@ async def test_llm_demo_always_registers_add_tool():
     assert resp.success is True
     assert wrapper.last_kwargs["job_tools"] == ["add"]
     assert "job_tools" not in resp.metadata
+
+
+@pytest.mark.asyncio
+async def test_stream_llm_demo_preserves_backend_chunk_metadata():
+    """Forward retry flags, tool identities, usage, and completion status without rebuilding chunks."""
+    wrapper = _FakeAgentWrapper()
+    wrapper.stream_chunks = [
+        StreamChunk(chunk_type=ChunkEnum.ERROR, chunk="retrying", metadata={"will_retry": True}),
+        StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, tool_call_id="call-1", tool_call_name="add", chunk={"a": 1}),
+        StreamChunk(chunk_type=ChunkEnum.CONTENT, session_id="session-1", block_id="text-1", chunk="hello"),
+        StreamChunk(chunk_type=ChunkEnum.USAGE, input_tokens=3, output_tokens=1),
+        StreamChunk(chunk_type=ChunkEnum.REPLY_END, metadata={"status": "completed"}),
+    ]
+    queue = asyncio.Queue()
+    response = await StreamLLMDemoStep()(query="hello", stream_queue=queue, agent_wrapper=wrapper)
+    forwarded = [queue.get_nowait() for _ in wrapper.stream_chunks]
+    assert all(actual is expected for actual, expected in zip(forwarded, wrapper.stream_chunks))
+    assert queue.empty()
+    assert response.success
+    assert response.answer == "hello"
+    assert response.metadata["session_id"] == "session-1"
 
 
 def test_file_graph_health_reports_neo4j_cached_counts():

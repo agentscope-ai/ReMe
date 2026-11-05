@@ -493,17 +493,18 @@ async def test_worker_keeps_startup_error_or_cancellation_when_close_fails(tmp_p
 def test_worker_response_preserves_failed_job_when_close_fails(tmp_path, monkeypatch, mode, job_fails):
     import reme.reme as reme_module
     from types import SimpleNamespace
-    from reme.utils.counter import global_counter_inc
+    from reme.components import ApplicationContext
 
     class FakeReMe:
         def __init__(self, **_kwargs):
-            self.context = SimpleNamespace(components={}, jobs={"build": object()}, metadata={})
+            self.context = ApplicationContext(workspace_dir=str(tmp_path))
+            self.context.jobs["build"] = object()
 
         async def start(self):
             pass
 
         async def run_job(self, job, **_kwargs):
-            global_counter_inc(self.context.metadata, ["__job_counter", job])
+            self.context.start_job_execution(job, track_execution=False)
             if job_fails == "result":
                 return SimpleNamespace(success=False, answer="job failed", metadata={"diagnostic": "original"})
             if job_fails:

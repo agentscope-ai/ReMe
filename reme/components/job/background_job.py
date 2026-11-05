@@ -5,11 +5,17 @@ import contextlib
 import random
 import threading
 import time
+from contextvars import ContextVar
 
 from .base_job import BaseJob
 from ..component_registry import R
 from ..runtime_context import RuntimeContext
 from ...schema import Response
+
+_supervised_job: ContextVar["BackgroundJob | None"] = ContextVar(
+    "reme_supervised_job",
+    default=None,
+)
 
 
 @R.register("background")
@@ -28,6 +34,8 @@ class BackgroundJob(BaseJob):
     crashing, the backoff attempt counter resets — so a long-stable job that
     eventually crashes restarts quickly rather than at the capped delay.
     """
+
+    _track_execution_default = True
 
     def __init__(
         self,
@@ -108,7 +116,7 @@ class BackgroundJob(BaseJob):
         while not self._stop_event.is_set():
             started_at = time.monotonic()
             try:
-                await self()
+                await self._run_once()
                 return
             except Exception as e:
                 if not self.supervisor:
@@ -121,12 +129,25 @@ class BackgroundJob(BaseJob):
                 attempt += 1
                 await self._wait_or_stop(delay)
 
+    async def _run_once(self) -> None:
+        """Track the actual body, including custom __call__ implementations and restarts."""
+        context = RuntimeContext(stop_event=self._stop_event, **self.kwargs)
+        token = _supervised_job.set(self)
+        try:
+            with self._execution(context):
+                response = await self()
+                if isinstance(response, Response):
+                    context.response = response
+        finally:
+            _supervised_job.reset(token)
+
     async def __call__(self, **kwargs) -> Response:
         """Default body: run steps in order; errors propagate to supervisor."""
-        self.check_enabled()
-        self._record_call()
         merged = {**self.kwargs, **kwargs}
         context = RuntimeContext(stop_event=self._stop_event, **merged)
-        for step in self._build_steps():
-            await step(context)
-        return context.response
+        if _supervised_job.get() is self:
+            # Consume once so a nested call of this same job gets its own record.
+            _supervised_job.set(None)
+            return await self._run_steps(context)
+        with self._execution(context):
+            return await self._run_steps(context)

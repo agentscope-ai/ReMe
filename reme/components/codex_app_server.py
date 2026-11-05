@@ -1,0 +1,596 @@
+"""Application-owned Codex process, concurrent sessions, and local job tools."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass, field
+import json
+import hashlib
+import math
+from pathlib import Path
+import sys
+from typing import Any, TYPE_CHECKING
+
+from .base_component import BaseComponent
+from .component_registry import R
+from .service.scoped_mcp import ScopedMCP
+from ..constants import normalize_connect_host
+from ..enumeration import ComponentEnum
+from ..utils.async_utils import finish_cleanup
+from ..utils.async_utils import complete_in_thread
+from ..schema import SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
+
+if TYPE_CHECKING:
+    from openai_codex import AsyncCodex, AsyncThread, CodexConfig
+
+
+@dataclass
+class _ThreadState:
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    users: int = 0
+    revision: int = 0
+    binding: str | None = None
+    token: str | None = None
+    completion: asyncio.Future[None] | None = None
+    operation_started: bool = False
+    token_usage: TokenUsage | None = None
+
+
+@R.register("sdk")
+class CodexAppServer(BaseComponent):
+    """Share one SDK client across wrappers with the same account and launch settings."""
+
+    component_type = ComponentEnum.CODEX_APP_SERVER
+
+    def __init__(
+        self,
+        auth_mode: str = "auto",
+        api_key: str = "",
+        base_url: str = "",
+        supports_websockets: bool = False,
+        codex_home: str | Path | None = None,
+        codex_bin: str | None = None,
+        config_overrides: list[str] | tuple[str, ...] = (),
+        model_catalog: dict[str, Any] | None = None,
+        cwd: str | Path | None = None,
+        experimental_api: bool = True,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        if auth_mode not in {"auto", "api_key", "oauth"}:
+            raise ValueError("auth_mode must be one of: auto, api_key, oauth")
+        self._auth_mode = auth_mode
+        self._api_key = api_key
+        self._base_url = base_url
+        self._supports_websockets = supports_websockets
+        self._codex_bin = codex_bin
+        self._config_overrides = tuple(config_overrides)
+        self._model_catalog = model_catalog
+        self._cwd = cwd
+        self._experimental_api = experimental_api
+        self._codex_home = codex_home
+        self._codex: AsyncCodex | None = None
+        self._notifications: asyncio.Task | None = None
+        self._client_lock = asyncio.Lock()
+        self._threads: dict[str, _ThreadState] = {}
+        self._active = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._failed = False
+        self._http_url: str | None = None
+        self.jobs_mcp = ScopedMCP()
+
+    @property
+    def session_path(self) -> Path:
+        """Persistent Codex state under the workspace, unless an explicit home is configured."""
+        if self._codex_home:
+            path = Path(self._codex_home).expanduser()
+            return path if path.is_absolute() else self.workspace_path / path
+        return self.workspace_path / ".codex"
+
+    def _message_path(self, session_id: str) -> Path:
+        from .agent_wrapper.codex_session_history import validate_identifier
+
+        validate_identifier(session_id)
+        session_dir = self.app_context.app_config.session_dir if self.app_context else "session"
+        namespace = hashlib.sha256(str(self.session_path.resolve()).encode()).hexdigest()[:16]
+        path = (self.workspace_path / session_dir / "proactive" / namespace / f"{session_id}.jsonl").resolve()
+        if not path.is_relative_to(self.workspace_path.resolve()):
+            raise ValueError("Session messages must stay inside the workspace")
+        return path
+
+    @asynccontextmanager
+    async def _session_client(self) -> AsyncIterator[AsyncCodex]:
+        """Keep status/history RPCs under lifecycle ownership without taking the turn lock."""
+        await self.start()
+        self._active += 1
+        self._idle.clear()
+        try:
+            yield await self._get_client()
+        finally:
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Inspect a thread without resuming it or waiting for an active turn."""
+        from .agent_wrapper.codex_session_history import session_status
+
+        self._message_path(session_id)
+        async with self._session_client() as codex:
+            thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
+            return session_status(thread)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Project public native history plus application-authored proactive messages."""
+        from .agent_wrapper import codex_session_history as history
+
+        path = self._message_path(session_id)
+        async with self._session_client() as codex:
+            response = await codex._client.thread_read(  # pylint: disable=protected-access
+                session_id,
+                include_turns=True,
+            )
+            thread = response.thread
+            records = await asyncio.to_thread(history.read_records, path)
+            recovered = (
+                await asyncio.to_thread(history.injected_ids, thread, self.session_path)
+                if any(not record["injected"] for record in records)
+                else set()
+            )
+            return history.session_snapshot(thread, records, recovered)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        timeout: float = 30,
+    ) -> SessionMessage:
+        """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
+        from openai_codex.generated.v2_all import ThreadInjectItemsResponse
+        from .agent_wrapper import codex_session_history as history
+
+        path = self._message_path(session_id)
+        history.validate_identifier(message_id)
+        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
+            raise ValueError("content must contain 1-100000 characters")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
+
+        async with asyncio.timeout(timeout):
+            async with self.thread(session_id) as loaded:
+                thread = (await loaded.read(include_turns=True)).thread
+                if history.session_status(thread).status != "idle":
+                    raise RuntimeError("Session must be idle before appending")
+                accepted = await asyncio.to_thread(history.injected_ids, thread, self.session_path)
+                records = await asyncio.to_thread(history.read_records, path)
+                native_id = f"reme-proactive-{message_id}"
+                record = next((entry for entry in records if entry["message"]["id"] == native_id), None)
+                if record is not None:
+                    if record["message"]["content"] != content:
+                        raise ValueError("message_id already belongs to different content")
+                    if record["injected"] or native_id in accepted:
+                        if not record["injected"]:
+                            record["injected"] = True
+                            await complete_in_thread(history.write_records, path, records)
+                        return SessionMessage.model_validate(record["message"])
+                else:
+                    record = history.new_record(message_id, content, thread)
+                    records.append(record)
+                # An unaccepted attempt may be retried after later user turns.
+                record["message"]["turn_id"] = thread.turns[-1].id if thread.turns else None
+
+                async def inject_and_publish():
+                    # A crash between the RPC and publication leaves a pending record.
+                    # Its reserved native ID is recovered from the rollout on retry.
+                    await complete_in_thread(history.write_records, path, records)
+                    codex = await self._get_client()
+                    await codex._client.request(  # pylint: disable=protected-access
+                        "thread/inject_items",
+                        {
+                            "threadId": session_id,
+                            "items": [
+                                {
+                                    "type": "message",
+                                    "id": native_id,
+                                    "role": "assistant",
+                                    "content": [{"type": "output_text", "text": content}],
+                                },
+                            ],
+                        },
+                        response_model=ThreadInjectItemsResponse,
+                    )
+                    record["injected"] = True
+                    await complete_in_thread(history.write_records, path, records)
+
+                await finish_cleanup(inject_and_publish())
+                return SessionMessage.model_validate(record["message"])
+
+    def _client_config(self) -> CodexConfig:
+        from openai_codex import CodexConfig
+
+        environment = dict(self.app_context.app_config.environment) if self.app_context else {}
+        environment["CODEX_HOME"] = str(self.session_path)
+        overrides = list(self._config_overrides)
+        api_login = self._auth_mode != "oauth" and bool(self._api_key)
+        if self._auth_mode == "api_key" and not api_login:
+            raise ValueError("auth_mode='api_key' requires a non-empty API key")
+        self.session_path.mkdir(parents=True, exist_ok=True)
+        if self._model_catalog is not None:
+            if any(option.partition("=")[0].strip() == "model_catalog_json" for option in overrides):
+                raise ValueError("Configure either model_catalog or config_overrides.model_catalog_json, not both")
+            catalog_path = self.session_path / "reme-model-catalog.json"
+            catalog_path.write_text(json.dumps(self._model_catalog, ensure_ascii=False), encoding="utf-8")
+            overrides.append(f"model_catalog_json={json.dumps(str(catalog_path))}")
+        if api_login and self._base_url:
+            # Custom endpoints must not inherit the built-in OpenAI provider's WebSocket capability.
+            overrides = [
+                'model_provider="reme"',
+                'model_providers.reme.name="ReMe API"',
+                f"model_providers.reme.base_url={json.dumps(self._base_url)}",
+                'model_providers.reme.wire_api="responses"',
+                "model_providers.reme.requires_openai_auth=true",
+                f"model_providers.reme.supports_websockets={json.dumps(self._supports_websockets)}",
+                *overrides,
+            ]
+        overrides.append(f"forced_login_method={json.dumps('api' if api_login else 'chatgpt')}")
+        cwd = Path(self._cwd).expanduser() if self._cwd else self.workspace_path
+        if not cwd.is_absolute():
+            cwd = self.workspace_path / cwd
+        return CodexConfig(
+            codex_bin=self._codex_bin,
+            config_overrides=tuple(overrides),
+            cwd=str(cwd),
+            env=environment,
+            client_name="reme",
+            client_title="ReMe",
+            experimental_api=self._experimental_api,
+        )
+
+    async def _get_client(self) -> AsyncCodex:
+        from openai_codex import AsyncCodex
+
+        async with self._client_lock:
+            if self._failed:
+                if self._active > 1:
+                    raise RuntimeError("Codex disconnected; wait for its active requests to finish before reconnecting")
+                await self._close_client()
+                self._threads.clear()
+                self.jobs_mcp.scopes.clear()
+                self._failed = False
+            if self._codex is None:
+                codex = AsyncCodex(self._client_config())
+                try:
+                    if self._auth_mode != "oauth" and self._api_key:
+                        await codex.login_api_key(self._api_key)
+                    elif (await codex.account()).account is None:
+                        raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
+                except BaseException:
+                    await codex.close()
+                    raise
+                self._codex = codex
+                self._notifications = asyncio.create_task(self._watch_notifications(codex))
+            return self._codex
+
+    async def _watch_notifications(self, codex: AsyncCodex) -> None:
+        """Route SDK status events to the operation that owns each conversation."""
+        try:
+            while self._codex is codex:
+                event = await codex._client.next_notification()  # pylint: disable=protected-access
+                if event.method != "thread/status/changed":
+                    continue
+                state = self._threads.get(event.payload.thread_id)
+                if state is None or state.completion is None or state.completion.done():
+                    continue
+                if event.payload.status.root.type == "active":
+                    state.operation_started = True
+                elif state.operation_started:
+                    state.completion.set_result(None)
+        except Exception as exc:
+            if self._codex is codex:
+                self._failed = True
+            for state in self._threads.values():
+                if state.completion is not None and not state.completion.done():
+                    state.completion.set_exception(exc)
+
+    async def _close_client(self) -> None:
+        codex, self._codex = self._codex, None
+        try:
+            if codex is not None:
+                await codex.close()
+        finally:
+            if self._notifications is not None:
+                self._notifications.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self._notifications
+                self._notifications = None
+
+    async def _mcp_url(self) -> str:
+        from .service.http_service import HttpService
+
+        service = self.app_context.service if self.app_context else None
+        if (
+            isinstance(service, HttpService)
+            and service.service is not None
+            and any(getattr(route, "endpoint", None) is self.jobs_mcp for route in service.service.routes)
+        ):
+            if self._http_url is None:
+                host = normalize_connect_host(service.host)
+                host = "::1" if host == "::" else host
+                # Background jobs can run before uvicorn finishes binding the main listener.
+                async with asyncio.timeout(30):
+                    while True:
+                        try:
+                            _, writer = await asyncio.open_connection(host, service.port)
+                        except OSError:
+                            await asyncio.sleep(0.01)
+                        else:
+                            writer.close()
+                            await writer.wait_closed()
+                            break
+                authority = f"[{host}]" if ":" in host else host
+                self._http_url = f"http://{authority}:{service.port}{self.jobs_mcp.path}"
+            return self._http_url
+        return await self.jobs_mcp.listen()
+
+    async def _prune_threads(self, codex: AsyncCodex) -> None:
+        """Revoke idle tool bindings only after the server confirms their threads unloaded."""
+        from openai_codex.generated.v2_all import ThreadLoadedListResponse
+
+        candidates = {key: (state, state.revision) for key, state in self._threads.items() if not state.users}
+        if not candidates:
+            return
+        try:
+            loaded: set[str] = set()
+            cursor = None
+            while True:
+                page = await codex._client.request(  # pylint: disable=protected-access
+                    "thread/loaded/list",
+                    {"cursor": cursor},
+                    response_model=ThreadLoadedListResponse,
+                )
+                loaded.update(page.data)
+                cursor = page.next_cursor
+                if not cursor:
+                    break
+        except Exception as exc:
+            self.logger.warning(f"Failed to list loaded Codex threads: {exc}")
+            return
+        for key, (state, revision) in candidates.items():
+            if key not in loaded and not state.users and state.revision == revision and self._threads.get(key) is state:
+                self._threads.pop(key)
+                self.jobs_mcp.scopes.pop(state.token, None)
+
+    async def wait_idle(self, thread: AsyncThread) -> None:
+        """Keep the thread lock through cancellation or asynchronous compaction."""
+        state = self._threads[thread.id]
+        if state.completion is not None:
+            await asyncio.shield(state.completion)
+            state.completion = None
+        async with asyncio.timeout(30):
+            while (await thread.read()).thread.status.root.type == "active":
+                await asyncio.sleep(0.05)
+
+    @asynccontextmanager
+    async def _operation(self, thread: AsyncThread) -> AsyncIterator[None]:
+        """Track a shielded dispatch; clear its barrier if the SDK rejects the request."""
+        state = self._threads[thread.id]
+        state.operation_started = False
+        state.completion = asyncio.get_running_loop().create_future()
+        state.completion.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        try:
+            yield
+        except Exception:
+            state.completion.cancel()
+            state.completion = None
+            raise
+
+    async def token_usage(self, thread_id: str) -> TokenUsage:
+        """Read the pre-turn baseline under the conversation lease, recovering it after restart."""
+        from .agent_wrapper.codex_session_history import read_token_usage
+
+        state = self._threads[thread_id]
+        if state.token_usage is None:
+            codex = await self._get_client()
+            view = (await codex._client.thread_read(thread_id)).thread  # pylint: disable=protected-access
+            state.token_usage = await asyncio.to_thread(read_token_usage, view, self.session_path)
+        return state.token_usage
+
+    def update_token_usage(self, thread_id: str, total: TokenUsage) -> TokenUsage:
+        """Keep cumulative provider counters monotonic across wrappers and duplicate notifications."""
+        state = self._threads[thread_id]
+        previous = state.token_usage or TokenUsage()
+        state.token_usage = TokenUsage(
+            input_tokens=max(previous.input_tokens, total.input_tokens),
+            output_tokens=max(previous.output_tokens, total.output_tokens),
+        )
+        return state.token_usage
+
+    async def turn(self, thread: AsyncThread, inputs: Any, **kwargs):
+        """Start a normal SDK turn with completion tracking owned by this server."""
+        turn = None
+
+        async def dispatch():
+            nonlocal turn
+            async with self._operation(thread):
+                turn = await thread.turn(inputs, **kwargs)
+
+        try:
+            await finish_cleanup(dispatch())
+        except asyncio.CancelledError:
+            if turn is not None:
+                try:
+                    await finish_cleanup(turn.interrupt())
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
+            raise
+        return turn
+
+    async def compact(self, thread: AsyncThread) -> None:
+        """Enqueue native compaction; the thread lease waits for its completion event."""
+
+        async def dispatch():
+            async with self._operation(thread):
+                await thread.compact()
+
+        self._threads[thread.id].token_usage = None
+        await finish_cleanup(dispatch())
+
+    async def _fork_messages(self, source_id: str, thread: AsyncThread) -> None:
+        """Copy inherited proactive provenance while the source conversation is locked."""
+        from .agent_wrapper import codex_session_history as history
+
+        records = await asyncio.to_thread(history.read_records, self._message_path(source_id))
+        if not records:
+            return
+        accepted = set()
+        if any(not record["injected"] for record in records):
+            codex = await self._get_client()
+            source = (await codex._client.thread_read(source_id)).thread  # pylint: disable=protected-access
+            accepted = await asyncio.to_thread(history.injected_ids, source, self.session_path)
+        # Native forks inherit context but do not preserve injected item IDs.
+        inherited = [
+            {**record, "injected": True}
+            for record in records
+            if record["injected"] or record["message"]["id"] in accepted
+        ]
+        if inherited:
+            await complete_in_thread(history.write_records, self._message_path(thread.id), inherited)
+
+    @asynccontextmanager
+    async def thread(
+        self,
+        thread_id: str = "",
+        *,
+        fork: bool = False,
+        options: dict[str, Any] | None = None,
+        jobs: list[Any] | None = None,
+        injected: dict[str, Any] | None = None,
+        mcp_startup_timeout: float = 30,
+        mcp_tool_timeout: float = 300,
+    ) -> AsyncIterator[AsyncThread]:
+        """Serialize one conversation while allowing independent conversations to run concurrently."""
+        from openai_codex import TransportClosedError
+
+        await self.start()
+        self._active += 1
+        self._idle.clear()
+        state = None
+        created_token = None
+        thread = None
+        codex = None
+        try:
+            codex = await self._get_client()
+            await self._prune_threads(codex)
+            state = self._threads.setdefault(thread_id, _ThreadState()) if thread_id and not fork else _ThreadState()
+            state.users += 1
+            state.revision += 1
+            async with state.lock:
+                options = dict(options or {})
+                if jobs is not None:
+                    injected = json.loads(json.dumps(injected or {}))
+                    binding = json.dumps({"jobs": [job.name for job in jobs], "injected": injected}, sort_keys=True)
+                    if state.binding is not None and state.binding != binding:
+                        raise ValueError(
+                            "job_tools, tool_context_id and injected_job_kwargs cannot change on a loaded thread",
+                        )
+                    state.binding = binding
+                    config = dict(options.get("config") or {})
+                    servers = dict(config.get("mcp_servers") or {})
+                    if "reme_jobs" in servers:
+                        raise ValueError("mcp_servers.reme_jobs is reserved for ReMe job tools")
+                    # Codex validates the transport even when a server is disabled.
+                    servers["reme_jobs"] = {"url": "http://127.0.0.1", "enabled": False}
+                    if jobs:
+                        url = await self._mcp_url()
+                        if state.token is None:
+                            state.token = self.jobs_mcp.register(jobs, injected)
+                            created_token = state.token
+                        servers["reme_jobs"] = {
+                            "url": url,
+                            "http_headers": {"Authorization": f"Bearer {state.token}"},
+                            "required": True,
+                            "enabled_tools": [job.name for job in jobs],
+                            "startup_timeout_sec": mcp_startup_timeout,
+                            "tool_timeout_sec": mcp_tool_timeout,
+                        }
+                    config["mcp_servers"] = servers
+                    options["config"] = config
+                if fork:
+                    source = self._threads.setdefault(thread_id, _ThreadState())
+                    source.users += 1
+                    source.revision += 1
+                    try:
+                        async with source.lock:
+                            state.token_usage = await self.token_usage(thread_id)
+                            thread = await codex.thread_fork(thread_id, **options)
+                            await finish_cleanup(self._fork_messages(thread_id, thread))
+                    finally:
+                        source.users -= 1
+                elif thread_id:
+                    thread = await codex.thread_resume(thread_id, **options)
+                else:
+                    thread = await codex.thread_start(**options)
+                    state.token_usage = TokenUsage()
+                self._threads[thread.id] = state
+                if thread_id and not fork:
+                    await self.wait_idle(thread)
+                try:
+                    yield thread
+                finally:
+                    # Interrupt acknowledgement alone does not mean that tool execution stopped.
+                    error = sys.exception()
+                    if error is not None:
+                        # A paused/closed consumer can miss usage emitted by native completion.
+                        # Recover from the persisted rollout before the next turn starts.
+                        state.token_usage = None
+                    try:
+                        async with asyncio.timeout(30 if error is not None else None):
+                            await self.wait_idle(thread)
+                    except Exception as exc:
+                        if isinstance(exc, TransportClosedError) and self._codex is codex:
+                            self._failed = True
+                        if error is None:
+                            raise
+                        self.logger.warning(f"Failed to wait for Codex thread {thread.id}: {exc}")
+                    else:
+                        from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
+
+                        try:
+                            await codex._client.request(  # pylint: disable=protected-access
+                                "thread/unsubscribe",
+                                {"threadId": thread.id},
+                                response_model=ThreadUnsubscribeResponse,
+                            )
+                        except Exception as exc:
+                            self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
+        except TransportClosedError:
+            if codex is not None and self._codex is codex:
+                self._failed = True
+            raise
+        finally:
+            if state is not None:
+                state.users -= 1
+                if thread is None and created_token is not None:
+                    self.jobs_mcp.scopes.pop(created_token, None)
+                    state.token = None
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
+
+    async def _close(self) -> None:
+        await self._idle.wait()
+        try:
+            await self._close_client()
+        finally:
+            self._codex = None
+            self._failed = False
+            self._http_url = None
+            self._threads.clear()
+            await self.jobs_mcp.close()

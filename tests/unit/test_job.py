@@ -10,6 +10,7 @@ import pytest
 
 from reme.enumeration import ComponentEnum
 from reme.application import Application
+from reme.components import ApplicationContext
 from reme.components.base_component import BaseComponent
 from reme.components.component_registry import ComponentRegistry
 from reme.components.job.background_job import BackgroundJob
@@ -18,7 +19,6 @@ from reme.components.job.cron_job import CronJob
 from reme.components.job.stream_job import StreamJob
 from reme.components.job import cron_job as cron_job_module
 from reme.schema import ComponentConfig
-from reme.utils import global_counter_get
 
 # -- helpers ------------------------------------------------------------------
 
@@ -156,50 +156,54 @@ def test_stream_job_merges_config_kwargs_into_context():
 # -- Job call counters -------------------------------------------------------
 
 
-def test_base_job_records_calls_by_name():
+def test_base_job_records_calls_by_name(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = BaseJob(name="search", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job()
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "search"]) == 2
+        assert app_context.get_job_count("search") == 2
 
     asyncio.run(run())
 
 
-def test_stream_job_subclass_records_calls_by_job_name():
+def test_stream_job_subclass_records_calls_by_job_name(tmp_path):
     async def run():
         class ProjectStreamJob(StreamJob):
             pass
 
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = ProjectStreamJob(name="chat", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job(stream_queue=asyncio.Queue())
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "chat"]) == 1
+        assert app_context.get_job_count("chat") == 1
 
     asyncio.run(run())
 
 
-def test_background_job_records_calls_by_name():
+def test_background_job_records_calls_by_name(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = BackgroundJob(name="watch", app_context=app_context)
+        app_context.jobs[job.name] = job
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "watch"]) == 1
+        assert app_context.get_job_count("watch") == 1
 
     asyncio.run(run())
 
 
-def test_cron_job_records_each_triggered_execution():
+def test_cron_job_records_each_triggered_execution(tmp_path):
     async def run():
-        app_context = SimpleNamespace(metadata={})
+        app_context = ApplicationContext(workspace_dir=str(tmp_path))
         job = CronJob(name="nightly", cron="* * * * *", app_context=app_context)
+        app_context.jobs[job.name] = job
         job._stop_event = asyncio.Event()
         waits = 0
 
@@ -215,7 +219,7 @@ def test_cron_job_records_each_triggered_execution():
 
         await job()
 
-        assert global_counter_get(app_context.metadata, ["__job_counter", "nightly"]) == 1
+        assert app_context.get_job_count("nightly") == 1
 
     asyncio.run(run())
 
@@ -492,7 +496,7 @@ def test_application_start_failure_propagates_and_closes_started_components():
 
 
 @pytest.mark.asyncio
-async def test_job_error_metadata_preserves_status_and_causes_without_request_data():
+async def test_job_error_metadata_preserves_status_and_causes_without_request_data(tmp_path):
     import httpx
 
     request = httpx.Request("POST", "https://example.test", headers={"Authorization": "secret"})
@@ -505,7 +509,9 @@ async def test_job_error_metadata_preserves_status_and_causes_without_request_da
         except httpx.HTTPStatusError as error:
             raise RuntimeError("wrapped") from error
 
-    job = BaseJob(name="structured-error")
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    job = BaseJob(name="structured-error", app_context=app_context, track_execution=True)
+    app_context.jobs[job.name] = job
     job._build_steps = lambda: [failing_step]
     result = await job()
     details = result.metadata["reme.job_error"]
@@ -516,11 +522,16 @@ async def test_job_error_metadata_preserves_status_and_causes_without_request_da
     assert result.metadata["earlier_step"] == "preserved"
     assert "secret" not in str(details) and "private response body" not in str(details)
     result.model_dump_json()
+    record = app_context.get_job_status()[job.name][0]
+    assert record["status"] == "failed"
+    assert record["error"] == result.answer
 
     job._build_steps = list
     following = await job()
     assert following.success
     assert "reme.job_error" not in following.metadata
+    assert app_context.get_job_status()[job.name][0]["status"] == "succeeded"
+    assert app_context.get_job_count(job.name) == 2
 
 
 def test_job_error_metadata_handles_cyclic_and_suppressed_causes():

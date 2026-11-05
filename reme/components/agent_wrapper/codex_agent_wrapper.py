@@ -1,139 +1,87 @@
-"""Codex Python SDK backend for the unified agent wrapper."""
+"""Codex agent sessions backed by an application-owned app-server."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator
-from contextlib import suppress
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
-import hashlib
 import json
 import os
-from pathlib import Path
-import sys
-import tempfile
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
+from ..codex_app_server import CodexAppServer
 from ..component_registry import R
+from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk, TokenUsage
+from ...schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
-    from openai_codex import AsyncCodex, AsyncThread, CodexConfig, RunInput
+    from openai_codex import AsyncThread, RunInput
     from openai_codex.types import Notification
-else:
-    # Keep the optional Codex SDK out of ReMe's package import path. Tests may
-    # also replace this value before the SDK is loaded.
-    AsyncCodex: Any = None
 
 
-def _get_async_codex_class():
-    """Return the optional Codex client class, importing its SDK on first use."""
-    global AsyncCodex  # pylint: disable=global-statement
-    if AsyncCodex is None:
-        from openai_codex import AsyncCodex as AsyncCodexClass
+@dataclass
+class _TurnUsage:
+    """Invocation-local usage derived from monotonic thread counters."""
 
-        AsyncCodex = AsyncCodexClass
-    return AsyncCodex
+    baseline: TokenUsage
+    usage: TokenUsage | None = None
 
-
-@dataclass(frozen=True)
-class _CodexAuthConfig:
-    """Resolved authentication settings for one Codex app-server."""
-
-    mode: str
-    api_key: str = ""
-    base_url: str = ""
-
-
-@dataclass(frozen=True)
-class _CodexLaunchConfig:
-    """Options fixed for the lifetime of one Codex app-server."""
-
-    auth_mode: str
-    api_key: str
-    base_url: str
-    codex_bin: str | None
-    config_overrides: tuple[str, ...]
-    experimental_api: bool
+    def update(self, total: TokenUsage) -> None:
+        """Keep reported spending separate from synthetic context estimates."""
+        current = TokenUsage(
+            input_tokens=max(0, total.input_tokens - self.baseline.input_tokens),
+            output_tokens=max(0, total.output_tokens - self.baseline.output_tokens),
+        )
+        if current.total_tokens or self.usage is not None:
+            self.usage = current
 
 
 @R.register("codex")
 class CodexAgentWrapper(BaseAgentWrapper):
-    """Agent wrapper backed by the Codex Python SDK."""
+    """Configure agents while sharing transport, authentication and session locks."""
 
     SDK_PACKAGE = "openai-codex"
-    _CLIENT_OPTION_NAMES = frozenset(
+    _SERVER_OPTIONS = frozenset(
         {
-            "api_key",
             "auth_mode",
+            "api_key",
             "base_url",
+            "supports_websockets",
             "codex_bin",
             "codex_home",
             "config_overrides",
-            "cwd",
+            "model_catalog",
             "experimental_api",
             "launch_args_override",
+            "mcp_config",
+            "release_threads",
         },
     )
 
-    @staticmethod
-    def _codex_usage(usage: Any) -> TokenUsage:
-        """Normalize Codex's full-turn input/output usage snapshot."""
-        return TokenUsage.from_provider(usage)
-
-    # pylint: disable=too-many-arguments
-    def __init__(
-        self,
-        mcp_config: str | None = None,
-        codex_home: str | Path | None = None,
-        *,
-        auth_mode: str = "auto",
-        api_key: str = "",
-        base_url: str = "",
-        codex_bin: str | None = None,
-        config_overrides: list[str] | tuple[str, ...] | None = None,
-        experimental_api: bool = True,
-        release_threads: bool = True,
-        **kwargs,
-    ) -> None:
-        if "launch_args_override" in kwargs:
-            raise TypeError("launch_args_override is not supported; configure codex_bin instead")
+    def __init__(self, app_server: str = "default", **kwargs) -> None:
+        self._reject_server_options(kwargs)
         super().__init__(**kwargs)
-        self.mcp_config = mcp_config
-        self._codex_home = codex_home
-        self._launch_config = _CodexLaunchConfig(
-            auth_mode=auth_mode,
-            api_key=api_key,
-            base_url=base_url,
-            codex_bin=codex_bin,
-            config_overrides=tuple(config_overrides or ()),
-            experimental_api=experimental_api,
-        )
-        self._codex: AsyncCodex | None = None
-        self._release_threads = release_threads
-        self._turn_lock = asyncio.Lock()
-        self._mcp_snapshot_path: Path | None = None
-        self._thread_tool_contexts: dict[str, str] = {}
+        self.app_server = self.bind(app_server, CodexAppServer, default_factory=CodexAppServer, optional=False)
+        self._active = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
 
-    @property
-    def session_path(self) -> Path:
-        """Directory used for Codex state and persisted threads."""
-        if self._codex_home:
-            path = Path(self._codex_home).expanduser()
-            return path if path.is_absolute() else self.workspace_path / path
-        if self.app_context is None:
-            return self.workspace_path / "mem_session" / "codex"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
+    @classmethod
+    def _reject_server_options(cls, kwargs: dict[str, Any]) -> None:
+        invalid = sorted(cls._SERVER_OPTIONS.intersection(kwargs))
+        if invalid:
+            raise TypeError(f"Configure Codex process options on codex_app_server: {', '.join(invalid)}")
 
-    @property
-    def wrapper_session_path(self) -> Path:
-        """ReMe-owned session data, kept separate from a shared OAuth CODEX_HOME."""
-        if self.app_context is None:
-            return self.workspace_path / "mem_session" / "codex"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "codex"
+    def _reply_kwargs(self, kwargs: dict[str, Any], *, stream: bool = False) -> dict[str, Any]:
+        self._reject_server_options(kwargs)
+        invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
+        if invalid:
+            raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
+        return self._merged_stream_kwargs(kwargs) if stream else self._merged_kwargs(kwargs)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -154,178 +102,25 @@ class CodexAgentWrapper(BaseAgentWrapper):
             relative_source = os.path.relpath(source, target.parent)
             target.symlink_to(relative_source, target_is_directory=True)
 
-    def _explicit_mcp_config(self, kwargs: dict[str, Any]) -> str | None:
-        value = kwargs.get("mcp_config") if "mcp_config" in kwargs else self.mcp_config
-        if value is None:
-            return None
-        source = Path(str(value)).expanduser()
-        if source.suffix in {".yaml", ".yml", ".json"}:
-            if not source.is_absolute():
-                source = self.workspace_path / source
-            return str(source.absolute())
-        return str(value)
-
-    def _effective_config_snapshot(self) -> Path:
-        """Create one private snapshot that remains valid for the client lifetime."""
-        if self._mcp_snapshot_path is not None:
-            return self._mcp_snapshot_path
-        if self.app_context is None:
-            raise RuntimeError("Cannot snapshot MCP config without an app_context")
-        snapshot_dir = self.wrapper_session_path / "reme-mcp"
-        snapshot_dir.mkdir(parents=True, exist_ok=True)
-        fd, raw_path = tempfile.mkstemp(prefix="config-", suffix=".json", dir=snapshot_dir)
-        try:
-            if hasattr(os, "fchmod"):
-                os.fchmod(fd, 0o600)
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(self.app_context.app_config.model_dump(mode="json"), stream)
-        except BaseException:
-            with suppress(OSError):
-                os.close(fd)
-            Path(raw_path).unlink(missing_ok=True)
-            raise
-        self._mcp_snapshot_path = Path(raw_path)
-        return self._mcp_snapshot_path
-
-    def _mcp_config_source(self, kwargs: dict[str, Any]) -> str:
-        return self._explicit_mcp_config(kwargs) or str(self._effective_config_snapshot())
-
-    @staticmethod
-    def _resolve_auth_config(auth_mode: str, api_key: str = "", base_url: str = "") -> _CodexAuthConfig:
-        """Resolve login from wrapper options.
-
-        The Codex child process still inherits the parent process environment.
-        """
-        requested_mode = str(auth_mode or "auto").lower()
-        if requested_mode not in {"auto", "api_key", "oauth"}:
-            raise ValueError("auth_mode must be one of: auto, api_key, oauth")
-        if requested_mode == "oauth":
-            return _CodexAuthConfig(mode="oauth")
-
-        api_key = api_key if isinstance(api_key, str) else ""
-        if requested_mode == "api_key" and not api_key:
-            raise ValueError("auth_mode='api_key' requires a non-empty API key")
-        if not api_key:
-            return _CodexAuthConfig(mode="oauth")
-
-        base_url = base_url if isinstance(base_url, str) else ""
-        return _CodexAuthConfig(mode="api_key", api_key=api_key, base_url=base_url)
-
-    def _build_client_config(self, auth: _CodexAuthConfig) -> CodexConfig:
-        from openai_codex import CodexConfig
-
-        env = dict(self.subprocess_environment)
-        self.session_path.mkdir(parents=True, exist_ok=True)
-        env["CODEX_HOME"] = str(self.session_path)
-
-        overrides = list(self._launch_config.config_overrides)
-        if auth.base_url:
-            overrides.append(f"openai_base_url={json.dumps(auth.base_url)}")
-        login_method = "api" if auth.mode == "api_key" else "chatgpt"
-        overrides.append(f"forced_login_method={json.dumps(login_method)}")
-        return CodexConfig(
-            codex_bin=self._launch_config.codex_bin,
-            config_overrides=tuple(overrides),
-            cwd=str(self.cwd),
-            env=env,
-            client_name="reme",
-            client_title="ReMe",
-            experimental_api=self._launch_config.experimental_api,
-        )
-
-    @classmethod
-    def _reject_client_options(cls, kwargs: dict[str, Any]) -> None:
-        invalid = sorted(cls._CLIENT_OPTION_NAMES.intersection(kwargs))
-        if invalid:
-            names = ", ".join(invalid)
-            raise TypeError(f"Codex client options must be configured on the wrapper: {names}")
-
-    def _mcp_server_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
-        from ..job import BackgroundJob, StreamJob
-
-        job_names = list(dict.fromkeys(kwargs.get("job_tools") or []))
-        if not job_names:
-            return None
-        jobs = self._resolve_job_tools(job_names)
-        unsupported = [job.name for job in jobs if isinstance(job, (BackgroundJob, StreamJob))]
-        if unsupported:
-            raise TypeError(f"Codex job_tools must be non-stream request jobs: {', '.join(unsupported)}")
-
-        config_source = self._mcp_config_source(kwargs)
-        args = [
-            "-m",
-            "reme.components.agent_wrapper.codex_mcp_server",
-            "--config",
-            config_source,
-            "--workspace",
-            str(self.workspace_path),
-        ]
-        for name in job_names:
-            args.extend(["--job", name])
-        args.extend(["--tool-context-id", str(kwargs.get("tool_context_id") or "")])
-        if injected_job_kwargs := dict(kwargs.get("injected_job_kwargs") or {}):
-            args.extend(["--injected-job-kwargs", json.dumps(injected_job_kwargs, sort_keys=True)])
-        return {
-            "command": sys.executable,
-            "args": args,
-            "cwd": str(self.project_path),
-            "required": True,
-            "enabled_tools": job_names,
-            "startup_timeout_sec": kwargs.get("mcp_startup_timeout", 30),
-            "tool_timeout_sec": kwargs.get("mcp_tool_timeout", 300),
-        }
-
-    def _thread_config(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
-        config = dict(kwargs.get("config") or {})
-        if proxy_environment := self.command_proxy_environment:
-            shell_environment_policy = dict(config.get("shell_environment_policy") or {})
-            environment = dict(shell_environment_policy.get("set") or {})
-            environment.update(proxy_environment)
-            shell_environment_policy["set"] = environment
-            config["shell_environment_policy"] = shell_environment_policy
-        if server := self._mcp_server_config(kwargs):
-            servers = dict(config.get("mcp_servers") or {})
-            server_key = hashlib.sha256(json.dumps(server, sort_keys=True).encode()).hexdigest()[:12]
-            servers[f"reme_jobs_{server_key}"] = server
-            config["mcp_servers"] = servers
-        return config or None
-
     @staticmethod
     def _enum(enum_cls: Any, value: Any, default: Any = None) -> Any:
         if value is None:
             return default
         return value if isinstance(value, enum_cls) else enum_cls(value)
 
-    async def _open_thread(self, codex: AsyncCodex, kwargs: dict[str, Any]) -> AsyncThread:
+    def _thread_options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
-        resume = kwargs.get("resume") or ""
-        session_id = kwargs.get("session_id") or ""
-        if resume and session_id and resume != session_id:
-            raise ValueError("resume and session_id must identify the same Codex thread")
-        thread_id = resume or session_id
-        fork_session = bool(kwargs.get("fork_session", False))
-        if fork_session and not thread_id:
-            raise ValueError("fork_session=True requires resume or session_id")
-        if self._release_threads and self._thread_tool_contexts:
-            await self._prune_thread_tool_contexts(codex)
-        requested_tool_context = json.dumps(
-            {
-                "tool_context_id": str(kwargs.get("tool_context_id") or ""),
-                "injected_job_kwargs": dict(kwargs.get("injected_job_kwargs") or {}),
-            },
-            sort_keys=True,
-            default=str,
-        )
-        if not fork_session and thread_id in self._thread_tool_contexts:
-            if requested_tool_context != self._thread_tool_contexts[thread_id]:
-                raise ValueError("tool_context_id and injected_job_kwargs cannot change when resuming a Codex thread")
-
-        common = {
-            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.auto_review),
+        config = dict(kwargs.get("config") or {})
+        if proxy_environment := self.command_proxy_environment:
+            policy = dict(config.get("shell_environment_policy") or {})
+            policy["set"] = {**policy.get("set", {}), **proxy_environment}
+            config["shell_environment_policy"] = policy
+        options = {
+            "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.deny_all),
             "base_instructions": kwargs.get("base_instructions"),
-            "config": self._thread_config(kwargs),
+            "config": config,
             "cwd": str(self.cwd),
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
@@ -333,28 +128,147 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
-        personality = self._enum(Personality, kwargs.get("personality"))
-        thread_source = self._enum(ThreadSource, kwargs.get("thread_source"))
-        if fork_session:
-            thread = await codex.thread_fork(
-                thread_id,
+        if kwargs.get("fork_session"):
+            options.update(
                 ephemeral=kwargs.get("ephemeral"),
-                thread_source=thread_source,
-                **common,
+                thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
-        elif thread_id:
-            thread = await codex.thread_resume(thread_id, personality=personality, **common)
         else:
-            thread = await codex.thread_start(
-                ephemeral=kwargs.get("ephemeral"),
-                personality=personality,
-                service_name=kwargs.get("service_name"),
-                session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
-                thread_source=thread_source,
-                **common,
-            )
-        self._thread_tool_contexts[thread.id] = requested_tool_context
-        return thread
+            options["personality"] = self._enum(Personality, kwargs.get("personality"))
+            if not (kwargs.get("resume") or kwargs.get("session_id")):
+                options.update(
+                    ephemeral=kwargs.get("ephemeral"),
+                    service_name=kwargs.get("service_name"),
+                    session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
+                    thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
+                )
+        return options
+
+    @asynccontextmanager
+    async def _session(self, kwargs: dict[str, Any], *, compact: bool = False) -> AsyncIterator[AsyncThread]:
+        resume, session_id = kwargs.get("resume") or "", kwargs.get("session_id") or ""
+        if resume and session_id and resume != session_id:
+            raise ValueError("resume and session_id must identify the same Codex thread")
+        thread_id = resume or session_id
+        fork = bool(kwargs.get("fork_session"))
+        if fork and not thread_id:
+            raise ValueError("fork_session=True requires resume or session_id")
+        jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        if any(isinstance(job, (BackgroundJob, StreamJob)) for job in jobs or []):
+            raise TypeError("Codex job_tools must be non-stream request jobs")
+        if any(not getattr(job, "enabled", True) for job in jobs or []):
+            raise ValueError("Codex job_tools must be enabled")
+        self._ensure_skills(kwargs.get("skills"))
+        await self.start()
+        self._active += 1
+        self._idle.clear()
+        try:
+            async with self.app_server.thread(
+                thread_id,
+                fork=fork,
+                options={} if compact else self._thread_options(kwargs),
+                jobs=jobs,
+                injected=self._resolve_injected_job_kwargs(kwargs),
+                mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
+                mcp_tool_timeout=kwargs.get("mcp_tool_timeout", 300),
+            ) as thread:
+                yield thread
+        finally:
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
+
+    async def _close(self) -> None:
+        await self._idle.wait()
+
+    async def _interrupt(self, turn) -> None:
+        try:
+            await turn.interrupt()
+        except Exception as exc:
+            self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
+
+    @staticmethod
+    def _serialize(value: Any) -> Any:
+        from pydantic_core import to_jsonable_python
+
+        return to_jsonable_python(value, by_alias=True)
+
+    async def _turn_stream(self, turn: Any, usage: _TurnUsage) -> AsyncIterator[Notification]:
+        """Observe only this turn's reported spending, including compaction calls."""
+        stream = turn.stream()
+        try:
+            async for event in stream:
+                if event.method == "thread/tokenUsage/updated":
+                    if event.payload.turn_id != turn.id:
+                        continue
+                    total = self.app_server.update_token_usage(
+                        turn.thread_id,
+                        TokenUsage.from_provider(event.payload.token_usage.total),
+                    )
+                    usage.update(total)
+                yield event
+        finally:
+            await stream.aclose()
+
+    async def reply(self, inputs: RunInput, **kwargs) -> dict:
+        """Run an isolated or explicitly resumed conversation on the shared server."""
+        from openai_codex._run import _collect_async_turn_result
+
+        kwargs = self._reply_kwargs(kwargs)
+        async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
+            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+            stream = self._turn_stream(turn, usage)
+            try:
+                result = await _collect_async_turn_result(stream, turn_id=turn.id)
+            except BaseException:
+                await self._interrupt(turn)
+                raise
+            finally:
+                if usage.usage is not None:
+                    self._record_token_usage(usage.usage)
+                await stream.aclose()
+        final_response = result.final_response or ""
+        response = {
+            "session_id": thread.id,
+            "last_message": final_response,
+            "result": final_response,
+            "turn": self._serialize(result),
+            "usage": usage.usage.model_dump() if usage.usage is not None else None,
+        }
+        if kwargs.get("output_schema") is not None:
+            try:
+                response["structured_output"] = json.loads(final_response)
+            except json.JSONDecodeError as exc:
+                raise ValueError("Codex returned invalid JSON for the requested output_schema") from exc
+        return response
+
+    async def compact_session(self, session_id: str) -> None:
+        """Hold the conversation lock until native compaction has finished."""
+        async with self._session({"session_id": session_id}, compact=True) as thread:
+            await self.app_server.compact(thread)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Read history without acquiring the generation lease."""
+        await self.start()
+        return await self.app_server.read_session(session_id)
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Report native thread activity, including approval/input waits."""
+        await self.start()
+        return await self.app_server.get_session_status(session_id)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        timeout: float = 30,
+    ) -> SessionMessage:
+        """Append a proactive message through the shared session owner."""
+        await self.start()
+        return await self.app_server.append_session(session_id, content, message_id=message_id, timeout=timeout)
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
@@ -372,140 +286,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
 
-    async def _get_codex(self) -> AsyncCodex:
-        """Lazily start the component-owned client from its fixed launch configuration."""
-        if self._codex is not None:
-            return self._codex
-        auth = self._resolve_auth_config(
-            self._launch_config.auth_mode,
-            self._launch_config.api_key,
-            self._launch_config.base_url,
-        )
-        codex = _get_async_codex_class()(self._build_client_config(auth))
-        try:
-            if auth.mode == "api_key":
-                await codex.login_api_key(auth.api_key)
-            else:
-                account = await codex.account()
-                if account.account is None:
-                    raise RuntimeError(f"No ChatGPT OAuth login found in CODEX_HOME: {self.session_path}")
-        except BaseException:
-            await codex.close()
-            raise
-        self._codex = codex
-        return codex
-
-    async def _close(self) -> None:
-        """Close the persistent app-server and remove its private config snapshot."""
-        async with self._turn_lock:
-            codex, self._codex = self._codex, None
-            self._thread_tool_contexts.clear()
-            try:
-                if codex is not None:
-                    await codex.close()
-            finally:
-                if self._mcp_snapshot_path is not None:
-                    self._mcp_snapshot_path.unlink(missing_ok=True)
-                    self._mcp_snapshot_path = None
-
-    async def _prune_thread_tool_contexts(self, codex: AsyncCodex) -> None:
-        """Forget tool constraints only after the server confirms a thread is unloaded."""
-        try:
-            from openai_codex.generated.v2_all import ThreadLoadedListResponse
-
-            loaded_ids: set[str] = set()
-            cursor = None
-            while True:
-                page = await codex._client.request(  # pylint: disable=protected-access
-                    "thread/loaded/list",
-                    {"cursor": cursor},
-                    response_model=ThreadLoadedListResponse,
-                )
-                loaded_ids.update(page.data)
-                cursor = page.next_cursor
-                if not cursor:
-                    break
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            self.logger.warning(f"Failed to list loaded Codex threads: {exc}")
-            return
-        self._thread_tool_contexts = {
-            thread_id: context for thread_id, context in self._thread_tool_contexts.items() if thread_id in loaded_ids
-        }
-
-    async def _release_thread(self, codex: AsyncCodex, thread_id: str) -> None:
-        """Unsubscribe so the app-server can unload the thread once it is idle."""
-        try:
-            from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
-
-            # The SDK exposes no public unsubscribe; request() is public but
-            # reached through the private client attribute on SDK 0.162.x.
-            await codex._client.request(  # pylint: disable=protected-access
-                "thread/unsubscribe",
-                {"threadId": thread_id},
-                response_model=ThreadUnsubscribeResponse,
-            )
-        except Exception as exc:  # pylint: disable=broad-exception-caught
-            self.logger.warning(f"Failed to unsubscribe Codex thread {thread_id}: {exc}")
-        # Unsubscribe is not an unload acknowledgement. In particular, a
-        # cancelled turn can still be running with its original MCP constraints.
-        # Keep the guard until thread/loaded/list confirms the thread is gone.
-
-    @staticmethod
-    def _serialize(value: Any) -> Any:
-        from pydantic_core import to_jsonable_python
-
-        return to_jsonable_python(value, by_alias=True)
-
-    async def reply(self, inputs: RunInput, **kwargs) -> dict:
-        """Run one Codex turn and return its final response."""
-        self._reject_client_options(kwargs)
-        kwargs = self._merged_kwargs(kwargs)
-        self._ensure_skills(kwargs.get("skills"))
-        await self.start()
-        async with self._turn_lock:
-            codex = await self._get_codex()
-            thread = await self._open_thread(codex, kwargs)
-            try:
-                result = await thread.run(inputs, **self._turn_kwargs(kwargs))
-            finally:
-                if self._release_threads:
-                    await self._release_thread(codex, thread.id)
-
-        final_response = result.final_response or ""
-        response = {
-            "session_id": thread.id,
-            "last_message": final_response,
-            "result": final_response,
-            "turn": self._serialize(result),
-            "usage": None,
-        }
-        if (raw_usage := getattr(result, "usage", None)) is not None:
-            usage = self._codex_usage(raw_usage.last)
-            response["usage"] = usage.model_dump()
-            self._record_token_usage(usage)
-        if kwargs.get("output_schema") is not None:
-            try:
-                response["structured_output"] = json.loads(final_response)
-            except json.JSONDecodeError as exc:
-                raise ValueError("Codex returned invalid JSON for the requested output_schema") from exc
-        return response
-
-    async def compact_session(self, session_id: str) -> None:
-        """Start native compaction of a Codex thread."""
-        await self.start()
-        async with self._turn_lock:
-            codex = await self._get_codex()
-            thread = await codex.thread_resume(session_id)
-            try:
-                await thread.compact()
-            finally:
-                if self._release_threads:
-                    await self._release_thread(codex, thread.id)
-
     @classmethod
     # pylint: disable=too-many-return-statements
-    def _event_to_chunks(cls, event: Notification, session_id: str) -> list[StreamChunk]:
-        """Convert one Codex app-server notification to unified stream chunks."""
+    def _event_to_chunks(
+        cls,
+        event: Notification,
+        session_id: str,
+        *,
+        usage: TokenUsage | None = None,
+    ) -> list[StreamChunk]:
+        """Map notifications; usage replaces the cumulative counts for its turn block."""
         method, payload = event.method, event.payload
         make_chunk = partial(cls._chunk, session_id=session_id)
         if method == "turn/started":
@@ -572,15 +362,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ),
             ]
         if method == "thread/tokenUsage/updated":
-            usage = payload.token_usage.last
-            normalized = cls._codex_usage(usage)
+            if usage is None:
+                return []
             return [
                 make_chunk(
                     ChunkEnum.USAGE,
-                    chunk=normalized.model_dump(),
-                    input_tokens=normalized.input_tokens,
-                    output_tokens=normalized.output_tokens,
-                    metadata={"usage": normalized.model_dump()},
+                    block_id=f"usage:{payload.turn_id}",
+                    chunk=usage.model_dump(),
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    metadata={"usage": usage.model_dump()},
                 ),
             ]
         if method == "error":
@@ -619,31 +410,27 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return []
 
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream Codex app-server notifications as unified chunks."""
-        self._reject_client_options(kwargs)
-        kwargs = self._merged_stream_kwargs(kwargs)
-        self._ensure_skills(kwargs.get("skills"))
-        await self.start()
-        async with self._turn_lock:
-            codex = await self._get_codex()
-            thread = await self._open_thread(codex, kwargs)
+        """Stream notifications routed by the SDK to this conversation's turn."""
+        kwargs = self._reply_kwargs(kwargs, stream=True)
+        emitted_usage = None
+        async with self._session(kwargs) as thread:
+            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
+            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+            stream = self._turn_stream(turn, usage)
+            completed = False
             try:
-                turn = await thread.turn(inputs, **self._turn_kwargs(kwargs))
-                stream = turn.stream()
-                completed = False
-                try:
-                    async for event in stream:
-                        if event.method == "turn/completed":
-                            completed = True
-                        for chunk in self._event_to_chunks(event, thread.id):
-                            yield chunk
-                finally:
-                    if not completed:
-                        try:
-                            await turn.interrupt()
-                        except Exception as exc:  # pylint: disable=broad-exception-caught
-                            self.logger.warning(f"Failed to interrupt Codex turn {turn.id}: {exc}")
-                    await stream.aclose()
+                async for event in stream:
+                    if event.method == "turn/completed":
+                        completed = True
+                    if event.method == "thread/tokenUsage/updated":
+                        if usage.usage == emitted_usage:
+                            continue
+                        emitted_usage = usage.usage
+                    for chunk in self._event_to_chunks(event, thread.id, usage=usage.usage):
+                        yield chunk
             finally:
-                if self._release_threads:
-                    await self._release_thread(codex, thread.id)
+                if usage.usage is not None:
+                    self._record_token_usage(usage.usage)
+                if not completed:
+                    await self._interrupt(turn)
+                await stream.aclose()

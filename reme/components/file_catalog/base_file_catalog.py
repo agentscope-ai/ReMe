@@ -38,3 +38,11 @@ class BaseFileCatalog(BaseComponent):
     @abstractmethod
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         """Return nodes by paths; None = all; missing paths are skipped."""
+
+    async def cleanup_expired(self, directory: str, ttl_days: int) -> dict:
+        """Delete expired YYYY-MM-DD directories and their catalog entries.
+
+        Retention uses directory dates in the application timezone, not file mtimes.
+        Backends must explicitly implement filesystem cleanup; ``delete`` remains metadata-only.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support directory cleanup")

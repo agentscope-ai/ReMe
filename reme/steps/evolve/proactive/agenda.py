@@ -18,7 +18,6 @@ interests.yaml render, extending the v2 shape with ``agenda``/``suppressed``.
 
 import asyncio
 import json
-import time
 
 from ...base_step import BaseStep
 from .._evolve import agent_reply_result_text, passthrough_response
@@ -68,7 +67,6 @@ class ProactiveAgendaStep(BaseStep):
         assert self.context is not None
         if self.context.get(self.skip_key):
             return passthrough_response(self, self.skip_key)
-        started = time.monotonic()
         raw_state = self.context.get("proactive")
         if not raw_state:
             self.context.response.success = True
@@ -165,7 +163,6 @@ class ProactiveAgendaStep(BaseStep):
         rel_path = norm_path(interests_path.relative_to(ws).as_posix())
         state.interests_path = rel_path
         state.interests_written = bool(state.interests_written or written)
-        state.duration_ms = state.duration_ms + int((time.monotonic() - started) * 1000)
         self._store(state)
         answer = (
             f"Agenda: {len(agenda)} item(s), suppressed={len(suppressed)}, push={state.push}, "

@@ -624,6 +624,7 @@ async def test_refresh_chain_e2e(tmp_path):
     resp_finish = await finish(context)
 
     assert resp_extract.success and resp_topics.success and resp_finish.success
+    assert "duration_ms" not in resp_finish.metadata["proactive"]
     state = context.get("proactive")
     assert state["llm_calls"] == 1
     assert state["push"] is True
