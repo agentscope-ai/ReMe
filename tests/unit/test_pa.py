@@ -10,20 +10,20 @@ import httpx
 import pytest
 
 from reme.application import Application
-from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper, CodexAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.config import resolve_app_config
+from reme.constants import DEFAULT_MAX_BYTES
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionStatus, StreamChunk
 from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep, PaSessionStep
-from reme.utils import AsStateHandler
 
 
-class PaAgent(BaseAgentWrapper):
+class PaAgent(CodexAgentWrapper):
     """Keep session creation separate from generation, with observable lifecycle gates."""
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(app_server="", **kwargs)
         self.created = []
         self.released = []
         self.calls = []
@@ -77,7 +77,9 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
     assert (await PaNewSessionStep(app_context=context)()).answer == "session-1"
     assert (await PaSessionStep(app_context=context)()).answer == {"session_id": "session-1", "status": "idle"}
     assert not agent.calls
-    assert agent.created[0]["system_prompt"] == ""
+    assert "naturally ask" in agent.created[0]["system_prompt"]
+    assert agent.created[0]["job_tools"] == []
+    assert not (agent.workspace_path / "personal/REME_MEMORY.md").exists()
     assert (await PaNewSessionStep(app_context=context)()).answer == "session-2"
     assert (await PaSessionStep(app_context=context)()).answer["session_id"] == "session-2"
     assert agent.released == ["session-1"]
@@ -93,7 +95,8 @@ async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, system_
         assert response.success and response.answer == "hello"
         assert all(queue.get_nowait().session_id == "session-1" for _ in range(queue.qsize()))
     assert len(agent.created) == 1
-    assert agent.created[0]["system_prompt"] == (system_prompt or "")
+    assert agent.created[0]["system_prompt"].startswith(system_prompt or "Personal memory file:")
+    assert "naturally ask" in agent.created[0]["system_prompt"]
     assert [kwargs["resume"] for _, kwargs in agent.calls] == ["session-1", "session-1"]
     assert agent.created[0] == {key: value for key, value in agent.calls[0][1].items() if key != "resume"}
 
@@ -244,17 +247,92 @@ async def test_status_does_not_publish_a_session_superseded_during_the_native_re
 
 
 @pytest.mark.asyncio
-async def test_agentscope_empty_session_is_persisted_resumable_and_idle(tmp_path):
-    wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
-    session_id = await wrapper.create_session()
-    state = await AsStateHandler.for_session(wrapper.session_path, session_id).load()
-    assert state.session_id == session_id and not state.context
-    assert (await wrapper.get_session_status(session_id)).status == "idle"
-    restored = await wrapper._load_state(
-        {"resume": session_id},
-        state.permission_context.mode,
-    )
-    assert restored.session_id == session_id and not restored.context
+@pytest.mark.parametrize("step", [PaChatStep, PaNewSessionStep, PaSessionStep])
+@pytest.mark.parametrize("wrapper", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+async def test_pa_rejects_non_codex_wrappers_before_accessing_state(tmp_path, step, wrapper):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    context.components["agent_wrapper"] = {"default": wrapper(app_context=context)}
+    with pytest.raises(NotImplementedError, match="CodexAgentWrapper only"):
+        await step(app_context=context)(**({"query": "hello"} if step is PaChatStep else {}))
+    assert "pa" not in context.metadata
+    assert not (tmp_path / "personal").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", " \n\t", "# Preferences\n- Answer concisely.\n"])
+@pytest.mark.parametrize("first_chat", [False, True])
+async def test_new_session_prepares_personal_memory_without_modifying_it(runtime, content, first_chat):
+    context, agent = runtime
+    memory = agent.workspace_path / "personal/REME_MEMORY.md"
+    memory.parent.mkdir()
+    memory.write_text(content, encoding="utf-8")
+    agent._cwd = agent.workspace_path / "another-directory"
+    if first_chat:
+        await PaChatStep(app_context=context)(query="hello", stream_queue=asyncio.Queue())
+    else:
+        await PaNewSessionStep(app_context=context)()
+        assert not agent.calls
+    prompt = agent.created[0]["system_prompt"]
+    assert str(memory) in prompt
+    assert str(agent.cwd) not in prompt
+    assert "read the latest complete file" in prompt
+    assert "concise and complete" in prompt
+    assert "user-confirmed information" in prompt
+    if content.strip():
+        assert f"<personal_memory>\n{content.strip()}\n</personal_memory>" in prompt
+        assert "naturally ask" not in prompt
+    else:
+        assert "naturally ask" in prompt
+    assert memory.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.asyncio
+async def test_session_keeps_its_prompt_and_tools_until_rotation(runtime):
+    context, agent = runtime
+    await PaNewSessionStep(app_context=context, system_prompt="Original instructions.")()
+    original = agent.created[0]
+    memory = agent.workspace_path / "personal/REME_MEMORY.md"
+    memory.parent.mkdir()
+    memory.write_text("# Projects\n- Build ReMe.\n", encoding="utf-8")
+    for _ in range(2):
+        await PaChatStep(app_context=context, system_prompt="Changed instructions.", job_tools=["search"])(
+            query="continue",
+            stream_queue=asyncio.Queue(),
+        )
+        assert agent.calls[-1][1] == {"resume": "session-1", **original}
+    await PaNewSessionStep(app_context=context, system_prompt="Changed instructions.")()
+    assert agent.created[1]["system_prompt"].startswith("Changed instructions.")
+    assert "Build ReMe." in agent.created[1]["system_prompt"]
+    assert "naturally ask" not in agent.created[1]["system_prompt"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["oversized", "directory", "escape", "permission"])
+async def test_memory_read_errors_preserve_the_current_session(runtime, tmp_path, monkeypatch, failure):
+    context, agent = runtime
+    await PaNewSessionStep(app_context=context)()
+    previous = dict(context.metadata["pa"])
+    memory = tmp_path / "personal/REME_MEMORY.md"
+    memory.parent.mkdir()
+    if failure == "oversized":
+        memory.write_bytes(b"x" * (DEFAULT_MAX_BYTES + 1))
+        error, message = ValueError, "exceeds read limit"
+    elif failure == "directory":
+        memory.mkdir()
+        error, message = IsADirectoryError, None
+    elif failure == "escape":
+        memory.symlink_to(tmp_path.parent / "outside-memory.md")
+        error, message = ValueError, "inside the workspace"
+    else:
+        monkeypatch.setattr(
+            "reme.steps.proactive.pa.read_file_safe",
+            AsyncMock(side_effect=PermissionError("read denied")),
+        )
+        error, message = PermissionError, "read denied"
+    with pytest.raises(error, match=message):
+        await PaNewSessionStep(app_context=context)()
+    assert context.metadata["pa"] == previous
+    assert len(agent.created) == 1 and not agent.released
 
 
 @pytest.mark.asyncio

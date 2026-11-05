@@ -13,11 +13,26 @@ import pytest_asyncio
 from openai_codex.generated.v2_all import ThreadItem
 
 from reme.application import Application
-from reme.components.agent_wrapper import BaseAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CodexAgentWrapper
 from reme.components.agent_wrapper import codex_session_history as history
 from reme.components.application_context import ApplicationContext
 from reme.components.codex_app_server import CodexAppServer
 from reme.config import resolve_app_config
+from reme.utils import AsStateHandler
+
+
+@pytest.mark.asyncio
+async def test_agentscope_empty_session_is_persisted_resumable_and_idle(tmp_path):
+    wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
+    session_id = await wrapper.create_session()
+    state = await AsStateHandler.for_session(wrapper.session_path, session_id).load()
+    assert state.session_id == session_id and not state.context
+    assert (await wrapper.get_session_status(session_id)).status == "idle"
+    restored = await wrapper._load_state(
+        {"resume": session_id},
+        state.permission_context.mode,
+    )
+    assert restored.session_id == session_id and not restored.context
 
 
 def test_read_native_usage_ignores_estimates_and_an_incomplete_tail_without_writing(tmp_path):

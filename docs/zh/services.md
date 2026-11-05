@@ -71,9 +71,15 @@ reme pa_new_session
 ```
 
 当前会话在同一 Application 内共享，重启后清空指针，会话文件保留。生成期间拒绝并发发送和新建，状态查询无需等待生成。
-AgentScope 和 Codex 支持创建空会话，其他 wrapper 明确报错。
+PA Job 目前只支持 `CodexAgentWrapper`，其他 wrapper 抛出 `NotImplementedError`。
 当前原生会话不可用时，`pa_session` 返回 `status: "error"`，可通过新建会话恢复。
 空会话创建一旦开始，会先完成当前会话的切换，再传播取消信号。
+
+每个新 PA 会话都会将工作区的 `personal/REME_MEMORY.md` 加入配置的 Prompt。文件不存在或正文为空时，提示
+Agent 在首次回复中自然了解用户的偏好、当前状态、关注事项和项目，并根据确认的信息创建文件；后续出现新增或变化时，
+要求先读取最新文件，再合并更新，保持内容简洁、完整、有效。创建会话本身不生成回复，也不写入记忆。
+同一会话复用初始化时的 Prompt，新会话重新读取文件。文件必须完整读取且不超过 50 KiB；读取失败或路径逃出工作区时，
+新建失败并保留原来的当前会话。
 
 MCP 不暴露 Stream Job。
 

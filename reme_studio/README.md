@@ -219,8 +219,13 @@ Proactive Chat has one current conversation shared by clients of the same Applic
 empty session and returns its ID without generating a reply. **New chat** changes the conversation while preserving
 workspace memory. Chat and session creation reject concurrent operations; status remains readable during generation.
 The current selection is held in ApplicationContext and resets when the service restarts. Browser history is a display
-cache and never selects the backend session. AgentScope and Codex support empty-session creation; full server history
-reading currently requires Codex. The proactive configuration exposes only the `pa_*` conversation Jobs.
+cache and never selects the backend session. Proactive Chat currently requires `CodexAgentWrapper`; other wrappers
+raise `NotImplementedError`. The proactive configuration exposes only the `pa_*` conversation Jobs.
+
+New PA sessions load workspace `personal/REME_MEMORY.md`. Missing or empty files prompt the agent to learn about the
+user in its first reply and create concise personal memory; the agent is instructed to maintain it as information
+changes. Each session reuses its initial prompt, and new sessions reload the file. Session creation does not generate
+a reply or write memory.
 
 The built-in chat job is read-only with respect to the workspace. It can search and read context but should not be used
 as a substitute for explicitly saving durable knowledge. Chat requires a valid Agent/model configuration; file browsing,

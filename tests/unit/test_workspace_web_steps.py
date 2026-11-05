@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from reme.components.agent_wrapper import BaseAgentWrapper
+from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.application_context import ApplicationContext
 from reme.components.job import StreamJob
 from reme.components.runtime_context import RuntimeContext
@@ -18,11 +18,11 @@ from reme.steps.file_io.load import LoadStep
 from reme.steps.file_io.save import SaveStep
 
 
-class _StreamingAgent(BaseAgentWrapper):
+class _StreamingAgent(CodexAgentWrapper):
     """Minimal agent that records resume/tool arguments and emits rich chunks."""
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(app_server="", **kwargs)
         self.reply_kwargs = {}
 
     async def reply(self, inputs, **kwargs) -> dict:
@@ -202,7 +202,8 @@ async def test_proactive_chat_uses_native_tools_and_preserves_configured_prompt(
     try:
         await chat(query="Help plan my day", stream_queue=queue)
         assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["pa_chat"]["steps"][0]["system_prompt"]
+        assert agent.reply_kwargs["system_prompt"].startswith(config["jobs"]["pa_chat"]["steps"][0]["system_prompt"])
+        assert "Personal memory file:" in agent.reply_kwargs["system_prompt"]
         assert agent.reply_kwargs["resume"] == "session-new"
         chunks = [await queue.get() for _ in range(5)]
         assert [chunk.chunk_type for chunk in chunks] == [

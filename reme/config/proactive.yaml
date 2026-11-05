@@ -79,7 +79,7 @@ jobs:
 
   pa_chat:
     backend: stream
-    description: "Stream a message through the application's current agent session."
+    description: "Stream a message through the current Codex session with workspace personal memory."
     parameters:
       type: object
       additionalProperties: false
@@ -115,7 +115,7 @@ jobs:
 
   pa_new_session:
     backend: base
-    description: "Create and select an empty agent session; return its ID without generating a reply."
+    description: "Load personal memory and select an empty Codex session; return its ID without generating a reply."
     parameters:
       type: object
       properties: {}

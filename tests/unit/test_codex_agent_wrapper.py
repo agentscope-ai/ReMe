@@ -38,6 +38,7 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
+from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep
 from reme.utils import global_counter_get_all
 
 
@@ -321,6 +322,29 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     assert server._threads[current].pending is not None
     assert client.unsubscribed == [previous]
     assert not client.threads[previous].inputs and not client.threads[current].inputs
+
+
+@pytest.mark.asyncio
+async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rotation(system):
+    agent, _, _, _ = system
+    context = agent.app_context
+    context.components["agent_wrapper"] = {"default": agent}
+    memory = agent.workspace_path / "personal/REME_MEMORY.md"
+    memory.parent.mkdir()
+    memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
+    session_id = (await PaNewSessionStep(app_context=context)()).answer
+    client = _Codex.instances[0]
+    prompt = client.opened[-1][2]["developer_instructions"]
+    assert "Use Chinese." in prompt and "read the latest complete file" in prompt
+    assert not client.threads[session_id].inputs
+    memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
+    for _ in range(2):
+        response = await PaChatStep(app_context=context)(query="hello", stream_queue=asyncio.Queue())
+        assert response.success
+    assert all(options["developer_instructions"] == prompt for _, _, options in client.opened)
+    await PaNewSessionStep(app_context=context)()
+    assert "Use English." in client.opened[-1][2]["developer_instructions"]
+    assert "Use Chinese." not in client.opened[-1][2]["developer_instructions"]
 
 
 @pytest.mark.asyncio

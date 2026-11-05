@@ -66,10 +66,17 @@ reme pa_new_session
 ```
 
 The current session is shared within one Application and resets on restart; session files remain on disk. Chat and
-session creation reject concurrent operations. Status queries do not wait for generation. Empty-session creation is
-supported by AgentScope and Codex; other wrappers fail explicitly.
+session creation reject concurrent operations. Status queries do not wait for generation. PA Jobs currently require
+`CodexAgentWrapper`; other wrappers raise `NotImplementedError`.
 If the current native session is unavailable, `pa_session` returns `status: "error"`; create a new session to recover.
 Once empty-session creation starts, selecting that session completes before cancellation is propagated.
+
+Each new PA session loads workspace-relative `personal/REME_MEMORY.md` into its configured prompt. Missing or empty
+files instruct the agent to naturally ask about preferences, current situation, interests, and projects in its first
+reply, then create the file from confirmed information. The agent is instructed to read the latest file before updates
+and keep it concise, complete, and current. Creating a session itself does not generate a reply or write memory.
+The prompt snapshot is reused for that session; new sessions reload the file. Reads must be complete and at most
+50 KiB; read errors or workspace-escaping paths fail session creation without replacing the current selection.
 
 MCP does not expose Stream Jobs.
 
