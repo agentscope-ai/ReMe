@@ -17,6 +17,8 @@ reme start
 reme start service.host=127.0.0.1 service.port=8181
 ```
 
+主机地址也可以使用 `::1` 等 IPv6 字面量；HTTP 和 MCP client 会在连接时正确格式化该地址。
+
 在另一个终端通过 CLI client 调用 Job：
 
 ```bash

@@ -1,5 +1,7 @@
 """MCP client addresses and SDK tool descriptors."""
 
+# pylint: disable=protected-access
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -24,6 +26,17 @@ def test_mcp_client_converts_wildcard_bind_address_to_loopback():
 
     assert client.host == "127.0.0.1"
     assert client.port == 8123
+
+
+@pytest.mark.parametrize(
+    ("transport", "expected_path"),
+    [("sse", "/sse"), ("streamable-http", "/mcp")],
+)
+def test_mcp_client_brackets_ipv6_service_addresses(transport, expected_path):
+    """Both network MCP transports construct valid URLs for IPv6 literals."""
+    client = MCPClient(transport=transport, host="::1", port=8123)
+
+    assert client._build_transport().url == f"http://[::1]:8123{expected_path}"
 
 
 @pytest.mark.asyncio

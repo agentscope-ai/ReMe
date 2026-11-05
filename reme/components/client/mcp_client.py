@@ -72,7 +72,7 @@ class MCPClient(BaseClient):
             return cls(command=command, args=args)
 
         path = "/sse" if self.transport == "sse" else "/mcp"
-        url = f"http://{self.host}:{self.port}{path}"
+        url = self._build_service_url(self.host, self.port, path)
         return cls(url=url)
 
     # pylint: disable=unnecessary-dunder-call
