@@ -95,16 +95,11 @@ test("preserves legacy MemLens addresses and anchors with a generated redirect",
   }
 });
 
-test("publishes canonical benchmark figures for both blog languages", async () => {
-  for (const name of [
-    "memlens-256k-qwen36-judge.svg",
-    "memlens-256k-qwen38-judge.svg",
-    "memlens-256k-four-models-judge.svg",
-  ]) {
-    const source = await readFile(path.join(repoDir, "benchmark/memlens/docs/figure", name), "utf8");
-    const published = await readFile(path.join(generatedDir, "public/figures/benchmarks/memlens", name), "utf8");
-    assert.equal(published, source);
-  }
+test("publishes the canonical benchmark chart for both blog languages", async () => {
+  const name = "memlens-256k-four-models-judge.svg";
+  const source = await readFile(path.join(repoDir, "benchmark/memlens/docs/figure", name), "utf8");
+  const published = await readFile(path.join(generatedDir, "public/figures/benchmarks/memlens", name), "utf8");
+  assert.equal(published, source);
 });
 
 test("publishes the root READMEs as localized project overviews", async () => {

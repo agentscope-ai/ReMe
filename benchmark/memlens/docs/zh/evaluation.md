@@ -4,11 +4,11 @@
 
 ## 结果与统计范围 {#results}
 
-评测使用 [MemLens](https://huggingface.co/datasets/xiyuRenBill/MEMLENS) 官方 `agent_subset_195.json` 中的 195 个问题及其对应的 256K 历史。原 Qwen 实验确定的六题内容审核过滤集合保持不变，四个模型、全部方法统一使用相同的 **189/195 题**。
+评测使用 [MemLens](https://huggingface.co/datasets/xiyuRenBill/MEMLENS) 官方 `agent_subset_195.json` 中的 195 个问题及其对应的 256K 历史。其中六道题在部分方法的模型请求中触发了服务商的内容审核。为在相同题目上比较，四个模型、全部方法统一排除这六题，汇报其余 **189/195 题**的结果。
 
 LLM-Judge 按官方类别／子类别协议为有效回答给出 0 或 1 分，准确率为 `100 × 正确数 / 189`。SubEM 判断规范化后的标准答案是否为预测文本的子串，F1 衡量规范化 token 重叠，均按题求宏平均。Kimi、DeepSeek 未完成的题目在 189 题汇总中按 0 计，表中单列有效结果数；已有答案和评分（含 0 分）保持原值。
 
-| 模型 | 方法 | 有效数 / 189 | SubEM (%) | F1 (%) | Judge 正确数 / 189 | LLM-Judge (%) |
+| 模型 | 方法 | 有效结果数 / 189 | SubEM (%) | F1 (%) | Judge 正确数 / 189 | LLM-Judge (%) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | Qwen3.6-35B-A3B | Full Context Image | 189 | 39.68 | 42.08 | 89 / 189 | 47.09 |
 | Qwen3.6-35B-A3B | ReMe Text | 189 | 44.44 | 38.58 | 78 / 189 | 41.27 |
@@ -20,18 +20,18 @@ LLM-Judge 按官方类别／子类别协议为有效回答给出 0 或 1 分，�
 | Qwen3.8-Max | ReMe Image | 189 | 64.55 | 57.85 | 137 / 189 | **72.49** |
 | Qwen3.8-Max | OpenViking | 189 | 43.92 | 39.60 | 80 / 189 | 42.33 |
 | Qwen3.8-Max | Mem0 | 189 | 38.10 | 39.79 | 97 / 189 | 51.32 |
-| kimi-k3 | Full Context Image | 184 | 53.97 | 52.07 | 108 / 189 | 57.14 |
-| kimi-k3 | ReMe Text | 189 | 50.26 | 40.81 | 90 / 189 | 47.62 |
-| kimi-k3 | ReMe Image | 184 | 62.43 | 53.51 | 119 / 189 | **62.96** |
-| kimi-k3 | OpenViking | 186 | 51.32 | 46.52 | 91 / 189 | 48.15 |
-| kimi-k3 | Mem0 | 184 | 40.74 | 34.94 | 98 / 189 | 51.85 |
-| deepseek-v4.1-flash | Full Context Image | 187 | 57.67 | 55.70 | 114 / 189 | 60.32 |
-| deepseek-v4.1-flash | ReMe Text | 185 | 42.86 | 37.78 | 78 / 189 | 41.27 |
-| deepseek-v4.1-flash | ReMe Image | 186 | 58.20 | 53.59 | 117 / 189 | **61.90** |
-| deepseek-v4.1-flash | OpenViking | 185 | 50.79 | 45.12 | 93 / 189 | 49.21 |
-| deepseek-v4.1-flash | Mem0 | 183 | 41.80 | 35.81 | 93 / 189 | 49.21 |
+| Kimi-K3 | Full Context Image | 184 | 53.97 | 52.07 | 108 / 189 | 57.14 |
+| Kimi-K3 | ReMe Text | 189 | 50.26 | 40.81 | 90 / 189 | 47.62 |
+| Kimi-K3 | ReMe Image | 184 | 62.43 | 53.51 | 119 / 189 | **62.96** |
+| Kimi-K3 | OpenViking | 186 | 51.32 | 46.52 | 91 / 189 | 48.15 |
+| Kimi-K3 | Mem0 | 184 | 40.74 | 34.94 | 98 / 189 | 51.85 |
+| DeepSeek-V4.1-Flash | Full Context Image | 187 | 57.67 | 55.70 | 114 / 189 | 60.32 |
+| DeepSeek-V4.1-Flash | ReMe Text | 185 | 42.86 | 37.78 | 78 / 189 | 41.27 |
+| DeepSeek-V4.1-Flash | ReMe Image | 186 | 58.20 | 53.59 | 117 / 189 | **61.90** |
+| DeepSeek-V4.1-Flash | OpenViking | 185 | 50.79 | 45.12 | 93 / 189 | 49.21 |
+| DeepSeek-V4.1-Flash | Mem0 | 183 | 41.80 | 35.81 | 93 / 189 | 49.21 |
 
-ReMe Image 在每个候选模型的五方法比较中均取得最高 LLM-Judge 准确率。原 Qwen 单模型图仍可查看：[Qwen3.6-35B-A3B](../figure/memlens-256k-qwen36-judge.svg)、[Qwen3.8-Max](../figure/memlens-256k-qwen38-judge.svg)。
+ReMe Image 在每个候选模型的五方法比较中均取得最高 LLM-Judge 准确率。
 
 ## 方法与 Judge 设置 {#evaluation-settings}
 
@@ -45,7 +45,7 @@ ReMe Image 在每个候选模型的五方法比较中均取得最高 LLM-Judge �
 
 基线保留各自的记忆构建与检索流程。OpenViking、Mem0 采用 retrieve → answer，ReMe 则使用多轮 `agentic_answer`。各行使用对应候选模型回答，需要构建记忆的方法也使用同一模型。ReMe Image 与 Mem0 接收原图，不使用 benchmark 附带的 caption；OpenViking 通过自己的图像描述流程处理图片。
 
-OpenViking 复现使用 SDK 0.1.9，基于[该上游版本](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152)，检索正文按 MemLens 的普通 QA 模板组织。Mem0 沿用 [MemLens 复现说明](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0)中的流程，使用 [Mem0 2.0.4](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d) 和对应的 [QA 消息模板](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py)。本次评测采用的检索范围、模型参数与适配改动也在这里单独说明。
+评测服务器上的 OpenViking 主包版本为 **0.4.17.2.dev1**，从源码以 editable 方式安装，基于[该上游版本](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152)，配套 Python SDK 为 0.1.9；检索正文按 MemLens 的普通 QA 模板组织。**Mem0 2.0.4** 同样从[锁定版本的源码](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d)以 editable 方式安装，沿用 [MemLens 复现说明](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0)中的流程和对应的 [QA 消息模板](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py)。
 
 | 阶段 | 上下文上限 | 输出预算 | Thinking / temperature |
 | --- | ---: | ---: | --- |
@@ -54,15 +54,15 @@ OpenViking 复现使用 SDK 0.1.9，基于[该上游版本](https://github.com/v
 | Full Context、OpenViking、Mem0 回答 | — | 16,384 | 开启 / 0 |
 | MemLens Judge | — | 256 | 关闭 / 0 |
 
-ReMe 每题使用独立回答 Agent，最多运行 30 轮，并采用原生上下文压缩。`read_image` 的附件读取上限为 50 MiB，图片保留上限为 4,096 张。OpenViking 适配包含 JSON 解析修正，以及图片处理失败时的显式报错。
+ReMe 每题使用独立回答 Agent，最多运行 30 轮，并采用上下文压缩。`read_image` 的附件读取上限为 50 MiB，图片保留上限为 4,096 张。
 
-Mem0 原生视觉／记忆提取的输出预算，**Qwen 为 2,000 tokens，Kimi、DeepSeek 为 10,000 tokens**。Qwen、DeepSeek 的原生 temperature/top_p 均为 0.1/0.1；Kimi 因服务不支持而省略这两个原生采样参数，服务端默认值未知。原生 thinking 不作覆盖。
+Mem0 记忆提取阶段的输出预算，**Qwen 为 2,000 tokens，Kimi、DeepSeek 为 10,000 tokens**。Qwen、DeepSeek 沿用 Mem0 2.0.4 的 [OpenAI 适配器默认配置](https://github.com/mem0ai/mem0/blob/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d/mem0/configs/llms/openai.py)：`temperature=0.1`、`top_p=0.1`，这两个值来自 Mem0 的配置。Kimi 所用服务不接受这两个参数，因此请求中不发送它们，服务端实际采用的默认值未知。记忆提取请求也不显式设置 thinking 开关，沿用模型服务的默认行为；回答阶段则按上表显式开启 thinking。
 
 评分采用 [MemLens 官方协议](https://github.com/xrenaf/MEMLENS/tree/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2)，所有方法统一使用 **Qwen3.8-Max** 作为 Judge，temperature 为 **0**、thinking **关闭**、输出预算为 **256 tokens**。Judge 与待测方法的记忆应用独立运行；参考答案及题型标签仅用于评分。
 
 ## 统一内容审核过滤 {#content-moderation-filter}
 
-下表记录原 Qwen 实验中各方法触发内容审核的问题。对其全部方法、两个模型取并集后共得到六题；这六题在全部方法、四个模型中统一过滤，新增 Kimi、DeepSeek 结果不扩大过滤集合。
+下表列出 Qwen3.6-35B-A3B、Qwen3.8-Max 在记忆构建或回答阶段触发内容审核的六道题，以及对应的方法。四个模型、全部方法统一排除这六题，均在其余 189 题上统计。
 
 表中 A3B 指 Qwen3.6-35B-A3B，Max 指 Qwen3.8-Max。
 
@@ -89,7 +89,3 @@ Mem0 原生视觉／记忆提取的输出预算，**Qwen 为 2,000 tokens，Kimi
 | Qwen3.8-Max | 187 | 135 | 134 | 72.19 → 71.66 |
 
 在上述配对题目上，Qwen3.6-35B-A3B 和 Qwen3.8-Max 的独立复现 LLM-Judge 得分分别比原实验低 2.13 和 0.53 个百分点，整体性能与原实验基本保持一致。
-
-## 结果来源
-
-主表合并原 Qwen 归档 `final-20261017` 与 Kimi、DeepSeek 追加归档 `append-20261023-kimi-flash`。后者的 `statistics/memlens-fixed189.json` 保存全部 20 行统计、固定题号、有效覆盖和逐题原指标。本文仅聚合已有结果，未重新生成答案或调用 Judge；独立复现仍按上文单独配对比较。

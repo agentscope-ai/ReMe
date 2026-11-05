@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1120" height="680" viewBox="0 0 1120 680" role="img" aria-labelledby="title desc">
   <title id="title">MemLens-256K: four models, five methods</title>
-  <desc id="desc">Binary LLM-Judge accuracy on the fixed 189-question set. All methods are compared within each model; remaining missing results count as zero. ReMe Image scores 53.44%, 72.49%, 62.96% and 61.90% for Qwen3.6-35B-A3B, Qwen3.8-Max, kimi-k3 and deepseek-v4.1-flash.</desc>
+  <desc id="desc">Binary LLM-Judge accuracy on the fixed 189-question set. All methods are compared within each model; remaining missing results count as zero. ReMe Image scores 53.44%, 72.49%, 62.96% and 61.90% for Qwen3.6-35B-A3B, Qwen3.8-Max, Kimi-K3 and DeepSeek-V4.1-Flash.</desc>
   <style>
     text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #263344; }
     .title { font-size: 26px; font-weight: 650; }
@@ -92,8 +92,8 @@
       <text class="value" x="308.83" y="192">51.32%</text>
     </g>
   </g>
-  <g data-model="kimi-k3" transform="translate(32 390)">
-    <text class="model" x="0" y="0">kimi-k3</text>
+  <g data-model="Kimi-K3" transform="translate(32 390)">
+    <text class="model" x="0" y="0">Kimi-K3</text>
     <line class="grid" x1="152" y1="17" x2="152" y2="210"/>
     <text class="tick" x="152" y="231" text-anchor="middle">0</text>
     <line class="grid" x1="224.5" y1="17" x2="224.5" y2="210"/>
@@ -130,8 +130,8 @@
       <text class="value" x="310.37" y="192">51.85%</text>
     </g>
   </g>
-  <g data-model="deepseek-v4.1-flash" transform="translate(584 390)">
-    <text class="model" x="0" y="0">deepseek-v4.1-flash</text>
+  <g data-model="DeepSeek-V4.1-Flash" transform="translate(584 390)">
+    <text class="model" x="0" y="0">DeepSeek-V4.1-Flash</text>
     <line class="grid" x1="152" y1="17" x2="152" y2="210"/>
     <text class="tick" x="152" y="231" text-anchor="middle">0</text>
     <line class="grid" x1="224.5" y1="17" x2="224.5" y2="210"/>

@@ -11,10 +11,10 @@ const figureDir = path.join(repoDir, "benchmark/memlens/docs/figure");
 const methods = ["Full Context Image", "ReMe Text", "ReMe Image", "OpenViking", "Mem0"];
 // Published binary verdict counts, not raw benchmark outputs or a second chart generator.
 const models = [
-  { name: "Qwen3.6-35B-A3B", figure: "qwen36", correct: [89, 78, 101, 70, 73] },
-  { name: "Qwen3.8-Max", figure: "qwen38", correct: [124, 100, 137, 80, 97] },
-  { name: "kimi-k3", correct: [108, 90, 119, 91, 98] },
-  { name: "deepseek-v4.1-flash", correct: [114, 78, 117, 93, 93] },
+  { name: "Qwen3.6-35B-A3B", correct: [89, 78, 101, 70, 73] },
+  { name: "Qwen3.8-Max", correct: [124, 100, 137, 80, 97] },
+  { name: "Kimi-K3", correct: [108, 90, 119, 91, 98] },
+  { name: "DeepSeek-V4.1-Flash", correct: [114, 78, 117, 93, 93] },
 ];
 const excluded = ["q_028cb832", "q_1d99a36c", "q_3b01c02a", "q_564a657b", "q_600a79aa", "q_c9f8e24d"];
 const publicRevision = "962d5cd8401c1d2be17f3bb95f8ac9c185672cd8";
@@ -28,22 +28,6 @@ const reproductionLinks = [
   "https://github.com/agentscope-ai/ReMe/pull/640",
   `https://github.com/agentscope-ai/ReMe/commit/${publicRevision}`,
 ];
-
-test("MemLens chart labels and geometry match the published scores", async () => {
-  for (const model of models.filter((entry) => entry.figure)) {
-    const svg = await readFile(path.join(figureDir, `memlens-256k-${model.figure}-judge.svg`), "utf8");
-    const bars = [...svg.matchAll(/<g data-method="([^"]+)" data-score="([\d.]+)">\s*<rect[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"[^>]*\/>\s*<text[^>]*>([\d.]+)%<\/text>/g)];
-    assert.equal(bars.length, methods.length);
-    for (const [index, method] of methods.entries()) {
-      const score = (100 * model.correct[index] / 189).toFixed(2);
-      assert.equal(bars[index][1], method);
-      assert.equal(bars[index][2], score);
-      assert.equal(bars[index][5], score, `${model.name}/${method}: visible score`);
-      assert.ok(Math.abs(Number(bars[index][4]) - Number(score) * 3) < 0.001);
-      assert.ok(Math.abs(Number(bars[index][3]) + Number(bars[index][4]) - 416) < 0.001);
-    }
-  }
-});
 
 test("four-model chart displays every published MemLens score", async () => {
   const svg = await readFile(path.join(figureDir, "memlens-256k-four-models-judge.svg"), "utf8");
@@ -154,10 +138,10 @@ test("MobileMem publishes seven results over 1,333 questions in both languages",
     ["Qwen3.8-Max", "Full Context Image", 1333, 624],
     ["Qwen3.8-Max", "ReMe Text", 1330, 511],
     ["Qwen3.8-Max", "ReMe Image", 1332, 809],
-    ["kimi-k3", "ReMe Text", 1333, 478],
-    ["kimi-k3", "ReMe Image", 1333, 682],
-    ["deepseek-v4.1-flash", "ReMe Text", 1333, 525],
-    ["deepseek-v4.1-flash", "ReMe Image", 1333, 749],
+    ["Kimi-K3", "ReMe Text", 1333, 478],
+    ["Kimi-K3", "ReMe Image", 1333, 682],
+    ["DeepSeek-V4.1-Flash", "ReMe Text", 1333, 525],
+    ["DeepSeek-V4.1-Flash", "ReMe Image", 1333, 749],
   ];
   for (const language of ["en", "zh"]) {
     const notes = await readFile(path.join(generatedDir, language, "benchmarks/mobilemem.md"), "utf8");

@@ -66,8 +66,6 @@ const requiredFiles = [
   "en/benchmarks/mobilemem.html",
   "zh/memlens_256k_evaluation.html",
   "en/memlens_256k_evaluation.html",
-  "figures/benchmarks/memlens/memlens-256k-qwen36-judge.svg",
-  "figures/benchmarks/memlens/memlens-256k-qwen38-judge.svg",
   "figures/benchmarks/memlens/memlens-256k-four-models-judge.svg",
   "zh/services.html",
   "en/services.html",
