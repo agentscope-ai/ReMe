@@ -147,6 +147,47 @@ def _sanitize_msg_for_save(msg: Msg) -> Msg:
     return msg.model_copy(update={"content": new_content})
 
 
+def _canonical_message_json(msg: Msg) -> str:
+    """Compare the JSON values written to disk without Python bool/int aliasing or key-order noise."""
+    persisted = json.loads(msg.model_dump_json())
+    return json.dumps(persisted, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _stabilize_content_block(raw_block: dict, path: tuple[int, ...], message_timestamp: str | None) -> dict:
+    """Stabilize defaults generated while parsing a raw content block."""
+    block = dict(raw_block)
+    if isinstance(block.get("hint"), list):
+        block["hint"] = [
+            _stabilize_content_block(child, (*path, index), message_timestamp) if isinstance(child, dict) else child
+            for index, child in enumerate(block["hint"])
+        ]
+
+    if "id" not in block:
+        canonical = json.dumps(raw_block, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        position = str(path[0]) if len(path) == 1 else ".".join(map(str, path))
+        block["id"] = hashlib.sha256(f"{position}:{canonical}".encode("utf-8")).hexdigest()
+    if "created_at" not in block and message_timestamp:
+        block["created_at"] = message_timestamp
+    if block.get("type") == "hint" and "finished_at" not in block and message_timestamp:
+        block["finished_at"] = message_timestamp
+    return block
+
+
+def _stabilize_raw_content_ids(item: dict) -> dict:
+    """Stabilize generated IDs and timestamps in raw (including nested hint) blocks."""
+    content = item.get("content")
+    if not isinstance(content, list):
+        return item
+
+    timestamp = item.get("created_at")
+    stable_content = [
+        _stabilize_content_block(block, (index,), timestamp) if isinstance(block, dict) else block
+        for index, block in enumerate(content)
+    ]
+    changed = stable_content != content
+    return {**item, "content": stable_content} if changed else item
+
+
 def _normalize_msg_timestamp(item: dict) -> dict:
     """Map common message timestamp aliases to AgentScope's ``created_at`` field."""
     if item.get("created_at"):
@@ -320,10 +361,13 @@ class AutoMemoryStep(BaseStep):
                 by_id[msg.id] = msg
             for msg in messages:
                 by_id[msg.id] = msg
-            merged = sorted(by_id.values(), key=lambda m: m.created_at)
+            merged = [_sanitize_msg_for_save(msg) for msg in sorted(by_id.values(), key=lambda m: m.created_at)]
 
+            # An unchanged ID does not imply unchanged persisted content. Compare
+            # sanitized records so identical retries with omitted image/tool data
+            # retain the append fast path, while corrections force a rewrite.
             can_append = 0 < len(existing) <= len(merged) and all(
-                merged[i].id == existing[i].id for i in range(len(existing))
+                _canonical_message_json(merged[i]) == _canonical_message_json(existing[i]) for i in range(len(existing))
             )
 
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -333,7 +377,7 @@ class AutoMemoryStep(BaseStep):
                 if new_msgs:
                     async with aiofiles.open(path, "a", encoding="utf-8", newline="") as f:
                         for msg in new_msgs:
-                            await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                            await f.write(msg.model_dump_json() + "\n")
                     self.logger.info(
                         f"[{self.name}] save session appended session_id={session_id!r} "
                         f"existing={len(existing)} appended={len(new_msgs)} total={len(merged)}",
@@ -346,7 +390,7 @@ class AutoMemoryStep(BaseStep):
             else:
                 async with aiofiles.open(path, "w", encoding="utf-8", newline="") as f:
                     for msg in merged:
-                        await f.write(_sanitize_msg_for_save(msg).model_dump_json() + "\n")
+                        await f.write(msg.model_dump_json() + "\n")
                 self.logger.info(
                     f"[{self.name}] save session rewrote session_id={session_id!r} "
                     f"existing={len(existing)} total={len(merged)}",
@@ -360,6 +404,8 @@ class AutoMemoryStep(BaseStep):
             item = _normalize_msg_timestamp(item)
         if isinstance(item, dict) and isinstance(item.get("content"), str):
             item = {**item, "content": [{"type": "text", "text": item["content"]}]}
+        if isinstance(item, dict):
+            item = _stabilize_raw_content_ids(item)
         return Msg.model_validate(item)
 
     @staticmethod
