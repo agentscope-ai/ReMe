@@ -557,6 +557,29 @@ Current default components in `reme/config/default.yaml`:
 | `keyword_index`   | `default`                       | `bm25`                                           | BM25 keyword index.                                                            |
 | `file_store`      | `default`                       | `local`                                          | Combines file_graph and keyword_index; defaults to `embedding_store: ""`.      |
 
+All three agent backends execute through `reply_stream()`. `reply()` collects that same stream into an
+[`AgentReply`](../../reme/schema/agent_reply.py) dictionary: `session_id`, final text in `result`,
+`structured_output`, invocation-scoped `usage`, `status`, `error`, `raw`, and the complete ordered JSON `events`.
+Both modes accept `output_schema`. Only `completed` is successful; `failed`, `interrupted`, and `waiting` preserve
+incomplete outcomes. Setup/transport errors and caller cancellation propagate. Both modes record reported token
+usage once per invocation; unavailable usage remains null.
+
+[`StreamChunk`](../../reme/schema/stream_chunk.py) uses `start`, append-only `delta`, and `end` operations.
+Non-null start/end payloads replace a block's accumulated content; null leaves it unchanged, and an empty string
+clears it. Session, turn, message, block, and tool-call IDs correlate updates. `metadata.native` retains complete
+provider events, including unknown fields and diagnostic notifications. `reply_end.chunk` carries the outcome
+fields above, excluding `events`; `reply_start`/`reply_end` delimit one invocation, while DONE only closes transport.
+`collect_reply(stream)` and `replay_reply(reply)` convert between the async stream and JSON result without losing
+payloads, order, native metadata, or terminal state. Collection fails if the terminal outcome is missing or repeated.
+
+`raw` preserves native results: AgentScope's final message in `raw.message` plus an optional
+`raw.structured_response`, Claude's `ResultMessage`, or Codex's `TurnResult`. Persist the full AgentReply for exact
+replay; native session history supplies item snapshots rather than the original stream's deltas.
+Studio reconciles block snapshots, displays structured output and terminal states, and retains live events through
+history refreshes. Raw HTTP `stream_chunks()` includes errors and DONE; CLI/text helpers handle errors separately.
+Migration: replace `last_message`/`turn` with `result`/`raw`, and consume the terminal outcome instead of concatenating
+all stream payloads. Existing text-only producers use the default `delta` operation.
+
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.

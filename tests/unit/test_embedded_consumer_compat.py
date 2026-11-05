@@ -99,6 +99,102 @@ def test_qwenpaw_style_config_keeps_in_process_application_api(tmp_path):
     asyncio.run(exercise_api())
 
 
+@pytest.mark.parametrize("finish_by_timeout", [False, True], ids=["graceful", "job-timeout"])
+def test_cancelled_embedded_close_waits_for_worker_before_store(tmp_path, monkeypatch, finish_by_timeout):
+    """A host cancelling close must not tear down a live indexing worker's store."""
+    config = {
+        "workspace_dir": str(tmp_path),
+        "enable_logo": False,
+        "log_to_console": False,
+        "log_to_file": False,
+        "thread_pool_max_workers": 1,
+        "service": {"backend": "cli"},
+        "components": {
+            "file_store": {"default": {"backend": "local", "embedding_store": ""}},
+            "file_graph": {"default": {"backend": "local"}},
+            "keyword_index": {"default": {"backend": "bm25"}},
+            "tokenizer": {"default": {"backend": "regex"}},
+        },
+        "jobs": {"index": {"backend": "background", "supervisor": False, "close_timeout": 5}},
+    }
+
+    async def exercise_api():
+        app = ReMe(**config)
+        job = app.context.jobs["index"]
+        store = app.context.components[ComponentEnum.FILE_STORE]["default"]
+        running = asyncio.Event()
+        stopping = asyncio.Event()
+        release = asyncio.Event()
+        worker_stopped = asyncio.Event()
+        store_close_observations = []
+
+        async def pending_index_update(context):
+            running.set()
+            try:
+                await context.stop_event.wait()
+                stopping.set()
+                await release.wait()
+                await store.upsert([(FileNode(path="memory.md", st_mtime=1.0), [])])
+            finally:
+                worker_stopped.set()
+
+        original_store_close = store._close
+
+        async def observe_store_close():
+            store_close_observations.append(worker_stopped.is_set())
+            await original_store_close()
+
+        monkeypatch.setattr(job, "_build_steps", lambda: [pending_index_update])
+        monkeypatch.setattr(store, "_close", observe_store_close)
+        await app.start()
+        worker = job._task
+        pool = app.context.thread_pool
+        close_task = None
+        try:
+            await asyncio.wait_for(running.wait(), timeout=5)
+            if finish_by_timeout:
+                job.close_timeout = 0.2
+            close_task = asyncio.create_task(app.close())
+            await asyncio.wait_for(stopping.wait(), timeout=5)
+            # QwenPaw cancels the closing task when its shared deadline expires.
+            for attempt in range(2):
+                close_task.cancel(f"host deadline {attempt}")
+                await asyncio.sleep(0)
+            assert not close_task.done()
+            assert not store_close_observations
+            assert store.is_started
+            assert not worker.done()
+            if not finish_by_timeout:
+                release.set()
+            with pytest.raises(asyncio.CancelledError, match="host deadline 0"):
+                await asyncio.wait_for(close_task, timeout=5)
+
+            assert worker.done()
+            assert worker.cancelled() is finish_by_timeout
+            assert job._task is None
+            assert store_close_observations == [True]
+            assert not app._started_components
+            assert not app.is_started
+            assert app.context.thread_pool is None
+            assert all(not c.is_started for group in app.context.components.values() for c in group.values())
+            if not finish_by_timeout:
+                config["jobs"] = {}
+                async with ReMe(**config) as restored:
+                    restored_store = restored.context.components[ComponentEnum.FILE_STORE]["default"]
+                    assert [node.path for node in await restored_store.get_nodes()] == ["memory.md"]
+        finally:
+            release.set()
+            worker.cancel()
+            await asyncio.gather(worker, return_exceptions=True)
+            if close_task is not None:
+                close_task.cancel()
+                await asyncio.gather(close_task, return_exceptions=True)
+            await app._close_started_components()
+            pool.shutdown(wait=True)
+
+    asyncio.run(exercise_api())
+
+
 @pytest.mark.parametrize("injected", [False, True], ids=["uninitialized", "injected"])
 def test_update_component_validates_all_fields_before_mutation(tmp_path, injected):
     """Rejected updates preserve model state without constructing a provider."""

@@ -196,7 +196,8 @@ async def test_multiround_usage_and_tools_continue_past_soft_time_limit(wrapper,
     }
     result = await wrapper.reply("Investigate", **options)
     assert result["usage"] == {"input_tokens": 30, "output_tokens": 15, "total_tokens": 45}
-    assert result["last_message"]["finished_reason"] == "completed"
+    assert result["status"] == "completed"
+    assert result["raw"]["message"]["finished_reason"] == "completed"
     assert len(executions) == 2
     assert executions[-1] > 60  # A tool really executes after the soft deadline.
     assert len(model.calls) == 3

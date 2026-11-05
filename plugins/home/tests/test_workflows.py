@@ -84,6 +84,19 @@ async def baseline(app):
     return result.answer["result_dir"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["failed", "interrupted", "waiting"])
+async def test_workflow_rejects_incomplete_agent_reports(app, prepared, sandbox, monkeypatch, status):
+    wrapper = app.context.components["agent_wrapper"]["home_diagnostic"]
+    monkeypatch.setattr(
+        wrapper,
+        "reply",
+        AsyncMock(return_value={"result": "Unfinished diagnosis", "status": status, "error": None}),
+    )
+    with pytest.raises(RuntimeError, match=status):
+        await workflow_common.workflow_reply(wrapper, prepared, "diagnostic", "Diagnose this failure.")
+
+
 def final_report(home, branch="init", path=None):
     repo = home / "code/repo"
     if path is None:
@@ -113,6 +126,17 @@ def final_report(home, branch="init", path=None):
 def test_parse_optimizer_result_formats(template):
     claim = {"branch_name": "candidate", "commit_sha": "a" * 40, "evaluation_path": "run", "report": "Evidence"}
     assert optimizer_module.parse_result(template.format(json.dumps(claim))).model_dump() == claim
+
+
+@pytest.mark.asyncio
+async def test_optimizer_job_preserves_literal_formatting_in_final_report(app, prepared, sandbox):
+    path = await baseline(app)
+    claim = json.loads(final_report(prepared, path=path))
+    claim["report"] = "<think>Evidence from the evaluated source</think>\n```python\nexample\n```"
+    set_model(app, "home_optimizer", ScriptedModel(final="```json\n" + json.dumps(claim) + "\n```"))
+    response = await app.run_job("home_optimize")
+    assert response.success, response.answer
+    assert response.answer["report"] == claim["report"]
 
 
 def test_optimizer_shared_recovery_rejects_competing_and_non_object_reports():

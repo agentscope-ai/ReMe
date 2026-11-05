@@ -643,9 +643,12 @@ and `LLM_BASE_URL` without changing the evaluation judge's model. Override
 startup, token accounting and saved session transcripts. The response answer is
 `{"results": [...]}`; each item contains `case_id`, `success`, and either `report`
 with its session ID/usage or `error`. Metadata includes `evaluation_path`, the
-evaluated commit and total `usage` (null if any case fails or usage is unavailable).
+evaluated commit and total `usage` (null if any usage is unavailable).
 Response success is false if any case fails; completed sibling reports remain
 available. No case scratch directory or intermediate analysis files are created.
+Returned reports include the agent's `status` and `error` in single-case metadata
+or each batch result. Only `completed` succeeds; interrupted, waiting and
+iteration-exhausted replies retain their report text and reported usage with `success=false`.
 
 The host bounds each returned report using `output_token_limit` (default 2,000)
 with a 10% allowance, rounded down. The agent sees only the configured budget.

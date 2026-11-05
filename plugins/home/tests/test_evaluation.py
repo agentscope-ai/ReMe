@@ -189,12 +189,22 @@ async def prepared_home(app, inputs, monkeypatch):
     monkeypatch.setattr(evaluation, "DockerReMeSandboxFactory", FakeFactory)
     # Run the real judge Job and Step; mock only its model-facing wrapper.
     wrapper = app.context.components["agent_wrapper"]["judge"]
-    monkeypatch.setattr(wrapper, "reply", AsyncMock(return_value={"result": '{"score": 0.5}'}))
+    monkeypatch.setattr(
+        wrapper,
+        "reply",
+        AsyncMock(return_value={"result": '{"score": 0.5}', "status": "completed", "error": None}),
+    )
     reviewer = app.context.components["agent_wrapper"]["home_construction_equivalence"]
     monkeypatch.setattr(
         reviewer,
         "reply",
-        AsyncMock(return_value={"result": '{"decision":"construction_changed","reason":"Fixture rebuild"}'}),
+        AsyncMock(
+            return_value={
+                "result": '{"decision":"construction_changed","reason":"Fixture rebuild"}',
+                "status": "completed",
+                "error": None,
+            },
+        ),
     )
     return Path(app.config.workspace_dir) / "home"
 
@@ -565,7 +575,16 @@ def test_unsafe_archives_are_rejected_without_partial_extraction(tmp_path, kind)
 @pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
 async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
     wrapper = app.context.components["agent_wrapper"]["judge"]
-    monkeypatch.setattr(wrapper, "reply", AsyncMock(side_effect=[{"result": "maybe"}, {"result": "yes"}]))
+    monkeypatch.setattr(
+        wrapper,
+        "reply",
+        AsyncMock(
+            side_effect=[
+                {"result": "maybe", "status": "completed", "error": None},
+                {"result": "yes", "status": "completed", "error": None},
+            ],
+        ),
+    )
     response = await app.run_job("home_evaluate")
     assert response.success, response.answer
     assert response.answer["mean_query_score"] == 1
@@ -585,7 +604,7 @@ async def test_lme_evaluation_calls_host_judge_job(app, prepared, monkeypatch):
 @pytest.mark.parametrize("app", ["lme-judge"], indirect=True)
 async def test_invalid_lme_judge_is_infra_error_after_one_retry(app, prepared):
     wrapper = app.context.components["agent_wrapper"]["judge"]
-    wrapper.reply.return_value = {"result": "maybe"}
+    wrapper.reply.return_value = {"result": "maybe", "status": "completed", "error": None}
     response = await app.run_job("home_evaluate")
     assert not response.success
     assert response.answer["mean_query_score"] is None
@@ -597,7 +616,11 @@ async def test_invalid_lme_judge_is_infra_error_after_one_retry(app, prepared):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("raw", ["nonsense", '{"score": 2}', '{"score": 0.2}', '{"score": NaN}'])
 async def test_invalid_beam_judge_is_infra_error(app, prepared, raw):
-    app.context.components["agent_wrapper"]["judge"].reply.return_value = {"result": raw}
+    app.context.components["agent_wrapper"]["judge"].reply.return_value = {
+        "result": raw,
+        "status": "completed",
+        "error": None,
+    }
     response = await app.run_job("home_evaluate", case_ids=["1"])
     assert not response.success
     assert response.answer["mean_query_score"] is None

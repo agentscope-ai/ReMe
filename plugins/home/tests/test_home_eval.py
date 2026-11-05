@@ -159,7 +159,11 @@ async def test_full_evaluation_records_source_provenance_with_fake_docker(
     path, _ = write_config(tmp_path, app, spec, commit)
     monkeypatch.setattr(evaluation, "DockerReMeSandboxFactory", FakeFactory)
     answer = "yes" if spec["benchmark"]["name"] == "longmemeval" else '{"score": 0.5}'
-    monkeypatch.setattr(AsAgentWrapper, "reply", AsyncMock(return_value={"result": answer}))
+    monkeypatch.setattr(
+        AsAgentWrapper,
+        "reply",
+        AsyncMock(return_value={"result": answer, "status": "completed", "error": None}),
+    )
     before = snapshot(home)
     result = await home_eval.run_evaluation(path)
     run = Path(result["evaluation"]["result_dir"])

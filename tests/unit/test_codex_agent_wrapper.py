@@ -1,6 +1,7 @@
 """Shared Codex runtime, isolated conversations, and same-Application MCP tools."""
 
 # pylint: disable=missing-class-docstring,missing-function-docstring,protected-access,redefined-outer-name
+# pylint: disable=too-many-lines
 
 import asyncio
 import json
@@ -17,6 +18,8 @@ from fastmcp.client import StreamableHttpTransport
 from fastmcp.exceptions import ToolError
 from openai_codex.generated.v2_all import (
     AgentMessageThreadItem,
+    AgentMessageDeltaNotification,
+    TurnStartedNotification,
     ItemCompletedNotification,
     ThreadTokenUsage,
     ThreadTokenUsageUpdatedNotification,
@@ -70,14 +73,25 @@ class _Turn:
 
     async def stream(self):
         try:
-            yield SimpleNamespace(method="turn/started", payload=SimpleNamespace(turn=SimpleNamespace(id=self.id)))
+            yield SimpleNamespace(
+                method="turn/started",
+                payload=TurnStartedNotification(
+                    threadId=self.thread_id,
+                    turn=Turn(id=self.id, items=[], status="inProgress", error=None),
+                ),
+            )
             for event in self.thread.codex.usage_events:
                 yield event
             if self.thread.codex.run_hook:
                 await self.thread.codex.run_hook(self.thread, self.inputs)
             yield SimpleNamespace(
                 method="item/agentMessage/delta",
-                payload=SimpleNamespace(item_id="item", delta=self.inputs),
+                payload=AgentMessageDeltaNotification(
+                    threadId=self.thread_id,
+                    turnId=self.id,
+                    itemId="item",
+                    delta=str(self.inputs),
+                ),
             )
             item = AgentMessageThreadItem(type="agentMessage", id="item", text=str(self.inputs))
             yield SimpleNamespace(
@@ -808,8 +822,8 @@ async def test_structured_reply_and_native_inputs(system):
     inputs = [TextInput("describe"), LocalImageInput("image.png")]
     await first.reply(inputs)
     assert _Codex.instances[0].threads["thread-2"].inputs[0] is inputs
-    with pytest.raises(NotImplementedError):
-        await anext(first.reply_stream("no", output_schema=_StructuredModel))
+    chunks = [chunk async for chunk in first.reply_stream('{"ok": false}', output_schema=_StructuredModel)]
+    assert chunks[-1].chunk["structured_output"] == {"ok": False}
 
 
 @pytest.mark.asyncio

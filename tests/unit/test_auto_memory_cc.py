@@ -67,14 +67,14 @@ async def test_cc_job_tags_created_updated_and_renamed_notes_only(tmp_path, monk
                 **injected,
             )
             assert result.success
-            return {"result": "Tagged ReMe"}
+            return {"status": "completed", "result": "Tagged ReMe"}
         memory_calls.append(mode)
         if mode == "create":
             target = tmp_path / f"daily/{day}/note.md"
             target.parent.mkdir(parents=True)
             post = frontmatter.Post("ReMe memory", name="note", session_id=session_id, source_conversation=source)
         elif mode == "unchanged":
-            return {"result": "No new facts"}
+            return {"status": "completed", "result": "No new facts"}
         else:
             target = tmp_path / kwargs["injected_job_kwargs"]["_allowed_paths"][0]
             post = frontmatter.loads(target.read_text(encoding="utf-8"))
@@ -82,7 +82,7 @@ async def test_cc_job_tags_created_updated_and_renamed_notes_only(tmp_path, monk
             if mode == "rename":
                 post.metadata["name"] = "renamed"
         target.write_text(frontmatter.dumps(post), encoding="utf-8")
-        return {"result": "Recorded memory"}
+        return {"status": "completed", "result": "Recorded memory"}
 
     agent = AsyncMock(spec=BaseAgentWrapper)
     agent.reply.side_effect = reply

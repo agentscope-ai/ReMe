@@ -294,10 +294,12 @@ export function ReMeStatusPage({
   rpc,
   t,
 }: ReMeStatusPageProps): JSX.Element | null {
-  const snapshot = useSyncExternalStore(
-    (listener) => scope.subscribe(listener),
-    () => scope.getSnapshot(),
+  const subscribe = useCallback(
+    (listener: () => void) => scope.subscribe(listener),
+    [scope],
   );
+  const getSnapshot = useCallback(() => scope.getSnapshot(), [scope]);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot);
   const settings = snapshot.value;
   const [tab, setTab] = useState<StatusTab>("overview");
   const [data, setData] = useState<StatusData>({ loading: true, error: "" });
@@ -1186,6 +1188,9 @@ function diagnosticClient(settings: ReMeSettings): ReMeClient {
     endpoint: settings.endpoint,
     requestTimeoutMs: settings.requestTimeoutMs,
     backgroundTimeoutMs: settings.backgroundTimeoutMs,
+    // The memory runtime authenticates, so diagnostics must too; otherwise a
+    // gateway-protected service shows 401s that look like a broken workspace.
+    authToken: settings.authToken,
   });
 }
 
@@ -1219,7 +1224,8 @@ function componentGroupLabel(group: string, t: StatusTranslator): string {
     file_store: "fileStore",
     keyword_index: "keywordIndex",
   };
-  return labels[group] === undefined ? readableName(group) : t(labels[group]);
+  const key = Object.hasOwn(labels, group) ? labels[group] : undefined;
+  return key === undefined ? readableName(group) : t(key);
 }
 
 function componentFieldLabel(field: string, t: StatusTranslator): string {
@@ -1237,7 +1243,8 @@ function componentFieldLabel(field: string, t: StatusTranslator): string {
     vocab_size: "vocabulary",
     memory: "memoryUsage",
   };
-  return labels[field] === undefined ? readableName(field) : t(labels[field]);
+  const key = Object.hasOwn(labels, field) ? labels[field] : undefined;
+  return key === undefined ? readableName(field) : t(key);
 }
 
 function readableName(value: string): string {

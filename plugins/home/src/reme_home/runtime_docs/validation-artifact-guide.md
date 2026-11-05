@@ -247,9 +247,11 @@ Call `home_case_study(evaluation_path, case_ids, focus=...)` for up to eight
 unique cases sharing one focus and evaluation. Cases run sequentially and results
 preserve input order. Each gets fresh agent state, bounded iterations and advisory
 time reminders. The answer contains `results`, with a report/session/usage or error
-for each case; a failed case does not cancel the rest. Response success is false
-if any case fails. Metadata includes `evaluation_path`, evaluated commit and total
-usage (null if any call fails or usage is unavailable). `validation_path` remains
+for each case; a failed case does not cancel the rest. Report results also include
+the agent's `status` and `error`; only `completed` succeeds. Incomplete reports
+retain their text and reported usage. Response success is false if any case fails.
+Metadata includes `evaluation_path`, evaluated commit and total usage (null if any
+usage is unavailable). `validation_path` remains
 a path alias; legacy `case_id` calls retain a text report. Do not combine aliases.
 Other inspection tools still use `validation_path`. There is no parallel case dispatcher. Scope and evaluated code revision are host-injected
 into the structured tools. AutoBash and Python share a mandatory read-only file

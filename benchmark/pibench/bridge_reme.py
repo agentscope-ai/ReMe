@@ -787,8 +787,10 @@ class ReMeBridge:
 
             result = await self.agent_wrapper.reply(user_message, **reply_kwargs)
 
-            reply_text = result.get("result", "")
-            session_id = result.get("session_id", "")
+            from reme.steps.evolve._evolve import agent_reply_result_text
+
+            reply_text = agent_reply_result_text(result)
+            session_id = result["session_id"]
 
             if session_id:
                 self.agent_session_id = session_id

@@ -35,7 +35,15 @@ CASE_TOOLS = (
     "home_compare_memory",
 )
 CODE_TOOLS = ("home_list_code_tree", "home_search_code", "home_read_code_file")
-REPORT_METADATA = ("session_id", "usage", "estimated_tokens", "original_estimated_tokens", "truncated")
+REPORT_METADATA = (
+    "session_id",
+    "usage",
+    "status",
+    "error",
+    "estimated_tokens",
+    "original_estimated_tokens",
+    "truncated",
+)
 _SANDBOX_PROBE = """\
 import json
 import pathlib
@@ -341,6 +349,7 @@ class HomeCaseStudyStep(BaseStep):
         # Preserve the original text response and error handling for singular callers.
         if "case_id" in self.context:
             result = await self._investigate(scopes[0], spec.focus, prompts, output_limit)
+            response.success = result["status"] == "completed" and result["error"] is None
             response.answer = result["result"]
             response.metadata.update(validation_path=scopes[0]["validation_path"], case_id=spec.case_ids[0])
             response.metadata.update({key: result[key] for key in REPORT_METADATA if key in result})
@@ -353,7 +362,7 @@ class HomeCaseStudyStep(BaseStep):
                     result = await self._investigate(scope, spec.focus, prompts, output_limit)
                     return {
                         "case_id": scope["case_id"],
-                        "success": True,
+                        "success": result["status"] == "completed" and result["error"] is None,
                         "report": result["result"],
                         **{key: result[key] for key in REPORT_METADATA if key in result},
                     }

@@ -245,7 +245,11 @@ async def test_history_catalog_keeps_successful_low_scores_and_deduplicates(app,
     manager = history(app)
     assert isinstance(manager, HomeEvaluationHistory) and manager.is_started
     assert manager.list_results() == []
-    app.context.components["agent_wrapper"]["judge"].reply.return_value = {"result": '{"score": 0}'}
+    app.context.components["agent_wrapper"]["judge"].reply.return_value = {
+        "result": '{"score": 0}',
+        "status": "completed",
+        "error": None,
+    }
     response = await app.run_job("home_evaluate")
     assert response.success, response.answer
     results = manager.list_results()
@@ -644,7 +648,7 @@ async def run():
     app = Application(**json.loads(sys.argv[2]))
     await app.start()
     app.context.components["agent_wrapper"]["judge"].reply = AsyncMock(
-        return_value={"result": '{"score": 0.5}'})
+        return_value={"result": '{"score": 0.5}', "status": "completed", "error": None})
     app.context.components["home.evaluation_history"]["default"].record = lambda run: os._exit(23)
     await app.run_job("home_evaluate")
 asyncio.run(run())
@@ -663,7 +667,7 @@ asyncio.run(run())
     await restarted.start()
     try:
         judge = restarted.context.components["agent_wrapper"]["judge"]
-        judge.reply = AsyncMock(return_value={"result": '{"score": 0.5}'})
+        judge.reply = AsyncMock(return_value={"result": '{"score": 0.5}', "status": "completed", "error": None})
         manager = history(restarted)
         assert len(manager.list_results()) == 1
         assert read_state(prepared)["successful_round"] == 1

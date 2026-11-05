@@ -265,15 +265,14 @@ def collect_usage(target: list | None = None, receipt: Path | None = None):
 
 
 def observe_usage(app) -> None:
-    """Observe owned clients and distinguish native interrupted replies from answers."""
+    """Observe owned clients and reject incomplete agent replies."""
     for wrapper in app.context.components.get("agent_wrapper", {}).values():
         original_reply = wrapper.reply
 
         async def reply(*args, _reply=original_reply, **kwargs):
             result = await _reply(*args, **kwargs)
-            last = result.get("last_message") or {}
-            if last.get("finished_reason") == "interrupted" or last.get("error") is not None:
-                raise RuntimeError("Native Agent was interrupted; see the application log.")
+            if result["status"] != "completed":
+                raise RuntimeError(result["error"] or f"Native Agent reply ended: {result['status']}")
             return result
 
         wrapper.reply = reply

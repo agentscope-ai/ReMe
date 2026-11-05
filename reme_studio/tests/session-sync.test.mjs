@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { applyStreamChunk } from "../app/chat-stream.ts";
 import { mergeSessionMessages, mergeSessionTab } from "../app/session-sync.ts";
 
 const entry = (id, role, content, extra = {}) => ({
@@ -164,6 +165,8 @@ test("history polling preserves running tools until a native completion snapshot
     done: false,
     tool_call_id: "tool-1",
     tool_call_name: "search",
+    event: "end",
+    status: status === "inProgress" ? "running" : status,
   });
   const active = snapshot([
     entry("a1", "assistant", "", {
@@ -192,6 +195,8 @@ test("native history repairs interrupted tools and restores missed failures", ()
             chunk: { id: "tool-1", type: "commandExecution", status },
             done: false,
             tool_call_id: "tool-1",
+            event: "end",
+            status,
           },
         ],
       }),
@@ -208,4 +213,87 @@ test("native history repairs interrupted tools and restores missed failures", ()
 
   const failed = mergeSessionMessages(recovered, data("failed"));
   assert.equal(failed[0].blocks[0].status, "error");
+});
+
+test("history refresh preserves the exact live event trace and structured outcome", () => {
+  const streamed = turn("temporary-assistant", "B");
+  streamed.events = [
+    { chunk_type: "data", chunk: { signature: "signed" }, done: false },
+  ];
+  streamed.reply = {
+    session_id: "session-1",
+    usage: null,
+    status: "completed",
+    error: null,
+    result: "B",
+    structured_output: false,
+    raw: { signature: "signed" },
+  };
+  const result = mergeSessionMessages(
+    [streamed],
+    snapshot([entry("a1", "assistant", "B")]),
+  );
+  assert.deepEqual(result[0].events, streamed.events);
+  assert.deepEqual(result[0].reply, streamed.reply);
+});
+
+test("native completion cannot overwrite a collected application-level terminal outcome", () => {
+  for (const status of ["completed", "failed", "interrupted", "waiting"]) {
+    const outcome = {
+      session_id: "session-1",
+      result: "invalid JSON",
+      structured_output: false,
+      usage: null,
+      status,
+      error: status === "failed" ? "Codex returned invalid JSON" : null,
+      raw: { status: "completed", final_response: "invalid JSON" },
+    };
+    let live = { ...turn("temporary-assistant", "invalid JSON"), blocks: [] };
+    const chunks = [
+      {
+        chunk_type: "content",
+        event: "end",
+        block_id: "answer",
+        chunk: "invalid JSON",
+        done: false,
+      },
+      {
+        chunk_type: "reply_end",
+        event: "end",
+        status,
+        chunk: outcome,
+        done: false,
+      },
+    ];
+    for (const chunk of chunks) live = applyStreamChunk(live, chunk);
+    const data = snapshot([
+      entry("a1", "assistant", "invalid JSON", {
+        chunks: [
+          chunks[0],
+          {
+            chunk_type: "reply_end",
+            event: "end",
+            status: "completed",
+            chunk: null,
+            done: false,
+          },
+        ],
+      }),
+    ]);
+    const restored = mergeSessionMessages([live], data);
+    assert.equal(restored[0].status, status);
+    assert.equal(restored[0].reply.status, status);
+    assert.deepEqual(restored[0].events, live.events);
+    assert.deepEqual(
+      restored[0].blocks.filter((block) => block.type === "data")[0].payloads,
+      [false],
+    );
+    assert.deepEqual(
+      restored[0].blocks
+        .filter((block) => block.type === "error")
+        .map((block) => block.text),
+      status === "failed" ? [outcome.error] : [],
+    );
+    assert.equal(mergeSessionMessages(restored, data), restored);
+  }
 });

@@ -129,7 +129,11 @@ async def test_baseline_then_adaptive_job_updates_only_selected_cases(app, prepa
     assert all(record["ewma_loss"] == 0.5 for record in state(prepared)["cases"].values())
     evaluation = app.context.components["home.evaluation"]["default"]
     evaluation.sampling_policy = sampling.SamplingPolicy(max_cases=1, max_queries=1, ewma_alpha=0.5)
-    app.context.components["agent_wrapper"]["judge"].reply.return_value = {"result": '{"score": 1}'}
+    app.context.components["agent_wrapper"]["judge"].reply.return_value = {
+        "result": '{"score": 1}',
+        "status": "completed",
+        "error": None,
+    }
     before = copy.deepcopy(state(prepared))
     commit_candidate(prepared)
     response = await app.run_job("home_evaluate", sampling=True)
@@ -304,7 +308,11 @@ async def test_sampling_cache_rebuild_and_new_round_after_reopen(app, prepared):
 
 @pytest.mark.asyncio
 async def test_fail_fast_started_round_without_summary_is_not_quality_feedback(app, prepared):
-    app.context.components["agent_wrapper"]["judge"].reply.return_value = {"result": "invalid judge output"}
+    app.context.components["agent_wrapper"]["judge"].reply.return_value = {
+        "result": "invalid judge output",
+        "status": "completed",
+        "error": None,
+    }
     response = await app.run_job("home_evaluate", sampling=True, fail_fast=True)
     assert not response.success
     observed = state(prepared)
@@ -401,7 +409,7 @@ async def test_query_budget_and_draw_order_reach_actual_execution(app, inputs, m
     monkeypatch.setattr(
         app.context.components["agent_wrapper"]["judge"],
         "reply",
-        AsyncMock(return_value={"result": '{"score": 0.5}'}),
+        AsyncMock(return_value={"result": '{"score": 0.5}', "status": "completed", "error": None}),
     )
     monkeypatch.setattr(sampling.time, "time_ns", lambda: 123456)
     component = app.context.components["home.evaluation"]["default"]

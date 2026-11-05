@@ -7,11 +7,12 @@ from contextlib import aclosing
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
+from uuid import uuid4
 
 from .base_agent_wrapper import BaseAgentWrapper
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import StreamChunk, TokenUsage
+from ...schema import AgentReply, StreamChunk, TokenUsage
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AssistantMessage, ResultMessage, UserMessage
@@ -227,122 +228,83 @@ class CcAgentWrapper(BaseAgentWrapper):
         raw: dict,
         session_id: str | None = None,
         block_states: dict[int, _BlockState] | None = None,
-    ) -> StreamChunk | None:
-        """Convert a raw Anthropic streaming event dict to a StreamChunk.
-
-        ``block_states`` maps each content-block index to metadata captured at
-        ``content_block_start`` for use by later delta and stop events.
-
-        Returns ``None`` for events that should be silently skipped.
-        """
-        event_type = raw.get("type")
-
-        # --- Message-level lifecycle ----------------------------------------
-
-        if event_type == "message_start":
-            if block_states is not None:
+        message_id: str | None = None,
+    ) -> StreamChunk:
+        """Normalize model-message and block events, retaining unknown payloads."""
+        event_type = raw.get("type", "")
+        common = {"session_id": session_id, "message_id": message_id, "chunk": None}
+        if event_type in {"message_start", "message_stop"}:
+            if event_type == "message_start" and block_states is not None:
                 block_states.clear()
-            message = raw.get("message", {})
-            meta = {
-                "message_id": message.get("id"),
-                "model": message.get("model"),
-                "role": message.get("role"),
-            }
-            return cls._chunk(ChunkEnum.REPLY_START, session_id=session_id, chunk="", metadata=meta)
-
+            return cls._chunk(
+                ChunkEnum.DATA,
+                **common,
+                event="start" if event_type == "message_start" else "end",
+                block_id=f"message:{message_id}",
+                metadata={"kind": "message", "visibility": "diagnostic", "native": raw},
+            )
         if event_type == "message_delta":
-            delta = raw.get("delta", {})
-            usage = raw.get("usage", {})
-            normalized = cls._claude_usage(usage)
+            usage = cls._claude_usage(raw.get("usage"))
+            common["chunk"] = usage.model_dump()
             return cls._chunk(
                 ChunkEnum.USAGE,
-                session_id=session_id,
-                chunk=json.dumps(normalized.model_dump()),
-                input_tokens=normalized.input_tokens,
-                output_tokens=normalized.output_tokens,
+                **common,
+                event="end",
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
                 metadata={
-                    "stop_reason": delta.get("stop_reason"),
-                    "usage": normalized.model_dump(),
+                    "stop_reason": raw.get("delta", {}).get("stop_reason"),
+                    "usage": usage.model_dump(),
+                    "native": raw,
                 },
             )
 
-        if event_type == "message_stop":
-            return cls._chunk(ChunkEnum.REPLY_END, session_id=session_id, chunk="")
-
-        # --- Content-block lifecycle ----------------------------------------
-
+        index = raw.get("index", 0)
+        block = raw.get("content_block", {})
         if event_type == "content_block_start":
-            idx, content_block = raw.get("index", 0), raw.get("content_block", {})
-            block_type, bid = content_block.get("type", ""), content_block.get("id", "")
+            state = _BlockState(
+                block.get("id") or f"{message_id or 'message'}:{index}",
+                block.get("type", ""),
+                block.get("name"),
+            )
             if block_states is not None:
-                block_states[idx] = _BlockState(bid or None, block_type, content_block.get("name"))
-
-            if block_type == "text":
-                return cls._chunk(ChunkEnum.CONTENT, block_id=bid, chunk=content_block.get("text", ""))
-            if block_type == "thinking":
-                return cls._chunk(
-                    ChunkEnum.THINK,
-                    block_id=bid,
-                    chunk=content_block.get("thinking", ""),
-                )
-            if block_type in {"tool_use", "server_tool_use"}:
-                payload = {
-                    "name": content_block.get("name"),
-                    "id": content_block.get("id"),
-                }
-                return cls._chunk(
-                    ChunkEnum.TOOL_CALL,
-                    block_id=bid,
-                    tool_call_id=content_block.get("id"),
-                    tool_call_name=content_block.get("name"),
-                    chunk=json.dumps(payload),
-                )
-            return None
-
-        if event_type == "content_block_delta":
+                block_states[index] = state
+        else:
+            state = block_states.get(index) if block_states is not None else None
+        if event_type == "content_block_stop" and block_states is not None:
+            block_states.pop(index, None)
+        operation = {"content_block_start": "start", "content_block_delta": "delta", "content_block_stop": "end"}.get(
+            event_type,
+        )
+        if state is not None and operation:
+            common.update(event=operation, block_id=state.block_id)
             delta = raw.get("delta", {})
-            delta_type = delta.get("type", "")
-            idx = raw.get("index", 0)
-            state = block_states.get(idx) if block_states else None
-            bid = state.block_id if state else None
-            tool_name = state.tool_name if state else None
-
-            if delta_type == "text_delta":
-                return cls._chunk(ChunkEnum.CONTENT, block_id=bid, chunk=delta.get("text", ""))
-            if delta_type == "thinking_delta":
-                return cls._chunk(ChunkEnum.THINK, block_id=bid, chunk=delta.get("thinking", ""))
-            if delta_type == "input_json_delta":
+            if event_type == "content_block_delta" and delta.get("type") not in {
+                "text_delta",
+                "thinking_delta",
+                "input_json_delta",
+            }:
+                return cls._chunk(ChunkEnum.DATA, **{**common, "chunk": raw}, metadata={"visibility": "diagnostic"})
+            metadata = {
+                "native": {key: value for key, value in block.items() if key not in {"text", "thinking", "input"}},
+            }
+            if state.block_type == "text":
+                common["chunk"] = delta.get("text") if operation == "delta" else block.get("text")
+                return cls._chunk(ChunkEnum.CONTENT, **common, metadata=metadata)
+            if state.block_type == "thinking":
+                common["chunk"] = delta.get("thinking") if operation == "delta" else block.get("thinking")
+                return cls._chunk(ChunkEnum.THINK, **common, metadata=metadata)
+            if state.block_type in {"tool_use", "server_tool_use"}:
+                common["chunk"] = delta.get("partial_json") if operation == "delta" else block.get("input") or None
                 return cls._chunk(
                     ChunkEnum.TOOL_CALL,
-                    block_id=bid,
-                    tool_call_id=bid,
-                    tool_call_name=tool_name,
-                    chunk=delta.get("partial_json", ""),
+                    **common,
+                    tool_call_id=state.block_id,
+                    tool_call_name=state.tool_name,
+                    metadata=metadata,
                 )
-            return None
-
-        if event_type == "content_block_stop":
-            idx = raw.get("index", 0)
-            state = block_states.pop(idx, None) if block_states else None
-            bid = state.block_id if state else None
-            block_type = state.block_type if state else None
-            tool_name = state.tool_name if state else None
-
-            if block_type in {"tool_use", "server_tool_use"}:
-                return cls._chunk(
-                    ChunkEnum.TOOL_CALL,
-                    block_id=bid,
-                    tool_call_id=bid,
-                    tool_call_name=tool_name,
-                    chunk="",
-                )
-            if block_type == "thinking":
-                return cls._chunk(ChunkEnum.THINK, block_id=bid, chunk="")
-            # text or unknown -> CONTENT
-            return cls._chunk(ChunkEnum.CONTENT, block_id=bid, chunk="")
-
-        # Ping / other unknown types -> skip
-        return None
+        common.update(chunk=raw, event="end")
+        return cls._chunk(ChunkEnum.DATA, **common, metadata={"visibility": "diagnostic"})
 
     @classmethod
     def _message_content_to_chunks(
@@ -351,48 +313,85 @@ class CcAgentWrapper(BaseAgentWrapper):
         session_id: str | None = None,
         visible_tool_call_ids: set[str] | None = None,
         include_text: bool = False,
+        message_id: str | None = None,
     ) -> list[StreamChunk]:
-        """Convert typed SDK content blocks that are not partial events."""
-        from claude_agent_sdk import ServerToolResultBlock, TextBlock, ToolResultBlock
+        """Use completed SDK blocks as authoritative snapshots, including tool results."""
+        from claude_agent_sdk import (
+            ServerToolResultBlock,
+            ServerToolUseBlock,
+            TextBlock,
+            ThinkingBlock,
+            ToolResultBlock,
+            ToolUseBlock,
+        )
 
         chunks: list[StreamChunk] = []
         content = getattr(msg, "content", None)
         if isinstance(content, str):
-            if include_text and content:
-                chunks.append(cls._chunk(ChunkEnum.CONTENT, session_id=session_id, chunk=content))
+            if include_text:
+                chunks.append(
+                    cls._chunk(
+                        ChunkEnum.CONTENT,
+                        session_id=session_id,
+                        message_id=message_id,
+                        block_id=f"{message_id}:0",
+                        event="end",
+                        chunk=content,
+                    ),
+                )
             return chunks
-        if content is None:
-            return chunks
-
-        for block in content:
-            if include_text and isinstance(block, TextBlock) and block.text:
-                chunks.append(cls._chunk(ChunkEnum.CONTENT, session_id=session_id, chunk=block.text))
+        for index, block in enumerate(content or []):
+            common = {
+                "session_id": session_id,
+                "message_id": message_id,
+                "event": "end",
+                "block_id": f"{message_id or 'message'}:{index}",
+            }
+            if include_text and isinstance(block, (TextBlock, ThinkingBlock)):
+                thinking = isinstance(block, ThinkingBlock)
+                chunks.append(
+                    cls._chunk(
+                        ChunkEnum.THINK if thinking else ChunkEnum.CONTENT,
+                        **common,
+                        chunk=block.thinking if thinking else block.text,
+                        metadata={"native": {"signature": block.signature}} if thinking else {},
+                    ),
+                )
+            elif include_text and isinstance(block, (ToolUseBlock, ServerToolUseBlock)):
+                common["block_id"] = block.id
+                chunks.append(
+                    cls._chunk(
+                        ChunkEnum.TOOL_CALL,
+                        **common,
+                        tool_call_id=block.id,
+                        tool_call_name=block.name,
+                        chunk=block.input,
+                    ),
+                )
+                if visible_tool_call_ids is not None:
+                    visible_tool_call_ids.add(block.id)
             elif isinstance(block, (ToolResultBlock, ServerToolResultBlock)):
-                tool_use_id = block.tool_use_id
-                if visible_tool_call_ids is not None and tool_use_id not in visible_tool_call_ids:
+                if visible_tool_call_ids is not None and block.tool_use_id not in visible_tool_call_ids:
                     continue
-                payload: dict[str, Any] = {
-                    "tool_use_id": tool_use_id,
-                    "content": block.content,
-                }
+                common["block_id"] = block.tool_use_id
+                payload = {"tool_use_id": block.tool_use_id, "content": block.content}
                 if isinstance(block, ToolResultBlock):
                     payload["is_error"] = block.is_error
                 chunks.append(
                     cls._chunk(
                         ChunkEnum.TOOL_RESULT,
-                        session_id=session_id,
-                        block_id=tool_use_id,
-                        tool_call_id=tool_use_id,
+                        **common,
+                        tool_call_id=block.tool_use_id,
                         chunk=payload,
+                        status="failed" if payload.get("is_error") else "completed",
                     ),
                 )
-
         return chunks
 
     @classmethod
     def _result_error_text(cls, msg: "ResultMessage") -> str:
         """Return the error text used by both the SDK and unified chunks."""
-        return "; ".join(msg.errors or []) or str(msg.subtype)
+        return "; ".join(msg.errors or []) or msg.result or str(msg.subtype)
 
     @classmethod
     def _result_message_to_chunks(cls, msg: "ResultMessage") -> list[StreamChunk]:
@@ -418,6 +417,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                     "permission_denials": msg.permission_denials,
                     "deferred_tool_use": (asdict(msg.deferred_tool_use) if msg.deferred_tool_use else None),
                     "api_error_status": msg.api_error_status,
+                    "native": cls._serialize(msg),
                 },
             ),
         ]
@@ -437,39 +437,11 @@ class CcAgentWrapper(BaseAgentWrapper):
     async def compact_session(self, session_id: str) -> None:
         """Compact a Claude Code session through its native command."""
         result = await self.reply("/compact", resume=session_id)
-        if result["last_message"].get("is_error"):
-            raise RuntimeError("Claude Code session compaction failed")
-
-    async def reply(self, inputs: Any, **kwargs) -> dict:
-        from claude_agent_sdk import query, ResultMessage
-
-        kwargs = self._merged_kwargs(kwargs)
-        opts = self._build_options(inputs, stream=False, **kwargs)
-
-        last_msg = None
-        async with aclosing(query(prompt=inputs, options=opts)) as stream:
-            async for msg in stream:
-                if isinstance(msg, ResultMessage):
-                    last_msg = msg
-
-        if last_msg is None:
-            raise ValueError("No message received from Claude Code.")
-
-        usage = self._claude_usage(last_msg.usage) if last_msg.usage is not None else None
-        result = {
-            "session_id": last_msg.session_id or "",
-            "last_message": asdict(last_msg),
-            "result": last_msg.result,
-            "usage": usage.model_dump() if usage is not None else None,
-        }
-        if usage is not None:
-            self._record_token_usage(usage)
-        if kwargs.get("output_schema") is not None:
-            result["structured_output"] = last_msg.structured_output
-        return result
+        if result["status"] != "completed":
+            raise RuntimeError(result["error"] or f"Claude Code session compaction {result['status']}")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """Stream Claude Code events as unified StreamChunk objects."""
+        """Stream one invocation, keeping model-message boundaries inside it."""
         from claude_agent_sdk import (
             AssistantMessage,
             MirrorErrorMessage,
@@ -481,104 +453,146 @@ class CcAgentWrapper(BaseAgentWrapper):
             UserMessage,
         )
 
-        kwargs = self._merged_stream_kwargs(kwargs)
+        kwargs = self._merged_kwargs(kwargs)
         opts = self._build_options(inputs, stream=True, **kwargs)
-
-        block_states: dict[int, _BlockState] = {}
+        block_states: dict[str | None, dict[int, _BlockState]] = {}
         visible_tool_call_ids: set[str] = set()
-        current_session_id: str | None = None
+        turn_id = uuid4().hex
+        partial_message_ids: dict[str | None, str] = {}
+        current_session_id = None
         emitted_content = False
-        emitted_reply_end = False
-        reply_open = False
-        expected_trailing_error: str | None = None
-
+        started = False
+        result: AgentReply | None = None
+        usage = None
+        expected_trailing_error = None
         try:
             async with aclosing(query(prompt=inputs, options=opts)) as stream:
                 async for msg in stream:
+                    current_session_id = getattr(msg, "session_id", None) or current_session_id
+                    if not started:
+                        started = True
+                        yield self._chunk(
+                            ChunkEnum.REPLY_START,
+                            event="start",
+                            turn_id=turn_id,
+                            session_id=current_session_id,
+                            status="running",
+                        )
                     if expected_trailing_error is not None and not (
                         isinstance(msg, SystemMessage) and msg.subtype == "session_state_changed"
                     ):
                         expected_trailing_error = None
-
+                    chunks = []
+                    parent_id = getattr(msg, "parent_tool_use_id", None)
                     if isinstance(msg, StreamEvent):
-                        current_session_id = msg.session_id or current_session_id
+                        if msg.event.get("type") == "message_start":
+                            partial_message_ids[parent_id] = msg.event.get("message", {}).get("id") or msg.uuid
                         chunk = self._raw_event_to_chunk(
                             msg.event,
-                            session_id=msg.session_id,
-                            block_states=block_states,
+                            session_id=current_session_id,
+                            block_states=block_states.setdefault(parent_id, {}),
+                            message_id=partial_message_ids.get(parent_id),
                         )
-                        if chunk is not None:
-                            chunk.session_id = chunk.session_id or msg.session_id
-                            if chunk.chunk_type == ChunkEnum.TOOL_CALL and chunk.tool_call_id:
-                                visible_tool_call_ids.add(chunk.tool_call_id)
-                            if chunk.chunk_type == ChunkEnum.CONTENT and chunk.chunk:
-                                emitted_content = True
-                            if chunk.chunk_type == ChunkEnum.REPLY_START:
-                                reply_open = True
-                            if chunk.chunk_type == ChunkEnum.REPLY_END:
-                                emitted_reply_end = True
-                                reply_open = False
-                            yield chunk
-
-                    elif isinstance(msg, UserMessage):
-                        for chunk in self._message_content_to_chunks(msg, current_session_id, visible_tool_call_ids):
-                            yield chunk
-
+                        chunk.metadata["parent_tool_use_id"] = msg.parent_tool_use_id
+                        if chunk.chunk_type == ChunkEnum.TOOL_CALL and chunk.tool_call_id:
+                            visible_tool_call_ids.add(chunk.tool_call_id)
+                        chunks.append(chunk)
+                    elif isinstance(msg, (AssistantMessage, UserMessage)):
+                        message_id = (
+                            getattr(msg, "message_id", None)
+                            or partial_message_ids.get(parent_id)
+                            or getattr(msg, "uuid", None)
+                            or uuid4().hex
+                        )
+                        chunks = self._message_content_to_chunks(
+                            msg,
+                            current_session_id,
+                            visible_tool_call_ids,
+                            include_text=isinstance(msg, AssistantMessage),
+                            message_id=message_id,
+                        )
+                        if isinstance(msg, AssistantMessage):
+                            partial_message_ids.pop(parent_id, None)
                     elif isinstance(msg, ResultMessage):
                         if msg.is_error:
                             expected_trailing_error = (
                                 f"Claude Code returned an error result: {self._result_error_text(msg)}"
                             )
-                        current_session_id = msg.session_id or current_session_id
                         if not emitted_content and msg.result:
-                            emitted_content = True
-                            yield self._chunk(
-                                ChunkEnum.CONTENT,
-                                session_id=msg.session_id or "",
-                                chunk=msg.result,
+                            chunks.append(
+                                self._chunk(
+                                    ChunkEnum.CONTENT,
+                                    event="end",
+                                    block_id=f"{turn_id}:result",
+                                    chunk=msg.result,
+                                ),
                             )
-                        for chunk in self._result_message_to_chunks(msg):
-                            yield chunk
-                        if reply_open or not emitted_reply_end:
-                            emitted_reply_end = True
-                            reply_open = False
-                            yield self._chunk(
-                                ChunkEnum.REPLY_END,
-                                session_id=current_session_id,
-                                chunk="",
-                            )
-
-                    elif isinstance(msg, AssistantMessage):
-                        current_session_id = msg.session_id or current_session_id
-                        for chunk in self._message_content_to_chunks(
-                            msg,
-                            current_session_id,
-                            visible_tool_call_ids,
-                            include_text=not emitted_content,
-                        ):
-                            if chunk.chunk_type == ChunkEnum.CONTENT and chunk.chunk:
-                                emitted_content = True
-                            yield chunk
-
+                        chunks.extend(self._result_message_to_chunks(msg))
+                        status = "completed"
+                        if msg.terminal_reason in {"aborted_streaming", "aborted_tools"}:
+                            status = "interrupted"
+                        elif msg.is_error or msg.subtype != "success":
+                            status = "failed"
+                        elif msg.deferred_tool_use is not None:
+                            status = "waiting"
+                        usage = self._claude_usage(msg.usage) if msg.usage is not None else None
+                        result = self._reply_result(
+                            session_id=msg.session_id or "",
+                            result=msg.result,
+                            structured_output=msg.structured_output,
+                            usage=usage,
+                            status=status,
+                            error=self._result_error_text(msg) if status == "failed" else None,
+                            raw=self._serialize(msg),
+                        )
                     elif isinstance(msg, MirrorErrorMessage):
-                        self.logger.warning(f"Claude Code session mirror failed: {msg.error}")
-                        yield self._chunk(
-                            ChunkEnum.DATA,
-                            session_id=current_session_id,
-                            chunk=f"Session mirror failed: {msg.error}",
-                            metadata={
-                                "event": "session_mirror_error",
-                                "session_key": msg.key,
-                            },
+                        chunks.append(
+                            self._chunk(
+                                ChunkEnum.DATA,
+                                event="end",
+                                chunk=f"Session mirror failed: {msg.error}",
+                                metadata={"event": "session_mirror_error", "session_key": msg.key},
+                            ),
                         )
-
-                    elif isinstance(msg, RateLimitEvent) and msg.rate_limit_info.status == "rejected":
-                        yield self._chunk(
-                            ChunkEnum.ERROR,
-                            session_id=msg.session_id,
-                            chunk="Rate limit exceeded",
+                    elif isinstance(msg, RateLimitEvent):
+                        if msg.rate_limit_info.status == "rejected":
+                            chunks.append(self._chunk(ChunkEnum.ERROR, chunk="Rate limit exceeded"))
+                    else:
+                        chunks.append(
+                            self._chunk(
+                                ChunkEnum.DATA,
+                                event="end",
+                                chunk=self._serialize(msg),
+                                metadata={"visibility": "diagnostic"},
+                            ),
                         )
+                    if not chunks:
+                        chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
+                    for chunk in chunks:
+                        chunk.metadata.pop("native", None)
+                    chunks[0].metadata["native"] = self._serialize(msg)
+                    for chunk in chunks:
+                        chunk.metadata["parent_tool_use_id"] = parent_id
+                        chunk.turn_id = turn_id
+                        chunk.session_id = chunk.session_id or current_session_id
+                        if chunk.chunk_type == ChunkEnum.CONTENT and chunk.chunk:
+                            emitted_content = True
+                        yield chunk
         except Exception as exc:
             if expected_trailing_error is None or str(exc) != expected_trailing_error:
                 raise
             self.logger.debug(f"Ignoring Claude Code process exit after error result: {exc}")
+        finally:
+            if usage is not None:
+                self._record_token_usage(usage)
+        if result is None:
+            raise RuntimeError("Claude Code result message not received")
+        yield self._chunk(
+            ChunkEnum.REPLY_END,
+            event="end",
+            session_id=result["session_id"],
+            turn_id=turn_id,
+            status=result["status"],
+            chunk={key: value for key, value in result.items() if key != "events"},
+            metadata={"error": result["error"]},
+        )

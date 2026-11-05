@@ -82,7 +82,7 @@ class _FakeAgentWrapper(BaseAgentWrapper):
         self.kwargs = kwargs
         if self.on_reply is not None:
             self.on_reply(inputs, kwargs)
-        return {"result": "ok"}
+        return self._reply_result(session_id="stub", result="ok", raw={})
 
 
 class _StepJob:

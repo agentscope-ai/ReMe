@@ -384,7 +384,7 @@ async def test_loose_root_text_updates_and_deletes_original_daily_card(routed, a
             metadata={"source_resource": "[[resource/report.txt]]"},
         )
         assert response.success is True
-        return {"result": "Updated original report."}
+        return {"status": "completed", "result": "Updated original report."}
 
     env.app_context.registry = R
     step_cls = AutoResourceStep if routed else AutoTextResourceStep

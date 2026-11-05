@@ -149,7 +149,10 @@ async def test_nearest_ancestor_and_infrastructure_retry(app, prepared, sandbox,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("output", ["invalid", '{"decision":"reject","reason":"x","extra":true}', "error"])
+@pytest.mark.parametrize(
+    "output",
+    ["invalid", '{"decision":"reject","reason":"x","extra":true}', "error", "failed", "interrupted", "waiting"],
+)
 async def test_model_failure_allows_validation_with_saved_diagnostics(app, prepared, sandbox, monkeypatch, output):
     commit_candidate(prepared)
     wrapper = set_model(app, "home_candidate_gate", ScriptedModel(final=output))
@@ -159,10 +162,24 @@ async def test_model_failure_allows_validation_with_saved_diagnostics(app, prepa
             raise RuntimeError("model unavailable")
 
         monkeypatch.setattr(wrapper, "reply", broken)
+    elif output in {"failed", "interrupted", "waiting"}:
+        monkeypatch.setattr(
+            wrapper,
+            "reply",
+            AsyncMock(
+                return_value={
+                    "result": '{"decision":"reject","reason":"Unfinished judgement"}',
+                    "status": output,
+                    "error": None,
+                },
+            ),
+        )
     response = await app.run_job("home_evaluate", max_evaluations=10)
     assert response.success, response.answer
     report = response.answer["candidate_gate"]
     assert report["decision"] == "accept" and report["review_failed"]
+    if output in {"failed", "interrupted", "waiting"}:
+        assert output in report["reason"]
     assert read_json(Path(report["review_path"]))["review_failed"]
     assert not list((prepared / "tmp").glob("candidate-gate-*"))
 
@@ -216,7 +233,7 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
     async def paused(*args, **kwargs):
         entered.set()
         await release.wait()
-        return {"result": '{"decision":"accept","reason":"Mechanism change"}'}
+        return {"result": '{"decision":"accept","reason":"Mechanism change"}', "status": "completed", "error": None}
 
     monkeypatch.setattr(wrapper, "reply", paused)
     task = asyncio.create_task(app.run_job("home_evaluate", max_evaluations=10))

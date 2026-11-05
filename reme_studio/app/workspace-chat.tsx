@@ -79,7 +79,7 @@ function ChatBlockView({
     block.status === "streaming" ||
     block.status === "calling" ||
     block.status === "running";
-  const failed = block.status === "error";
+  const failed = block.status === "error" || block.status === "interrupted";
   const tool = block.type === "tool";
   const call = tool ? formatStreamPayloads(block.callPayloads) : "";
   const result = tool ? formatStreamPayloads(block.resultPayloads) : "";
@@ -97,7 +97,17 @@ function ChatBlockView({
         <ChunkStatus active={active} error={failed} />
         <span>{tool ? block.name : detailLabel(block, t)}</span>
         <small>
-          {t(failed ? "failed" : active ? "streaming" : "completed")}
+          {t(
+            block.status === "interrupted"
+              ? "interrupted"
+              : block.status === "waiting"
+              ? "waiting"
+              : failed
+              ? "failed"
+              : active
+              ? "streaming"
+              : "completed",
+          )}
         </small>
       </summary>
       {tool ? (
@@ -231,6 +241,7 @@ export default function Chat({
     const assistant: ChatMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
+      status: "running",
       content: "",
       blocks: [],
     };
@@ -295,6 +306,17 @@ export default function Chat({
                     }
                   />
                 ))}
+              {message.role === "assistant" &&
+                (message.status === "interrupted" ||
+                  message.status === "waiting") && (
+                  <p role="status">
+                    {t(
+                      message.status === "interrupted"
+                        ? "interrupted"
+                        : "waiting",
+                    )}
+                  </p>
+                )}
               {message.role === "assistant" &&
                 tab.streaming &&
                 !message.blocks?.some((block) => block.type !== "usage") && (

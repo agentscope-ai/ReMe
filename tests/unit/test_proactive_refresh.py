@@ -147,11 +147,11 @@ class _AgentWrapper(BaseAgentWrapper):
         return {
             "session_id": "stub",
             "result": text,
-            "last_message": {"content": [{"type": "text", "text": text}]},
+            "status": "completed",
         }
 
 
-class _DummyModel(ChatModelBase):
+class _DummyModel(ChatModelBase):  # pylint: disable=abstract-method
     """Placeholder model satisfying dream extract's llm_available check."""
 
     def __init__(self):

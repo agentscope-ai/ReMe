@@ -5,7 +5,7 @@ import zoneinfo
 
 from agentscope.message import Msg
 
-from ...schema import Response
+from ...schema import AgentReply, Response
 
 
 def now(timezone: str | None = None) -> datetime.datetime:
@@ -31,17 +31,12 @@ def format_history(messages: list[Msg], include_timestamp: bool = True) -> str:
     return "\n\n".join(lines) or "(empty)"
 
 
-def agent_reply_result_text(reply_result: dict) -> str:
-    """Return the final user-visible text block from an agent reply result."""
-    last_message = reply_result.get("last_message") or {}
-    content = last_message.get("content") if isinstance(last_message, dict) else None
-    if isinstance(content, list):
-        for block in reversed(content):
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = str(block.get("text") or "").strip()
-                if text:
-                    return text
-    return str(reply_result.get("result") or "").strip()
+def agent_reply_result_text(reply_result: AgentReply) -> str:
+    """Require a completed invocation and return its backend-neutral final text."""
+    status = reply_result["status"]
+    if status != "completed" or reply_result.get("error") is not None:
+        raise RuntimeError(reply_result.get("error") or f"Agent reply ended: {status}")
+    return reply_result["result"].strip()
 
 
 def passthrough_response(step, skip_key: str) -> Response:

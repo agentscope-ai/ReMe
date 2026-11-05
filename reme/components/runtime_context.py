@@ -75,6 +75,10 @@ class RuntimeContext:
             raise RuntimeError("Stream queue not initialized")
         if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
             self.stream_error = str(chunk.chunk)
+        if chunk.chunk_type == ChunkEnum.REPLY_END and chunk.status == "failed":
+            self.stream_error = self.stream_error or str(
+                chunk.metadata.get("error") or chunk.metadata.get("finished_reason") or "Agent reply failed",
+            )
         await self.stream_queue.put(chunk)
 
     async def add_stream_string(self, chunk: str, chunk_type: ChunkEnum) -> "RuntimeContext":

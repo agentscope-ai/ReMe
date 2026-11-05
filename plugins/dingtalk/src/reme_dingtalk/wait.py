@@ -9,6 +9,7 @@ from urllib.parse import quote_plus
 
 from reme.components.agent_wrapper import handle_session_command
 from reme.steps.base_step import BaseStep
+from reme.steps.evolve._evolve import agent_reply_result_text
 
 
 def _session_key(message: Any) -> str:
@@ -151,17 +152,11 @@ class DingTalkWaitStep(BaseStep):
                 builtin_tools=self.builtin_tools,
                 job_tools=self.job_tools,
             )
-            if not isinstance(result, dict):
-                raise TypeError("Agent reply must be a dictionary")
-            if session_id := result.get("session_id"):
+            if session_id := result["session_id"]:
                 sessions[key] = session_id
 
-            last_message = result.get("last_message")
-            if isinstance(last_message, dict) and last_message.get("is_error"):
-                raise RuntimeError("Agent 执行失败")
-
-            answer = result.get("result")
-            if not isinstance(answer, str) or not (answer := answer.strip()):
+            answer = agent_reply_result_text(result)
+            if not answer:
                 raise ValueError("Agent 返回了空回复")
             response = await asyncio.to_thread(handler.reply_markdown, "ReMe Agent", answer, message)
             if response is None:

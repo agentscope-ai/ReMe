@@ -42,18 +42,17 @@ class LLMDemoStep(BaseStep):
 
         result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
 
-        structured_content = result.get("structured_output")
-        text = (result.get("result") or "").strip()
+        text = result["result"].strip()
         self.logger.info(f"[{self.name}] response: {text!r}")
 
-        self.context.response.success = True
-        self.context.response.answer = text
+        self.context.response.success = result["status"] == "completed"
+        self.context.response.answer = result["error"] or text
         self.context.response.metadata.update(
             {
+                **result,
                 "query": query,
                 "sys_prompt": sys_prompt,
                 "response": text,
-                "structured_output": structured_content,
             },
         )
         return self.context.response

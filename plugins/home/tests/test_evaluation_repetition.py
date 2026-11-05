@@ -195,7 +195,7 @@ async def test_sampled_recovery_preserves_cases_queries_and_order(
     monkeypatch.setattr(
         app.context.components["agent_wrapper"]["judge"],
         "reply",
-        AsyncMock(return_value={"result": '{"score": 0.5}'}),
+        AsyncMock(return_value={"result": '{"score": 0.5}', "status": "completed", "error": None}),
     )
     monkeypatch.setattr("reme_home.sampling.time.time_ns", lambda: 1)
     monkeypatch.setattr(FakeFactory, "bad_export", True)

@@ -7,6 +7,8 @@ import json
 import re
 from time import perf_counter
 
+from reme.steps.evolve._evolve import agent_reply_result_text
+
 from .base import AGENT_INPUT_LOG_LIMIT, AGENT_OUTPUT_LOG_LIMIT, AutoFinStep
 
 
@@ -43,7 +45,7 @@ class AutoFinTopicStep(AutoFinStep):
             started_at = perf_counter()
             result = await self.agent_wrapper.reply(prompt)
             try:
-                ids = self._parse_news_ids(result.get("result") if isinstance(result, dict) else None, topics)
+                ids = self._parse_news_ids(agent_reply_result_text(result), topics)
             except ValueError as exc:
                 if attempt:
                     raise ValueError(f"Auto Fin topic Agent returned invalid news IDs: {exc}") from exc
