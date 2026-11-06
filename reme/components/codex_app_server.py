@@ -95,6 +95,15 @@ class CodexAppServer(BaseComponent):
             return path if path.is_absolute() else self.workspace_path / path
         return self.workspace_path / ".codex"
 
+    def _session_file_path(self, thread: Any) -> Path | None:
+        """Validate a native path without requiring its file to exist yet."""
+        if not (raw_path := getattr(thread, "path", None)):
+            return None
+        path = Path(raw_path).resolve()
+        if not path.is_relative_to(self.session_path.resolve()):
+            raise ValueError("Codex session path is outside its configured home")
+        return path
+
     def _message_path(self, session_id: str) -> Path:
         from .agent_wrapper.codex_session_history import validate_identifier
 
@@ -135,6 +144,18 @@ class CodexAppServer(BaseComponent):
             thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
             return session_status(thread)
 
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Read only native metadata; the reported file may not have been created yet."""
+        from .agent_wrapper.codex_session_history import validate_identifier
+
+        validate_identifier(session_id)
+        async with self._session_client() as codex:
+            response = await codex._client.thread_read(  # pylint: disable=protected-access
+                session_id,
+                include_turns=False,
+            )
+            return self._session_file_path(response.thread)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Project public native history plus application-authored proactive messages."""
         from .agent_wrapper import codex_session_history as history
@@ -154,11 +175,8 @@ class CodexAppServer(BaseComponent):
                 else set()
             )
             snapshot = history.session_snapshot(thread, records, recovered)
-            if getattr(thread, "path", None):
-                session_file = Path(thread.path).resolve()
-                if not session_file.is_relative_to(self.session_path.resolve()):
-                    raise ValueError("Codex session path is outside its configured home")
-                snapshot.path = str(session_file)
+            session_file = self._session_file_path(thread)
+            snapshot.path = str(session_file) if session_file is not None else None
             return snapshot
 
     async def append_session(

@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -135,6 +136,55 @@ async def test_session_snapshot_exposes_the_validated_native_file_and_turn(runti
     native.thread.path = str(tmp_path.parent / "outside.jsonl")
     with pytest.raises(ValueError, match="outside its configured home"):
         await server.read_session("session-1")
+
+
+@pytest.mark.asyncio
+async def test_session_path_lookup_returns_the_native_file_without_reading_history(runtime):
+    server, native = runtime
+    assert await server.get_session_path("session-1") == Path(native.thread.path).resolve()
+    native.client._client.thread_read.assert_awaited_once_with("session-1", include_turns=False)
+    native.client.thread_resume.assert_not_awaited()
+    assert not server._message_path("session-1").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_path", [None, ""])
+async def test_session_path_lookup_returns_none_when_native_storage_has_no_path(runtime, native_path):
+    server, native = runtime
+    native.thread.path = native_path
+    assert await server.get_session_path("session-1") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("symlink", [False, True])
+async def test_session_path_lookup_rejects_paths_outside_the_configured_home(runtime, tmp_path, symlink):
+    server, native = runtime
+    outside = tmp_path / "outside.jsonl"
+    if symlink:
+        link = server.session_path / "sessions" / "link.jsonl"
+        link.symlink_to(outside)
+        native.thread.path = str(link)
+    else:
+        native.thread.path = str(outside)
+    with pytest.raises(ValueError, match="outside its configured home"):
+        await server.get_session_path("session-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("session_id", ["", "../outside", "nested/session"])
+async def test_session_path_lookup_rejects_invalid_ids_before_calling_codex(runtime, session_id):
+    server, native = runtime
+    with pytest.raises(ValueError, match="Session/message IDs must contain"):
+        await server.get_session_path(session_id)
+    native.client._client.thread_read.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_session_path_lookup_propagates_native_lookup_errors(runtime):
+    server, native = runtime
+    native.client._client.thread_read.side_effect = RuntimeError("session not found")
+    with pytest.raises(RuntimeError, match="session not found"):
+        await server.get_session_path("missing-session")
 
 
 @pytest.mark.asyncio
@@ -273,7 +323,9 @@ async def test_read_and_status_do_not_wait_behind_generation(runtime):
             async with asyncio.timeout(0.5):
                 status = await server.get_session_status("session-1")
                 snapshot = await server.read_session("session-1")
+                path = await server.get_session_path("session-1")
             assert status.status == snapshot.state.status == "active"
+            assert path == Path(native.thread.path).resolve()
             assert status.active_flags == ["waitingOnUserInput"]
             with pytest.raises(TimeoutError):
                 await server.append_session("session-1", "later", message_id="busy", timeout=0.02)

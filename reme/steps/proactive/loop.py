@@ -9,28 +9,21 @@ from ...components import R
 WAKEUP_KEY = "pa_next_wakeup_minutes"
 
 
-@R.register("set_next_wakeup_step")
-class SetNextWakeupStep(BaseStep):
-    """Set this round's next delay; the loop consumes it once."""
-
-    async def execute(self):
-        minutes = self.context.get("minutes")
-        if (
-            isinstance(minutes, bool)
-            or not isinstance(minutes, (int, float))
-            or not math.isfinite(minutes)
-            or not math.isfinite(minutes * 60)
-            or minutes <= 0
-        ):
-            raise ValueError("minutes must be a positive finite number")
-        self.app_context.metadata[WAKEUP_KEY] = minutes
-        self.context.response.answer = {"minutes": minutes}
-        return self.context.response
+def _minutes(value) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or not math.isfinite(value * 60)
+        or value <= 0
+    ):
+        raise ValueError("minutes must be a positive finite number")
+    return value
 
 
 @R.register("pa_loop_step")
 class PaLoopStep(BaseStep):
-    """Wait five minutes after startup, then run one fresh, serial round at a time."""
+    """Wait the configured delay, then run one fresh, serial round at a time."""
 
     async def execute(self):
         stop = self.context.stop_event
@@ -38,7 +31,8 @@ class PaLoopStep(BaseStep):
             raise RuntimeError("pa_loop_step requires an asyncio stop_event")
         metadata = self.app_context.metadata
         metadata.pop(WAKEUP_KEY, None)
-        minutes = 5
+        default_minutes = _minutes(self.kwargs.get("default_wakeup_minutes"))
+        minutes = default_minutes
         try:
             while not stop.is_set():
                 try:
@@ -48,9 +42,13 @@ class PaLoopStep(BaseStep):
                 if stop.is_set():
                     break
                 metadata.pop(WAKEUP_KEY, None)
-                result = await self.run_job(self.kwargs.get("job", "pa_proactive"), stop_event=stop)
-                selected = metadata.pop(WAKEUP_KEY, 5)
-                minutes = selected if result.success else 5
+                result = await self.run_job(
+                    self.kwargs.get("job", "pa_proactive"),
+                    stop_event=stop,
+                    default_wakeup_minutes=default_minutes,
+                )
+                selected = metadata.pop(WAKEUP_KEY, default_minutes)
+                minutes = selected if result.success else default_minutes
         finally:
             metadata.pop(WAKEUP_KEY, None)
         return self.context.response

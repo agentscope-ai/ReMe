@@ -312,6 +312,22 @@ async def test_rejected_first_turn_keeps_the_empty_session_and_zero_usage_cache(
 
 
 @pytest.mark.asyncio
+async def test_wrapper_locates_an_empty_session_before_its_rollout_exists(system, monkeypatch):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    client = _Codex.instances[0]
+    path = server.session_path / "sessions" / "not-materialized.jsonl"
+    read = AsyncMock(return_value=SimpleNamespace(thread=SimpleNamespace(path=str(path))))
+    monkeypatch.setattr(client._client, "thread_read", read)
+
+    assert await first.get_session_path(session_id) == path.resolve()
+    read.assert_awaited_once_with(session_id, include_turns=False)
+    assert not path.exists()
+    assert not client.threads[session_id].inputs
+    assert [operation for operation, _, _ in client.opened] == ["start"]
+
+
+@pytest.mark.asyncio
 async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     first, _, server, _ = system
     previous = await first.create_session(job_tools=[])
@@ -326,21 +342,24 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
-async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rotation(system, language):
+async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language):
     agent, _, _, _ = system
     context = agent.app_context
     context.app_config.language = language
     context.components["agent_wrapper"] = {"default": agent}
-    memory = agent.workspace_path / "personal/REME_MEMORY.md"
-    memory.parent.mkdir()
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory.parent.mkdir(parents=True)
     memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
     session_id = (await PaNewSessionStep(app_context=context)()).answer
     client = _Codex.instances[0]
     prompt = client.opened[-1][2]["developer_instructions"]
-    assert "Use Chinese." in prompt
-    assert ("先读取最新完整文件" if language == "zh" else "read the latest complete file") in prompt
-    assert ("立即从该文件删除对应内容" if language == "zh" else "immediately remove the matching content") in prompt
-    assert ("恢复已遗忘或删除的内容" if language == "zh" else "never restore forgotten or deleted content") in prompt
+    assert str(memory) in prompt and str(agent.workspace_path) in prompt
+    assert "Use Chinese." not in prompt
+    assert ("先读取最新完整文件" if language == "zh" else "Read the complete current file") in prompt
+    assert ("立即删除对应记忆" if language == "zh" else "Immediately remove memories") in prompt
+    assert (
+        "不从旧会话或摘要中恢复" if language == "zh" else "restore them from old conversations or summaries"
+    ) in prompt
     assert not client.threads[session_id].inputs
     memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
     for _ in range(2):
@@ -348,8 +367,8 @@ async def test_pa_memory_reaches_codex_thread_instructions_and_refreshes_on_rota
         assert response.success
     assert all(options["developer_instructions"] == prompt for _, _, options in client.opened)
     await PaNewSessionStep(app_context=context)()
-    assert "Use English." in client.opened[-1][2]["developer_instructions"]
-    assert "Use Chinese." not in client.opened[-1][2]["developer_instructions"]
+    assert client.opened[-1][2]["developer_instructions"] == prompt
+    assert memory.read_text(encoding="utf-8") == "# Preferences\n- Use English.\n"
 
 
 @pytest.mark.asyncio

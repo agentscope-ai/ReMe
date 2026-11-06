@@ -1,6 +1,4 @@
-"""Read pending resource packages and retain interesting findings."""
-
-import frontmatter
+"""Run Remy's collector and initialize its optional output note."""
 
 from ._interest import _InterestStep
 from ...components import R
@@ -8,26 +6,35 @@ from ...components import R
 
 @R.register("find_interest_step")
 class FindInterestStep(_InterestStep):
-    """The agent writes an optional note and acknowledges only packages it processed."""
+    """Leave resource selection and interest learning to the collector prompt."""
 
     async def execute(self):
-        memory = await self._memory()
-        before = await self._notes()
+        self._validate("default_wakeup_minutes")
+        self.context.response.answer = {"created": []}
+        await self._ensure_memory()
+        session_id = self._state["session_id"]
+        if session_id is None:
+            return self.context.response
+        session_path = await self.agent_wrapper.get_session_path(session_id)
+        if session_id != self._state["session_id"]:
+            return self.context.response
         now = self._now()
-        stem = f"{self.config_value('daily_dir')}/{now:%Y-%m-%d}/interest_{now:%H%M%S}"
-        path, suffix = f"{stem}.md", 1
-        while self._path(path).exists():
-            path, suffix = f"{stem}_{suffix}.md", suffix + 1
+        filename, suffix = f"interest_{now:%H%M%S}.md", 1
+        while self._note_path(filename).exists():
+            filename, suffix = f"interest_{now:%H%M%S}_{suffix}.md", suffix + 1
         await self._agent(
-            memory,
-            {"output_path": path, "existing_interests": self._summaries(before)},
             ["resource_changes", "resource_processed"],
+            session_id=session_id,
+            session_path=session_path or "",
+            output_path=self._note_path(filename),
         )
-        notes = await self._notes(before)
-        if notes.keys() - before.keys() - {path} or any(
-            name not in notes or frontmatter.dumps(notes[name]) != frontmatter.dumps(post)
-            for name, post in before.items()
-        ):
-            raise ValueError("Find agent must preserve existing interests and write only output_path")
-        self.context.response.answer = {"created": [path for path in notes if path not in before]}
+        async with self._locked_notes([filename]):
+            if self._note_path(filename).exists():
+                post = await self._load_note(filename)
+                if post.content.strip():
+                    post.metadata.update(status="unsent", created_at=now.isoformat())
+                    await self._save_note(filename, post)
+                    self.context.response.answer["created"] = [
+                        self._note_path(filename).relative_to(self.workspace_path).as_posix(),
+                    ]
         return self.context.response

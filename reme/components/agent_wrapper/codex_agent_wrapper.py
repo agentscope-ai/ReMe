@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import partial
 import json
 import os
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
@@ -276,6 +277,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Hold the conversation lock until native compaction has finished."""
         async with self._session({"session_id": session_id}, compact=True) as thread:
             await self.app_server.compact(thread)
+
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Locate the native session file without loading its history or waiting for a turn."""
+        await self.start()
+        return await self.app_server.get_session_path(session_id)
 
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""

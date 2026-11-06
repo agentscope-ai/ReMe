@@ -74,12 +74,15 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
     context, agent = runtime
     assert (await PaSessionStep(app_context=context)()).answer == {"session_id": None, "status": None}
     assert not agent.created
-    assert (await PaNewSessionStep(app_context=context)()).answer == "session-1"
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    assert not memory.exists()
+    step = PaNewSessionStep(app_context=context)
+    assert (await step()).answer == "session-1"
     assert (await PaSessionStep(app_context=context)()).answer == {"session_id": "session-1", "status": "idle"}
     assert not agent.calls
-    assert "自然、主动地了解用户" in agent.created[0]["system_prompt"]
+    assert str(memory) in agent.created[0]["system_prompt"]
     assert agent.created[0]["job_tools"] == []
-    assert not (agent.workspace_path / "personal/REME_MEMORY.md").exists()
+    assert memory.read_text(encoding="utf-8") == step.get_prompt("default_memory") + "\n"
     assert (await PaNewSessionStep(app_context=context)()).answer == "session-2"
     assert (await PaSessionStep(app_context=context)()).answer["session_id"] == "session-2"
     assert agent.released == ["session-1"]
@@ -96,9 +99,12 @@ async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_
         assert response.success and response.answer == "hello"
         assert all(queue.get_nowait().session_id == "session-1" for _ in range(queue.qsize()))
     assert len(agent.created) == 1
-    prefix = "你是 prome" if custom_prompt is None else custom_prompt.strip() or "个人记忆文件："
-    assert agent.created[0]["system_prompt"].startswith(prefix)
-    assert "自然、主动地了解用户" in agent.created[0]["system_prompt"]
+    prompt = agent.created[0]["system_prompt"]
+    if custom_prompt is None:
+        assert prompt.startswith("你叫 Remy")
+        assert str(agent.workspace_path / "digest/personal/REME_MEMORY.md") in prompt
+    else:
+        assert prompt == custom_prompt.strip()
     assert [kwargs["resume"] for _, kwargs in agent.calls] == ["session-1", "session-1"]
     assert agent.created[0] == {key: value for key, value in agent.calls[0][1].items() if key != "resume"}
 
@@ -261,12 +267,15 @@ async def test_pa_rejects_non_codex_wrappers_before_accessing_state(tmp_path, st
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["", " \n\t", "# Preferences\n- Answer concisely.\n"])
+@pytest.mark.parametrize(
+    "content",
+    ["", " \n\t", "# Preferences\n- Keep {original} text.\n", "x" * (DEFAULT_MAX_BYTES + 1)],
+)
 @pytest.mark.parametrize("first_chat", [False, True])
-async def test_new_session_prepares_personal_memory_without_modifying_it(runtime, content, first_chat):
+async def test_session_uses_memory_path_without_injecting_or_modifying_existing_contents(runtime, content, first_chat):
     context, agent = runtime
-    memory = agent.workspace_path / "personal/REME_MEMORY.md"
-    memory.parent.mkdir()
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory.parent.mkdir(parents=True)
     memory.write_text(content, encoding="utf-8")
     agent._cwd = agent.workspace_path / "another-directory"
     if first_chat:
@@ -278,16 +287,10 @@ async def test_new_session_prepares_personal_memory_without_modifying_it(runtime
     assert str(memory) in prompt
     assert str(agent.cwd) not in prompt
     assert "先读取最新完整文件" in prompt
-    assert "内容简洁完整" in prompt
-    assert "只记录用户明确提供或确认的信息" in prompt
-    assert "立即从该文件删除对应内容" in prompt
-    assert "不能仅因近期未提及就删除" in prompt
-    assert "恢复已遗忘或删除的内容" in prompt
+    assert "主人要求遗忘时，立即删除对应记忆" in prompt
+    assert "保留仍有效的长期事实" in prompt
     if content.strip():
-        assert f"【个人记忆正文】\n{content.strip()}\n【个人记忆正文结束】" in prompt
-        assert "自然、主动地了解用户" not in prompt
-    else:
-        assert "自然、主动地了解用户" in prompt
+        assert content.strip() not in prompt
     assert memory.read_text(encoding="utf-8") == content
 
 
@@ -296,8 +299,7 @@ async def test_session_keeps_its_prompt_and_tools_until_rotation(runtime):
     context, agent = runtime
     await PaNewSessionStep(app_context=context, prompt_dict={"system_prompt_zh": "原来的提示词。"})()
     original = agent.created[0]
-    memory = agent.workspace_path / "personal/REME_MEMORY.md"
-    memory.parent.mkdir()
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
     memory.write_text("# Projects\n- Build ReMe.\n", encoding="utf-8")
     for _ in range(2):
         await PaChatStep(
@@ -310,34 +312,47 @@ async def test_session_keeps_its_prompt_and_tools_until_rotation(runtime):
         )
         assert agent.calls[-1][1] == {"resume": "session-1", **original}
     await PaNewSessionStep(app_context=context, prompt_dict={"system_prompt_zh": "修改后的提示词。"})()
-    assert agent.created[1]["system_prompt"].startswith("修改后的提示词。")
-    assert "Build ReMe." in agent.created[1]["system_prompt"]
-    assert "自然、主动地了解用户" not in agent.created[1]["system_prompt"]
+    assert agent.created[1]["system_prompt"] == "修改后的提示词。"
+    assert memory.read_text(encoding="utf-8") == "# Projects\n- Build ReMe.\n"
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["oversized", "directory", "escape", "permission"])
-async def test_memory_read_errors_preserve_the_current_session(runtime, tmp_path, monkeypatch, failure):
+async def test_personal_memory_and_interest_observations_follow_digest_directory(runtime):
+    context, agent = runtime
+    context.app_config.digest_dir = "summaries"
+    memory = agent.workspace_path / "summaries/personal/REME_MEMORY.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text("主人正在研究桌面交互。", encoding="utf-8")
+    legacy = agent.workspace_path / "personal/REME_MEMORY.md"
+    legacy.parent.mkdir()
+    legacy.write_text("旧路径的内容不应加载。", encoding="utf-8")
+    await PaNewSessionStep(app_context=context)()
+    prompt = agent.created[0]["system_prompt"]
+    assert str(memory) in prompt and str(legacy) not in prompt
+    assert memory.read_text(encoding="utf-8") == "主人正在研究桌面交互。"
+    assert legacy.read_text(encoding="utf-8") == "旧路径的内容不应加载。"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["directory", "escape", "permission"])
+async def test_memory_initialization_errors_preserve_the_current_session(runtime, tmp_path, monkeypatch, failure):
     context, agent = runtime
     await PaNewSessionStep(app_context=context)()
     previous = dict(context.metadata["pa"])
-    memory = tmp_path / "personal/REME_MEMORY.md"
-    memory.parent.mkdir()
-    if failure == "oversized":
-        memory.write_bytes(b"x" * (DEFAULT_MAX_BYTES + 1))
-        error, message = ValueError, "exceeds read limit"
-    elif failure == "directory":
+    memory = tmp_path / "digest/personal/REME_MEMORY.md"
+    memory.unlink()
+    if failure == "directory":
         memory.mkdir()
-        error, message = IsADirectoryError, None
+        error, message = ValueError, "regular file"
     elif failure == "escape":
         memory.symlink_to(tmp_path.parent / "outside-memory.md")
         error, message = ValueError, "inside the workspace"
     else:
         monkeypatch.setattr(
-            "reme.steps.proactive.pa.read_file_safe",
-            AsyncMock(side_effect=PermissionError("read denied")),
+            "reme.steps.proactive.pa.write_file_safe",
+            AsyncMock(side_effect=PermissionError("write denied")),
         )
-        error, message = PermissionError, "read denied"
+        error, message = PermissionError, "write denied"
     with pytest.raises(error, match=message):
         await PaNewSessionStep(app_context=context)()
     assert context.metadata["pa"] == previous
@@ -351,40 +366,46 @@ async def test_pa_templates_follow_language_and_preserve_memory(tmp_path, app_la
     context = ApplicationContext(workspace_dir=str(tmp_path), language=app_language)
     agent = PaAgent(app_context=context)
     context.components["agent_wrapper"] = {"default": agent}
+    memory = tmp_path / "digest/personal/REME_MEMORY.md"
     if content is not None:
-        memory = tmp_path / "personal/REME_MEMORY.md"
-        memory.parent.mkdir()
+        memory.parent.mkdir(parents=True)
         memory.write_text(content, encoding="utf-8")
-    await PaNewSessionStep(app_context=context, language=step_language)()
+    step = PaNewSessionStep(app_context=context, language=step_language)
+    await step()
     prompt = agent.created[0]["system_prompt"]
     chinese = (step_language or app_language) == "zh"
-    assert prompt.startswith("你是 prome" if chinese else "You are prome")
-    assert ("【记忆维护与遗忘】" if chinese else "Memory maintenance and forgetting:") in prompt
-    assert ("恢复已遗忘或删除的内容" if chinese else "never restore forgotten or deleted content") in prompt
+    assert prompt.startswith("你叫 Remy" if chinese else "You are Remy")
+    assert ("可爱、亲切" if chinese else "cute, warm") in prompt
+    assert f"{'工作区：' if chinese else 'Workspace: '}{tmp_path}" in prompt
+    assert "【工作流】" not in prompt and "[Workflow]" not in prompt
+    assert "会话创建时间" not in prompt and "Session created at" not in prompt
+    assert "AGENTS.md" not in prompt
+    assert str(memory.parent / "INTERESTS.md") not in prompt
+    assert str(memory) in prompt
     if content is None:
-        assert ("自然、主动地了解用户" if chinese else "naturally ask") in prompt
+        assert memory.read_text(encoding="utf-8") == step.get_prompt("default_memory") + "\n"
+        assert ("财经新闻" if chinese else "financial news") in memory.read_text(encoding="utf-8")
+        assert not (memory.parent / "INTERESTS.md").exists()
     else:
-        assert content.strip() in prompt
+        assert content.strip() not in prompt
         assert memory.read_text(encoding="utf-8") == content
 
 
 @pytest.mark.asyncio
-async def test_pa_prompt_dict_overrides_are_loaded_for_all_memory_templates(runtime):
+async def test_pa_prompt_and_default_memory_overrides_only_seed_missing_files(runtime):
     context, agent = runtime
     prompts = {
-        "system_prompt_zh": "自定义人设。",
-        "memory_missing_zh": "自定义首次询问。",
-        "memory_content_zh": "记忆开始：{content}：记忆结束",
-        "memory_prompt_zh": "文件：{path}\n{memory}\n自定义维护规则。",
+        "system_prompt_zh": "自定义人设。\n文件：{memory_path}",
+        "default_memory_zh": "# 自定义初始记忆\n保留 {原文}。",
     }
     await PaNewSessionStep(app_context=context, prompt_dict=prompts)()
-    assert "自定义人设。\n\n文件：" in agent.created[0]["system_prompt"]
-    assert "自定义首次询问。\n自定义维护规则。" in agent.created[0]["system_prompt"]
-    memory = agent.workspace_path / "personal/REME_MEMORY.md"
-    memory.parent.mkdir()
-    memory.write_text("保留 {原文}。", encoding="utf-8")
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    assert agent.created[0]["system_prompt"] == f"自定义人设。\n文件：{memory}"
+    assert memory.read_text(encoding="utf-8") == prompts["default_memory_zh"] + "\n"
+    memory.write_text("更新后的 {记忆}。", encoding="utf-8")
+    prompts["default_memory_zh"] = "不应替换已有记忆。"
     await PaNewSessionStep(app_context=context, prompt_dict=prompts)()
-    assert "记忆开始：保留 {原文}。：记忆结束\n自定义维护规则。" in agent.created[1]["system_prompt"]
+    assert memory.read_text(encoding="utf-8") == "更新后的 {记忆}。"
 
 
 @pytest.mark.asyncio

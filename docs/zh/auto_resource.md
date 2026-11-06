@@ -141,7 +141,7 @@ Cron 在启动后的下一个整点执行，服务停止期间不会物理删除
 截图来自运行 ReMe 的宿主机桌面。macOS 需要为实际运行进程授予屏幕录制权限；无图形会话、无显示器、
 缺少权限或依赖时该轮任务失败，不发布资源包，等待下次定时触发。支持情况由本机 MSS 后端决定。
 
-`reme/steps/data_connectors/` 中的 `BaseConnectorStep` 负责暂存、校验和原子发布，
+`reme/steps/proactive/data_connectors/` 中的 `BaseConnectorStep` 负责暂存、校验和原子发布，
 `ScreenCaptureStep` 逐屏保存 MSS 返回的原尺寸 PNG，不合并或缩放不同分辨率的显示器：
 
 ```text

@@ -17,8 +17,8 @@ from reme.components.file_catalog import LocalFileCatalog
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import resolve_app_config
 from reme.schema import ResourceFile, ResourceMetadata
-from reme.steps.data_connectors import BaseConnectorStep, ScreenCaptureStep
 from reme.steps.index.watch_changes import WatchChangesStep
+from reme.steps.proactive.data_connectors import BaseConnectorStep, ScreenCaptureStep
 from reme.utils.file_watch import collect_existing, match_file
 
 
@@ -87,7 +87,7 @@ async def test_all_displays_publish_one_minimal_package(tmp_path, screens, monke
         def now(cls, tz=None):
             return instant.astimezone(tz)
 
-    monkeypatch.setattr("reme.steps.data_connectors.base_connector.datetime", Clock)
+    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", Clock)
 
     def before_grab(_display_id):
         assert not list((tmp_path / "assets").rglob("metadata.json"))

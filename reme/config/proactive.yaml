@@ -69,21 +69,43 @@ jobs:
     backend: background
     steps:
       - backend: pa_loop_step
+        default_wakeup_minutes: &pa_wakeup_minutes 5
 
   pa_proactive:
     backend: base
     enable_serve: false
     track_execution: true
+    default_wakeup_minutes: *pa_wakeup_minutes
     steps:
       - backend: find_interest_step
         agent_wrapper: default
       - backend: push_interest_step
         agent_wrapper: default
 
+  send_reminder:
+    backend: base
+    enable_serve: false
+    description: "Send one contextual assistant reminder to the bound PA session and mark its interest files sent."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        message: {type: string, minLength: 1, maxLength: 100000}
+        files:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: "Interest filenames under daily_dir, including the .md extension"
+          items: {type: string}
+      required: [message, files]
+    steps:
+      - backend: send_reminder_step
+        agent_wrapper: default
+
   set_next_wakeup:
     backend: base
     enable_serve: false
-    description: "Set this proactive round's next wakeup delay in minutes; omitted calls default to five minutes."
+    description: "Set only the next proactive wakeup delay in minutes; omission uses the configured default."
     parameters:
       type: object
       additionalProperties: false
@@ -121,7 +143,7 @@ jobs:
 
   pa_new_session:
     backend: base
-    description: "Load personal memory and select an empty Codex session; return its ID without generating a reply."
+    description: "Prepare personal memory and select an empty Codex session; return its ID without generating a reply."
     parameters:
       type: object
       properties: {}

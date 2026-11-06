@@ -202,8 +202,11 @@ async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tm
     try:
         await chat(query="Help plan my day", stream_queue=queue)
         assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith("You are prome")
-        assert "Personal memory file:" in agent.reply_kwargs["system_prompt"]
+        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
+        memory = tmp_path / "digest/personal/REME_MEMORY.md"
+        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
+        assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
+        assert "financial news" in memory.read_text(encoding="utf-8")
         assert agent.reply_kwargs["resume"] == "session-new"
         chunks = [await queue.get() for _ in range(5)]
         assert [chunk.chunk_type for chunk in chunks] == [

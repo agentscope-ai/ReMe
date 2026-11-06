@@ -81,6 +81,16 @@ async def test_session_commands_are_backend_neutral():
     assert wrapper.compacted_session == "session-1"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+async def test_session_path_lookup_is_explicitly_unsupported(tmp_path, wrapper_class):
+    """Backends without native path lookup raise the shared capability error."""
+    wrapper = wrapper_class(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+    with pytest.raises(NotImplementedError, match=f"{wrapper_class.__name__} does not support session path lookup"):
+        await wrapper.get_session_path("session-1")
+
+
 @pytest.mark.parametrize(
     ("wrapper_class", "sdk_package"),
     [

@@ -159,7 +159,7 @@ Capture observes the desktop of the host running ReMe. On macOS, grant Screen Re
 running process. Missing dependencies, permissions, displays, or a graphical session fail that run without publishing
 a resource package; the next scheduled run retries. Availability depends on the local MSS backend.
 
-Under `reme/steps/data_connectors/`, `BaseConnectorStep` stages, validates, and atomically publishes a package.
+Under `reme/steps/proactive/data_connectors/`, `BaseConnectorStep` stages, validates, and atomically publishes a package.
 `ScreenCaptureStep` saves a separate PNG at the size returned by MSS for each display, without merging or resizing:
 
 ```text

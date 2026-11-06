@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from .base_connector import BaseConnectorStep
-from ...components import R
+from ....components import R
 
 
 @R.register("screen_capture_step")

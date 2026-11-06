@@ -284,6 +284,13 @@ class BaseAgentWrapper(BaseComponent):
     async def release_session(self, session_id: str) -> None:
         """Release idle runtime resources; persisted session history remains available."""
 
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Return the native session file path, or None when no path is available.
+
+        The returned path may precede file creation. Lookup errors propagate.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support session path lookup")
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
         raise NotImplementedError(f"{type(self).__name__} does not support session reading")

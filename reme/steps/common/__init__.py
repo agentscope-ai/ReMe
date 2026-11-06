@@ -15,7 +15,7 @@ from .shell import ShellStep
 from .stream_demo import StreamDemoStep1, StreamDemoStep2
 from .stream_llm_demo import StreamLLMDemoStep
 from .status import StatusStep
-from .session import SessionAppendStep, SessionReadStep, SessionStatusStep
+from .session import SessionAppendStep, SessionReadStep
 from .version import VersionStep
 
 __all__ = [
@@ -38,6 +38,5 @@ __all__ = [
     "StatusStep",
     "SessionAppendStep",
     "SessionReadStep",
-    "SessionStatusStep",
     "VersionStep",
 ]

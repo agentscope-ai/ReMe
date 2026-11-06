@@ -2,24 +2,56 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from ..base_step import BaseStep
-from ..file_io._file_io import read_file_safe
+from ..file_io._file_io import get_path_lock, write_file_safe
 from ..file_io._path import resolve_path
 from ...components import R
 from ...components.agent_wrapper import CodexAgentWrapper
-from ...constants import DEFAULT_MAX_BYTES
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, collect_reply
 from ...utils.async_utils import finish_cleanup
 
 
 class _PaStep(BaseStep):
-    """Prepare personal memory for Codex sessions and serialize session changes."""
+    """Share Remy's workspace context and serialize foreground session changes."""
 
     @property
     def _state(self) -> dict:
         return self.app_context.metadata.setdefault("pa", {"session_id": None, "lock": asyncio.Lock()})
+
+    def _now(self) -> datetime:
+        timezone = self.app_context.app_config.timezone
+        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+
+    def _path(self, path: str) -> Path:
+        target, error = resolve_path(self.workspace_path, path)
+        if error:
+            raise ValueError(error)
+        return target
+
+    def _personal_path(self, filename: str) -> Path:
+        return self._path(f"{self.config_value('digest_dir')}/personal/{filename}")
+
+    async def _ensure_memory(self) -> Path:
+        target = self._personal_path("REME_MEMORY.md")
+        async with await get_path_lock(target):
+            if not target.exists():
+                await write_file_safe(target, self.get_prompt("default_memory") + "\n")
+            elif not target.is_file():
+                raise ValueError("Personal memory must be a regular file")
+        return target
+
+    def _system_prompt(self, **details) -> str:
+        return self.prompt_format(
+            "system_prompt",
+            workspace_dir=self.workspace_path,
+            memory_path=self._personal_path("REME_MEMORY.md"),
+            **details,
+        )
 
     def _validate(self, *parameters: str) -> None:
         if self.app_context is None or self.agent_wrapper is None:
@@ -31,21 +63,9 @@ class _PaStep(BaseStep):
             raise ValueError(f"Unexpected PA parameters: {', '.join(sorted(unexpected))}")
 
     async def _reply_kwargs(self) -> dict:
-        target, error = resolve_path(self.workspace_path, "personal/REME_MEMORY.md")
-        if error:
-            raise ValueError(error)
-        try:
-            content, _ = await read_file_safe(target, max_bytes=DEFAULT_MAX_BYTES, require_complete=True)
-        except FileNotFoundError:
-            content = ""
-        memory = (
-            self.prompt_format("memory_content", content=content.strip())
-            if content.strip()
-            else self.get_prompt("memory_missing")
-        )
-        prompt = self.prompt_format("memory_prompt", path=target, memory=memory)
+        await self._ensure_memory()
         return {
-            "system_prompt": f"{self.get_prompt('system_prompt')}\n\n{prompt}".strip(),
+            "system_prompt": self._system_prompt(),
             "job_tools": list(self.kwargs.get("job_tools") or []),
         }
 

@@ -2,7 +2,6 @@
 
 from ._source_format import normalize_posix_path
 from .bm25_search import Bm25SearchStep
-from .catalog import ResourceChangesStep, ResourceProcessedStep
 from .clear_paths import ClearPathsStep
 from .clear_store import ClearStoreStep
 from .cleanup_catalog import CleanupCatalogStep
@@ -44,8 +43,6 @@ __all__ = [
     "normalize_posix_path",
     "ReadAllDraftStep",
     "ReindexStep",
-    "ResourceChangesStep",
-    "ResourceProcessedStep",
     "OptimizeIndexStep",
     "SearchStep",
     "TraverseStep",

@@ -1,114 +1,90 @@
-"""Shared file and agent operations for the two proactive roles."""
+"""Workspace files shared by Remy's collection, decision, and delivery steps."""
 
+from contextlib import asynccontextmanager, AsyncExitStack
 from datetime import datetime
-import json
+from hashlib import sha256
 from pathlib import Path
 import re
-from zoneinfo import ZoneInfo
 
 import frontmatter
 
 from .pa import _PaStep
 from ..file_io._file_io import detect_file_encoding, get_path_lock, read_file_safe, write_file_safe
-from ..file_io._path import resolve_path
-from ...constants import DEFAULT_MAX_BYTES
 
 _INTEREST_NAME = re.compile(r"interest_([0-9]{6})(?:_[0-9]+)?\.md\Z")
-_STATUSES = {"unsent", "ready", "sent", "discarded"}
+_DELIVERY_FIELDS = {"status", "updated_at", "sent_at", "message_id", "target_session_id"}
 
 
 class _InterestStep(_PaStep):
-    """Keep durable decisions in Markdown and use a fresh agent thread per call."""
+    """Keep interest decisions in Markdown and model instructions in YAML."""
 
-    def _now(self) -> datetime:
-        timezone = self.app_context.app_config.timezone
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+    def _note_path(self, filename: str) -> Path:
+        match = _INTEREST_NAME.fullmatch(filename) if isinstance(filename, str) else None
+        if match is None:
+            raise ValueError("Expected an interest_HHMMSS.md filename")
+        datetime.strptime(match[1], "%H%M%S")
+        raw = self.workspace_path / str(self.config_value("daily_dir")) / filename
+        if raw.is_symlink():
+            raise ValueError("Interest files must not be symlinks")
+        return self._path(str(raw))
 
-    def _path(self, path: str) -> Path:
-        target, error = resolve_path(self.workspace_path, path)
-        if error:
-            raise ValueError(error)
-        return target
-
-    async def _memory(self) -> str:
-        self._validate()
-        content, _ = await read_file_safe(
-            self._path("personal/REME_MEMORY.md"),
-            max_bytes=DEFAULT_MAX_BYTES,
-            require_complete=True,
+    async def _agent(self, tools: list[str], *, injected: dict | None = None, **details) -> None:
+        prompt = self._system_prompt(
+            now=self._now().isoformat(),
+            interests_path=self._personal_path("INTERESTS.md"),
+            interest_pattern=self._path(str(self.config_value("daily_dir"))) / "interest_*.md",
+            **details,
         )
-        if not content.strip():
-            raise ValueError("personal/REME_MEMORY.md is empty")
-        return content
-
-    async def _agent(self, memory: str, details: dict, tools: list[str]) -> None:
         result = await self.agent_wrapper.reply(
-            json.dumps({"personal_memory": memory, **details}, ensure_ascii=False, default=str),
-            system_prompt=self.get_prompt("system_prompt"),
+            self.get_prompt("user_prompt"),
+            system_prompt=prompt,
             job_tools=list(self.kwargs.get("job_tools", tools)),
+            injected_job_kwargs=injected or {},
         )
         if result["status"] != "completed":
             raise RuntimeError(result.get("error") or f"Proactive agent {result['status']}")
 
-    async def _load_note(self, path: str) -> frontmatter.Post:
-        content, _ = await read_file_safe(self._path(path), max_bytes=self.max_file_bytes(), require_complete=True)
+    async def _load_note(self, filename: str) -> frontmatter.Post:
+        content, _ = await read_file_safe(
+            self._note_path(filename),
+            max_bytes=self.max_file_bytes(),
+            require_complete=True,
+        )
         return frontmatter.loads(content)
 
-    async def _save_note(self, path: str, post: frontmatter.Post) -> None:
-        # Callers hold the existing per-path lock throughout read/modify/write.
+    async def _save_note(self, filename: str, post: frontmatter.Post) -> None:
+        # Callers hold the existing per-path lock across read/modify/write.
         post["updated_at"] = self._now().isoformat()
-        target = self._path(path)
+        target = self._note_path(filename)
         await write_file_safe(target, frontmatter.dumps(post), encoding=await detect_file_encoding(target))
 
-    async def _update_note(self, path: str, previous: frontmatter.Post, **metadata) -> frontmatter.Post:
-        lock = await get_path_lock(self._path(path))
-        async with lock:
-            post = await self._load_note(path)
-            if frontmatter.dumps(post) != frontmatter.dumps(previous):
-                raise ValueError(f"Interest changed before update: {path}")
-            post.metadata.update(metadata)
-            await self._save_note(path, post)
-            return post
+    @asynccontextmanager
+    async def _locked_notes(self, filenames: list[str]):
+        async with AsyncExitStack() as stack:
+            for filename in sorted(filenames):
+                await stack.enter_async_context(await get_path_lock(self._note_path(filename)))
+            yield
 
-    async def _notes(self, previous: dict[str, frontmatter.Post] | None = None) -> dict[str, frontmatter.Post]:
-        """Scan every date, repairing notes left between agent writes and post-processing."""
+    async def _notes(self) -> dict[str, frontmatter.Post]:
         notes = {}
-        root = self._path(str(self.config_value("daily_dir")))
-        for entry in sorted(root.glob("????-??-??/interest_*.md")):
-            match = _INTEREST_NAME.fullmatch(entry.name)
-            if not match or entry.is_symlink() or entry.parent.is_symlink() or not entry.is_file():
+        for entry in sorted(self._path(str(self.config_value("daily_dir"))).glob("interest_*.md")):
+            if entry.is_symlink() or not entry.is_file() or not _INTEREST_NAME.fullmatch(entry.name):
                 continue
-            try:
-                created = datetime.strptime(f"{entry.parent.name} {match[1]}", "%Y-%m-%d %H%M%S")
-            except ValueError:
-                continue
-            path = entry.relative_to(self.workspace_path).as_posix()
-            lock = await get_path_lock(self._path(path))
-            async with lock:
-                post = await self._load_note(path)
+            self._note_path(entry.name)
+            async with self._locked_notes([entry.name]):
+                post = await self._load_note(entry.name)
                 if not post.content.strip():
                     continue
-                original = frontmatter.dumps(post)
-                post.metadata.setdefault("id", f"interest_{created:%Y%m%d}_{entry.stem[9:]}")
-                post.metadata.setdefault("status", "unsent")
-                post.metadata.setdefault("created_at", created.replace(tzinfo=self._now().tzinfo).isoformat())
-                post.metadata.setdefault("updated_at", post["created_at"])
-                if previous is not None:
-                    before = previous.get(path)
-                    if before is None:
-                        post["status"] = "unsent"
-                    elif before["status"] in {"sent", "discarded"} and frontmatter.dumps(before) != original:
-                        raise ValueError(f"Proactive agent changed a terminal interest: {path}")
-                if post["status"] not in _STATUSES:
-                    raise ValueError(f"Invalid interest status in {path}: {post['status']!r}")
-                changed = previous is not None and (
-                    path not in previous or frontmatter.dumps(previous[path]) != frontmatter.dumps(post)
-                )
-                if changed or frontmatter.dumps(post) != original:
-                    await self._save_note(path, post)
-                notes[path] = post
+                if "status" not in post:
+                    post["status"] = "unsent"
+                    post.metadata.setdefault("created_at", self._now().isoformat())
+                    await self._save_note(entry.name, post)
+                if post["status"] not in {"unsent", "sent"}:
+                    raise ValueError(f"Invalid interest status in {entry.name}: {post['status']!r}")
+                notes[entry.name] = post
         return notes
 
     @staticmethod
-    def _summaries(notes: dict[str, frontmatter.Post]) -> list[dict]:
-        return [{**post.metadata, "path": path} for path, post in notes.items()]
+    def _version(post: frontmatter.Post, *, delivery: bool = False) -> str:
+        metadata = {key: value for key, value in post.metadata.items() if not delivery or key not in _DELIVERY_FIELDS}
+        return sha256(frontmatter.dumps(frontmatter.Post(post.content, **metadata)).encode()).hexdigest()
