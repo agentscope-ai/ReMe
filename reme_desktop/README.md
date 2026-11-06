@@ -42,6 +42,10 @@ selected session after restarting the ReMe service remains the backend's respons
   establish a quiet baseline instead of producing a burst of old reminders.
 - Settings controls character size and a thirty-minute quiet period. Quiet mode affects desktop presentation, not the
   backend's collection or generation of memories.
+- Optional system notifications are off by default. When enabled, they report long foreground replies (at least 30
+  seconds), failures, and requests for attention while chat is unfocused. Hidden or unavailable characters can deliver
+  reminders through native notifications, sharing the bubble cooldown and hourly budget. Clicking returns to the
+  originating conversation/message; notifications from a superseded session cannot redirect the current conversation.
 
 The main process owns HTTP/SSE, reconnection, the opaque subscription cursor, and presentation state. Subscription
 `snapshot`, `reset`, `session_changed`, `message_upsert`, and `status_changed` follow the existing ReMe contract. Cursors
@@ -56,6 +60,9 @@ Each entry identifies its selected PA session, native turn, source, phase, and o
 events for every client sharing that PA session, including conversations started in Studio. Activity is transient;
 conversation files remain the source of truth.
 
+The backend tracks unfinished tools by call ID for each turn. Out-of-order or duplicate results cannot finish another
+tool, and the working phase remains until the last tool completes. Terminal outcomes clear that turn's tracking state.
+
 `src/main/behavior.ts` owns animation priority: dragging, foreground work, visible reminders, completion/error feedback,
 manual previews, attentive listening, background work, then ambient gestures or sleep. Working uses the existing thinking
 clip; answering uses speaking. Foreground work interrupts previews, and dragging restores the latest activity when released.
@@ -66,6 +73,15 @@ stale completion callbacks. The renderer only plays the chosen clip or segment i
 Neutral idle/listening gestures vary every 15–45 seconds; semantic actions such as thinking and reminding are event-driven.
 After five minutes without interaction Remy sleeps. Quiet mode suppresses ambient/background gestures and bubbles while
 foreground interaction remains available. No model calls are made to choose ambient actions.
+
+The desktop chooses one surface: a reminder bubble, an active task label, a request for attention, or brief outcome
+feedback. Status updates do not consume reminder appearances. Hidden/preempted reminders retain their remaining visible
+time. Display duration, cooldown, and hourly counts begin only after the renderer acknowledges a painted bubble or the
+OS confirms a native notification; presentation never marks a message read.
+
+Animation playback reports start, end, and failure with its playback ID. Missing acknowledgements and asset failures
+recover to idle without changing the agent's real activity. The companion receives only presentation data; chat history
+is excluded. Revisioned IPC patches update changed fields, and native bounds change only when the layout or position does.
 
 ## Files and assets
 

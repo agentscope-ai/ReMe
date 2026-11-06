@@ -30,7 +30,20 @@ export interface AnimationIntent {
 export interface Behavior {
   animation: AnimationIntent;
   label: string;
+  notice: StatusNotice | null;
+  error: string;
 }
+
+export type PlaybackStatus = "started" | "ended" | "failed";
+
+export interface StatusNotice {
+  kind: "status";
+  id: string;
+  text: string;
+  tone: "working" | "waiting" | "success" | "error";
+}
+
+export type CompanionSurface = Bubble | StatusNotice;
 
 export interface StreamChunk {
   chunk_type: string;
@@ -96,11 +109,14 @@ export interface Settings {
   endpoint: string;
   scale: number;
   quietUntil: number;
+  notifications: boolean;
   anchor?: { x: number; y: number };
 }
 
 export interface Bubble {
+  kind: "reminder";
   id: string;
+  presentationId: number;
   text: string;
   paused: boolean;
 }
@@ -116,6 +132,7 @@ export interface PendingTurn {
 }
 
 export interface DesktopState {
+  revision: number;
   connection: "connecting" | "connected" | "reconnecting" | "error";
   connectionError: string;
   settings: Settings;
@@ -125,12 +142,15 @@ export interface DesktopState {
   messages: SessionMessage[];
   pending: PendingTurn | null;
   bubble: Bubble | null;
+  surface: CompanionSurface | null;
   unread: number;
   chatVisible: boolean;
   chatFocused: boolean;
   focusMessageId: string | null;
   behavior: Behavior;
 }
+
+export type DesktopPatch = Partial<DesktopState> & { revision: number };
 
 export interface AnimationClip {
   id: string;
@@ -166,7 +186,13 @@ export interface Bootstrap {
 }
 
 export type DesktopAction =
-  | { type: "animation.ended"; id: number }
+  | { type: "playback.report"; id: number; status: PlaybackStatus }
+  | {
+      type: "bubble.shown";
+      sessionId: string;
+      id: string;
+      presentationId: number;
+    }
   | { type: "interaction" }
   | { type: "companion.menu" }
   | { type: "chat.open"; messageId?: string }
@@ -183,6 +209,7 @@ export type DesktopAction =
       endpoint?: string;
       scale?: number;
       quietUntil?: number;
+      notifications?: boolean;
     }
   | { type: "link.open"; url: string };
 
@@ -191,7 +218,7 @@ export type DesktopCommand = { type: "settings.open" };
 export interface DesktopApi {
   bootstrap(): Promise<Bootstrap>;
   action(action: DesktopAction): Promise<void>;
-  onState(callback: (state: DesktopState) => void): () => void;
+  onState(callback: (state: DesktopPatch) => void): () => void;
   onLayout(callback: (layout: WindowLayout) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   pointer(interactive: boolean): void;

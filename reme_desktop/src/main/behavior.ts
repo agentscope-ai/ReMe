@@ -5,6 +5,8 @@ import type {
   AnimationManifest,
   Behavior,
   DesktopState,
+  PlaybackStatus,
+  StatusNotice,
 } from "../shared/protocol.ts";
 
 const terminal = (phase: AgentActivity["phase"]) =>
@@ -47,6 +49,8 @@ export class BehaviorController {
   value: Behavior = {
     animation: { id: 0, clip: "idle", mode: "loop" },
     label: "你的记忆，在这里",
+    notice: null,
+    error: "",
   };
   dragging = false;
   private activities: Activities = {};
@@ -55,6 +59,9 @@ export class BehaviorController {
   private sequence = 0;
   private since = 0;
   private deadline = Infinity;
+  private started = false;
+  private readonly unavailable = new Set<string>();
+  private error = "";
   private touched: number;
   private nextAmbient: number;
   private ambient: string | null = null;
@@ -139,7 +146,32 @@ export class BehaviorController {
     if (this.owner === "preview") this.key = "";
   }
 
-  ended(id: number, now = Date.now()): void {
+  report(id: number, status: PlaybackStatus, now = Date.now()): void {
+    if (id !== this.value.animation.id) return;
+    if (status === "started") {
+      this.started = true;
+      this.deadline =
+        this.value.animation.mode === "once"
+          ? now +
+            this.duration(
+              this.value.animation.clip,
+              this.value.animation.segment,
+            ) +
+            5000
+          : Infinity;
+    } else if (status === "ended") this.ended(id, now);
+    else {
+      this.deadline = Infinity;
+      if (this.unavailable.has(this.value.animation.clip)) return;
+      this.unavailable.add(this.value.animation.clip);
+      this.error = "部分角色动画无法加载，已切换为待机动作";
+      this.key = "";
+      this.preview = null;
+      this.ambient = null;
+    }
+  }
+
+  private ended(id: number, now: number): void {
     if (id !== this.value.animation.id || this.value.animation.mode !== "once")
       return;
     if (this.owner === "reminder" && this.reminder) {
@@ -176,7 +208,13 @@ export class BehaviorController {
     label: string,
     now: number,
     segment?: AnimationIntent["segment"],
+    notice: StatusNotice | null = null,
   ): Behavior {
+    if (this.unavailable.has(clip)) {
+      clip = "idle";
+      mode = "hold";
+      segment = undefined;
+    }
     if (key !== this.key) {
       const smooth =
         owner === "chat" &&
@@ -189,8 +227,8 @@ export class BehaviorController {
       this.key = key;
       this.owner = owner;
       this.since = now;
-      this.deadline =
-        mode === "once" ? now + this.duration(clip, segment) + 1000 : Infinity;
+      this.started = false;
+      this.deadline = now + 5000;
       this.value = {
         animation: {
           id: ++this.sequence,
@@ -199,14 +237,23 @@ export class BehaviorController {
           ...(segment ? { segment } : {}),
         },
         label,
+        notice,
+        error: this.error,
       };
-    } else if (label !== this.value.label)
-      this.value = { ...this.value, label };
+    } else if (
+      label !== this.value.label ||
+      this.error !== this.value.error ||
+      JSON.stringify(notice) !== JSON.stringify(this.value.notice)
+    )
+      this.value = { ...this.value, label, notice, error: this.error };
     return this.value;
   }
 
   resolve(input: Input, visible: boolean, now = Date.now()): Behavior {
-    if (now >= this.deadline) this.ended(this.value.animation.id, now);
+    if (now >= this.deadline) {
+      if (this.started) this.ended(this.value.animation.id, now);
+      else this.report(this.value.animation.id, "failed", now);
+    }
     if (this.cue && now >= this.cue.until) this.cue = null;
     const select = (
       owner: Owner,
@@ -215,7 +262,13 @@ export class BehaviorController {
       mode: AnimationIntent["mode"],
       label: string,
       segment?: AnimationIntent["segment"],
-    ) => this.choose(owner, key, clip, mode, label, now, segment);
+      notice?: StatusNotice,
+    ) => this.choose(owner, key, clip, mode, label, now, segment, notice);
+    const notice = (
+      id: string,
+      text: string,
+      tone: StatusNotice["tone"] = "working",
+    ): StatusNotice => ({ kind: "status", id, text, tone });
     if (this.dragging)
       return select("base", "dragging", "dragged", "loop", "轻轻挪一挪");
     if (!visible || input.connection !== "connected") {
@@ -242,6 +295,12 @@ export class BehaviorController {
         clips[phase],
         "loop",
         labels[phase],
+        undefined,
+        notice(
+          `chat:${activity?.turn_id ?? input.pending?.id}:${phase}`,
+          labels[phase],
+          phase === "waiting" ? "waiting" : "working",
+        ),
       );
     }
     if (input.bubble && input.bubble.id !== this.reminder?.id)
@@ -251,6 +310,16 @@ export class BehaviorController {
     if (this.reminder) {
       this.touched = now;
       this.nextAmbient = this.nextIdle(now);
+      if (this.unavailable.has("reminding")) {
+        this.reminder = null;
+        return select(
+          "base",
+          "reminder-unavailable",
+          "idle",
+          "hold",
+          "想到一件值得告诉你的事",
+        );
+      }
       const { id, stage } = this.reminder;
       return select(
         "reminder",
@@ -268,6 +337,12 @@ export class BehaviorController {
         this.cue.clip,
         "once",
         this.cue.label,
+        undefined,
+        notice(
+          this.cue.key,
+          this.cue.label,
+          this.cue.clip === "happy" ? "success" : "error",
+        ),
       );
     if (this.preview)
       return select(
@@ -295,6 +370,11 @@ export class BehaviorController {
         clips[background.phase],
         "loop",
         "在整理一些信息…",
+        undefined,
+        notice(
+          `background:${background.turn_id}:${background.phase}`,
+          "在整理一些信息…",
+        ),
       );
     if (now - this.touched >= 300_000)
       return select("base", "sleeping", "sleeping", "loop", "休息一会儿");
@@ -305,10 +385,12 @@ export class BehaviorController {
       now >= this.nextAmbient
     ) {
       const pool = this.manifest.ambient.filter(
-        (clip) => clip !== this.lastAmbient,
+        (clip) => clip !== this.lastAmbient && !this.unavailable.has(clip),
       );
-      this.ambient = pool[Math.floor(this.random() * pool.length)];
-      this.lastAmbient = this.ambient;
+      if (pool.length) {
+        this.ambient = pool[Math.floor(this.random() * pool.length)];
+        this.lastAmbient = this.ambient;
+      }
     }
     if (this.ambient && !input.chatFocused && !quiet)
       return select(

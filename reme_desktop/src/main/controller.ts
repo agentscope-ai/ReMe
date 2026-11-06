@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { BubbleQueue } from "./bubbles.ts";
 import { BehaviorController } from "./behavior.ts";
+import { NotificationPolicy } from "./notifications.ts";
+import type { SystemNotice } from "./notifications.ts";
 import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
 import { normalizeEndpoint, Storage } from "./storage.ts";
@@ -13,6 +15,7 @@ import type {
   SessionMessage,
   SessionSnapshot,
   AnimationManifest,
+  PlaybackStatus,
 } from "../shared/protocol.ts";
 
 const detail = (error: unknown) =>
@@ -30,6 +33,9 @@ export class DesktopController {
   private clock: ReturnType<typeof setInterval> | undefined;
   private ready = false;
   private companionVisible = true;
+  private companionReady = false;
+  private readonly notificationPolicy = new NotificationPolicy();
+  private readonly notified = new Set<string>();
   private generation = 0;
   private endpoint: string;
   private settingsWrites: Promise<void> = Promise.resolve();
@@ -40,10 +46,15 @@ export class DesktopController {
     readonly storage: Storage,
     private readonly publish: (state: DesktopState) => void,
     manifest: AnimationManifest,
+    private readonly notify: (
+      notice: SystemNotice,
+      shown: () => void,
+    ) => void = () => {},
   ) {
     this.behavior = new BehaviorController(manifest);
     this.endpoint = storage.settings.endpoint;
     this.state = {
+      revision: 0,
       connection: "connecting",
       connectionError: "",
       settings: storage.settings,
@@ -53,30 +64,20 @@ export class DesktopController {
       messages: [],
       pending: null,
       bubble: null,
+      surface: null,
       unread: 0,
       chatVisible: false,
       chatFocused: false,
       focusMessageId: null,
       behavior: this.behavior.value,
     };
-    this.bubbles = new BubbleQueue(
-      (id) => {
-        const receipt = this.presentation()?.receipts[id];
-        if (receipt) {
-          receipt.presented = true;
-          delete receipt.snoozeUntil;
-          this.storage.changed();
-        }
-      },
-      10 * 60_000,
-      (id) => {
-        const receipt = this.presentation()?.receipts[id];
-        if (receipt) {
-          receipt.suppressed = true;
-          this.storage.changed();
-        }
-      },
-    );
+    this.bubbles = new BubbleQueue(10 * 60_000, (id) => {
+      const receipt = this.presentation()?.receipts[id];
+      if (receipt) {
+        receipt.suppressed = true;
+        this.storage.changed();
+      }
+    });
   }
 
   start(): void {
@@ -100,7 +101,10 @@ export class DesktopController {
     this.ready = false;
     this.model.clear();
     this.behavior.reset();
+    this.notificationPolicy.reset();
+    this.notified.clear();
     this.bubbles.clear();
+    this.state.bubble = null;
     this.state.pending = null;
     this.state.workspace = "";
     this.scope = "";
@@ -198,17 +202,33 @@ export class DesktopController {
               return;
             if (previous !== this.model.sessionId) {
               this.behavior.reset();
+              this.notificationPolicy.reset();
+              this.notified.clear();
               this.bubbles.clear();
               this.state.focusMessageId = null;
             }
-            if (event.type === "snapshot" || event.type === "status_changed")
+            if (event.type === "snapshot" || event.type === "status_changed") {
               this.behavior.observe(
                 this.model.activities,
                 event.type !== "snapshot",
               );
+            }
             this.ready = !this.model.waitingForSnapshot;
             this.state.connection = this.ready ? "connected" : "reconnecting";
             this.state.connectionError = event.error ?? "";
+            if (event.type === "snapshot" || event.type === "status_changed") {
+              const notice = this.notificationPolicy.observe(
+                this.model.activities.chat,
+                event.type !== "snapshot",
+                this.notificationEligible(),
+              );
+              if (notice && this.model.sessionId)
+                this.notifyOnce({
+                  ...notice,
+                  scope: this.scope,
+                  sessionId: this.model.sessionId,
+                });
+            }
             if (!event.error && !this.model.waitingForSnapshot) {
               if (event.type === "snapshot")
                 this.observeMessages(this.model.messages, true);
@@ -296,24 +316,51 @@ export class DesktopController {
         });
     }
     const before = this.state.bubble;
+    const native =
+      (!this.companionVisible || !this.companionReady) &&
+      this.notificationEligible();
     const bubble = this.bubbles.tick(
       now,
       this.state.chatVisible ||
-        !this.companionVisible ||
+        !(native || (this.companionVisible && this.companionReady)) ||
+        this.behavior.dragging ||
         Boolean(this.state.pending?.streaming) ||
         this.behavior.foregroundActive ||
         this.model.status === "active" ||
         this.storage.settings.quietUntil > now ||
         !this.ready,
     );
-    this.state.bubble = bubble;
+    this.state.bubble =
+      this.companionVisible && this.companionReady ? bubble : null;
+    if (native && bubble && this.model.sessionId) {
+      const sessionId = this.model.sessionId;
+      this.notifyOnce(
+        {
+          id: `reminder:${sessionId}:${bubble.id}:${bubble.presentationId}`,
+          scope: this.scope,
+          sessionId,
+          messageId: bubble.id,
+          title: "Remy 想到一件事",
+          body: bubble.text.replace(/\s+/g, " ").slice(0, 140),
+        },
+        () => {
+          if (
+            !this.confirmPresentation(
+              sessionId,
+              bubble.id,
+              bubble.presentationId,
+            )
+          )
+            return;
+          this.bubbles.dismiss(bubble.id);
+          this.tick();
+        },
+      );
+    }
     const previous = this.state.behavior;
-    this.state.behavior = this.behavior.resolve(
-      this.state,
-      this.companionVisible,
-    );
+    this.resolveBehavior();
     if (
-      before !== bubble ||
+      before !== this.state.bubble ||
       settingsChanged ||
       previous !== this.state.behavior
     )
@@ -321,6 +368,7 @@ export class DesktopController {
   }
 
   private emit(): void {
+    this.state.revision++;
     this.state.sessionId = this.model.sessionId;
     this.state.status = this.model.status;
     this.state.messages = this.model.messages;
@@ -332,11 +380,71 @@ export class DesktopController {
         receipts[message.id]?.read === false,
     ).length;
     this.state.settings = { ...this.storage.settings };
+    this.resolveBehavior();
+    this.publish(this.state);
+  }
+
+  private resolveBehavior(): void {
     this.state.behavior = this.behavior.resolve(
       this.state,
       this.companionVisible,
     );
-    this.publish(this.state);
+    this.state.surface = this.state.bubble ?? this.state.behavior.notice;
+  }
+
+  private notificationEligible(): boolean {
+    return (
+      !this.closed &&
+      this.storage.settings.notifications &&
+      this.state.connection === "connected" &&
+      !this.state.chatFocused &&
+      this.storage.settings.quietUntil <= Date.now()
+    );
+  }
+
+  private notifyOnce(notice: SystemNotice, shown: () => void = () => {}): void {
+    if (!this.notificationEligible() || this.notified.has(notice.id)) return;
+    this.notified.add(notice.id);
+    this.notify(notice, () => {
+      if (this.canOpenNotice(notice)) shown();
+    });
+  }
+
+  canOpenNotice(notice: SystemNotice): boolean {
+    return (
+      !this.closed &&
+      notice.scope === this.scope &&
+      notice.sessionId === this.model.sessionId
+    );
+  }
+
+  bubbleShown(sessionId: string, id: string, presentationId: number): void {
+    if (
+      this.closed ||
+      !this.companionVisible ||
+      !this.companionReady ||
+      this.state.bubble?.id !== id
+    )
+      return;
+    this.confirmPresentation(sessionId, id, presentationId);
+  }
+
+  private confirmPresentation(
+    sessionId: string,
+    id: string,
+    presentationId: number,
+  ): boolean {
+    if (
+      sessionId !== this.model.sessionId ||
+      !this.bubbles.presented(id, presentationId, Date.now())
+    )
+      return false;
+    const receipt = this.presentation()?.receipts[id];
+    if (!receipt) return false;
+    receipt.presented = true;
+    delete receipt.snoozeUntil;
+    this.storage.changed();
+    return true;
   }
 
   setChatVisible(visible: boolean, messageId?: string): void {
@@ -367,8 +475,8 @@ export class DesktopController {
     this.behavior.play(clip);
     this.tick();
   }
-  animationEnded(id: number): void {
-    this.behavior.ended(id);
+  reportPlayback(id: number, status: PlaybackStatus): void {
+    this.behavior.report(id, status);
     this.tick();
   }
 
@@ -377,10 +485,16 @@ export class DesktopController {
     this.tick();
   }
 
+  setCompanionReady(ready: boolean): void {
+    this.companionReady = ready;
+    this.tick();
+  }
+
   settings(update: {
     endpoint?: string;
     scale?: number;
     quietUntil?: number;
+    notifications?: boolean;
   }): Promise<void> {
     const write = this.settingsWrites.then(() => this.applySettings(update));
     this.settingsWrites = write.catch(() => {});
@@ -391,6 +505,7 @@ export class DesktopController {
     endpoint?: string;
     scale?: number;
     quietUntil?: number;
+    notifications?: boolean;
   }): Promise<void> {
     if (this.closed) throw new Error("桌面客户端已关闭");
     if (update.endpoint !== undefined && this.state.pending?.streaming)
@@ -415,6 +530,11 @@ export class DesktopController {
     )
       throw new Error("免打扰时间无效");
     const changedEndpoint = endpoint !== settings.endpoint;
+    if (
+      update.notifications !== undefined &&
+      typeof update.notifications !== "boolean"
+    )
+      throw new Error("系统通知开关无效");
     this.storage.settings = { ...settings, ...update, endpoint };
     this.storage.changed();
     try {
@@ -433,7 +553,12 @@ export class DesktopController {
   }
 
   markRead(sessionId: string, ids: string[]): void {
-    if (sessionId !== this.model.sessionId || !this.state.chatVisible) return;
+    if (
+      sessionId !== this.model.sessionId ||
+      !this.state.chatVisible ||
+      !this.state.chatFocused
+    )
+      return;
     const presentation = this.presentation();
     let changed = false;
     for (const id of ids.slice(0, 100)) {

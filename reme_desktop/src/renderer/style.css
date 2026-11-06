@@ -147,6 +147,45 @@ button {
   color: var(--ink);
   box-shadow: 0 4px 15px #11251b1c;
 }
+.status-notice {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 9px 13px;
+  border: 1px solid #dce7df;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 4px 15px #11251b14;
+  font-size: 12px;
+  text-align: left;
+}
+.status-light {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.status-notice.waiting .status-light {
+  background: #b67a21;
+}
+.status-notice.error .status-light {
+  background: #c36256;
+}
+.status-arrow {
+  margin-left: auto;
+  color: var(--muted);
+}
+.quiet-row small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
 .reminder::after {
   content: "";
   position: absolute;

@@ -6,18 +6,22 @@ interface Candidate {
   snoozed?: boolean;
 }
 
-/** One visible bubble; an offline backlog remains unread instead of playing in a burst. */
+/** One reminder, with time counted only while visible and confirmed by the renderer. */
 export class BubbleQueue {
   active: Bubble | null = null;
   private waiting: Candidate | null = null;
-  private deadline = 0;
   private remaining = 0;
+  private confirmation = 0;
+  private confirmed = false;
+  private visible = false;
+  private previous = 0;
+  private pausedAt = 0;
+  private sequence = 0;
+  private retryAt = 0;
   private shown: number[] = [];
   private lastShown = -Infinity;
-  private pausedAt = 0;
 
   constructor(
-    private readonly onPresented: (id: string) => void,
     readonly cooldownMs = 10 * 60_000,
     private readonly onSuperseded: (id: string) => void = () => {},
   ) {}
@@ -33,12 +37,33 @@ export class BubbleQueue {
     this.waiting = candidate;
   }
 
+  private advance(now: number): void {
+    const elapsed = Math.max(0, now - this.previous);
+    if (this.visible && this.active) {
+      if (!this.confirmed) this.confirmation -= elapsed;
+      else if (!this.active.paused) this.remaining -= elapsed;
+    }
+    this.previous = now;
+  }
+
+  presented(id: string, presentationId: number, now: number): boolean {
+    if (
+      this.active?.id !== id ||
+      this.active.presentationId !== presentationId ||
+      this.confirmed
+    )
+      return false;
+    this.advance(now);
+    this.confirmed = true;
+    this.lastShown = now;
+    this.shown.push(now);
+    return true;
+  }
+
   pause(id: string, paused: boolean, now: number): void {
     if (this.active?.id !== id || this.active.paused === paused) return;
-    if (paused) {
-      this.remaining = Math.max(0, this.deadline - now);
-      this.pausedAt = now;
-    } else this.deadline = now + this.remaining;
+    this.advance(now);
+    if (paused) this.pausedAt = now;
     this.active = { ...this.active, paused };
   }
 
@@ -50,23 +75,30 @@ export class BubbleQueue {
   clear(): void {
     this.active = null;
     this.waiting = null;
+    this.visible = false;
+    this.retryAt = 0;
   }
 
   tick(now: number, blocked: boolean): Bubble | null {
-    if (blocked) {
+    this.advance(now);
+    if (this.active && !this.confirmed && this.confirmation <= 0) {
+      this.waiting ??= { id: this.active.id, text: this.active.text };
       this.active = null;
-      return null;
+      this.retryAt = now + 30_000;
     }
     if (
       this.active &&
-      ((!this.active.paused && now >= this.deadline) ||
+      this.confirmed &&
+      (this.remaining <= 0 ||
         (this.active.paused && now - this.pausedAt > 120_000))
     )
       this.active = null;
     this.shown = this.shown.filter((time) => now - time < 3_600_000);
     if (
+      !blocked &&
       !this.active &&
       this.waiting &&
+      now >= this.retryAt &&
       (this.waiting.snoozed ||
         (now - this.lastShown >= this.cooldownMs && this.shown.length < 3))
     ) {
@@ -76,12 +108,17 @@ export class BubbleQueue {
         8_000,
         Math.min(15_000, 4_000 + [...candidate.text].length * 100),
       );
-      this.deadline = now + this.remaining;
-      this.lastShown = now;
-      this.shown.push(now);
-      this.active = { id: candidate.id, text: candidate.text, paused: false };
-      this.onPresented(candidate.id);
+      this.confirmation = 5000;
+      this.confirmed = false;
+      this.active = {
+        kind: "reminder",
+        id: candidate.id,
+        presentationId: ++this.sequence,
+        text: candidate.text,
+        paused: false,
+      };
     }
-    return this.active;
+    this.visible = !blocked && this.active !== null;
+    return this.visible ? this.active : null;
   }
 }

@@ -7,6 +7,7 @@ import { DesktopController } from "../src/main/controller.ts";
 import { Storage } from "../src/main/storage.ts";
 import type { AnimationManifest } from "../src/shared/protocol.ts";
 import { mockReMe } from "./e2e/mock-reme.mjs";
+import type { SystemNotice } from "../src/main/notifications.ts";
 const manifest = JSON.parse(
   await readFile(
     new URL(
@@ -107,6 +108,7 @@ test(
       },
       manifest,
     );
+    controller.setCompanionReady(true);
     controller.start();
     try {
       await until(
@@ -140,10 +142,24 @@ test(
         "completed reminder",
       );
       assert.equal(controller.state.unread, 1);
+      const bubble = controller.state.bubble!;
+      const receipt = Object.values(storage.presentations).find(
+        (entry) => entry.receipts.new,
+      )?.receipts.new;
+      assert.equal(
+        receipt?.presented,
+        false,
+        "selection alone is not proof of presentation",
+      );
+      controller.bubbleShown("wrong-session", bubble.id, bubble.presentationId);
+      assert.equal(receipt?.presented, false);
+      controller.bubbleShown("session-1", bubble.id, bubble.presentationId);
+      assert.equal(receipt?.presented, true);
       controller.bubbleAction("new", "dismiss");
       assert.equal(controller.state.unread, 1);
       assert.equal(controller.state.bubble, null);
       controller.setChatVisible(true);
+      controller.setChatFocused(true);
       controller.markRead("session-1", ["new"]);
       assert.equal(controller.state.unread, 0);
       const before = publications;
@@ -204,6 +220,7 @@ test(
     await storage.load();
     storage.settings.endpoint = backend.url;
     const controller = new DesktopController(storage, () => {}, manifest);
+    controller.setCompanionReady(true);
     controller.start();
     try {
       await until(() => controller.state.connection === "connected", "connect");
@@ -233,3 +250,55 @@ test(
     }
   },
 );
+
+test("hidden reminders use native show acknowledgements and share the bubble cooldown", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-desktop-native-"));
+  const backend = await mockReMe();
+  const storage = new Storage(directory);
+  await storage.load();
+  storage.settings.endpoint = backend.url;
+  storage.settings.notifications = true;
+  const notices: { notice: SystemNotice; shown: () => void }[] = [];
+  const controller = new DesktopController(
+    storage,
+    () => {},
+    manifest,
+    (notice, shown) => {
+      notices.push({ notice, shown });
+    },
+  );
+  controller.setCompanionVisible(false);
+  controller.start();
+  try {
+    await until(() => controller.state.connection === "connected", "connect");
+    backend.push("native", "native reminder");
+    await until(() => notices.length === 1, "native dispatch");
+    const receipt = Object.values(storage.presentations).find(
+      (entry) => entry.receipts.native,
+    )!.receipts.native;
+    assert.equal(receipt.presented, false);
+    assert.equal(controller.state.unread, 1);
+    notices[0].shown();
+    assert.equal(receipt.presented, true);
+    assert.equal(receipt.read, false);
+    backend.push("next", "another message");
+    await until(() => controller.state.unread === 2, "next unread");
+    assert.equal(
+      notices.length,
+      1,
+      "native reminders must honor the same ten-minute cooldown",
+    );
+    await controller.newSession();
+    await until(
+      () => controller.state.sessionId === "session-2",
+      "session switch",
+    );
+    assert.equal(controller.canOpenNotice(notices[0].notice), false);
+    notices[0].shown();
+    assert.equal(controller.state.unread, 0);
+  } finally {
+    await controller.close();
+    await backend.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

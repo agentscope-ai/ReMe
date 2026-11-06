@@ -16,6 +16,8 @@ import { loadAssets } from "./assets.ts";
 import { Storage, normalizeEndpoint } from "./storage.ts";
 import { DesktopWindows } from "./windows.ts";
 import { desktopMenu } from "./menu.ts";
+import { SystemNotifications } from "./system-notifications.ts";
+import { viewState } from "./view-state.ts";
 import { channels } from "../shared/protocol.ts";
 import type { DesktopAction } from "../shared/protocol.ts";
 
@@ -40,6 +42,7 @@ else {
   let windows: DesktopWindows | undefined;
   let controller: DesktopController | undefined;
   let tray: Tray | undefined;
+  let notifications: SystemNotifications | undefined;
   let refreshTray = () => {};
   let openMenu = () => {};
   let quitting = false;
@@ -50,6 +53,7 @@ else {
     if (quitting || !controller) return;
     event.preventDefault();
     quitting = true;
+    notifications?.close();
     globalShortcut.unregisterAll();
     void controller
       .close()
@@ -97,9 +101,11 @@ else {
         storage,
         (state) => {
           windows?.update(state);
+          notifications?.update(state);
           refreshTray();
         },
         assets.manifest,
+        (notice, shown) => notifications?.show(notice, shown),
       );
       windows = new DesktopWindows(
         storage,
@@ -109,6 +115,20 @@ else {
         },
         (visible) => controller!.setChatVisible(visible),
         (focused) => controller!.setChatFocused(focused),
+      );
+      notifications = new SystemNotifications((notice) => {
+        if (!controller!.canOpenNotice(notice)) return;
+        windows!.openChat();
+        controller!.setChatVisible(true, notice.messageId);
+      });
+      windows.companion.webContents.on("did-start-loading", () =>
+        controller!.setCompanionReady(false),
+      );
+      windows.companion.webContents.on("did-finish-load", () =>
+        controller!.setCompanionReady(true),
+      );
+      windows.companion.webContents.on("render-process-gone", () =>
+        controller!.setCompanionReady(false),
       );
 
       const trusted = (
@@ -123,7 +143,10 @@ else {
       ipcMain.handle(channels.bootstrap, (event) => {
         trusted(event);
         return {
-          state: controller!.state,
+          state: viewState(
+            controller!.state,
+            event.sender.id === windows!.companion.webContents.id,
+          ),
           manifest: assets.manifest,
           layout: windows!.layout,
         };
@@ -133,12 +156,27 @@ else {
         if (!action || typeof action.type !== "string")
           throw new Error("无效的桌面操作");
         switch (action.type) {
-          case "animation.ended":
+          case "playback.report":
             if (
               event.sender.id === windows!.companion.webContents.id &&
-              Number.isSafeInteger(action.id)
+              Number.isSafeInteger(action.id) &&
+              ["started", "ended", "failed"].includes(action.status)
             )
-              controller!.animationEnded(action.id);
+              controller!.reportPlayback(action.id, action.status);
+            return;
+          case "bubble.shown":
+            if (
+              event.sender.id === windows!.companion.webContents.id &&
+              windows!.companion.isVisible() &&
+              typeof action.sessionId === "string" &&
+              typeof action.id === "string" &&
+              Number.isSafeInteger(action.presentationId)
+            )
+              controller!.bubbleShown(
+                action.sessionId,
+                action.id,
+                action.presentationId,
+              );
             return;
           case "interaction":
             controller!.interact();
@@ -171,6 +209,7 @@ else {
             return controller!.newSession();
           case "messages.read":
             if (
+              event.sender.id !== windows!.chat.webContents.id ||
               typeof action.sessionId !== "string" ||
               !Array.isArray(action.ids) ||
               !action.ids.every((id) => typeof id === "string")
@@ -199,6 +238,9 @@ else {
               ...(action.scale !== undefined ? { scale: action.scale } : {}),
               ...(action.quietUntil !== undefined
                 ? { quietUntil: action.quietUntil }
+                : {}),
+              ...(action.notifications !== undefined
+                ? { notifications: action.notifications }
                 : {}),
             });
           case "link.open": {
@@ -260,6 +302,7 @@ else {
         const next = JSON.stringify([
           state.unread,
           state.settings.scale,
+          state.settings.notifications,
           state.settings.quietUntil > Date.now(),
           state.status,
           Boolean(state.pending?.streaming),
@@ -273,6 +316,7 @@ else {
       openMenu = () => menu().popup({ window: windows!.companion });
       windows.companion.on("show", () => {
         if (quitting) return;
+        notifications?.close();
         controller!.setCompanionVisible(true);
         refreshTray();
       });

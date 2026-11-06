@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import type {
   AnimationIntent,
   AnimationManifest,
+  PlaybackStatus,
 } from "../../shared/protocol.ts";
 
 const cache = new Map<string, Promise<HTMLImageElement[]>>();
@@ -11,15 +12,15 @@ export function Character({
   manifest,
   animation,
   canvasRef,
-  onEnded,
+  onPlayback,
 }: {
   manifest: AnimationManifest;
   animation: AnimationIntent;
   canvasRef: RefObject<HTMLCanvasElement | null>;
-  onEnded: (id: number) => void;
+  onPlayback: (id: number, status: PlaybackStatus) => void;
 }) {
-  const ended = useRef(onEnded);
-  ended.current = onEnded;
+  const report = useRef(onPlayback);
+  report.current = onPlayback;
   useEffect(() => {
     const clip = manifest.animations.find(
       (value) => value.id === animation.clip,
@@ -64,7 +65,7 @@ export function Character({
           if (!live) return;
           const elapsed = performance.now() - start;
           if (animation.mode === "once" && elapsed >= duration) {
-            ended.current(animation.id);
+            report.current(animation.id, "ended");
             return;
           }
           let position = elapsed % duration;
@@ -82,6 +83,7 @@ export function Character({
               manifest.canvas[0],
               manifest.canvas[1],
             );
+            if (last === -1) report.current(animation.id, "started");
             last = index;
           }
           if (animation.mode !== "hold")
@@ -97,6 +99,7 @@ export function Character({
             "aria-label",
             "角色素材加载失败，请检查安装文件",
           );
+          report.current(animation.id, "failed");
         }
       });
     return () => {

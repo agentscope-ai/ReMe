@@ -71,7 +71,8 @@ export default function Chat({ state }: { state: DesktopState }) {
 
   useEffect(() => {
     const root = history.current;
-    if (!root || !state.sessionId || !state.chatVisible) return;
+    if (!root || !state.sessionId || !state.chatVisible || !state.chatFocused)
+      return;
     const visible = new Set<string>();
     const acknowledged = new Set<string>();
     let timer: ReturnType<typeof setTimeout>;
@@ -111,7 +112,12 @@ export default function Chat({ state }: { state: DesktopState }) {
       observer.disconnect();
       window.removeEventListener("focus", acknowledge);
     };
-  }, [state.sessionId, proactiveSignature, state.chatVisible]);
+  }, [
+    state.sessionId,
+    proactiveSignature,
+    state.chatVisible,
+    state.chatFocused,
+  ]);
 
   const send = async () => {
     const value = query.trim();
@@ -220,6 +226,22 @@ export default function Chat({ state }: { state: DesktopState }) {
                 : "安静 30 分钟"}
             </button>
           </div>
+          <label className="quiet-row">
+            <span>
+              系统通知 <small>长任务完成、需要处理或角色隐藏时提醒</small>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="系统通知"
+              checked={state.settings.notifications}
+              onChange={(event) =>
+                void run({
+                  type: "settings.update",
+                  notifications: event.target.checked,
+                })
+              }
+            />
+          </label>
           {state.workspace && (
             <p className="workspace-path" title={state.workspace}>
               工作区：{state.workspace}

@@ -12,7 +12,7 @@ export const clamp = (n: number, min: number, max: number) =>
 export function companionPlacement(
   anchor: { x: number; y: number },
   scale: number,
-  bubble: boolean,
+  surface: "status" | "reminder" | null,
   area: Rect,
 ) {
   const size = Math.round(180 * scale);
@@ -28,11 +28,13 @@ export function companionPlacement(
     width: size,
     height: size,
   };
-  const width = Math.min(320, area.width - 24);
-  let bubbleY = body.y - 188;
+  const bubble = surface !== null;
+  const width = Math.min(surface === "status" ? 240 : 320, area.width - 24);
+  const height = surface === "status" ? 48 : 180;
+  let bubbleY = body.y - height - 8;
   const below = bubbleY < area.y + 8;
   if (below) bubbleY = y + 10;
-  bubbleY = clamp(bubbleY, area.y + 8, area.y + area.height - 180 - 8);
+  bubbleY = clamp(bubbleY, area.y + 8, area.y + area.height - height - 8);
   const bubbleX = clamp(
     x - width + 48,
     area.x + 12,
@@ -47,7 +49,7 @@ export function companionPlacement(
   const right = Math.ceil(
     Math.max(body.x + size + 12, bubble ? bubbleX + width + 8 : 0),
   );
-  const bottom = Math.ceil(Math.max(y + 12, bubble ? bubbleY + 180 + 8 : 0));
+  const bottom = Math.ceil(Math.max(y + 12, bubble ? bubbleY + height + 8 : 0));
   return {
     anchor: { x: Math.round(x), y: Math.round(y) },
     bounds: { x: left, y: top, width: right - left, height: bottom - top },

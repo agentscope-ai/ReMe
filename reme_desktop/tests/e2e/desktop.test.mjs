@@ -591,7 +591,7 @@ test(
           await expect
             .poll(
               () =>
-                companion.evaluate(() =>
+                chat.evaluate(() =>
                   window.desktop
                     .bootstrap()
                     .then(

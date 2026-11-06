@@ -63,25 +63,33 @@ test("dragging wins temporarily and stale ended callbacks cannot clear the curre
   assert.equal(behavior.resolve(state, true, 100).animation.clip, "dragged");
   behavior.observe({ chat: activity("answering") }, true, 200);
   behavior.dragging = false;
-  behavior.ended(thinking, 300);
+  behavior.report(thinking, "ended", 300);
   assert.equal(behavior.resolve(state, true, 300).animation.clip, "speaking");
 });
 
 test("reminders enter, hold and exit with the bubble rather than disappearing after one clip", () => {
   const behavior = new BehaviorController(manifest, 0, () => 0);
   const state = input();
-  state.bubble = { id: "m", text: "reminder", paused: false };
+  state.bubble = {
+    kind: "reminder",
+    presentationId: 1,
+    id: "m",
+    text: "reminder",
+    paused: false,
+  };
   const enter = behavior.resolve(state, true, 0).animation;
   assert.equal(enter.segment, "enter");
-  behavior.ended(enter.id, 1500);
-  assert.equal(behavior.resolve(state, true, 1500).animation.segment, "hold");
+  behavior.report(enter.id, "ended", 1500);
+  const hold = behavior.resolve(state, true, 1500).animation;
+  assert.equal(hold.segment, "hold");
+  behavior.report(hold.id, "started", 1500);
   assert.equal(behavior.resolve(state, true, 7000).animation.mode, "hold");
   state.bubble = null;
   const exit = behavior.resolve(state, true, 7100).animation;
   assert.equal(exit.segment, "exit");
-  behavior.ended(enter.id, 7150);
+  behavior.report(enter.id, "ended", 7150);
   assert.equal(behavior.resolve(state, true, 7150).animation.id, exit.id);
-  behavior.ended(exit.id, 7500);
+  behavior.report(exit.id, "ended", 7500);
   assert.equal(behavior.resolve(state, true, 7500).animation.clip, "idle");
 });
 
@@ -94,7 +102,7 @@ test("terminal feedback is live once per turn, never from historical snapshots",
   behavior.observe({ chat: activity("completed", "new") }, true, 100);
   const done = behavior.resolve(state, true, 100).animation;
   assert.equal(done.clip, "happy");
-  behavior.ended(done.id, 2000);
+  behavior.report(done.id, "ended", 2000);
   behavior.observe({ chat: activity("completed", "new") }, true, 2100);
   assert.equal(behavior.resolve(state, true, 2100).animation.clip, "idle");
   behavior.observe({ chat: activity("failed", "failed") }, true, 2200);
@@ -107,7 +115,7 @@ test("ambient gestures are neutral and interruptible, and quiet mode is independ
   const first = behavior.resolve(state, true, 15001).animation;
   assert.equal(first.mode, "once");
   assert.ok(manifest.ambient.includes(first.clip));
-  behavior.ended(first.id, 18000);
+  behavior.report(first.id, "ended", 18000);
   const next = behavior.resolve(state, true, 34000).animation;
   assert.notEqual(next.clip, first.clip);
   state.settings.quietUntil = 100000;
@@ -146,4 +154,53 @@ test("foreground work outranks background work and connection loss clears busy p
   state.connection = "reconnecting";
   assert.equal(behavior.resolve(state, true, 200).animation.clip, "idle");
   assert.equal(behavior.resolve(state, false, 300).animation.mode, "hold");
+});
+
+test("semantic notices follow foreground priority without replaying a completed snapshot", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  behavior.observe({ chat: activity("waiting") }, true, 0);
+  const waiting = behavior.resolve(state, true, 0);
+  assert.equal(waiting.notice?.tone, "waiting");
+  behavior.dragging = true;
+  assert.equal(behavior.resolve(state, true, 100).notice, null);
+  behavior.dragging = false;
+  assert.equal(behavior.resolve(state, true, 200).notice?.tone, "waiting");
+  behavior.observe({ chat: activity("completed", "history") }, false, 300);
+  assert.equal(behavior.resolve(state, true, 300).notice, null);
+});
+
+test("failed playback falls back without losing activity or letting stale failures disable another clip", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  behavior.observe({ chat: activity("thinking") }, true, 0);
+  const thinking = behavior.resolve(state, true, 0).animation;
+  behavior.report(thinking.id, "failed", 10);
+  const fallback = behavior.resolve(state, true, 10);
+  assert.equal(fallback.animation.clip, "idle");
+  assert.ok(fallback.error);
+  assert.equal(fallback.notice?.tone, "working");
+  behavior.report(fallback.animation.id, "started", 10);
+  behavior.observe({ chat: activity("answering") }, true, 100);
+  const answering = behavior.resolve(state, true, 100).animation;
+  behavior.report(thinking.id, "failed", 110);
+  assert.equal(behavior.resolve(state, true, 110).animation.id, answering.id);
+  assert.equal(
+    behavior.resolve(state, true, 5101).animation.clip,
+    "idle",
+    "missing start acknowledgement must recover",
+  );
+});
+
+test("a lost end acknowledgement retires a started gesture without disabling its artwork", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  behavior.play("happy", 0);
+  const animation = behavior.resolve(state, true, 0).animation;
+  behavior.report(animation.id, "started", 0);
+  const recovered = behavior.resolve(state, true, 10_000);
+  assert.equal(recovered.animation.clip, "idle");
+  assert.equal(recovered.error, "");
+  behavior.play("happy", 10_001);
+  assert.equal(behavior.resolve(state, true, 10_001).animation.clip, "happy");
 });

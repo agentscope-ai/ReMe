@@ -6,6 +6,7 @@ export const defaultSettings: Settings = {
   endpoint: "http://127.0.0.1:2333",
   scale: 1,
   quietUntil: 0,
+  notifications: false,
 };
 
 export function normalizeEndpoint(value: string): string {
@@ -62,6 +63,7 @@ export class Storage {
       quietUntil: Number.isFinite(settings.quietUntil)
         ? settings.quietUntil!
         : 0,
+      notifications: settings.notifications === true,
       ...(settings.anchor &&
       Number.isFinite(settings.anchor.x) &&
       Number.isFinite(settings.anchor.y)

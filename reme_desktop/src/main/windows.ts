@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from "electron";
 import { companionPlacement, clamp } from "./placement.ts";
+import { StateUpdates } from "./view-state.ts";
 import { channels } from "../shared/protocol.ts";
 import type {
   DesktopCommand,
@@ -24,6 +25,10 @@ export class DesktopWindows {
   private state: DesktopState | null = null;
   private disposed = false;
   private positionChatOnOpen = true;
+  private readonly companionUpdates = new StateUpdates(true);
+  private readonly chatUpdates = new StateUpdates(false);
+  private geometry = "";
+  private companionBounds = "";
 
   constructor(
     readonly storage: Storage,
@@ -110,9 +115,18 @@ export class DesktopWindows {
 
   update(state: DesktopState): void {
     this.state = state;
-    this.reposition();
-    for (const window of [this.companion, this.chat]) {
-      if (!window.isDestroyed()) window.webContents.send(channels.state, state);
+    const geometry = `${state.settings.scale}:${state.surface?.kind ?? "none"}`;
+    if (geometry !== this.geometry) {
+      this.geometry = geometry;
+      this.reposition();
+    }
+    for (const [window, updates] of [
+      [this.companion, this.companionUpdates],
+      [this.chat, this.chatUpdates],
+    ] as const) {
+      const patch = updates.update(state);
+      if (patch && !window.isDestroyed())
+        window.webContents.send(channels.state, patch);
     }
   }
 
@@ -122,11 +136,15 @@ export class DesktopWindows {
     const placement = companionPlacement(
       this.anchor,
       this.storage.settings.scale,
-      Boolean(this.state?.bubble),
+      this.state?.surface?.kind ?? null,
       area,
     );
     this.anchor = placement.anchor;
-    this.companion.setBounds(placement.bounds, false);
+    const encoded = JSON.stringify(placement.bounds);
+    if (encoded !== this.companionBounds) {
+      this.companionBounds = encoded;
+      this.companion.setBounds(placement.bounds, false);
+    }
     if (JSON.stringify(this.layout) !== JSON.stringify(placement.layout)) {
       this.layout = placement.layout;
       this.companion.webContents.send(channels.layout, this.layout);

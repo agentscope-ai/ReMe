@@ -18,7 +18,7 @@ from ..codex_app_server import CodexAppServer
 from ..component_registry import R
 from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...utils.agent_activity import reduce_activity
+from ...utils.agent_activity import ActivityTracker
 from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 
@@ -501,6 +501,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     phase="thinking",
                 )
                 self.app_server.publish_activity(activity)
+                tracker = ActivityTracker(activity)
                 stream = self._turn_stream(turn, usage)
                 items, native_usage, completed, terminal = [], None, None, None
                 try:
@@ -527,7 +528,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                             if chunk.chunk_type == ChunkEnum.REPLY_END:
                                 terminal = chunk
                             else:
-                                updated = reduce_activity(activity, chunk)
+                                updated = tracker.update(chunk)
                                 if updated != activity:
                                     activity = updated
                                     self.app_server.publish_activity(activity)
@@ -544,7 +545,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             terminal.chunk = {key: value for key, value in result.items() if key != "events"}
             terminal.status = result["status"]
             terminal.metadata["error"] = result["error"]
-            activity = reduce_activity(activity, terminal)
+            activity = tracker.update(terminal)
             self.app_server.publish_activity(activity)
             yield terminal
         except BaseException as exc:

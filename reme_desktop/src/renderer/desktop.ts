@@ -1,19 +1,29 @@
 import { useEffect, useState } from "react";
-import type { Bootstrap, DesktopAction } from "../shared/protocol.ts";
+import type {
+  Bootstrap,
+  DesktopAction,
+  DesktopPatch,
+} from "../shared/protocol.ts";
+
+export const mergeState = (state: Bootstrap["state"], patch: DesktopPatch) =>
+  patch.revision > state.revision ? { ...state, ...patch } : state;
 
 export function useDesktop(): Bootstrap | null {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   useEffect(() => {
     let live = true;
-    let stateVersion = 0;
     let layoutVersion = 0;
-    let latestState: Bootstrap["state"] | undefined;
+    let patches: DesktopPatch[] = [];
+    let loading = true;
     let latestLayout: Bootstrap["layout"] | undefined;
-    const stopState = window.desktop.onState((state) => {
-      stateVersion++;
-      latestState = state;
+    const stopState = window.desktop.onState((patch) => {
+      if (loading) patches.push(patch);
       if (live)
-        setBootstrap((current) => (current ? { ...current, state } : null));
+        setBootstrap((current) =>
+          current
+            ? { ...current, state: mergeState(current.state, patch) }
+            : null,
+        );
     });
     const stopLayout = window.desktop.onLayout((layout) => {
       layoutVersion++;
@@ -22,12 +32,15 @@ export function useDesktop(): Bootstrap | null {
         setBootstrap((current) => (current ? { ...current, layout } : null));
     });
     void window.desktop.bootstrap().then((value) => {
-      if (live)
+      if (live) {
+        loading = false;
         setBootstrap({
           ...value,
-          state: stateVersion ? latestState! : value.state,
+          state: patches.reduce(mergeState, value.state),
           layout: layoutVersion ? latestLayout! : value.layout,
         });
+        patches = [];
+      }
     });
     return () => {
       live = false;

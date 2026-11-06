@@ -61,6 +61,13 @@ export function desktopMenu(
         })),
     },
     {
+      id: "notifications",
+      label: "系统通知",
+      type: "checkbox",
+      checked: state.settings.notifications,
+      click: () => settings({ notifications: !state.settings.notifications }),
+    },
+    {
       id: "settings",
       label: "设置…",
       click: () => {
