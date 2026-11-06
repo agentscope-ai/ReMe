@@ -98,3 +98,127 @@ def test_explicit_model_assignment_preserves_injection():
     llm.model = model
     assert llm.model is model
     llm.credential_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_owned_openai_client_closes_after_failed_call():
+    """A failed model operation must not leave client cleanup until loop GC."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model_cls = Mock()
+    model_cls.return_value.client.close = AsyncMock()
+    model_cls.return_value.call = AsyncMock(side_effect=ConnectionError("synthetic"))
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    await llm.start()
+    try:
+        model = llm.model
+        with pytest.raises(ConnectionError, match="synthetic"):
+            await model.call("synthetic", [])
+        assert model is model_cls.return_value
+    finally:
+        await llm.close()
+    model_cls.return_value.client.close.assert_awaited_once_with()
+    assert llm._model is None
+    await llm.close()
+    model_cls.return_value.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_injected_openai_client_is_borrowed():
+    """The component must not close externally supplied model clients."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model = Mock()
+    model.client.close = AsyncMock()
+    llm.model = model
+    await llm.start()
+    await llm.close()
+    model.client.close.assert_not_awaited()
+    assert llm._model is model
+
+
+@pytest.mark.asyncio
+async def test_owned_openai_client_close_failure_clears_state():
+    """A failed close is propagated once without leaving ownership stranded."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model_cls = Mock()
+    model_cls.return_value.client.close = AsyncMock(side_effect=RuntimeError("close failed"))
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    await llm.start()
+    _ = llm.model
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        await llm.close()
+
+    assert llm._model is None
+    assert not llm._owns_model
+    assert not llm.is_started
+    await llm.close()
+    model_cls.return_value.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_owned_openai_model_requires_close_before_replacement():
+    """Replacement cannot abandon an internally owned client synchronously."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model_cls = Mock()
+    model_cls.return_value.client.close = AsyncMock()
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    await llm.start()
+    owned_model = llm.model
+    borrowed_model = Mock()
+
+    with pytest.raises(RuntimeError, match="Close the OpenAI component"):
+        llm.model = borrowed_model
+    assert llm._model is owned_model
+
+    await llm.close()
+    llm.model = borrowed_model
+    assert llm.model is borrowed_model
+    await llm.start()
+    await llm.close()
+    model_cls.return_value.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.parametrize("injected", [False, True], ids=["owned", "borrowed"])
+def test_openai_start_failure_rolls_back_owned_client(injected):
+    """Startup failure closes a pre-start owned client but never a borrowed one."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    class FailingOpenAIAsLLM(OpenAIAsLLM):
+        async def _start(self):
+            raise RuntimeError("start failed")
+
+    llm = FailingOpenAIAsLLM(backend="openai", model="synthetic")
+    model = Mock()
+    model.client.close = AsyncMock()
+    if injected:
+        llm.model = model
+    else:
+        model_cls = Mock(return_value=model)
+        credential_cls = Mock()
+        credential_cls.return_value.get_chat_model_class.return_value = model_cls
+        llm.credential_cls = credential_cls
+        assert llm.model is model
+
+    async def run():
+        with pytest.raises(RuntimeError, match="start failed"):
+            await llm.start()
+        assert not llm.is_started
+        assert llm._model is (model if injected else None)
+        assert model.client.close.await_count == (0 if injected else 1)
+        await llm.close()
+
+    asyncio.run(run())

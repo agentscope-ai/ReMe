@@ -31,6 +31,7 @@ class BaseAsLLM(BaseComponent):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._model: ChatModelBase | None = None
+        self._owns_model = False
 
     async def _start(self) -> None:
         """Keep service startup independent of provider credentials."""
@@ -46,6 +47,7 @@ class BaseAsLLM(BaseComponent):
     def model(self, value: ChatModelBase | None) -> None:
         """Preserve explicit model injection used by standalone consumers."""
         self._model = value
+        self._owns_model = False
 
     def initialize_model(self) -> None:
         """Construct the configured provider once, without making a remote request."""
@@ -57,6 +59,7 @@ class BaseAsLLM(BaseComponent):
         params_dict = kwargs.pop("parameters", None)
         parameters = model_cls.Parameters(**params_dict) if params_dict else None
         self._model = model_cls(credential=credential, parameters=parameters, **kwargs)
+        self._owns_model = True
 
 
 @R.register("openai")
@@ -64,6 +67,28 @@ class OpenAIAsLLM(BaseAsLLM):
     """OpenAI chat model wrapper."""
 
     credential_cls = OpenAICredential
+
+    @BaseAsLLM.model.setter
+    def model(self, value: ChatModelBase | None) -> None:
+        """Reject replacement while an internally owned client is still live."""
+        if value is self._model:
+            return
+        if self._owns_model:
+            raise RuntimeError("Close the OpenAI component before replacing its owned model.")
+        BaseAsLLM.model.fset(self, value)
+
+    async def _close(self) -> None:
+        """Close an internally owned async client on component shutdown."""
+        if not self._owns_model or self._model is None:
+            return
+        model = self._model
+        client = getattr(model, "client", None)
+        try:
+            if client is not None:
+                await client.close()
+        finally:
+            self._model = None
+            self._owns_model = False
 
 
 @R.register("anthropic")
