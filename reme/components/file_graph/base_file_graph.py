@@ -5,6 +5,7 @@ from abc import abstractmethod
 from ..base_component import BaseComponent
 from ...enumeration import ComponentEnum, LinkScopeEnum
 from ...schema import FileLink, FileNode
+from ...utils import canonical_index_path
 
 
 class BaseFileGraph(BaseComponent):
@@ -18,6 +19,56 @@ class BaseFileGraph(BaseComponent):
     """
 
     component_type = ComponentEnum.FILE_GRAPH
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._dropped_chunk_ids: set[str] = set()
+
+    # -- Path identity -----------------------------------------------------
+
+    @staticmethod
+    def canonical_path(path: str) -> str:
+        """Return the workspace-relative POSIX identity of ``path``."""
+        return canonical_index_path(path)
+
+    @classmethod
+    def canonical_node(cls, node: FileNode) -> FileNode:
+        """Return ``node`` with its own path and link paths canonicalized."""
+        links = [
+            link.model_copy(
+                update={
+                    "source_path": canonical_index_path(link.source_path),
+                    "target_path": canonical_index_path(link.target_path),
+                },
+            )
+            for link in node.links
+        ]
+        path = canonical_index_path(node.path)
+        if path == node.path and links == node.links:
+            return node
+        return node.model_copy(update={"path": path, "links": links})
+
+    def merge_chunk_ids(self, keep: FileNode, extra: FileNode) -> FileNode:
+        """Return the winning record, discarding the other spelling's chunk handles.
+
+        ``keep`` describes the version that owns the merged node: its path,
+        links, tags and chunk list all describe the content reachable through
+        that path today.  Handles from ``extra`` describe the version that lost
+        the merge, so merging them into the node made superseded text searchable
+        under the surviving tags.  They are reported through
+        :meth:`take_dropped_chunk_ids` instead, and the owning store removes the
+        matching chunks and keyword entries.
+        """
+        dropped = [chunk_id for chunk_id in extra.chunk_ids if chunk_id not in keep.chunk_ids]
+        if dropped:
+            self._dropped_chunk_ids.update(dropped)
+        return keep
+
+    def take_dropped_chunk_ids(self) -> list[str]:
+        """Return and clear chunk handles discarded while merging spellings."""
+        dropped = sorted(self._dropped_chunk_ids)
+        self._dropped_chunk_ids.clear()
+        return dropped
 
     # -- Lifecycle ---------------------------------------------------------
 
