@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,11 +14,26 @@ import pytest_asyncio
 from openai_codex.generated.v2_all import ThreadItem
 
 from reme.application import Application
-from reme.components.agent_wrapper import BaseAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CodexAgentWrapper
 from reme.components.agent_wrapper import codex_session_history as history
 from reme.components.application_context import ApplicationContext
 from reme.components.codex_app_server import CodexAppServer
 from reme.config import resolve_app_config
+from reme.utils import AsStateHandler
+
+
+@pytest.mark.asyncio
+async def test_agentscope_empty_session_is_persisted_resumable_and_idle(tmp_path):
+    wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
+    session_id = await wrapper.create_session()
+    state = await AsStateHandler.for_session(wrapper.session_path, session_id).load()
+    assert state.session_id == session_id and not state.context
+    assert (await wrapper.get_session_status(session_id)).status == "idle"
+    restored = await wrapper._load_state(
+        {"resume": session_id},
+        state.permission_context.mode,
+    )
+    assert restored.session_id == session_id and not restored.context
 
 
 def test_read_native_usage_ignores_estimates_and_an_incomplete_tail_without_writing(tmp_path):
@@ -111,6 +127,89 @@ class NativeSession:
         return SimpleNamespace()
 
 
+@pytest.mark.asyncio
+async def test_session_snapshot_exposes_the_validated_native_file_and_turn(runtime, tmp_path):
+    server, native = runtime
+    snapshot = await server.read_session("session-1")
+    assert snapshot.path == native.thread.path
+    assert snapshot.last_turn_id == "turn-1"
+    native.thread.path = str(tmp_path.parent / "outside.jsonl")
+    with pytest.raises(ValueError, match="outside its configured home"):
+        await server.read_session("session-1")
+
+
+@pytest.mark.asyncio
+async def test_session_path_lookup_returns_the_native_file_without_reading_history(runtime):
+    server, native = runtime
+    assert await server.get_session_path("session-1") == Path(native.thread.path).resolve()
+    native.client._client.thread_read.assert_awaited_once_with("session-1", include_turns=False)
+    native.client.thread_resume.assert_not_awaited()
+    assert not server._message_path("session-1").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_path", [None, ""])
+async def test_session_path_lookup_returns_none_when_native_storage_has_no_path(runtime, native_path):
+    server, native = runtime
+    native.thread.path = native_path
+    assert await server.get_session_path("session-1") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("symlink", [False, True])
+async def test_session_path_lookup_rejects_paths_outside_the_configured_home(runtime, tmp_path, symlink):
+    server, native = runtime
+    outside = tmp_path / "outside.jsonl"
+    if symlink:
+        link = server.session_path / "sessions" / "link.jsonl"
+        link.symlink_to(outside)
+        native.thread.path = str(link)
+    else:
+        native.thread.path = str(outside)
+    with pytest.raises(ValueError, match="outside its configured home"):
+        await server.get_session_path("session-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("session_id", ["", "../outside", "nested/session"])
+async def test_session_path_lookup_rejects_invalid_ids_before_calling_codex(runtime, session_id):
+    server, native = runtime
+    with pytest.raises(ValueError, match="Session/message IDs must contain"):
+        await server.get_session_path(session_id)
+    native.client._client.thread_read.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_session_path_lookup_propagates_native_lookup_errors(runtime):
+    server, native = runtime
+    native.client._client.thread_read.side_effect = RuntimeError("session not found")
+    with pytest.raises(RuntimeError, match="session not found"):
+        await server.get_session_path("missing-session")
+
+
+@pytest.mark.asyncio
+async def test_context_guard_rejects_stale_reminder_but_recovers_accepted_delivery(runtime):
+    from reme.components.codex_app_server import SessionChangedError
+
+    server, native = runtime
+    native.thread.turns.append(turn("turn-2", "new question", "new answer"))
+    with pytest.raises(SessionChangedError):
+        await server.append_session("session-1", "stale", message_id="guard", expected_turn_id="turn-1")
+    assert native.injected == []
+    accepted = await server.append_session("session-1", "current", message_id="guard", expected_turn_id="turn-2")
+    native.thread.turns.append(turn("turn-3", "later", "later answer"))
+    assert (
+        await server.append_session(
+            "session-1",
+            "current",
+            message_id="guard",
+            expected_turn_id="turn-2",
+        )
+        == accepted
+    )
+    assert len(native.injected) == 1
+
+
 @pytest_asyncio.fixture
 async def runtime(tmp_path, monkeypatch):
     server = CodexAppServer(
@@ -125,6 +224,28 @@ async def runtime(tmp_path, monkeypatch):
         yield server, native
     finally:
         await server.close()
+
+
+@pytest.mark.asyncio
+async def test_empty_session_accepts_proactive_messages_before_its_first_user_turn(runtime):
+    server, native = runtime
+    native.thread.turns.clear()
+    native.client.thread_start = AsyncMock(return_value=native.handle)
+    read = native.read
+
+    async def read_empty(**kwargs):
+        if kwargs.get("include_turns"):
+            raise RuntimeError("empty thread has no persisted turns")
+        return await read(**kwargs)
+
+    native.handle.read = AsyncMock(side_effect=read_empty)
+    async with server.thread(jobs=[], keep_empty=True) as thread:
+        assert thread.id == "session-1"
+    message = await server.append_session("session-1", "A proactive first message", message_id="first")
+    assert await server.append_session("session-1", message.content, message_id="first") == message
+    assert [entry.content for entry in (await server.read_session("session-1")).messages] == [message.content]
+    assert len(native.injected) == 1
+    native.handle.read.assert_any_call(include_turns=False)
 
 
 @pytest.mark.asyncio
@@ -202,7 +323,9 @@ async def test_read_and_status_do_not_wait_behind_generation(runtime):
             async with asyncio.timeout(0.5):
                 status = await server.get_session_status("session-1")
                 snapshot = await server.read_session("session-1")
+                path = await server.get_session_path("session-1")
             assert status.status == snapshot.state.status == "active"
+            assert path == Path(native.thread.path).resolve()
             assert status.active_flags == ["waitingOnUserInput"]
             with pytest.raises(TimeoutError):
                 await server.append_session("session-1", "later", message_id="busy", timeout=0.02)

@@ -49,6 +49,79 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
+Studio shares one conversation UI between **Chat** and **Proactive Chat**. The default configuration exposes only
+`chat`, with `query` and an optional `session_id` for independent conversations. Start with `config=proactive` to expose
+the three `pa_*` Jobs instead of `chat`. Entries are enabled according to the service's exposed Jobs.
+
+Proactive Chat uses the application-owned `pa_chat` stream with only `query`. `pa_session` takes no parameters and returns
+`{"session_id": "...", "status": "idle"}` in `answer` (both values are null before a session exists). `pa_new_session` takes
+no parameters, creates and selects an empty session, and returns its ID in `answer` without model generation.
+
+Start the service with `reme start config=proactive` in one terminal, then use another terminal:
+
+```bash
+reme pa_session
+reme pa_chat query="What should I follow up on?"
+reme pa_new_session
+```
+
+The current session is shared within one Application and resets on restart; session files remain on disk. Chat and
+session creation reject concurrent operations. Status queries do not wait for generation. PA Jobs currently require
+`CodexAgentWrapper`; other wrappers raise `NotImplementedError`.
+If the current native session is unavailable, `pa_session` returns `status: "error"`; create a new session to recover.
+Once empty-session creation starts, selecting that session completes before cancellation is propagated.
+
+PA prompts contain the configured workspace and `{digest_dir}/personal/REME_MEMORY.md` paths. The agent reads current
+memory as needed and reads the complete latest file before merging updates. Memory contents are not injected into the
+session prompt. Before a new session or proactive round, shared code initializes a missing memory file using
+`default_memory` from `reme/steps/proactive/pa.yaml`, with per-path locking and atomic writes. The defaults cover financial
+news, AI advances, and ReMe, distinguishing known interests from exploration directions. Existing files, including empty
+ones, are preserved; there is no onboarding or empty-memory gate.
+
+The same YAML supplies Remy's persona and memory maintenance/forgetting instructions through `PromptHandler`, with
+English defaults and Chinese variants. The proactive config defaults to `language=zh`; use `language=en` for English
+or a Step's `language` to override the application language. Customize localized keys through the Step `prompt_dict`
+(for example, `system_prompt_zh` and `default_memory_zh`). Default-memory overrides only affect missing files.
+Explicit forgetting requests instruct the agent to remove matching content without copying it elsewhere or restoring
+it from old conversations or summaries. Maintenance removes confirmed obsolete state while retaining valid long-term
+facts. Creating a session initializes missing memory but does not generate a reply. The session reuses its initial
+prompt and tools; the memory path continues to refer to the latest file. Invalid paths or initialization failures
+leave the current session selection unchanged.
+
+The `proactive` config starts a serial `pa_loop`. Its startup and fallback delay comes from
+`jobs.pa_loop.steps[0].default_wakeup_minutes` (five minutes by default). Memory initialization failures fail the round
+before resource processing. Each round uses two fresh agent sessions:
+
+- **Collect:** Remy reads confirmed memory, optional `{digest_dir}/personal/INTERESTS.md`, and changed resource packages.
+  Before processing resources, it reads the current PA session file for recent tasks, requests, and feedback;
+  missing or unreadable session files defer collection without acknowledging resources. No current PA session skips it.
+  The prompt controls relevance, deduplication, web research, and interest exploration. Useful findings go into at most
+  one `{daily_dir}/interest_HHMMSS.md`; filename collisions receive a numeric suffix. Code supplies `unsent` status and
+  timezone-aware creation/update timestamps. Acknowledge packages through `resource_processed` only after assessment
+  and, for useful material, successful saving.
+- **Remind:** Remy reads finding notes and the native PA session file, checks `session_status`, and decides whether and
+  how to interrupt. Older unsent notes remain eligible when there are no new findings. Private Job
+  `send_reminder(message, files)` takes one message and one or more interest filenames, including `.md`; the target
+  session is bound by code. The agent keeps these files read-only. The Job verifies the selected files and conversation
+  have not changed, restores unloaded sessions through the owner, and verifies idle before appending the assistant
+  message. Successful delivery marks every selected file `sent`; it does not indicate that the user read it.
+
+Confirmed user statements belong in `{digest_dir}/personal/REME_MEMORY.md`, maintained by foreground chat. The collector
+maintains hypotheses in `INTERESTS.md`, grouped by topic with dates, user evidence, and uncertainty. Its own searches,
+recommendations, repeated notes, and the user's silence do not confirm an interest. Prompts for both roles follow
+role, context, workflow, and notes, and live beside their implementations under `reme/steps/proactive/`.
+Each agent tool has its own module in `proactive/tools/`; resource collectors and their shared base live in
+`proactive/data_connectors/`. Tool registration names and Job parameters are independent of these module paths.
+
+Delivery uses stable message IDs and a single pending intent at `{session_dir}/proactive/pending.json` to recover an
+accepted injection or interrupted multi-file status updates before another reminder is planned. File locks and
+version checks preserve concurrent edits. Runtime state supports only `unsent` and `sent`; the former `ready` workflow
+and dated note layout are removed. Existing workspace data is not moved or rewritten automatically.
+
+Remy may call private Job `set_next_wakeup(minutes=...)` to override only the next delay. Omission, failed rounds, and
+restart use the configured default. `pa_proactive`, `send_reminder`, and `set_next_wakeup` are private Jobs bound to the
+background agent's tools. Disable background reminders with `jobs.pa_loop.enabled=false`.
+
 MCP does not expose Stream Jobs.
 
 ## MCP

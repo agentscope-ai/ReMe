@@ -41,6 +41,7 @@ test("workspace snapshot keeps chat session and marks interrupted blocks failed"
   const chat = {
     id: "agent:one",
     type: "agent",
+    mode: "chat",
     title: "Chat",
     sessionId: "session-1",
     streaming: true,
@@ -93,4 +94,38 @@ test("workspace snapshot preserves an open memory graph", () => {
 
   assert.deepEqual(snapshot.tabs, [graph]);
   assert.equal(snapshot.activeTabId, graph.id);
+});
+
+test("workspace restoration keeps independent chats, one PA view, and file drafts", () => {
+  const draft = {
+    id: "draft",
+    type: "markdown",
+    path: "draft.md",
+    content: "unsaved",
+    savedContent: "",
+  };
+  const agent = (id, mode) => ({
+    id,
+    type: "agent",
+    mode,
+    title: "",
+    messages: [],
+  });
+  const snapshot = prepareWorkspaceSnapshot(
+    [
+      draft,
+      agent("one", "chat"),
+      agent("two", "chat"),
+      agent("pa-old", "pa"),
+      agent("pa-current", "pa"),
+      agent("obsolete"),
+    ],
+    "pa-current",
+  );
+  assert.deepEqual(
+    snapshot.tabs.map((tab) => tab.id),
+    ["draft", "one", "two", "pa-current"],
+  );
+  assert.equal(snapshot.tabs[0].content, "unsaved");
+  assert.equal(snapshot.activeTabId, "pa-current");
 });

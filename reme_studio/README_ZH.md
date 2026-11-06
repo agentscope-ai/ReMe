@@ -180,10 +180,27 @@ Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留
 - ReMe Agent 逐 token 流式输出。
 - 分别展示回答文本、推理、工具调用、结构化数据、审批和用量信息。
 - 自动折叠已经完成的推理和工具块，让长对话更易阅读。
-- 多个独立对话标签页和可恢复的后端 session id。
+- 普通对话支持独立标签页，Proactive Chat 展示应用当前会话；两者共用对话组件。
 - 常见记忆问题的起始提示。
 - 将工作区文件拖入输入框以插入路径引用。
 - 按 `Enter` 发送，按 `Shift+Enter` 换行。
+
+两个入口按服务实际开放的 Job 启用。默认配置启用普通对话，向 `chat` 发送 `query` 和可选的 `session_id`；
+每个标签页拥有独立会话，点击**新对话**打开新的标签页，不调用 PA 接口。使用 `reme start config=proactive`
+启动后启用 **Proactive Chat**；未启用的入口显示配置提示。自定义配置可以同时提供两种模式。
+
+Proactive Chat 使用同一 Application 下所有客户端共享的当前对话。发送消息调用 `pa_chat(query)`；`pa_session()` 返回
+包含 `session_id` 和 `status` 的字典；`pa_new_session()` 创建并切换到空会话，返回新 ID，不触发模型生成。
+点击**新对话**只更换对话上下文，工作区长期记忆继续保留。生成期间拒绝并发发送和新建，但仍可查询状态。
+当前会话指针保存在 ApplicationContext，服务重启后清空；浏览器缓存仅用于展示，不能决定后端使用哪个会话。
+Proactive Chat 目前只支持 `CodexAgentWrapper`，其他 wrapper 抛出 `NotImplementedError`。
+proactive 配置只提供 `pa_*` 对话接口。
+
+新 PA 会话会加载工作区的 `personal/REME_MEMORY.md`；文件不存在或正文为空时，提示 Agent 在首次回复中了解用户，
+建立简洁完整的个人记忆，并在信息变化时维护；用户要求遗忘或信息确认失效时清理，不从旧上下文恢复已删除内容。
+PA Prompt 统一通过 `PromptHandler` 加载 `reme/steps/proactive/pa.yaml` 中的中英文模板，proactive 默认 `language=zh`，
+可用 `language=en` 切换英文。当前会话复用初始化时的 Prompt，新会话重新读取文件。
+创建会话本身不生成回复，也不写入记忆。
 
 内置 chat job 对工作区只读：它可以搜索和读取上下文，但不应替代明确保存长期知识的操作。Agent 对话需要有效的 Agent/模型配置；文件浏览、编辑、图谱和服务检查不需要模型。
 
@@ -196,10 +213,11 @@ Chat 会在同一个标签工作区中打开，因此对话进行时仍可保留
 reme start config=proactive
 ```
 
-在另一个终端中，使用对话对应的 session id 调用：
+在另一个终端中查询或新建当前会话，再用返回的 session id 读取历史、追加主动消息：
 
 ```bash
-reme session_status session_id=SESSION_ID
+reme pa_session
+reme pa_new_session
 reme session_append session_id=SESSION_ID message_id=reminder-1 content="主人，这条信息可能与你有关。" wait_timeout=30
 reme session_read session_id=SESSION_ID
 ```

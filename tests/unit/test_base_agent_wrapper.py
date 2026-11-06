@@ -81,6 +81,16 @@ async def test_session_commands_are_backend_neutral():
     assert wrapper.compacted_session == "session-1"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+async def test_session_path_lookup_is_explicitly_unsupported(tmp_path, wrapper_class):
+    """Backends without native path lookup raise the shared capability error."""
+    wrapper = wrapper_class(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+    with pytest.raises(NotImplementedError, match=f"{wrapper_class.__name__} does not support session path lookup"):
+        await wrapper.get_session_path("session-1")
+
+
 @pytest.mark.parametrize(
     ("wrapper_class", "sdk_package"),
     [
@@ -192,13 +202,14 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
 
         def __init__(self, **kwargs):
             self.state = kwargs["state"]
+            observed["system_prompt"] = kwargs["system_prompt"]
 
     monkeypatch.setattr(wrapper, "_builtin_tools", builtin_tools)
     monkeypatch.setattr(as_agent_wrapper, "Agent", FakeAgent)
 
     await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
 
-    assert observed == {"names": expected, "sequential_tool_calls": True}
+    assert observed == {"names": expected, "sequential_tool_calls": True, "system_prompt": ""}
 
 
 @pytest.mark.asyncio

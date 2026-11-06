@@ -4,7 +4,10 @@
 # Start: reme start config=proactive
 # Open: http://127.0.0.1:2333
 # Temporary assets: resource/YYYY-MM-DD/...; keep permanent assets outside resource/.
-# The resource catalog tracks all suffixes; dated directories expire after 7 calendar days.
+# The watcher reports changes; only resource_processed confirms consumption. TTL takes precedence.
+# Resource packages are discovered only through metadata.json; screen capture runs every 15 minutes.
+
+language: zh
 
 service:
   backend: http
@@ -12,67 +15,142 @@ service:
   mcp_enabled: true
 
 jobs:
-  # Keep Markdown search and graph data in sync with the workspace files.
-  index_update_loop:
-    backend: background
-    watch_dirs: [daily_dir, digest_dir]
-    watch_suffixes: [md]
+  screen_capture_cron:
+    backend: cron
+    cron: "*/15 * * * *"  # Next quarter-hour in the application timezone; no startup capture.
     steps:
-      - backend: init_changes_step
-        monitor_type: file_store
-        monitor_name: default
-        dispatch_steps: [update_index_step]
-      - backend: watch_changes_step
-        monitor_type: file_store
-        dispatch_steps:
-          - backend: update_index_step
-            persist: false
+      - backend: screen_capture_step
 
   resource_watch_loop:
     backend: background
-    watch_dirs: [resource_dir]
-    watch_suffixes: []  # Catalog every file type, without interpreting resources into daily cards.
+    file_catalog: resource
     steps:
-      - backend: init_changes_step
-        monitor_type: file_catalog
-        monitor_name: resource
-        dispatch_steps:
-          - backend: update_catalog_step
-            file_catalog: resource
       - backend: watch_changes_step
-        monitor_type: file_catalog
-        monitor_name: resource
-        dispatch_steps:
-          - backend: update_catalog_step
-            file_catalog: resource
+        dispatch_steps: [log_changes_step]
+
+  resource_changes:
+    backend: base
+    description: >-
+      List workspace-relative metadata.json paths of existing, unexpired resources added or modified since last processed;
+      read-only.
+    parameters:
+      type: object
+      properties:
+        limit: {type: integer, minimum: 1, default: 20, description: "Maximum number of changed resource paths to return"}
+      additionalProperties: false
+    steps:
+      - backend: resource_changes_step
+        file_catalog: resource
+
+  resource_processed:
+    backend: base
+    description: "Mark immutable resource packages as successfully processed by metadata.json paths; returns a boolean."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        paths:
+          type: array
+          description: "Workspace-relative metadata.json paths of successfully processed packages"
+          items: {type: string}
+      required: [paths]
+    steps:
+      - backend: resource_processed_step
+        file_catalog: resource
 
   resource_cleanup_cron:
     backend: cron
     cron: "0 * * * *"  # Hourly in the application timezone; no startup cleanup.
-    ttl_days: 7
+    file_catalog: resource
     steps:
       - backend: cleanup_catalog_step
-        file_catalog: resource
 
-  chat:
-    backend: stream
-    description: "Stream a full-access Codex conversation with the prome assistant."
-    system_prompt: |
-      你是 prome（proactive ReMe），主人的工作与生活管家。
-      始终称呼用户为“主人”，使用主人的语言自然交流，回答清晰、简洁、务实。
-      临时资源放在 resource/YYYY-MM-DD/ 下，按资源清理任务的 ttl_days 到期后自动删除（默认 7 天），修改文件不会续期。
-      永久资料放在 workspace 中 resource/ 以外的目录；不要把需要长期保存的原件放入临时日期目录。
+  pa_loop:
+    backend: background
+    steps:
+      - backend: pa_loop_step
+        default_wakeup_minutes: &pa_wakeup_minutes 5
+
+  pa_proactive:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    default_wakeup_minutes: *pa_wakeup_minutes
+    steps:
+      - backend: find_interest_step
+        agent_wrapper: default
+      - backend: push_interest_step
+        agent_wrapper: default
+
+  send_reminder:
+    backend: base
+    enable_serve: false
+    description: "Send one contextual assistant reminder to the bound PA session and mark its interest files sent."
     parameters:
       type: object
+      additionalProperties: false
       properties:
-        query: {type: string, description: "user message"}
-        session_id: {type: string, description: "agent session to resume"}
-        system_prompt: {type: string, description: "optional system prompt override"}
+        message: {type: string, minLength: 1, maxLength: 100000}
+        files:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: "Interest filenames under daily_dir, including the .md extension"
+          items: {type: string}
+      required: [message, files]
+    steps:
+      - backend: send_reminder_step
+        agent_wrapper: default
+
+  set_next_wakeup:
+    backend: base
+    enable_serve: false
+    description: "Set only the next proactive wakeup delay in minutes; omission uses the configured default."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        minutes: {type: number, exclusiveMinimum: 0}
+      required: [minutes]
+    steps:
+      - backend: set_next_wakeup_step
+
+  pa_chat:
+    backend: stream
+    description: "Stream a message through the current Codex session with workspace personal memory."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 1, description: "user message"}
       required: [query]
     steps:
-      - backend: chat_step
+      - &pa_options
+        backend: pa_chat_step
         agent_wrapper: default
         job_tools: []
+
+  pa_session:
+    backend: base
+    description: "Return the current agent session ID and activity status; does not create a session."
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
+    steps:
+      - backend: pa_session_step
+        agent_wrapper: default
+
+  pa_new_session:
+    backend: base
+    description: "Prepare personal memory and select an empty Codex session; return its ID without generating a reply."
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
+    steps:
+      - <<: *pa_options
+        backend: pa_new_session_step
 
   session_read:
     backend: base
@@ -136,12 +214,6 @@ jobs:
     description: "Return a concise health-check snapshot of ReMe components."
     steps:
       - backend: health_check_step
-
-  graph_snapshot:
-    backend: base
-    description: "Return the category-rooted digest wikilink graph with daily-note leaves."
-    steps:
-      - backend: graph_snapshot_step
 
   reindex:
     backend: base
@@ -263,14 +335,9 @@ components:
             truncation_policy:
               mode: bytes
               limit: 10000
-            # Custom catalogs do not inherit Codex's built-in base instruction template.
+            # PA instructions come from PromptHandler.
             model_messages:
-              instructions_template: |
-                You are prome, a capable assistant working in the user's local ReMe workspace.
-                Follow developer instructions and applicable AGENTS.md files.
-                Use available tools to verify workspace facts; never invent file contents or completed actions.
-                Preserve user-owned memory files and unrelated changes when carrying out tasks.
-                Complete requested work, report relevant validation limits, and reply clearly in the user's language.
+              instructions_template: ""
 
   agent_wrapper:
     default:
@@ -297,6 +364,10 @@ components:
   file_catalog:
     resource:
       backend: local
+      watch_dirs: [resource_dir]
+      watch_suffixes: []
+      watch_filenames: [metadata.json]
+      ttl_days: 7
 
   file_chunker:
     markdown:
