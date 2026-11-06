@@ -1,0 +1,261 @@
+{
+  "name": "Remy",
+  "version": 1,
+  "canvas": [
+    512,
+    512
+  ],
+  "output_fps": 24,
+  "animations": [
+    {
+      "id": "idle",
+      "label": "待机",
+      "loop": true,
+      "ticks": [
+        18,
+        12,
+        12,
+        2,
+        3,
+        2,
+        12,
+        11
+      ],
+      "frame_files": [
+        "frames/idle/00.png",
+        "frames/idle/01.png",
+        "frames/idle/02.png",
+        "frames/idle/03.png",
+        "frames/idle/04.png",
+        "frames/idle/05.png",
+        "frames/idle/06.png",
+        "frames/idle/07.png"
+      ]
+    },
+    {
+      "id": "listening",
+      "label": "聆听",
+      "loop": true,
+      "ticks": [
+        14,
+        10,
+        10,
+        2,
+        3,
+        2,
+        14,
+        17
+      ],
+      "frame_files": [
+        "frames/listening/00.png",
+        "frames/listening/01.png",
+        "frames/listening/02.png",
+        "frames/listening/03.png",
+        "frames/listening/04.png",
+        "frames/listening/05.png",
+        "frames/listening/06.png",
+        "frames/listening/07.png"
+      ]
+    },
+    {
+      "id": "thinking",
+      "label": "思考",
+      "loop": true,
+      "ticks": [
+        14,
+        10,
+        10,
+        2,
+        3,
+        2,
+        14,
+        17
+      ],
+      "frame_files": [
+        "frames/thinking/00.png",
+        "frames/thinking/01.png",
+        "frames/thinking/02.png",
+        "frames/thinking/03.png",
+        "frames/thinking/04.png",
+        "frames/thinking/05.png",
+        "frames/thinking/06.png",
+        "frames/thinking/07.png"
+      ]
+    },
+    {
+      "id": "remembering",
+      "label": "回忆",
+      "loop": false,
+      "ticks": [
+        6,
+        4,
+        4,
+        6,
+        18,
+        10,
+        6,
+        6
+      ],
+      "frame_files": [
+        "frames/remembering/00.png",
+        "frames/remembering/01.png",
+        "frames/remembering/02.png",
+        "frames/remembering/03.png",
+        "frames/remembering/04.png",
+        "frames/remembering/05.png",
+        "frames/remembering/06.png",
+        "frames/remembering/07.png"
+      ]
+    },
+    {
+      "id": "speaking",
+      "label": "对话",
+      "loop": true,
+      "ticks": [
+        4,
+        5,
+        5,
+        5,
+        2,
+        5,
+        5,
+        5
+      ],
+      "frame_files": [
+        "frames/speaking/00.png",
+        "frames/speaking/01.png",
+        "frames/speaking/02.png",
+        "frames/speaking/03.png",
+        "frames/speaking/04.png",
+        "frames/speaking/05.png",
+        "frames/speaking/06.png",
+        "frames/speaking/07.png"
+      ]
+    },
+    {
+      "id": "reminding",
+      "label": "主动提醒",
+      "loop": false,
+      "ticks": [
+        5,
+        3,
+        3,
+        4,
+        6,
+        24,
+        4,
+        5
+      ],
+      "frame_files": [
+        "frames/reminding/00.png",
+        "frames/reminding/01.png",
+        "frames/reminding/02.png",
+        "frames/reminding/03.png",
+        "frames/reminding/04.png",
+        "frames/reminding/05.png",
+        "frames/reminding/06.png",
+        "frames/reminding/07.png"
+      ]
+    },
+    {
+      "id": "happy",
+      "label": "完成",
+      "loop": false,
+      "ticks": [
+        4,
+        4,
+        4,
+        12,
+        6,
+        4,
+        4,
+        4
+      ],
+      "frame_files": [
+        "frames/happy/00.png",
+        "frames/happy/01.png",
+        "frames/happy/02.png",
+        "frames/happy/03.png",
+        "frames/happy/04.png",
+        "frames/happy/05.png",
+        "frames/happy/06.png",
+        "frames/happy/07.png"
+      ]
+    },
+    {
+      "id": "confused",
+      "label": "疑惑",
+      "loop": true,
+      "ticks": [
+        12,
+        8,
+        8,
+        2,
+        3,
+        2,
+        11,
+        14
+      ],
+      "frame_files": [
+        "frames/confused/00.png",
+        "frames/confused/01.png",
+        "frames/confused/02.png",
+        "frames/confused/03.png",
+        "frames/confused/04.png",
+        "frames/confused/05.png",
+        "frames/confused/06.png",
+        "frames/confused/07.png"
+      ]
+    },
+    {
+      "id": "sleeping",
+      "label": "睡觉",
+      "loop": true,
+      "ticks": [
+        14,
+        14,
+        14,
+        2,
+        3,
+        7,
+        20,
+        22
+      ],
+      "frame_files": [
+        "frames/sleeping/00.png",
+        "frames/sleeping/01.png",
+        "frames/sleeping/02.png",
+        "frames/sleeping/03.png",
+        "frames/sleeping/04.png",
+        "frames/sleeping/05.png",
+        "frames/sleeping/06.png",
+        "frames/sleeping/07.png"
+      ]
+    },
+    {
+      "id": "dragged",
+      "label": "拖动",
+      "loop": true,
+      "ticks": [
+        4,
+        4,
+        5,
+        5,
+        4,
+        4,
+        5,
+        5
+      ],
+      "frame_files": [
+        "frames/dragged/00.png",
+        "frames/dragged/01.png",
+        "frames/dragged/02.png",
+        "frames/dragged/03.png",
+        "frames/dragged/04.png",
+        "frames/dragged/05.png",
+        "frames/dragged/06.png",
+        "frames/dragged/07.png"
+      ]
+    }
+  ]
+}

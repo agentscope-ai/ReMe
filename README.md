@@ -234,6 +234,11 @@ The `core` installation includes Studio. After starting ReMe, open <http://127.0
 the workspace. To add Studio to a base installation, use `pip install "reme-ai[web]"`. See the
 [ReMe Studio guide](https://reme.agentscope.io/en/workspace/studio) for source builds, configuration, and development.
 
+### ReMe Desktop (Optional)
+
+[ReMe Desktop](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop) is an Electron + React companion for the proactive agent. Click Remy to chat,
+drag to move, or receive proactive messages in desktop bubbles. It uses the existing ReMe service and workspace.
+
 ## 🤝 Use ReMe with Your Agent
 
 ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the

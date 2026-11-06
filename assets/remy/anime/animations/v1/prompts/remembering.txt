@@ -1,0 +1,19 @@
+Use case: identity-preserve
+Asset type: one precision 2D ANIMATION SPRITE SHEET for the original ReMe anime character.
+Input image 1 is the approved original long-haired ReMe character identity. Input image 2 is the existing idle sprite sheet, used for EXACT rendering style, frame grid, full-body scale and registration. If a third image is supplied, it is ONLY a reference for the requested seated or lifted body pose; do not copy its canvas or layout.
+Preserve exact character identity in EVERY FRAME: mint/turquoise hair tied in ONE low side ponytail on the RIGHT SIDE OF EACH CELL with indigo tips, ivory folded-bookmark hair ornament at upper RIGHT, indigo headband, large teal-green anime eyes, the same face and young-adult chibi proportions, ivory capelet with mint trim and round indigo brooch, mint blouse, indigo pleated knee-length skirt, navy opaque tights, ivory ankle boots. Same navy crossbody satchel at RIGHT hip and a SINGLE clear turquoise uppercase R on its main visible front. NO infinity symbol, duplicate R, second bag, new accessories or costume redesign. The inside of any opened flap is plain navy, without a second R.
+CRITICAL LAYOUT: ONE WIDE LANDSCAPE transparent PNG, aspect exactly 2:1, ideally 2048x1024. EXACTLY EIGHT equal-sized cells in FOUR columns and TWO rows, read left-to-right top row then bottom row. No gutters, frame borders, captions, numbers or grid lines. One entire full-body character per cell. Every frame uses the SAME camera, scale, head size, torso/hip placement and foot baseline; match input image 2. Feet near 94% cell height, head near 7% cell height for standing poses. Center the torso within the cell. At least a little clear padding on all sides; hair, hands, boots, satchel and any requested card must remain fully inside that cell. Seated poses naturally occupy less vertical space; keep the head size consistent and leave more space above.
+ANIMATION QUALITY: this is one coherent small-motion animation of the SAME girl, NOT eight unrelated illustrations. Make distinct changes only where requested; keep feet and body registered unless the animation explicitly requires suspension. Crisp dark-teal/indigo line art, clean flat colors, restrained cel shading, consistent palette, face and anatomy. Exactly two arms, two hands and two legs. Fully clothed practical outfit throughout.
+BACKGROUND: genuine transparent alpha between and around characters. No opaque background, baked checkerboard, floor, cast shadow, glow, neon edge fringing or stray marks.
+NO captions, speech bubbles, floating punctuation, effects, symbols, particles, watermarks, UI or other characters. Only the single R bag badge is lettering. Any note card must be entirely blank. Do not add a card to animations that do not request it. Never mirror the character; side ponytail, bookmark and satchel stay on the RIGHT SIDE OF THE IMAGE.
+
+MEMORY RETRIEVAL ACTION, one complete action with a neutral idle start and end. The action is reading a memory privately, not holding it beside the face.
+Frame 1 top-left: neutral standing idle pose as in input image 1, eyes open, no card.
+Frame 2: reach toward the SAME R satchel and gently open its flap, look down slightly. The raised flap interior is plain navy with NO extra R; ONE R remains on the main visible front of the bag.
+Frame 3: pull ONE blank cream rounded note halfway out.
+Frame 4 top-right: hold the same note with both hands at lower chest/waist level, below the face, and look down at it.
+Frame 5 bottom-left: read it with a small delighted remembering smile, face unobstructed, same card at lower chest.
+Frame 6: begin lowering the card toward the satchel, look gently down.
+Frame 7: return the card into the bag and close its flap. One bag, one R, exactly two hands.
+Frame 8 bottom-right: note is gone, satchel closed, exact neutral standing idle pose matching frame 1.
+No writing, duplicate card, second bag, or duplicate badge. Ponytail stays on RIGHT.

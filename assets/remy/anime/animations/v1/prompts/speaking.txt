@@ -1,0 +1,17 @@
+Use case: identity-preserve
+Asset type: a precision full-color 2D ANIMATION SPRITE SHEET for ReMe.
+Input image 1: the approved ORIGINAL ReMe long-haired bookmark-girl identity. Input image 2: an original idle sprite sheet used ONLY as the grid, scale, rendering-style and registration reference.
+Preserve exact identity in EVERY frame: mint hair with ONE low side ponytail on the RIGHT SIDE OF THE IMAGE, indigo hair tips, ivory folded-bookmark hair accent on upper RIGHT, indigo headband, large teal-green eyes, ivory short capelet with mint edging and round indigo brooch, mint blouse, indigo pleated skirt, navy opaque tights, ivory ankle boots, navy crossbody satchel at RIGHT hip with one clear turquoise uppercase R. Same young-adult chibi anime girl, body proportions, face, outfit, line thickness and crisp cel shading. Never mirror the hair, bag or head accessory.
+PRECISION LAYOUT: one WIDE LANDSCAPE transparent PNG, aspect ratio exactly 2:1, ideally 2048x1024. EXACTLY EIGHT equal-sized cells in FOUR columns and TWO rows, no gutters, borders or labels. Frame order left-to-right across top row, then bottom row. One complete full-body figure per cell. Every frame must use the SAME camera, character scale, hip/torso placement, foot baseline, face size and padding, like image 2. Feet fixed near 90% cell height, head near 8% cell height. All hair, hands and any requested note fully inside its own cell with transparent padding; no cropping or overlap.
+Rendering: clean anime line art, smooth restrained cel shading, transparent edges with NO NEON GREEN, PURE CYAN, BLUE OR WHITE FRINGES, no stray pixels between characters. Genuine alpha transparency everywhere outside each character and the held note if requested. No ground, shadow, background, checkerboard or opaque panel.
+Constraints: exactly 8 frames, same character in one continuous motion, NOT random unrelated poses. Only the R bag emblem is lettering. No captions, speech bubbles, UI, numbers, labels, watermarks, other characters, extra props, effects or costume changes. Anatomically correct simplified hands.
+ANIMATION / TALKING LOOP: the same relaxed standing posture with the LEFT-SIDE-OF-IMAGE hand lifted gently in an explanatory open-palm gesture; the right-side hand loosely holds the strap, satchel visible. Very small wrist and forearm motion only, no large body or foot movement. This is a mouth-cycle animation, keep all facial features registered and only alter the lips and the specified eyelids.
+Frame 1 top-left: eyes open, small closed smile, palm calmly open.
+Frame 2: eyes open, lips slightly part into a small speaking shape, wrist turns up slightly.
+Frame 3: eyes open, modest open A-shaped speaking mouth, palm slightly more open.
+Frame 4 top-right: eyes open, small rounded O-shaped mouth, palm returns slightly.
+Frame 5 bottom-left: a natural brief blink with eyes closed, small closed-mouth smile; body pose unchanged.
+Frame 6: eyes open, modest A-shaped mouth again, tiny wrist gesture.
+Frame 7: eyes open, lips slightly parted in a smaller speaking shape, hand easing back.
+Frame 8 bottom-right: eyes open, small closed smile and exact same gentle open-palm posture as frame 1 for a clean loop.
+No note card in any talking frame. Mouth shapes should be distinct but subtle and cute, never a huge shout.
