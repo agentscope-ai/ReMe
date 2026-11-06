@@ -96,8 +96,8 @@ class DailyWriteStep(_FileIOStep):
 
         index_payload = await refresh_day_index(self.file_store, day, daily_dir)
 
-        self.context.response.success = True
-        self.context.response.answer = write_answer
+        self.context.response.success = "error" not in index_payload
+        self.context.response.answer = write_answer if self.context.response.success else f"Error: {index_payload['error']}"
         self.context.response.metadata.update(
             {
                 "date": day,

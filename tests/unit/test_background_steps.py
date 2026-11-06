@@ -20,6 +20,7 @@ import warnings
 import weakref
 from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -2172,6 +2173,77 @@ async def test_auto_memory_reports_modified_for_create_and_false_for_skip():
             assert context["changes"] == []
         finally:
             await fs.close()
+
+
+@pytest.mark.asyncio
+async def test_auto_memory_reports_unreadable_index_after_durable_note_write():
+    """Auto-memory fails its response without removing the written note or transcript."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        cwd = Path.cwd()
+        app_ctx = _make_app_context(cwd)
+        wrapper = _FakeAgentWrapper()
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+        note_path = f"daily/{today}/memory.md"
+        note = cwd / note_path
+        note.parent.mkdir(parents=True)
+        note.write_text(
+            "---\nname: memory\nsession_id: s1\n"
+            "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nold body\n",
+            encoding="utf-8",
+        )
+        index = cwd / "daily" / f"{today}.md"
+        damaged = b"---\ntags: [\n---\nold index\n"
+        index.write_bytes(damaged)
+
+        async def save_session(session_id, _messages):
+            write_file(cwd / "session" / "dialog" / f"{session_id}.jsonl", "session\n")
+
+        async def list_note(_day, _session_id):
+            return {"path": note_path}
+
+        async def ensure_frontmatter(*_args):
+            return None
+
+        async def rename_note(path, _day):
+            return path
+
+        wrapper.on_reply = lambda *_: note.write_text(
+            "---\nname: memory\nsession_id: s1\n"
+            "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nnew body\n",
+            encoding="utf-8",
+        )
+        step = AutoMemoryStep(app_context=app_ctx, agent_wrapper=wrapper)
+        step.file_store = SimpleNamespace(workspace_path=cwd)
+        step._save_session_messages = save_session
+        step._list_session_note = list_note
+        step._ensure_session_frontmatter = ensure_frontmatter
+        step._rename_from_frontmatter_name = rename_note
+
+        async def failed_refresh(*_args, **_kwargs):
+            return {
+                "date": today,
+                "path": f"daily/{today}.md",
+                "notes": [],
+                "created": False,
+                "changed": False,
+                "error": "daily index is unreadable: malformed YAML",
+            }
+
+        with patch("reme.steps.evolve.auto_memory.refresh_day_index", new=failed_refresh):
+            response = await step(
+                RuntimeContext(
+                    messages=[{"name": "user", "role": "user", "content": "remember project detail"}],
+                    session_id="s1",
+                ),
+            )
+        response = response or step.context.response
+
+        assert response.success is False
+        assert response.answer.startswith("Error: daily index is unreadable:")
+        assert note.read_text(encoding="utf-8").endswith("new body\n")
+        assert (cwd / "session" / "dialog" / "s1.jsonl").is_file()
+        assert index.read_bytes() == damaged
 
 
 @pytest.mark.asyncio

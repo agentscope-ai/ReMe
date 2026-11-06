@@ -126,7 +126,9 @@ def scan_notes(workspace_dir: Path, date: str, daily_dir: str, *, allowed_paths=
 async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
     """Rebuild ``<daily_dir>/<date>.md`` from the current state of its notes.
 
-    Returns ``{date, path, notes, created}``.
+    Returns a payload with ``date``, ``path``, ``notes``, ``created``, and
+    ``changed``. If an existing derived index cannot be decoded or parsed, the
+    payload also contains ``error`` and the original index bytes are untouched.
     """
     workspace_dir = Path(file_store.workspace_path or ".").resolve()
     index_rel = f"{daily_dir}/{date}.md"
