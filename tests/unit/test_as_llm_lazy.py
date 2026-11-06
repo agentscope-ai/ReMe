@@ -307,6 +307,8 @@ def test_openai_start_failure_rolls_back_owned_client(injected, failure_stage):
     from reme.components.as_llm import OpenAIAsLLM
 
     class FailingOpenAIAsLLM(OpenAIAsLLM):
+        """Simulate failures at different stages of component startup."""
+
         async def _resolve_bindings(self):
             if failure_stage == "resolve":
                 raise RuntimeError("resolve failed")
