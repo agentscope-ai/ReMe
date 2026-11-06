@@ -111,7 +111,6 @@ const manifest = {
   output_fps: config.fps,
   animations: config.animations.map((item) => ({
     id: item.id,
-    label: item.label,
     ticks: item.ticks,
     ...(item.segments ? { segments: item.segments } : {}),
     frame_files: item.ticks.map((_, index) => {

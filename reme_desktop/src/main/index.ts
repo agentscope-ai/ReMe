@@ -1,4 +1,11 @@
 import {
+  defaultLanguage,
+  errorText,
+  serializeError,
+  translate,
+  UiError,
+} from "../shared/i18n.ts";
+import {
   app,
   dialog,
   globalShortcut,
@@ -46,6 +53,7 @@ else {
   let refreshTray = () => {};
   let openMenu = () => {};
   let quitting = false;
+  let language = defaultLanguage;
   app.on("second-instance", () => windows?.openChat());
   app.on("activate", () => windows?.openChat());
   app.on("window-all-closed", () => {});
@@ -92,7 +100,11 @@ else {
       const storage = new Storage(
         path.join(app.getPath("userData"), "desktop"),
       );
-      await storage.load();
+      try {
+        await storage.load();
+      } finally {
+        language = storage.settings.language;
+      }
       if (process.env.REME_DESKTOP_API_URL)
         storage.settings.endpoint = normalizeEndpoint(
           process.env.REME_DESKTOP_API_URL,
@@ -100,6 +112,7 @@ else {
       controller = new DesktopController(
         storage,
         (state) => {
+          language = state.settings.language;
           windows?.update(state);
           notifications?.update(state);
           refreshTray();
@@ -138,7 +151,7 @@ else {
           !windows!.isSender(event.sender.id) ||
           event.senderFrame !== event.sender.mainFrame
         )
-          throw new Error("无效的桌面消息来源");
+          throw new UiError("invalidSender");
       };
       ipcMain.handle(channels.bootstrap, (event) => {
         trusted(event);
@@ -151,10 +164,13 @@ else {
           layout: windows!.layout,
         };
       });
-      ipcMain.handle(channels.action, async (event, action: DesktopAction) => {
+      const dispatch = async (
+        event: Electron.IpcMainInvokeEvent,
+        action: DesktopAction,
+      ): Promise<void> => {
         trusted(event);
         if (!action || typeof action.type !== "string")
-          throw new Error("无效的桌面操作");
+          throw new UiError("invalidAction");
         switch (action.type) {
           case "playback.report":
             if (
@@ -183,7 +199,7 @@ else {
             return;
           case "companion.menu":
             if (event.sender.id !== windows!.companion.webContents.id)
-              throw new Error("请从角色打开菜单");
+              throw new UiError("menuFromCharacter");
             openMenu();
             return;
           case "chat.open":
@@ -200,7 +216,7 @@ else {
             return;
           case "chat.send":
             if (typeof action.query !== "string")
-              throw new Error("消息需要是文本");
+              throw new UiError("textRequired");
             return controller!.send(action.query);
           case "chat.stop":
             controller!.stopReply();
@@ -214,7 +230,7 @@ else {
               !Array.isArray(action.ids) ||
               !action.ids.every((id) => typeof id === "string")
             )
-              throw new Error("无效的已读消息");
+              throw new UiError("invalidRead");
             controller!.markRead(action.sessionId, action.ids);
             return;
           case "bubble.dismiss":
@@ -232,6 +248,9 @@ else {
             return;
           case "settings.update":
             return controller!.settings({
+              ...(action.language !== undefined
+                ? { language: action.language }
+                : {}),
               ...(action.endpoint !== undefined
                 ? { endpoint: action.endpoint }
                 : {}),
@@ -254,7 +273,15 @@ else {
             return;
           }
           default:
-            throw new Error("未知的桌面操作");
+            throw new UiError("unknownAction");
+        }
+      };
+      ipcMain.handle(channels.action, async (event, action: DesktopAction) => {
+        try {
+          await dispatch(event, action);
+          return null;
+        } catch (error) {
+          return serializeError(error);
         }
       });
       ipcMain.on(channels.pointer, (event, interactive) => {
@@ -279,7 +306,6 @@ else {
       app.dock?.setIcon(characterIcon);
       const icon = characterIcon.resize({ width: 20, height: 20 });
       tray = new Tray(icon);
-      tray.setToolTip("Remy · ReMe 桌面助手");
       const menu = () =>
         desktopMenu(
           controller!,
@@ -301,6 +327,7 @@ else {
         const state = controller!.state;
         const next = JSON.stringify([
           state.unread,
+          state.settings.language,
           state.settings.scale,
           state.settings.notifications,
           state.settings.quietUntil > Date.now(),
@@ -311,6 +338,7 @@ else {
         if (next !== menuState) {
           menuState = next;
           tray!.setContextMenu(menu());
+          tray!.setToolTip(translate(state.settings.language, "trayTooltip"));
         }
       };
       openMenu = () => menu().popup({ window: windows!.companion });
@@ -334,8 +362,8 @@ else {
     })
     .catch((error) => {
       dialog.showErrorBox(
-        "ReMe Desktop 启动失败",
-        error instanceof Error ? error.message : String(error),
+        translate(language, "startupFailed"),
+        errorText(error, language),
       );
       app.quit();
     });

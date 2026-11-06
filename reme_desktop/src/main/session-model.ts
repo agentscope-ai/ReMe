@@ -1,3 +1,4 @@
+import { UiError } from "../shared/i18n.ts";
 import type {
   PaEvent,
   SessionMessage,
@@ -25,7 +26,7 @@ function message(value: SessionMessage): SessionMessage {
     !["chat", "proactive"].includes(value.source) ||
     typeof value.completed !== "boolean"
   )
-    throw new Error("ReMe 会话消息格式无效");
+    throw new UiError("invalidMessage");
   // Desktop renders the public message text, not provider-native tool/event traces.
   return {
     id: value.id,
@@ -74,10 +75,10 @@ export class SessionModel {
       value.state?.session_id !== value.session_id ||
       !statuses.has(value.state?.status)
     )
-      throw new Error("ReMe 会话快照格式无效");
+      throw new UiError("invalidSnapshot");
     const messages = value.messages.map(message);
     if (new Set(messages.map((entry) => entry.id)).size !== messages.length)
-      throw new Error("ReMe 会话快照包含重复消息");
+      throw new UiError("duplicateMessages");
     this.select(value.session_id);
     this.messages = messages;
     this.status = value.state.status;
@@ -89,17 +90,17 @@ export class SessionModel {
       typeof value !== "object" ||
       !eventTypes.has((value as PaEvent).type)
     )
-      throw new Error("ReMe 主动消息事件格式无效");
+      throw new UiError("invalidEvent");
     const event = value as PaEvent;
     if (event.status != null && !statuses.has(event.status))
-      throw new Error("ReMe 会话状态无效");
+      throw new UiError("invalidStatus");
     if (["snapshot", "status_changed"].includes(event.type)) {
       if (
         !event.activities ||
         typeof event.activities !== "object" ||
         Array.isArray(event.activities)
       )
-        throw new Error("ReMe 未返回活动状态，请更新服务与桌面客户端");
+        throw new UiError("missingActivities");
       for (const [source, activity] of Object.entries(event.activities)) {
         if (
           !activity ||
@@ -118,7 +119,7 @@ export class SessionModel {
             "interrupted",
           ].includes(activity.phase)
         )
-          throw new Error("ReMe 活动状态无效");
+          throw new UiError("invalidActivity");
       }
     }
     if (event.type === "reset") {
@@ -145,7 +146,7 @@ export class SessionModel {
       if (event.type === "session_changed")
         this.select(event.session_id ?? null);
       else if (event.session_id !== this.sessionId)
-        throw new Error("ReMe 事件与当前会话不一致，需要重新同步");
+        throw new UiError("sessionMismatch");
       if (event.type === "status_changed") {
         this.status = event.status ?? null;
         this.activities = event.activities;

@@ -1,3 +1,4 @@
+import { UiError } from "./i18n.ts";
 import type { StreamChunk } from "./protocol.ts";
 
 /** DONE terminates transport; only reply_end can settle a chat outcome. */
@@ -9,7 +10,7 @@ export async function readStream(
   const decoder = new TextDecoder();
   let buffer = "";
   const emit = (event: string) => {
-    if (event.length > 8 * 1024 * 1024) throw new Error("ReMe 流事件过大");
+    if (event.length > 8 * 1024 * 1024) throw new UiError("streamTooLarge");
     const data = event
       .split(/\r?\n/)
       .filter((line) => line.startsWith("data:"))
@@ -21,7 +22,7 @@ export async function readStream(
         ? { chunk_type: "done", chunk: "", done: true }
         : JSON.parse(data);
     if (!chunk || typeof chunk.chunk_type !== "string")
-      throw new Error("ReMe 返回了无效的流事件");
+      throw new UiError("invalidStream");
     onChunk(chunk);
     return chunk.chunk_type === "done" || chunk.done === true;
   };
@@ -32,10 +33,10 @@ export async function readStream(
       const events = buffer.split(/\r?\n\r?\n/);
       buffer = events.pop() ?? "";
       for (const event of events) if (emit(event)) return;
-      if (buffer.length > 8 * 1024 * 1024) throw new Error("ReMe 流事件过大");
+      if (buffer.length > 8 * 1024 * 1024) throw new UiError("streamTooLarge");
       if (done) {
         if (emit(buffer)) return;
-        throw new Error("连接在结束标记之前中断，正在等待会话同步");
+        throw new UiError("streamInterrupted");
       }
     }
   } finally {
@@ -49,7 +50,7 @@ export interface ReplyProgress {
   turnId?: string;
   sessionId?: string;
   status?: StreamChunk["status"];
-  error?: string;
+  error?: string | UiError;
   blocks: Map<string, string>;
 }
 
@@ -82,7 +83,8 @@ export function reduceReply(
     chunk.chunk_type === "error" &&
     chunk.metadata?.will_retry !== true
   ) {
-    next.error = typeof chunk.chunk === "string" ? chunk.chunk : "回复出错";
+    next.error =
+      typeof chunk.chunk === "string" ? chunk.chunk : new UiError("replyError");
   }
   return next;
 }

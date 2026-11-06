@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
+import { errorText, translator } from "../../shared/i18n.ts";
 import remarkGfm from "remark-gfm";
 import { action } from "../desktop.ts";
 import { displayMessages } from "../../shared/messages.ts";
 import type { DesktopState } from "../../shared/protocol.ts";
 
 export default function Chat({ state }: { state: DesktopState }) {
+  const language = state.settings.language;
+  const t = translator(language);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [endpoint, setEndpoint] = useState(state.settings.endpoint);
   const [scale, setScale] = useState(state.settings.scale);
@@ -23,19 +26,12 @@ export default function Chat({ state }: { state: DesktopState }) {
   const busy = Boolean(state.pending?.streaming) || state.status === "active";
   const ready = state.connection === "connected" && state.status !== "error";
   const run = async (value: Parameters<typeof action>[0]) => {
-    setError("");
+    setError(null);
     try {
       await action(value);
       return true;
     } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message.replace(
-              /^Error invoking remote method '[^']+': Error: /,
-              "",
-            )
-          : String(error),
-      );
+      setError(error);
       return false;
     }
   };
@@ -140,14 +136,14 @@ export default function Chat({ state }: { state: DesktopState }) {
           <h1>Remy</h1>
           <span>
             {state.connection !== "connected"
-              ? "等待连接 ReMe"
+              ? t("waitingConnection")
               : state.behavior.label}
           </span>
         </div>
-        <nav aria-label="对话操作">
+        <nav aria-label={t("chatActions")}>
           <button
             className="icon-button"
-            aria-label="新建对话"
+            aria-label={t("newConversation")}
             disabled={busy || !state.workspace}
             onClick={() => {
               follow.current = true;
@@ -158,7 +154,7 @@ export default function Chat({ state }: { state: DesktopState }) {
           </button>
           <button
             className={`icon-button ${settingsOpen ? "selected" : ""}`}
-            aria-label="设置"
+            aria-label={t("settings")}
             aria-pressed={settingsOpen}
             onClick={() => setSettingsOpen(!settingsOpen)}
           >
@@ -166,7 +162,7 @@ export default function Chat({ state }: { state: DesktopState }) {
           </button>
           <button
             className="icon-button"
-            aria-label="收起聊天"
+            aria-label={t("closeChat")}
             onClick={() => void run({ type: "chat.close" })}
           >
             ×
@@ -174,30 +170,30 @@ export default function Chat({ state }: { state: DesktopState }) {
         </nav>
       </header>
       {settingsOpen && (
-        <section className="settings" aria-label="桌面设置">
+        <section className="settings" aria-label={t("desktopSettings")}>
           <label>
-            ReMe 服务地址
+            {t("endpoint")}
             <div className="endpoint-row">
               <input
                 value={endpoint}
                 onChange={(event) => setEndpoint(event.target.value)}
                 spellCheck={false}
-                aria-label="ReMe 服务地址"
+                aria-label={t("endpoint")}
               />
               <button
                 className="primary"
                 disabled={Boolean(state.pending?.streaming)}
                 onClick={() => void run({ type: "settings.update", endpoint })}
               >
-                连接
+                {t("connect")}
               </button>
             </div>
           </label>
           <label className="scale-row">
-            角色大小 <span>{Math.round(scale * 100)}%</span>
+            {t("characterSize")} <span>{Math.round(scale * 100)}%</span>
             <input
               type="range"
-              aria-label="角色大小"
+              aria-label={t("characterSize")}
               min="0.7"
               max="1.5"
               step="0.05"
@@ -208,7 +204,7 @@ export default function Chat({ state }: { state: DesktopState }) {
             />
           </label>
           <div className="quiet-row">
-            <span>主动提醒</span>
+            <span>{t("reminder")}</span>
             <button
               className="secondary"
               onClick={() =>
@@ -222,17 +218,17 @@ export default function Chat({ state }: { state: DesktopState }) {
               }
             >
               {state.settings.quietUntil > Date.now()
-                ? "恢复提醒"
-                : "安静 30 分钟"}
+                ? t("resume")
+                : t("quiet")}
             </button>
           </div>
           <label className="quiet-row">
             <span>
-              系统通知 <small>长任务完成、需要处理或角色隐藏时提醒</small>
+              {t("notifications")} <small>{t("notificationHint")}</small>
             </span>
             <input
               type="checkbox"
-              aria-label="系统通知"
+              aria-label={t("notifications")}
               checked={state.settings.notifications}
               onChange={(event) =>
                 void run({
@@ -244,24 +240,24 @@ export default function Chat({ state }: { state: DesktopState }) {
           </label>
           {state.workspace && (
             <p className="workspace-path" title={state.workspace}>
-              工作区：{state.workspace}
+              {t("workspace", { path: state.workspace })}
             </p>
           )}
-          <p className="settings-note">
-            快捷键 ⌘/Ctrl + Shift + Space 打开对话
-          </p>
+          <p className="settings-note">{t("shortcutHint")}</p>
         </section>
       )}
       {state.connectionError && (
         <div className="connection-banner" role="status">
           <span>{state.connectionError}</span>
-          <button onClick={() => setSettingsOpen(true)}>连接设置</button>
+          <button onClick={() => setSettingsOpen(true)}>
+            {t("connectionSettings")}
+          </button>
         </div>
       )}
-      {error && (
+      {error !== null && (
         <div className="action-error" role="alert">
-          <span>{error}</span>
-          <button aria-label="关闭提示" onClick={() => setError("")}>
+          <span>{errorText(error, language)}</span>
+          <button aria-label={t("closeNotice")} onClick={() => setError(null)}>
             ×
           </button>
         </div>
@@ -269,7 +265,7 @@ export default function Chat({ state }: { state: DesktopState }) {
       <div
         ref={history}
         className="chat-history"
-        aria-label="对话记录"
+        aria-label={t("history")}
         onScroll={() => {
           if (history.current)
             follow.current =
@@ -284,11 +280,12 @@ export default function Chat({ state }: { state: DesktopState }) {
             <div className="empty-mark" aria-hidden>
               R<span>·</span>
             </div>
-            <h2>有什么想和我说的？</h2>
-            <p>从一句话开始，让记忆慢慢积累。</p>
+            <h2>{t("emptyTitle")}</h2>
+            <p>{t("emptyDescription")}</p>
             {state.connection !== "connected" && (
               <p className="start-hint">
-                先启动 ReMe 服务：<code>reme start config=proactive</code>
+                {t("startService")}
+                <code>reme start config=proactive</code>
               </p>
             )}
           </div>
@@ -302,7 +299,7 @@ export default function Chat({ state }: { state: DesktopState }) {
           >
             {message.proactive && (
               <div className="proactive-label" data-message-id={message.id}>
-                <span aria-hidden>✦</span> Remy 的主动提醒
+                <span aria-hidden>✦</span> {t("proactiveLabel")}
               </div>
             )}
             <div className="message-body">
@@ -324,7 +321,9 @@ export default function Chat({ state }: { state: DesktopState }) {
                       </a>
                     ),
                     img: ({ alt }) => (
-                      <span className="image-placeholder">{alt || "图片"}</span>
+                      <span className="image-placeholder">
+                        {alt || t("image")}
+                      </span>
                     ),
                   }}
                 >
@@ -332,7 +331,8 @@ export default function Chat({ state }: { state: DesktopState }) {
                 </Markdown>
               ) : message.streaming ? (
                 <span className="thinking">
-                  正在思考<span aria-hidden> · · ·</span>
+                  {t("thinkingPlaceholder")}
+                  <span aria-hidden> · · ·</span>
                 </span>
               ) : null}
             </div>
@@ -352,8 +352,8 @@ export default function Chat({ state }: { state: DesktopState }) {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onPointerDown={() => void action({ type: "interaction" })}
-            placeholder={busy ? "可以先写下，等我说完…" : "和 Remy 说点什么…"}
-            aria-label="消息"
+            placeholder={busy ? t("draftWhileBusy") : t("messagePlaceholder")}
+            aria-label={t("message")}
             rows={2}
             maxLength={100000}
             onKeyDown={(event) => {
@@ -373,7 +373,7 @@ export default function Chat({ state }: { state: DesktopState }) {
             <button
               type="button"
               className="stop-button"
-              aria-label="停止回复"
+              aria-label={t("stopReply")}
               onClick={() => void run({ type: "chat.stop" })}
             >
               ■
@@ -382,7 +382,7 @@ export default function Chat({ state }: { state: DesktopState }) {
             <button
               type="submit"
               className="send-button"
-              aria-label="发送消息"
+              aria-label={t("sendMessage")}
               disabled={busy || !ready || !query.trim()}
             >
               ↑
@@ -395,10 +395,10 @@ export default function Chat({ state }: { state: DesktopState }) {
           />
           <span>
             {state.connection === "connected"
-              ? "记忆保存在 ReMe 工作区"
-              : "正在等待 ReMe 服务"}
+              ? t("memoryLocation")
+              : t("waitingService")}
           </span>
-          <span className="keyboard-hint">Shift + Enter 换行</span>
+          <span className="keyboard-hint">{t("newlineHint")}</span>
         </div>
       </footer>
     </main>

@@ -1,4 +1,6 @@
 import type { AgentActivity } from "../shared/protocol.ts";
+import { defaultLanguage, translate } from "../shared/i18n.ts";
+import type { Language, TranslationKey } from "../shared/i18n.ts";
 
 export interface SystemNotice {
   id: string;
@@ -26,6 +28,7 @@ export class NotificationPolicy {
     live: boolean,
     eligible: boolean,
     now = Date.now(),
+    language: Language = defaultLanguage,
   ): Pick<SystemNotice, "id" | "title" | "body"> | null {
     if (!activity || activity.source !== "chat") return null;
     const turn = `${activity.session_id}:${activity.turn_id}`;
@@ -37,19 +40,19 @@ export class NotificationPolicy {
     const changed = this.phase !== activity.phase;
     this.phase = activity.phase;
     if (!live || !eligible || !changed) return null;
-    const title =
+    const title: TranslationKey | null =
       activity.phase === "waiting"
-        ? "Remy 需要你处理一下"
+        ? "notifyWaiting"
         : activity.phase === "failed"
-          ? "Remy 的回复未完成"
+          ? "notifyFailed"
           : activity.phase === "completed" && now - this.started >= 30_000
-            ? "Remy 已完成回复"
+            ? "notifyCompleted"
             : null;
     return title
       ? {
           id: `turn:${turn}:${activity.phase}`,
-          title,
-          body: "点击返回对应对话查看",
+          title: translate(language, title),
+          body: translate(language, "notifyOpen"),
         }
       : null;
   }

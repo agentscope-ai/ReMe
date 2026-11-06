@@ -1,3 +1,10 @@
+import {
+  defaultLanguage,
+  translate,
+  translator,
+  UiError,
+} from "../shared/i18n.ts";
+import type { Language, TranslationKey } from "../shared/i18n.ts";
 import type {
   Activities,
   AgentActivity,
@@ -21,16 +28,6 @@ const clips = {
   failed: "confused",
   interrupted: "idle",
 };
-const labels = {
-  thinking: "正在认真想…",
-  working: "正在查找和处理…",
-  remembering: "正在回忆…",
-  answering: "正在回复…",
-  waiting: "等你确认…",
-  completed: "完成啦",
-  failed: "这次没有完成",
-  interrupted: "回复已停止",
-};
 type Owner =
   | "base"
   | "chat"
@@ -48,7 +45,7 @@ type Input = Pick<
 export class BehaviorController {
   value: Behavior = {
     animation: { id: 0, clip: "idle", mode: "loop" },
-    label: "你的记忆，在这里",
+    label: translate(defaultLanguage, "idle"),
     notice: null,
     error: "",
   };
@@ -61,7 +58,7 @@ export class BehaviorController {
   private deadline = Infinity;
   private started = false;
   private readonly unavailable = new Set<string>();
-  private error = "";
+  private language: Language = defaultLanguage;
   private touched: number;
   private nextAmbient: number;
   private ambient: string | null = null;
@@ -70,7 +67,7 @@ export class BehaviorController {
   private cue: {
     key: string;
     clip: string;
-    label: string;
+    label: TranslationKey;
     until: number;
   } | null = null;
   private seenTerminal = "";
@@ -131,7 +128,7 @@ export class BehaviorController {
       this.cue = {
         key,
         clip,
-        label: labels[activity.phase],
+        label: activity.phase,
         until: now + this.duration(clip) + 500,
       };
     }
@@ -139,7 +136,7 @@ export class BehaviorController {
 
   play(clip: string, now = Date.now()): void {
     if (!this.manifest.animations.some((item) => item.id === clip))
-      throw new Error("未知的角色动作");
+      throw new UiError("unknownAnimation");
     this.touch(now);
     this.preview = clip;
     // Explicit repeat requests are new playback instances.
@@ -164,7 +161,6 @@ export class BehaviorController {
       this.deadline = Infinity;
       if (this.unavailable.has(this.value.animation.clip)) return;
       this.unavailable.add(this.value.animation.clip);
-      this.error = "部分角色动画无法加载，已切换为待机动作";
       this.key = "";
       this.preview = null;
       this.ambient = null;
@@ -210,6 +206,9 @@ export class BehaviorController {
     segment?: AnimationIntent["segment"],
     notice: StatusNotice | null = null,
   ): Behavior {
+    const error = this.unavailable.size
+      ? translate(this.language, "animationUnavailable")
+      : "";
     if (this.unavailable.has(clip)) {
       clip = "idle";
       mode = "hold";
@@ -238,18 +237,20 @@ export class BehaviorController {
         },
         label,
         notice,
-        error: this.error,
+        error,
       };
     } else if (
       label !== this.value.label ||
-      this.error !== this.value.error ||
+      error !== this.value.error ||
       JSON.stringify(notice) !== JSON.stringify(this.value.notice)
     )
-      this.value = { ...this.value, label, notice, error: this.error };
+      this.value = { ...this.value, label, notice, error };
     return this.value;
   }
 
   resolve(input: Input, visible: boolean, now = Date.now()): Behavior {
+    this.language = input.settings.language;
+    const t = translator(this.language);
     if (now >= this.deadline) {
       if (this.started) this.ended(this.value.animation.id, now);
       else this.report(this.value.animation.id, "failed", now);
@@ -270,10 +271,10 @@ export class BehaviorController {
       tone: StatusNotice["tone"] = "working",
     ): StatusNotice => ({ kind: "status", id, text, tone });
     if (this.dragging)
-      return select("base", "dragging", "dragged", "loop", "轻轻挪一挪");
+      return select("base", "dragging", "dragged", "loop", t("dragging"));
     if (!visible || input.connection !== "connected") {
       this.reminder = null;
-      return select("base", "offline", "idle", "hold", "等待连接 ReMe");
+      return select("base", "offline", "idle", "hold", t("waitingConnection"));
     }
     const activity = this.activities.chat;
     const active = activity && !terminal(activity.phase);
@@ -294,11 +295,11 @@ export class BehaviorController {
         `${activity?.turn_id ?? input.pending?.id}:${phase}`,
         clips[phase],
         "loop",
-        labels[phase],
+        t(phase),
         undefined,
         notice(
           `chat:${activity?.turn_id ?? input.pending?.id}:${phase}`,
-          labels[phase],
+          t(phase),
           phase === "waiting" ? "waiting" : "working",
         ),
       );
@@ -317,7 +318,7 @@ export class BehaviorController {
           "reminder-unavailable",
           "idle",
           "hold",
-          "想到一件值得告诉你的事",
+          t("reminderStatus"),
         );
       }
       const { id, stage } = this.reminder;
@@ -326,7 +327,7 @@ export class BehaviorController {
         `reminder:${id}:${stage}`,
         "reminding",
         stage === "hold" ? "hold" : "once",
-        "想到一件值得告诉你的事",
+        t("reminderStatus"),
         stage,
       );
     }
@@ -336,11 +337,11 @@ export class BehaviorController {
         this.cue.key,
         this.cue.clip,
         "once",
-        this.cue.label,
+        t(this.cue.label),
         undefined,
         notice(
           this.cue.key,
-          this.cue.label,
+          t(this.cue.label),
           this.cue.clip === "happy" ? "success" : "error",
         ),
       );
@@ -350,10 +351,10 @@ export class BehaviorController {
         `preview:${this.preview}`,
         this.preview,
         "once",
-        "你的记忆，在这里",
+        t("idle"),
       );
     if (input.chatFocused && now - this.touched < 15_000)
-      return select("base", "listening", "listening", "loop", "我在听，慢慢说");
+      return select("base", "listening", "listening", "loop", t("listening"));
     const background = this.activities.proactive;
     const quiet = input.settings.quietUntil > now;
     if (input.chatFocused || quiet) this.ambient = null;
@@ -369,15 +370,15 @@ export class BehaviorController {
         `background:${background.turn_id}:${background.phase}`,
         clips[background.phase],
         "loop",
-        "在整理一些信息…",
+        t("background"),
         undefined,
         notice(
           `background:${background.turn_id}:${background.phase}`,
-          "在整理一些信息…",
+          t("background"),
         ),
       );
     if (now - this.touched >= 300_000)
-      return select("base", "sleeping", "sleeping", "loop", "休息一会儿");
+      return select("base", "sleeping", "sleeping", "loop", t("sleeping"));
     if (
       !input.chatFocused &&
       !quiet &&
@@ -398,8 +399,8 @@ export class BehaviorController {
         `ambient:${this.ambient}`,
         this.ambient,
         "once",
-        "安静陪着你",
+        t("ambient"),
       );
-    return select("base", "idle", "idle", "loop", "你的记忆，在这里");
+    return select("base", "idle", "idle", "loop", t("idle"));
   }
 }

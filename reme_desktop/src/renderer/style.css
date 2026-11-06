@@ -186,6 +186,12 @@ button {
   font-size: 11px;
   margin-top: 3px;
 }
+.settings .quiet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
 .reminder::after {
   content: "";
   position: absolute;

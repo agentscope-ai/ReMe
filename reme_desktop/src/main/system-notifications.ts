@@ -37,7 +37,7 @@ export class SystemNotifications {
   }
 
   update(state: DesktopState): void {
-    const session = `${state.settings.endpoint}:${state.sessionId}`;
+    const session = `${state.settings.endpoint}:${state.sessionId}:${state.settings.language}`;
     if (
       this.session !== session ||
       state.chatFocused ||

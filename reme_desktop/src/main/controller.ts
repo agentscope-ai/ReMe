@@ -1,3 +1,4 @@
+import { errorText, languages, translate, UiError } from "../shared/i18n.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { BubbleQueue } from "./bubbles.ts";
 import { BehaviorController } from "./behavior.ts";
@@ -16,10 +17,8 @@ import type {
   SessionSnapshot,
   AnimationManifest,
   PlaybackStatus,
+  SettingsUpdate,
 } from "../shared/protocol.ts";
-
-const detail = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
 
 export class DesktopController {
   readonly model = new SessionModel();
@@ -41,6 +40,8 @@ export class DesktopController {
   private settingsWrites: Promise<void> = Promise.resolve();
   private closed = false;
   private flushedAt = 0;
+  private connectionIssue: unknown = null;
+  private pendingIssue: unknown = null;
 
   constructor(
     readonly storage: Storage,
@@ -87,7 +88,9 @@ export class DesktopController {
       if (Date.now() - this.flushedAt < 1000) return;
       this.flushedAt = Date.now();
       void this.storage.flush().catch((error) => {
-        this.state.connectionError = `保存桌面设置失败：${detail(error)}`;
+        this.connectionIssue = new UiError("saveSettingsFailed", {
+          error: errorText(error, this.state.settings.language),
+        });
         this.emit();
       });
     }, 100);
@@ -106,10 +109,11 @@ export class DesktopController {
     this.bubbles.clear();
     this.state.bubble = null;
     this.state.pending = null;
+    this.pendingIssue = null;
     this.state.workspace = "";
     this.scope = "";
     this.state.connection = "connecting";
-    this.state.connectionError = "";
+    this.connectionIssue = null;
     this.lifecycle = new AbortController();
     const previous = this.running;
     const generation = this.generation;
@@ -152,13 +156,11 @@ export class DesktopController {
             config.jobs[job].enabled === false ||
             config.jobs[job].enable_serve === false
           ) {
-            throw new Error(
-              `服务未启用 ${job}，请使用 reme start config=proactive 启动`,
-            );
+            throw new UiError("missingJob", { job });
           }
         }
         if (typeof config.workspace_dir !== "string")
-          throw new Error("ReMe 未返回工作区路径");
+          throw new UiError("missingWorkspace");
         const scope = createHash("sha256")
           .update(client.endpoint + "\n" + config.workspace_dir)
           .digest("hex");
@@ -182,10 +184,10 @@ export class DesktopController {
           signal,
           (chunk) => {
             if (signal.aborted || generation !== this.generation) return;
-            if (chunk.chunk_type === "error")
-              throw new Error(
-                typeof chunk.chunk === "string" ? chunk.chunk : "订阅出错",
-              );
+            if (chunk.chunk_type === "error") {
+              if (typeof chunk.chunk === "string") throw new Error(chunk.chunk);
+              throw new UiError("subscriptionError");
+            }
             if (chunk.chunk_type !== "data" || !chunk.chunk) return;
             const previous = this.model.sessionId;
             let event;
@@ -215,12 +217,14 @@ export class DesktopController {
             }
             this.ready = !this.model.waitingForSnapshot;
             this.state.connection = this.ready ? "connected" : "reconnecting";
-            this.state.connectionError = event.error ?? "";
+            this.connectionIssue = event.error ?? null;
             if (event.type === "snapshot" || event.type === "status_changed") {
               const notice = this.notificationPolicy.observe(
                 this.model.activities.chat,
                 event.type !== "snapshot",
                 this.notificationEligible(),
+                Date.now(),
+                this.state.settings.language,
               );
               if (notice && this.model.sessionId)
                 this.notifyOnce({
@@ -241,13 +245,12 @@ export class DesktopController {
             this.emit();
           },
         );
-        if (!signal.aborted)
-          throw new Error("主动消息订阅已结束，正在重新连接");
+        if (!signal.aborted) throw new UiError("subscriptionEnded");
       } catch (error) {
         if (signal.aborted) return;
         this.ready = false;
         this.state.connection = "reconnecting";
-        this.state.connectionError = detail(error);
+        this.connectionIssue = error;
         this.emit();
         try {
           await delay(
@@ -295,10 +298,10 @@ export class DesktopController {
     const now = Date.now();
     let settingsChanged = false;
     if (
-      this.storage.settings.quietUntil &&
-      this.storage.settings.quietUntil <= now
+      this.state.settings.quietUntil &&
+      this.state.settings.quietUntil <= now
     ) {
-      this.storage.settings.quietUntil = 0;
+      this.state.settings.quietUntil = 0;
       this.storage.changed();
       settingsChanged = true;
     }
@@ -327,7 +330,7 @@ export class DesktopController {
         Boolean(this.state.pending?.streaming) ||
         this.behavior.foregroundActive ||
         this.model.status === "active" ||
-        this.storage.settings.quietUntil > now ||
+        this.state.settings.quietUntil > now ||
         !this.ready,
     );
     this.state.bubble =
@@ -340,7 +343,7 @@ export class DesktopController {
           scope: this.scope,
           sessionId,
           messageId: bubble.id,
-          title: "Remy 想到一件事",
+          title: translate(this.state.settings.language, "reminderTitle"),
           body: bubble.text.replace(/\s+/g, " ").slice(0, 140),
         },
         () => {
@@ -379,7 +382,15 @@ export class DesktopController {
         message.completed &&
         receipts[message.id]?.read === false,
     ).length;
-    this.state.settings = { ...this.storage.settings };
+    this.state.connectionError =
+      this.connectionIssue === null
+        ? ""
+        : errorText(this.connectionIssue, this.state.settings.language);
+    if (this.state.pending && this.pendingIssue !== null)
+      this.state.pending.error = errorText(
+        this.pendingIssue,
+        this.state.settings.language,
+      );
     this.resolveBehavior();
     this.publish(this.state);
   }
@@ -395,10 +406,10 @@ export class DesktopController {
   private notificationEligible(): boolean {
     return (
       !this.closed &&
-      this.storage.settings.notifications &&
+      this.state.settings.notifications &&
       this.state.connection === "connected" &&
       !this.state.chatFocused &&
-      this.storage.settings.quietUntil <= Date.now()
+      this.state.settings.quietUntil <= Date.now()
     );
   }
 
@@ -490,26 +501,16 @@ export class DesktopController {
     this.tick();
   }
 
-  settings(update: {
-    endpoint?: string;
-    scale?: number;
-    quietUntil?: number;
-    notifications?: boolean;
-  }): Promise<void> {
+  settings(update: SettingsUpdate): Promise<void> {
     const write = this.settingsWrites.then(() => this.applySettings(update));
     this.settingsWrites = write.catch(() => {});
     return write;
   }
 
-  private async applySettings(update: {
-    endpoint?: string;
-    scale?: number;
-    quietUntil?: number;
-    notifications?: boolean;
-  }): Promise<void> {
-    if (this.closed) throw new Error("桌面客户端已关闭");
+  private async applySettings(update: SettingsUpdate): Promise<void> {
+    if (this.closed) throw new UiError("closed");
     if (update.endpoint !== undefined && this.state.pending?.streaming)
-      throw new Error("请先停止当前回复，再切换服务");
+      throw new UiError("stopBeforeEndpoint");
     const settings = this.storage.settings;
     const endpoint =
       update.endpoint === undefined
@@ -521,20 +522,22 @@ export class DesktopController {
         update.scale < 0.7 ||
         update.scale > 1.5)
     )
-      throw new Error("角色大小需要在 70%–150% 之间");
+      throw new UiError("invalidScale");
     if (
       update.quietUntil !== undefined &&
       (!Number.isFinite(update.quietUntil) ||
         update.quietUntil < 0 ||
         update.quietUntil > Date.now() + 86_400_000)
     )
-      throw new Error("免打扰时间无效");
+      throw new UiError("invalidQuiet");
     const changedEndpoint = endpoint !== settings.endpoint;
+    if (update.language !== undefined && !languages.includes(update.language))
+      throw new UiError("invalidLanguage");
     if (
       update.notifications !== undefined &&
       typeof update.notifications !== "boolean"
     )
-      throw new Error("系统通知开关无效");
+      throw new UiError("invalidNotifications");
     this.storage.settings = { ...settings, ...update, endpoint };
     this.storage.changed();
     try {
@@ -545,6 +548,7 @@ export class DesktopController {
       throw error;
     }
     if (this.closed) return;
+    this.state.settings = this.storage.settings;
     if (changedEndpoint) this.restart();
     else {
       this.tick();
@@ -604,7 +608,7 @@ export class DesktopController {
       this.model.status === "active" ||
       this.state.pending?.streaming
     )
-      throw new Error("请等待连接建立、当前会话空闲后再新建");
+      throw new UiError("sessionBusy");
     await this.client().call("pa_new_session", {}, this.lifecycle!.signal);
     this.state.pending = null;
     this.emit();
@@ -613,12 +617,11 @@ export class DesktopController {
   async send(query: string): Promise<void> {
     await this.settingsWrites;
     query = query.trim();
-    if (!query || query.length > 100_000)
-      throw new Error("消息不能为空，且不超过 100000 字符");
+    if (!query || query.length > 100_000) throw new UiError("invalidQuery");
     if (this.closed || !this.ready || this.model.status === "error")
-      throw new Error("会话暂不可用，请检查连接或新建对话");
+      throw new UiError("sessionUnavailable");
     if (this.state.pending?.streaming || this.model.status === "active")
-      throw new Error("Remy 正在忙，请稍等或先停止回复");
+      throw new UiError("busy");
     const pending = {
       id: randomUUID(),
       query,
@@ -627,6 +630,7 @@ export class DesktopController {
       streaming: true,
     };
     this.state.pending = pending;
+    this.pendingIssue = null;
     const generation = this.generation;
     const controller = new AbortController();
     this.stream = controller;
@@ -650,15 +654,16 @@ export class DesktopController {
           this.emit();
         },
       );
-      if (progress.error || progress.status !== "completed")
-        throw new Error(
-          progress.error ?? "回复未完成，可查看已同步的会话后再继续",
-        );
+      if (progress.error)
+        throw typeof progress.error === "string"
+          ? new Error(progress.error)
+          : progress.error;
+      if (progress.status !== "completed") throw new UiError("replyIncomplete");
     } catch (error) {
       if (generation === this.generation && this.state.pending === pending) {
-        Object.assign(pending, {
-          error: controller.signal.aborted ? "回复已停止" : detail(error),
-        });
+        this.pendingIssue = controller.signal.aborted
+          ? new UiError("interrupted")
+          : error;
       }
     } finally {
       if (generation === this.generation && this.state.pending === pending) {

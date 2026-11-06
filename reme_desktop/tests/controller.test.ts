@@ -302,3 +302,77 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("language is published only after persistence succeeds; failure preserves the active preference", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-language-save-"));
+  const storage = new Storage(directory);
+  const flush = storage.flush;
+  let release!: () => void;
+  let writing = false;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  storage.flush = async () => {
+    writing = true;
+    await gate;
+    throw new Error("read-only settings");
+  };
+  const controller = new DesktopController(storage, () => {}, manifest);
+  try {
+    const changing = controller.settings({ language: "en" });
+    const rejected = assert.rejects(changing, /read-only/);
+    await until(() => writing, "pending language write");
+    controller.setChatVisible(true);
+    assert.equal(
+      controller.state.settings.language,
+      "zh",
+      "in-flight settings must not leak into IPC",
+    );
+    release();
+    await rejected;
+    assert.equal(storage.settings.language, "zh");
+    assert.equal(controller.state.settings.language, "zh");
+  } finally {
+    release();
+    storage.flush = flush;
+    await controller.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("switching language preserves the PA subscription, animation instance, and original messages", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-language-live-"));
+  const backend = await mockReMe();
+  const storage = new Storage(directory);
+  storage.settings.endpoint = backend.url;
+  const controller = new DesktopController(storage, () => {}, manifest);
+  controller.setCompanionReady(true);
+  controller.start();
+  try {
+    await until(() => controller.state.connection === "connected", "connect");
+    backend.activity("thinking");
+    await until(
+      () => controller.state.behavior.label === "正在认真想…",
+      "thinking",
+    );
+    const cursor = controller.model.cursor;
+    const animation = controller.state.behavior.animation.id;
+    const history = controller.state.messages;
+    const connections = backend.cursors.length;
+    await controller.settings({ language: "en" });
+    assert.equal(controller.state.behavior.label, "Thinking it through…");
+    assert.equal(controller.state.behavior.animation.id, animation);
+    assert.equal(controller.model.cursor, cursor);
+    assert.equal(controller.state.messages, history);
+    assert.equal(backend.cursors.length, connections);
+    await assert.rejects(
+      controller.settings({ language: "fr" as never }),
+      /语言/,
+    );
+    assert.equal(controller.state.settings.language, "en");
+  } finally {
+    await controller.close();
+    await backend.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

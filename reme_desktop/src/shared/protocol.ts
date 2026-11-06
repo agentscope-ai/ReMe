@@ -106,12 +106,15 @@ export interface Presentation {
 }
 
 export interface Settings {
+  language: Language;
   endpoint: string;
   scale: number;
   quietUntil: number;
   notifications: boolean;
   anchor?: { x: number; y: number };
 }
+
+export type SettingsUpdate = Partial<Omit<Settings, "anchor">>;
 
 export interface Bubble {
   kind: "reminder";
@@ -154,7 +157,6 @@ export type DesktopPatch = Partial<DesktopState> & { revision: number };
 
 export interface AnimationClip {
   id: string;
-  label: string;
   ticks: number[];
   frame_files: string[];
   segments?: Record<"enter" | "hold" | "exit", number[]>;
@@ -204,20 +206,14 @@ export type DesktopAction =
   | { type: "bubble.dismiss"; id: string }
   | { type: "bubble.snooze"; id: string }
   | { type: "bubble.pause"; id: string; paused: boolean }
-  | {
-      type: "settings.update";
-      endpoint?: string;
-      scale?: number;
-      quietUntil?: number;
-      notifications?: boolean;
-    }
+  | ({ type: "settings.update" } & SettingsUpdate)
   | { type: "link.open"; url: string };
 
 export type DesktopCommand = { type: "settings.open" };
 
 export interface DesktopApi {
   bootstrap(): Promise<Bootstrap>;
-  action(action: DesktopAction): Promise<void>;
+  action(action: DesktopAction): Promise<ErrorData | null>;
   onState(callback: (state: DesktopPatch) => void): () => void;
   onLayout(callback: (layout: WindowLayout) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
@@ -234,3 +230,4 @@ export const channels = {
   drag: "reme:drag",
   command: "reme:command",
 } as const;
+import type { ErrorData, Language } from "./i18n.ts";

@@ -10,6 +10,8 @@ test("settings and scoped receipts survive serialized atomic writes without pers
   try {
     const storage = new Storage(directory);
     await storage.load();
+    assert.equal(storage.settings.language, "zh");
+    storage.settings.language = "en";
     storage.settings.scale = 1.2;
     storage.presentation("workspace-a:session-1").receipts.a = {
       read: false,
@@ -24,6 +26,7 @@ test("settings and scoped receipts survive serialized atomic writes without pers
     const restored = new Storage(directory);
     await restored.load();
     assert.equal(restored.settings.scale, 1.4);
+    assert.equal(restored.settings.language, "en");
     assert.equal(
       restored.presentation("workspace-a:session-1").receipts.a.snoozeUntil,
       1000,

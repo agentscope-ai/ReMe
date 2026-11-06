@@ -3,18 +3,21 @@ import type { CSSProperties } from "react";
 import type { Bootstrap } from "../../shared/protocol.ts";
 import { Character, hitCharacter } from "../animation/player.tsx";
 import { action } from "../desktop.ts";
+import { translator } from "../../shared/i18n.ts";
 
 export default function Companion({ state, manifest, layout }: Bootstrap) {
+  const language = state.settings.language;
+  const t = translator(language);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const bubbleElement = useRef<HTMLElement | null>(null);
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const animation = state.behavior.animation;
   const dragging = animation.clip === "dragged";
   const surface = state.surface;
   const reminder = surface?.kind === "reminder" ? surface : null;
   const run = (value: Parameters<typeof action>[0]) => {
-    void action(value).catch((error: unknown) => setError(String(error)));
+    void action(value).catch((error: unknown) => setError(error));
   };
 
   const openChat = () => run({ type: "chat.open" });
@@ -76,7 +79,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
   }, []);
 
   return (
-    <main className="companion" aria-label="Remy 桌面助手">
+    <main className="companion" aria-label={t("companion")}>
       {reminder && (
         <section
           ref={bubbleElement}
@@ -93,7 +96,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
               "--tail-left": `${layout.bubble.tail}px`,
             } as CSSProperties
           }
-          aria-label="主动提醒"
+          aria-label={t("reminder")}
           onPointerEnter={() =>
             run({ type: "bubble.pause", id: reminder.id, paused: true })
           }
@@ -102,9 +105,9 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           }
         >
           <header>
-            <span className="eyebrow">REMY 想到一件事</span>
+            <span className="eyebrow">{t("reminderHeading")}</span>
             <button
-              aria-label="收起提醒"
+              aria-label={t("dismissReminder")}
               className="icon-button"
               onClick={() => run({ type: "bubble.dismiss", id: reminder.id })}
             >
@@ -117,13 +120,13 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
               className="primary"
               onClick={() => run({ type: "chat.open", messageId: reminder.id })}
             >
-              展开聊聊 <span aria-hidden>↗</span>
+              {t("expandReminder")} <span aria-hidden>↗</span>
             </button>
             <button
               className="subtle"
               onClick={() => run({ type: "bubble.snooze", id: reminder.id })}
             >
-              10 分钟后
+              {t("snoozeReminder")}
             </button>
           </footer>
         </section>
@@ -132,7 +135,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         <button
           className={`status-notice ${surface.tone} ${layout.bubble.below ? "below" : ""}`}
           data-interactive
-          aria-label={`${surface.text}，点击查看对话`}
+          aria-label={t("statusOpen", { text: surface.text })}
           onClick={openChat}
           style={{
             left: layout.bubble.left,
@@ -152,8 +155,8 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       )}
       <button
         className={`character ${dragging ? "dragging" : ""} ${animation.clip === "happy" ? "reacting" : ""}`}
-        aria-label="和 Remy 聊聊，按住拖动可移动角色"
-        title="左键开聊 · 按住拖动 · 右键菜单"
+        aria-label={t("characterAction")}
+        title={t("characterHint")}
         style={{
           left: layout.body.left,
           top: layout.body.top,
@@ -209,6 +212,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       >
         <Character
           manifest={manifest}
+          language={language}
           animation={animation}
           canvasRef={canvas}
           onPlayback={(id, status) =>
@@ -227,7 +231,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         {state.unread > 0 && (
           <button
             className="unread"
-            aria-label={`${state.unread} 条未读提醒`}
+            aria-label={t("unreadBadge", { count: state.unread })}
             onClick={() => run({ type: "chat.open" })}
           >
             {state.unread > 9 ? "9+" : state.unread}
@@ -236,23 +240,23 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         {state.connection !== "connected" && (
           <button
             className="offline-dot"
-            aria-label="服务未连接，点击查看"
+            aria-label={t("offlineAction")}
             onClick={() => run({ type: "chat.open" })}
           >
             !
           </button>
         )}
       </div>
-      {(error || state.behavior.error) && (
+      {(error !== null || state.behavior.error) && (
         <button
           className="companion-error"
           data-interactive
           onClick={() => {
-            setError("");
+            setError(null);
             run({ type: "chat.open" });
           }}
         >
-          {state.behavior.error || "打开对话查看状态"}
+          {state.behavior.error || t("openStatus")}
         </button>
       )}
     </main>

@@ -23,7 +23,12 @@ const input = () =>
     chatFocused: false,
     pending: null,
     bubble: null,
-    settings: { endpoint: "http://localhost", quietUntil: 0, scale: 1 },
+    settings: {
+      language: "zh",
+      endpoint: "http://localhost",
+      quietUntil: 0,
+      scale: 1,
+    },
   }) as DesktopState;
 const activity = (
   phase: AgentActivity["phase"],
@@ -203,4 +208,24 @@ test("a lost end acknowledgement retires a started gesture without disabling its
   assert.equal(recovered.error, "");
   behavior.play("happy", 10_001);
   assert.equal(behavior.resolve(state, true, 10_001).animation.clip, "happy");
+});
+
+test("language changes update active and terminal captions without restarting playback", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  behavior.observe({ chat: activity("thinking") }, true, 0);
+  const initial = behavior.resolve(state, true, 0);
+  behavior.report(initial.animation.id, "started", 0);
+  state.settings.language = "en";
+  const english = behavior.resolve(state, true, 100);
+  assert.equal(english.animation.id, initial.animation.id);
+  assert.equal(english.label, "Thinking it through…");
+  assert.equal(english.notice?.text, english.label);
+  behavior.observe({ chat: activity("completed") }, true, 200);
+  const completed = behavior.resolve(state, true, 200);
+  assert.equal(completed.label, "All done");
+  state.settings.language = "zh";
+  const chinese = behavior.resolve(state, true, 300);
+  assert.equal(chinese.animation.id, completed.animation.id);
+  assert.equal(chinese.label, "完成啦");
 });

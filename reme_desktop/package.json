@@ -18,7 +18,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --experimental-transform-types --test tests/*.test.ts",
-    "test:e2e": "npm run build && node --test tests/e2e/*.test.mjs",
+    "test:e2e": "npm run build && node --test --test-concurrency=1 tests/e2e/*.test.mjs",
     "test:dev": "node --experimental-transform-types --test tests/dev.test.mjs",
     "test:packaged": "node --test tests/packaged.test.mjs",
     "pack": "npm run build && electron-builder --dir --publish never",

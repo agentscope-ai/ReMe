@@ -2,6 +2,12 @@ import { dialog, Menu } from "electron";
 import type { AnimationManifest } from "../shared/protocol.ts";
 import type { DesktopController } from "./controller.ts";
 import type { DesktopWindows } from "./windows.ts";
+import {
+  animationLabels,
+  errorText,
+  languages,
+  translator,
+} from "../shared/i18n.ts";
 
 /** The character and tray expose the same native controls. */
 export function desktopMenu(
@@ -12,44 +18,47 @@ export function desktopMenu(
   refresh: () => void,
 ): Menu {
   const { state } = controller;
+  const t = translator(state.settings.language);
   const quiet = state.settings.quietUntil > Date.now();
   const busy = Boolean(state.pending?.streaming) || state.status === "active";
   const settings = (update: Parameters<DesktopController["settings"]>[0]) => {
     void controller.settings(update).catch((error: unknown) => {
       dialog.showErrorBox(
-        "桌面操作失败",
-        error instanceof Error ? error.message : String(error),
+        t("operationFailed"),
+        errorText(error, state.settings.language),
       );
     });
   };
   return Menu.buildFromTemplate([
-    { id: "chat", label: "和 Remy 聊聊", click: () => windows.openChat() },
+    { id: "chat", label: t("openChat"), click: () => windows.openChat() },
     {
       id: "unread",
-      label: state.unread ? `未读提醒（${state.unread}）` : "暂无未读提醒",
+      label: state.unread
+        ? t("unreadReminders", { count: state.unread })
+        : t("noUnread"),
       enabled: state.unread > 0,
       click: () => windows.openChat(),
     },
     { type: "separator" },
     {
       id: "animations",
-      label: "播放动作",
+      label: t("playAnimation"),
       enabled: !busy,
       submenu: manifest.animations.map((clip) => ({
         id: `animation:${clip.id}`,
-        label: clip.label,
+        label: t(animationLabels[clip.id]),
         click: () => controller.preview(clip.id),
       })),
     },
     {
       id: "quiet",
-      label: quiet ? "恢复主动提醒" : "安静 30 分钟",
+      label: t(quiet ? "resumeReminders" : "quiet"),
       click: () =>
         settings({ quietUntil: quiet ? 0 : Date.now() + 30 * 60_000 }),
     },
     {
       id: "scale",
-      label: "角色大小",
+      label: t("characterSize"),
       submenu: [...new Set([0.75, 1, 1.25, 1.5, state.settings.scale])]
         .sort((a, b) => a - b)
         .map((scale) => ({
@@ -62,28 +71,41 @@ export function desktopMenu(
     },
     {
       id: "notifications",
-      label: "系统通知",
+      label: t("notifications"),
       type: "checkbox",
       checked: state.settings.notifications,
       click: () => settings({ notifications: !state.settings.notifications }),
     },
     {
       id: "settings",
-      label: "设置…",
+      label: t("settingsMenu"),
       click: () => {
         windows.openChat();
         windows.command({ type: "settings.open" });
       },
     },
+    {
+      id: "language",
+      label: t("language"),
+      submenu: languages.map((language) => ({
+        id: `language:${language}`,
+        label: t(language === "zh" ? "chinese" : "english"),
+        type: "radio" as const,
+        checked: state.settings.language === language,
+        click: () => settings({ language }),
+      })),
+    },
     { type: "separator" },
     {
       id: "reset",
-      label: "回到屏幕右下角",
+      label: t("resetPosition"),
       click: () => windows.resetPosition(),
     },
     {
       id: "visibility",
-      label: windows.companion.isVisible() ? "隐藏角色" : "显示角色",
+      label: t(
+        windows.companion.isVisible() ? "hideCharacter" : "showCharacter",
+      ),
       click: () => {
         if (windows.companion.isVisible()) windows.companion.hide();
         else windows.showCompanion();
@@ -91,6 +113,6 @@ export function desktopMenu(
       },
     },
     { type: "separator" },
-    { id: "quit", label: "退出 ReMe Desktop", click: quit },
+    { id: "quit", label: t("quit"), click: quit },
   ]);
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { deserializeError } from "../shared/i18n.ts";
 import type {
   Bootstrap,
   DesktopAction,
@@ -52,5 +53,6 @@ export function useDesktop(): Bootstrap | null {
 }
 
 export async function action(value: DesktopAction): Promise<void> {
-  await window.desktop.action(value);
+  const error = await window.desktop.action(value);
+  if (error) throw deserializeError(error);
 }

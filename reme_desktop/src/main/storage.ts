@@ -1,8 +1,10 @@
+import { defaultLanguage, UiError } from "../shared/i18n.ts";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Presentation, Settings } from "../shared/protocol.ts";
 
 export const defaultSettings: Settings = {
+  language: defaultLanguage,
   endpoint: "http://127.0.0.1:2333",
   scale: 1,
   quietUntil: 0,
@@ -10,7 +12,12 @@ export const defaultSettings: Settings = {
 };
 
 export function normalizeEndpoint(value: string): string {
-  const url = new URL(value.trim());
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new UiError("invalidEndpoint");
+  }
   if (
     !["http:", "https:"].includes(url.protocol) ||
     url.username ||
@@ -18,9 +25,7 @@ export function normalizeEndpoint(value: string): string {
     url.search ||
     url.hash
   ) {
-    throw new Error(
-      "服务地址需要是 HTTP/HTTPS 地址，不包含账号、查询参数或片段",
-    );
+    throw new UiError("invalidEndpoint");
   }
   return url.toString().replace(/\/+$/, "");
 }
@@ -36,7 +41,7 @@ async function load<T>(file: string, fallback: T): Promise<T> {
   try {
     return JSON.parse(content) as T;
   } catch {
-    throw new Error(`配置文件不是有效 JSON，请修复后重试：${file}`);
+    throw new UiError("invalidSettingsJson", { file });
   }
 }
 
@@ -54,6 +59,7 @@ export class Storage {
       {},
     );
     this.settings = {
+      language: settings.language === "en" ? "en" : defaultLanguage,
       endpoint: normalizeEndpoint(
         settings.endpoint ?? defaultSettings.endpoint,
       ),
@@ -79,7 +85,7 @@ export class Storage {
       typeof this.presentations !== "object" ||
       Array.isArray(this.presentations)
     ) {
-      throw new Error("presentation.json 需要是对象；原文件未修改");
+      throw new UiError("invalidPresentation");
     }
     for (const value of Object.values(this.presentations)) {
       if (
@@ -88,7 +94,7 @@ export class Storage {
         !value.receipts ||
         typeof value.receipts !== "object"
       ) {
-        throw new Error("presentation.json 的展示记录无效；原文件未修改");
+        throw new UiError("invalidReceipts");
       }
       for (const receipt of Object.values(value.receipts)) {
         if (
@@ -98,7 +104,7 @@ export class Storage {
           (receipt.snoozeUntil !== undefined &&
             (!Number.isFinite(receipt.snoozeUntil) || receipt.snoozeUntil < 0))
         ) {
-          throw new Error("presentation.json 的消息回执无效；原文件未修改");
+          throw new UiError("invalidReceipts");
         }
       }
     }

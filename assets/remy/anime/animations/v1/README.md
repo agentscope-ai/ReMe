@@ -25,3 +25,4 @@ preview the clips; no separate preview site, APNG, video, or archive is needed.
 The version-2 manifest declares neutral ambient clips and optional `enter` / `hold` / `exit` frame indices. Reminding uses
 frames 0–5 to raise the note, holds frame 5 while its bubble is visible, and uses frames 6–7 to lower it. Desktop behavior
 owns playback mode; clips contain only timing and frame data. This reuses the same 80 PNGs without new art.
+Menu labels are translated in the desktop's shared language catalog; source timeline labels are for artwork authoring.

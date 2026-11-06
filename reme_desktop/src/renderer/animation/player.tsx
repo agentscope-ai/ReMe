@@ -1,4 +1,6 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { translator, UiError } from "../../shared/i18n.ts";
+import type { Language } from "../../shared/i18n.ts";
 import type { RefObject } from "react";
 import type {
   AnimationIntent,
@@ -10,18 +12,23 @@ const cache = new Map<string, Promise<HTMLImageElement[]>>();
 
 export function Character({
   manifest,
+  language,
   animation,
   canvasRef,
   onPlayback,
 }: {
   manifest: AnimationManifest;
+  language: Language;
   animation: AnimationIntent;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   onPlayback: (id: number, status: PlaybackStatus) => void;
 }) {
+  const t = translator(language);
+  const [failed, setFailed] = useState(false);
   const report = useRef(onPlayback);
   report.current = onPlayback;
   useEffect(() => {
+    setFailed(false);
     const clip = manifest.animations.find(
       (value) => value.id === animation.clip,
     )!;
@@ -41,7 +48,7 @@ export function Character({
                 image.crossOrigin = "anonymous";
                 image.onload = () => resolve(image);
                 image.onerror = () =>
-                  reject(new Error(`角色素材加载失败：${file}`));
+                  reject(new UiError("assetLoadFailed", { file }));
                 image.src = `reme-assets://remy/${file}`;
               }),
           ),
@@ -95,10 +102,7 @@ export function Character({
         cache.delete(clip.id);
         if (live && canvasRef.current) {
           canvasRef.current.dataset.error = String(error);
-          canvasRef.current.setAttribute(
-            "aria-label",
-            "角色素材加载失败，请检查安装文件",
-          );
+          setFailed(true);
           report.current(animation.id, "failed");
         }
       });
@@ -112,7 +116,7 @@ export function Character({
       ref={canvasRef}
       width={manifest.canvas[0]}
       height={manifest.canvas[1]}
-      aria-label="Remy 角色动画"
+      aria-label={t(failed ? "assetFailed" : "characterAnimation")}
       data-animation={animation.clip}
       data-segment={animation.segment}
     />

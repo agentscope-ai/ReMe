@@ -1,3 +1,4 @@
+import { animationLabels, UiError } from "../shared/i18n.ts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { AnimationManifest } from "../shared/protocol.ts";
@@ -19,16 +20,16 @@ export async function loadAssets(
     manifest.output_fps <= 0 ||
     !Array.isArray(manifest.animations)
   )
-    throw new Error("角色素材 manifest.json 无效");
+    throw new UiError("invalidManifest");
   const files = new Map<string, string>();
   for (const clip of manifest.animations) {
     if (
-      !/^[a-z_]+$/.test(clip.id) ||
+      !Object.hasOwn(animationLabels, clip.id) ||
       !clip.frame_files?.length ||
       clip.frame_files.length !== clip.ticks?.length ||
       !clip.ticks.every((tick) => Number.isFinite(tick) && tick > 0)
     )
-      throw new Error(`角色动作时间表无效：${clip.id}`);
+      throw new UiError("invalidTiming", { id: clip.id });
     if (
       clip.segments &&
       ["enter", "hold", "exit"].some((name) => {
@@ -45,10 +46,10 @@ export async function loadAssets(
         );
       })
     )
-      throw new Error(`角色分段时间表无效：${clip.id}`);
+      throw new UiError("invalidSegments", { id: clip.id });
     for (const frame of clip.frame_files) {
       if (!/^frames\/[a-z_]+\/\d+\.png$/.test(frame))
-        throw new Error(`角色帧图路径无效：${frame}`);
+        throw new UiError("invalidFrame", { frame });
       files.set("/" + frame, path.join(directory, frame));
     }
   }
@@ -68,6 +69,6 @@ export async function loadAssets(
     ].some((id) => !manifest.animations.some((clip) => clip.id === id)) ||
     !manifest.animations.find((clip) => clip.id === "reminding")?.segments
   )
-    throw new Error("角色素材缺少必需动作或提醒分段");
+    throw new UiError("missingAnimation");
   return { manifest, files };
 }

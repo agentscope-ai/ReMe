@@ -33,6 +33,9 @@ selected session after restarting the ReMe service remains the backend's respons
 - Right-click the character for a native menu: chat, unread reminders, animation previews, quiet mode, size, settings,
   reset position, hide/show, and quit. The tray exposes the same controls; use it to restore a hidden character. Animation
   previews end automatically, and real conversation/reminder activity takes priority.
+- Choose **Language → 简体中文 / English** from the character's right-click menu or tray menu. Chinese is the default,
+  regardless of system language. The choice is saved in desktop settings and updates menus, chat, task labels, and
+  notifications without reconnecting or restarting playback. Conversation content keeps its original language.
 - Use **Command/Ctrl + Shift + Space**, or the tray/menu bar, to reopen chat. Closing chat keeps the subscription running.
 - Enter sends a message; Shift + Enter inserts a newline. Stop explicitly cancels the current chat request.
 - A completed proactive message shows a bubble. Expand opens the original conversation; close preserves its unread state;
@@ -87,6 +90,7 @@ is excluded. Revisioned IPC patches update changed fields, and native bounds cha
 
 `src/main/` owns native windows, ReMe connectivity and local persistence; `src/preload/` defines the renderer bridge;
 `src/renderer/` contains the character, animation player and chat UI; `src/shared/` contains transport and IPC contracts.
+User-facing text is managed in paired Chinese/English entries in `src/shared/i18n.ts`, with typed keys and interpolation.
 
 Character artwork has one source: `../assets/remy/anime/animations/v1/`. The player uses the manifest's PNG frames and
 timed holds. Original sheets, prompts and timing are kept with the artwork so frames can be rebuilt. Packaging copies

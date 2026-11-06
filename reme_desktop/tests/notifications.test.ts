@@ -42,3 +42,10 @@ test("quiet/focused/disabled outcomes are consumed, never queued for a later bur
   assert.equal(policy.observe(activity("failed"), false, true, 400), null);
   assert.equal(policy.observe(activity("failed"), true, true, 500), null);
 });
+
+test("system notification captions use the current desktop language", () => {
+  const policy = new NotificationPolicy();
+  const notice = policy.observe(activity("waiting"), true, true, 0, "en");
+  assert.equal(notice?.title, "Remy needs your attention");
+  assert.equal(notice?.body, "Click to return to the conversation");
+});

@@ -1,3 +1,4 @@
+import { UiError } from "../shared/i18n.ts";
 import { readStream } from "../shared/stream.ts";
 import type { StreamChunk } from "../shared/protocol.ts";
 
@@ -11,14 +12,13 @@ export class ReMeClient {
       body: JSON.stringify(body),
       signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
     });
-    if (!response.ok) throw new Error(`ReMe ${job}：HTTP ${response.status}`);
+    if (!response.ok)
+      throw new UiError("httpError", { job, status: response.status });
     const payload = (await response.json()) as { success: boolean; answer: T };
     if (payload.success !== true)
-      throw new Error(
-        typeof payload.answer === "string"
-          ? payload.answer
-          : `ReMe ${job} 执行失败`,
-      );
+      throw typeof payload.answer === "string"
+        ? new Error(payload.answer)
+        : new UiError("jobFailed", { job });
     return payload.answer;
   }
 
@@ -36,7 +36,7 @@ export class ReMeClient {
       if (job !== "pa_events") return;
       clearTimeout(timer);
       timer = setTimeout(
-        () => idle.abort(new Error("ReMe 连接长时间没有响应")),
+        () => idle.abort(new UiError("idleConnection")),
         60_000,
       );
     };
@@ -52,15 +52,13 @@ export class ReMeClient {
         signal: joined,
       });
       if (!response.ok || !response.body)
-        throw new Error(`ReMe ${job}：HTTP ${response.status}`);
+        throw new UiError("httpError", { job, status: response.status });
       if (
         response.headers.get("content-type")?.split(";")[0].trim() !==
         "text/event-stream"
       ) {
         await response.body.cancel();
-        throw new Error(
-          `ReMe ${job} 未返回事件流，请使用 proactive 配置启动服务`,
-        );
+        throw new UiError("expectedStream", { job });
       }
       await readStream(response.body, (chunk) => {
         touch();
