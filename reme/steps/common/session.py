@@ -2,6 +2,7 @@
 
 from ..base_step import BaseStep
 from ...components import R
+from ...components.base_component import _context_workspaces
 
 
 class _SessionStep(BaseStep):
@@ -23,6 +24,8 @@ class _SessionStep(BaseStep):
                 "message_id": self.context.get("message_id"),
                 "timeout": float(self.context.get("wait_timeout", 30)),
             }
+        if (workspaces := _context_workspaces(self.app_context)) and len(workspaces) > 1:
+            kwargs["workspace"] = self._bound_workspace_alias()
         try:
             result = await getattr(self.agent_wrapper, self.operation)(session_id, **kwargs)
         except NotImplementedError:

@@ -16,6 +16,8 @@ class NxFileGraph(BaseFileGraph):
     Real node carries ``node`` attr; virtual (dangling target) does not.
     """
 
+    workspace_scoped = True
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         try:

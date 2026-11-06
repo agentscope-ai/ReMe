@@ -15,6 +15,7 @@ import frontmatter
 from agentscope.message import DataBlock, TextBlock, UserMsg
 from watchfiles import Change
 
+from ...components.base_component import _context_workspaces
 from ...components.runtime_context import RuntimeContext
 from ..base_step import BaseStep
 from ..file_io import refresh_day_index, validate_filename_component
@@ -74,9 +75,9 @@ def _compute_note_stem(filename: str) -> str:
     return PurePosixPath(filename).stem
 
 
-def _compute_agent_session_id(path: str) -> str:
-    """Return a stable UUID session id for agent backends."""
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, path))
+def _compute_agent_session_id(path: str, workspace_alias: str = "") -> str:
+    """Return a stable UUID session id for agent backends, namespaced per workspace."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{workspace_alias}:{path}" if workspace_alias else path))
 
 
 def _parse_resource_path(file_path: str, resource_dir: str) -> tuple[str, str]:
@@ -401,9 +402,19 @@ class BaseAutoResourceStep(BaseStep):
             "system_prompt": self.prompt_format("system_prompt"),
             "job_tools": self.create_tools if state.created else self.update_tools,
             **(reply_kwargs or {}),
+            **self._workspace_forward_kwargs(),
         }
         if "session_id" not in agent_kwargs:
-            agent_kwargs["session_id"] = _compute_agent_session_id(file_path)
+            # Storage compatibility: the default workspace keeps its historical
+            # (unprefixed) session UUIDs; other aliases are namespaced.
+            session_alias = agent_kwargs.get("workspace", "")
+            workspaces = _context_workspaces(self.app_context)
+            if workspaces and session_alias == next(iter(workspaces)):
+                session_alias = ""
+            agent_kwargs["session_id"] = _compute_agent_session_id(
+                file_path,
+                workspace_alias=session_alias,
+            )
         # Consume the resource-only option before forwarding kwargs to the wrapper.
         if agent_kwargs.pop("scope_note_tools", False):
             # Bind the final allocated path last, never a path supplied by the agent.

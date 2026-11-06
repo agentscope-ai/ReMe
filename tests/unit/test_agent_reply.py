@@ -142,7 +142,11 @@ async def test_agentscope_propagates_cancellation_even_if_sdk_returns_a_message(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    wrapper._dump_state.assert_awaited_once_with(agent.state)  # pylint: disable=protected-access
+    dump_state = wrapper._dump_state  # pylint: disable=protected-access
+    dump_state.assert_awaited_once_with(
+        agent.state,
+        {"workspace": "default", "_workspace_explicit": False},
+    )
     counters = global_counter_get_all(wrapper.app_context.metadata, ["__token_counter", wrapper.name])
     assert counters["children"]["total_tokens"]["value"] == 12
 

@@ -123,7 +123,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode"), ApprovalMode.deny_all),
             "base_instructions": kwargs.get("base_instructions"),
             "config": config,
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
@@ -168,6 +168,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
             async with self.app_server.thread(
                 thread_id,
                 fork=fork,
+                workspace=kwargs.get("workspace"),
                 options={} if compact else self._thread_options(kwargs),
                 jobs=jobs,
                 injected=self._resolve_injected_job_kwargs(kwargs),
@@ -256,20 +257,27 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raw=self._serialize(result),
         )
 
-    async def compact_session(self, session_id: str) -> None:
+    def _session_workspace(self, workspace: str | None) -> str | None:
+        """Resolve an explicit alias or the wrapper's configured/default binding."""
+        return self._merged_kwargs({} if workspace is None else {"workspace": workspace}).get("workspace")
+
+    async def compact_session(self, session_id: str, workspace: str | None = None) -> None:
         """Hold the conversation lock until native compaction has finished."""
-        async with self._session({"session_id": session_id}, compact=True) as thread:
+        async with self._session(
+            {"session_id": session_id, "workspace": self._session_workspace(workspace)},
+            compact=True,
+        ) as thread:
             await self.app_server.compact(thread)
 
-    async def read_session(self, session_id: str) -> SessionSnapshot:
+    async def read_session(self, session_id: str, *, workspace: str | None = None) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
         await self.start()
-        return await self.app_server.read_session(session_id)
+        return await self.app_server.read_session(session_id, workspace=self._session_workspace(workspace))
 
-    async def get_session_status(self, session_id: str) -> SessionStatus:
+    async def get_session_status(self, session_id: str, *, workspace: str | None = None) -> SessionStatus:
         """Report native thread activity, including approval/input waits."""
         await self.start()
-        return await self.app_server.get_session_status(session_id)
+        return await self.app_server.get_session_status(session_id, workspace=self._session_workspace(workspace))
 
     async def append_session(
         self,
@@ -278,10 +286,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         *,
         message_id: str,
         timeout: float = 30,
+        workspace: str | None = None,
     ) -> SessionMessage:
         """Append a proactive message through the shared session owner."""
         await self.start()
-        return await self.app_server.append_session(session_id, content, message_id=message_id, timeout=timeout)
+        return await self.app_server.append_session(
+            session_id,
+            content,
+            message_id=message_id,
+            timeout=timeout,
+            workspace=self._session_workspace(workspace),
+        )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
@@ -289,7 +304,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
         return {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
-            "cwd": str(self.cwd),
+            "cwd": str(self._call_cwd(kwargs)),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
             "model": kwargs.get("model"),
             "output_schema": kwargs.get("output_schema"),

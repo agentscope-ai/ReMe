@@ -7,7 +7,7 @@ from typing import Any, ClassVar, TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ..base_component import BaseComponent
+from ..base_component import BaseComponent, _context_workspaces
 from ..outbound_proxy import BaseOutboundProxy
 from ...enumeration import ChunkEnum, ComponentEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
@@ -57,6 +57,35 @@ class BaseAgentWrapper(BaseComponent):
             return self.project_path
         cwd = Path(self._cwd)
         return cwd if cwd.is_absolute() else (self.workspace_path / cwd)
+
+    def _call_workspace_path(self, kwargs: dict[str, Any]) -> Path:
+        """Workspace root for this call: the forwarded binding, else the default workspace."""
+        alias = str(kwargs.get("workspace") or "")
+        if not alias:
+            return self.workspace_path
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces is None or alias not in workspaces:
+            configured = sorted(workspaces) if workspaces else []
+            raise ValueError(f"Unknown workspace {alias!r}; configured: {configured}")
+        return workspaces[alias].workspace_path
+
+    def _call_cwd(self, kwargs: dict[str, Any]) -> Path:
+        """Working directory for this call.
+
+        An explicit cwd wins. A relative one resolves against the bound
+        workspace; an absolute path keeps its explicit meaning. Otherwise an
+        explicitly selected workspace selects that workspace root. The default
+        alias injected for job tools is not an explicit selection, so a
+        single-workspace call keeps the project root.
+        """
+        if self._cwd:
+            cwd = Path(self._cwd)
+            if cwd.is_absolute():
+                return cwd
+            return self._call_workspace_path(kwargs) / cwd
+        if kwargs.get("workspace") and kwargs.get("_workspace_explicit", True):
+            return self._call_workspace_path(kwargs)
+        return self.cwd
 
     def set_system_prompt(self, prompt: str) -> "BaseAgentWrapper":
         """Set the agent's system prompt. Returns self for chaining."""
@@ -163,12 +192,15 @@ class BaseAgentWrapper(BaseComponent):
 
         ``injected_job_kwargs`` values are enforced constraints added by the
         wrapper after receiving the model's tool arguments; the model can
-        neither see nor override them. ``tool_context_id`` keeps its dedicated
-        option but is carried through the same mechanism.
+        neither see nor override them. ``tool_context_id`` and the workspace
+        binding keep their dedicated options but are carried through the same
+        mechanism, so the model can never switch workspaces.
         """
         injected = dict(kwargs.get("injected_job_kwargs") or {})
         if tool_context_id := kwargs.get("tool_context_id"):
             injected["tool_context_id"] = tool_context_id
+        if workspace := kwargs.get("workspace"):
+            injected["workspace"] = workspace
         return injected
 
     @staticmethod
@@ -211,8 +243,18 @@ class BaseAgentWrapper(BaseComponent):
         return resolved
 
     def _merged_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Merge component defaults with call-time kwargs; call-time values win."""
+        """Merge component defaults with call-time kwargs; call-time values win.
+
+        An omitted workspace becomes the default alias so job tools keep an
+        explicit binding. ``_workspace_explicit`` records whether the caller or
+        the component config selected that alias; cwd resolution uses it to
+        keep the historical project root when the alias was only filled in.
+        """
         merged = {**self.kwargs, **kwargs}
+        explicit_workspace = bool(merged.get("workspace"))
+        if (workspaces := _context_workspaces(self.app_context)) and not explicit_workspace:
+            merged["workspace"] = next(iter(workspaces))
+        merged["_workspace_explicit"] = explicit_workspace
         if "output_schema" in merged:
             merged["output_schema"] = self._normalize_output_schema(merged["output_schema"])
         return merged
@@ -277,11 +319,11 @@ class BaseAgentWrapper(BaseComponent):
         """Request compaction of one persisted agent session."""
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
-    async def read_session(self, session_id: str) -> SessionSnapshot:
+    async def read_session(self, session_id: str, *, workspace: str | None = None) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
         raise NotImplementedError(f"{type(self).__name__} does not support session reading")
 
-    async def get_session_status(self, session_id: str) -> SessionStatus:
+    async def get_session_status(self, session_id: str, *, workspace: str | None = None) -> SessionStatus:
         """Read activity without resuming or waiting for the session."""
         raise NotImplementedError(f"{type(self).__name__} does not support session status")
 
@@ -292,6 +334,7 @@ class BaseAgentWrapper(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        workspace: str | None = None,
     ) -> SessionMessage:
         """Append an idempotent proactive assistant message after the active turn finishes."""
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")

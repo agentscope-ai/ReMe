@@ -170,13 +170,14 @@ def _is_healthy(ctype: ComponentEnum, status: dict) -> bool:
     return True
 
 
-def _collect_components(app_context) -> tuple[dict, bool]:
-    """Walk every registered component type and produce {type: {name: status}}, plus overall flag."""
+def _collect_components(app_context, workspace=None) -> tuple[dict, bool]:
+    """Collect shared and selected-workspace health, never default-workspace substitutes."""
     components: dict = {}
     healthy = True
+    selected_components = app_context.components_for(workspace or app_context.workspace)
     for ctype, handler in _HANDLERS.items():
         bucket = {}
-        for name, comp in app_context.components.get(ctype, {}).items():
+        for name, comp in selected_components.get(ctype, {}).items():
             status = handler(comp)
             bucket[name] = status
             if not _is_healthy(ctype, status):
@@ -193,15 +194,17 @@ class HealthCheckStep(BaseStep):
         assert self.context is not None
 
         if self.app_context is not None:
-            components, healthy = _collect_components(self.app_context)
+            components, healthy = _collect_components(self.app_context, self.context.workspace)
         else:
             components, healthy = {}, True
 
-        health = {"version": __version__, "healthy": healthy, "components": components}
+        workspace = self.context.workspace.alias if self.context.workspace is not None else None
+        health = {"version": __version__, "workspace": workspace, "healthy": healthy, "components": components}
         self.logger.info(f"[{self.name}] health collected: {health}")
 
         emoji = "✅" if healthy else "❌"
         label = "healthy" if healthy else "unhealthy"
-        self.context.response.answer = f"{emoji} ReMe v{__version__} - {label}"
+        scope = f" (workspace: {workspace})" if workspace is not None else ""
+        self.context.response.answer = f"{emoji} ReMe v{__version__} - {label}{scope}"
         self.context.response.metadata["health"] = health
         return self.context.response

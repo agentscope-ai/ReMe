@@ -131,7 +131,9 @@ class BackgroundJob(BaseJob):
 
     async def _run_once(self) -> None:
         """Track the actual body, including custom __call__ implementations and restarts."""
-        context = RuntimeContext(stop_event=self._stop_event, **self.kwargs)
+        merged = dict(self.kwargs)
+        workspace = self._bind_workspace(merged)
+        context = RuntimeContext(stop_event=self._stop_event, workspace=workspace, **merged)
         token = _supervised_job.set(self)
         try:
             with self._execution(context):
@@ -144,7 +146,8 @@ class BackgroundJob(BaseJob):
     async def __call__(self, **kwargs) -> Response:
         """Default body: run steps in order; errors propagate to supervisor."""
         merged = {**self.kwargs, **kwargs}
-        context = RuntimeContext(stop_event=self._stop_event, **merged)
+        workspace = self._bind_workspace(merged)
+        context = RuntimeContext(stop_event=self._stop_event, workspace=workspace, **merged)
         if _supervised_job.get() is self:
             # Consume once so a nested call of this same job gets its own record.
             _supervised_job.set(None)

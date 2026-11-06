@@ -151,7 +151,7 @@ async def test_agentscope_records_usage_in_both_return_modes(tmp_path, monkeypat
     async def build_agent(inputs, **_kwargs):
         return agent, inputs
 
-    async def dump_state(_state):
+    async def dump_state(_state, _kwargs=None):
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)

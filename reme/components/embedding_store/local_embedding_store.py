@@ -47,6 +47,8 @@ class LocalEmbeddingStore(BaseEmbeddingStore):
     Delegates actual embedding computation to a bound ``as_embedding`` component.
     """
 
+    workspace_scoped = True
+
     def __init__(
         self,
         as_embedding: str = "default",

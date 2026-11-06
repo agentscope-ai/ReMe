@@ -119,6 +119,7 @@ class AutoTagStep(BaseStep):
             ),
             job_tools=self.tools,
             injected_job_kwargs=tool_context,
+            **self._workspace_forward_kwargs(),
         )
         text = agent_reply_result_text(result)
 

@@ -7,13 +7,15 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 import json
+import os
+import tempfile
 import hashlib
 import math
 from pathlib import Path
 import sys
 from typing import Any, TYPE_CHECKING
 
-from .base_component import BaseComponent
+from .base_component import BaseComponent, _context_workspaces
 from .component_registry import R
 from .service.scoped_mcp import ScopedMCP
 from ..constants import normalize_connect_host
@@ -90,45 +92,59 @@ class CodexAppServer(BaseComponent):
             return path if path.is_absolute() else self.workspace_path / path
         return self.workspace_path / ".codex"
 
-    def _message_path(self, session_id: str) -> Path:
+    def _message_path(self, session_id: str, workspace: str | None = None) -> Path:
         from .agent_wrapper.codex_session_history import validate_identifier
 
         validate_identifier(session_id)
         session_dir = self.app_context.app_config.session_dir if self.app_context else "session"
         namespace = hashlib.sha256(str(self.session_path.resolve()).encode()).hexdigest()[:16]
-        path = (self.workspace_path / session_dir / "proactive" / namespace / f"{session_id}.jsonl").resolve()
-        if not path.is_relative_to(self.workspace_path.resolve()):
+        root = self.workspace_path
+        if workspaces := _context_workspaces(self.app_context):
+            root = workspaces[self._require_thread_alias(str(workspace or ""))].workspace_path
+        path = (root / session_dir / "proactive" / namespace / f"{session_id}.jsonl").resolve()
+        if not path.is_relative_to(root.resolve()):
             raise ValueError("Session messages must stay inside the workspace")
         return path
 
     @asynccontextmanager
-    async def _session_client(self) -> AsyncIterator[AsyncCodex]:
-        """Keep status/history RPCs under lifecycle ownership without taking the turn lock."""
+    async def _session_client(self, session_id: str, workspace: str | None = None) -> AsyncIterator[AsyncCodex]:
+        """Guard read-only RPCs without taking the generation lease."""
+        alias = self._require_thread_alias(str(workspace or ""))
         await self.start()
         self._active += 1
         self._idle.clear()
+        reserved = False
+        sdk_entered = False
         try:
-            yield await self._get_client()
+            reserved = await self._record_thread_ownership(alias, session_id, provisional=True)
+            codex = await self._get_client()
+            sdk_entered = True
+            yield codex
+            await self._record_thread_ownership(alias, session_id)
+        except BaseException as exc:
+            if reserved:
+                await self._settle_failed_thread_claim(alias, session_id, exc, sdk_entered=sdk_entered)
+            raise
         finally:
             self._active -= 1
             if not self._active:
                 self._idle.set()
 
-    async def get_session_status(self, session_id: str) -> SessionStatus:
+    async def get_session_status(self, session_id: str, *, workspace: str | None = None) -> SessionStatus:
         """Inspect a thread without resuming it or waiting for an active turn."""
         from .agent_wrapper.codex_session_history import session_status
 
-        self._message_path(session_id)
-        async with self._session_client() as codex:
+        self._message_path(session_id, workspace)
+        async with self._session_client(session_id, workspace) as codex:
             thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
             return session_status(thread)
 
-    async def read_session(self, session_id: str) -> SessionSnapshot:
+    async def read_session(self, session_id: str, *, workspace: str | None = None) -> SessionSnapshot:
         """Project public native history plus application-authored proactive messages."""
         from .agent_wrapper import codex_session_history as history
 
-        path = self._message_path(session_id)
-        async with self._session_client() as codex:
+        path = self._message_path(session_id, workspace)
+        async with self._session_client(session_id, workspace) as codex:
             response = await codex._client.thread_read(  # pylint: disable=protected-access
                 session_id,
                 include_turns=True,
@@ -149,12 +165,13 @@ class CodexAppServer(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        workspace: str | None = None,
     ) -> SessionMessage:
         """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
         from openai_codex.generated.v2_all import ThreadInjectItemsResponse
         from .agent_wrapper import codex_session_history as history
 
-        path = self._message_path(session_id)
+        path = self._message_path(session_id, workspace)
         history.validate_identifier(message_id)
         if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
             raise ValueError("content must contain 1-100000 characters")
@@ -162,7 +179,7 @@ class CodexAppServer(BaseComponent):
             raise ValueError("timeout must be positive and finite")
 
         async with asyncio.timeout(timeout):
-            async with self.thread(session_id) as loaded:
+            async with self.thread(session_id, workspace=workspace) as loaded:
                 thread = (await loaded.read(include_turns=True)).thread
                 if history.session_status(thread).status != "idle":
                     raise RuntimeError("Session must be idle before appending")
@@ -442,11 +459,11 @@ class CodexAppServer(BaseComponent):
         self._threads[thread.id].token_usage = None
         await finish_cleanup(dispatch())
 
-    async def _fork_messages(self, source_id: str, thread: AsyncThread) -> None:
+    async def _fork_messages(self, source_id: str, thread: AsyncThread, workspace: str | None = None) -> None:
         """Copy inherited proactive provenance while the source conversation is locked."""
         from .agent_wrapper import codex_session_history as history
 
-        records = await asyncio.to_thread(history.read_records, self._message_path(source_id))
+        records = await asyncio.to_thread(history.read_records, self._message_path(source_id, workspace))
         if not records:
             return
         accepted = set()
@@ -461,7 +478,7 @@ class CodexAppServer(BaseComponent):
             if record["injected"] or record["message"]["id"] in accepted
         ]
         if inherited:
-            await complete_in_thread(history.write_records, self._message_path(thread.id), inherited)
+            await complete_in_thread(history.write_records, self._message_path(thread.id, workspace), inherited)
 
     @asynccontextmanager
     async def thread(
@@ -469,6 +486,7 @@ class CodexAppServer(BaseComponent):
         thread_id: str = "",
         *,
         fork: bool = False,
+        workspace: str | None = None,
         options: dict[str, Any] | None = None,
         jobs: list[Any] | None = None,
         injected: dict[str, Any] | None = None,
@@ -478,6 +496,9 @@ class CodexAppServer(BaseComponent):
         """Serialize one conversation while allowing independent conversations to run concurrently."""
         from openai_codex import TransportClosedError
 
+        alias = self._require_thread_alias(str(workspace or ""))
+        reserved = False
+        sdk_entered = False
         await self.start()
         self._active += 1
         self._idle.clear()
@@ -486,6 +507,8 @@ class CodexAppServer(BaseComponent):
         thread = None
         codex = None
         try:
+            if thread_id:
+                reserved = await self._record_thread_ownership(alias, thread_id, provisional=True)
             codex = await self._get_client()
             await self._prune_threads(codex)
             state = self._threads.setdefault(thread_id, _ThreadState()) if thread_id and not fork else _ThreadState()
@@ -522,6 +545,7 @@ class CodexAppServer(BaseComponent):
                         }
                     config["mcp_servers"] = servers
                     options["config"] = config
+                sdk_entered = True
                 if fork:
                     source = self._threads.setdefault(thread_id, _ThreadState())
                     source.users += 1
@@ -530,7 +554,7 @@ class CodexAppServer(BaseComponent):
                         async with source.lock:
                             state.token_usage = await self.token_usage(thread_id)
                             thread = await codex.thread_fork(thread_id, **options)
-                            await finish_cleanup(self._fork_messages(thread_id, thread))
+                            await finish_cleanup(self._fork_messages(thread_id, thread, alias))
                     finally:
                         source.users -= 1
                 elif thread_id:
@@ -538,6 +562,10 @@ class CodexAppServer(BaseComponent):
                 else:
                     thread = await codex.thread_start(**options)
                     state.token_usage = TokenUsage()
+                if thread_id:
+                    await self._record_thread_ownership(alias, thread_id)
+                    reserved = False
+                await self._record_thread_ownership(alias, thread.id)
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
@@ -570,8 +598,10 @@ class CodexAppServer(BaseComponent):
                             )
                         except Exception as exc:
                             self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
-        except TransportClosedError:
-            if codex is not None and self._codex is codex:
+        except BaseException as exc:
+            if reserved:
+                await self._settle_failed_thread_claim(alias, thread_id, exc, sdk_entered=sdk_entered)
+            if isinstance(exc, TransportClosedError) and codex is not None and self._codex is codex:
                 self._failed = True
             raise
         finally:
@@ -583,6 +613,156 @@ class CodexAppServer(BaseComponent):
             self._active -= 1
             if not self._active:
                 self._idle.set()
+
+    def _normalize_thread_alias(self, alias: str) -> str:
+        """Map an omitted alias to the default while preserving explicit aliases."""
+        workspaces = _context_workspaces(self.app_context)
+        if workspaces and not alias:
+            return next(iter(workspaces))
+        return alias
+
+    def _thread_ownership_path(self, alias: str) -> Path | None:
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        workspace = workspaces.get(alias)
+        if workspace is None or workspace.mem_session_path is None:
+            return None
+        return workspace.mem_session_path / "codex" / "owned_threads.json"
+
+    def _codex_thread_state(self, alias: str):
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return None
+        return workspaces[self._normalize_thread_alias(alias)].codex_thread_state
+
+    async def _owned_thread_ids(self, alias: str) -> set[str]:
+        """Load ownership through the single authoritative state of each workspace."""
+        state = self._codex_thread_state(alias)
+        if state is None:
+            return set()
+        async with state.lock:
+            if state.owned_thread_ids is not None:
+                return state.owned_thread_ids
+            ids: set[str] = set()
+            path = self._thread_ownership_path(alias)
+            if path is not None and path.is_file():
+                try:
+                    raw = json.loads(path.read_text(encoding="utf-8"))
+                    ids = {str(thread_id) for thread_id in raw.get("thread_ids", [])}
+                except (OSError, ValueError, AttributeError) as exc:
+                    self.logger.warning(f"Ignoring unreadable Codex thread ownership file {path}: {exc}")
+            state.owned_thread_ids = ids
+            return ids
+
+    def _require_thread_alias(self, alias: str) -> str:
+        """Resolve an omitted alias and reject names that are not configured."""
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return alias
+        resolved = self._normalize_thread_alias(alias)
+        if resolved not in workspaces:
+            configured = sorted(workspaces)
+            raise ValueError(f"Unknown workspace {resolved!r}; configured: {configured}")
+        return resolved
+
+    @staticmethod
+    def _write_owned_thread_ids(path: Path, thread_ids: set[str]) -> None:
+        """Atomically replace one workspace's ownership file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, raw_path = tempfile.mkstemp(prefix=".owned_threads-", suffix=".tmp", dir=path.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump({"thread_ids": sorted(thread_ids)}, stream, indent=1)
+            os.replace(raw_path, path)
+        finally:
+            Path(raw_path).unlink(missing_ok=True)
+
+    async def _record_thread_ownership(self, alias: str, thread_id: str, *, provisional: bool = False) -> bool:
+        """Reserve or confirm ownership under the application-wide lock.
+
+        Provisional callers receive True while their reservation needs rollback
+        on failure. Successful SDK operations confirm the claim for all wrappers.
+        Persisted claims loaded after restart are always treated as confirmed.
+        """
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return False
+        alias = self._require_thread_alias(alias)
+        async with self.app_context.codex_thread_ownership_lock:
+            for owner_alias in workspaces:
+                if thread_id not in await self._owned_thread_ids(owner_alias):
+                    continue
+                if owner_alias == alias:
+                    claims = self._codex_thread_state(alias).provisional_claims
+                    if not provisional:
+                        claims.pop(thread_id, None)
+                    elif thread_id in claims:
+                        claims[thread_id] += 1
+                        return True
+                    return False
+                raise ValueError(
+                    f"Codex thread {thread_id} belongs to workspace {owner_alias!r}; "
+                    f"it cannot be used from workspace {alias!r}",
+                )
+
+            state = self._codex_thread_state(alias)
+            ids = await self._owned_thread_ids(alias)
+            path = self._thread_ownership_path(alias)
+            async with state.lock:
+                if path is not None:
+                    self._write_owned_thread_ids(path, {*ids, thread_id})
+                ids.add(thread_id)
+                if provisional:
+                    state.provisional_claims[thread_id] = 1
+                return True
+
+    async def _forget_thread_ownership(self, alias: str, thread_id: str) -> None:
+        """Release a failed reservation without revoking confirmed or active ownership."""
+        workspaces = _context_workspaces(self.app_context)
+        if not workspaces:
+            return
+        alias = self._normalize_thread_alias(alias)
+        async with self.app_context.codex_thread_ownership_lock:
+            state = self._codex_thread_state(alias)
+            count = state.provisional_claims.get(thread_id, 0)
+            if not count:
+                return
+            if count > 1:
+                state.provisional_claims[thread_id] -= 1
+                return
+            ids = await self._owned_thread_ids(alias)
+            if thread_id not in ids:
+                return
+            path = self._thread_ownership_path(alias)
+            async with state.lock:
+                updated = ids - {thread_id}
+                if path is not None:
+                    self._write_owned_thread_ids(path, updated)
+                ids.discard(thread_id)
+                state.provisional_claims.pop(thread_id, None)
+
+    async def _settle_failed_thread_claim(
+        self,
+        alias: str,
+        thread_id: str,
+        error: BaseException,
+        *,
+        sdk_entered: bool,
+    ) -> None:
+        """Roll back only when no thread RPC ran or the server rejected its input.
+
+        The SDK offloads RPCs to worker threads. Cancellation, transport errors,
+        and other unknown outcomes cannot establish that submitted work stopped.
+        Confirm those claims so later rollback and Context recreation stay safe.
+        """
+        if sdk_entered:
+            from openai_codex.errors import InvalidParamsError, InvalidRequestError, MethodNotFoundError
+
+            if not isinstance(error, (InvalidParamsError, InvalidRequestError, MethodNotFoundError)):
+                await self._record_thread_ownership(alias, thread_id)
+                return
+        await self._forget_thread_ownership(alias, thread_id)
 
     async def _close(self) -> None:
         await self._idle.wait()

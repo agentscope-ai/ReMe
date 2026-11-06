@@ -158,7 +158,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         super().__init__(**kwargs)
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
         self.session_retention_days = int(session_retention_days)
-        self._session_cleanup_done = False
+        self._session_cleanup_done: set[str] = set()
 
     @classmethod
     def _make_tool(
@@ -166,9 +166,14 @@ class AsAgentWrapper(BaseAgentWrapper):
         job: "BaseJob",
         tool_context_id: str | None = None,
         injected_job_kwargs: dict[str, Any] | None = None,
+        workspace: str | None = None,
     ) -> FunctionTool:
         injected = cls._resolve_injected_job_kwargs(
-            {"tool_context_id": tool_context_id, "injected_job_kwargs": injected_job_kwargs},
+            {
+                "tool_context_id": tool_context_id,
+                "injected_job_kwargs": injected_job_kwargs,
+                "workspace": workspace,
+            },
         )
 
         async def run_job(**kwargs) -> ToolChunk:
@@ -186,9 +191,10 @@ class AsAgentWrapper(BaseAgentWrapper):
         names: list[str] | str | bool | None = "all",
         *,
         sequential_tool_calls: bool = False,
+        call_kwargs: dict[str, Any] | None = None,
     ) -> list[ToolBase]:
-        """Return selected AgentScope built-in tools rooted at ``self.cwd``."""
-        cwd = str(self.cwd)
+        """Return selected AgentScope built-in tools rooted at this call's workspace."""
+        cwd = str(self._call_cwd(call_kwargs or {}))
         backend = WorkspaceBackend(cwd, self.bash_environment)
         factories = {
             "bash": lambda: BypassAnalysisBash(cwd=cwd, backend=backend),
@@ -224,10 +230,15 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     @property
     def session_path(self) -> Path:
-        """Directory used for persisted AgentScope sessions."""
+        """Directory used for persisted AgentScope sessions in the default workspace."""
+        return self._session_path_for({})
+
+    def _session_path_for(self, kwargs: dict[str, Any]) -> Path:
+        """Session directory under the workspace this call is bound to."""
+        root = self._call_workspace_path(kwargs)
         if self.app_context is None:
-            return self.workspace_path / "mem_session" / "agentscope"
-        return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
+            return root / "mem_session" / "agentscope"
+        return root / self.app_context.app_config.mem_session_dir / "agentscope"
 
     @staticmethod
     def _validate_session_id(session_id: str, field: str = "session_id") -> str:
@@ -235,15 +246,15 @@ class AsAgentWrapper(BaseAgentWrapper):
             raise ValueError(f"{field} must be a valid UUID: {session_id!r}")
         return session_id.lower()
 
-    def _cleanup_expired_sessions(self) -> None:
+    def _cleanup_expired_sessions(self, session_path: Path) -> None:
         """Delete persisted session files older than ``session_retention_days``."""
-        if self._session_cleanup_done or self.session_retention_days <= 0:
-            self._session_cleanup_done = True
+        key = str(session_path)
+        if key in self._session_cleanup_done or self.session_retention_days <= 0:
+            self._session_cleanup_done.add(key)
             return
 
-        session_path = self.session_path
         if not session_path.is_dir():
-            self._session_cleanup_done = True
+            self._session_cleanup_done.add(key)
             return
 
         cutoff = time.time() - self.session_retention_days * 24 * 60 * 60
@@ -260,7 +271,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             self.logger.info(
                 f"Cleaned {removed} AgentScope session(s) older than {self.session_retention_days} day(s)",
             )
-        self._session_cleanup_done = True
+        self._session_cleanup_done.add(key)
 
     async def _load_state(self, kwargs: dict[str, Any], perm_mode: PermissionMode) -> AgentState:
         resume = kwargs.get("resume") or ""
@@ -275,7 +286,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             raise ValueError("session_id cannot be used with resume unless fork_session=True")
 
         if resume:
-            handler = AsStateHandler.for_session(self.session_path, resume)
+            handler = AsStateHandler.for_session(self._session_path_for(kwargs), resume)
             state = await handler.load_or_none()
             if state is None:
                 raise FileNotFoundError(f"AgentScope session not found: {resume}")
@@ -293,8 +304,8 @@ class AsAgentWrapper(BaseAgentWrapper):
 
         return AgentState(session_id=session_id or str(uuid4()), permission_context=PermissionContext(mode=perm_mode))
 
-    async def _dump_state(self, state: AgentState) -> None:
-        await AsStateHandler.for_session(self.session_path, state.session_id).dump(state)
+    async def _dump_state(self, state: AgentState, kwargs: dict[str, Any]) -> None:
+        await AsStateHandler.for_session(self._session_path_for(kwargs), state.session_id).dump(state)
 
     def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
         """Resolve configured skill names to AgentScope local skill directories."""
@@ -311,7 +322,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         if model is None:
             raise ValueError("AsAgentWrapper requires a bound as_llm component with a valid model.")
 
-        self._cleanup_expired_sessions()
+        self._cleanup_expired_sessions(self._session_path_for(kwargs))
 
         system_prompt = kwargs.get("system_prompt", "You are a helpful assistant.")
         job_tools: list[str] = kwargs.get("job_tools", [])
@@ -323,8 +334,22 @@ class AsAgentWrapper(BaseAgentWrapper):
         if "builtin_tools" not in kwargs and bool(kwargs.get("use_builtin_tools", False)):
             builtin_tools = "all"
         tools: list[ToolBase] = []
-        tools.extend(self._builtin_tools(builtin_tools, sequential_tool_calls=sequential_tool_calls))
-        tools.extend(self._make_tool(job, tool_context_id, kwargs.get("injected_job_kwargs")) for job in resolved_jobs)
+        tools.extend(
+            self._builtin_tools(
+                builtin_tools,
+                sequential_tool_calls=sequential_tool_calls,
+                call_kwargs=kwargs,
+            ),
+        )
+        tools.extend(
+            self._make_tool(
+                job,
+                tool_context_id,
+                kwargs.get("injected_job_kwargs"),
+                workspace=kwargs.get("workspace"),
+            )
+            for job in resolved_jobs
+        )
         toolkit = kwargs.get("toolkit") or Toolkit(
             tools=tools,
             skills_or_loaders=skills,
@@ -415,7 +440,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         agent, _ = await self._build_agent(None, **kwargs)
         config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
         await agent.compress_context(ContextConfig(**config))
-        await self._dump_state(agent.state)
+        await self._dump_state(agent.state, kwargs)
 
     # ----- StreamChunk conversion -------------------------------------------
 
@@ -533,7 +558,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         finally:
             if not finishing and model_usages:
                 self._record_token_usage(TokenUsage.combine(model_usages))
-            await self._dump_state(agent.state)
+            await self._dump_state(agent.state, kwargs)
         terminal.chunk = {key: value for key, value in result.items() if key != "events"}
         terminal.status = result["status"]
         terminal.metadata["error"] = result["error"]

@@ -79,6 +79,61 @@ Keep secrets in `.env` or the process environment, never in committed configurat
 
 `session_dir` must remain workspace-relative.
 
+`workspace_dir` also accepts an ordered mapping of alias to path for hosts that serve several workspaces from one
+configuration, for example in a YAML config file:
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+The first entry is the default workspace; every alias gets the same subdirectory layout (`metadata_dir`,
+`session_dir`, and the others above) materialized under its own root at startup. Aliases must be non-empty, and
+resolved directories must be distinct and must not contain one another. A single string keeps the existing
+behavior and is normalized internally to a `default` alias. Multi-workspace configurations also require a non-empty
+`mem_session_dir` so agent thread ownership remains enforceable after restart.
+
+Job calls accept an optional `workspace` field naming the alias to bind, for example
+`reme read_note path=daily/note.md workspace=scratch`; omitting it binds the default workspace, and an unknown
+alias fails fast. The binding is scoped to that call: workspace-aware state (file stores, indexes, graphs,
+catalogs) resolves to per-alias instances, while shared components (models, tokenizers) stay single-instance.
+External stateful backends that cannot isolate workspaces (currently the `neo4j` file graph) are rejected at
+startup in multi-workspace configurations.
+
+The binding propagates through nested job calls and agent tool calls (`job_tools`) as a server-owned constraint
+that models cannot override. Codex wrappers select an application-owned `codex_app_server` through `app_server`.
+Its scoped HTTP tools execute the original Application's jobs with the resolved workspace and preserve Job failures
+as tool errors. HTTP services can host the endpoint; embedded and one-shot CLI hosts use a managed loopback listener.
+This works for both single and multiple workspaces. Following the shared-server migration, move process and authentication
+settings to `components.codex_app_server.<name>` and remove `mcp_config` and `release_threads`.
+
+Once a Codex thread operation enters the SDK, cancellation or an unknown RPC outcome retains that thread's
+workspace ownership across restarts: cancelling the caller does not prove that submitted work stopped.
+A provisional claim can be released before SDK entry or after an explicit request-shape, method, or parameter
+rejection, provided no other operation still uses or has confirmed it. A successful resume confirms ownership even
+if a subsequent turn or compaction fails. History, status, and proactive append jobs use the same workspace binding;
+application-authored session records live under the selected workspace's `session_dir`.
+
+Background and cron jobs bind through their job configuration, so extra workspaces are watched by declaring
+explicit per-alias variants:
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # watches the default workspace; workspace defaults to the first alias
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+Two scoping notes: the Claude Code integration reads transcripts from the global `~/.claude/projects` directory
+(a Claude Code-side limitation — only ReMe's own copies are workspace-scoped), and token usage accounting remains
+application-level across workspaces.
+
 ## Enabling jobs
 
 `jobs.<name>.enabled` defaults to `true` for all Job types. Disabled jobs retain their configuration but do not

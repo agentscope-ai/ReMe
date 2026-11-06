@@ -563,7 +563,9 @@ async def test_configured_wrapper_and_job_image_options(
     if suffix == "txt":
         assert response.answer == "ok"
         assert isinstance(reply.call_args.args[0], str)
-        assert set(reply.call_args.kwargs) == {"system_prompt", "job_tools", "session_id"}
+        assert set(reply.call_args.kwargs) == {"system_prompt", "job_tools", "session_id", "workspace"}
+        # Execution bindings are forwarded everywhere, including the default alias.
+        assert reply.call_args.kwargs["workspace"] == "default"
     elif expected_action == "added":
         note = frontmatter.load(tmp_path / result["path"])
         assert note["source_resource"] == f"[[resource/2026-01-01/photo.{suffix}]]"

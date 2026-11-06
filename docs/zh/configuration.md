@@ -84,6 +84,54 @@ base_url: ${LLM_BASE_URL:-https://example.com/v1}
 
 `session_dir` 必须保持 workspace-relative。其他 workspace 子目录也应使用清晰、稳定的相对名称。
 
+`workspace_dir` 也接受"别名到路径"的有序映射，便于一个配置服务多个 workspace，例如在 YAML 配置文件中：
+
+```yaml
+workspace_dir:
+  main: /data/reme/main
+  scratch: /data/reme/scratch
+```
+
+第一个 entry 是默认 workspace；每个别名在启动时都会在自己的根目录下创建相同的子目录布局
+（`metadata_dir`、`session_dir` 等上述目录）。别名必须非空，且解析后的目录必须互不相同、不能互相包含。
+单个字符串保持原有行为，内部归一化为 `default` 别名。多 workspace 配置还要求 `mem_session_dir` 非空，
+以确保重启后仍能强制执行 agent thread 的归属隔离。
+
+Job 调用接受可选的 `workspace` 字段指定绑定的别名，例如
+`reme read_note path=daily/note.md workspace=scratch`；缺省绑定默认 workspace，未知别名会直接报错。
+绑定仅在单次调用内生效：workspace 相关的状态组件（file store、索引、graph、catalog）按别名解析到各自实例，
+共享组件（模型、tokenizer 等）保持单实例。无法隔离 workspace 的外部有状态后端（目前是 `neo4j` file graph）
+在多 workspace 配置下会在启动时被拒绝。
+
+绑定会经嵌套 Job 调用和 agent 工具调用（`job_tools`）传播，作为模型无法覆盖的服务端约束。
+Codex wrapper 通过 `app_server` 选择 Application 持有的共享 `codex_app_server`。其 scoped HTTP 工具在原有
+Application 中执行 Job，保留已解析的 workspace 绑定，并将失败的 Job 作为 tool error 返回。
+HTTP 服务可挂载该端点；嵌入式和 one-shot CLI 宿主使用受生命周期管理的 loopback listener，单、多 workspace 均支持。
+按照共享服务迁移约定，将进程和认证配置移到 `components.codex_app_server.<name>`，并移除 `mcp_config` 和 `release_threads`。
+
+Codex thread 操作进入 SDK 后，若调用被取消或 RPC 结果不明，会保留 thread 的 workspace 归属，重启后仍然有效；
+取消调用方并不能证明已提交的操作停止执行。临时归属仅在进入 SDK 前，或收到明确的请求格式、方法或参数拒绝后，
+且没有其他操作仍在使用或已确认该归属时，才可以释放。成功 resume 即确认归属，后续 turn 或 compact 失败不会撤销它。
+会话历史、状态和主动消息 Job 使用相同的 workspace 绑定；Application 写入的会话记录保存在所选 workspace 的 `session_dir` 下。
+
+Background 和 cron Job 通过 Job 配置绑定别名，额外 workspace 的 watch 通过显式配置按别名的变体实现：
+
+```yaml
+jobs:
+  index_update_loop:
+    backend: background
+    # 监控默认 workspace；workspace 缺省为第一个别名
+    steps: [...]
+  index_update_loop_scratch:
+    backend: background
+    workspace: scratch
+    steps: [...]
+```
+
+两点作用域说明：Claude Code 集成从全局 `~/.claude/projects` 目录读取 transcript
+（这是 Claude Code 源端的固有限制，ReMe 自己的副本按 workspace 隔离）；token 用量统计保持 Application 级，
+不随 workspace 拆分。
+
 ## Job 启停
 
 `jobs.<name>.enabled` 默认为 `true`，适用于所有 Job 类型。禁用的 Job 保留配置，但不启动、不暴露接口，
