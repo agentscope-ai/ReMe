@@ -108,6 +108,10 @@ clients reset from history instead of accumulating unlimited pending events. Oth
 unbounded default (`stream_queue_size: 0`). Custom configurations enabling `pa_events` must include the `pa` component
 from `proactive.yaml`. The subscription follows that component's configured Codex wrapper.
 
+The `proactive` config sets `service.timeout_graceful_shutdown: 5`. During HTTP shutdown, requests still active after
+five seconds are cancelled before application components close, so an open subscription cannot hold shutdown
+indefinitely. Custom HTTP configurations with long-lived subscriptions should also set a finite shutdown timeout.
+
 PA prompts contain the configured workspace and `{digest_dir}/personal/REME_MEMORY.md` paths. The agent reads current
 memory as needed and reads the complete latest file before merging updates. Memory contents are not injected into the
 session prompt. Before a new session or proactive round, shared code initializes a missing memory file using

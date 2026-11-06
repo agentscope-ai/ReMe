@@ -107,6 +107,10 @@ curl -N http://127.0.0.1:2333/pa_events \
 重新同步，避免无限积压。其他 Stream Job 默认行为保持不变，`stream_queue_size: 0` 表示无界队列。
 自定义配置启用 `pa_events` 时，需要一并配置 `proactive.yaml` 中的 `pa` 组件；订阅跟随该组件配置的 Codex wrapper。
 
+`proactive` 配置设置 `service.timeout_graceful_shutdown: 5`。HTTP 服务退出时，先给正在处理的请求五秒完成，
+随后取消仍未结束的请求，再关闭应用组件，避免长订阅无限阻塞退出。自定义 HTTP 配置启用长订阅时，也应设置有限的
+优雅退出超时。
+
 PA 的 Prompt 提供实际配置的工作区和 `{digest_dir}/personal/REME_MEMORY.md` 路径；Agent 按需读取当前记忆，
 更新前先读取最新完整文件，再合并修改，不再将记忆正文注入会话 Prompt。新建会话或执行主动任务时，公共逻辑仅在文件
 不存在时，用 `reme/steps/proactive/pa.yaml` 的 `default_memory` 初始化，通过逐路径锁和原子写入保护并发。

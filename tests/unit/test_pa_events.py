@@ -5,10 +5,13 @@
 import asyncio
 from contextlib import aclosing
 import json
+import socket
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 import pytest_asyncio
+import uvicorn
 
 from reme.application import Application
 from reme.components.agent_wrapper import CodexAgentWrapper
@@ -16,6 +19,7 @@ from reme.components.codex_app_server import CodexAppServer
 from reme.components.job import StreamJob
 from reme.components.pa_runtime import PaRuntime
 from reme.config import resolve_app_config
+from reme.constants import REME_SERVICE_INFO
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from reme.steps.proactive import PaChatStep, PaEventsStep
@@ -57,14 +61,14 @@ class EventAgent(CodexAgentWrapper):
 
 @pytest_asyncio.fixture
 async def system(tmp_path):
-    jobs = resolve_app_config(config="proactive")["jobs"]
+    config = resolve_app_config(config="proactive")
     app = Application(
         workspace_dir=str(tmp_path),
         enable_logo=False,
         log_to_file=False,
         log_to_console=False,
-        jobs={"pa_events": jobs["pa_events"]},
-        service={"backend": "http", "mcp_enabled": False, "web_enabled": False},
+        jobs={"pa_events": config["jobs"]["pa_events"]},
+        service={**config["service"], "mcp_enabled": False, "web_enabled": False},
     )
     server = CodexAppServer(app_context=app.context)
     agent = EventAgent(server, app_context=app.context)
@@ -276,6 +280,63 @@ async def test_shutdown_wakes_readers_and_removes_the_session_listener(system):
         with pytest.raises(StopAsyncIteration):
             await asyncio.wait_for(waiting, timeout=1)
     assert session_id not in server._session_listeners
+
+
+@pytest.mark.asyncio
+async def test_http_shutdown_cancels_open_subscription_and_closes_application(system, monkeypatch):
+    app, agent, runtime, owner = system
+    session_id = await select(agent, runtime)
+    monkeypatch.setenv(REME_SERVICE_INFO, "")
+    producer_finished = asyncio.Event()
+    job = app.context.jobs["pa_events"]
+    run = job._run_steps
+
+    async def track(context):
+        try:
+            return await run(context)
+        finally:
+            producer_finished.set()
+
+    monkeypatch.setattr(job, "_run_steps", track)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        listener.setblocking(False)
+        host, port = listener.getsockname()
+        service = app.context.service
+        service.host, service.port = host, port
+        service.build_service(app)
+        service.add_jobs(app)
+        config = uvicorn.Config(
+            service.service,
+            host=host,
+            port=port,
+            log_config=None,
+            ws="none",
+            **service.kwargs,
+        )
+        server = uvicorn.Server(config)
+        serving = asyncio.create_task(server.serve(sockets=[listener]))
+        try:
+            async with asyncio.timeout(5):
+                while not server.started:
+                    if serving.done():
+                        await serving
+                        pytest.fail("HTTP server exited before startup")
+                    await asyncio.sleep(0.01)
+            async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
+                async with client.stream("POST", f"http://{host}:{port}/pa_events", json={}) as response:
+                    response.raise_for_status()
+                    async with aclosing(response.aiter_lines()) as lines:
+                        assert "snapshot" in await asyncio.wait_for(anext(lines), timeout=1)
+                        server.should_exit = True
+                        # Keep the client connected while Uvicorn drains and closes the application.
+                        await asyncio.wait_for(asyncio.shield(serving), timeout=8)
+                        assert runtime._closed and producer_finished.is_set()
+                        assert session_id not in owner._session_listeners
+        finally:
+            server.should_exit = True
+            await asyncio.wait_for(serving, timeout=5)
 
 
 @pytest.mark.asyncio

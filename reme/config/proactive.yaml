@@ -13,6 +13,7 @@ service:
   backend: http
   web_enabled: true
   mcp_enabled: true
+  timeout_graceful_shutdown: 5  # Cancel open subscriptions before application shutdown.
 
 jobs:
   screen_capture_cron:
