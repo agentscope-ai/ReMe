@@ -1,5 +1,7 @@
 """LLM model wrappers for AgentScope."""
 
+import asyncio
+
 from agentscope.credential import (
     AnthropicCredential,
     CredentialBase,
@@ -32,6 +34,31 @@ class BaseAsLLM(BaseComponent):
         super().__init__(**kwargs)
         self._model: ChatModelBase | None = None
         self._owns_model = False
+        self._closed = False
+
+    async def start(self) -> None:
+        """Start the wrapper and clean up a lazy model if startup fails early."""
+        try:
+            await super().start()
+        except BaseException:
+            if self._owns_model and self._model is not None:
+                try:
+                    await self._close()
+                except BaseException:
+                    self.logger.exception("Failed to clean up model after startup failure")
+            raise
+        self._closed = False
+
+    async def close(self) -> None:
+        """Close started or pre-start resources while preserving base semantics elsewhere."""
+        try:
+            async with self._lock:
+                if not self._is_started:
+                    await self._close()
+                    return
+            await super().close()
+        finally:
+            self._closed = True
 
     async def _start(self) -> None:
         """Keep service startup independent of provider credentials."""
@@ -53,6 +80,8 @@ class BaseAsLLM(BaseComponent):
         """Construct the configured provider once, without making a remote request."""
         if self._model is not None:
             return
+        if self._closed:
+            raise RuntimeError("Start the LLM component before accessing its model after close.")
         kwargs = dict(self.kwargs)
         credential = self.credential_cls(**kwargs.pop("credential", {}))
         model_cls = credential.get_chat_model_class()
@@ -78,12 +107,26 @@ class OpenAIAsLLM(BaseAsLLM):
         BaseAsLLM.model.fset(self, value)
 
     async def _close(self) -> None:
-        """Close an internally owned async client on component shutdown."""
+        """Close an internally owned async client without losing cancellation-safe cleanup."""
         if not self._owns_model or self._model is None:
             return
+        cleanup = asyncio.create_task(self._release_model())
+        cancellation: asyncio.CancelledError | None = None
+        while not cleanup.done():
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError as exc:
+                if cancellation is None:
+                    cancellation = exc
+        cleanup.result()
+        if cancellation is not None:
+            raise cancellation
+
+    async def _release_model(self) -> None:
+        """Release the owned model and clear state even when provider close fails."""
         model = self._model
-        client = getattr(model, "client", None)
         try:
+            client = getattr(model, "client", None)
             if client is not None:
                 await client.close()
         finally:

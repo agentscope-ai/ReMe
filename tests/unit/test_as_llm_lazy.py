@@ -139,6 +139,7 @@ async def test_injected_openai_client_is_borrowed():
     await llm.close()
     model.client.close.assert_not_awaited()
     assert llm._model is model
+    assert llm.model is model
 
 
 @pytest.mark.asyncio
@@ -163,6 +164,113 @@ async def test_owned_openai_client_close_failure_clears_state():
     assert not llm.is_started
     await llm.close()
     model_cls.return_value.client.close.assert_awaited_once_with()
+    with pytest.raises(RuntimeError, match="after close"):
+        _ = llm.model
+    credential_cls.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_repeated_cancellation_finishes_owned_openai_client_close():
+    """Repeated shutdown cancellation cannot detach the provider close task."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model_cls = Mock()
+    model_cls.return_value.client.close = AsyncMock()
+    closing, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def close_client():
+        closing.set()
+        await release.wait()
+        finished.set()
+
+    model_cls.return_value.client.close.side_effect = close_client
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    await llm.start()
+    model = llm.model
+
+    close_task = asyncio.create_task(llm.close())
+    await asyncio.wait_for(closing.wait(), 2)
+    for message in ("first cancellation", "second cancellation", "third cancellation"):
+        close_task.cancel(message)
+        await asyncio.sleep(0)
+        assert not close_task.done()
+        assert llm._model is model
+        assert llm._owns_model
+        with pytest.raises(RuntimeError, match="Close the OpenAI component"):
+            llm.model = Mock()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError, match="first cancellation"):
+        await asyncio.wait_for(close_task, 2)
+    assert finished.is_set()
+    assert llm._model is None
+    assert not llm._owns_model
+    assert not llm.is_started
+    model_cls.return_value.client.close.assert_awaited_once_with()
+    assert not any(
+        not task.done() and getattr(task.get_coro(), "__qualname__", "") == "OpenAIAsLLM._release_model"
+        for task in asyncio.all_tasks()
+    )
+
+    await llm.close()
+    model_cls.return_value.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_pre_start_owned_openai_model_is_closed_and_restartable():
+    """A model created before start is closed by an unstarted close and can restart."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    first_model, second_model = Mock(), Mock()
+    first_model.client.close = AsyncMock()
+    second_model.client.close = AsyncMock()
+    model_cls = Mock(side_effect=[first_model, second_model])
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+
+    assert llm.model is first_model
+    assert not llm.is_started
+    await llm.close()
+    first_model.client.close.assert_awaited_once_with()
+    assert llm._model is None
+
+    with pytest.raises(RuntimeError, match="after close"):
+        _ = llm.model
+    await llm.close()
+    first_model.client.close.assert_awaited_once_with()
+
+    await llm.start()
+    assert llm.model is second_model
+    await llm.close()
+    second_model.client.close.assert_awaited_once_with()
+    assert model_cls.call_count == 2
+
+
+def test_pre_start_borrowed_openai_model_can_be_replaced():
+    """Pre-start injection and replacement remain borrowed and unclosed."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    first_model, second_model = Mock(), Mock()
+    first_model.client.close = AsyncMock()
+    second_model.client.close = AsyncMock()
+    llm.model = first_model
+    llm.model = second_model
+
+    async def run():
+        await llm.close()
+        assert llm.model is second_model
+        await llm.start()
+        await llm.close()
+
+    asyncio.run(run())
+    first_model.client.close.assert_not_awaited()
+    second_model.client.close.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -192,13 +300,21 @@ async def test_owned_openai_model_requires_close_before_replacement():
     model_cls.return_value.client.close.assert_awaited_once_with()
 
 
+@pytest.mark.parametrize("failure_stage", ["resolve", "hook"])
 @pytest.mark.parametrize("injected", [False, True], ids=["owned", "borrowed"])
-def test_openai_start_failure_rolls_back_owned_client(injected):
+def test_openai_start_failure_rolls_back_owned_client(injected, failure_stage):
     """Startup failure closes a pre-start owned client but never a borrowed one."""
     from reme.components.as_llm import OpenAIAsLLM
 
     class FailingOpenAIAsLLM(OpenAIAsLLM):
+        async def _resolve_bindings(self):
+            if failure_stage == "resolve":
+                raise RuntimeError("resolve failed")
+            await super()._resolve_bindings()
+
         async def _start(self):
+            if failure_stage == "resolve":
+                await super()._start()
             raise RuntimeError("start failed")
 
     llm = FailingOpenAIAsLLM(backend="openai", model="synthetic")
@@ -214,7 +330,8 @@ def test_openai_start_failure_rolls_back_owned_client(injected):
         assert llm.model is model
 
     async def run():
-        with pytest.raises(RuntimeError, match="start failed"):
+        expected = "resolve failed" if failure_stage == "resolve" else "start failed"
+        with pytest.raises(RuntimeError, match=expected):
             await llm.start()
         assert not llm.is_started
         assert llm._model is (model if injected else None)
