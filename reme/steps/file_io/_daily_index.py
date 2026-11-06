@@ -5,6 +5,7 @@ import errno
 from pathlib import Path
 
 import frontmatter
+import yaml
 
 from ._path import _check_path_permission, resolve_path, validate_filename_component
 from ...utils import get_logger
@@ -159,8 +160,19 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
 
     existing_text = ""
     if index_abs.is_file():
-        existing_text = index_abs.read_text(encoding="utf-8")
-        post = frontmatter.loads(existing_text)
+        try:
+            existing_text = index_abs.read_text(encoding="utf-8")
+            post = frontmatter.loads(existing_text)
+        except (UnicodeError, ValueError, TypeError, yaml.YAMLError) as exc:
+            # This is a derived index: preserve its original bytes on errors.
+            return {
+                "date": date,
+                "path": index_rel,
+                "notes": notes_payload,
+                "created": False,
+                "changed": False,
+                "error": f"daily index is unreadable: {exc}",
+            }
         new_body = _rebuild_body(post.content, notes_block)
         merged = dict(post.metadata or {})
         if not merged.get("name"):

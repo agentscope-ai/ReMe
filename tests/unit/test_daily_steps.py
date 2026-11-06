@@ -25,6 +25,7 @@ from contextlib import chdir as temp_chdir
 import tempfile
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -514,6 +515,47 @@ async def test_day_index_description_updates_when_note_count_changes():
         assert "2 note(s) today." in text
         assert "1 note(s) today." not in text
         await store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw_index", [b"---\ntags: [\n---\nbody\n", b"\xff\xfe\xfd\n"])
+async def test_day_index_read_failure_preserves_derived_bytes(raw_index, tmp_path):
+    """A damaged derived index must not be destroyed during rebuilding."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    index.write_bytes(raw_index)
+    before = index.read_bytes()
+
+    result = await daily_reindex_step.refresh_day_index(
+        SimpleNamespace(workspace_path=tmp_path),
+        "2026-05-18",
+        "daily",
+    )
+    assert result["error"].startswith("daily index is unreadable:")
+    assert not result["changed"]
+    assert not result["created"]
+    assert index.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_daily_reindex_surfaces_unreadable_index_as_failed_response(tmp_path):
+    """The standalone reindex caller keeps the shared error envelope."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    before = b"---\ntags: [\n---\nbody\n"
+    index.write_bytes(before)
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    store = LocalFileStore(name="t", embedding_store="", app_context=app_context)
+    step = daily_reindex_step.DailyReindexStep(file_store=store, app_context=app_context)
+    await step(date="2026-05-18")
+
+    response = step.context.response
+    assert response.success is False
+    assert response.answer.startswith("Error: daily index is unreadable:")
+    assert response.metadata["path"] == "daily/2026-05-18.md"
+    assert response.metadata["changed"] is False
+    assert index.read_bytes() == before
 
 
 @pytest.mark.asyncio
