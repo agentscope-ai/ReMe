@@ -86,6 +86,33 @@ async def next_event(events):
     return await asyncio.wait_for(anext(events), timeout=1)
 
 
+@pytest.mark.asyncio
+async def test_activity_is_replayable_scoped_and_included_in_snapshots(system):
+    from reme.schema import AgentActivity
+
+    _app, agent, runtime, server = system
+    session_id = await select(agent, runtime)
+    activity = AgentActivity(session_id=session_id, turn_id="turn", phase="answering")
+    async with aclosing(runtime.events()) as events:
+        cursor = (await next_event(events)).cursor
+        server.publish_activity(activity)
+        event = await next_event(events)
+        assert event.activities["chat"] == activity
+        server.publish_activity(activity)
+        assert (await next_event(events)).type == "heartbeat"
+    async with aclosing(runtime.events(cursor)) as events:
+        assert (await next_event(events)).activities["chat"] == activity
+    background = activity.model_copy(update={"source": "proactive", "turn_id": "background", "phase": "remembering"})
+    server.publish_activity(background)
+    async with aclosing(runtime.events()) as events:
+        snapshot = await next_event(events)
+        assert snapshot.activities == {"chat": activity, "proactive": background}
+    await select(agent, runtime)
+    server.publish_activity(activity)
+    async with aclosing(runtime.events()) as events:
+        assert (await next_event(events)).activities == {}
+
+
 async def select(agent, runtime):
     session_id = await agent.create_session()
     runtime.state["session_id"] = session_id

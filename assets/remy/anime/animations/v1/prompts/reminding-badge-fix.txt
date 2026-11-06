@@ -1,0 +1,5 @@
+Use case: precise-object-edit
+Asset type: corrected original ReMe eight-frame reminder animation sprite sheet.
+Input image: an original 4-column by 2-row transparent animation sprite sheet. Keep the entire sheet layout, exact frame positions, frame count, character scale, pose sequence, all faces, hair, hands, card movement, clothes, colors and alpha transparency unchanged.
+Make ONLY this small correction: in the SECOND CELL OF THE TOP ROW, the open navy satchel currently has TWO turquoise R emblems, one on the raised flap and one on its main visible front. Remove the extra R on the RAISED FLAP ONLY, restoring plain navy flap material with matching shading. Keep the main front R emblem visible. There must be only one R per satchel, exactly like the other frames.
+Do not change any other frame or alter the animation. Exactly eight characters in the same 4x2 grid, no new labels, symbols, effects, background, borders or watermarks. Preserve a genuine transparent alpha background.

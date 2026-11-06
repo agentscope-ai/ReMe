@@ -1,0 +1,138 @@
+import assert from "node:assert/strict";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import test from "node:test";
+import { _electron as electron } from "playwright";
+import { expect } from "playwright/test";
+import { mockReMe } from "./e2e/mock-reme.mjs";
+
+const project = fileURLToPath(new URL("../", import.meta.url));
+
+test(
+  "packaged macOS application loads its bundled frames and subscription",
+  { timeout: 30_000, skip: process.platform !== "darwin" },
+  async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "reme-desktop-packaged-"),
+    );
+    const backend = await mockReMe();
+    let app;
+    try {
+      const resources = path.join(
+        project,
+        `dist/${process.arch === "arm64" ? "mac-arm64" : "mac"}/ReMe Desktop.app/Contents/Resources`,
+      );
+      const manifest = JSON.parse(
+        await readFile(path.join(resources, "remy/manifest.json"), "utf8"),
+      );
+      for (const clip of manifest.animations)
+        for (const frame of clip.frame_files)
+          assert.ok(
+            (await readFile(path.join(resources, "remy", frame))).length > 0,
+          );
+      app = await electron.launch({
+        executablePath: path.join(resources, "../MacOS/ReMe Desktop"),
+        args: [],
+        env: {
+          ...process.env,
+          REME_DESKTOP_DATA_DIR: directory,
+          REME_DESKTOP_API_URL: backend.url,
+        },
+      });
+      if (app.windows().length < 2)
+        await app.waitForEvent("window", {
+          predicate: () => app.windows().length >= 2,
+        });
+      const companion = app
+        .windows()
+        .find((page) => page.url().includes("view=companion"));
+      const chat = app
+        .windows()
+        .find((page) => page.url().includes("view=chat"));
+      await expect
+        .poll(() =>
+          companion.evaluate(() =>
+            window.desktop.bootstrap().then((value) => value.state.connection),
+          ),
+        )
+        .toBe("connected");
+      await expect
+        .poll(() =>
+          companion
+            .locator("canvas")
+            .evaluate(
+              (canvas) =>
+                canvas.getContext("2d").getImageData(256, 170, 1, 1).data[3],
+            ),
+        )
+        .toBeGreaterThan(0);
+      backend.push("packaged-reminder");
+      await expect(
+        companion.getByRole("region", { name: "主动提醒" }),
+      ).toBeVisible();
+      await companion.getByRole("button", { name: "展开聊聊" }).click();
+      await expect(
+        chat.getByText("你关注的 Agent 记忆论文有更新，想看看重点吗？", {
+          exact: true,
+        }),
+      ).toBeVisible();
+      await app.evaluate(({ nativeTheme }) => {
+        nativeTheme.themeSource = "dark";
+      });
+      await chat.emulateMedia({ colorScheme: "dark" });
+      assert.equal(
+        await chat.evaluate(
+          () => getComputedStyle(document.body).backgroundColor,
+        ),
+        "rgb(24, 36, 31)",
+      );
+      await expect(chat.locator(".chat-shell")).toBeVisible();
+      await mkdir(path.join(project, "reports"), { recursive: true });
+      await chat.screenshot({
+        path: path.join(project, "reports/chat-dark.png"),
+      });
+      const info = await app.evaluate(({ app }) => ({
+        packaged: app.isPackaged,
+        name: app.getName(),
+        metrics: app
+          .getAppMetrics()
+          .map(({ type, memory }) => ({ type, memory })),
+      }));
+      assert.equal(info.packaged, true);
+      await writeFile(
+        path.join(project, "reports/packaged.json"),
+        JSON.stringify(info, null, 2),
+      );
+      const url = chat.url();
+      await chat.evaluate(() => {
+        const link = document.createElement("a");
+        link.href = "https://example.com/";
+        document.body.append(link);
+        link.click();
+        link.remove();
+      });
+      // A cancelled navigation leaves Playwright waiting for a load that never
+      // starts. Check the native WebContents after dispatch instead.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const retained = await app.evaluate(async ({ BrowserWindow }) => {
+        const window = BrowserWindow.getAllWindows().find((entry) =>
+          entry.webContents.getURL().includes("view=chat"),
+        );
+        return {
+          url: window?.webContents.getURL(),
+          body: await window?.webContents.executeJavaScript(
+            'Boolean(document.querySelector(".chat-shell"))',
+          ),
+        };
+      });
+      assert.equal(retained.url, url);
+      assert.equal(retained.body, true);
+    } finally {
+      await app?.close();
+      await backend.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);

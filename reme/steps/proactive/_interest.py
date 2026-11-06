@@ -39,6 +39,8 @@ class _InterestStep(_PaStep):
             system_prompt=prompt,
             job_tools=list(self.kwargs.get("job_tools", tools)),
             injected_job_kwargs=injected or {},
+            activity_source="proactive",
+            activity_session_id=self._state["session_id"],
         )
         if result["status"] != "completed":
             raise RuntimeError(result.get("error") or f"Proactive agent {result['status']}")

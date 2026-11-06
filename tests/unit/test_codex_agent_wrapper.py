@@ -1625,3 +1625,52 @@ def test_event_to_chunks_maps_approval_started_and_completed(review_status):
     assert completed_chunk.metadata["status"] == "completed"
     assert completed_chunk.metadata["review"]["status"] == review_status
     assert completed_chunk.metadata["decision_source"] == {"type": "guardian"}
+
+
+@pytest.mark.asyncio
+async def test_reply_activity_reaches_the_selected_proactive_session(system):
+    from reme.schema import AgentActivity
+
+    first, _second, server, _job = system
+    selected = await first.create_session(job_tools=[])
+    observed = []
+    unsubscribe = server.watch_session(selected, observed.append)
+    try:
+        await first.reply("background result", job_tools=[], activity_source="proactive", activity_session_id=selected)
+        activities = [event for event in observed if isinstance(event, AgentActivity)]
+        assert activities[0].phase == "thinking"
+        assert activities[-1].phase == "completed"
+        assert all(event.session_id == selected and event.source == "proactive" for event in activities)
+        assert len({event.turn_id for event in activities}) == 1
+    finally:
+        unsubscribe()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["interrupted", "failed"])
+async def test_activity_closes_when_the_consumer_stops_or_the_provider_fails(system, outcome):
+    from reme.schema import AgentActivity
+
+    first, _second, server, _job = system
+    session_id = await first.create_session(job_tools=[])
+    observed = []
+    unsubscribe = server.watch_session(session_id, observed.append)
+    try:
+        stream = first.reply_stream("test", session_id=session_id)
+        await anext(stream)
+        if outcome == "failed":
+
+            async def fail(_thread, _inputs):
+                raise ValueError("provider failed")
+
+            _Codex.instances[0].run_hook = fail
+            with pytest.raises(ValueError, match="provider failed"):
+                await anext(stream)
+        else:
+            await stream.aclose()
+        phases = [event.phase for event in observed if isinstance(event, AgentActivity)]
+        assert phases[0] == "thinking"
+        assert phases[-1] == outcome
+        assert "completed" not in phases
+    finally:
+        unsubscribe()

@@ -13,6 +13,7 @@ from .base_component import BaseComponent
 from .component_registry import R
 from ..schema.agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from ..schema.pa_event import PaEvent
+from ..schema.agent_activity import AgentActivity
 
 _CURSOR = re.compile(r"([0-9a-f]{32}):(0|[1-9][0-9]{0,19})\Z")
 
@@ -61,6 +62,7 @@ class PaRuntime(BaseComponent):
         self._closed = True
         self._unsubscribe: Callable[[], None] | None = None
         self._native_status: SessionStatus | None = None
+        self._activities: dict[str, AgentActivity] = {}
         self._published_status: tuple | None = None
         self._fingerprints: dict[str, bytes] = {}
         self._needs_refresh = False
@@ -107,7 +109,7 @@ class PaRuntime(BaseComponent):
 
     def _activity(self) -> tuple[str | None, list[str]]:
         if self.state["lock"].locked():
-            return "active", []
+            return "active", self._native_status.active_flags if self._native_status is not None else []
         if self._native_status is not None:
             return self._native_status.status, self._native_status.active_flags
         return None, []
@@ -118,10 +120,15 @@ class PaRuntime(BaseComponent):
             return
         self._revision += 1
         status, flags = self._activity()
-        signature = (self.state["session_id"], status, tuple(flags))
+        signature = (
+            self.state["session_id"],
+            status,
+            tuple(flags),
+            tuple((source, value.model_dump_json()) for source, value in sorted(self._activities.items())),
+        )
         if signature != self._published_status:
             self._published_status = signature
-            self._publish("status_changed", status=status, active_flags=flags)
+            self._publish("status_changed", status=status, active_flags=flags, activities=self._activities)
 
     def select_session(self) -> None:
         """Follow the committed selection, dropping listeners for superseded sessions."""
@@ -131,6 +138,7 @@ class PaRuntime(BaseComponent):
             self._unsubscribe()
             self._unsubscribe = None
         session_id = self.state["session_id"]
+        self._activities.clear()
         self._native_status = SessionStatus(session_id=session_id, status="idle") if session_id else None
         self._fingerprints.clear()
         self._revision += 1
@@ -149,15 +157,20 @@ class PaRuntime(BaseComponent):
     def _fingerprint(message: SessionMessage) -> bytes:
         return sha256(message.model_dump_json().encode("utf-8")).digest()
 
-    def observe(self, change: SessionMessage | SessionSnapshot | SessionStatus | None) -> None:
+    def observe(self, change: AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None) -> None:
         """Accept published history/status from the session owner without blocking it."""
         if self._closed:
             return
         self._revision += 1
         session_id = self.state["session_id"]
         if change is None:
+            self._activities.clear()
             self._native_status = SessionStatus(session_id=session_id, status="error") if session_id else None
             self._invalidate("upstream_disconnected")
+        elif isinstance(change, AgentActivity):
+            if change.session_id != session_id:
+                return
+            self._activities[change.source] = change
         elif isinstance(change, SessionMessage):
             fingerprint = self._fingerprint(change)
             if self._fingerprints.get(change.id) != fingerprint:
@@ -202,6 +215,7 @@ class PaRuntime(BaseComponent):
                 session_id=session_id,
                 status=status,
                 active_flags=flags,
+                activities=self._activities,
                 snapshot=snapshot,
                 error=error,
             )
@@ -277,4 +291,5 @@ class PaRuntime(BaseComponent):
         self._buffer.clear()
         self._buffer_bytes = 0
         self._fingerprints.clear()
+        self._activities.clear()
         self._wake()
