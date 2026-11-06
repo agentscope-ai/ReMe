@@ -21,7 +21,7 @@ reme app_config
 
 - `find_reme`：服务是否存在，以及实际 host、port、PID；
 - `version`：CLI 能否成功访问服务；
-- `health_check`：组件健康状态；
+- `health_check`：共享组件与所选工作区组件的健康状态，并标明工作区；
 - `status`：共享组件和所选工作区状态组件的内存估算，标明工作区，并报告整个进程的 RSS；
 - `app_config`：隐藏密钥后的实际生效配置。
 

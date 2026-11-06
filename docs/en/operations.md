@@ -22,7 +22,7 @@ reme app_config
 
 - `find_reme` confirms the actual host, port, and PID;
 - `version` verifies that the CLI reaches the service;
-- `health_check` reports component health;
+- `health_check` reports shared and selected-workspace component health and labels the workspace;
 - `status` estimates shared and selected-workspace component memory, labels the workspace, and reports process-wide RSS;
 - `app_config` returns the effective configuration with secrets redacted.
 

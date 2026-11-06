@@ -96,13 +96,10 @@ def _collect_memory(app_context, workspace=None) -> dict:
     total = 0
     if app_context is not None:
         workspace = workspace or app_context.workspace
+        selected_components = app_context.components_for(workspace)
         for component_type in sorted(_TRACKED_COMPONENT_TYPES, key=lambda item: item.value):
             group = {}
-            selected_components = {
-                **app_context.shared_components.get(component_type, {}),
-                **workspace.components.get(component_type, {}),
-            }
-            for name, component in sorted(selected_components.items()):
+            for name, component in sorted(selected_components.get(component_type, {}).items()):
                 # _component_size keeps an independent seen set so each component
                 # remains understandable in isolation. Consequently, a non-component
                 # object shared by multiple components may be included more than once

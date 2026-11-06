@@ -87,6 +87,15 @@ class ApplicationContext:
         for ctype, group in value.items():
             self._components[ctype] = group
 
+    def components_for(self, workspace: WorkspaceContext) -> dict[str, dict[str, "BaseComponent"]]:
+        """Snapshot shared and bound-workspace groups without consulting the legacy view."""
+        if self.workspaces.get(workspace.alias) is not workspace:
+            raise ValueError(f"Workspace {workspace.alias!r} is not bound to this Application")
+        groups = {ctype: dict(group) for ctype, group in self.shared_components.items()}
+        for ctype, group in workspace.components.items():
+            groups.setdefault(ctype, {}).update(group)
+        return groups
+
     def get_component(self, ctype: str, name: str, alias: str | None = None) -> "BaseComponent | None":
         """Compatibility resolver for external callers that select a workspace by alias."""
         alias = alias or next(iter(self.workspaces))
