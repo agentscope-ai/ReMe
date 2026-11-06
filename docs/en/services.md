@@ -141,7 +141,7 @@ before resource processing. Each round uses two fresh agent sessions:
   `send_reminder(message, files)` takes one message and one or more interest filenames, including `.md`; the target
   session is bound by code. The agent keeps these files read-only. The Job verifies the selected files and conversation
   have not changed, restores unloaded sessions through the owner, and verifies idle before appending the assistant
-  message. Successful delivery marks every selected file `sent`; it does not indicate that the user read it.
+  message. Successful delivery marks unchanged selected files `sent`; it does not indicate that the user read it.
 
 Confirmed user statements belong in `{digest_dir}/personal/REME_MEMORY.md`, maintained by foreground chat. The collector
 maintains hypotheses in `INTERESTS.md`, grouped by topic with dates, user evidence, and uncertainty. Its own searches,
@@ -150,10 +150,11 @@ role, context, workflow, and notes, and live beside their implementations under 
 Each agent tool has its own module in `proactive/tools/`; resource collectors and their shared base live in
 `proactive/data_connectors/`. Tool registration names and Job parameters are independent of these module paths.
 
-Delivery uses stable message IDs and a single pending intent at `{session_dir}/proactive/pending.json` to recover an
-accepted injection or interrupted multi-file status updates before another reminder is planned. File locks and
-version checks preserve concurrent edits. Runtime state supports only `unsent` and `sent`; the former `ready` workflow
-and dated note layout are removed. Existing workspace data is not moved or rewritten automatically.
+Delivery calls the session append API directly, reusing one message ID for retries within the live round. File locks
+and version checks preserve concurrent edits; a changed or unwritable note does not block other notes or later rounds.
+There is no cross-round delivery journal. A crash after append succeeds but before note status is saved may cause a
+repeat reminder. Runtime state supports only `unsent` and `sent`; the former `ready` workflow and dated note layout are
+removed. Existing workspace data is not moved or rewritten automatically.
 
 Remy may call private Job `set_next_wakeup(minutes=...)` to override only the next delay. Omission, failed rounds, and
 restart use the configured default. `pa_proactive`, `send_reminder`, and `set_next_wakeup` are private Jobs bound to the

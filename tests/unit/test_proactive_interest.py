@@ -4,7 +4,6 @@
 
 import asyncio
 from datetime import datetime
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
@@ -544,9 +543,9 @@ async def test_agent_can_defer_and_cannot_request_two_different_reminders(runtim
 
 
 @pytest.mark.asyncio
-async def test_accepted_injection_is_recovered_after_partial_file_updates_and_session_switch(runtime, monkeypatch):
+async def test_status_write_failure_does_not_block_other_notes_or_later_rounds(runtime, monkeypatch):
     context, agent = runtime
-    paths = [note(context), note(context, "interest_100000.md")]
+    paths = [note(context), note(context, "interest_100000.md"), note(context, "interest_110000.md")]
     save = SendReminderStep._save_note
     failed = False
 
@@ -558,8 +557,9 @@ async def test_accepted_injection_is_recovered_after_partial_file_updates_and_se
         await save(self, filename, post)
 
     async def choose(_inputs, **kwargs):
-        result = await send(context, kwargs, [p.name for p in paths])
-        assert not result.success
+        files = [p.name for p in paths if frontmatter.loads(p.read_text())["status"] == "unsent"]
+        result = await send(context, kwargs, files)
+        assert result.success and result.answer["sent"]
         return {"status": "completed"}
 
     monkeypatch.setattr(SendReminderStep, "_save_note", interrupted)
@@ -567,65 +567,155 @@ async def test_accepted_injection_is_recovered_after_partial_file_updates_and_se
     await push(context)
     assert frontmatter.loads(paths[0].read_text())["status"] == "sent"
     assert frontmatter.loads(paths[1].read_text())["status"] == "unsent"
+    assert frontmatter.loads(paths[2].read_text())["status"] == "sent"
     context.metadata["pa"]["session_id"] = "session-2"
     result = await push(context)
     assert result.answer["sent"]
     assert all(frontmatter.loads(p.read_text())["status"] == "sent" for p in paths)
-    assert agent.reply.await_count == agent.append_session.await_count == 1
+    assert agent.reply.await_count == agent.append_session.await_count == 2
     assert not (Path(context.app_config.workspace_dir) / "chats/proactive/pending.json").exists()
 
 
 @pytest.mark.asyncio
-async def test_retry_reuses_original_message_id_and_preserves_concurrent_edits(runtime):
+async def test_retry_within_one_round_reuses_message_id_and_caches_success(runtime):
     context, agent = runtime
     path = note(context)
     original_append = agent.append_session.side_effect
 
     async def choose(_inputs, **kwargs):
-        await send(context, kwargs, [path.name], "原来的提醒")
+        agent.append_session.side_effect = TimeoutError("publication interrupted")
+        assert not (await send(context, kwargs, [path.name])).success
+        message_id = agent.append_session.call_args.kwargs["message_id"]
+        assert frontmatter.loads(path.read_text())["status"] == "unsent"
+        agent.append_session.side_effect = original_append
+        delivered = await send(context, kwargs, [path.name])
+        repeated = await send(context, kwargs, [path.name])
+        assert delivered.success and repeated.answer == delivered.answer
+        assert delivered.answer["message_id"] == message_id
         return {"status": "completed"}
 
     agent.reply.side_effect = choose
-    agent.append_session.side_effect = TimeoutError("publication interrupted")
-    await push(context)
-    journal = Path(context.app_config.workspace_dir) / "chats/proactive/pending.json"
-    pending = json.loads(journal.read_text())
-    agent.append_session.side_effect = original_append
     assert (await push(context)).answer["sent"]
-    assert agent.append_session.call_args.kwargs["message_id"] == pending["message_id"]
-    assert agent.append_session.call_args.args == ("session-1", "原来的提醒")
     assert agent.reply.await_count == 1
-
-    # A later interrupted delivery must not overwrite a new user edit during recovery.
-    change(path, status="unsent")
-    agent.append_session.side_effect = TimeoutError("interrupted again")
-    await push(context)
-    change(path, content="主人编辑后的内容")
-    with pytest.raises(ValueError, match="Interest changed"):
-        await push(context)
-    assert "主人编辑后的内容" in path.read_text()
+    assert agent.append_session.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_delivery_rechecks_file_after_injection_before_writing_status(runtime):
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_interrupted_append_allows_fresh_planning_next_round(runtime, accepted):
     context, agent = runtime
     path = note(context)
     original_append = agent.append_session.side_effect
 
+    async def interrupted(*args, **kwargs):
+        if accepted:
+            await original_append(*args, **kwargs)
+        raise TimeoutError("publication interrupted")
+
+    async def choose(_inputs, **kwargs):
+        await send(context, kwargs, [path.name])
+        return {"status": "completed"}
+
+    agent.reply.side_effect = choose
+    agent.append_session.side_effect = interrupted
+    assert not (await push(context)).answer["sent"]
+    original_id = agent.append_session.call_args.kwargs["message_id"]
+    assert frontmatter.loads(path.read_text())["status"] == "unsent"
+    change(path, content="主人编辑后的内容")
+    agent.append_session.side_effect = original_append
+    assert (await push(context)).answer["sent"]
+    assert agent.reply.await_count == agent.append_session.await_count == 2
+    assert agent.append_session.call_args.kwargs["message_id"] != original_id
+    assert "主人编辑后的内容" in path.read_text()
+    assert frontmatter.loads(path.read_text())["status"] == "sent"
+    assert len(agent.read_session.return_value.messages) == 1 + accepted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["body", "metadata", "remove"])
+async def test_concurrent_edits_preserve_notes_and_allow_later_reminders(runtime, mutation):
+    context, agent = runtime
+    path = note(context)
+    companion = note(context, "interest_100000.md")
+    original_append = agent.append_session.side_effect
+    edited = None
+
     async def edit_during_append(*args, **kwargs):
+        nonlocal edited
         result = await original_append(*args, **kwargs)
-        change(path, content="注入期间主人编辑后的内容")
+        if mutation == "remove":
+            path.unlink()
+        else:
+            if mutation == "body":
+                change(path, content="注入期间主人编辑后的内容")
+            else:
+                change(path, sources=["主人补充的来源"])
+            edited = path.read_bytes()
         return result
 
     async def choose(_inputs, **kwargs):
-        assert not (await send(context, kwargs, [path.name])).success
+        result = await send(context, kwargs, [path.name, companion.name])
+        assert result.success and result.answer["sent"]
+        assert (await send(context, kwargs, [path.name, companion.name])).answer == result.answer
         return {"status": "completed"}
 
     agent.reply.side_effect = choose
     agent.append_session.side_effect = edit_during_append
-    await push(context)
-    assert "注入期间主人编辑后的内容" in path.read_text()
-    assert frontmatter.loads(path.read_text())["status"] == "unsent"
+    assert (await push(context)).answer["sent"]
+    assert frontmatter.loads(companion.read_text())["status"] == "sent"
+    assert agent.append_session.await_count == 1
+    if edited is None:
+        assert not path.exists()
+    else:
+        assert path.read_bytes() == edited
+        assert frontmatter.loads(path.read_text())["status"] == "unsent"
+    later = note(context, "interest_110000.md", status="unsent")
+    context.metadata["pa"]["session_id"] = "session-2"
+    agent.append_session.side_effect = original_append
+
+    async def choose_later(_inputs, **kwargs):
+        await send(context, kwargs, [later.name])
+        return {"status": "completed"}
+
+    agent.reply.side_effect = choose_later
+    assert (await push(context)).answer["sent"]
+    assert agent.reply.await_count == agent.append_session.await_count == 2
+    assert frontmatter.loads(later.read_text())["status"] == "sent"
+    assert agent.append_session.call_args.args[0] == "session-2"
+    if edited is not None:
+        assert path.read_bytes() == edited
+
+
+@pytest.mark.asyncio
+async def test_cancellation_finishes_accepted_delivery_and_status_updates(runtime):
+    context, agent = runtime
+    path = note(context)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original_append = agent.append_session.side_effect
+
+    async def hold_append(*args, **kwargs):
+        result = await original_append(*args, **kwargs)
+        entered.set()
+        await release.wait()
+        return result
+
+    async def choose(_inputs, **kwargs):
+        await send(context, kwargs, [path.name])
+        return {"status": "completed"}
+
+    agent.append_session.side_effect = hold_append
+    agent.reply.side_effect = choose
+    task = asyncio.create_task(push(context))
+    await entered.wait()
+    task.cancel()
+    await asyncio.sleep(0)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert frontmatter.loads(path.read_text())["status"] == "sent"
+    assert not context.metadata["pa"]["lock"].locked()
+    assert not context.metadata["pa"]["rounds"]
 
 
 @pytest.mark.asyncio
@@ -677,20 +767,13 @@ async def test_invalid_configured_delay_fails_before_running_the_reminder_agent(
 
 
 @pytest.mark.asyncio
-async def test_recovery_respects_the_configured_file_byte_limit(runtime):
+async def test_interest_scan_respects_the_configured_file_byte_limit(runtime):
     context, agent = runtime
-    path = note(context)
-
-    async def choose(_inputs, **kwargs):
-        await send(context, kwargs, [path.name])
-        return {"status": "completed"}
-
-    agent.reply.side_effect = choose
-    agent.append_session.side_effect = TimeoutError("interrupted")
-    await push(context)
+    note(context)
     with pytest.raises(ValueError, match="exceeds read limit"):
         await PushInterestStep(app_context=context, default_wakeup_minutes=7, max_file_bytes=4)()
-    assert agent.append_session.await_count == 1
+    agent.reply.assert_not_awaited()
+    agent.append_session.assert_not_awaited()
 
 
 @pytest.mark.asyncio

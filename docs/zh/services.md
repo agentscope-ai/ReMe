@@ -133,7 +133,8 @@ proactive 默认 `language=zh`，可用 `language=en` 切换英文；Step 的 `l
 - **提醒：**Remy 阅读兴趣文档和原生 PA 会话文件，调用 `session_status`，判断时机和话术。
   本轮没有新发现时仍评估历史未推送内容。私有 Job `send_reminder(message, files)` 接受一段话术和一个或多个
   带 `.md` 后缀的兴趣文件名，目标会话由代码绑定。Agent 对这些文件只读；Job 校验所选文件和对话未改变，
-  通过会话 owner 恢复未加载的会话，确认空闲后注入 assistant 消息，成功后将对应文件标记为 `sent`，不代表主人已读。
+  通过会话 owner 恢复未加载的会话，确认空闲后注入 assistant 消息，成功后将未被修改的对应文件标记为 `sent`，
+  不代表主人已读。
 
 主人明确表达的信息保存在 `{digest_dir}/personal/REME_MEMORY.md`，由前台对话维护；收集 Agent 将兴趣推测
 保存在 `INTERESTS.md`，按主题记录日期、来自主人的依据和未确定的范围。自身搜索、推荐、重复记录和主人的沉默
@@ -141,9 +142,10 @@ proactive 默认 `language=zh`，可用 `language=en` 切换英文；Step 的 `l
 Agent 工具集中在 `proactive/tools/`，一个工具一个模块；资源采集实现及其公共基类统一放在
 `proactive/data_connectors/`。工具注册名和 Job 参数不依赖这些模块路径。
 
-投递使用稳定消息 ID，并在 `{session_dir}/proactive/pending.json` 保留一份待完成记录；消息已注入或多文件状态
-回写中断时，先恢复原投递，再规划下一条提醒。文件锁和版本校验保护并发修改。运行时仅支持 `unsent`、`sent`，
-移除原来的 `ready` 流程和按日期分目录的兴趣文档布局，不自动移动或重写工作区已有数据。
+投递直接调用会话 append 接口，同一轮重试复用同一个消息 ID。文件锁和版本校验保护并发修改，单个文件被修改或
+无法回写时，不阻塞其他文件和后续轮次。不保留跨轮投递日志；若 append 成功后、文件状态保存前进程崩溃，可能重复
+提醒。运行时仅支持 `unsent`、`sent`，移除原来的 `ready` 流程和按日期分目录的兴趣文档布局，不自动移动或重写
+工作区已有数据。
 
 Remy 可调用私有 Job `set_next_wakeup(minutes=...)`，仅调整下一次等待；未设置、本轮失败或服务重启时恢复配置默认值。
 `pa_proactive`、`send_reminder` 和 `set_next_wakeup` 均为私有 Job，通过后台 Agent 的工具绑定使用。

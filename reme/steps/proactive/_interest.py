@@ -12,7 +12,6 @@ from .pa import _PaStep
 from ..file_io._file_io import detect_file_encoding, get_path_lock, read_file_safe, write_file_safe
 
 _INTEREST_NAME = re.compile(r"interest_([0-9]{6})(?:_[0-9]+)?\.md\Z")
-_DELIVERY_FIELDS = {"status", "updated_at", "sent_at", "message_id", "target_session_id"}
 
 
 class _InterestStep(_PaStep):
@@ -85,6 +84,5 @@ class _InterestStep(_PaStep):
         return notes
 
     @staticmethod
-    def _version(post: frontmatter.Post, *, delivery: bool = False) -> str:
-        metadata = {key: value for key, value in post.metadata.items() if not delivery or key not in _DELIVERY_FIELDS}
-        return sha256(frontmatter.dumps(frontmatter.Post(post.content, **metadata)).encode()).hexdigest()
+    def _version(post: frontmatter.Post) -> str:
+        return sha256(frontmatter.dumps(post).encode()).hexdigest()

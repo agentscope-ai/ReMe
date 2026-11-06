@@ -5,7 +5,6 @@ from uuid import uuid4
 
 from ._interest import _InterestStep
 from .loop import _minutes
-from .tools.send_reminder import SendReminderStep
 from ...components import R
 
 
@@ -16,15 +15,6 @@ class PushInterestStep(_InterestStep):
     async def execute(self):
         self._validate("default_wakeup_minutes")
         self.context.response.answer = {"sent": False}
-        sender = SendReminderStep(
-            app_context=self.app_context,
-            agent_wrapper=self.agent_wrapper,
-            max_file_bytes=self.max_file_bytes(),
-        )
-        recovered = await sender.recover()
-        if recovered is not None:
-            self.context.response.answer = recovered
-            return self.context.response
         await self._ensure_memory()
         notes = await self._notes()
         session_id = self._state["session_id"]

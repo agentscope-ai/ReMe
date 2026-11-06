@@ -118,14 +118,43 @@ test("workspace restoration keeps independent chats, one PA view, and file draft
       agent("two", "chat"),
       agent("pa-old", "pa"),
       agent("pa-current", "pa"),
-      agent("obsolete"),
+      agent("legacy"),
+      agent("invalid", "unknown"),
     ],
     "pa-current",
   );
   assert.deepEqual(
     snapshot.tabs.map((tab) => tab.id),
-    ["draft", "one", "two", "pa-current"],
+    ["draft", "one", "two", "pa-current", "legacy"],
   );
   assert.equal(snapshot.tabs[0].content, "unsaved");
   assert.equal(snapshot.activeTabId, "pa-current");
+});
+
+test("workspace upgrade preserves legacy chat selection, session, and local messages", () => {
+  const legacy = {
+    id: "agent:legacy",
+    type: "agent",
+    title: "Existing conversation",
+    sessionId: "existing-session",
+    streaming: false,
+    messages: [
+      {
+        id: "local",
+        role: "user",
+        content: "Browser-only message",
+        localOnly: true,
+      },
+    ],
+  };
+  const snapshot = prepareWorkspaceSnapshot([legacy], legacy.id);
+
+  assert.deepEqual(snapshot, {
+    tabs: [{ ...legacy, mode: "chat" }],
+    activeTabId: legacy.id,
+  });
+  assert.deepEqual(
+    prepareWorkspaceSnapshot(snapshot.tabs, snapshot.activeTabId),
+    snapshot,
+  );
 });
