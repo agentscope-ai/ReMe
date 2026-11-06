@@ -51,7 +51,7 @@ curl -N http://127.0.0.1:2333/chat \
 
 Studio shares one conversation UI between **Chat** and **Proactive Chat**. The default configuration exposes only
 `chat`, with `query` and an optional `session_id` for independent conversations. Start with `config=proactive` to expose
-the three `pa_*` Jobs instead of `chat`. Entries are enabled according to the service's exposed Jobs.
+the `pa_*` Jobs instead of `chat`. Entries are enabled according to the service's exposed Jobs.
 
 Proactive Chat uses the application-owned `pa_chat` stream with only `query`. `pa_session` takes no parameters and returns
 `{"session_id": "...", "status": "idle"}` in `answer` (both values are null before a session exists). `pa_new_session` takes
@@ -70,6 +70,43 @@ session creation reject concurrent operations. Status queries do not wait for ge
 `CodexAgentWrapper`; other wrappers raise `NotImplementedError`.
 If the current native session is unavailable, `pa_session` returns `status: "error"`; create a new session to recover.
 Once empty-session creation starts, selecting that session completes before cancellation is propagated.
+
+`proactive` also exposes read-only `POST /pa_events` for background clients. With the service running, subscribe from
+another terminal:
+
+```bash
+curl -N http://127.0.0.1:2333/pa_events \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+Each SSE `data:` frame contains a `StreamChunk`; its `chunk` is a typed
+[`PaEvent`](../../reme/schema/pa_event.py). A first connection receives `snapshot`, containing the current session ID,
+merged PA activity, and optional `SessionSnapshot` history. No session is created. Subsequent events are:
+
+| Type | Client action |
+| --- | --- |
+| `session_changed` | Select the new session and clear the previous session's displayed history. |
+| `message_upsert` | Replace or insert the complete `message`, keyed by `(session_id, message.id)`. |
+| `status_changed` | Update activity; PA operations remain active until their serialization lock is released. |
+| `reset` | Discard the old cursor; a fresh `snapshot` follows on the same connection. |
+| `heartbeat` | Keep the connection alive; this event has no cursor. |
+
+Save an event's opaque `cursor` after applying it. Reconnect with `{"cursor":"<saved-cursor>"}` to replay retained
+changes before waiting for live updates. Process/runtime restart, upstream disconnection, or falling behind the bounded
+buffer requires a reset. Snapshots and replay handoff are version-checked to avoid missing a concurrent switch or commit.
+A failed history read produces a snapshot with `error`, no history, and no cursor; retain the existing display while it
+retries at the heartbeat interval. Incremental delivery resumes after a successful snapshot. Clients should tolerate
+repeated message upserts. Only completed proactive messages should
+enter a reminder bubble queue; token streaming continues through `pa_chat`.
+
+Message events follow successful proactive-message publication or a readable native history snapshot after a chat turn
+settles, including cancellation. Files remain the recovery source; event buffers and cursors are in memory and do not
+represent delivery/read receipts. Configure retention and heartbeat through `components.pa.default.max_events`,
+`max_buffer_bytes`, and `heartbeat_seconds`. `jobs.pa_events.stream_queue_size: 1` bounds the HTTP output queue so slow
+clients reset from history instead of accumulating unlimited pending events. Other stream Jobs keep their existing
+unbounded default (`stream_queue_size: 0`). Custom configurations enabling `pa_events` must include the `pa` component
+from `proactive.yaml`. The subscription follows that component's configured Codex wrapper.
 
 PA prompts contain the configured workspace and `{digest_dir}/personal/REME_MEMORY.md` paths. The agent reads current
 memory as needed and reads the complete latest file before merging updates. Memory contents are not injected into the

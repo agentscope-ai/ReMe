@@ -14,6 +14,7 @@ from . import file_store
 from . import job
 from . import keyword_index
 from . import outbound_proxy
+from .pa_runtime import PaRuntime
 from . import service
 from . import tag_index
 from . import tokenizer
@@ -29,6 +30,7 @@ __all__ = [
     "ComponentMixin",
     "ComponentRegistry",
     "CodexAppServer",
+    "PaRuntime",
     "R",
     "create_application_registry",
     "PromptHandler",

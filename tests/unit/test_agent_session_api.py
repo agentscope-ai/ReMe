@@ -349,6 +349,8 @@ async def test_append_waits_until_active_turn_releases_its_lease(runtime):
 @pytest.mark.asyncio
 async def test_recover_publication_failure_without_reinjecting(runtime, monkeypatch):
     server, native = runtime
+    notifications = []
+    server.watch_session("session-1", notifications.append)
     original = history.write_records
 
     def fail_commit(path, records):
@@ -359,11 +361,13 @@ async def test_recover_publication_failure_without_reinjecting(runtime, monkeypa
     monkeypatch.setattr(history, "write_records", fail_commit)
     with pytest.raises(OSError, match="publication interrupted"):
         await server.append_session("session-1", "once", message_id="recover")
+    assert not notifications
     assert not history.read_records(server._message_path("session-1"))[0]["injected"]
     assert (await server.read_session("session-1")).messages[-1].content == "once"
     monkeypatch.setattr(history, "write_records", original)
     await server.append_session("session-1", "once", message_id="recover")
     assert len(native.injected) == 1
+    assert [message.id for message in notifications] == ["reme-proactive-recover"]
 
 
 @pytest.mark.asyncio
@@ -394,6 +398,8 @@ async def test_unaccepted_retry_uses_the_current_turn_anchor(runtime):
 @pytest.mark.asyncio
 async def test_cancelled_append_finishes_publication_before_releasing_lease(runtime):
     server, native = runtime
+    notifications = []
+    server.watch_session("session-1", notifications.append)
     entered, release = asyncio.Event(), asyncio.Event()
 
     async def hold():
@@ -407,11 +413,95 @@ async def test_cancelled_append_finishes_publication_before_releasing_lease(runt
     await asyncio.sleep(0)
     assert not pending.done()
     assert server._threads["session-1"].lock.locked()
+    assert not notifications
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await pending
+    assert [message.id for message in notifications] == ["reme-proactive-cancel"]
     await server.append_session("session-1", "once", message_id="cancel")
     assert len(native.injected) == 1
+
+
+@pytest.mark.asyncio
+async def test_message_notifications_follow_committed_records_and_isolate_observers(runtime):
+    server, _native = runtime
+    notifications = []
+
+    def observe(message):
+        records = history.read_records(server._message_path("session-1"))
+        assert records[-1]["injected"]
+        notifications.append(message)
+
+    def broken(_message):
+        raise RuntimeError("observer failure")
+
+    unsubscribe = server.watch_session("session-1", observe)
+    server.watch_session("session-1", broken)
+    message = await server.append_session("session-1", "published", message_id="published")
+    assert notifications == [message]
+    unsubscribe()
+    unsubscribe()
+    await server.append_session("session-1", "later", message_id="later")
+    assert notifications == [message]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_turn_owner_publishes_readable_history_when_the_lease_finishes(runtime, cancelled):
+    from reme.schema import SessionSnapshot, SessionStatus
+
+    server, native = runtime
+    notifications = []
+    server.watch_session("session-1", notifications.append)
+    native.handle.turn = AsyncMock(return_value=SimpleNamespace())
+    entered = asyncio.Event()
+
+    async def run():
+        async with server.thread("session-1") as loaded:
+            await server.turn(loaded, "next")
+            native.thread.turns.append(turn("turn-2", "next", "answer"))
+            server._threads["session-1"].completion.set_result(None)
+            entered.set()
+            if cancelled:
+                await asyncio.Event().wait()
+
+    task = asyncio.create_task(run())
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    if cancelled:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        await task
+    assert isinstance(notifications[0], SessionStatus) and notifications[0].status == "active"
+    assert isinstance(notifications[-1], SessionSnapshot)
+    assert [item.content for item in notifications[-1].messages] == ["A", "B", "next", "answer"]
+
+
+@pytest.mark.asyncio
+async def test_failed_final_idle_check_invalidates_subscribers_instead_of_hiding_committed_history(
+    runtime,
+    monkeypatch,
+):
+    server, native = runtime
+    notifications = []
+    server.watch_session("session-1", notifications.append)
+    native.handle.turn = AsyncMock(return_value=SimpleNamespace())
+    wait_idle = server.wait_idle
+
+    async def fail_final_check(thread):
+        if server._threads[thread.id].history_changed:
+            raise RuntimeError("status temporarily unavailable")
+        await wait_idle(thread)
+
+    monkeypatch.setattr(server, "wait_idle", fail_final_check)
+    with pytest.raises(RuntimeError, match="status temporarily unavailable"):
+        async with server.thread("session-1") as loaded:
+            await server.turn(loaded, "committed")
+            native.thread.turns.append(turn("turn-2", "committed", "answer"))
+            server._threads["session-1"].completion.set_result(None)
+    assert notifications[-1] is None
+    assert (await server.read_session("session-1")).messages[-1].content == "answer"
 
 
 @pytest.mark.asyncio

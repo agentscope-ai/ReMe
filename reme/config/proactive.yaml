@@ -130,6 +130,19 @@ jobs:
         agent_wrapper: default
         job_tools: []
 
+  pa_events:
+    backend: stream
+    stream_queue_size: 1
+    description: "Subscribe to current PA session changes; replay a cursor or reset to a fresh snapshot."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        cursor: {type: string, maxLength: 128, description: "Opaque cursor from the last applied PA event"}
+    steps:
+      - backend: pa_events_step
+        agent_wrapper: default
+
   pa_session:
     backend: base
     description: "Return the current agent session ID and activity status; does not create a session."
@@ -265,6 +278,14 @@ jobs:
       - backend: save_step
 
 components:
+  pa:
+    default:
+      backend: local
+      agent_wrapper: default
+      max_events: 512
+      max_buffer_bytes: 4194304
+      heartbeat_seconds: 15
+
   codex_app_server:
     default:
       backend: sdk

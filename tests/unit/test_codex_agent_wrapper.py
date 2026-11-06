@@ -271,6 +271,28 @@ async def system(tmp_path, monkeypatch):
         await server.close()
 
 
+@pytest.mark.asyncio
+async def test_session_listener_observes_native_activity_and_disconnect_without_a_turn(system):
+    first, _second, server, _job = system
+    session_id = await first.create_session(job_tools=[])
+    notifications = []
+    unsubscribe = server.watch_session(session_id, notifications.append)
+    native = _Codex.instances[0]
+    native.notify_status(session_id, "active")
+    native.notify_status(session_id, "notLoaded")
+    async with asyncio.timeout(1):
+        while len(notifications) < 2:
+            await asyncio.sleep(0)
+    assert [status.status for status in notifications] == ["active", "not_loaded"]
+    native.notifications.put_nowait(ConnectionError("upstream disconnected"))
+    async with asyncio.timeout(1):
+        while notifications[-1] is not None:
+            await asyncio.sleep(0)
+    assert server._failed
+    unsubscribe()
+    assert session_id not in server._session_listeners
+
+
 def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
     def breakdown(tokens, total_tokens=None):
         return TokenUsageBreakdown(

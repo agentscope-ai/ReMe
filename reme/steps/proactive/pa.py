@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from ..base_step import BaseStep
 from ..file_io._file_io import get_path_lock, write_file_safe
 from ..file_io._path import resolve_path
-from ...components import R
+from ...components import PaRuntime, R
 from ...components.agent_wrapper import CodexAgentWrapper
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk, collect_reply
@@ -20,7 +20,13 @@ class _PaStep(BaseStep):
     """Share Remy's workspace context and serialize foreground session changes."""
 
     @property
+    def _runtime(self) -> PaRuntime | None:
+        return self.app_context.components.get("pa", {}).get("default") if self.app_context else None
+
+    @property
     def _state(self) -> dict:
+        if self._runtime is not None:
+            return self._runtime.state
         return self.app_context.metadata.setdefault("pa", {"session_id": None, "lock": asyncio.Lock()})
 
     def _now(self) -> datetime:
@@ -58,6 +64,8 @@ class _PaStep(BaseStep):
             raise RuntimeError("PA jobs require an ApplicationContext and agent_wrapper")
         if not isinstance(self.agent_wrapper, CodexAgentWrapper):
             raise NotImplementedError("PA currently supports CodexAgentWrapper only")
+        if self._runtime is not None and self._runtime.agent_wrapper is not self.agent_wrapper:
+            raise ValueError("PA jobs must use the pa component's configured agent_wrapper")
         unexpected = self.context.data.keys() - {*parameters, "metadata"}
         if unexpected:
             raise ValueError(f"Unexpected PA parameters: {', '.join(sorted(unexpected))}")
@@ -73,14 +81,22 @@ class _PaStep(BaseStep):
     async def _operation(self):
         if self._state["lock"].locked():
             raise RuntimeError("PA is busy; wait for the current operation to finish")
-        async with self._state["lock"]:
-            yield
+        try:
+            async with self._state["lock"]:
+                if self._runtime is not None:
+                    self._runtime.publish_status()
+                yield
+        finally:
+            if self._runtime is not None:
+                self._runtime.publish_status()
 
     async def _new_session(self) -> str:
         reply_kwargs = await self._reply_kwargs()
         session_id = await self.agent_wrapper.create_session(**reply_kwargs)
         previous = self._state["session_id"]
         self._state.update(session_id=session_id, reply_kwargs=reply_kwargs)
+        if self._runtime is not None:
+            self._runtime.select_session()
         if previous is not None:
             try:
                 await self.agent_wrapper.release_session(previous)

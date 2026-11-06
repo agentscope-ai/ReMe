@@ -56,7 +56,7 @@ curl -N http://127.0.0.1:2333/chat \
 ```
 
 Studio 的普通对话和 **Proactive Chat** 共用一套界面。默认配置只提供 `chat`，接收 `query` 和可选的 `session_id`，
-各对话独立。使用 `config=proactive` 启动后，只提供三个 `pa_*` Job，不再提供 `chat`。前端按服务实际开放的 Job 启用对应入口。
+各对话独立。使用 `config=proactive` 启动后，提供 `pa_*` Job，不再提供 `chat`。前端按服务实际开放的 Job 启用对应入口。
 
 Proactive Chat 使用由 Application 管理当前会话的 `pa_chat`，发送时只传 `query`。`pa_session` 无参数，`answer` 返回
 `{"session_id": "...", "status": "idle"}`；尚未创建会话时两个字段均为 null。`pa_new_session` 无参数，创建并切换空会话，
@@ -74,6 +74,38 @@ reme pa_new_session
 PA Job 目前只支持 `CodexAgentWrapper`，其他 wrapper 抛出 `NotImplementedError`。
 当前原生会话不可用时，`pa_session` 返回 `status: "error"`，可通过新建会话恢复。
 空会话创建一旦开始，会先完成当前会话的切换，再传播取消信号。
+
+`proactive` 还提供只读的 `POST /pa_events`，供后台客户端订阅。服务启动后，在另一个终端调用：
+
+```bash
+curl -N http://127.0.0.1:2333/pa_events \
+  -H 'Content-Type: application/json' \
+  -d '{}'
+```
+
+每个 SSE `data:` 帧仍是 `StreamChunk`，其中 `chunk` 为有类型约束的
+[`PaEvent`](../../reme/schema/pa_event.py)。首次连接收到 `snapshot`，包含当前会话 ID、合并后的 PA 活动状态和
+可选的 `SessionSnapshot` 历史，不会创建会话。后续事件如下：
+
+| 类型 | 客户端处理 |
+| --- | --- |
+| `session_changed` | 切换当前会话，清空上一会话的展示历史。 |
+| `message_upsert` | 按 `(session_id, message.id)` 插入或替换完整的 `message`。 |
+| `status_changed` | 更新活动状态；PA 操作释放串行锁之前持续显示忙碌。 |
+| `reset` | 丢弃旧游标；同一连接随后发送新的 `snapshot`。 |
+| `heartbeat` | 保持连接，不携带游标。 |
+
+应用事件后保存其不透明的 `cursor`。重连时传 `{"cursor":"<已保存的游标>"}`，先重放缓冲中的遗漏事件，再接收实时变化。
+进程或 runtime 重启、上游断开、客户端落后超过缓冲范围时，必须重新同步快照。快照读取与增量交接通过版本复核，
+覆盖并发切换和消息提交。历史读取失败时，快照包含 `error`，不含历史和游标；客户端保留已有展示，服务在心跳间隔后重试，
+成功取得快照后恢复增量投递。
+客户端需要容忍重复 upsert；只有已完成的主动消息才进入提醒气泡队列，逐字回复继续使用 `pa_chat`。
+
+消息事件在主动消息成功发布后，或聊天 turn 结束且原生历史可读后产生，也覆盖取消后的历史。恢复依据仍是会话文件，
+事件缓冲和游标仅保存在内存中，不代表送达或已读回执。通过 `components.pa.default.max_events`、`max_buffer_bytes` 和
+`heartbeat_seconds` 配置缓冲容量和心跳。`jobs.pa_events.stream_queue_size: 1` 限制 HTTP 输出队列，慢客户端通过历史
+重新同步，避免无限积压。其他 Stream Job 默认行为保持不变，`stream_queue_size: 0` 表示无界队列。
+自定义配置启用 `pa_events` 时，需要一并配置 `proactive.yaml` 中的 `pa` 组件；订阅跟随该组件配置的 Codex wrapper。
 
 PA 的 Prompt 提供实际配置的工作区和 `{digest_dir}/personal/REME_MEMORY.md` 路径；Agent 按需读取当前记忆，
 更新前先读取最新完整文件，再合并修改，不再将记忆正文注入会话 Prompt。新建会话或执行主动任务时，公共逻辑仅在文件
