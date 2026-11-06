@@ -472,6 +472,18 @@ test(
           await expect(
             companion.getByRole("button", { name: "1 条未读提醒" }),
           ).toBeVisible();
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-segment",
+            "hold",
+          );
+          assert.equal(
+            await companion.evaluate(() =>
+              window.desktop
+                .bootstrap()
+                .then(({ state }) => state.behavior.animation.mode),
+            ),
+            "hold",
+          );
           await mkdir(path.join(project, "reports"), { recursive: true });
           await companion.screenshot({
             path: path.join(project, "reports/companion.png"),
@@ -483,6 +495,10 @@ test(
           await expect(
             companion.getByRole("region", { name: "主动提醒" }),
           ).toHaveCount(0);
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-segment",
+            "exit",
+          );
           await expect(
             companion.getByRole("button", { name: "1 条未读提醒" }),
           ).toBeVisible();
@@ -605,6 +621,66 @@ test(
               ),
             )
             .toBe(false);
+        },
+      );
+
+      await t.test(
+        "remote agent phases drive animations and dragging restores the latest phase",
+        async () => {
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
+          for (const [phase, clip] of [
+            ["thinking", "thinking"],
+            ["answering", "speaking"],
+            ["working", "thinking"],
+            ["remembering", "remembering"],
+            ["waiting", "listening"],
+          ]) {
+            backend.activity(phase);
+            await expect(companion.locator("canvas")).toHaveAttribute(
+              "data-animation",
+              clip,
+            );
+          }
+          backend.activity("answering");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "speaking",
+          );
+          await companion.evaluate(() => {
+            window.desktop.drag("start");
+            window.desktop.drag("move");
+          });
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "dragged",
+          );
+          backend.activity("remembering");
+          await companion.evaluate(() => window.desktop.drag("end"));
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "remembering",
+          );
+          backend.activity("completed");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "happy",
+          );
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "idle",
+          );
+          backend.activity("completed");
+          await expect
+            .poll(() =>
+              companion.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => state.behavior.animation.clip),
+              ),
+            )
+            .toBe("idle");
         },
       );
 

@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
-import type { AnimationManifest } from "../../shared/protocol.ts";
+import type {
+  AnimationIntent,
+  AnimationManifest,
+} from "../../shared/protocol.ts";
 
 const cache = new Map<string, Promise<HTMLImageElement[]>>();
 
@@ -9,20 +12,21 @@ export function Character({
   animation,
   canvasRef,
   onEnded,
-  playbackKey = 0,
 }: {
   manifest: AnimationManifest;
-  animation: string;
+  animation: AnimationIntent;
   canvasRef: RefObject<HTMLCanvasElement | null>;
-  onEnded: () => void;
-  playbackKey?: number;
+  onEnded: (id: number) => void;
 }) {
   const ended = useRef(onEnded);
   ended.current = onEnded;
   useEffect(() => {
-    const clip =
-      manifest.animations.find((value) => value.id === animation) ??
-      manifest.animations.find((value) => value.id === "idle")!;
+    const clip = manifest.animations.find(
+      (value) => value.id === animation.clip,
+    )!;
+    const frames = animation.segment
+      ? clip.segments![animation.segment]
+      : clip.ticks.map((_, index) => index);
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     if (!cache.has(clip.id))
@@ -50,8 +54,8 @@ export function Character({
           willReadFrequently: true,
         });
         if (!context) return;
-        const holds = clip.ticks.map(
-          (tick) => (tick / manifest.output_fps) * 1000,
+        const holds = frames.map(
+          (index) => (clip.ticks[index] / manifest.output_fps) * 1000,
         );
         const duration = holds.reduce((a, b) => a + b, 0);
         const start = performance.now();
@@ -59,8 +63,8 @@ export function Character({
         const paint = () => {
           if (!live) return;
           const elapsed = performance.now() - start;
-          if (!clip.loop && elapsed >= duration) {
-            ended.current();
+          if (animation.mode === "once" && elapsed >= duration) {
+            ended.current(animation.id);
             return;
           }
           let position = elapsed % duration;
@@ -70,7 +74,9 @@ export function Character({
           if (index !== last) {
             context.clearRect(0, 0, manifest.canvas[0], manifest.canvas[1]);
             context.drawImage(
-              images[index],
+              images[
+                frames[animation.mode === "hold" ? frames.length - 1 : index]
+              ],
               0,
               0,
               manifest.canvas[0],
@@ -78,7 +84,8 @@ export function Character({
             );
             last = index;
           }
-          timer = setTimeout(paint, Math.max(10, holds[index] - position));
+          if (animation.mode !== "hold")
+            timer = setTimeout(paint, Math.max(10, holds[index] - position));
         };
         paint();
       })
@@ -96,14 +103,15 @@ export function Character({
       live = false;
       clearTimeout(timer);
     };
-  }, [manifest, animation, canvasRef, playbackKey]);
+  }, [manifest, animation.id, canvasRef]);
   return (
     <canvas
       ref={canvasRef}
       width={manifest.canvas[0]}
       height={manifest.canvas[1]}
       aria-label="Remy 角色动画"
-      data-animation={animation}
+      data-animation={animation.clip}
+      data-segment={animation.segment}
     />
   );
 }

@@ -3,6 +3,7 @@ import type {
   SessionMessage,
   SessionSnapshot,
   SessionStatus,
+  Activities,
 } from "../shared/protocol.ts";
 
 const eventTypes = new Set([
@@ -45,6 +46,7 @@ export class SessionModel {
   messages: SessionMessage[] = [];
   cursor: string | undefined;
   waitingForSnapshot = false;
+  activities: Activities = {};
 
   clear(): void {
     this.sessionId = null;
@@ -52,6 +54,7 @@ export class SessionModel {
     this.messages = [];
     this.cursor = undefined;
     this.waitingForSnapshot = false;
+    this.activities = {};
   }
 
   select(sessionId: string | null): void {
@@ -59,6 +62,7 @@ export class SessionModel {
       this.sessionId = sessionId;
       this.messages = [];
       this.status = null;
+      this.activities = {};
     }
   }
 
@@ -89,6 +93,34 @@ export class SessionModel {
     const event = value as PaEvent;
     if (event.status != null && !statuses.has(event.status))
       throw new Error("ReMe 会话状态无效");
+    if (["snapshot", "status_changed"].includes(event.type)) {
+      if (
+        !event.activities ||
+        typeof event.activities !== "object" ||
+        Array.isArray(event.activities)
+      )
+        throw new Error("ReMe 未返回活动状态，请更新服务与桌面客户端");
+      for (const [source, activity] of Object.entries(event.activities)) {
+        if (
+          !activity ||
+          activity.source !== source ||
+          !["chat", "proactive"].includes(source) ||
+          activity.session_id !== event.session_id ||
+          typeof activity.turn_id !== "string" ||
+          ![
+            "thinking",
+            "working",
+            "remembering",
+            "answering",
+            "waiting",
+            "completed",
+            "failed",
+            "interrupted",
+          ].includes(activity.phase)
+        )
+          throw new Error("ReMe 活动状态无效");
+      }
+    }
     if (event.type === "reset") {
       this.cursor = undefined;
       this.waitingForSnapshot = true;
@@ -107,13 +139,17 @@ export class SessionModel {
       }
       this.status = event.status ?? event.snapshot?.state.status ?? null;
       this.waitingForSnapshot = false;
+      this.activities = event.activities;
     } else {
       if (this.waitingForSnapshot) return event;
       if (event.type === "session_changed")
         this.select(event.session_id ?? null);
       else if (event.session_id !== this.sessionId)
         throw new Error("ReMe 事件与当前会话不一致，需要重新同步");
-      if (event.type === "status_changed") this.status = event.status ?? null;
+      if (event.type === "status_changed") {
+        this.status = event.status ?? null;
+        this.activities = event.activities;
+      }
       if (event.type === "message_upsert") {
         const replacement = message(event.message!);
         const index = this.messages.findIndex(

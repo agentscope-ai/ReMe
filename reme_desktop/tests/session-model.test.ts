@@ -33,6 +33,7 @@ test("replayed upserts replace by ID and never concatenate complete snapshots", 
   const model = new SessionModel();
   model.apply({
     type: "snapshot",
+    activities: {},
     cursor: "epoch:1",
     snapshot: snapshot("s", [message("a", "原文")]),
   });
@@ -60,12 +61,18 @@ test("reset and error snapshots preserve history until a successful replacement"
   const model = new SessionModel();
   model.apply({
     type: "snapshot",
+    activities: {},
     cursor: "old:1",
     snapshot: snapshot("s", [message("a")]),
   });
   model.apply({ type: "reset", reason: "cursor_expired" });
   assert.equal(model.cursor, undefined);
-  model.apply({ type: "snapshot", session_id: "s", error: "upstream offline" });
+  model.apply({
+    type: "snapshot",
+    activities: {},
+    session_id: "s",
+    error: "upstream offline",
+  });
   model.apply({
     type: "message_upsert",
     session_id: "s",
@@ -79,6 +86,7 @@ test("reset and error snapshots preserve history until a successful replacement"
   assert.equal(model.cursor, undefined);
   model.apply({
     type: "snapshot",
+    activities: {},
     cursor: "new:4",
     snapshot: snapshot("s", [message("a"), message("missed")]),
   });
@@ -91,6 +99,7 @@ test("session switches discard previous history and malformed upserts cannot adv
   const model = new SessionModel();
   model.apply({
     type: "snapshot",
+    activities: {},
     cursor: "e:1",
     snapshot: snapshot("old", [message("old")]),
   });
@@ -108,6 +117,7 @@ test("session switches discard previous history and malformed upserts cannot adv
   assert.throws(() =>
     model.apply({
       type: "status_changed",
+      activities: {},
       session_id: "old",
       cursor: "e:4",
       status: "idle",
@@ -151,6 +161,7 @@ test("invalid snapshots and statuses leave accepted history and cursor intact", 
   const model = new SessionModel();
   model.apply({
     type: "snapshot",
+    activities: {},
     cursor: "accepted:1",
     snapshot: snapshot("s", [message("a")]),
   });
@@ -167,7 +178,12 @@ test("invalid snapshots and statuses leave accepted history and cursor intact", 
     snapshot("different", [message("duplicate"), message("duplicate")]),
   ]) {
     assert.throws(() =>
-      model.apply({ type: "snapshot", cursor: "invalid:2", snapshot: bad }),
+      model.apply({
+        type: "snapshot",
+        activities: {},
+        cursor: "invalid:2",
+        snapshot: bad,
+      }),
     );
     assert.equal(model.sessionId, "s");
     assert.equal(model.cursor, "accepted:1");
@@ -179,6 +195,7 @@ test("invalid snapshots and statuses leave accepted history and cursor intact", 
   assert.throws(() =>
     model.apply({
       type: "status_changed",
+      activities: {},
       session_id: "s",
       cursor: "invalid:3",
       status: "unknown",
@@ -186,4 +203,43 @@ test("invalid snapshots and statuses leave accepted history and cursor intact", 
   );
   assert.equal(model.status, "idle");
   assert.equal(model.cursor, "accepted:1");
+});
+
+test("activity updates are scoped to the selected session and require the new contract", () => {
+  const model = new SessionModel();
+  const activity = {
+    session_id: "s",
+    turn_id: "t",
+    source: "chat",
+    phase: "answering",
+  };
+  model.apply({
+    type: "snapshot",
+    session_id: "s",
+    snapshot: snapshot("s"),
+    activities: { chat: activity },
+    cursor: "e:1",
+  });
+  assert.equal(model.activities.chat?.phase, "answering");
+  for (const activities of [
+    undefined,
+    [],
+    { chat: { ...activity, session_id: "other" } },
+    { chat: { ...activity, source: "proactive" } },
+    { chat: { ...activity, phase: "unknown" } },
+  ]) {
+    assert.throws(() =>
+      model.apply({
+        type: "status_changed",
+        session_id: "s",
+        activities,
+        status: "active",
+        cursor: "e:2",
+      }),
+    );
+    assert.equal(model.cursor, "e:1");
+    assert.equal(model.activities.chat?.phase, "answering");
+  }
+  model.apply({ type: "session_changed", session_id: "new", cursor: "e:3" });
+  assert.deepEqual(model.activities, {});
 });

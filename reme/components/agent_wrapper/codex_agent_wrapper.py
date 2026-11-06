@@ -18,7 +18,8 @@ from ..codex_app_server import CodexAppServer
 from ..component_registry import R
 from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...utils.agent_activity import reduce_activity
+from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 
 if TYPE_CHECKING:
@@ -486,46 +487,68 @@ class CodexAgentWrapper(BaseAgentWrapper):
         """Execute once, retaining every notification and a complete terminal outcome."""
         kwargs = self._reply_kwargs(kwargs)
         emitted_usage = None
-        async with self._session(kwargs) as thread:
-            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
-            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
-            stream = self._turn_stream(turn, usage)
-            items, native_usage, completed, terminal = [], None, None, None
-            try:
-                async for event in stream:
-                    payload = event.payload
-                    if event.method == "item/completed" and payload.turn_id == turn.id:
-                        items.append(payload.item)
-                    elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
-                        native_usage = payload.token_usage
-                    elif event.method == "turn/completed" and payload.turn.id == turn.id:
-                        completed = payload.turn
-                    update = usage.usage if usage.usage != emitted_usage else None
-                    chunks = self._event_to_chunks(event, thread.id, usage=update)
-                    if event.method == "thread/tokenUsage/updated":
-                        emitted_usage = usage.usage
-                    if not chunks:
-                        chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
-                    for chunk in chunks:
-                        chunk.metadata.pop("native", None)
-                    chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
-                    for chunk in chunks:
-                        chunk.session_id = thread.id
-                        chunk.turn_id = chunk.turn_id or turn.id
-                        if chunk.chunk_type == ChunkEnum.REPLY_END:
-                            terminal = chunk
-                        else:
-                            yield chunk
-                if completed is None or terminal is None:
-                    raise RuntimeError("Codex turn completed event not received")
-                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, kwargs)
-            finally:
-                if usage.usage is not None:
-                    self._record_token_usage(usage.usage)
-                if completed is None:
-                    await self._interrupt(turn)
-                await stream.aclose()
-        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
-        terminal.status = result["status"]
-        terminal.metadata["error"] = result["error"]
-        yield terminal
+        source = kwargs.pop("activity_source", "chat")
+        target_session = kwargs.pop("activity_session_id", None)
+        activity = None
+        try:
+            async with self._session(kwargs) as thread:
+                usage = _TurnUsage(await self.app_server.token_usage(thread.id))
+                turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
+                activity = AgentActivity(
+                    session_id=target_session or thread.id,
+                    turn_id=turn.id,
+                    source=source,
+                    phase="thinking",
+                )
+                self.app_server.publish_activity(activity)
+                stream = self._turn_stream(turn, usage)
+                items, native_usage, completed, terminal = [], None, None, None
+                try:
+                    async for event in stream:
+                        payload = event.payload
+                        if event.method == "item/completed" and payload.turn_id == turn.id:
+                            items.append(payload.item)
+                        elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
+                            native_usage = payload.token_usage
+                        elif event.method == "turn/completed" and payload.turn.id == turn.id:
+                            completed = payload.turn
+                        update = usage.usage if usage.usage != emitted_usage else None
+                        chunks = self._event_to_chunks(event, thread.id, usage=update)
+                        if event.method == "thread/tokenUsage/updated":
+                            emitted_usage = usage.usage
+                        if not chunks:
+                            chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
+                        for chunk in chunks:
+                            chunk.metadata.pop("native", None)
+                        chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
+                        for chunk in chunks:
+                            chunk.session_id = thread.id
+                            chunk.turn_id = chunk.turn_id or turn.id
+                            if chunk.chunk_type == ChunkEnum.REPLY_END:
+                                terminal = chunk
+                            else:
+                                updated = reduce_activity(activity, chunk)
+                                if updated != activity:
+                                    activity = updated
+                                    self.app_server.publish_activity(activity)
+                                yield chunk
+                    if completed is None or terminal is None:
+                        raise RuntimeError("Codex turn completed event not received")
+                    result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, kwargs)
+                finally:
+                    if usage.usage is not None:
+                        self._record_token_usage(usage.usage)
+                    if completed is None:
+                        await self._interrupt(turn)
+                    await stream.aclose()
+            terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+            terminal.status = result["status"]
+            terminal.metadata["error"] = result["error"]
+            activity = reduce_activity(activity, terminal)
+            self.app_server.publish_activity(activity)
+            yield terminal
+        except BaseException as exc:
+            if activity is not None and activity.phase not in {"completed", "failed", "interrupted"}:
+                phase = "interrupted" if isinstance(exc, (asyncio.CancelledError, GeneratorExit)) else "failed"
+                self.app_server.publish_activity(activity.model_copy(update={"phase": phase, "tool": None}))
+            raise

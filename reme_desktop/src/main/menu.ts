@@ -38,7 +38,7 @@ export function desktopMenu(
       submenu: manifest.animations.map((clip) => ({
         id: `animation:${clip.id}`,
         label: clip.label,
-        click: () => windows.command({ type: "animation.play", id: clip.id }),
+        click: () => controller.preview(clip.id),
       })),
     },
     {

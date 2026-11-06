@@ -106,13 +106,14 @@ for (const animation of metadataOnly ? [] : animations) {
 const manifest = {
   name: "Remy",
   version: config.version,
+  ambient: config.ambient,
   canvas: config.canvas,
   output_fps: config.fps,
   animations: config.animations.map((item) => ({
     id: item.id,
     label: item.label,
-    loop: item.loop,
     ticks: item.ticks,
+    ...(item.segments ? { segments: item.segments } : {}),
     frame_files: item.ticks.map((_, index) => {
       const file =
         "frames/" + item.id + "/" + String(index).padStart(2, "0") + ".png";

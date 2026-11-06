@@ -5,7 +5,8 @@ and shows incoming proactive messages in a small bubble. Memory and conversation
 
 ## Run from source
 
-Requires Node.js 22.13+ and a ReMe checkout with `pa_events` support. In one terminal, start the backend with an explicit
+Requires Node.js 22.13+ and a ReMe checkout with `pa_events.activities` support. Update the service and desktop together.
+In one terminal, start the backend with an explicit
 workspace outside this repository:
 
 ```bash
@@ -46,6 +47,25 @@ The main process owns HTTP/SSE, reconnection, the opaque subscription cursor, an
 `snapshot`, `reset`, `session_changed`, `message_upsert`, and `status_changed` follow the existing ReMe contract. Cursors
 are kept with their in-memory snapshot, not restored alone after restarting the client. Interrupted replies are never
 automatically resent. The renderer accesses desktop operations through a restricted, sandboxed preload bridge.
+
+## Agent activity and animation
+
+The service reduces portable agent events into `thinking`, `working`, `remembering`, `answering`, `waiting`, and terminal
+phases. Subscription snapshots and `status_changed` carry `activities`, with independent `chat` and `proactive` entries.
+Each entry identifies its selected PA session, native turn, source, phase, and optional tool. The desktop follows these
+events for every client sharing that PA session, including conversations started in Studio. Activity is transient;
+conversation files remain the source of truth.
+
+`src/main/behavior.ts` owns animation priority: dragging, foreground work, visible reminders, completion/error feedback,
+manual previews, attentive listening, background work, then ambient gestures or sleep. Working uses the existing thinking
+clip; answering uses speaking. Foreground work interrupts previews, and dragging restores the latest activity when released.
+Repeated text deltas do not restart an animation. Short thinking/recall transitions are smoothed over 350 ms.
+
+Reminders raise the note, hold it while their bubble is visible, and lower it when the bubble closes. A playback ID rejects
+stale completion callbacks. The renderer only plays the chosen clip or segment in `once`, `loop`, or `hold` mode.
+Neutral idle/listening gestures vary every 15–45 seconds; semantic actions such as thinking and reminding are event-driven.
+After five minutes without interaction Remy sleeps. Quiet mode suppresses ambient/background gestures and bubbles while
+foreground interaction remains available. No model calls are made to choose ambient actions.
 
 ## Files and assets
 

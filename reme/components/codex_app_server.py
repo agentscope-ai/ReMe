@@ -20,7 +20,7 @@ from ..constants import normalize_connect_host
 from ..enumeration import ComponentEnum
 from ..utils.async_utils import finish_cleanup
 from ..utils.async_utils import complete_in_thread
-from ..schema import SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
+from ..schema import AgentActivity, SessionMessage, SessionSnapshot, SessionStatus, TokenUsage
 
 if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
@@ -89,13 +89,13 @@ class CodexAppServer(BaseComponent):
         self.jobs_mcp = ScopedMCP()
         self._session_listeners: dict[
             str,
-            set[Callable[[SessionMessage | SessionSnapshot | SessionStatus | None], None]],
+            set[Callable[[AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None], None]],
         ] = {}
 
     def watch_session(
         self,
         session_id: str,
-        listener: Callable[[SessionMessage | SessionSnapshot | SessionStatus | None], None],
+        listener: Callable[[AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None], None],
     ) -> Callable[[], None]:
         """Observe one conversation on this event loop; None invalidates cached state."""
         self._message_path(session_id)
@@ -113,7 +113,7 @@ class CodexAppServer(BaseComponent):
     def _notify_session(
         self,
         session_id: str | None,
-        change: SessionMessage | SessionSnapshot | SessionStatus | None,
+        change: AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None,
     ) -> None:
         listeners = (
             set(self._session_listeners.get(session_id, ()))
@@ -125,6 +125,10 @@ class CodexAppServer(BaseComponent):
                 listener(change)
             except Exception as exc:
                 self.logger.warning(f"Session listener failed: {exc}")
+
+    def publish_activity(self, activity: AgentActivity) -> None:
+        """Publish a phase without coupling model execution to desktop observers."""
+        self._notify_session(activity.session_id, activity)
 
     async def _publish_history(self, session_id: str) -> None:
         """Confirm visible history after a turn, without coupling observers to its outcome."""

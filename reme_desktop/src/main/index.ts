@@ -93,10 +93,14 @@ else {
         storage.settings.endpoint = normalizeEndpoint(
           process.env.REME_DESKTOP_API_URL,
         );
-      controller = new DesktopController(storage, (state) => {
-        windows?.update(state);
-        refreshTray();
-      });
+      controller = new DesktopController(
+        storage,
+        (state) => {
+          windows?.update(state);
+          refreshTray();
+        },
+        assets.manifest,
+      );
       windows = new DesktopWindows(
         storage,
         {
@@ -104,6 +108,7 @@ else {
           renderer: path.join(here, "../renderer/index.html"),
         },
         (visible) => controller!.setChatVisible(visible),
+        (focused) => controller!.setChatFocused(focused),
       );
 
       const trusted = (
@@ -128,12 +133,27 @@ else {
         if (!action || typeof action.type !== "string")
           throw new Error("无效的桌面操作");
         switch (action.type) {
+          case "animation.ended":
+            if (
+              event.sender.id === windows!.companion.webContents.id &&
+              Number.isSafeInteger(action.id)
+            )
+              controller!.animationEnded(action.id);
+            return;
+          case "interaction":
+            controller!.interact();
+            return;
           case "companion.menu":
             if (event.sender.id !== windows!.companion.webContents.id)
               throw new Error("请从角色打开菜单");
             openMenu();
             return;
           case "chat.open":
+            if (
+              event.sender.id === windows!.companion.webContents.id &&
+              !action.messageId
+            )
+              controller!.preview("happy");
             windows!.openChat();
             controller!.setChatVisible(true, action.messageId);
             return;
@@ -205,8 +225,10 @@ else {
         if (
           event.sender.id === windows!.companion.webContents.id &&
           ["start", "move", "end"].includes(phase)
-        )
+        ) {
           windows!.drag(phase);
+          controller!.drag(phase);
+        }
       });
 
       const characterIcon = nativeImage.createFromPath(

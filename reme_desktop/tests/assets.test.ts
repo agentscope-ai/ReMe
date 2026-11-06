@@ -16,12 +16,13 @@ test("runtime frames match the source timing and shared transparent canvas", asy
   assert.equal(manifest.animations.length, 10);
   assert.equal(files.size, 80);
   assert.equal(manifest.output_fps, timeline.fps);
+  assert.deepEqual(manifest.ambient, timeline.ambient);
   for (const clip of manifest.animations) {
     const source = timeline.animations.find(
       (entry: { id: string }) => entry.id === clip.id,
     );
     assert.deepEqual(clip.ticks, source.ticks);
-    assert.equal(clip.loop, source.loop);
+    assert.deepEqual(clip.segments, source.segments);
     assert.equal(clip.frame_files.length, 8);
   }
   for (const file of files.values()) {

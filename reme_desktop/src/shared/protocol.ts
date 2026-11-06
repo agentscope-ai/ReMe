@@ -1,5 +1,37 @@
 export type SessionStatus = "active" | "idle" | "not_loaded" | "error";
 
+export interface AgentActivity {
+  session_id: string;
+  turn_id: string;
+  source: "chat" | "proactive";
+  phase:
+    | "thinking"
+    | "working"
+    | "remembering"
+    | "answering"
+    | "waiting"
+    | "completed"
+    | "failed"
+    | "interrupted";
+  tool?: string | null;
+}
+
+export type Activities = Partial<
+  Record<AgentActivity["source"], AgentActivity>
+>;
+
+export interface AnimationIntent {
+  id: number;
+  clip: string;
+  mode: "once" | "loop" | "hold";
+  segment?: "enter" | "hold" | "exit";
+}
+
+export interface Behavior {
+  animation: AnimationIntent;
+  label: string;
+}
+
 export interface StreamChunk {
   chunk_type: string;
   event?: "start" | "delta" | "end";
@@ -41,6 +73,7 @@ export interface PaEvent {
   cursor?: string;
   session_id?: string | null;
   status?: SessionStatus | null;
+  activities: Activities;
   message?: SessionMessage;
   snapshot?: SessionSnapshot;
   reason?: string;
@@ -94,19 +127,22 @@ export interface DesktopState {
   bubble: Bubble | null;
   unread: number;
   chatVisible: boolean;
+  chatFocused: boolean;
   focusMessageId: string | null;
+  behavior: Behavior;
 }
 
 export interface AnimationClip {
   id: string;
   label: string;
-  loop: boolean;
   ticks: number[];
   frame_files: string[];
-  render_scale?: number;
+  segments?: Record<"enter" | "hold" | "exit", number[]>;
 }
 
 export interface AnimationManifest {
+  version: 2;
+  ambient: string[];
   canvas: [number, number];
   output_fps: number;
   animations: AnimationClip[];
@@ -130,6 +166,8 @@ export interface Bootstrap {
 }
 
 export type DesktopAction =
+  | { type: "animation.ended"; id: number }
+  | { type: "interaction" }
   | { type: "companion.menu" }
   | { type: "chat.open"; messageId?: string }
   | { type: "chat.close" }
@@ -148,8 +186,7 @@ export type DesktopAction =
     }
   | { type: "link.open"; url: string };
 
-export type DesktopCommand =
-  { type: "animation.play"; id: string } | { type: "settings.open" };
+export type DesktopCommand = { type: "settings.open" };
 
 export interface DesktopApi {
   bootstrap(): Promise<Bootstrap>;

@@ -29,6 +29,7 @@ export class DesktopWindows {
     readonly storage: Storage,
     private readonly paths: { preload: string; renderer: string },
     private readonly onVisibility: (visible: boolean) => void,
+    onFocus: (focused: boolean) => void,
   ) {
     const area = screen.getPrimaryDisplay().workArea;
     this.anchor = storage.settings.anchor ?? {
@@ -94,6 +95,8 @@ export class DesktopWindows {
     this.companion.once("ready-to-show", () => this.companion.showInactive());
     this.chat.on("show", () => this.onVisibility(true));
     this.chat.on("hide", () => this.onVisibility(false));
+    this.chat.on("focus", () => onFocus(true));
+    this.chat.on("blur", () => onFocus(false));
     screen.on("display-removed", this.reposition);
     screen.on("display-metrics-changed", this.reposition);
   }

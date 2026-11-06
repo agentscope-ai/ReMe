@@ -7,15 +7,16 @@ export async function mockReMe() {
   let sessionId = "session-1";
   let messages = [];
   let status = "idle";
+  let activities = {};
   let turn = 0;
   const frame = (response, chunk) =>
     response.write(`data: ${JSON.stringify(chunk)}\n\n`);
   const emit = (event) => {
-    const value = {
+    const value = structuredClone({
       ...event,
       session_id: sessionId,
       cursor: `test-epoch:${events.length + 1}`,
-    };
+    });
     events.push(value);
     for (const socket of sockets)
       frame(socket, { chunk_type: "data", chunk: value });
@@ -91,9 +92,10 @@ export async function mockReMe() {
     if (job === "/pa_new_session") {
       sessionId = `session-${Number(sessionId.split("-").at(-1)) + 1}`;
       messages = [];
+      activities = {};
       status = "idle";
       emit({ type: "session_changed" });
-      emit({ type: "status_changed", status });
+      emit({ type: "status_changed", status, activities });
       return json(sessionId);
     }
     if (job === "/pa_events") {
@@ -119,6 +121,7 @@ export async function mockReMe() {
               type: "snapshot",
               session_id: sessionId,
               status,
+              activities,
               snapshot: snapshot(),
               cursor: `test-epoch:${events.length}`,
             },
@@ -131,6 +134,7 @@ export async function mockReMe() {
             type: "snapshot",
             session_id: sessionId,
             status,
+            activities,
             snapshot: snapshot(),
             cursor: `test-epoch:${events.length}`,
           },
@@ -152,7 +156,16 @@ export async function mockReMe() {
     if (job === "/pa_chat") {
       const turnId = `turn-${++turn}`;
       status = "active";
-      emit({ type: "status_changed", status });
+      activities = {
+        chat: {
+          session_id: sessionId,
+          turn_id: turnId,
+          source: "chat",
+          phase: "answering",
+          tool: null,
+        },
+      };
+      emit({ type: "status_changed", status, activities });
       const user = {
         id: `user-${turn}`,
         role: "user",
@@ -185,7 +198,8 @@ export async function mockReMe() {
             chunks: [],
           });
           status = "idle";
-          emit({ type: "status_changed", status });
+          activities.chat = { ...activities.chat, phase: "interrupted" };
+          emit({ type: "status_changed", status, activities });
         });
         return;
       }
@@ -214,7 +228,8 @@ export async function mockReMe() {
         send({ chunk_type: "done", done: true, chunk: "" });
         response.end();
         status = "idle";
-        emit({ type: "status_changed", status });
+        activities.chat = { ...activities.chat, phase: "completed" };
+        emit({ type: "status_changed", status, activities });
       }, 300);
       return;
     }
@@ -226,6 +241,23 @@ export async function mockReMe() {
     url: `http://127.0.0.1:${server.address().port}`,
     push,
     cursors,
+    activity(phase, source = "chat", turnId = "remote-turn") {
+      activities = {
+        ...activities,
+        [source]: {
+          session_id: sessionId,
+          turn_id: turnId,
+          source,
+          phase,
+          tool: null,
+        },
+      };
+      if (source === "chat")
+        status = ["completed", "failed", "interrupted"].includes(phase)
+          ? "idle"
+          : "active";
+      emit({ type: "status_changed", status, activities });
+    },
     disconnect() {
       for (const socket of sockets) socket.destroy();
       sockets.clear();

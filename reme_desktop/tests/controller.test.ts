@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DesktopController } from "../src/main/controller.ts";
 import { Storage } from "../src/main/storage.ts";
+import type { AnimationManifest } from "../src/shared/protocol.ts";
 import { mockReMe } from "./e2e/mock-reme.mjs";
+const manifest = JSON.parse(
+  await readFile(
+    new URL(
+      "../../assets/remy/anime/animations/v1/manifest.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+) as AnimationManifest;
 
 async function until(check: () => boolean, label: string): Promise<void> {
   const deadline = Date.now() + 8_000;
@@ -25,7 +35,7 @@ test("failed settings writes preserve the active endpoint", async () => {
   storage.flush = async () => {
     throw new Error("read-only settings");
   };
-  const controller = new DesktopController(storage, () => {});
+  const controller = new DesktopController(storage, () => {}, manifest);
   try {
     await assert.rejects(
       controller.settings({ endpoint: "http://127.0.0.1:9876" }),
@@ -55,9 +65,13 @@ test("closing waits for settings persistence without starting a new connection",
     }
   };
   let publications = 0;
-  const controller = new DesktopController(storage, () => {
-    publications++;
-  });
+  const controller = new DesktopController(
+    storage,
+    () => {
+      publications++;
+    },
+    manifest,
+  );
   try {
     const changing = controller.settings({ endpoint: "http://127.0.0.1:9876" });
     await until(() => writing, "pending settings write");
@@ -86,9 +100,13 @@ test(
     await storage.load();
     storage.settings.endpoint = backend.url;
     let publications = 0;
-    const controller = new DesktopController(storage, () => {
-      publications++;
-    });
+    const controller = new DesktopController(
+      storage,
+      () => {
+        publications++;
+      },
+      manifest,
+    );
     controller.start();
     try {
       await until(
@@ -185,7 +203,7 @@ test(
     const storage = new Storage(directory);
     await storage.load();
     storage.settings.endpoint = backend.url;
-    const controller = new DesktopController(storage, () => {});
+    const controller = new DesktopController(storage, () => {}, manifest);
     controller.start();
     try {
       await until(() => controller.state.connection === "connected", "connect");

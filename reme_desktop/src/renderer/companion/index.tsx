@@ -7,83 +7,18 @@ import { action } from "../desktop.ts";
 export default function Companion({ state, manifest, layout }: Bootstrap) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const [reminding, setReminding] = useState(false);
-  const [sleeping, setSleeping] = useState(false);
   const [error, setError] = useState("");
-  const [preview, setPreview] = useState<{ id: string; serial: number } | null>(
-    null,
-  );
-  const serial = useRef(0);
-  const quiet = state.settings.quietUntil > Date.now();
+  const animation = state.behavior.animation;
+  const dragging = animation.clip === "dragged";
   const run = (value: Parameters<typeof action>[0]) => {
     void action(value).catch((error: unknown) => setError(String(error)));
   };
 
-  const play = (id: string) => {
-    setSleeping(false);
-    setPreview({ id, serial: ++serial.current });
-  };
-  const openChat = () => {
-    play("happy");
-    run({ type: "chat.open" });
-  };
+  const openChat = () => run({ type: "chat.open" });
   const cancelDrag = () => {
     if (gesture.current) window.desktop.drag("end");
     gesture.current = null;
-    setDragging(false);
   };
-
-  useEffect(
-    () =>
-      window.desktop.onCommand((command) => {
-        if (
-          command.type === "animation.play" &&
-          manifest.animations.some((clip) => clip.id === command.id)
-        )
-          play(command.id);
-      }),
-    [manifest],
-  );
-  useEffect(() => {
-    if (!preview) return;
-    const timer = setTimeout(() => setPreview(null), 8_000);
-    return () => clearTimeout(timer);
-  }, [preview]);
-  useEffect(() => {
-    if (
-      dragging ||
-      state.pending?.streaming ||
-      state.status === "active" ||
-      state.bubble
-    )
-      setPreview(null);
-  }, [dragging, state.pending?.streaming, state.status, state.bubble?.id]);
-
-  useEffect(() => {
-    if (state.bubble) setReminding(true);
-  }, [state.bubble?.id]);
-  useEffect(() => {
-    setSleeping(false);
-    if (
-      !state.chatVisible &&
-      !dragging &&
-      !preview &&
-      !state.pending?.streaming &&
-      state.status !== "active" &&
-      !state.bubble
-    ) {
-      const timer = setTimeout(() => setSleeping(true), 5 * 60_000);
-      return () => clearTimeout(timer);
-    }
-  }, [
-    state.chatVisible,
-    state.pending?.streaming,
-    state.status,
-    state.bubble?.id,
-    dragging,
-    preview?.serial,
-  ]);
 
   useEffect(() => {
     let last = false;
@@ -112,24 +47,6 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       document.removeEventListener("pointerout", leave);
     };
   }, []);
-
-  const animation = dragging
-    ? "dragged"
-    : state.pending?.streaming
-      ? state.pending.text
-        ? "speaking"
-        : "thinking"
-      : state.status === "active"
-        ? "thinking"
-        : state.bubble && reminding
-          ? "reminding"
-          : preview
-            ? preview.id
-            : sleeping || quiet
-              ? "sleeping"
-              : state.chatVisible
-                ? "listening"
-                : "idle";
 
   return (
     <main className="companion" aria-label="Remy 桌面助手">
@@ -190,7 +107,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         </section>
       )}
       <button
-        className={`character ${dragging ? "dragging" : ""} ${preview?.id === "happy" ? "reacting" : ""}`}
+        className={`character ${dragging ? "dragging" : ""} ${animation.clip === "happy" ? "reacting" : ""}`}
         aria-label="和 Remy 聊聊，按住拖动可移动角色"
         title="左键开聊 · 按住拖动 · 右键菜单"
         style={{
@@ -223,7 +140,6 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           };
           event.currentTarget.setPointerCapture(event.pointerId);
           window.desktop.drag("start");
-          setSleeping(false);
         }}
         onPointerMove={(event) => {
           const start = gesture.current;
@@ -231,7 +147,6 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           if (Math.hypot(event.screenX - start.x, event.screenY - start.y) > 6)
             start.moved = true;
           if (start.moved) {
-            setDragging(true);
             window.desktop.drag("move");
           }
         }}
@@ -241,7 +156,6 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           if (!start) return;
           window.desktop.drag("end");
           gesture.current = null;
-          setDragging(false);
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
           if (!start.moved) openChat();
@@ -253,11 +167,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           manifest={manifest}
           animation={animation}
           canvasRef={canvas}
-          playbackKey={preview?.serial}
-          onEnded={() => {
-            if (preview) setPreview(null);
-            else setReminding(false);
-          }}
+          onEnded={(id) => run({ type: "animation.ended", id })}
         />
       </button>
       <div

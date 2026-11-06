@@ -135,9 +135,7 @@ export default function Chat({ state }: { state: DesktopState }) {
           <span>
             {state.connection !== "connected"
               ? "等待连接 ReMe"
-              : busy
-                ? "正在认真想…"
-                : "你的记忆，在这里"}
+              : state.behavior.label}
           </span>
         </div>
         <nav aria-label="对话操作">
@@ -331,11 +329,13 @@ export default function Chat({ state }: { state: DesktopState }) {
             ref={input}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onPointerDown={() => void action({ type: "interaction" })}
             placeholder={busy ? "可以先写下，等我说完…" : "和 Remy 说点什么…"}
             aria-label="消息"
             rows={2}
             maxLength={100000}
             onKeyDown={(event) => {
+              void action({ type: "interaction" });
               if (
                 event.key === "Enter" &&
                 !event.shiftKey &&

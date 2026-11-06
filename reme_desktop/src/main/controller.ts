@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { BubbleQueue } from "./bubbles.ts";
+import { BehaviorController } from "./behavior.ts";
 import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
 import { normalizeEndpoint, Storage } from "./storage.ts";
@@ -11,6 +12,7 @@ import type {
   Receipt,
   SessionMessage,
   SessionSnapshot,
+  AnimationManifest,
 } from "../shared/protocol.ts";
 
 const detail = (error: unknown) =>
@@ -20,6 +22,7 @@ export class DesktopController {
   readonly model = new SessionModel();
   readonly bubbles: BubbleQueue;
   readonly state: DesktopState;
+  private readonly behavior: BehaviorController;
   private scope = "";
   private lifecycle: AbortController | null = null;
   private stream: AbortController | null = null;
@@ -31,11 +34,14 @@ export class DesktopController {
   private endpoint: string;
   private settingsWrites: Promise<void> = Promise.resolve();
   private closed = false;
+  private flushedAt = 0;
 
   constructor(
     readonly storage: Storage,
     private readonly publish: (state: DesktopState) => void,
+    manifest: AnimationManifest,
   ) {
+    this.behavior = new BehaviorController(manifest);
     this.endpoint = storage.settings.endpoint;
     this.state = {
       connection: "connecting",
@@ -49,7 +55,9 @@ export class DesktopController {
       bubble: null,
       unread: 0,
       chatVisible: false,
+      chatFocused: false,
       focusMessageId: null,
+      behavior: this.behavior.value,
     };
     this.bubbles = new BubbleQueue(
       (id) => {
@@ -75,11 +83,13 @@ export class DesktopController {
     this.restart();
     this.clock = setInterval(() => {
       this.tick();
+      if (Date.now() - this.flushedAt < 1000) return;
+      this.flushedAt = Date.now();
       void this.storage.flush().catch((error) => {
         this.state.connectionError = `保存桌面设置失败：${detail(error)}`;
         this.emit();
       });
-    }, 1_000);
+    }, 100);
   }
 
   private restart(): void {
@@ -89,6 +99,7 @@ export class DesktopController {
     this.endpoint = this.storage.settings.endpoint;
     this.ready = false;
     this.model.clear();
+    this.behavior.reset();
     this.bubbles.clear();
     this.state.pending = null;
     this.state.workspace = "";
@@ -186,9 +197,15 @@ export class DesktopController {
             )
               return;
             if (previous !== this.model.sessionId) {
+              this.behavior.reset();
               this.bubbles.clear();
               this.state.focusMessageId = null;
             }
+            if (event.type === "snapshot" || event.type === "status_changed")
+              this.behavior.observe(
+                this.model.activities,
+                event.type !== "snapshot",
+              );
             this.ready = !this.model.waitingForSnapshot;
             this.state.connection = this.ready ? "connected" : "reconnecting";
             this.state.connectionError = event.error ?? "";
@@ -284,12 +301,23 @@ export class DesktopController {
       this.state.chatVisible ||
         !this.companionVisible ||
         Boolean(this.state.pending?.streaming) ||
+        this.behavior.foregroundActive ||
         this.model.status === "active" ||
         this.storage.settings.quietUntil > now ||
         !this.ready,
     );
     this.state.bubble = bubble;
-    if (before !== bubble || settingsChanged) this.emit();
+    const previous = this.state.behavior;
+    this.state.behavior = this.behavior.resolve(
+      this.state,
+      this.companionVisible,
+    );
+    if (
+      before !== bubble ||
+      settingsChanged ||
+      previous !== this.state.behavior
+    )
+      this.emit();
   }
 
   private emit(): void {
@@ -304,14 +332,44 @@ export class DesktopController {
         receipts[message.id]?.read === false,
     ).length;
     this.state.settings = { ...this.storage.settings };
+    this.state.behavior = this.behavior.resolve(
+      this.state,
+      this.companionVisible,
+    );
     this.publish(this.state);
   }
 
   setChatVisible(visible: boolean, messageId?: string): void {
     this.state.chatVisible = visible;
+    if (!visible) this.state.chatFocused = false;
     this.state.focusMessageId = messageId ?? null;
     this.tick();
     this.emit();
+  }
+
+  setChatFocused(focused: boolean): void {
+    this.state.chatFocused = focused;
+    if (focused) this.behavior.touch();
+    this.tick();
+    this.emit();
+  }
+
+  interact(): void {
+    this.behavior.touch();
+    this.tick();
+  }
+  drag(phase: "start" | "move" | "end"): void {
+    this.behavior.dragging = phase === "move";
+    this.behavior.touch();
+    this.tick();
+  }
+  preview(clip: string): void {
+    this.behavior.play(clip);
+    this.tick();
+  }
+  animationEnded(id: number): void {
+    this.behavior.ended(id);
+    this.tick();
   }
 
   setCompanionVisible(visible: boolean): void {
