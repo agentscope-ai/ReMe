@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import partial
 import json
 import os
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
@@ -147,7 +148,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         return options
 
     @asynccontextmanager
-    async def _session(self, kwargs: dict[str, Any], *, compact: bool = False) -> AsyncIterator[AsyncThread]:
+    async def _session(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        compact: bool = False,
+        keep_empty: bool = False,
+    ) -> AsyncIterator[AsyncThread]:
         resume, session_id = kwargs.get("resume") or "", kwargs.get("session_id") or ""
         if resume and session_id and resume != session_id:
             raise ValueError("resume and session_id must identify the same Codex thread")
@@ -173,6 +180,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 injected=self._resolve_injected_job_kwargs(kwargs),
                 mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
                 mcp_tool_timeout=kwargs.get("mcp_tool_timeout", 300),
+                keep_empty=keep_empty,
             ) as thread:
                 yield thread
         finally:
@@ -256,10 +264,24 @@ class CodexAgentWrapper(BaseAgentWrapper):
             raw=self._serialize(result),
         )
 
+    async def create_session(self, **kwargs) -> str:
+        """Start an empty thread with the same instructions and tools as its future turns."""
+        async with self._session(self._reply_kwargs(kwargs), keep_empty=True) as thread:
+            return thread.id
+
+    async def release_session(self, session_id: str) -> None:
+        """Release a superseded empty thread; regular turns already release their leases."""
+        await self.app_server.release_session(session_id)
+
     async def compact_session(self, session_id: str) -> None:
         """Hold the conversation lock until native compaction has finished."""
         async with self._session({"session_id": session_id}, compact=True) as thread:
             await self.app_server.compact(thread)
+
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Locate the native session file without loading its history or waiting for a turn."""
+        await self.start()
+        return await self.app_server.get_session_path(session_id)
 
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
@@ -278,10 +300,17 @@ class CodexAgentWrapper(BaseAgentWrapper):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
         """Append a proactive message through the shared session owner."""
         await self.start()
-        return await self.app_server.append_session(session_id, content, message_id=message_id, timeout=timeout)
+        return await self.app_server.append_session(
+            session_id,
+            content,
+            message_id=message_id,
+            timeout=timeout,
+            expected_turn_id=expected_turn_id,
+        )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox

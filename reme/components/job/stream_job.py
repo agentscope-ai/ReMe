@@ -10,6 +10,12 @@ from ...enumeration import ChunkEnum
 class StreamJob(BaseJob):
     """Job that streams chunks to a queue instead of returning a Response."""
 
+    def __init__(self, *args, stream_queue_size: int = 0, **kwargs):
+        super().__init__(*args, **kwargs)
+        if isinstance(stream_queue_size, bool) or not isinstance(stream_queue_size, int) or stream_queue_size < 0:
+            raise ValueError("stream_queue_size must be a nonnegative integer")
+        self.stream_queue_size = stream_queue_size
+
     async def __call__(self, **kwargs) -> None:
         """Run steps; emit failures as ERROR chunks, then a terminal DONE marker."""
         merged = {**self.kwargs, **kwargs}

@@ -38,6 +38,7 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
+from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep
 from reme.utils import global_counter_get_all
 
 
@@ -270,6 +271,28 @@ async def system(tmp_path, monkeypatch):
         await server.close()
 
 
+@pytest.mark.asyncio
+async def test_session_listener_observes_native_activity_and_disconnect_without_a_turn(system):
+    first, _second, server, _job = system
+    session_id = await first.create_session(job_tools=[])
+    notifications = []
+    unsubscribe = server.watch_session(session_id, notifications.append)
+    native = _Codex.instances[0]
+    native.notify_status(session_id, "active")
+    native.notify_status(session_id, "notLoaded")
+    async with asyncio.timeout(1):
+        while len(notifications) < 2:
+            await asyncio.sleep(0)
+    assert [status.status for status in notifications] == ["active", "not_loaded"]
+    native.notifications.put_nowait(ConnectionError("upstream disconnected"))
+    async with asyncio.timeout(1):
+        while notifications[-1] is not None:
+            await asyncio.sleep(0)
+    assert server._failed
+    unsubscribe()
+    assert session_id not in server._session_listeners
+
+
 def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
     def breakdown(tokens, total_tokens=None):
         return TokenUsageBreakdown(
@@ -292,6 +315,101 @@ def _usage_event(last, total, *, turn_id="turn-2", estimate=None):
             ),
         ),
     )
+
+
+@pytest.mark.asyncio
+async def test_rejected_first_turn_keeps_the_empty_session_and_zero_usage_cache(system):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    thread = _Codex.instances[0].threads[session_id]
+    thread.path = str(server.session_path / "not-materialized.jsonl")
+    turn = thread.turn
+    thread.turn = AsyncMock(side_effect=RuntimeError("turn rejected before acceptance"))
+    with pytest.raises(RuntimeError, match="turn rejected"):
+        await first.reply("rejected", resume=session_id, job_tools=[])
+    assert server._threads[session_id].pending is thread
+    assert server._threads[session_id].token_usage == TokenUsage()
+    thread.turn = turn
+    assert (await first.reply("retry", resume=session_id, job_tools=[]))["result"] == "retry"
+
+
+@pytest.mark.asyncio
+async def test_wrapper_locates_an_empty_session_before_its_rollout_exists(system, monkeypatch):
+    first, _, server, _ = system
+    session_id = await first.create_session(job_tools=[])
+    client = _Codex.instances[0]
+    path = server.session_path / "sessions" / "not-materialized.jsonl"
+    read = AsyncMock(return_value=SimpleNamespace(thread=SimpleNamespace(path=str(path))))
+    monkeypatch.setattr(client._client, "thread_read", read)
+
+    assert await first.get_session_path(session_id) == path.resolve()
+    read.assert_awaited_once_with(session_id, include_turns=False)
+    assert not path.exists()
+    assert not client.threads[session_id].inputs
+    assert [operation for operation, _, _ in client.opened] == ["start"]
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
+    first, _, server, _ = system
+    previous = await first.create_session(job_tools=[])
+    current = await first.create_session(job_tools=[])
+    client = _Codex.instances[0]
+    await first.release_session(previous)
+    assert server._threads[previous].pending is None
+    assert server._threads[current].pending is not None
+    assert client.unsubscribed == [previous]
+    assert not client.threads[previous].inputs and not client.threads[current].inputs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language):
+    agent, _, _, _ = system
+    context = agent.app_context
+    context.app_config.language = language
+    context.components["agent_wrapper"] = {"default": agent}
+    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
+    session_id = (await PaNewSessionStep(app_context=context)()).answer
+    client = _Codex.instances[0]
+    prompt = client.opened[-1][2]["developer_instructions"]
+    assert str(memory) in prompt and str(agent.workspace_path) in prompt
+    assert "Use Chinese." not in prompt
+    assert ("先读取最新完整文件" if language == "zh" else "Read the complete current file") in prompt
+    assert ("立即删除对应记忆" if language == "zh" else "Immediately remove memories") in prompt
+    assert (
+        "不从旧会话或摘要中恢复" if language == "zh" else "restore them from old conversations or summaries"
+    ) in prompt
+    assert not client.threads[session_id].inputs
+    memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
+    for _ in range(2):
+        response = await PaChatStep(app_context=context)(query="hello", stream_queue=asyncio.Queue())
+        assert response.success
+    assert all(options["developer_instructions"] == prompt for _, _, options in client.opened)
+    await PaNewSessionStep(app_context=context)()
+    assert client.opened[-1][2]["developer_instructions"] == prompt
+    assert memory.read_text(encoding="utf-8") == "# Preferences\n- Use English.\n"
+
+
+@pytest.mark.asyncio
+async def test_empty_session_preserves_thread_options_and_resumes_without_generation(system):
+    first, _, _, job = system
+    options = {"job_tools": [job.name], "system_prompt": "Session instructions."}
+    session_id = await first.create_session(**options)
+    client = _Codex.instances[0]
+    assert client.opened[0][0] == "start"
+    assert client.opened[0][2]["developer_instructions"] == options["system_prompt"]
+    assert first.app_server._threads[session_id].binding is not None
+    assert client.unsubscribed == []
+    assert not client.threads[session_id].inputs
+    result = await first.reply("first message", resume=session_id, **options)
+    assert result["session_id"] == session_id
+    assert [operation for operation, _, _ in client.opened] == ["start"]
+    assert client.unsubscribed == [session_id]
+    await first.reply("next message", resume=session_id, **options)
+    assert [operation for operation, _, _ in client.opened] == ["start", "resume"]
 
 
 @pytest.mark.asyncio

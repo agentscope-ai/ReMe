@@ -22,31 +22,47 @@ export function prepareWorkspaceSnapshot(
   tabs: WorkspaceTab[],
   activeTabId?: string,
 ): PersistedWorkspaceState {
-  const persistedTabs = tabs.map((tab): WorkspaceTab => {
-    if (tab.type === "agent") {
+  tabs = tabs.map(
+    (tab): WorkspaceTab =>
+      tab.type === "agent" && tab.mode === undefined
+        ? { ...tab, mode: "chat" }
+        : tab,
+  );
+  const isPa = (tab: WorkspaceTab) => tab.type === "agent" && tab.mode === "pa";
+  const agent =
+    tabs.find((tab) => isPa(tab) && tab.id === activeTabId) ?? tabs.find(isPa);
+  const persistedTabs = tabs
+    .filter(
+      (tab) =>
+        tab.type !== "agent" ||
+        tab.mode === "chat" ||
+        (isPa(tab) && tab === agent),
+    )
+    .map((tab): WorkspaceTab => {
+      if (tab.type === "agent") {
+        return {
+          ...tab,
+          streaming: false,
+          messages: tab.messages.map((message) =>
+            message.role === "assistant"
+              ? finishInterruptedMessage(message)
+              : message,
+          ),
+        };
+      }
+
+      if (tab.type === "graph") return tab;
+
+      const dirty = tab.content !== tab.savedContent;
+      if (dirty) return { ...tab, loading: false, error: undefined };
       return {
         ...tab,
-        streaming: false,
-        messages: tab.messages.map((message) =>
-          message.role === "assistant"
-            ? finishInterruptedMessage(message)
-            : message,
-        ),
+        content: "",
+        savedContent: "",
+        loading: true,
+        error: undefined,
       };
-    }
-
-    if (tab.type === "graph") return tab;
-
-    const dirty = tab.content !== tab.savedContent;
-    if (dirty) return { ...tab, loading: false, error: undefined };
-    return {
-      ...tab,
-      content: "",
-      savedContent: "",
-      loading: true,
-      error: undefined,
-    };
-  });
+    });
   return {
     tabs: persistedTabs,
     activeTabId: persistedTabs.some((tab) => tab.id === activeTabId)

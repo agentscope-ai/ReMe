@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
 import json
@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from openai_codex import AsyncCodex, AsyncThread, CodexConfig
 
 
+class SessionChangedError(RuntimeError):
+    """A reminder's conversation anchor no longer matches the target session."""
+
+
 @dataclass
 class _ThreadState:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
@@ -36,6 +40,8 @@ class _ThreadState:
     completion: asyncio.Future[None] | None = None
     operation_started: bool = False
     token_usage: TokenUsage | None = None
+    pending: AsyncThread | None = None
+    history_changed: bool = False
 
 
 @R.register("sdk")
@@ -81,6 +87,57 @@ class CodexAppServer(BaseComponent):
         self._failed = False
         self._http_url: str | None = None
         self.jobs_mcp = ScopedMCP()
+        self._session_listeners: dict[
+            str,
+            set[Callable[[SessionMessage | SessionSnapshot | SessionStatus | None], None]],
+        ] = {}
+
+    def watch_session(
+        self,
+        session_id: str,
+        listener: Callable[[SessionMessage | SessionSnapshot | SessionStatus | None], None],
+    ) -> Callable[[], None]:
+        """Observe one conversation on this event loop; None invalidates cached state."""
+        self._message_path(session_id)
+        self._session_listeners.setdefault(session_id, set()).add(listener)
+
+        def unsubscribe():
+            listeners = self._session_listeners.get(session_id)
+            if listeners is not None:
+                listeners.discard(listener)
+                if not listeners:
+                    self._session_listeners.pop(session_id, None)
+
+        return unsubscribe
+
+    def _notify_session(
+        self,
+        session_id: str | None,
+        change: SessionMessage | SessionSnapshot | SessionStatus | None,
+    ) -> None:
+        listeners = (
+            set(self._session_listeners.get(session_id, ()))
+            if session_id is not None
+            else {listener for group in self._session_listeners.values() for listener in group}
+        )
+        for listener in listeners:
+            try:
+                listener(change)
+            except Exception as exc:
+                self.logger.warning(f"Session listener failed: {exc}")
+
+    async def _publish_history(self, session_id: str) -> None:
+        """Confirm visible history after a turn, without coupling observers to its outcome."""
+        if session_id not in self._session_listeners:
+            return
+        try:
+            async with asyncio.timeout(30):
+                snapshot = await self.read_session(session_id)
+        except Exception as exc:
+            self.logger.warning(f"Failed to refresh published session {session_id}: {exc}")
+            self._notify_session(session_id, None)
+        else:
+            self._notify_session(session_id, snapshot)
 
     @property
     def session_path(self) -> Path:
@@ -89,6 +146,15 @@ class CodexAppServer(BaseComponent):
             path = Path(self._codex_home).expanduser()
             return path if path.is_absolute() else self.workspace_path / path
         return self.workspace_path / ".codex"
+
+    def _session_file_path(self, thread: Any) -> Path | None:
+        """Validate a native path without requiring its file to exist yet."""
+        if not (raw_path := getattr(thread, "path", None)):
+            return None
+        path = Path(raw_path).resolve()
+        if not path.is_relative_to(self.session_path.resolve()):
+            raise ValueError("Codex session path is outside its configured home")
+        return path
 
     def _message_path(self, session_id: str) -> Path:
         from .agent_wrapper.codex_session_history import validate_identifier
@@ -114,6 +180,13 @@ class CodexAppServer(BaseComponent):
             if not self._active:
                 self._idle.set()
 
+    async def release_session(self, session_id: str) -> None:
+        """Unsubscribe a superseded empty thread without deleting any session files."""
+        state = self._threads.get(session_id)
+        if state is not None and state.pending is not None:
+            async with self.thread(session_id):
+                state.pending = None
+
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Inspect a thread without resuming it or waiting for an active turn."""
         from .agent_wrapper.codex_session_history import session_status
@@ -123,15 +196,28 @@ class CodexAppServer(BaseComponent):
             thread = (await codex._client.thread_read(session_id)).thread  # pylint: disable=protected-access
             return session_status(thread)
 
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Read only native metadata; the reported file may not have been created yet."""
+        from .agent_wrapper.codex_session_history import validate_identifier
+
+        validate_identifier(session_id)
+        async with self._session_client() as codex:
+            response = await codex._client.thread_read(  # pylint: disable=protected-access
+                session_id,
+                include_turns=False,
+            )
+            return self._session_file_path(response.thread)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Project public native history plus application-authored proactive messages."""
         from .agent_wrapper import codex_session_history as history
 
         path = self._message_path(session_id)
         async with self._session_client() as codex:
+            state = self._threads.get(session_id)
             response = await codex._client.thread_read(  # pylint: disable=protected-access
                 session_id,
-                include_turns=True,
+                include_turns=state is None or state.pending is None,
             )
             thread = response.thread
             records = await asyncio.to_thread(history.read_records, path)
@@ -140,7 +226,10 @@ class CodexAppServer(BaseComponent):
                 if any(not record["injected"] for record in records)
                 else set()
             )
-            return history.session_snapshot(thread, records, recovered)
+            snapshot = history.session_snapshot(thread, records, recovered)
+            session_file = self._session_file_path(thread)
+            snapshot.path = str(session_file) if session_file is not None else None
+            return snapshot
 
     async def append_session(
         self,
@@ -149,6 +238,7 @@ class CodexAppServer(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
         """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
         from openai_codex.generated.v2_all import ThreadInjectItemsResponse
@@ -163,7 +253,7 @@ class CodexAppServer(BaseComponent):
 
         async with asyncio.timeout(timeout):
             async with self.thread(session_id) as loaded:
-                thread = (await loaded.read(include_turns=True)).thread
+                thread = (await loaded.read(include_turns=self._threads[session_id].pending is None)).thread
                 if history.session_status(thread).status != "idle":
                     raise RuntimeError("Session must be idle before appending")
                 accepted = await asyncio.to_thread(history.injected_ids, thread, self.session_path)
@@ -174,11 +264,19 @@ class CodexAppServer(BaseComponent):
                     if record["message"]["content"] != content:
                         raise ValueError("message_id already belongs to different content")
                     if record["injected"] or native_id in accepted:
-                        if not record["injected"]:
-                            record["injected"] = True
-                            await complete_in_thread(history.write_records, path, records)
-                        return SessionMessage.model_validate(record["message"])
-                else:
+
+                        async def recover_and_publish():
+                            if not record["injected"]:
+                                record["injected"] = True
+                                await complete_in_thread(history.write_records, path, records)
+                            message = SessionMessage.model_validate(record["message"])
+                            self._notify_session(session_id, message)
+                            return message
+
+                        return await finish_cleanup(recover_and_publish())
+                if expected_turn_id is not None and (thread.turns[-1].id if thread.turns else "") != expected_turn_id:
+                    raise SessionChangedError("Session changed before appending")
+                if record is None:
                     record = history.new_record(message_id, content, thread)
                     records.append(record)
                 # An unaccepted attempt may be retried after later user turns.
@@ -206,6 +304,7 @@ class CodexAppServer(BaseComponent):
                     )
                     record["injected"] = True
                     await complete_in_thread(history.write_records, path, records)
+                    self._notify_session(session_id, SessionMessage.model_validate(record["message"]))
 
                 await finish_cleanup(inject_and_publish())
                 return SessionMessage.model_validate(record["message"])
@@ -283,6 +382,15 @@ class CodexAppServer(BaseComponent):
                 event = await codex._client.next_notification()  # pylint: disable=protected-access
                 if event.method != "thread/status/changed":
                     continue
+                native = event.payload.status.root
+                self._notify_session(
+                    event.payload.thread_id,
+                    SessionStatus(
+                        session_id=event.payload.thread_id,
+                        status={"notLoaded": "not_loaded", "systemError": "error"}.get(native.type, native.type),
+                        active_flags=[getattr(flag, "value", flag) for flag in getattr(native, "active_flags", [])],
+                    ),
+                )
                 state = self._threads.get(event.payload.thread_id)
                 if state is None or state.completion is None or state.completion.done():
                     continue
@@ -293,6 +401,7 @@ class CodexAppServer(BaseComponent):
         except Exception as exc:
             if self._codex is codex:
                 self._failed = True
+                self._notify_session(None, None)
             for state in self._threads.values():
                 if state.completion is not None and not state.completion.done():
                     state.completion.set_exception(exc)
@@ -418,6 +527,9 @@ class CodexAppServer(BaseComponent):
             nonlocal turn
             async with self._operation(thread):
                 turn = await thread.turn(inputs, **kwargs)
+                self._threads[thread.id].pending = None
+                self._threads[thread.id].history_changed = True
+                self._notify_session(thread.id, SessionStatus(session_id=thread.id, status="active"))
 
         try:
             await finish_cleanup(dispatch())
@@ -474,6 +586,7 @@ class CodexAppServer(BaseComponent):
         injected: dict[str, Any] | None = None,
         mcp_startup_timeout: float = 30,
         mcp_tool_timeout: float = 300,
+        keep_empty: bool = False,
     ) -> AsyncIterator[AsyncThread]:
         """Serialize one conversation while allowing independent conversations to run concurrently."""
         from openai_codex import TransportClosedError
@@ -533,20 +646,27 @@ class CodexAppServer(BaseComponent):
                             await finish_cleanup(self._fork_messages(thread_id, thread))
                     finally:
                         source.users -= 1
+                elif state.pending is not None:
+                    thread = state.pending
                 elif thread_id:
                     thread = await codex.thread_resume(thread_id, **options)
                 else:
                     thread = await codex.thread_start(**options)
                     state.token_usage = TokenUsage()
+                    if keep_empty:
+                        # Native rollouts are materialized by the first turn, so an empty
+                        # thread must stay loaded and reuse its handle rather than resume.
+                        state.pending = thread
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
+                state.history_changed = False
                 try:
                     yield thread
                 finally:
                     # Interrupt acknowledgement alone does not mean that tool execution stopped.
                     error = sys.exception()
-                    if error is not None:
+                    if error is not None and state.pending is None:
                         # A paused/closed consumer can miss usage emitted by native completion.
                         # Recover from the persisted rollout before the next turn starts.
                         state.token_usage = None
@@ -556,23 +676,28 @@ class CodexAppServer(BaseComponent):
                     except Exception as exc:
                         if isinstance(exc, TransportClosedError) and self._codex is codex:
                             self._failed = True
+                        self._notify_session(thread.id, None)
                         if error is None:
                             raise
                         self.logger.warning(f"Failed to wait for Codex thread {thread.id}: {exc}")
                     else:
+                        if state.history_changed:
+                            await finish_cleanup(self._publish_history(thread.id))
                         from openai_codex.generated.v2_all import ThreadUnsubscribeResponse
 
                         try:
-                            await codex._client.request(  # pylint: disable=protected-access
-                                "thread/unsubscribe",
-                                {"threadId": thread.id},
-                                response_model=ThreadUnsubscribeResponse,
-                            )
+                            if state.pending is None:
+                                await codex._client.request(  # pylint: disable=protected-access
+                                    "thread/unsubscribe",
+                                    {"threadId": thread.id},
+                                    response_model=ThreadUnsubscribeResponse,
+                                )
                         except Exception as exc:
                             self.logger.warning(f"Failed to unsubscribe Codex thread {thread.id}: {exc}")
         except TransportClosedError:
             if codex is not None and self._codex is codex:
                 self._failed = True
+                self._notify_session(None, None)
             raise
         finally:
             if state is not None:
@@ -593,4 +718,5 @@ class CodexAppServer(BaseComponent):
             self._failed = False
             self._http_url = None
             self._threads.clear()
+            self._session_listeners.clear()
             await self.jobs_mcp.close()

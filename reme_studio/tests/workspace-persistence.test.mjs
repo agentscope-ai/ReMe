@@ -41,6 +41,7 @@ test("workspace snapshot keeps chat session and marks interrupted blocks failed"
   const chat = {
     id: "agent:one",
     type: "agent",
+    mode: "chat",
     title: "Chat",
     sessionId: "session-1",
     streaming: true,
@@ -93,4 +94,67 @@ test("workspace snapshot preserves an open memory graph", () => {
 
   assert.deepEqual(snapshot.tabs, [graph]);
   assert.equal(snapshot.activeTabId, graph.id);
+});
+
+test("workspace restoration keeps independent chats, one PA view, and file drafts", () => {
+  const draft = {
+    id: "draft",
+    type: "markdown",
+    path: "draft.md",
+    content: "unsaved",
+    savedContent: "",
+  };
+  const agent = (id, mode) => ({
+    id,
+    type: "agent",
+    mode,
+    title: "",
+    messages: [],
+  });
+  const snapshot = prepareWorkspaceSnapshot(
+    [
+      draft,
+      agent("one", "chat"),
+      agent("two", "chat"),
+      agent("pa-old", "pa"),
+      agent("pa-current", "pa"),
+      agent("legacy"),
+      agent("invalid", "unknown"),
+    ],
+    "pa-current",
+  );
+  assert.deepEqual(
+    snapshot.tabs.map((tab) => tab.id),
+    ["draft", "one", "two", "pa-current", "legacy"],
+  );
+  assert.equal(snapshot.tabs[0].content, "unsaved");
+  assert.equal(snapshot.activeTabId, "pa-current");
+});
+
+test("workspace upgrade preserves legacy chat selection, session, and local messages", () => {
+  const legacy = {
+    id: "agent:legacy",
+    type: "agent",
+    title: "Existing conversation",
+    sessionId: "existing-session",
+    streaming: false,
+    messages: [
+      {
+        id: "local",
+        role: "user",
+        content: "Browser-only message",
+        localOnly: true,
+      },
+    ],
+  };
+  const snapshot = prepareWorkspaceSnapshot([legacy], legacy.id);
+
+  assert.deepEqual(snapshot, {
+    tabs: [{ ...legacy, mode: "chat" }],
+    activeTabId: legacy.id,
+  });
+  assert.deepEqual(
+    prepareWorkspaceSnapshot(snapshot.tabs, snapshot.activeTabId),
+    snapshot,
+  );
 });

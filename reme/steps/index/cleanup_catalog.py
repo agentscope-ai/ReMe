@@ -12,8 +12,7 @@ class CleanupCatalogStep(BaseStep):
         assert self.context is not None
         if self.file_catalog is None:
             raise RuntimeError("cleanup_catalog_step requires file_catalog")
-        ttl_days = self.context.get("ttl_days", self.kwargs.get("ttl_days", 7))
-        result = await self.file_catalog.cleanup_expired(str(self.config_value("resource_dir")), ttl_days)
+        result = await self.file_catalog.cleanup_expired()
         self.context.response.metadata.update(result)
         self.context.response.success = not result["errors"]
         self.context.response.answer = f"Deleted {len(result['deleted_dirs'])} expired resource directories"

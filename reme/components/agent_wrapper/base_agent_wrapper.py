@@ -277,6 +277,20 @@ class BaseAgentWrapper(BaseComponent):
         """Request compaction of one persisted agent session."""
         raise NotImplementedError(f"{type(self).__name__} does not support session compaction")
 
+    async def create_session(self, **kwargs) -> str:
+        """Create a resumable empty session without generating a reply."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session creation")
+
+    async def release_session(self, session_id: str) -> None:
+        """Release idle runtime resources; persisted session history remains available."""
+
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Return the native session file path, or None when no path is available.
+
+        The returned path may precede file creation. Lookup errors propagate.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support session path lookup")
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read display history without waiting for the session to become idle."""
         raise NotImplementedError(f"{type(self).__name__} does not support session reading")
@@ -292,8 +306,9 @@ class BaseAgentWrapper(BaseComponent):
         *,
         message_id: str,
         timeout: float = 30,
+        expected_turn_id: str | None = None,
     ) -> SessionMessage:
-        """Append an idempotent proactive assistant message after the active turn finishes."""
+        """Append an idempotent assistant message, optionally requiring the current conversation turn."""
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
