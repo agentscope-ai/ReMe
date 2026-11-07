@@ -231,6 +231,8 @@ def test_network_services_accept_explicit_wildcard_bind():
     """Remote access remains available through explicit service configuration."""
     assert HttpService(host="0.0.0.0").host == "0.0.0.0"
     assert MCPService(host="0.0.0.0").host == "0.0.0.0"
+    assert HttpService(host="::").host == "::"
+    assert MCPService(host="::").host == "::"
 
 
 def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):
@@ -242,5 +244,18 @@ def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):
         lifespan = HttpService()._lifespan(app, "0.0.0.0", 8123)  # pylint: disable=protected-access
         async with lifespan(None):
             assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "127.0.0.1", "port": 8123}
+
+    asyncio.run(run())
+
+
+def test_service_lifespan_advertises_ipv6_loopback_for_ipv6_wildcard(monkeypatch):
+    """IPv6 wildcard binds are translated to a connectable in-process address."""
+    monkeypatch.delenv(REME_SERVICE_INFO, raising=False)
+
+    async def run():
+        app = _dummy_app()
+        lifespan = HttpService()._lifespan(app, "::", 8123)  # pylint: disable=protected-access
+        async with lifespan(None):
+            assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "::1", "port": 8123}
 
     asyncio.run(run())
