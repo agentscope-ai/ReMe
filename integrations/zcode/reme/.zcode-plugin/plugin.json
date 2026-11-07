@@ -1,0 +1,10 @@
+{
+  "name": "reme",
+  "version": "0.1.1",
+  "description": "Automatic recall, completed-turn recording, MCP memory tools, and the reme-memory skill.",
+  "author": {
+    "name": "EconML team of Alibaba Tongyi Lab"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
