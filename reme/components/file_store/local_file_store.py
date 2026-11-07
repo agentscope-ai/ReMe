@@ -127,6 +127,7 @@ class LocalFileStore(BaseFileStore):
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
         self._embedding_space_generation = 0
         self._mutation_generation = 0
+        self._keyword_pending_paths: set[str] = set()
         self._tag_index_rebuild_required = False
         self._tag_indexed_file_count = 0
         self._closing = False
@@ -832,21 +833,49 @@ class LocalFileStore(BaseFileStore):
 
     @BaseFileStore.serialized
     async def upsert(self, files: list[tuple[FileNode, list[FileChunk]]]) -> None:
+        """Replace file chunks, retaining unchanged live keyword documents."""
         if not files:
             return
         assert self.file_graph is not None
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
         old_chunk_ids = {cid for n in old_map.values() for cid in n.chunk_ids}
+        # A failed update may have staged new text without replacing its index
+        # entry. Retry those files in full instead of trusting staged text.
+        old_keyword_docs = {
+            cid: self.file_chunks[cid].text
+            for path, old_node in old_map.items()
+            if path not in self._keyword_pending_paths
+            for cid in old_node.chunk_ids
+            if cid in self.file_chunks
+        }
+        self._keyword_pending_paths.update(node.path for node, _ in files)
         new_nodes, needs_embed, keyword_docs = self._stage_upsert(files, old_map)
+
+        unchanged_ids: set[str] = set()
+        if self.keyword_index:
+            try:
+                live_ids = self.keyword_index.document_ids
+            except NotImplementedError:
+                # Backends without live IDs keep the full replacement behavior.
+                pass
+            else:
+                # Missing entries must be retried even if staging a previous
+                # failed upsert already replaced the in-memory chunk text.
+                unchanged_ids = {
+                    cid for cid, text in keyword_docs.items() if old_keyword_docs.get(cid) == text and cid in live_ids
+                }
+        deleted_ids = old_chunk_ids - unchanged_ids
+        keyword_docs = {cid: text for cid, text in keyword_docs.items() if cid not in unchanged_ids}
 
         await self.file_graph.upsert_nodes(new_nodes)
         await self._upsert_tag_nodes(new_nodes)
         await self._embed_pending(needs_embed)
-        if self.keyword_index and old_chunk_ids:
-            await self.keyword_index.delete_docs(list(old_chunk_ids))
+        if self.keyword_index and deleted_ids:
+            await self.keyword_index.delete_docs(list(deleted_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
+        self._keyword_pending_paths.difference_update(node.path for node, _ in files)
         self._mutation_generation += 1
 
     def _stage_upsert(
@@ -957,6 +986,7 @@ class LocalFileStore(BaseFileStore):
         await self._delete_tag_paths([str(n.path) for n in nodes])
         if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
+        self._keyword_pending_paths.difference_update(n.path for n in nodes)
 
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         assert self.file_graph is not None
@@ -985,6 +1015,7 @@ class LocalFileStore(BaseFileStore):
         self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
             await self.keyword_index.clear()
+        self._keyword_pending_paths.clear()
         await self.file_graph.clear()
         if self.tag_index_enabled:
             tag_index = self.require_tag_index()
