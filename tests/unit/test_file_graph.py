@@ -121,12 +121,10 @@ async def test_windows_separator_paths_are_canonicalized(backend_cls):
             "daily/2026-10-27/b.md",
         }
         assert {
-            link.target_path
-            for link in await graph.get_outlinks(r"daily\2026-10-27\a.md", scope=LinkScopeEnum.ALL)
+            link.target_path for link in await graph.get_outlinks(r"daily\2026-10-27\a.md", scope=LinkScopeEnum.ALL)
         } == {"daily/2026-10-27/b.md"}
         assert {
-            link.source_path
-            for link in await graph.get_inlinks(r"daily\2026-10-27\b.md", scope=LinkScopeEnum.ALL)
+            link.source_path for link in await graph.get_inlinks(r"daily\2026-10-27\b.md", scope=LinkScopeEnum.ALL)
         } == {"daily/2026-10-27/a.md"}
         assert await graph.get_outlinks(r"daily\2026-10-27\a.md", scope=LinkScopeEnum.VIRTUAL) == []
 

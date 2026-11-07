@@ -117,11 +117,7 @@ class AutoTagStep(BaseStep):
         """Keep the title-adjacent text and heading outline within a local model budget."""
         if len(content) <= max_chars:
             return content
-        headings = [
-            line.strip()
-            for line in content.splitlines()
-            if line.lstrip().startswith("#") and line.strip()
-        ]
+        headings = [line.strip() for line in content.splitlines() if line.lstrip().startswith("#") and line.strip()]
         heading_text = "\n".join(headings)
         if len(heading_text) > max_chars // 3:
             heading_text = heading_text[: max_chars // 3]
@@ -158,11 +154,7 @@ class AutoTagStep(BaseStep):
             candidates = [item[0] for item in page["items"]]
 
         excerpt = self._document_excerpt(post.content, self.direct_excerpt_chars)
-        metadata_hint = {
-            key: metadata[key]
-            for key in ("name", "description", "kind")
-            if key in metadata
-        }
+        metadata_hint = {key: metadata[key] for key in ("name", "description", "kind") if key in metadata}
         messages = [
             SystemMsg(
                 name="system",
@@ -232,9 +224,7 @@ class AutoTagStep(BaseStep):
             line for line in post.content.splitlines() if not line.lstrip().startswith("#")
         )
         searchable = "\n".join(
-            value
-            for value in (str(metadata.get("description") or ""), body_without_headings)
-            if value
+            value for value in (str(metadata.get("description") or ""), body_without_headings) if value
         )
         evidence_key = self._evidence_key(evidence)
         searchable_key = self._evidence_key(searchable)
