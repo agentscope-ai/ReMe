@@ -44,10 +44,10 @@ dependencies = [
 
 [project.optional-dependencies]
 as = [
-    "agentscope[model-ollama]==2.0.11",
+    "agentscope[model-ollama]==2.0.10",
 ]
 decision = [
-    "agentscope[classifier-jev]==2.0.11",
+    "agentscope[classifier-jev]==2.0.10",
 ]
 web = [
     "reme_studio",
