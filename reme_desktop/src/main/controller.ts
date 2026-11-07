@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { BubbleQueue } from "./bubbles.ts";
 import { BehaviorController } from "./behavior.ts";
 import { NotificationPolicy } from "./notifications.ts";
+import { emptySpeech, SpeechController } from "./speech.ts";
 import type { SystemNotice } from "./notifications.ts";
 import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
@@ -18,12 +19,14 @@ import type {
   AnimationManifest,
   PlaybackStatus,
   SettingsUpdate,
+  DesktopCommand,
 } from "../shared/protocol.ts";
 
 export class DesktopController {
   readonly model = new SessionModel();
   readonly bubbles: BubbleQueue;
   readonly state: DesktopState;
+  readonly speech: SpeechController;
   private readonly behavior: BehaviorController;
   private scope = "";
   private lifecycle: AbortController | null = null;
@@ -51,6 +54,7 @@ export class DesktopController {
       notice: SystemNotice,
       shown: () => void,
     ) => void = () => {},
+    command: (command: DesktopCommand) => void = () => {},
   ) {
     this.behavior = new BehaviorController(manifest);
     this.endpoint = storage.settings.endpoint;
@@ -71,6 +75,7 @@ export class DesktopController {
       chatFocused: false,
       focusMessageId: null,
       behavior: this.behavior.value,
+      speech: emptySpeech(),
     };
     this.bubbles = new BubbleQueue(10 * 60_000, (id) => {
       const receipt = this.presentation()?.receipts[id];
@@ -79,6 +84,21 @@ export class DesktopController {
         this.storage.changed();
       }
     });
+    this.speech = new SpeechController(
+      () => ({
+        sessionId: this.model.sessionId,
+        connected: this.ready && !this.closed,
+        chatVisible: this.state.chatVisible,
+        visible: this.state.chatVisible || this.companionVisible,
+        settings: this.state.settings,
+      }),
+      () => this.client(),
+      (speech) => {
+        this.state.speech = speech;
+        this.emit();
+      },
+      command,
+    );
   }
 
   start(): void {
@@ -97,6 +117,7 @@ export class DesktopController {
   }
 
   private restart(): void {
+    this.speech.reset();
     this.lifecycle?.abort();
     this.stream?.abort();
     this.generation++;
@@ -142,6 +163,18 @@ export class DesktopController {
             string,
             { backend: string; enabled?: boolean; enable_serve?: boolean }
           >;
+          components?: {
+            tts?: Record<
+              string,
+              {
+                model?: string;
+                voice?: string;
+                audio_format?: string;
+                sample_rate?: number;
+                parameters?: Record<string, unknown>;
+              }
+            >;
+          };
         }>("app_config", {}, signal);
         if (signal.aborted) return;
         for (const job of [
@@ -161,6 +194,26 @@ export class DesktopController {
         }
         if (typeof config.workspace_dir !== "string")
           throw new UiError("missingWorkspace");
+        const available = (name: string) =>
+          Boolean(
+            config.jobs?.[name] &&
+            config.jobs[name].enabled !== false &&
+            config.jobs[name].enable_serve !== false,
+          );
+        const tts = config.components?.tts?.default;
+        this.speech.configure(
+          available("asr_demo"),
+          available("tts_demo"),
+          JSON.stringify([
+            client.endpoint,
+            config.workspace_dir,
+            tts?.model,
+            tts?.voice,
+            tts?.audio_format,
+            tts?.sample_rate,
+            tts?.parameters,
+          ]),
+        );
         const scope = createHash("sha256")
           .update(client.endpoint + "\n" + config.workspace_dir)
           .digest("hex");
@@ -203,6 +256,7 @@ export class DesktopController {
             )
               return;
             if (previous !== this.model.sessionId) {
+              this.speech.reset();
               this.behavior.reset();
               this.notificationPolicy.reset();
               this.notified.clear();
@@ -234,10 +288,15 @@ export class DesktopController {
                 });
             }
             if (!event.error && !this.model.waitingForSnapshot) {
-              if (event.type === "snapshot")
+              if (event.type === "snapshot") {
+                this.speech.baseline(this.model.messages);
                 this.observeMessages(this.model.messages, true);
-              else if (event.type === "message_upsert" && event.message)
+              } else if (event.type === "message_upsert" && event.message) {
                 this.observeMessages([event.message], false);
+                this.speech.observe(event.message);
+              }
+              if (event.type !== "snapshot")
+                this.speech.finish(this.model.activities.chat);
             }
             this.reconcilePending();
             attempt = 0;
@@ -249,6 +308,7 @@ export class DesktopController {
       } catch (error) {
         if (signal.aborted) return;
         this.ready = false;
+        this.speech.cancel();
         this.state.connection = "reconnecting";
         this.connectionIssue = error;
         this.emit();
@@ -296,6 +356,7 @@ export class DesktopController {
 
   private tick(): void {
     const now = Date.now();
+    this.speech.tick(now);
     let settingsChanged = false;
     if (
       this.state.settings.quietUntil &&
@@ -335,6 +396,15 @@ export class DesktopController {
     );
     this.state.bubble =
       this.companionVisible && this.companionReady ? bubble : null;
+    this.bubbles.holdForSpeech(
+      Boolean(bubble && this.state.speech.playback?.messageId === bubble.id),
+      now,
+    );
+    if (
+      this.state.speech.playback?.kind === "reminder" &&
+      this.state.speech.playback.messageId !== this.state.bubble?.id
+    )
+      this.speech.stop();
     if (native && bubble && this.model.sessionId) {
       const sessionId = this.model.sessionId;
       this.notifyOnce(
@@ -437,7 +507,10 @@ export class DesktopController {
       this.state.bubble?.id !== id
     )
       return;
-    this.confirmPresentation(sessionId, id, presentationId);
+    if (this.confirmPresentation(sessionId, id, presentationId)) {
+      const message = this.model.messages.find((message) => message.id === id);
+      if (message) this.speech.speak(message, "reminder");
+    }
   }
 
   private confirmPresentation(
@@ -461,6 +534,10 @@ export class DesktopController {
   setChatVisible(visible: boolean, messageId?: string): void {
     this.state.chatVisible = visible;
     if (!visible) this.state.chatFocused = false;
+    if (!visible) {
+      this.speech.cancelCapture();
+      if (this.state.speech.playback?.kind === "manual") this.speech.stop();
+    }
     this.state.focusMessageId = messageId ?? null;
     this.tick();
     this.emit();
@@ -468,6 +545,8 @@ export class DesktopController {
 
   setChatFocused(focused: boolean): void {
     this.state.chatFocused = focused;
+    if (!focused && this.state.speech.capture?.phase === "recording")
+      this.speech.cancelCapture();
     if (focused) this.behavior.touch();
     this.tick();
     this.emit();
@@ -538,6 +617,21 @@ export class DesktopController {
       typeof update.notifications !== "boolean"
     )
       throw new UiError("invalidNotifications");
+    for (const key of [
+      "voiceAutoSend",
+      "voiceEnabled",
+      "voiceReplies",
+      "voiceReminders",
+    ] as const)
+      if (update[key] !== undefined && typeof update[key] !== "boolean")
+        throw new UiError("invalidVoiceSettings");
+    if (
+      update.voiceVolume !== undefined &&
+      (!Number.isFinite(update.voiceVolume) ||
+        update.voiceVolume < 0 ||
+        update.voiceVolume > 1)
+    )
+      throw new UiError("invalidVoiceSettings");
     this.storage.settings = { ...settings, ...update, endpoint };
     this.storage.changed();
     try {
@@ -587,6 +681,7 @@ export class DesktopController {
     if (id !== this.bubbles.active?.id) return;
     if (action === "pause") this.bubbles.pause(id, paused, Date.now());
     else {
+      if (this.state.speech.playback?.messageId === id) this.speech.stop();
       const receipt: Receipt | undefined = this.presentation()?.receipts[id];
       if (receipt) {
         receipt.presented = true;
@@ -609,6 +704,7 @@ export class DesktopController {
       this.state.pending?.streaming
     )
       throw new UiError("sessionBusy");
+    this.speech.cancel();
     await this.client().call("pa_new_session", {}, this.lifecycle!.signal);
     this.state.pending = null;
     this.emit();
@@ -622,6 +718,7 @@ export class DesktopController {
       throw new UiError("sessionUnavailable");
     if (this.state.pending?.streaming || this.model.status === "active")
       throw new UiError("busy");
+    this.speech.cancel();
     const pending = {
       id: randomUUID(),
       query,
@@ -708,6 +805,7 @@ export class DesktopController {
   }
 
   stopReply(): void {
+    this.speech.cancel();
     this.stream?.abort();
   }
 
@@ -717,6 +815,7 @@ export class DesktopController {
     this.lifecycle?.abort();
     this.stream?.abort();
     this.generation++;
+    await this.speech.close();
     await this.settingsWrites;
     await this.running;
     await this.storage.flush();

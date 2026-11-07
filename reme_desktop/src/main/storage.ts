@@ -9,6 +9,11 @@ export const defaultSettings: Settings = {
   scale: 1,
   quietUntil: 0,
   notifications: false,
+  voiceAutoSend: true,
+  voiceEnabled: true,
+  voiceReplies: true,
+  voiceReminders: false,
+  voiceVolume: 0.8,
 };
 
 export function normalizeEndpoint(value: string): string {
@@ -70,6 +75,13 @@ export class Storage {
         ? settings.quietUntil!
         : 0,
       notifications: settings.notifications === true,
+      voiceAutoSend: settings.voiceAutoSend !== false,
+      voiceEnabled: settings.voiceEnabled !== false,
+      voiceReplies: settings.voiceReplies !== false,
+      voiceReminders: settings.voiceReminders === true,
+      voiceVolume: Number.isFinite(settings.voiceVolume)
+        ? Math.min(1, Math.max(0, settings.voiceVolume!))
+        : defaultSettings.voiceVolume,
       ...(settings.anchor &&
       Number.isFinite(settings.anchor.x) &&
       Number.isFinite(settings.anchor.y)

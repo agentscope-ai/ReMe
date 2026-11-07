@@ -39,6 +39,13 @@ class SessionReadStep(_SessionStep):
     operation = "read_session"
 
 
+@R.register("session_status_step")
+class SessionStatusStep(_SessionStep):
+    """Inspect session activity without waiting behind generation."""
+
+    operation = "get_session_status"
+
+
 @R.register("session_append_step")
 class SessionAppendStep(_SessionStep):
     """Append a proactive assistant message after the current turn finishes."""

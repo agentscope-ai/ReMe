@@ -46,8 +46,11 @@ test(
         // Exercise Electron's adapter without displaying real OS notifications.
         Notification.isSupported = () => true;
         globalThis.notices = [];
+        globalThis.noticeClicks = [];
         Notification.prototype.show = function () {
           globalThis.notices.push(this);
+          // Capture before native focus can legitimately close and remove listeners.
+          globalThis.noticeClicks.push(this.listeners("click")[0]);
           this.emit("show");
         };
         Notification.prototype.close = function () {
@@ -63,6 +66,7 @@ test(
       await t.test(
         "hidden reminders are opt-in, acknowledged, rate-limited, and clickable",
         async () => {
+          await action({ type: "chat.close" });
           await app.evaluate(({ BrowserWindow }) =>
             BrowserWindow.getAllWindows()
               .find((win) =>
@@ -70,6 +74,9 @@ test(
               )
               .hide(),
           );
+          await expect.poll(() => chat.evaluate(() =>
+            window.desktop.bootstrap().then(({ state }) => state.chatVisible),
+          )).toBe(false);
           backend.push("native-one", "这是一条系统提醒");
           await expect
             .poll(() =>
@@ -90,7 +97,7 @@ test(
             )
             .toBe(2);
           assert.equal(await notices(), 1);
-          await app.evaluate(() => globalThis.notices[0].emit("click"));
+          await app.evaluate(() => globalThis.noticeClicks[0]());
           await expect(
             chat.getByText("这是一条系统提醒", { exact: true }),
           ).toBeVisible();
@@ -134,7 +141,7 @@ test(
           backend.activity("waiting", "chat", "attention");
           await expect.poll(notices).toBe(2);
           await app.evaluate(() => {
-            globalThis.staleClick = globalThis.notices[1].listeners("click")[0];
+            globalThis.staleClick = globalThis.noticeClicks[1];
           });
           backend.activity("completed", "chat", "attention");
           await expect

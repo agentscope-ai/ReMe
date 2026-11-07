@@ -46,6 +46,7 @@ export class DesktopWindows {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      autoplayPolicy: "no-user-gesture-required" as const,
     };
     this.companion = new BrowserWindow({
       width: 204,
@@ -199,9 +200,8 @@ export class DesktopWindows {
   }
 
   command(command: DesktopCommand): void {
-    const window =
-      command.type === "settings.open" ? this.chat : this.companion;
-    window.webContents.send(channels.command, command);
+    if (!this.chat.isDestroyed())
+      this.chat.webContents.send(channels.command, command);
   }
 
   resetPosition(): void {

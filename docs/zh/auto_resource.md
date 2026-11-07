@@ -55,122 +55,81 @@ workspace/
 
 ## 资源保留与 TTL
 
-默认配置不自动删除原始资源。`config=proactive` 使用一个 catalog 记录**已确认处理的文件状态**，并显式启用以下保留协议：
-
-- 临时资源统一为 `resource/YYYY-MM-DD/{uuid_hex}/` 资源包，每包通过 `metadata.json` 发现。
-- 永久资料放在 workspace 中 `resource/` 以外的目录，例如 `archive/`。
-- `resource/` 根目录文件、非日期目录、无效日期和日期目录符号链接不参与物理清理。
-
-目录、文件名筛选和 TTL 只在 catalog 中配置一次：
-原来的 `jobs.resource_cleanup_cron.ttl_days` 已迁移到 `components.file_catalog.resource.ttl_days`。
+默认配置保留原始资源。`config=proactive` 使用每日清理 Job，不依赖 catalog、资源 watcher 或处理确认。
+永久资料请放在 `resource/` 之外。
 
 ```yaml
-components:
-  file_catalog:
-    resource:
-      backend: local
-      watch_dirs: [resource_dir]
-      watch_suffixes: []
-      watch_filenames: [metadata.json]
-      ttl_days: 7
+jobs:
+  resource_cleanup_cron:
+    backend: cron
+    cron: "0 3 * * *"
+    steps:
+      - backend: cleanup_resources_step
+        ttl_days: 7
 ```
 
-`watch_dirs` 支持已有的应用目录字段或 workspace 内的目录，例如 `resource_dir`、`resource_dir/inbox`、`inbox`。
-清理及扫描根目录必须位于 workspace 内，且路径中不能含符号链接。`watch_filenames` 精确匹配文件名，
-与 `watch_suffixes` 同时配置时必须同时满足；两者为空时接受全部文件。
-物理清理不按文件筛选条件过滤，会删除过期日期目录的全部内容，包括未登记的图片和空目录。
+每天应用时区 03:00 递归扫描 `resource_dir`，删除修改时间距今至少七天的普通文件，再移除空目录，保留根目录。
+所有文件类型和目录名都适用，文件名中的日期不参与过期判断。每日扫描意味着过期后最多再保留约 24 小时。
+跳过符号链接，资源根目录必须位于工作区内且不含符号链接别名。清理依赖安全的描述符相对文件操作，不支持的平台
+会在删除前报错。结果 `answer` 包含 `deleted_files`、`deleted_dirs`、`freed_bytes` 和 `errors`；部分删除失败会让
+该次 Job 失败，后续可重试。设置 `jobs.resource_cleanup_cron.enabled=false` 可关闭物理清理。
 
-`resource_watch_loop` 使用 `file_catalog: resource` 选择上述配置，只监听并记录实时变更，不推进 catalog，也不调用 LLM 或生成 daily 卡片。
-`resource_changes` 每次直接扫描文件，与 catalog 比较后返回仍存在、未过期且新增或修改后尚未确认的 `metadata.json` 路径。
-即使 watcher 未运行也能查询；查询不推进 catalog，未确认的资源下次继续返回，已删除文件不返回。
+这替代 proactive 的 catalog、`resource_watch_loop`、`resource_changes`、`resource_processed` 和日期目录 TTL。
+已有文件无需转换，按实际 mtime 清理。默认 Auto Resource 索引流程仍使用自己的 catalog。
 
-在一个终端启动服务：
+## Connector 工具与屏幕采集
+
+先在一个终端启动服务：
 
 ```bash
-reme start config=proactive components.file_catalog.resource.ttl_days=7
+reme start config=proactive
 ```
 
-在另一个终端查询待消化资源：
+在另一个终端调用工具：
 
 ```bash
-reme resource_changes
-reme resource_changes limit=40
+reme screen_capture
+reme finance_news
+reme check_json path=reme_metadata/pa/proactive.json
 ```
 
-`answer` 直接返回按路径排序的字符串列表，路径相对于 workspace，最多返回 `limit` 条（正整数，默认 `20`）。
-未返回的资源仍保留待处理；确认一批后再次调用 `resource_changes` 获取下一批。
-先读取 manifest 的 `description` 和 `files`，整包消化成功后，将对应的 manifest 路径作为 `resource_processed` 的 `paths` 参数：
+`BaseConnectorStep` 统一返回 `answer={"context": str, "paths": list[str]}`。`context` 包含结果说明和读取指引；
+`paths` 是可按需渐进式展开的工作区相对文件或目录路径。纯文字结果可返回空路径列表。不再生成 `metadata.json`，
+调用者保存任务执行结果时应同时保留两个字段。
 
-```bash
-reme resource_processed paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
-```
-
-`answer` 和 `success` 均为布尔值：整批确认成功为 `true`；路径越界、不存在、不是普通文件、已过期或 I/O 失败时为 `false`，
-不更新这批确认状态。`paths` 必填，空列表成功，重复确认允许；只传成功消化的子集，其他资源保留待处理。
-两个 Job 在 Step 配置中绑定 `file_catalog: resource`，不接受 catalog 选择参数。
-
-proactive 的 watcher 和 `resource_changes` 只发现精确名为 `metadata.json` 的文件，图片、其他 JSON 和裸文件不单独发现。
-资源包发布后按不可变快照使用，更新内容应发布到新 UUID 目录。路径确认记录文件当前 mtime，不校验消化前后的版本；
-因此不能在处理期间原地修改资源包。直接修改或删除包内数据文件也不会使资源重新待处理。
-消费方仍需确认清单中的文件存在且路径位于当前资源包内。catalog 的确认状态不写回 metadata，Auto Resource 的默认处理流程不变。
-
-消化状态保存在 `metadata/file_catalog/resource.jsonl.zst`。如需重新消化全部已有资源，
-先停止服务，备份并移走这个派生 catalog，再启动；保留原始资源文件。
-
-TTL 优先于消化：按应用 `timezone` 中的日历日期计算，目录日期距今天达到 `ttl_days` 即过期，与文件 mtime 无关。
-例如 2026-11-05、`ttl_days: 7` 时，10-29 及更早日期目录已过期，10-30 及之后保留。
-过期资源立即退出 `resource_changes` 查询范围，`resource_processed` 也不再确认；每小时的 `resource_cleanup_cron`
-调用 catalog 删除源目录及对应条目，不等待消化。因此清理前发起的处理也不能在清理后通过 `resource_processed`
-恢复过期条目。`ttl_days` 必须为正整数。
-
-Cron 在启动后的下一个整点执行，服务停止期间不会物理删除。
-`jobs.resource_cleanup_cron.enabled=false` 只停止物理清理，`resource_changes` 和 `resource_processed` 仍遵守 catalog 中的 TTL。
-删除失败会保留仍存在目录的 catalog 条目并标记任务失败，后续调度重试。
-清理要求平台支持基于目录描述符的安全删除（Linux、macOS）；不支持的平台会报错并保留文件。
-实现见 [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py)。
-现有 `file_catalog.delete()` 仍然只删除 catalog 条目，不删除源文件。
-
-清理流程不改写其他目录或引用。若在其他配置中同时启用 Auto Resource，删除事件仍会按其规则清理关联 daily 卡片。
-
-## 定时屏幕采集
-
-`config=proactive` 的 `screen_capture_cron` 在应用时区的每小时 00、15、30、45 分触发，不在启动时立即截图，
-也不补拍服务停止期间的画面。安装 `pip install "reme-ai[core]"`，
-再用前述 `reme start config=proactive` 启动。可用 `jobs.screen_capture_cron.enabled=false` 关闭截图任务。
-
-截图来自运行 ReMe 的宿主机桌面。macOS 需要为实际运行进程授予屏幕录制权限；无图形会话、无显示器、
-缺少权限或依赖时该轮任务失败，不发布资源包，等待下次定时触发。支持情况由本机 MSS 后端决定。
-
-`reme/steps/proactive/data_connectors/` 中的 `BaseConnectorStep` 负责暂存、校验和原子发布，
-`ScreenCaptureStep` 逐屏保存 MSS 返回的原尺寸 PNG，不合并或缩放不同分辨率的显示器：
+`screen_capture` 为每个显示器保存一张原始尺寸 PNG：
 
 ```text
-resource/YYYY-MM-DD/{uuid_hex}/
-  1.png
-  2.png
-  metadata.json
+resource/screen_capture/2026-11-07_10-20-30-123456_screen_1.png
+resource/screen_capture/2026-11-07_10-20-30-123456_screen_2.png
 ```
 
-`metadata.json` 使用 `ResourceMetadata` schema：
+文字说明包含带时区的采集时间、显示器数量和理解图片所需的信息。各显示器依次采集，编号仅代表本次枚举顺序。
+文件先暂存再发布；失败或取消时清理本次已发布文件，不覆盖已有截图。多个平铺文件的发布不再是单次原子目录操作。
 
-```json
-{
-  "schema_version": 1,
-  "dataclass": "ScreenCaptureStep",
-  "source": "screen",
-  "created_at": "2026-11-05T15:00:00+08:00",
-  "modified_at": "2026-11-05T15:00:01+08:00",
-  "description": "同一轮采集的全部显示器截图，请结合全部图片理解当时的用户活动。",
-  "files": [{"path": "1.png"}, {"path": "2.png"}]
-}
+定时截图解读改为 `{metadata_dir}/pa/tasks.json` 中的 query，由 `run_due_tasks` 交给 `task_agent` 执行，默认每五分钟
+到期一次；将该任务的 enabled 改为 false 可关闭。这替代固定的 `screen_capture_cron`。需要安装 `reme-ai[core]`，
+并为实际运行 ReMe 的进程授予录屏权限；可用性取决于本机 MSS 后端。
+
+`finance_news` 查询最近 24 小时的财联社电报，按保留的 JSONL 文件中的 `news_id` 去重，只将本次新增保存为一个文件：
+
+```text
+resource/finance_news/2026-11-07_15-30-00-123456.jsonl
 ```
 
-`dataclass` 为实际 Step 类名，`source` 为来源渠道；时间均带时区，日期目录取采集开始时间。
-`files` 是非空对象列表，每项仅要求 `path`，可增加 `description` 或来源专属字段；路径相对于包目录，不能逃逸或引用符号链接。
-图片编号是该次采集的显示器枚举编号，不承诺跨重启稳定。多屏依次采集，不保证完全同时。
-任何屏幕失败都会丢弃整轮暂存数据，所有图片及 manifest 完成后才在 `resource/` 中发布目录。
-取消时等待正在执行的同步采集退出并清理暂存文件；每日产生 96 次计划采集，失败轮次不保存。
-资源包沿用上述七天 TTL。该任务只采集，不直接调用 LLM，也不生成 daily 卡片。
+每行符合 [`FinanceNewsItem`](../../reme/schema/finance_news.py)，包含 `news_id`、带时区的 `event_time`、`source`、
+`title` 和清洗 HTML 后的完整 `content`。`context` 返回新增数量、查询窗口和读取说明，新闻正文需读取 `paths`，可按需分批读取。
+首次调用保存窗口内全部有效新闻；后续调用及服务重启后，只保存尚未出现在保留文件中的 ID。同 ID 的修订不作为新增返回。
+无新增时返回说明和 `paths=[]`，不创建文件。24 小时是查询窗口，每次调用最多新增一个文件；历史文件按资源清理策略保留。
+删除历史文件也会删除相应的去重依据。
+
+采集与清理使用同一把进程内路径锁，防止并发重复发布。接口分页必须覆盖完整窗口；默认每次请求后等待 10 秒、每页最多尝试
+3 次，连接超时 5 秒、请求超时 20 秒。可通过 Step 配置 `request_interval` 和 `max_retries` 调整限速与重试，工具仍无参数。
+失败或取消不发布部分结果，也不修改已有文件；损坏、超限或符号链接历史文件会明确报错。不能将失败理解为没有新增新闻。
+
+`check_json(path)` 完整解析文件而不修改它。成功直接返回解析值，支持标量和 `null`；失败返回 `success=false` 和
+`answer={path, line, column, error}`。非语法错误的行列为 null。超出读取上限直接失败，不截断后解析。
+cron 和活动时间等业务字段仍由对应配置加载器校验。
 
 ## 图像资源
 

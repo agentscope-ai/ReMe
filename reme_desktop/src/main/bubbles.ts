@@ -20,6 +20,7 @@ export class BubbleQueue {
   private retryAt = 0;
   private shown: number[] = [];
   private lastShown = -Infinity;
+  private speaking = false;
 
   constructor(
     readonly cooldownMs = 10 * 60_000,
@@ -41,7 +42,7 @@ export class BubbleQueue {
     const elapsed = Math.max(0, now - this.previous);
     if (this.visible && this.active) {
       if (!this.confirmed) this.confirmation -= elapsed;
-      else if (!this.active.paused) this.remaining -= elapsed;
+      else if (!this.active.paused && !this.speaking) this.remaining -= elapsed;
     }
     this.previous = now;
   }
@@ -67,6 +68,12 @@ export class BubbleQueue {
     this.active = { ...this.active, paused };
   }
 
+  holdForSpeech(speaking: boolean, now: number): void {
+    if (speaking === this.speaking) return;
+    this.advance(now);
+    this.speaking = speaking;
+  }
+
   dismiss(id: string): void {
     if (this.active?.id === id) this.active = null;
     if (this.waiting?.id === id) this.waiting = null;
@@ -77,6 +84,7 @@ export class BubbleQueue {
     this.waiting = null;
     this.visible = false;
     this.retryAt = 0;
+    this.speaking = false;
   }
 
   tick(now: number, blocked: boolean): Bubble | null {
@@ -90,7 +98,7 @@ export class BubbleQueue {
       this.active &&
       this.confirmed &&
       (this.remaining <= 0 ||
-        (this.active.paused && now - this.pausedAt > 120_000))
+        (this.active.paused && !this.speaking && now - this.pausedAt > 120_000))
     )
       this.active = null;
     this.shown = this.shown.filter((time) => now - time < 3_600_000);

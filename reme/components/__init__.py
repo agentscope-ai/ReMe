@@ -3,6 +3,7 @@
 from . import agent_wrapper
 from . import as_llm
 from . import as_decision_model
+from . import asr
 from . import client
 from .codex_app_server import CodexAppServer
 from . import as_embedding
@@ -18,6 +19,7 @@ from .pa_runtime import PaRuntime
 from . import service
 from . import tag_index
 from . import tokenizer
+from . import tts
 from .application_context import ApplicationContext
 from .base_component import BaseComponent, ComponentMixin
 from .component_registry import ComponentRegistry, R, create_application_registry
@@ -39,6 +41,7 @@ __all__ = [
     "agent_wrapper",
     "as_llm",
     "as_decision_model",
+    "asr",
     "client",
     "as_embedding",
     "embedding_store",
@@ -52,4 +55,5 @@ __all__ = [
     "service",
     "tag_index",
     "tokenizer",
+    "tts",
 ]

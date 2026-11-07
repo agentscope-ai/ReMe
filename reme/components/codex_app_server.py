@@ -634,6 +634,8 @@ class CodexAppServer(BaseComponent):
                             "http_headers": {"Authorization": f"Bearer {state.token}"},
                             "required": True,
                             "enabled_tools": [job.name for job in jobs],
+                            # Application-bound Jobs have separate authorization from native file access.
+                            "tools": {job.name: {"approval_mode": "approve"} for job in jobs},
                             "startup_timeout_sec": mcp_startup_timeout,
                             "tool_timeout_sec": mcp_tool_timeout,
                         }

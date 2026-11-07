@@ -116,6 +116,29 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           </header>
           <p>{reminder.text.replace(/^#+\s*/gm, "").slice(0, 400)}</p>
           <footer>
+            {state.speech.tts && (
+              <button
+                className="subtle"
+                aria-label={t(
+                  state.speech.playback?.messageId === reminder.id
+                    ? "stopSpeech"
+                    : "readAloud",
+                )}
+                onClick={() =>
+                  run(
+                    state.speech.playback?.messageId === reminder.id
+                      ? { type: "speech.stop" }
+                      : {
+                          type: "speech.speak",
+                          sessionId: state.sessionId!,
+                          messageId: reminder.id,
+                        },
+                  )
+                }
+              >
+                {state.speech.playback?.messageId === reminder.id ? "■" : "♫"}
+              </button>
+            )}
             <button
               className="primary"
               onClick={() => run({ type: "chat.open", messageId: reminder.id })}

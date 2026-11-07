@@ -1,188 +1,136 @@
-"""Dated resource retention, catalog persistence, and proactive configuration."""
+"""Mtime retention without catalogs, using isolated files and symlink-safe deletion."""
+
+# pylint: disable=missing-function-docstring,redefined-outer-name
 
 import asyncio
-import shutil
+import os
 import threading
-from datetime import datetime, timezone
-from functools import wraps
-from pathlib import Path
 
 import pytest
-from watchfiles import Change
 
 from reme.components.application_context import ApplicationContext
-from reme.components.file_catalog import LocalFileCatalog
-from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import resolve_app_config
-from reme.schema import ApplicationConfig, FileNode
-from reme.steps.index.cleanup_catalog import CleanupCatalogStep
+from reme.config import resolve_app_config
+from reme.steps.proactive import CleanupResourcesStep
+
+NOW = 1800000000.0
 
 
 @pytest.fixture(autouse=True)
 def fixed_clock(monkeypatch):
-    """The same instant falls on different calendar days in Shanghai and Los Angeles."""
-
-    class FixedDatetime(datetime):
-        """Return a fixed instant while honoring the requested timezone."""
-
-        @classmethod
-        def now(cls, tz=None):
-            return cls(2026, 11, 5, 0, 30, tzinfo=timezone.utc).astimezone(tz)
-
-    monkeypatch.setattr("reme.components.file_catalog.base_file_catalog.datetime", FixedDatetime)
+    monkeypatch.setattr("reme.steps.proactive.cleanup_resources.time.time", lambda: NOW)
 
 
-def _catalog(workspace, **kwargs):
-    app = ApplicationContext(workspace_dir=str(workspace), **kwargs)
-    catalog = LocalFileCatalog(name="resource", app_context=app)
-    app.components["file_catalog"] = {"resource": catalog}
-    return catalog
+def write(workspace, name, age=8):
+    path = workspace / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"content")
+    os.utime(path, (NOW - age * 86400, NOW - age * 86400))
+    return path
 
 
-def _write(workspace, path):
-    target = workspace / path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(b"resource")
-    return FileNode(path=path, st_mtime=target.stat().st_mtime)
+def step(workspace, **config):
+    return CleanupResourcesStep(app_context=ApplicationContext(workspace_dir=str(workspace), **config))
 
 
 @pytest.mark.asyncio
-async def test_retention_uses_directory_dates_and_persists_only_successful_deletions(tmp_path):
-    """At day seven remove the entire dated tree, including uncataloged files and empty folders."""
-    catalog = _catalog(tmp_path)
-    expired = "resource/2026-10-29/sub/report.pdf"
-    retained = [
-        "resource/2026-10-30/recent.txt",
-        "resource/2026-11-06/future.png",
-        "resource/2026-02-30/invalid.txt",
-        "resource/20261001/noncanonical.txt",
-        "resource/archive/2026-10-01/permanent.txt",
-        "resource/loose.txt",
-        "archive/2026-10-01/permanent.txt",
-        "resource-extra/2026-10-01/other.txt",
+async def test_mtime_retention_removes_all_file_types_and_empty_directories(tmp_path):
+    old = [
+        write(tmp_path, "resource/screen_capture/old.png"),
+        write(tmp_path, "resource/news/anything.json", age=7),
+        write(tmp_path, "resource/future-directory/2030-01-01.bin"),
+        write(tmp_path, "resource/root.txt"),
     ]
-    await catalog.upsert([_write(tmp_path, path) for path in [expired, *retained]])
-    _write(tmp_path, "resource/2026-10-29/untracked.bin")
-    (tmp_path / "resource/2026-10-01").mkdir()
-    _write(tmp_path, "resource/2026-10-02")  # A date-named file is not a directory.
-
-    result = await catalog.cleanup_expired("resource", 7)
-
-    assert result == {
-        "deleted_dirs": ["resource/2026-10-01", "resource/2026-10-29"],
-        "deleted_nodes": 1,
-        "errors": {},
-    }
-    assert not (tmp_path / "resource/2026-10-29").exists()
-    assert all((tmp_path / path).exists() for path in retained)
-    assert (tmp_path / "resource/2026-10-02").is_file()
-    reloaded = _catalog(tmp_path)
-    await reloaded.load()
-    assert {node.path for node in await reloaded.get_nodes()} == set(retained)
-    assert (await catalog.cleanup_expired("resource", 7))["deleted_dirs"] == []
+    fresh = write(tmp_path, "resource/2020-01-01/recent.bin", age=6.99)
+    outside = write(tmp_path, "daily/personal/MEMORY.md", age=100)
+    (tmp_path / "resource/empty/nested").mkdir(parents=True)
+    result = await step(tmp_path)()
+    assert result.success
+    assert set(result.answer["deleted_files"]) == {p.relative_to(tmp_path).as_posix() for p in old}
+    assert result.answer["freed_bytes"] == 7 * len(old)
+    assert result.answer["errors"] == {}
+    assert all(not path.exists() for path in old)
+    assert fresh.is_file() and outside.is_file()
+    assert not (tmp_path / "resource/empty").exists()
+    assert (tmp_path / "resource").is_dir()
 
 
 @pytest.mark.asyncio
-async def test_cleanup_uses_configured_timezone_and_resource_directory(tmp_path):
-    """The configured resource root and local date determine eligibility."""
-    catalog = _catalog(tmp_path, timezone="America/Los_Angeles", resource_dir="assets/tmp")
-    catalog.watch_dirs = ["resource_dir"]
-    catalog.ttl_days = 7
-    node = _write(tmp_path, "assets/tmp/2026-10-29/source.bin")
-    await catalog.upsert([node])
-    step = CleanupCatalogStep(app_context=catalog.app_context, file_catalog="resource")
-    response = await step(RuntimeContext(ttl_days=7))
-    assert response.success is True
-    assert response.metadata["deleted_dirs"] == []
-    catalog.ttl_days = 6
-    response = await step(RuntimeContext())
-    assert response.metadata["deleted_dirs"] == ["assets/tmp/2026-10-29"]
-    assert not (tmp_path / node.path).exists()
+async def test_configured_root_and_call_time_ttl_override(tmp_path):
+    old = write(tmp_path, "assets/tmp/report.txt", age=2)
+    other = write(tmp_path, "resource/keep.txt")
+    cleanup = step(tmp_path, resource_dir="assets/tmp", timezone="America/Los_Angeles")
+    assert (await cleanup()).answer["deleted_files"] == []
+    assert (await cleanup(ttl_days=1)).answer["deleted_files"] == ["assets/tmp/report.txt"]
+    assert not old.exists() and other.is_file()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("ttl_days", [0, -1, True, 1.5, "7", None])
-async def test_cleanup_rejects_invalid_ttl_before_deleting(tmp_path, ttl_days):
-    """Invalid retention settings cannot authorize deletions."""
-    catalog = _catalog(tmp_path)
-    node = _write(tmp_path, "resource/2026-10-01/source.txt")
+@pytest.mark.parametrize("ttl", [0, -1, True, 1.5, "7", None])
+async def test_invalid_ttl_does_not_delete(tmp_path, ttl):
+    path = write(tmp_path, "resource/old.bin")
     with pytest.raises(ValueError, match="ttl_days"):
-        await catalog.cleanup_expired("resource", ttl_days)
-    assert (tmp_path / node.path).exists()
+        await step(tmp_path)(ttl_days=ttl)
+    assert path.is_file()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("directory", ["", ".", "..", "resource/../archive", "~/resource", "/tmp"])
-async def test_cleanup_rejects_unsafe_roots(tmp_path, directory):
-    """Cleanup accepts only a non-root workspace-relative directory."""
-    catalog = _catalog(tmp_path)
-    with pytest.raises(ValueError, match="inside the workspace"):
-        await catalog.cleanup_expired(directory, 7)
+@pytest.mark.parametrize("root", ["", ".", "..", "resource/../archive", "~/resource", "/tmp"])
+async def test_unsafe_roots_are_rejected(tmp_path, root):
+    path = write(tmp_path, "resource/old.bin")
+    with pytest.raises(ValueError):
+        await step(tmp_path, resource_dir=root)()
+    assert path.is_file()
 
 
 @pytest.mark.asyncio
-async def test_cleanup_never_follows_directory_symlinks(tmp_path):
-    """Dated symlinks are skipped, inner links are unlinked, and linked roots are refused."""
-    catalog = _catalog(tmp_path)
-    permanent = _write(tmp_path, "archive/2026-10-01/keep.txt")
+async def test_symlinked_roots_and_nested_links_are_never_followed(tmp_path):
+    permanent = write(tmp_path, "archive/keep.txt")
     root = tmp_path / "resource"
     root.mkdir()
-    (root / "2026-10-01").symlink_to(tmp_path / "archive/2026-10-01", target_is_directory=True)
-    (root / "2026-10-02").mkdir()
-    (root / "2026-10-02/link").symlink_to(tmp_path / "archive", target_is_directory=True)
-    (tmp_path / "linked").symlink_to(root, target_is_directory=True)
-
+    (root / "linked-dir").symlink_to(permanent.parent, target_is_directory=True)
+    (root / "linked-file").symlink_to(permanent)
+    (tmp_path / "linked-root").symlink_to(root, target_is_directory=True)
     with pytest.raises(ValueError, match="symlinks"):
-        await catalog.cleanup_expired("linked", 7)
-    result = await catalog.cleanup_expired("resource", 7)
-    assert result["deleted_dirs"] == ["resource/2026-10-02"]
-    assert (root / "2026-10-01").is_symlink()
-    assert (tmp_path / permanent.path).is_file()
+        await step(tmp_path, resource_dir="linked-root")()
+    result = await step(tmp_path)()
+    assert result.success and result.answer["deleted_files"] == []
+    assert permanent.is_file()
+    assert (root / "linked-dir").is_symlink() and (root / "linked-file").is_symlink()
 
 
 @pytest.mark.asyncio
-async def test_cleanup_reports_failures_without_pruning_failed_catalog_entries(tmp_path, monkeypatch):
-    """A failed directory remains retryable while successful deletes are persisted."""
-    catalog = _catalog(tmp_path)
-    nodes = [_write(tmp_path, f"resource/{day}/source.txt") for day in ["2026-10-01", "2026-10-02"]]
-    await catalog.upsert(nodes)
-    original = shutil.rmtree
+async def test_failed_file_is_reported_while_other_deletions_finish(tmp_path, monkeypatch):
+    blocked = write(tmp_path, "resource/blocked.bin")
+    deleted = write(tmp_path, "resource/deleted.bin")
+    unlink = os.unlink
 
-    @wraps(original)
-    def remove(path, **kwargs):
-        if Path(path).name == "2026-10-01":
+    def remove(name, *args, **kwargs):
+        if name == "blocked.bin":
             raise PermissionError("blocked")
-        original(path, **kwargs)
+        return unlink(name, *args, **kwargs)
 
-    monkeypatch.setattr("reme.components.file_catalog.local_file_catalog.shutil.rmtree", remove)
-    catalog.watch_dirs = ["resource_dir"]
-    catalog.ttl_days = 7
-    step = CleanupCatalogStep(app_context=catalog.app_context, file_catalog="resource")
-    response = await step(RuntimeContext())
-    assert response.success is False
-    assert response.metadata["errors"] == {"resource/2026-10-01": "blocked"}
-    assert response.metadata["deleted_dirs"] == ["resource/2026-10-02"]
-    reloaded = _catalog(tmp_path)
-    await reloaded.load()
-    assert [node.path for node in await reloaded.get_nodes()] == [nodes[0].path]
+    monkeypatch.setattr(os, "unlink", remove)
+    result = await step(tmp_path)()
+    assert not result.success
+    assert result.answer["errors"] == {"resource/blocked.bin": "blocked"}
+    assert result.answer["deleted_files"] == ["resource/deleted.bin"]
+    assert blocked.is_file() and not deleted.exists()
 
 
 @pytest.mark.asyncio
-async def test_cancellation_finishes_deletion_and_catalog_persistence(tmp_path, monkeypatch):
-    """Cancellation cannot leave a deletion worker publishing outside the catalog lock."""
-    catalog = _catalog(tmp_path)
-    await catalog.upsert([_write(tmp_path, "resource/2026-10-01/source.txt")])
+async def test_cancellation_waits_for_deletion_worker(tmp_path, monkeypatch):
+    path = write(tmp_path, "resource/old.bin")
     entered, release = threading.Event(), threading.Event()
-    original = shutil.rmtree
+    unlink = os.unlink
 
-    @wraps(original)
-    def remove(path, **kwargs):
-        entered.set()
-        assert release.wait(5)
-        original(path, **kwargs)
+    def remove(name, *args, **kwargs):
+        if name == "old.bin":
+            entered.set()
+            assert release.wait(5)
+        return unlink(name, *args, **kwargs)
 
-    monkeypatch.setattr("reme.components.file_catalog.local_file_catalog.shutil.rmtree", remove)
-    task = asyncio.create_task(catalog.cleanup_expired("resource", 7))
+    monkeypatch.setattr(os, "unlink", remove)
+    task = asyncio.create_task(step(tmp_path)())
     try:
         async with asyncio.timeout(5):
             while not entered.is_set():
@@ -194,107 +142,58 @@ async def test_cancellation_finishes_deletion_and_catalog_persistence(tmp_path, 
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
-    reloaded = _catalog(tmp_path)
-    await reloaded.load()
-    assert await reloaded.get_nodes() == []
-    assert not (tmp_path / "resource/2026-10-01").exists()
+    assert not path.exists()
 
 
 @pytest.mark.asyncio
-async def test_cleanup_cannot_follow_a_root_swapped_after_validation(tmp_path, monkeypatch):
-    """Replacing resource/ with a link during deletion cannot delete permanent material."""
-    catalog = _catalog(tmp_path)
-    await catalog.upsert([_write(tmp_path, "resource/2026-10-01/temporary.txt")])
-    permanent = _write(tmp_path, "archive/2026-10-01/permanent.txt")
+async def test_root_replacement_cannot_redirect_deletion(tmp_path, monkeypatch):
+    write(tmp_path, "resource/old.bin")
+    permanent = write(tmp_path, "archive/old.bin")
     root = tmp_path / "resource"
-    original = shutil.rmtree
+    unlink = os.unlink
 
-    @wraps(original)
-    def remove(path, **kwargs):
-        root.rename(tmp_path / "moved-resource")
-        root.symlink_to(tmp_path / "archive", target_is_directory=True)
-        original(path, **kwargs)
+    def remove(name, *args, **kwargs):
+        if name == "old.bin" and not root.is_symlink():
+            root.rename(tmp_path / "moved-resource")
+            root.symlink_to(permanent.parent, target_is_directory=True)
+        return unlink(name, *args, **kwargs)
 
-    monkeypatch.setattr("reme.components.file_catalog.local_file_catalog.shutil.rmtree", remove)
-    await catalog.cleanup_expired("resource", 7)
-    assert (tmp_path / permanent.path).is_file()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_retries_catalog_persistence_after_a_write_failure(tmp_path, monkeypatch):
-    """Retrying after a failed dump persists removals even though source directories are already gone."""
-    catalog = _catalog(tmp_path)
-    await catalog.upsert([_write(tmp_path, "resource/2026-10-01/source.txt")])
-    await catalog.dump()
-    import reme.components.file_catalog.local_file_catalog as module
-
-    original = module.write_jsonl_zst
-
-    def fail(*_args, **_kwargs):
-        raise OSError("disk full")
-
-    monkeypatch.setattr(module, "write_jsonl_zst", fail)
-    with pytest.raises(OSError, match="disk full"):
-        await catalog.cleanup_expired("resource", 7)
-    monkeypatch.setattr(module, "write_jsonl_zst", original)
-    restarted = _catalog(tmp_path)
-    await restarted.load()
-    await restarted.cleanup_expired("resource", 7)
-    reloaded = _catalog(tmp_path)
-    await reloaded.load()
-    assert await reloaded.get_nodes() == []
+    monkeypatch.setattr(os, "unlink", remove)
+    result = await step(tmp_path)()
+    assert result.success
+    assert permanent.read_bytes() == b"content"
+    assert not (tmp_path / "moved-resource/old.bin").exists()
 
 
 @pytest.mark.asyncio
-async def test_cleanup_refuses_platforms_without_safe_directory_deletion(tmp_path, monkeypatch):
-    """Unsupported platforms fail before deleting source files."""
-    catalog = _catalog(tmp_path)
-    node = _write(tmp_path, "resource/2026-10-01/source.txt")
-    monkeypatch.setattr(shutil.rmtree, "avoids_symlink_attacks", False)
-    with pytest.raises(RuntimeError, match="symlink-resistant"):
-        await catalog.cleanup_expired("resource", 7)
-    assert (tmp_path / node.path).is_file()
+@pytest.mark.parametrize("scope", [[], ["daily"], ["../outside"]])
+async def test_allowed_paths_fail_closed(tmp_path, scope):
+    path = write(tmp_path, "resource/old.bin")
+    with pytest.raises(PermissionError):
+        await step(tmp_path)(_allowed_paths=scope)
+    assert path.is_file()
 
 
 @pytest.mark.asyncio
-async def test_proactive_watcher_only_observes_and_cleanup_uses_shared_catalog_settings(tmp_path, monkeypatch):
-    """Proactive has one scope, a read-only watcher, and TTL cleanup independent of consumption."""
-    config = ApplicationConfig(**resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path)))
-    app = ApplicationContext(**config.model_dump())
-    catalog = LocalFileCatalog(
-        name="resource",
-        app_context=app,
-        **config.components["file_catalog"]["resource"].model_dump(),
-    )
-    app.components["file_catalog"] = {"resource": catalog}
-    paths = ["resource/2026-10-01/source.pdf", "resource/2026-11-05/source.unknown"]
-    for path in paths:
-        _write(tmp_path, path)
-    watcher = config.jobs["resource_watch_loop"]
-    assert watcher.model_extra == {"file_catalog": "resource"}
-    assert [step.backend for step in watcher.steps] == ["watch_changes_step"]
-    assert watcher.steps[0].model_extra["dispatch_steps"] == ["log_changes_step"]
-    from reme.steps.index.watch_changes import WatchChangesStep
+async def test_missing_root_is_a_successful_noop(tmp_path):
+    result = await step(tmp_path)()
+    assert result.success
+    assert result.answer == {"deleted_files": [], "deleted_dirs": [], "freed_bytes": 0, "errors": {}}
+    assert not (tmp_path / "resource").exists()
 
-    step = WatchChangesStep(app_context=app, **watcher.steps[0].model_dump())
-    step.context = RuntimeContext(stop_event=asyncio.Event(), **watcher.model_extra)
-    assert step._get_watch_rules() == catalog.watch_rules  # pylint: disable=protected-access
 
-    async def changes(*_paths, **_kwargs):
-        yield {(Change.added, str(tmp_path / paths[1]))}
+@pytest.mark.asyncio
+async def test_unsupported_platform_fails_before_deletion(tmp_path, monkeypatch):
+    path = write(tmp_path, "resource/old.bin")
+    monkeypatch.delattr(os, "fwalk")
+    with pytest.raises(RuntimeError, match="symlink-safe"):
+        await step(tmp_path)()
+    assert path.is_file()
 
-    monkeypatch.setattr("reme.steps.index.watch_changes.awatch", changes)
-    await step.execute()
-    assert not catalog.watch_suffixes
-    assert catalog.watch_filenames == ["metadata.json"]
-    assert catalog.ttl_days == 7
-    assert await catalog.get_nodes() == []
-    cleanup = config.jobs["resource_cleanup_cron"]
-    assert cleanup.model_extra == {"cron": "0 * * * *", "file_catalog": "resource"}
-    cleanup_config = cleanup.steps[0].model_dump()
-    step_cls = app.registry.get("step", cleanup_config["backend"])
-    response = await step_cls(app_context=app, **cleanup_config)(RuntimeContext(**cleanup.model_extra))
-    assert response.success is True
-    assert response.metadata["deleted_dirs"] == ["resource/2026-10-01"]
-    assert (tmp_path / paths[1]).is_file()
-    assert await catalog.get_nodes() == []
+
+def test_cleanup_is_daily_and_does_not_depend_on_a_catalog():
+    config = resolve_app_config(config="proactive", log_config=False)
+    job = config["jobs"]["resource_cleanup_cron"]
+    assert job["backend"] == "cron" and job["cron"] == "0 3 * * *"
+    assert job["steps"] == [{"backend": "cleanup_resources_step", "ttl_days": 7}]
+    assert "file_catalog" not in config["components"]

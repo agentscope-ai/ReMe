@@ -111,6 +111,11 @@ export interface Settings {
   scale: number;
   quietUntil: number;
   notifications: boolean;
+  voiceAutoSend: boolean;
+  voiceEnabled: boolean;
+  voiceReplies: boolean;
+  voiceReminders: boolean;
+  voiceVolume: number;
   anchor?: { x: number; y: number };
 }
 
@@ -151,6 +156,31 @@ export interface DesktopState {
   chatFocused: boolean;
   focusMessageId: string | null;
   behavior: Behavior;
+  speech: SpeechState;
+}
+
+export interface SpeechState {
+  asr: boolean;
+  tts: boolean;
+  capture: {
+    id: string;
+    phase: "starting" | "recording" | "transcribing";
+  } | null;
+  playback: {
+    id: number;
+    messageId: string;
+    kind: "manual" | "reply" | "reminder";
+    phase: "loading" | "playing";
+    part: number;
+    total: number;
+  } | null;
+  error: ErrorData | null;
+}
+
+export interface SpeechAudio {
+  audio: string;
+  format: "wav" | "mp3" | "pcm" | "opus";
+  sample_rate: number;
 }
 
 export type DesktopPatch = Partial<DesktopState> & { revision: number };
@@ -188,6 +218,14 @@ export interface Bootstrap {
 }
 
 export type DesktopAction =
+  | { type: "speech.ready"; ready: boolean }
+  | { type: "speech.capture"; id: string }
+  | { type: "speech.recording"; id: string }
+  | { type: "speech.cancel"; id: string }
+  | { type: "speech.speak"; sessionId: string; messageId: string }
+  | { type: "speech.stop" }
+  | { type: "speech.clearError" }
+  | { type: "speech.report"; id: number; status: PlaybackStatus }
   | { type: "playback.report"; id: number; status: PlaybackStatus }
   | {
       type: "bubble.shown";
@@ -209,11 +247,20 @@ export type DesktopAction =
   | ({ type: "settings.update" } & SettingsUpdate)
   | { type: "link.open"; url: string };
 
-export type DesktopCommand = { type: "settings.open" };
+export type DesktopCommand =
+  | { type: "settings.open" }
+  | { type: "speech.play"; id: number; audio: SpeechAudio }
+  | { type: "speech.stop"; id: number };
 
 export interface DesktopApi {
   bootstrap(): Promise<Bootstrap>;
   action(action: DesktopAction): Promise<ErrorData | null>;
+  transcribe(request: {
+    id: string;
+    audio: Uint8Array;
+  }): Promise<
+    { text: string; error?: never } | { error: ErrorData; text?: never }
+  >;
   onState(callback: (state: DesktopPatch) => void): () => void;
   onLayout(callback: (layout: WindowLayout) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
@@ -229,5 +276,6 @@ export const channels = {
   pointer: "reme:pointer",
   drag: "reme:drag",
   command: "reme:command",
+  transcribe: "reme:transcribe",
 } as const;
 import type { ErrorData, Language } from "./i18n.ts";

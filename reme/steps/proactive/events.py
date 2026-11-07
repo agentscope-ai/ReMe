@@ -2,22 +2,19 @@
 
 from contextlib import aclosing
 
-from .pa import _PaStep
+from .base_pa_step import BasePaStep
 from ...components import R
 from ...enumeration import ChunkEnum
 from ...schema import StreamChunk
 
 
 @R.register("pa_events_step")
-class PaEventsStep(_PaStep):
+class PaEventsStep(BasePaStep):
     """Relay cursor-based changes through the existing StreamJob transport."""
 
     async def execute(self):
         self._validate("cursor")
-        runtime = self._runtime
-        if runtime is None:
-            raise RuntimeError("pa_events requires a configured pa component")
-        async with aclosing(runtime.events(self.context.get("cursor"))) as events:
+        async with aclosing(self.pa.events(self.context.get("cursor"))) as events:
             async for event in events:
                 await self.context.add_stream_chunk(
                     StreamChunk(

@@ -86,6 +86,32 @@ Animation playback reports start, end, and failure with its playback ID. Missing
 recover to idle without changing the agent's real activity. The companion receives only presentation data; chat history
 is excluded. Revisioned IPC patches update changed fields, and native bounds change only when the layout or position does.
 
+## Voice
+
+Voice uses the connected ReMe service's optional `asr_demo` and `tts_demo` jobs. The built-in proactive configuration
+provides both; set `DASHSCOPE_API_KEY` in the service environment. Voice remains optional: a service without these jobs
+still supports text chat. Model, voice, and encoding are configured on the ReMe service. The proactive configuration
+defaults to `longanhuan_v3.1` with a sweet, light, playful female voice instruction.
+
+- Hold the microphone in chat and release to transcribe, or use **Command/Ctrl + Shift + M** to start and finish.
+  Recognition inserts text at the current draft selection and sends the composed message by default. Turn off
+  **Send after transcription** in settings to keep an editable draft instead. **Escape** cancels.
+  Recordings stop after 24 seconds. Very short or silent recordings are discarded locally.
+- Assistant messages and reminder bubbles have a speaker button. Select it again, or use the playback stop control, to
+  stop narration. Long messages play in sentence-based parts; code blocks and link URLs are omitted.
+- Settings provides automatic narration, separate reply/reminder switches, and volume. New replies are read aloud by
+  default; reminder narration is off. It reads up to 600 characters of a new successful reply or a displayed reminder. Reconnection and history
+  snapshots stay silent; quiet mode interrupts automatic narration. Explicit speaker playback remains available.
+- One audio host serves both windows. Actual playback drives speaking animation; recording drives listening animation.
+  Spoken reminders keep their bubble visible through synthesis and playback. Narration never marks a reminder read.
+- Starting a recording, sending a new message, switching sessions/endpoints, or disconnecting cancels obsolete voice
+  work. Hiding chat cancels recording and manual chat playback. Microphone denial and service/playback errors leave
+  the draft and conversation intact, with a retryable explanation in chat.
+
+Microphone access is restricted to the chat window during an explicit recording request. Allow microphone access in
+system privacy settings if prompted. Recordings are sent to the configured ReMe service and its ASR provider; Desktop
+does not save recordings or generated audio. Synthesized audio has a bounded five-minute in-memory cache.
+
 ## Files and assets
 
 `src/main/` owns native windows, ReMe connectivity and local persistence; `src/preload/` defines the renderer bridge;
@@ -117,4 +143,5 @@ npm run dist             # Installers for the host platform; never publishes
 
 Build outputs (`out/`, `dist/`) and UI test captures (`reports/`) are ignored. Installer signing is a release concern;
 local package generation does not establish Windows/Linux behavior, macOS Spaces/fullscreen behavior, or performance.
-Real-provider integration is separate from the mocked desktop tests. Voice input/output is not included in this version.
+Real-provider integration is separate from the mocked desktop tests. Voice tests use a virtual microphone and locally
+generated WAV audio against a mocked ReMe service; they do not establish recognition quality or live-provider availability.

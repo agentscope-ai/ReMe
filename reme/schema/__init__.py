@@ -23,16 +23,24 @@ from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
 from .job_execution import JobExecution, JobExecutionStatus
 from .pa_event import PaEvent
+from .pa_session import PaSessionCursor
+from .pa_proactive import PaProactiveConfig
+from .pa_task import PaTask, PaTaskRun
 from .file_link import FileLink
 from .file_node import FileNode
+from .finance_news import FinanceNewsItem
 from .request import Request
 from .response import Response
-from .resource_metadata import ResourceFile, ResourceMetadata
+from .reminder import ReminderRecord
+from .connector_result import ConnectorResult
 from .stream_chunk import StreamChunk
+from .speech import ASRResult, TTSResult
 from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ASRResult",
+    "TTSResult",
     "AgentActivity",
     "AgentReply",
     "collect_reply",
@@ -43,6 +51,7 @@ __all__ = [
     "CompactionResult",
     "ApplicationConfig",
     "ComponentConfig",
+    "ConnectorResult",
     "DreamExtractOutput",
     "DreamState",
     "DreamUnit",
@@ -51,6 +60,7 @@ __all__ = [
     "FileFrontMatter",
     "FileLink",
     "FileNode",
+    "FinanceNewsItem",
     "GraphSnapshot",
     "GraphSnapshotEdge",
     "GraphSnapshotNode",
@@ -59,14 +69,17 @@ __all__ = [
     "JobExecution",
     "JobExecutionStatus",
     "PaEvent",
+    "PaSessionCursor",
+    "PaProactiveConfig",
+    "PaTask",
+    "PaTaskRun",
     "ProactiveResult",
     "ProactiveState",
     "ProactiveStateFile",
     "ProactiveTopic",
     "Request",
     "Response",
-    "ResourceFile",
-    "ResourceMetadata",
+    "ReminderRecord",
     "SessionMessage",
     "SessionSnapshot",
     "SessionStatus",

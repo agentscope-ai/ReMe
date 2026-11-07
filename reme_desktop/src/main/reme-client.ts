@@ -5,16 +5,42 @@ import type { StreamChunk } from "../shared/protocol.ts";
 export class ReMeClient {
   constructor(readonly endpoint: string) {}
 
-  async call<T>(job: string, body: object, signal: AbortSignal): Promise<T> {
+  async call<T>(
+    job: string,
+    body: object,
+    signal: AbortSignal,
+    options: { timeoutMs?: number; maxBytes?: number } = {},
+  ): Promise<T> {
     const response = await fetch(`${this.endpoint}/${job}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
+      signal: AbortSignal.any([
+        signal,
+        AbortSignal.timeout(options.timeoutMs ?? 30_000),
+      ]),
     });
     if (!response.ok)
       throw new UiError("httpError", { job, status: response.status });
-    const payload = (await response.json()) as { success: boolean; answer: T };
+    let payload: { success: boolean; answer: T };
+    if (options.maxBytes && response.body) {
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          if (size > options.maxBytes) throw new UiError("speechAudioTooLarge");
+          chunks.push(value);
+        }
+        payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    } else payload = await response.json();
     if (payload.success !== true)
       throw typeof payload.answer === "string"
         ? new Error(payload.answer)

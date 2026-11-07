@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BubbleQueue } from "../src/main/bubbles.ts";
+
+test("narration holds the remaining visible time without changing hover state or reminder budget", () => {
+  const queue = new BubbleQueue(0);
+  queue.offer({ id: "voice", text: "Read this reminder" });
+  const bubble = queue.tick(1000, false)!;
+  queue.presented(bubble.id, bubble.presentationId, 1000);
+  queue.holdForSpeech(true, 1100);
+  assert.equal(queue.tick(60_000, false)?.id, "voice");
+  assert.equal(queue.active?.paused, false);
+  queue.holdForSpeech(false, 60_000);
+  assert.equal(queue.tick(61_000, false)?.id, "voice");
+  assert.equal(queue.tick(80_000, false), null);
+});
 import { companionPlacement } from "../src/main/placement.ts";
 
 test("bubble expiry pauses on hover, and stale actions cannot close a newer bubble", () => {

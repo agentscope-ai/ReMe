@@ -12,6 +12,7 @@ const subscribe = <T>(channel: string, callback: (value: T) => void) => {
 const api: DesktopApi = {
   bootstrap: () => ipcRenderer.invoke(channels.bootstrap),
   action: (action) => ipcRenderer.invoke(channels.action, action),
+  transcribe: (request) => ipcRenderer.invoke(channels.transcribe, request),
   onState: (callback) => subscribe(channels.state, callback),
   onLayout: (callback) => subscribe(channels.layout, callback),
   onCommand: (callback) => subscribe(channels.command, callback),

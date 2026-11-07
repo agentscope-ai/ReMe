@@ -13,6 +13,13 @@ test("settings and scoped receipts survive serialized atomic writes without pers
     assert.equal(storage.settings.language, "zh");
     storage.settings.language = "en";
     storage.settings.scale = 1.2;
+    assert.equal(storage.settings.voiceAutoSend, true);
+    assert.equal(storage.settings.voiceEnabled, true);
+    assert.equal(storage.settings.voiceReminders, false);
+    storage.settings.voiceAutoSend = false;
+    storage.settings.voiceEnabled = true;
+    storage.settings.voiceReminders = true;
+    storage.settings.voiceVolume = 0.35;
     storage.presentation("workspace-a:session-1").receipts.a = {
       read: false,
       presented: true,
@@ -27,6 +34,10 @@ test("settings and scoped receipts survive serialized atomic writes without pers
     await restored.load();
     assert.equal(restored.settings.scale, 1.4);
     assert.equal(restored.settings.language, "en");
+    assert.equal(restored.settings.voiceEnabled, true);
+    assert.equal(restored.settings.voiceAutoSend, false);
+    assert.equal(restored.settings.voiceReminders, true);
+    assert.equal(restored.settings.voiceVolume, 0.35);
     assert.equal(
       restored.presentation("workspace-a:session-1").receipts.a.snoozeUntil,
       1000,

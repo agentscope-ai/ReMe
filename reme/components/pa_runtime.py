@@ -2,20 +2,49 @@
 
 import asyncio
 from collections import deque
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import datetime
 from hashlib import sha256
+import json
 import math
+import os
+from pathlib import Path
 import re
+import threading
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from .agent_wrapper import CodexAgentWrapper
 from .base_component import BaseComponent
 from .component_registry import R
+from ._pa_hints import ProactiveHints
+from ._pa_reminders import ReminderDelivery
+from ._pa_tasks import TaskScheduler
 from ..schema.agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from ..schema.pa_event import PaEvent
 from ..schema.agent_activity import AgentActivity
+from ..schema.pa_session import PaSessionCursor
+from ..schema.pa_proactive import PaProactiveConfig
+from ..schema.pa_task import PaTask
+from ..schema.response import Response
+from ..utils.async_utils import complete_in_thread, finish_cleanup
+from ..constants import DEFAULT_MAX_FILE_BYTES
 
 _CURSOR = re.compile(r"([0-9a-f]{32}):(0|[1-9][0-9]{0,19})\Z")
+_SESSION_LIMIT = 100
+_SESSION_FILE_BYTES = 128 * 1024
+
+
+@dataclass(slots=True)
+class ProactiveRound:
+    """One live agent round; deferred reminders outlive this object."""
+
+    session_id: str | None
+    id: str = field(default_factory=lambda: uuid4().hex)
+    request: str | None = None
+    result: dict = field(default_factory=lambda: {"sent": False, "status": "skipped"})
 
 
 @R.register("local")
@@ -35,6 +64,8 @@ class PaRuntime(BaseComponent):
         max_events: int = 512,
         max_buffer_bytes: int = 4 * 1024 * 1024,
         heartbeat_seconds: float = 15,
+        default_tasks: list[dict] | None = None,
+        default_proactive: dict | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -52,7 +83,20 @@ class PaRuntime(BaseComponent):
         self.max_events = max_events
         self.max_buffer_bytes = max_buffer_bytes
         self.heartbeat_seconds = heartbeat_seconds
-        self.state: dict = {}
+        self.default_tasks = [PaTask.model_validate(item) for item in default_tasks or []]
+        self.default_proactive = PaProactiveConfig.model_validate(default_proactive) if default_proactive is not None else None
+        self.session_id: str | None = None
+        self.session_lock = asyncio.Lock()
+        self.current_round: ProactiveRound | None = None
+        self.hints = ProactiveHints(self)
+        self.tasks = TaskScheduler(self)
+        self.reminders = ReminderDelivery(self)
+        self._inbox_lock = asyncio.Lock()
+        self._proactive_lock = asyncio.Lock()
+        self._work_context_lock = threading.Lock()
+        self._sessions_lock = asyncio.Lock()
+        self._conversation_lock = asyncio.Lock()
+        self._handoff_lock = asyncio.Lock()
         self._epoch = uuid4().hex
         self._sequence = 0
         self._revision = 0
@@ -69,6 +113,337 @@ class PaRuntime(BaseComponent):
         self._reset_reason = "cursor_expired"
 
     @property
+    def proactive_inbox_path(self) -> Path:
+        """Keep proactive feedback in the PA component's metadata directory."""
+        return self._metadata_file("proactive_inbox.txt")
+
+    def _metadata_file(self, name: str) -> Path:
+        path = self.component_metadata_path / name
+        if not path.resolve().is_relative_to(self.workspace_path.resolve()) or path.resolve() != path.absolute():
+            raise ValueError("PA metadata must stay inside the workspace without symlinks")
+        return path
+
+    def _now(self) -> datetime:
+        timezone = self.app_context.app_config.timezone if self.app_context else None
+        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+
+    @property
+    def proactive_config_path(self) -> Path:
+        return self._metadata_file("proactive.json")
+
+    @property
+    def handoff_path(self) -> Path:
+        return self._metadata_file("handoff.txt")
+
+    def _load_proactive_config(self) -> PaProactiveConfig:
+        with self.proactive_config_path.open("rb") as handle:
+            content = handle.read(4097)
+        if len(content) > 4096:
+            raise ValueError("proactive.json exceeds 4096 bytes")
+        return PaProactiveConfig.model_validate_json(content)
+
+    async def get_proactive_config(self) -> PaProactiveConfig:
+        """Reload user edits without caching a second configuration source."""
+        return await asyncio.to_thread(self._load_proactive_config)
+
+    async def read_handoff(self) -> str:
+        def read():
+            with self.handoff_path.open("rb") as handle:
+                content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
+            if len(content) > DEFAULT_MAX_FILE_BYTES:
+                raise ValueError("handoff.txt exceeds the file read limit")
+            return content.decode("utf-8")
+
+        async with self._handoff_lock:
+            return await asyncio.to_thread(read)
+
+    async def write_handoff(self, content: str) -> None:
+        """Replace the previous summary only after a completed, nonempty round."""
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("handoff must contain a non-empty summary")
+        if len(content.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
+            raise ValueError("handoff exceeds the file size limit")
+        async with self._handoff_lock:
+            await complete_in_thread(self._write_text, self.handoff_path, content.strip() + "\n")
+
+    @property
+    def proactive_context_path(self) -> Path:
+        """Consumed inputs and partial progress, retained until a handoff is saved."""
+        return self._metadata_file("proactive_context.jsonl")
+
+    def _checkpoint_context(self, round_id: str | None, kind: str, value) -> None:
+        if round_id is not None and value:
+            with self._work_context_lock:
+                self._append_jsonl(self.proactive_context_path, {
+                    "round_id": round_id, "time": self._now().isoformat(), "kind": kind, "value": value,
+                })
+
+    async def checkpoint_proactive(self, round_id: str | None, kind: str, value) -> None:
+        await complete_in_thread(self._checkpoint_context, round_id, kind, value)
+
+    async def clear_proactive_context(self) -> None:
+        def clear():
+            with self._work_context_lock:
+                self._write_text(self.proactive_context_path, "")
+        await complete_in_thread(clear)
+
+    async def send_to_proactive(self, message: str) -> None:
+        """Append timestamped feedback without starting an agent turn."""
+        if not isinstance(message, str) or not message.strip():
+            raise ValueError("message must be a non-empty string")
+        entry = f"[{self._now().isoformat()}] Chat Agent\n{message.strip()}\n\n"
+
+        def append():
+            target = self.proactive_inbox_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target = self.proactive_inbox_path
+            flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+            with os.fdopen(os.open(target, flags, 0o600), "a", encoding="utf-8") as handle:
+                handle.write(entry)
+                handle.flush()
+                os.fsync(handle.fileno())
+
+        async with self._inbox_lock:
+            await complete_in_thread(append)
+
+    async def get_proactive_messages(
+        self, max_bytes: int = DEFAULT_MAX_FILE_BYTES, *, round_id: str | None = None,
+    ) -> str:
+        """Read and clear the inbox under the same lock used by appends."""
+        if type(max_bytes) is not int or max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+
+        def consume() -> str:
+            target = self.proactive_inbox_path
+            try:
+                descriptor = os.open(target, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
+            except FileNotFoundError:
+                return ""
+            with os.fdopen(descriptor, "r+b") as handle:
+                content = handle.read(max_bytes + 1)
+                if len(content) > max_bytes:
+                    raise ValueError(f"proactive inbox exceeds read limit of {max_bytes} bytes; inbox was not cleared")
+                text = content.decode("utf-8")
+                if content:
+                    self._checkpoint_context(round_id, "feedback", text)
+                    handle.seek(0)
+                    handle.truncate()
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                return text
+
+        async with self._inbox_lock:
+            return await complete_in_thread(consume)
+
+    @property
+    def reminders_path(self) -> Path:
+        """Append-only reminder history owned by the PA component."""
+        return self._metadata_file("reminders.jsonl")
+
+    def _append_jsonl(self, path: Path, data: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(path, flags, 0o600), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(data, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
+    @asynccontextmanager
+    async def proactive_round(self):
+        async with self._proactive_lock:
+            current = ProactiveRound(session_id=self.session_id)
+            self.current_round = current
+            try:
+                yield current
+            finally:
+                self.current_round = None
+
+    async def send_reminder(self, content: str, *, round_id: str, session_id: str | None) -> dict:
+        """Own binding, validation, one-decision semantics and cancellation-safe publication."""
+        return await finish_cleanup(self._submit_reminder(content, round_id, session_id))
+
+    async def _submit_reminder(self, content: str, round_id: str, session_id: str | None) -> dict:
+        async with self.reminders.lock:
+            current = self.current_round
+            if current is None or current.id != round_id or current.session_id != session_id:
+                raise ValueError("send_reminder requires a live, server-bound proactive round")
+            if not isinstance(content, str) or len(content.strip()) > 200:
+                raise ValueError("content must be a string of at most 200 characters")
+            content = content.strip()
+            if current.request is not None:
+                if current.request != content:
+                    raise ValueError("Only one reminder decision may be submitted per round")
+                if not content:
+                    return current.result
+            result = await self.reminders.submit(content, session_id=session_id, message_id=current.id)
+            current.request = content
+            current.result = result
+            return result
+
+    async def deliver_pending_reminder(self) -> None:
+        await self.reminders.deliver_pending()
+
+    async def get_reminder(self, limit: int = 10, offset: int = 0) -> list[dict]:
+        return await self.reminders.history(limit, offset)
+
+    async def run_due_tasks(
+        self, runner: Callable[..., Awaitable[Response]], *, stop_event: asyncio.Event | None = None,
+    ) -> list[dict]:
+        return await self.tasks.run(runner, stop_event=stop_event)
+
+    @staticmethod
+    def _reverse_jsonl_lines(handle):
+        """Scan JSONL from EOF without loading its entire history."""
+        position = handle.seek(0, os.SEEK_END)
+        pending = b""
+        while position:
+            size = min(position, 8192)
+            position -= size
+            handle.seek(position)
+            lines = (handle.read(size) + pending).split(b"\n")
+            pending = lines[0]
+            for line in reversed(lines[1:]):
+                if line.strip():
+                    yield line
+        if pending.strip():
+            yield pending
+
+
+    @property
+    def tasks_path(self) -> Path:
+        """User-editable task definitions."""
+        return self._metadata_file("tasks.json")
+
+    @property
+    def task_runs_path(self) -> Path:
+        """Append-only task start and finish records."""
+        return self._metadata_file("task_runs.jsonl")
+
+
+    @property
+    def session_ids_path(self) -> Path:
+        """Recent chat sessions, oldest first, with persisted read cursors."""
+        return self._metadata_file("session_ids.json")
+
+    def _load_session_ids(self) -> list[PaSessionCursor]:
+        try:
+            with self.session_ids_path.open("rb") as handle:
+                content = handle.read(_SESSION_FILE_BYTES + 1)
+        except FileNotFoundError:
+            return []
+        if len(content) > _SESSION_FILE_BYTES:
+            raise ValueError("session_ids.json exceeds 128 KiB")
+        data = json.loads(content)
+        if not isinstance(data, list) or len(data) > _SESSION_LIMIT:
+            raise ValueError("session_ids.json must contain at most 100 session records")
+        sessions = [PaSessionCursor.model_validate(item) for item in data]
+        if len({item.session_id for item in sessions}) != len(sessions):
+            raise ValueError("session_ids.json contains duplicate sessions")
+        return sessions
+
+    async def remember_session(self, session_id: str) -> None:
+        """Move a selected chat to the end without discarding its read cursor."""
+        async with self._sessions_lock:
+            sessions = await asyncio.to_thread(self._load_session_ids)
+            current = next((item for item in sessions if item.session_id == session_id), None)
+            active_at = self._now().isoformat()
+            if current is None:
+                current = PaSessionCursor(session_id=session_id, last_active_at=active_at)
+            current.last_active_at = active_at
+            sessions = [item for item in sessions if item.session_id != session_id] + [current]
+            await complete_in_thread(
+                self._write_json,
+                self.session_ids_path,
+                [item.model_dump() for item in sessions[-_SESSION_LIMIT:]],
+            )
+
+    async def read_conversation(
+        self, max_turns: int = 20, max_message_chars: int = 2000, max_chars: int = 20000,
+        *, round_id: str | None = None,
+    ) -> str:
+        """Consume recent unread chat rounds, keeping each user input with its replies."""
+        for name, value, maximum in (
+            ("max_turns", max_turns, 100), ("max_message_chars", max_message_chars, 32000),
+            ("max_chars", max_chars, 32000),
+        ):
+            if type(value) is not int or not 1 <= value <= maximum:
+                raise ValueError(f"{name} must be an integer from 1 to {maximum}")
+
+        def timestamp(value: str) -> float:
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+            except (ValueError, OverflowError, OSError):
+                return 0.0
+
+        def truncate(text: str, size: int) -> str:
+            marker = "…[已截断]"
+            return text if len(text) <= size else text[:max(0, size - len(marker))] + marker[:size]
+
+        async with self._conversation_lock:
+            async with self._sessions_lock:
+                sessions = await asyncio.to_thread(self._load_session_ids)
+            candidates, cursors = [], {}
+            for session_index, entry in enumerate(sessions):
+                snapshot = await self.agent_wrapper.read_session(entry.session_id)
+                positions = {message.id: index for index, message in enumerate(snapshot.messages)}
+                if entry.last_read_message_id is not None and entry.last_read_message_id not in positions:
+                    raise ValueError(f"Conversation cursor is no longer present in session {entry.session_id}")
+                last_position = positions.get(entry.last_read_message_id, -1)
+                turns = []
+                for index, message in enumerate(snapshot.messages):
+                    if message.source != "chat" or not message.content.strip():
+                        continue
+                    if message.role == "user" or not turns:
+                        turns.append([])
+                    turns[-1].append((index, message))
+                for turn_index, turn in enumerate(turns):
+                    if turn[-1][0] <= last_position:
+                        continue
+                    if any(not message.completed for _, message in turn):
+                        break
+                    if snapshot.state.status == "active" and turn_index == len(turns) - 1:
+                        break
+                    messages = [message for _, message in turn]
+                    created_at = next((message.created_at for message in messages if message.created_at), None)
+                    candidates.append((
+                        timestamp(created_at or entry.last_active_at), session_index, turn_index,
+                        entry.session_id, messages,
+                    ))
+                    cursors[entry.session_id] = messages[-1].id
+                candidates = sorted(candidates, key=lambda item: item[:3])[-max_turns:]
+            chunks, remaining = [], max_chars
+            for _time, _session_index, _turn_index, session_id, messages in reversed(candidates):
+                headers = [
+                    f"[{message.created_at or '时间未知'}][session={session_id}][{message.role}]\n"
+                    for message in messages
+                ]
+                separator_size = 2 * (len(messages) - 1) + (2 if chunks else 0)
+                budget = min(max_message_chars, (remaining - sum(map(len, headers)) - separator_size) // len(messages))
+                if budget < 1:
+                    break
+                text = "\n\n".join(
+                    header + truncate(message.content.strip(), budget)
+                    for header, message in zip(headers, messages)
+                )
+                chunks.append(text)
+                remaining -= len(text) + (2 if len(chunks) > 1 else 0)
+            if cursors and not chunks:
+                raise ValueError("max_chars is too small for a timestamped conversation round")
+            result = "\n\n".join(reversed(chunks))
+            if cursors:
+                await self.checkpoint_proactive(round_id, "conversation", result)
+                async with self._sessions_lock:
+                    current = await asyncio.to_thread(self._load_session_ids)
+                    for entry in current:
+                        if entry.session_id in cursors:
+                            entry.last_read_message_id = cursors[entry.session_id]
+                    await complete_in_thread(
+                        self._write_json, self.session_ids_path, [entry.model_dump() for entry in current],
+                    )
+            return result
+
+    @property
     def cursor(self) -> str:
         """Return the current replay watermark."""
         return f"{self._epoch}:{self._sequence}"
@@ -76,10 +451,124 @@ class PaRuntime(BaseComponent):
     async def _start(self) -> None:
         if self.app_context is None or not isinstance(self.agent_wrapper, CodexAgentWrapper):
             raise RuntimeError("PaRuntime requires an ApplicationContext and CodexAgentWrapper")
-        self.state = self.app_context.metadata.setdefault("pa", {"session_id": None, "lock": asyncio.Lock()})
+        await complete_in_thread(self._initialize_files)
+        sessions = await asyncio.to_thread(self._load_session_ids)
+        self.session_id = sessions[-1].session_id if sessions else None
         self._closed = False
         self._invalidate("cursor_expired")
         self.select_session()
+
+    def _initialize_files(self) -> None:
+        """Create missing PA files before jobs start, preserving all existing content."""
+        self._write_text(self.session_ids_path, "[]\n", create_only=True)
+        self._load_session_ids()
+        if not self.proactive_config_path.exists():
+            if self.default_proactive is None:
+                raise ValueError("PA requires default_proactive when proactive.json does not exist")
+            self._write_text(
+                self.proactive_config_path, self.default_proactive.model_dump_json(indent=2) + "\n", create_only=True,
+            )
+        self._load_proactive_config()
+        self.tasks.load()
+        for path in (
+            self.proactive_inbox_path, self.reminders_path, self.task_runs_path, self.handoff_path,
+            self.proactive_context_path,
+        ):
+            self._write_text(path, "", create_only=True)
+        self.reminders.restore()
+
+    def _write_json(self, path: Path, data) -> None:
+        self._write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+
+    def _write_text(self, path: Path, content: str, *, create_only: bool = False) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            if not path.is_file():
+                raise ValueError(f"PA state must be a regular file: {path}")
+            if create_only:
+                return
+            # Respect read-only state files instead of replacing them through directory permissions.
+            with path.open("r+"):
+                pass
+        temporary = path.with_name(f".pa-{uuid4().hex}.tmp")
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                os.chmod(temporary, 0o600)
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            if create_only:
+                try:
+                    os.link(temporary, path)
+                except FileExistsError:
+                    pass
+            else:
+                os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    @asynccontextmanager
+    async def session_operation(self):
+        if self.session_lock.locked():
+            raise RuntimeError("PA is busy; wait for the current operation to finish")
+        try:
+            async with self.session_lock:
+                self.publish_status()
+                yield
+        finally:
+            self.publish_status()
+
+    @asynccontextmanager
+    async def chat_session(self, **reply_kwargs):
+        async with self.session_operation():
+            session_id = self.session_id
+            if session_id is None:
+                session_id = await finish_cleanup(self._new_session(reply_kwargs))
+            else:
+                await self.remember_session(session_id)
+            yield session_id
+
+    async def new_session(self, **reply_kwargs) -> str:
+        async with self.session_operation():
+            return await finish_cleanup(self._new_session(reply_kwargs))
+
+    async def _new_session(self, reply_kwargs: dict) -> str:
+        session_id = await self.agent_wrapper.create_session(**reply_kwargs)
+        previous = self.session_id
+        try:
+            await self.remember_session(session_id)
+            self.session_id = session_id
+            self.select_session()
+        except BaseException:
+            try:
+                await self.agent_wrapper.release_session(session_id)
+            except Exception as exc:
+                self.logger.warning(f"Failed to release unselected PA session {session_id}: {exc}")
+            raise
+        if previous is not None:
+            try:
+                await self.agent_wrapper.release_session(previous)
+            except Exception as exc:
+                self.logger.warning(f"Failed to release previous PA session {previous}: {exc}")
+        return session_id
+
+    async def get_selected_session(self) -> tuple[dict, str | None]:
+        """Report state without queueing behind chat generation."""
+        while True:
+            session_id = self.session_id
+            status, error = None, None
+            if self.session_lock.locked():
+                status = "active"
+            elif session_id is not None:
+                try:
+                    status = (await self.agent_wrapper.get_session_status(session_id)).status
+                except Exception as exc:
+                    status, error = "error", str(exc)
+                if session_id != self.session_id:
+                    continue
+                if self.session_lock.locked():
+                    status, error = "active", None
+            return {"session_id": session_id, "status": status}, error
 
     def _wake(self) -> None:
         changed, self._changed = self._changed, asyncio.Event()
@@ -98,7 +587,7 @@ class PaRuntime(BaseComponent):
 
     def _publish(self, event_type: str, **values) -> None:
         self._sequence += 1
-        event = PaEvent(type=event_type, cursor=self.cursor, session_id=self.state["session_id"], **values)
+        event = PaEvent(type=event_type, cursor=self.cursor, session_id=self.session_id, **values)
         serialized = event.model_dump_json(exclude_none=True)
         size = len(serialized.encode("utf-8"))
         self._buffer.append((self._sequence, serialized, size))
@@ -108,7 +597,7 @@ class PaRuntime(BaseComponent):
         self._wake()
 
     def _activity(self) -> tuple[str | None, list[str]]:
-        if self.state["lock"].locked():
+        if self.session_lock.locked():
             return "active", self._native_status.active_flags if self._native_status is not None else []
         if self._native_status is not None:
             return self._native_status.status, self._native_status.active_flags
@@ -118,15 +607,15 @@ class PaRuntime(BaseComponent):
         """Merge foreground serialization with the native session's activity."""
         if self._closed:
             return
-        self._revision += 1
         status, flags = self._activity()
         signature = (
-            self.state["session_id"],
+            self.session_id,
             status,
             tuple(flags),
             tuple((source, value.model_dump_json()) for source, value in sorted(self._activities.items())),
         )
         if signature != self._published_status:
+            self._revision += 1
             self._published_status = signature
             self._publish("status_changed", status=status, active_flags=flags, activities=self._activities)
 
@@ -137,7 +626,7 @@ class PaRuntime(BaseComponent):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
-        session_id = self.state["session_id"]
+        session_id = self.session_id
         self._activities.clear()
         self._native_status = SessionStatus(session_id=session_id, status="idle") if session_id else None
         self._fingerprints.clear()
@@ -146,7 +635,7 @@ class PaRuntime(BaseComponent):
         if session_id and self.agent_wrapper.app_server is not None:
 
             def receive(change):
-                if not self._closed and self.state["session_id"] == session_id:
+                if not self._closed and self.session_id == session_id:
                     self.observe(change)
 
             self._unsubscribe = self.agent_wrapper.app_server.watch_session(session_id, receive)
@@ -162,7 +651,7 @@ class PaRuntime(BaseComponent):
         if self._closed:
             return
         self._revision += 1
-        session_id = self.state["session_id"]
+        session_id = self.session_id
         if change is None:
             self._activities.clear()
             self._native_status = SessionStatus(session_id=session_id, status="error") if session_id else None
@@ -190,7 +679,7 @@ class PaRuntime(BaseComponent):
         # Retry if a switch or owner notification crosses the history read.
         # There is no await between the final version check and its watermark.
         while not self._closed:
-            revision, session_id = self._revision, self.state["session_id"]
+            revision, session_id = self._revision, self.session_id
             snapshot, error = None, None
             try:
                 if session_id is not None:
@@ -200,7 +689,7 @@ class PaRuntime(BaseComponent):
                 error = str(exc)
             if self._closed:
                 return None
-            if revision != self._revision or session_id != self.state["session_id"]:
+            if revision != self._revision or session_id != self.session_id:
                 continue
             self._needs_refresh = error is not None
             if snapshot is not None:
@@ -281,7 +770,7 @@ class PaRuntime(BaseComponent):
                     cursor = snapshot.cursor
                     yield snapshot
                 else:
-                    yield PaEvent(type="heartbeat", session_id=self.state["session_id"])
+                    yield PaEvent(type="heartbeat", session_id=self.session_id)
 
     async def _close(self) -> None:
         self._closed = True

@@ -1020,6 +1020,9 @@ components:
       backend: sdk
       auth_mode: oauth
       codex_home: ${CODEX_HOME:-~/.codex}
+      config_overrides:
+        - 'model_reasoning_effort="xhigh"'
+        - 'agents.default_subagent_reasoning_effort="xhigh"'
 
   agent_wrapper:
     default:
@@ -1051,6 +1054,7 @@ components:
       backend: codex
       app_server: oauth
       model: ${CODEX_OAUTH_MODEL_NAME:-}
+      effort: xhigh
       approval_mode: deny_all
       sandbox: full-access
 

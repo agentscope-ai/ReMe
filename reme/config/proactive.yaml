@@ -3,11 +3,12 @@
 # Custom LLM_BASE_URL endpoints must support the Responses API.
 # Start: reme start config=proactive
 # Open: http://127.0.0.1:2333
-# Temporary assets: resource/YYYY-MM-DD/...; keep permanent assets outside resource/.
-# The watcher reports changes; only resource_processed confirms consumption. TTL takes precedence.
-# Resource packages are discovered only through metadata.json; screen capture runs every 15 minutes.
+# Temporary assets live under resource/; keep permanent assets outside it.
+# Connectors return {context, paths}; default task queries check screens every five minutes and finance every fifteen.
+# Resource retention scans file mtimes daily and does not use a catalog.
 
 language: zh
+metadata_dir: reme_metadata
 
 service:
   backend: http
@@ -16,109 +17,207 @@ service:
   timeout_graceful_shutdown: 5  # Cancel open subscriptions before application shutdown.
 
 jobs:
-  screen_capture_cron:
-    backend: cron
-    cron: "*/15 * * * *"  # Next quarter-hour in the application timezone; no startup capture.
+  task_agent:
+    backend: base
+    track_execution: true
+    description: "Interpret screenshots, news and other evidence to answer a concrete task query in a fresh agent session."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 1, description: "What to learn or accomplish, e.g. find financial news relevant to the user"}
+      required: [query]
+    steps:
+      - backend: task_agent_step
+        agent_wrapper: default
+        job_tools: [screen_capture, finance_news]
+
+  speech_demo:
+    backend: base
+    description: "Speech round trip: synthesize text, then transcribe the generated audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1, description: "Text to synthesize and recognize"}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+      - backend: asr_step
+        asr: default
+
+  tts_demo:
+    backend: base
+    description: "Synthesize text; returns Base64 audio with its format and sample rate; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+
+  asr_demo:
+    backend: base
+    description: "Transcribe Base64-encoded audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        audio: {type: string, minLength: 1, description: "Base64-encoded audio bytes"}
+        audio_format: {type: string, enum: [wav, mp3, pcm, opus], default: wav}
+        sample_rate: {type: integer, minimum: 1, description: "Audio sample rate in Hz; omit for encoded audio"}
+      required: [audio]
+    steps:
+      - backend: asr_step
+        asr: default
+
+  screen_capture:
+    backend: base
+    description: "Capture each display as an original-size PNG; return textual context and workspace-relative paths."
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
     steps:
       - backend: screen_capture_step
 
-  resource_watch_loop:
-    backend: background
-    file_catalog: resource
-    steps:
-      - backend: watch_changes_step
-        dispatch_steps: [log_changes_step]
-
-  resource_changes:
+  finance_news:
     backend: base
-    description: >-
-      List workspace-relative metadata.json paths of existing, unexpired resources added or modified since last processed;
-      read-only.
+    description: "Fetch the last 24 hours of CLS news; save only new IDs in JSONL. Read the returned paths for news content."
     parameters:
       type: object
-      properties:
-        limit: {type: integer, minimum: 1, default: 20, description: "Maximum number of changed resource paths to return"}
+      properties: {}
       additionalProperties: false
     steps:
-      - backend: resource_changes_step
-        file_catalog: resource
+      - backend: finance_news_step
 
-  resource_processed:
+  check_json:
     backend: base
-    description: "Mark immutable resource packages as successfully processed by metadata.json paths; returns a boolean."
+    description: "Parse a complete JSON file; return its value or a path, line, column and error. Does not modify files."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        paths:
-          type: array
-          description: "Workspace-relative metadata.json paths of successfully processed packages"
-          items: {type: string}
-      required: [paths]
+        path: {type: string, minLength: 1, description: "workspace-relative JSON file path"}
+      required: [path]
     steps:
-      - backend: resource_processed_step
-        file_catalog: resource
+      - backend: check_json_step
 
   resource_cleanup_cron:
     backend: cron
-    cron: "0 * * * *"  # Hourly in the application timezone; no startup cleanup.
-    file_catalog: resource
+    cron: "0 3 * * *"  # Daily at 03:00 in the application timezone, independently of agent wakeups.
     steps:
-      - backend: cleanup_catalog_step
+      - backend: cleanup_resources_step
+        ttl_days: 7
+
+  reminder_delivery:
+    backend: background
+    steps:
+      - backend: reminder_delivery_step
 
   pa_loop:
     backend: background
     steps:
       - backend: pa_loop_step
-        default_wakeup_minutes: &pa_wakeup_minutes 5
 
   pa_proactive:
     backend: base
     enable_serve: false
     track_execution: true
-    default_wakeup_minutes: *pa_wakeup_minutes
     steps:
-      - backend: find_interest_step
+      - backend: proactive_agent_step
         agent_wrapper: default
-      - backend: push_interest_step
-        agent_wrapper: default
+        max_turns: 20
+        job_tools: [get_proactive_messages, read_conversation, run_due_tasks, get_reminder, send_reminder, check_json]
+
+  run_due_tasks:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    description: "Execute due tasks serially via task_agent, reserve each cron slot and append start/finish records."
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
+    steps:
+      - backend: run_due_tasks_step
+        task_job: task_agent
+
+  send_to_proactive:
+    backend: base
+    enable_serve: false
+    description: "Append timestamped user feedback to the proactive agent's persistent text inbox."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        message: {type: string, minLength: 1, description: "User feedback or instructions for the proactive agent"}
+      required: [message]
+    steps:
+      - backend: send_to_proactive_step
+
+  get_proactive_messages:
+    backend: base
+    enable_serve: false
+    description: "Return all queued chat-agent feedback as text and clear the inbox; empty inbox returns an empty string."
+    parameters:
+      type: object
+      properties: {}
+      additionalProperties: false
+    steps:
+      - backend: get_proactive_messages_step
+
+  read_conversation:
+    backend: base
+    enable_serve: false
+    description: >-
+      Read unread completed chat rounds across the latest 100 sessions, with time, session ID and role.
+      Keep each user input with its replies, excluding tool calls and proactive messages. Return one oldest-first string,
+      prioritizing the latest 20 rounds within output limits; persist read cursors. Older rounds are omitted.
+      No new rounds returns an empty string. Consumed inputs are checkpointed during proactive rounds.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        max_turns: {type: integer, minimum: 1, maximum: 100, default: 20}
+        max_message_chars: {type: integer, minimum: 1, maximum: 32000, default: 2000}
+        max_chars: {type: integer, minimum: 1, maximum: 32000, default: 20000, description: "Total output character budget"}
+    steps:
+      - backend: read_conversation_step
 
   send_reminder:
     backend: base
     enable_serve: false
-    description: "Send one contextual assistant reminder to the bound PA session and mark its interest files sent."
+    description: "Submit a reminder: inject if idle or return pending for background delivery after 10 idle seconds. Empty content withdraws pending content."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        message: {type: string, minLength: 1, maxLength: 100000}
-        files:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          description: "Interest filenames under daily_dir, including the .md extension"
-          items: {type: string}
-      required: [message, files]
+        content: {type: string, maxLength: 200, description: "Brief conversational reminder; empty string withdraws pending content and skips sending"}
+      required: [content]
     steps:
       - backend: send_reminder_step
-        agent_wrapper: default
 
-  set_next_wakeup:
+  get_reminder:
     backend: base
     enable_serve: false
-    description: "Set only the next proactive wakeup delay in minutes; omission uses the configured default."
+    description: "Read each reminder's latest pending/sent/discarded/failed state, newest creation first; read-only. Defaults to the latest 10."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        minutes: {type: number, exclusiveMinimum: 0}
-      required: [minutes]
+        limit: {type: integer, minimum: 1, maximum: 100, default: 10}
+        offset: {type: integer, minimum: 0, default: 0, description: "Skip this many records from the current end"}
     steps:
-      - backend: set_next_wakeup_step
+      - backend: get_reminder_step
 
   pa_chat:
     backend: stream
-    description: "Stream a message through the current Codex session with workspace personal memory."
+    description: "Chat with Remy using personal memory, native tools and proactive-agent feedback."
     parameters:
       type: object
       additionalProperties: false
@@ -129,7 +228,7 @@ jobs:
       - &pa_options
         backend: pa_chat_step
         agent_wrapper: default
-        job_tools: []
+        job_tools: [screen_capture, check_json, send_to_proactive]
 
   pa_events:
     backend: stream
@@ -279,6 +378,27 @@ jobs:
       - backend: save_step
 
 components:
+  asr:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-asr-flash
+      timeout: 60
+
+  tts:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-tts-plus
+      voice: longanhuan_v3.1
+      parameters:
+        instruction: "请用甜美、轻盈、软萌的少女女声朗读，语气亲切、活泼自然，吐字清晰，避免夸张。"
+      audio_format: mp3
+      sample_rate: 22050
+      timeout: 60
+
   pa:
     default:
       backend: local
@@ -286,6 +406,24 @@ components:
       max_events: 512
       max_buffer_bytes: 4194304
       heartbeat_seconds: 15
+      default_proactive:
+        start_time: "0900"
+        end_time: "2300"
+        interval_minutes: 5
+        hints_enabled: true
+        hint_probabilities:
+          morning: 1.0
+          midday: 0.5
+          evening: 0.5
+      default_tasks:
+        - id: screen_activity
+          cron: "*/5 * * * *"
+          query: "通过截屏看看主人在干啥"
+          enabled: true
+        - id: finance_news
+          cron: "*/15 * * * *"
+          query: "看看有什么主人喜欢的财经新闻"
+          enabled: true
 
   codex_app_server:
     default:
@@ -297,13 +435,9 @@ components:
       supports_websockets: false
       experimental_api: true
       config_overrides:
-        # Preserve Qwen3.8 Max's actual input limit; put safety headroom in the compaction threshold.
-        # At 95% usable context, 600000 leaves 334435 tokens below Codex's hard cap.
-        # Budget 128 KiB of new text at one token/byte, not Codex's byte/4 estimate of 32768.
-        # Planning allowances: 131072 output + 131072 new text + 32768 estimation/compaction overhead.
-        # This soft margin does not enforce request limits or guarantee room for arbitrary text/images.
-        - model_context_window=983616
-        - model_auto_compact_token_limit=600000
+        # Tested client budget; this is not the provider's maximum context size.
+        - model_context_window=65536
+        - model_auto_compact_token_limit=56000
         - 'model_auto_compact_token_limit_scope="total"'
         # Zero disables extra compaction after a completed reply.
         - model_post_turn_compact_threshold_percent=0
@@ -312,38 +446,33 @@ components:
         - tool_output_token_limit=2500
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
-        # Keep review and spawned agents on the configured Qwen endpoint.
+        # Keep review, subagents and native memory on the selected model.
         - 'model_reasoning_effort="xhigh"'
-        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'agents.default_subagent_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
+        - 'agents.default_subagent_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
         - 'agents.default_subagent_reasoning_effort="xhigh"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
         - memories.generate_memories=true
         - memories.use_memories=true
-        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
+        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
 
-      # These capabilities describe Qwen3.8 Max; update them when switching model families.
-      # Official limits: https://help.aliyun.com/en/model-studio/qwen3-8-max
+      # Qwen 3.8 Max with the requested xhigh profile and text/image input.
+      # Switching CODEX_MODEL_NAME also requires reviewing the catalog capabilities.
       model_catalog:
         models:
-          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max}
-            display_name: Qwen3.8 Max
+          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
+            display_name: Qwen 3.8 Max 0902
             description: Work and life assistant with text and image input
             default_reasoning_level: xhigh
+            multi_agent_reasoning_effort: xhigh
             supported_reasoning_levels:
-              - effort: none
-                description: Disable thinking
-              - effort: low
-                description: Light reasoning
-              - effort: medium
-                description: Balanced reasoning
               - effort: xhigh
                 description: Maximum reasoning
-            context_window: 983616
-            max_context_window: 983616
+            context_window: 65536
+            max_context_window: 65536
             effective_context_window_percent: 95
             input_modalities: [text, image]
             # The provider returns reasoning content without a reasoning.summary request parameter.
@@ -365,7 +494,8 @@ components:
     default:
       backend: codex
       app_server: default
-      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
+      model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
       sandbox: full-access
@@ -382,14 +512,6 @@ components:
   file_graph:
     default:
       backend: local
-
-  file_catalog:
-    resource:
-      backend: local
-      watch_dirs: [resource_dir]
-      watch_suffixes: []
-      watch_filenames: [metadata.json]
-      ttl_days: 7
 
   file_chunker:
     markdown:

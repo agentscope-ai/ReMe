@@ -1,0 +1,60 @@
+"""Shared workspace, memory and runtime access for Remy's agents."""
+
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from ..base_step import BaseStep, Ref
+from ..file_io._file_io import get_path_lock, write_file_safe
+from ..file_io._path import resolve_path
+from ...components import PaRuntime
+from ...components.agent_wrapper import CodexAgentWrapper
+
+
+class BasePaStep(BaseStep):
+    """Share Remy's workspace context and application-owned session state."""
+
+    pa: PaRuntime = Ref(PaRuntime, "pa")
+
+    def _now(self) -> datetime:
+        timezone = self.app_context.app_config.timezone
+        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+
+    def _path(self, path: str) -> Path:
+        target, error = resolve_path(self.workspace_path, path)
+        if error:
+            raise ValueError(error)
+        return target
+
+    def _memory_path(self) -> Path:
+        return self._path(f"{self.config_value('daily_dir')}/personal/MEMORY.md")
+
+    async def _ensure_memory(self) -> Path:
+        target = self._memory_path()
+        async with await get_path_lock(target):
+            if not target.exists():
+                await write_file_safe(target, self.get_prompt("default_memory") + "\n")
+            elif not target.is_file():
+                raise ValueError("Personal memory must be a regular file")
+        return target
+
+    def _system_prompt(self, **details) -> str:
+        return self.prompt_format(
+            "system_prompt",
+            workspace_dir=self.workspace_path,
+            memory_path=self._memory_path(),
+            proactive_config_path=self.pa.proactive_config_path,
+            tasks_path=self.pa.tasks_path,
+            **details,
+        )
+
+    def _validate(self, *parameters: str) -> None:
+        if self.app_context is None or self.agent_wrapper is None:
+            raise RuntimeError("PA jobs require an ApplicationContext and agent_wrapper")
+        if not isinstance(self.agent_wrapper, CodexAgentWrapper):
+            raise NotImplementedError("PA currently supports CodexAgentWrapper only")
+        if self.pa.agent_wrapper is not self.agent_wrapper:
+            raise ValueError("PA jobs must use the pa component's configured agent_wrapper")
+        unexpected = self.context.data.keys() - {*parameters, "metadata"}
+        if unexpected:
+            raise ValueError(f"Unexpected PA parameters: {', '.join(sorted(unexpected))}")

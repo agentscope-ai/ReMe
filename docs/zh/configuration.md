@@ -138,6 +138,35 @@ reme start config=default
 结果的 `search_info.search_results` 保留供应商返回的来源字段，`content` 是单独的模型生成正文；
 网页正文和摘要不保证提供。模型、搜索策略和超时配置见 `reme/config/default.yaml`。
 
+## 语音组件
+
+`asr` 和 `tts` 是独立 Component，抽象契约为 `reme/components/` 下的 `BaseASR` 和 `BaseTTS`。
+`dashscope` backend 使用百炼原生异步 HTTP 接口，与联网搜索共用 `DASHSCOPE_API_KEY`。
+缺少 Key 不影响服务启动，但语音调用会失败。`base_url` 应使用以 `/api/v1` 结尾的原生接口地址。
+
+`reme/config/proactive.yaml` 已配置 `qwen-audio-3.1-asr-flash`、`qwen-audio-3.1-tts-plus`
+及音色 `longanhuan_v3.1`。在一个终端启动服务：
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=proactive
+```
+
+在另一个终端测试文本 → 语音 → 文本：
+
+```bash
+reme speech_demo text="How is the weather today?"
+```
+
+此 Job 顺序执行 `tts_step`、`asr_step`，通过请求上下文传递音频字节。返回值是识别文本，
+metadata 保留两次调用的请求 ID 和用量。`tts_demo` 单独合成并返回 Base64 音频、格式及采样率；
+`asr_demo` 接受 Base64 `audio`、`audio_format` 和可选的 `sample_rate`。
+
+直接使用 Component 时，`transcribe(audio, audio_format=..., sample_rate=...)` 返回 `ASRResult`；
+`synthesize(text)` 汇总为 `TTSResult`，`stream(text)` 则逐块返回增量 `TTSResult`。
+按顺序拼接各块的 `audio` 字节，并以最后的 `is_last=True` 确认成功；提前停止时应关闭迭代器。
+返回结构见 `reme/schema/speech.py`。麦克风采集和播放由调用方负责。
+
 ## 决策模型配置
 
 `as_decision_model` 是不依赖供应商的概率决策模型接口；当前的 `agentscope` 适配器通过 AgentScope `2.0.11` 调用 TypeSafe API。

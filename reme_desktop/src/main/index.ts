@@ -119,6 +119,7 @@ else {
         },
         assets.manifest,
         (notice, shown) => notifications?.show(notice, shown),
+        (command) => windows?.command(command),
       );
       windows = new DesktopWindows(
         storage,
@@ -128,6 +129,39 @@ else {
         },
         (visible) => controller!.setChatVisible(visible),
         (focused) => controller!.setChatFocused(focused),
+      );
+      const canCapture = () =>
+        !quitting &&
+        windows!.chat.isVisible() &&
+        controller!.state.speech.capture?.phase === "starting";
+      const permissionSession = windows.chat.webContents.session;
+      permissionSession.setPermissionCheckHandler(
+        (contents, permission, _origin, details) =>
+          permission === "media" &&
+          contents?.id === windows!.chat.webContents.id &&
+          details.isMainFrame === true &&
+          details.mediaType === "audio" &&
+          canCapture(),
+      );
+      permissionSession.setPermissionRequestHandler(
+        (contents, permission, callback, details) => {
+          const media = details as Electron.MediaAccessPermissionRequest;
+          callback(
+            permission === "media" &&
+              contents.id === windows!.chat.webContents.id &&
+              media.isMainFrame === true &&
+              media.requestingUrl === contents.getURL() &&
+              media.mediaTypes?.length === 1 &&
+              media.mediaTypes[0] === "audio" &&
+              canCapture(),
+          );
+        },
+      );
+      windows.chat.webContents.on("did-start-loading", () =>
+        controller!.speech.rendererReady(false),
+      );
+      windows.chat.webContents.on("render-process-gone", () =>
+        controller!.speech.rendererReady(false),
       );
       notifications = new SystemNotifications((notice) => {
         if (!controller!.canOpenNotice(notice)) return;
@@ -172,6 +206,46 @@ else {
         if (!action || typeof action.type !== "string")
           throw new UiError("invalidAction");
         switch (action.type) {
+          case "speech.ready":
+          case "speech.capture":
+          case "speech.recording":
+          case "speech.cancel":
+          case "speech.report":
+            if (event.sender.id !== windows!.chat.webContents.id)
+              throw new UiError("invalidSender");
+            if (action.type === "speech.ready")
+              controller!.speech.rendererReady(action.ready === true);
+            else if (action.type === "speech.capture")
+              controller!.speech.beginCapture(action.id);
+            else if (action.type === "speech.recording")
+              controller!.speech.recording(action.id);
+            else if (action.type === "speech.cancel")
+              controller!.speech.cancelCapture(action.id);
+            else if (
+              Number.isSafeInteger(action.id) &&
+              ["started", "ended", "failed"].includes(action.status)
+            )
+              controller!.speech.report(action.id, action.status);
+            return;
+          case "speech.speak": {
+            if (action.sessionId !== controller!.model.sessionId)
+              throw new UiError("sessionUnavailable");
+            const message = controller!.model.messages.find(
+              (message) =>
+                message.id === action.messageId &&
+                message.role === "assistant" &&
+                message.completed,
+            );
+            if (!message) throw new UiError("speechNoText");
+            controller!.speech.speak(message);
+            return;
+          }
+          case "speech.stop":
+            controller!.speech.cancel();
+            return;
+          case "speech.clearError":
+            controller!.speech.clearError();
+            return;
           case "playback.report":
             if (
               event.sender.id === windows!.companion.webContents.id &&
@@ -213,6 +287,7 @@ else {
             return;
           case "chat.close":
             windows!.closeChat();
+            controller!.setChatVisible(false);
             return;
           case "chat.send":
             if (typeof action.query !== "string")
@@ -261,6 +336,21 @@ else {
               ...(action.notifications !== undefined
                 ? { notifications: action.notifications }
                 : {}),
+              ...(action.voiceAutoSend !== undefined
+                ? { voiceAutoSend: action.voiceAutoSend }
+                : {}),
+              ...(action.voiceEnabled !== undefined
+                ? { voiceEnabled: action.voiceEnabled }
+                : {}),
+              ...(action.voiceReplies !== undefined
+                ? { voiceReplies: action.voiceReplies }
+                : {}),
+              ...(action.voiceReminders !== undefined
+                ? { voiceReminders: action.voiceReminders }
+                : {}),
+              ...(action.voiceVolume !== undefined
+                ? { voiceVolume: action.voiceVolume }
+                : {}),
             });
           case "link.open": {
             const url = new URL(action.url);
@@ -282,6 +372,25 @@ else {
           return null;
         } catch (error) {
           return serializeError(error);
+        }
+      });
+      ipcMain.handle(channels.transcribe, async (event, request) => {
+        try {
+          trusted(event);
+          if (
+            event.sender.id !== windows!.chat.webContents.id ||
+            !request ||
+            typeof request.id !== "string"
+          )
+            throw new UiError("invalidSender");
+          return {
+            text: await controller!.speech.transcribe(
+              request.id,
+              request.audio,
+            ),
+          };
+        } catch (error) {
+          return { error: serializeError(error) };
         }
       });
       ipcMain.on(channels.pointer, (event, interactive) => {
@@ -330,6 +439,9 @@ else {
           state.settings.language,
           state.settings.scale,
           state.settings.notifications,
+          state.settings.voiceEnabled,
+          state.speech.tts,
+          Boolean(state.speech.playback || state.speech.capture),
           state.settings.quietUntil > Date.now(),
           state.status,
           Boolean(state.pending?.streaming),

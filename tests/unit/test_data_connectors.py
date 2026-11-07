@@ -3,23 +3,18 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timezone
-import json
 from pathlib import Path
 import sys
 import threading
 from types import ModuleType, SimpleNamespace
 
 import pytest
-from watchfiles import Change
 
 from reme.components.application_context import ApplicationContext
-from reme.components.file_catalog import LocalFileCatalog
 from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import resolve_app_config
-from reme.schema import ResourceFile, ResourceMetadata
-from reme.steps.index.watch_changes import WatchChangesStep
+from reme.schema import ConnectorResult
 from reme.steps.proactive.data_connectors import BaseConnectorStep, ScreenCaptureStep
-from reme.utils.file_watch import collect_existing, match_file
 
 
 @pytest.fixture(name="screens")
@@ -75,7 +70,7 @@ def _app(tmp_path, **kwargs):
 
 
 @pytest.mark.asyncio
-async def test_all_displays_publish_one_minimal_package(tmp_path, screens, monkeypatch):
+async def test_all_displays_return_context_and_original_size_image_paths(tmp_path, screens, monkeypatch):
     """Different display sizes survive, with no visible package until every payload is ready."""
     app = _app(tmp_path, resource_dir="assets", timezone="Pacific/Honolulu")
     instant = datetime(2026, 11, 5, 1, 0, tzinfo=timezone.utc)
@@ -94,19 +89,17 @@ async def test_all_displays_publish_one_minimal_package(tmp_path, screens, monke
 
     screens.on_grab = before_grab
     response = await ScreenCaptureStep(app_context=app)()
-    manifest = tmp_path / response.answer["path"]
-    metadata = ResourceMetadata.model_validate_json(manifest.read_text(encoding="utf-8"))
-    assert manifest.parent.parent == tmp_path / "assets/2026-11-04"
-    assert len(manifest.parent.name) == 32
-    int(manifest.parent.name, 16)
-    assert metadata.created_at.isoformat() == "2026-11-04T15:00:00-10:00"
-    assert metadata.modified_at == metadata.created_at
-    assert metadata.dataclass == "ScreenCaptureStep"
-    assert metadata.source == "screen"
-    assert metadata.description
-    assert json.loads(manifest.read_text())["files"] == [{"path": "1.png"}, {"path": "2.png"}]
-    assert (manifest.parent / "1.png").read_bytes() == bytes([1]) * 3
-    assert (manifest.parent / "2.png").read_bytes() == bytes([2]) * 3
+    paths = response.answer["paths"]
+    assert set(response.answer) == {"context", "paths"}
+    assert "2026-11-04T15:00:00-10:00" in response.answer["context"]
+    assert "2 displays" in response.answer["context"]
+    assert paths == [
+        "assets/screen_capture/2026-11-04_15-00-00-000000_screen_1.png",
+        "assets/screen_capture/2026-11-04_15-00-00-000000_screen_2.png",
+    ]
+    assert (tmp_path / paths[0]).read_bytes() == bytes([1]) * 3
+    assert (tmp_path / paths[1]).read_bytes() == bytes([2]) * 3
+    assert not list(tmp_path.rglob("metadata.json"))
     assert screens.captured == [1, 2]
     assert screens.encoded == [(2, 1), (1, 3)]
     assert len(set(screens.threads)) == 1
@@ -195,11 +188,11 @@ async def test_capture_stopped_during_destination_preparation_publishes_nothing(
 
 @pytest.mark.asyncio
 async def test_concurrent_collections_do_not_overwrite_each_other(tmp_path, screens):
-    """Fresh invocation-scoped collectors publish distinct UUID directories."""
+    """Concurrent invocation-scoped collectors publish distinct timestamped files."""
     app = _app(tmp_path)
     results = await asyncio.gather(*(ScreenCaptureStep(app_context=app)() for _ in range(2)))
-    paths = {response.answer["path"] for response in results}
-    assert len(paths) == 2
+    paths = {path for response in results for path in response.answer["paths"]}
+    assert len(paths) == 4
     assert all((tmp_path / path).is_file() for path in paths)
     assert screens.closed == 2
 
@@ -227,18 +220,18 @@ async def test_resource_directory_symlink_is_rejected(tmp_path, screens):
 
 @pytest.mark.parametrize(
     "path",
-    ["", ".", "../a.png", "/a.png", "a/../../b.png", "a\\b.png", "C:/a.png", "metadata.json"],
+    ["", ".", "../a.png", "/a.png", "a/../../b.png", "a\\b.png", "C:/a.png", "a//b.png"],
 )
-def test_resource_file_rejects_non_payload_paths(path):
-    """A manifest cannot address files outside its package or list itself."""
+def test_connector_result_rejects_unsafe_paths(path):
+    """Connector paths must be unambiguous relative references."""
     with pytest.raises(ValueError):
-        ResourceFile(path=path)
+        ConnectorResult(context="test", paths=[path])
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["empty", "duplicate", "missing", "symlink"])
-async def test_base_connector_rejects_incomplete_manifests(tmp_path, kind):
-    """Generic connectors must return a nonempty, distinct, existing payload list."""
+@pytest.mark.parametrize("kind", ["invalid_result", "duplicate", "missing", "symlink"])
+async def test_base_connector_rejects_invalid_results(tmp_path, kind):
+    """References must be distinct, existing files or directories without symlinks."""
     external = tmp_path / "keep.txt"
     external.write_text("preserve", encoding="utf-8")
 
@@ -247,14 +240,14 @@ async def test_base_connector_rejects_incomplete_manifests(tmp_path, kind):
 
         source = "test"
 
-        def collect(self, directory):
-            if kind == "empty":
-                return []
+        def collect(self, directory, created_at):
+            if kind == "invalid_result":
+                return {"context": "test", "paths": "a.txt"}
             if kind == "symlink":
                 (directory / "a.txt").symlink_to(external)
             elif kind != "missing":
                 (directory / "a.txt").write_text("payload", encoding="utf-8")
-            return [{"path": "a.txt"}] * (2 if kind == "duplicate" else 1)
+            return ConnectorResult(context="test", paths=["a.txt"] * (2 if kind == "duplicate" else 1))
 
     with pytest.raises(ValueError):
         await InvalidConnector(app_context=_app(tmp_path))()
@@ -264,36 +257,77 @@ async def test_base_connector_rejects_incomplete_manifests(tmp_path, kind):
 
 
 @pytest.mark.asyncio
-async def test_proactive_catalog_and_watcher_only_match_manifests(tmp_path, screens):
-    """Capture -> changes -> processed operates once per package and never per image."""
+async def test_capture_job_is_registered_without_a_resource_catalog(tmp_path, screens):
+    """Manual and scheduled jobs use the same connector without discovery or acknowledgements."""
     app = ApplicationContext(**resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path)))
-    config = app.app_config.components["file_catalog"]["resource"].model_dump()
-    catalog = LocalFileCatalog(name="resource", app_context=app, **config)
-    app.components["file_catalog"] = {"resource": catalog}
-    job = app.app_config.jobs["screen_capture_cron"]
-    assert job.backend == "cron"
-    assert job.model_extra["cron"] == "*/15 * * * *"
-    step_config = job.steps[0].model_dump()
+    assert "file_catalog" not in app.app_config.components
+    assert not {"resource_watch_loop", "resource_changes", "resource_processed"} & app.app_config.jobs.keys()
+    assert "screen_capture_cron" not in app.app_config.jobs
+    tasks = app.app_config.components["pa"]["default"].model_extra["default_tasks"]
+    assert next(task for task in tasks if task["id"] == "screen_activity")["cron"] == "*/5 * * * *"
+    step_config = app.app_config.jobs["screen_capture"].steps[0].model_dump()
     step_cls = app.registry.get("step", step_config["backend"])
-    response = await step_cls(app_context=app, **step_config)()
+    result = (await step_cls(app_context=app, **step_config)()).answer
+    assert all((tmp_path / path).is_file() for path in result["paths"])
     assert screens.captured == [1, 2]
-    manifest = tmp_path / response.answer["path"]
-    for filename in ("other.json", "prefix.metadata.json", "METADATA.JSON"):
-        (manifest.parent / filename).write_text("{}", encoding="utf-8")
-    watcher = WatchChangesStep(app_context=app, file_catalog="resource")
-    watcher.context = RuntimeContext()
-    rules = watcher._get_watch_rules()  # pylint: disable=protected-access
-    watcher._rules = rules  # pylint: disable=protected-access
-    assert list(collect_existing(rules, recursive=True)) == [str(manifest)]
-    for file in manifest.parent.iterdir():
-        expected = file == manifest
-        assert match_file(str(file), rules) is expected
-        assert watcher._filter(Change.added, str(file)) is expected  # pylint: disable=protected-access
-    changes = await catalog.changes()
-    assert changes == [response.answer["path"]]
-    assert await catalog.processed(changes) is True
-    (manifest.parent / "1.png").write_bytes(b"edited without updating the manifest")
-    assert await catalog.changes() == []
-    manifest.unlink()
-    assert await catalog.changes() == []
-    assert await catalog.processed(changes) is False
+
+
+@pytest.mark.asyncio
+async def test_text_and_directory_results_preserve_progressive_reading(tmp_path):
+    """Text-only results and directory references use the same public schema."""
+    class Connector(BaseConnectorStep):
+        """Supply a directory that an agent can list before opening individual files."""
+        source = "test"
+
+        def collect(self, directory, created_at):
+            if self.kwargs.get("text_only"):
+                return ConnectorResult(context="Full textual result.")
+            (directory / "details").mkdir()
+            (directory / "details/report.txt").write_text("Full report.")
+            return ConnectorResult(context="Read details as needed.", paths=["details"])
+
+    app = _app(tmp_path)
+    result = (await Connector(app_context=app, text_only=True)()).answer
+    assert result == {"context": "Full textual result.", "paths": []}
+    result = (await Connector(app_context=app)()).answer
+    assert result == {"context": "Read details as needed.", "paths": ["resource/test/details"]}
+    assert (tmp_path / result["paths"][0] / "report.txt").read_text() == "Full report."
+
+
+@pytest.mark.asyncio
+async def test_publish_failure_rolls_back_only_this_collection(tmp_path, screens, monkeypatch):
+    """A failure on the second file preserves unrelated files and removes the first publication."""
+    target = tmp_path / "resource/screen_capture"
+    target.mkdir(parents=True)
+    keep = target / "keep.png"
+    keep.write_bytes(b"existing")
+    link = Path.hardlink_to
+
+    def fail_second(path, source):
+        if path.name.endswith("screen_2.png"):
+            raise OSError("publication failed")
+        return link(path, source)
+
+    monkeypatch.setattr(Path, "hardlink_to", fail_second)
+    with pytest.raises(OSError, match="publication failed"):
+        await ScreenCaptureStep(app_context=_app(tmp_path))()
+    assert list(target.iterdir()) == [keep]
+    assert keep.read_bytes() == b"existing"
+    assert not list(tmp_path.glob(".reme-resource-*"))
+
+
+@pytest.mark.asyncio
+async def test_timestamp_collision_preserves_existing_files(tmp_path, screens, monkeypatch):
+    """Identical capture timestamps fail explicitly rather than overwriting another capture."""
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 7, 12, tzinfo=tz)
+
+    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", Clock)
+    app = _app(tmp_path)
+    first = (await ScreenCaptureStep(app_context=app)()).answer
+    before = {path: (tmp_path / path).read_bytes() for path in first["paths"]}
+    with pytest.raises(FileExistsError):
+        await ScreenCaptureStep(app_context=app)()
+    assert {path: (tmp_path / path).read_bytes() for path in first["paths"]} == before

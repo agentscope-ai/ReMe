@@ -5,6 +5,92 @@ export type TranslationValues = Record<string, string | number>;
 
 /** Chinese and English live under the same key, so the catalogs cannot drift. */
 export const messages = {
+  speechSettings: ["语音", "Voice"],
+  voiceAutoSend: ["语音识别后自动发送", "Send after transcription"],
+  voiceEnabled: ["自动语音播报", "Automatic narration"],
+  voiceReplies: ["朗读新的对话回复", "Read new replies aloud"],
+  voiceReminders: ["朗读主动提醒", "Read proactive reminders aloud"],
+  voiceVolume: ["语音音量", "Voice volume"],
+  voiceHint: [
+    "自动播报最多朗读前 600 字；手动朗读可听全文。安静模式会暂停自动播报。",
+    "Automatic narration reads up to 600 characters; manual playback reads the full text. Quiet mode pauses automatic narration.",
+  ],
+  voiceInputHint: [
+    "按住话筒说话，松开识别后默认自动发送；关闭自动发送后只填入输入框。录音发送到当前 ReMe 服务识别。",
+    "Hold the microphone, then release to transcribe and send by default. Turn off auto-send to insert an editable draft instead. Recordings are sent to your connected ReMe service for recognition.",
+  ],
+  voiceShortcut: [
+    "⌘/Ctrl + Shift + M 开始或结束录音，Esc 取消",
+    "⌘/Ctrl + Shift + M starts or ends recording; Esc cancels",
+  ],
+  holdToSpeak: ["按住说话", "Hold to speak"],
+  finishRecording: ["结束录音", "Finish recording"],
+  cancelRecording: ["取消录音", "Cancel recording"],
+  readAloud: ["朗读这条回复", "Read this reply aloud"],
+  stopSpeech: ["停止朗读", "Stop narration"],
+  speechOpeningMic: ["正在打开麦克风…", "Opening microphone…"],
+  speechListening: ["我在听你说…", "Listening to you…"],
+  speechRecording: [
+    "录音中 {seconds} / 24 秒 · 松开结束",
+    "Recording {seconds} / 24 seconds · Release to finish",
+  ],
+  speechTranscribing: ["正在识别…", "Transcribing…"],
+  speechLoading: ["正在准备语音…", "Preparing narration…"],
+  speechPlaying: ["正在朗读…", "Reading aloud…"],
+  speechProgress: ["第 {part} / {total} 段", "Part {part} of {total}"],
+  speechAsrUnavailable: [
+    "当前 ReMe 服务未启用语音识别",
+    "Speech recognition is not enabled on this ReMe service",
+  ],
+  speechTtsUnavailable: [
+    "当前 ReMe 服务未启用语音合成",
+    "Speech synthesis is not enabled on this ReMe service",
+  ],
+  speechCancelled: ["语音操作已取消", "Voice operation cancelled"],
+  speechNoText: [
+    "这条回复没有可朗读的文字",
+    "This reply has no text to read aloud",
+  ],
+  speechSilent: [
+    "没听清声音，请检查麦克风后重试",
+    "No speech was detected. Check your microphone and try again",
+  ],
+  speechMicDenied: [
+    "无法使用麦克风。请在系统设置中允许 ReMe Desktop 使用麦克风，再重试。",
+    "Microphone access is unavailable. Allow ReMe Desktop to use the microphone in system settings, then try again.",
+  ],
+  speechMicMissing: [
+    "没有找到可用麦克风，请连接设备后重试",
+    "No microphone was found. Connect one and try again",
+  ],
+  speechMicFailed: [
+    "录音未能启动，请检查麦克风后重试",
+    "Recording could not start. Check your microphone and try again",
+  ],
+  speechInvalidRecording: [
+    "录音格式无效或超过时长限制，请重新录音",
+    "The recording is invalid or too long. Please record again",
+  ],
+  speechInvalidTranscript: [
+    "识别服务返回了无效结果，请重试",
+    "The recognition service returned an invalid result. Please try again",
+  ],
+  speechInvalidAudio: [
+    "语音合成返回了不完整或无效的音频，请重试",
+    "Speech synthesis returned incomplete or invalid audio. Please try again",
+  ],
+  speechAudioTooLarge: [
+    "语音结果过大，请尝试较短的内容",
+    "The audio response is too large. Try shorter text",
+  ],
+  speechPlaybackFailed: [
+    "语音播放失败，可以重新点击喇叭重试",
+    "Narration could not play. Select the speaker to retry",
+  ],
+  invalidVoiceSettings: [
+    "语音设置无效，音量需要在 0 到 100% 之间",
+    "Invalid voice settings. Volume must be between 0 and 100%",
+  ],
   language: ["语言", "Language"],
   chinese: ["简体中文", "简体中文"],
   english: ["English", "English"],

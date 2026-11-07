@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
-import { errorText, translator } from "../../shared/i18n.ts";
+import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
 import remarkGfm from "remark-gfm";
 import { action } from "../desktop.ts";
 import { displayMessages } from "../../shared/messages.ts";
 import type { DesktopState } from "../../shared/protocol.ts";
+import { useSpeechPlayback } from "../speech/playback.ts";
+import { useCapture } from "../speech/use-capture.ts";
+import VoiceSettings from "../speech/settings.tsx";
 
 export default function Chat({ state }: { state: DesktopState }) {
   const language = state.settings.language;
@@ -16,6 +19,32 @@ export default function Chat({ state }: { state: DesktopState }) {
   const [scale, setScale] = useState(state.settings.scale);
   const history = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
+  const queryRef = useRef(query);
+  queryRef.current = query;
+  useSpeechPlayback(state);
+  const capture = useCapture(
+    state,
+    (text) => {
+      const value = queryRef.current;
+      const from = input.current?.selectionStart ?? value.length;
+      const to = input.current?.selectionEnd ?? from;
+      const composed = value.slice(0, from) + text + value.slice(to);
+      queryRef.current = composed;
+      setQuery(composed);
+      if (state.settings.voiceAutoSend) void send(composed);
+      requestAnimationFrame(() => {
+        input.current?.focus();
+        input.current?.setSelectionRange(
+          from + text.length,
+          from + text.length,
+        );
+      });
+    },
+    setError,
+  );
+  const voice = state.speech.playback;
+  const displayedError =
+    error ?? (state.speech.error ? deserializeError(state.speech.error) : null);
   const follow = useRef(true);
   const sending = useRef(false);
   const messages = displayMessages(state);
@@ -115,8 +144,8 @@ export default function Chat({ state }: { state: DesktopState }) {
     state.chatFocused,
   ]);
 
-  const send = async () => {
-    const value = query.trim();
+  const send = async (text = queryRef.current) => {
+    const value = text.trim();
     if (!value || busy || !ready || sending.current) return;
     sending.current = true;
     setQuery("");
@@ -238,6 +267,7 @@ export default function Chat({ state }: { state: DesktopState }) {
               }
             />
           </label>
+          <VoiceSettings state={state} run={run} />
           {state.workspace && (
             <p className="workspace-path" title={state.workspace}>
               {t("workspace", { path: state.workspace })}
@@ -254,10 +284,16 @@ export default function Chat({ state }: { state: DesktopState }) {
           </button>
         </div>
       )}
-      {error !== null && (
+      {displayedError !== null && (
         <div className="action-error" role="alert">
-          <span>{errorText(error, language)}</span>
-          <button aria-label={t("closeNotice")} onClick={() => setError(null)}>
+          <span>{errorText(displayedError, language)}</span>
+          <button
+            aria-label={t("closeNotice")}
+            onClick={() => {
+              setError(null);
+              void action({ type: "speech.clearError" });
+            }}
+          >
             ×
           </button>
         </div>
@@ -337,10 +373,102 @@ export default function Chat({ state }: { state: DesktopState }) {
               ) : null}
             </div>
             {message.error && <p className="message-error">{message.error}</p>}
+            {message.role === "assistant" &&
+              !message.streaming &&
+              !message.error &&
+              state.messages.some(
+                (entry) => entry.id === message.id && entry.completed,
+              ) && (
+                <button
+                  type="button"
+                  className="read-aloud"
+                  disabled={!state.speech.tts || !ready}
+                  aria-label={t(
+                    voice?.messageId === message.id
+                      ? "stopSpeech"
+                      : "readAloud",
+                  )}
+                  title={t(
+                    !state.speech.tts
+                      ? "speechTtsUnavailable"
+                      : voice?.messageId === message.id
+                        ? "stopSpeech"
+                        : "readAloud",
+                  )}
+                  aria-pressed={voice?.messageId === message.id}
+                  onClick={() =>
+                    void run(
+                      voice?.messageId === message.id
+                        ? { type: "speech.stop" }
+                        : {
+                            type: "speech.speak",
+                            sessionId: state.sessionId!,
+                            messageId: message.id,
+                          },
+                    )
+                  }
+                >
+                  <span aria-hidden>
+                    {voice?.messageId === message.id ? "■" : "♫"}
+                  </span>
+                  {t(
+                    voice?.messageId === message.id
+                      ? voice.phase === "loading"
+                        ? "speechLoading"
+                        : "stopSpeech"
+                      : "readAloud",
+                  )}
+                </button>
+              )}
           </article>
         ))}
       </div>
       <footer className="chat-composer">
+        {(capture.phase || voice) && (
+          <div className="voice-status" role="status">
+            <span>
+              {capture.phase
+                ? t(
+                    capture.phase === "starting"
+                      ? "speechOpeningMic"
+                      : capture.phase === "transcribing"
+                        ? "speechTranscribing"
+                        : "speechRecording",
+                    { seconds: capture.seconds },
+                  )
+                : t(
+                    voice!.phase === "loading"
+                      ? "speechLoading"
+                      : "speechPlaying",
+                  )}
+            </span>
+            {capture.phase === "recording" && (
+              <meter
+                min={0}
+                max={1}
+                value={capture.level}
+                aria-label={t("speechListening")}
+              />
+            )}
+            {voice && voice.total > 1 && (
+              <small>
+                {t("speechProgress", { part: voice.part, total: voice.total })}
+              </small>
+            )}
+            <button
+              type="button"
+              className="subtle"
+              aria-label={t(capture.phase ? "cancelRecording" : "stopSpeech")}
+              onClick={() =>
+                capture.phase
+                  ? capture.cancel()
+                  : void run({ type: "speech.stop" })
+              }
+            >
+              ×
+            </button>
+          </div>
+        )}
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -369,6 +497,45 @@ export default function Chat({ state }: { state: DesktopState }) {
               }
             }}
           />
+          <button
+            type="button"
+            className={`mic-button ${capture.phase === "recording" ? "recording" : ""}`}
+            aria-label={t(
+              capture.phase === "recording" ? "finishRecording" : "holdToSpeak",
+            )}
+            aria-pressed={capture.phase === "recording"}
+            title={t(
+              state.speech.asr ? "voiceShortcut" : "speechAsrUnavailable",
+            )}
+            disabled={
+              !ready || !state.speech.asr || capture.phase === "transcribing"
+            }
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              capture.start();
+            }}
+            onPointerUp={() => capture.finish()}
+            onPointerCancel={() => capture.cancel()}
+            onLostPointerCapture={() => capture.finish()}
+            onClick={(event) => {
+              if (event.detail === 0) capture.toggle();
+            }}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              aria-hidden="true"
+            >
+              <rect x="9" y="2" width="6" height="12" rx="3" />
+              <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" />
+            </svg>
+          </button>
           {state.pending?.streaming ? (
             <button
               type="button"

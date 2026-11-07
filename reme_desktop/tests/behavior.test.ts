@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { BehaviorController } from "../src/main/behavior.ts";
+import { emptySpeech } from "../src/main/speech.ts";
 import type {
   AgentActivity,
   AnimationManifest,
@@ -70,6 +71,32 @@ test("dragging wins temporarily and stale ended callbacks cannot clear the curre
   behavior.dragging = false;
   behavior.report(thinking, "ended", 300);
   assert.equal(behavior.resolve(state, true, 300).animation.clip, "speaking");
+});
+
+test("recording and actual audio playback temporarily own animation and return to current activity", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  state.speech = emptySpeech();
+  behavior.observe({ chat: activity("remembering") }, true, 0);
+  state.speech.capture = { id: "record", phase: "recording" };
+  assert.equal(behavior.resolve(state, true, 0).animation.clip, "listening");
+  state.speech.capture = { id: "record", phase: "transcribing" };
+  assert.equal(behavior.resolve(state, true, 100).animation.clip, "thinking");
+  state.speech.capture = null;
+  state.speech.playback = {
+    id: 1,
+    messageId: "m",
+    kind: "manual",
+    phase: "playing",
+    part: 1,
+    total: 1,
+  };
+  assert.equal(behavior.resolve(state, true, 200).animation.clip, "speaking");
+  state.speech.playback = null;
+  assert.equal(
+    behavior.resolve(state, true, 300).animation.clip,
+    "remembering",
+  );
 });
 
 test("reminders enter, hold and exit with the bubble rather than disappearing after one clip", () => {

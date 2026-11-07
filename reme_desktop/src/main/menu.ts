@@ -85,6 +85,20 @@ export function desktopMenu(
       },
     },
     {
+      id: "voice",
+      label: t("voiceEnabled"),
+      type: "checkbox",
+      checked: state.settings.voiceEnabled,
+      enabled: state.speech.tts,
+      click: () => settings({ voiceEnabled: !state.settings.voiceEnabled }),
+    },
+    {
+      id: "speech-stop",
+      label: t("stopSpeech"),
+      enabled: Boolean(state.speech.playback || state.speech.capture),
+      click: () => controller.speech.cancel(),
+    },
+    {
       id: "language",
       label: t("language"),
       submenu: languages.map((language) => ({

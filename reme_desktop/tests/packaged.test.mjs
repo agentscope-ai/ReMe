@@ -27,6 +27,12 @@ test(
       const manifest = JSON.parse(
         await readFile(path.join(resources, "remy/manifest.json"), "utf8"),
       );
+      const plist = await readFile(
+        path.join(resources, "../Info.plist"),
+        "utf8",
+      );
+      assert.match(plist, /NSMicrophoneUsageDescription/);
+      assert.match(plist, /Microphone access is used only when you record/);
       for (const clip of manifest.animations)
         for (const frame of clip.frame_files)
           assert.ok(

@@ -64,6 +64,11 @@
       }
     ],
     "mac": {
+      "entitlements": "scripts/entitlements.mac.plist",
+      "entitlementsInherit": "scripts/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ReMe Desktop 仅在你录制语音消息时使用麦克风。 Microphone access is used only when you record a voice message."
+      },
       "icon": "out/remy.icns",
       "category": "public.app-category.productivity",
       "target": [

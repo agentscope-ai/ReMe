@@ -31,6 +31,7 @@ const clips = {
 type Owner =
   | "base"
   | "chat"
+  | "speech"
   | "background"
   | "reminder"
   | "terminal"
@@ -38,7 +39,7 @@ type Owner =
   | "ambient";
 type Input = Pick<
   DesktopState,
-  "connection" | "chatFocused" | "pending" | "bubble" | "settings"
+  "connection" | "chatFocused" | "pending" | "bubble" | "settings" | "speech"
 >;
 
 /** One owner per animation. Temporary gestures always return to current activity. */
@@ -275,6 +276,33 @@ export class BehaviorController {
     if (!visible || input.connection !== "connected") {
       this.reminder = null;
       return select("base", "offline", "idle", "hold", t("waitingConnection"));
+    }
+    const speech = input.speech;
+    if (speech?.capture || speech?.playback?.phase === "playing") {
+      this.touch(now);
+      const capture = speech.capture;
+      const label = capture
+        ? t(
+            capture.phase === "transcribing"
+              ? "speechTranscribing"
+              : capture.phase === "starting"
+                ? "speechOpeningMic"
+                : "speechListening",
+          )
+        : t("speechPlaying");
+      return select(
+        "speech",
+        `speech:${capture?.id ?? speech.playback!.id}:${capture?.phase ?? "playing"}`,
+        capture
+          ? capture.phase === "transcribing"
+            ? "thinking"
+            : "listening"
+          : "speaking",
+        "loop",
+        label,
+        undefined,
+        notice("speech", label),
+      );
     }
     const activity = this.activities.chat;
     const active = activity && !terminal(activity.phase);

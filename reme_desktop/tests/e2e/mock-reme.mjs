@@ -1,6 +1,33 @@
 import http from "node:http";
 
-export async function mockReMe() {
+export function toneWave(seconds = 2) {
+  const samples = Math.round(16000 * seconds);
+  const wave = Buffer.alloc(44 + samples * 2);
+  wave.write("RIFF");
+  wave.writeUInt32LE(wave.length - 8, 4);
+  wave.write("WAVEfmt ", 8);
+  wave.writeUInt32LE(16, 16);
+  wave.writeUInt16LE(1, 20);
+  wave.writeUInt16LE(1, 22);
+  wave.writeUInt32LE(16000, 24);
+  wave.writeUInt32LE(32000, 28);
+  wave.writeUInt16LE(2, 32);
+  wave.writeUInt16LE(16, 34);
+  wave.write("data", 36);
+  wave.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++)
+    wave.writeInt16LE(
+      Math.round(Math.sin((i * Math.PI * 2 * 440) / 16000) * 3000),
+      44 + i * 2,
+    );
+  return wave;
+}
+
+export async function mockReMe({ speech = false } = {}) {
+  const ttsRequests = [];
+  const asrRequests = [];
+  let speechError = false;
+  let speechDelay = 0;
   const sockets = new Set();
   const events = [];
   const cursors = [];
@@ -76,6 +103,7 @@ export async function mockReMe() {
             "pa_session",
             "pa_new_session",
             "session_read",
+            ...(speech ? ["tts_demo", "asr_demo"] : []),
           ].map((name) => [
             name,
             {
@@ -87,6 +115,37 @@ export async function mockReMe() {
           ]),
         ),
       });
+    if (speech && (job === "/tts_demo" || job === "/asr_demo")) {
+      (job === "/tts_demo" ? ttsRequests : asrRequests).push(body);
+      const fail = speechError;
+      const finish = () => {
+        if (response.destroyed) return;
+        if (fail) {
+          response.writeHead(200, { "Content-Type": "application/json" });
+          response.end(
+            JSON.stringify({
+              success: false,
+              answer: "Mock speech provider unavailable",
+            }),
+          );
+        } else
+          json(
+            job === "/asr_demo"
+              ? "语音输入的研究计划。"
+              : {
+                  audio: toneWave().toString("base64"),
+                  format: "wav",
+                  sample_rate: 16000,
+                  is_last: true,
+                },
+          );
+      };
+      if (speechDelay) {
+        const timer = setTimeout(finish, speechDelay);
+        response.on("close", () => clearTimeout(timer));
+      } else finish();
+      return;
+    }
     if (job === "/pa_session") return json({ session_id: sessionId, status });
     if (job === "/session_read") return json(snapshot());
     if (job === "/pa_new_session") {
@@ -241,6 +300,14 @@ export async function mockReMe() {
     url: `http://127.0.0.1:${server.address().port}`,
     push,
     cursors,
+    ttsRequests,
+    asrRequests,
+    setSpeechError(value) {
+      speechError = value;
+    },
+    setSpeechDelay(value) {
+      speechDelay = value;
+    },
     activity(phase, source = "chat", turnId = "remote-turn") {
       activities = {
         ...activities,

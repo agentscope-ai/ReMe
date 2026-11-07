@@ -134,6 +134,38 @@ A missing key does not prevent service startup; calls to this Job return a failu
 The result's `search_info.search_results` preserves provider source fields; `content` is separate model-generated text.
 Page bodies and snippets are not guaranteed. See `reme/config/default.yaml` for the model, search strategy, and timeout.
 
+## Speech components
+
+`asr` and `tts` are independent Components with abstract `BaseASR` and `BaseTTS` contracts under
+`reme/components/`. The `dashscope` backends use the native asynchronous HTTP APIs and the same
+`DASHSCOPE_API_KEY` as web search. Missing credentials fail a speech call without preventing startup.
+Configure `base_url` with a native endpoint ending in `/api/v1`, rather than an OpenAI-compatible URL.
+
+`reme/config/proactive.yaml` configures `qwen-audio-3.1-asr-flash` and `qwen-audio-3.1-tts-plus`
+with voice `longanhuan_v3.1`. Start the service in one terminal:
+
+```bash
+export DASHSCOPE_API_KEY=sk-xxx
+reme start config=proactive
+```
+
+From another terminal, test text → speech → text:
+
+```bash
+reme speech_demo text="How is the weather today?"
+```
+
+The Job runs `tts_step`, then `asr_step`, sharing audio bytes in the request context. Its answer is
+the recognized text, with each provider's request ID and usage in response metadata. `tts_demo` runs
+synthesis alone and returns Base64 audio, format, and sample rate; `asr_demo` accepts Base64 `audio`
+with `audio_format` and optional `sample_rate`.
+
+For direct component use, `transcribe(audio, audio_format=..., sample_rate=...)` returns an `ASRResult`.
+`synthesize(text)` collects a `TTSResult`; `stream(text)` yields incremental `TTSResult` fragments.
+Concatenate their `audio` bytes in order and require a final `is_last=True` result. Close an iterator
+when stopping early. The result schemas live in `reme/schema/speech.py`. Microphone capture and
+playback belong to the caller.
+
 ## Decision Model Configuration
 
 `as_decision_model` is a provider-independent interface for probabilistic decisions. The current `agentscope` adapter

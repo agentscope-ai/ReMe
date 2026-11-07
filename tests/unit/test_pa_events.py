@@ -72,7 +72,8 @@ async def system(tmp_path):
     )
     server = CodexAppServer(app_context=app.context)
     agent = EventAgent(server, app_context=app.context)
-    runtime = PaRuntime(app_context=app.context, heartbeat_seconds=0.02)
+    runtime = PaRuntime(app_context=app.context, heartbeat_seconds=0.02,
+                        default_proactive=config["components"]["pa"]["default"]["default_proactive"])
     app.context.components.update(
         codex_app_server={"default": server},
         agent_wrapper={"default": agent},
@@ -84,6 +85,22 @@ async def system(tmp_path):
 
 async def next_event(events):
     return await asyncio.wait_for(anext(events), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_unchanged_status_polling_does_not_starve_initial_snapshot(system):
+    _app, agent, runtime, _server = system
+    session_id = await runtime.new_session()
+
+    async def read_with_idle_poll(_session_id):
+        await asyncio.sleep(0.01)
+        runtime.publish_status()
+        return agent.snapshots[session_id].model_copy(deep=True)
+
+    agent.read_session = AsyncMock(side_effect=read_with_idle_poll)
+    async with aclosing(runtime.events()) as events:
+        event = await next_event(events)
+    assert event.type == "snapshot" and event.snapshot.session_id == session_id
 
 
 @pytest.mark.asyncio
@@ -114,10 +131,7 @@ async def test_activity_is_replayable_scoped_and_included_in_snapshots(system):
 
 
 async def select(agent, runtime):
-    session_id = await agent.create_session()
-    runtime.state["session_id"] = session_id
-    runtime.select_session()
-    return session_id
+    return await runtime.new_session()
 
 
 def append(agent, server, session_id, identifier="reminder", *, completed=True):
@@ -145,7 +159,7 @@ async def test_initial_snapshot_and_heartbeat_are_read_only(system, tmp_path):
         assert runtime.cursor == initial.cursor
     agent.create_session.assert_not_awaited()
     agent.read_session.assert_not_awaited()
-    assert not (tmp_path / "digest/personal/REME_MEMORY.md").exists()
+    assert not (tmp_path / "daily/personal/MEMORY.md").exists()
 
 
 @pytest.mark.asyncio

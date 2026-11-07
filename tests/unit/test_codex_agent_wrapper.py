@@ -38,7 +38,7 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.pa_chat import PaChatStep, PaNewSessionStep
 from reme.utils import global_counter_get_all
 
 
@@ -364,12 +364,20 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
-async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language):
+async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language, monkeypatch):
+    from datetime import datetime
+
+    monkeypatch.setattr(
+        "reme.steps.proactive.base_pa_step.BasePaStep._now",
+        lambda _self: datetime.fromisoformat("2026-11-08T12:00:00+08:00"),
+    )
     agent, _, _, _ = system
     context = agent.app_context
     context.app_config.language = language
+    from .pa_helpers import bind_pa
+    bind_pa(context, agent)
     context.components["agent_wrapper"] = {"default": agent}
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory = agent.workspace_path / "daily/personal/MEMORY.md"
     memory.parent.mkdir(parents=True)
     memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
     session_id = (await PaNewSessionStep(app_context=context)()).answer
@@ -377,11 +385,9 @@ async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system
     prompt = client.opened[-1][2]["developer_instructions"]
     assert str(memory) in prompt and str(agent.workspace_path) in prompt
     assert "Use Chinese." not in prompt
-    assert ("先读取最新完整文件" if language == "zh" else "Read the complete current file") in prompt
-    assert ("立即删除对应记忆" if language == "zh" else "Immediately remove memories") in prompt
-    assert (
-        "不从旧会话或摘要中恢复" if language == "zh" else "restore them from old conversations or summaries"
-    ) in prompt
+    assert ("读最新完整记忆" if language == "zh" else "Read the complete latest file") in prompt
+    assert ("要求遗忘时立即删除" if language == "zh" else "Remove requested memories immediately") in prompt
+    assert ("不转存，也不从旧对话或摘要恢复" if language == "zh" else "restoring them from old history") in prompt
     assert not client.threads[session_id].inputs
     memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
     for _ in range(2):
@@ -719,6 +725,26 @@ async def test_loaded_thread_constraints_cannot_be_changed_by_another_wrapper(sy
         await second.reply("two", session_id=thread_id, **{**binding, **changes})
     assert token in server.jobs_mcp.scopes
     await second.reply("three", session_id=thread_id, **binding)
+
+
+@pytest.mark.asyncio
+async def test_application_bound_tool_approval_preserves_native_read_only_and_external_policy(system):
+    from openai_codex import Sandbox
+
+    first, _, _, _ = system
+    external = {"url": "http://external.test/mcp", "tools": {"write": {"approval_mode": "prompt"}}}
+    await first.reply(
+        "one",
+        job_tools=["search"],
+        sandbox="read-only",
+        config={"mcp_servers": {"external": external}},
+    )
+    options = _Codex.instances[0].opened[0][2]
+    assert options["sandbox"] == Sandbox.read_only
+    servers = options["config"]["mcp_servers"]
+    assert servers["reme_jobs"]["enabled_tools"] == ["search"]
+    assert servers["reme_jobs"]["tools"] == {"search": {"approval_mode": "approve"}}
+    assert servers["external"] == external
 
 
 @pytest.mark.asyncio
@@ -1071,6 +1097,11 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
             assert servers["default"]["base_url"] == "https://demo.invalid/v1"
         else:
             assert servers["oauth"]["codex_home"] == "~/.codex"
+            assert wrappers["codex_oauth"]["effort"] == "xhigh"
+            assert set(servers["oauth"]["config_overrides"]) == {
+                'model_reasoning_effort="xhigh"',
+                'agents.default_subagent_reasoning_effort="xhigh"',
+            }
 
 
 @pytest.mark.asyncio

@@ -560,6 +560,77 @@ button {
   padding: 12px 16px 13px;
   flex-shrink: 0;
 }
+.settings {
+  max-height: 48vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.voice-settings {
+  margin: 14px 0 4px;
+  padding: 12px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  min-width: 0;
+}
+.voice-settings legend {
+  padding: 0 8px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+.voice-settings .quiet-row {
+  margin: 8px 0;
+}
+.voice-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 4px 8px;
+}
+.voice-status > button {
+  margin-left: auto;
+}
+.voice-status meter {
+  width: 44px;
+  height: 8px;
+  accent-color: var(--accent);
+}
+.mic-button {
+  width: 31px;
+  height: 31px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  flex-shrink: 0;
+  touch-action: none;
+}
+.mic-button:hover {
+  background: var(--line);
+}
+.mic-button.recording {
+  color: #b53e42;
+  background: #f8e5e4;
+}
+.read-aloud {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  margin-top: 7px;
+  padding: 3px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+}
+.read-aloud:hover,
+.read-aloud[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--surface);
+}
 .chat-composer form {
   display: flex;
   gap: 10px;
