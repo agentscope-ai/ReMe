@@ -66,7 +66,11 @@ async def _make_store(nodes: list[FileNode]) -> LocalFileStore:
 
 
 def _edges(step) -> list[dict]:
-    return step.context.response.answer["edges"]
+    return step.context.response.metadata["graph"]["edges"]
+
+
+def _graph(response) -> TraverseGraph:
+    return TraverseGraph.model_validate(response.metadata["graph"])
 
 
 @pytest.mark.asyncio
@@ -435,13 +439,14 @@ async def test_traverse_both_preserves_reciprocal_edge_directions():
         )
         step = traverse_mod.TraverseStep(file_store=store)
         response = await step(path="a.md", direction="both", depth=1)
-        graph = TraverseGraph.model_validate(response.answer)
+        graph = _graph(response)
 
         assert {(edge.source, edge.target) for edge in graph.edges} == {
             ("a.md", "b.md"),
             ("b.md", "a.md"),
         }
-        assert response.metadata == {}
+        assert response.answer.startswith("Traverse results (seeds=a.md; depth=1; direction=both)")
+        assert response.metadata["graph"] == graph.model_dump()
         await store.close()
 
 
@@ -462,7 +467,7 @@ async def test_traverse_returns_frontmatter_and_unresolved_nodes():
         )
         step = traverse_mod.TraverseStep(file_store=store)
         response = await step(path="a.md", direction="forward", depth=1)
-        graph = TraverseGraph.model_validate(response.answer)
+        graph = _graph(response)
         nodes = {node.path: node for node in graph.nodes}
 
         assert graph.version == 1
@@ -478,6 +483,8 @@ async def test_traverse_returns_frontmatter_and_unresolved_nodes():
         assert nodes["missing.md"].indexed is False
         assert nodes["missing.md"].depth == 1
         assert graph.edges[0].target_anchor == "details"
+        assert "[0] a.md — Alpha: Root note" in response.answer
+        assert "[1] missing.md (no indexed FileNode/frontmatter; file may still exist on disk)" in response.answer
         await store.close()
 
 
@@ -489,8 +496,62 @@ async def test_traverse_depth_zero_returns_only_seed_nodes():
         store = await _make_store([_node("a.md", [("b.md", None)]), _node("b.md")])
         step = traverse_mod.TraverseStep(file_store=store)
         response = await step(path="a.md", direction="forward", depth=0)
-        graph = TraverseGraph.model_validate(response.answer)
+        graph = _graph(response)
 
         assert [node.path for node in graph.nodes] == ["a.md"]
         assert graph.edges == []
+        assert response.answer.endswith("(no edges reached within requested depth and direction)")
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_traverse_answer_includes_labels_descriptions_and_reached_edges():
+    """The answer is useful by itself while metadata retains the complete graph."""
+
+    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+        store = await _make_store(
+            [
+                _node(
+                    "a.md",
+                    [("b.md", None), ("c.md", "intro")],
+                    name="Seed",
+                    description="Root note",
+                ),
+                _node("b.md", name="Branch", description="First hop"),
+                _node("c.md", name="Child", description="Anchored result"),
+            ],
+        )
+        step = traverse_mod.TraverseStep(file_store=store)
+        response = await step(path="a.md", direction="forward", depth=1)
+        graph = _graph(response)
+
+        assert isinstance(response.answer, str)
+        assert "[0] a.md — Seed: Root note" in response.answer
+        assert "[1] b.md — Branch: First hop" in response.answer
+        assert "[1] c.md — Child: Anchored result" in response.answer
+        assert "a.md -> b.md (depth=1)" in response.answer
+        assert "a.md -> c.md#intro (depth=1)" in response.answer
+        assert graph.model_dump() == response.metadata["graph"]
+        assert graph.seeds == ["a.md"]
+        assert {(edge.source, edge.target, edge.target_anchor) for edge in graph.edges} == {
+            ("a.md", "b.md", None),
+            ("a.md", "c.md", "intro"),
+        }
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_traverse_answer_bounds_and_normalizes_descriptions():
+    """Long multiline frontmatter descriptions stay compact and readable in the answer."""
+
+    with tempfile.TemporaryDirectory() as tmp, _temp_chdir(tmp):
+        description = "Supported detail.\n" * 20
+        store = await _make_store([_node("a.md", name="Seed", description=description)])
+        step = traverse_mod.TraverseStep(file_store=store)
+        response = await step(path="a.md", direction="forward", depth=1)
+        node_line = response.answer.splitlines()[2]
+
+        assert "\n" not in node_line
+        assert node_line.endswith("...")
+        assert len(node_line.split(": ", maxsplit=1)[1]) == 160
         await store.close()
