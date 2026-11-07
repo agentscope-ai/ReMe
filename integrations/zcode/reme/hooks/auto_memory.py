@@ -192,24 +192,29 @@ def clean_text(value: str) -> str:
 
 
 def iso_now() -> str:
+    """Return the current UTC time in ISO 8601 format."""
     return datetime.now(timezone.utc).isoformat()
 
 
 def event_time(payload: dict) -> str:
+    """Use the event timestamp when present, otherwise the current UTC time."""
     value = payload.get("timestamp")
     return value if isinstance(value, str) and value else iso_now()
 
 
 def native_session(payload: dict) -> str | None:
+    """Read the native session ID from either supported payload spelling."""
     session = payload.get("session_id") or payload.get("sessionId")
     return session if isinstance(session, str) and session else None
 
 
 def session_name(native_id: str) -> str:
+    """Namespace the native session ID by host and resolved data directory."""
     return f"{HOST}-{digest(str(data_dir().resolve()) + ':' + native_id)}"
 
 
 def turn_id(payload: dict) -> str | None:
+    """Read the turn ID from either supported payload spelling."""
     value = payload.get("turn_id") or payload.get("turnId")
     return value if isinstance(value, str) and value else None
 
@@ -389,7 +394,8 @@ def spawn_worker(*, force: bool) -> bool:
     else:
         options["start_new_session"] = True
     try:
-        subprocess.Popen(arguments, **options)
+        # The worker must outlive the Hook; a context manager would wait for it.
+        subprocess.Popen(arguments, **options)  # pylint: disable=consider-using-with
     except OSError as exc:
         log_status("worker_failed", exc)
         return False
