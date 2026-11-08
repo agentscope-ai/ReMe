@@ -25,10 +25,15 @@
     "dist": "npm run build && electron-builder --publish never"
   },
   "dependencies": {
+    "@radix-ui/react-switch": "^1.4.1",
+    "@radix-ui/react-tabs": "^1.2.1",
+    "lucide-react": "^1.70.0",
+    "mdast-util-from-markdown": "^2.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
@@ -95,5 +100,8 @@
       ],
       "category": "Utility"
     }
+  },
+  "optionalDependencies": {
+    "electron-liquid-glass": "^1.1.1"
   }
 }

@@ -8,12 +8,40 @@ export interface Rect {
 export const clamp = (n: number, min: number, max: number) =>
   Math.max(min, Math.min(Math.max(min, max), n));
 
+/** First-open proportions follow the display; restored bounds stay inside its work area. */
+export function workspacePlacement(
+  area: Rect,
+  display: Rect,
+  saved?: Rect,
+): Rect {
+  const ratio = display.width / display.height;
+  const height = Math.round(
+    Math.min(area.height * 0.82, (area.width * 0.82) / ratio, 920),
+  );
+  const width = Math.round(height * ratio);
+  const bounds = saved ?? {
+    width,
+    height,
+    x: area.x + (area.width - width) / 2,
+    y: area.y + (area.height - height) / 2,
+  };
+  const w = Math.min(Math.max(500, bounds.width), area.width);
+  const h = Math.min(Math.max(400, bounds.height), area.height);
+  return {
+    width: w,
+    height: h,
+    x: Math.round(clamp(bounds.x, area.x, area.x + area.width - w)),
+    y: Math.round(clamp(bounds.y, area.y, area.y + area.height - h)),
+  };
+}
+
 /** Anchor is the canvas's bottom centre; bubble expansion never moves the character. */
 export function companionPlacement(
   anchor: { x: number; y: number },
   scale: number,
   surface: "status" | "reminder" | null,
   area: Rect,
+  measured?: { width: number; height: number },
 ) {
   const size = Math.round(180 * scale);
   const x = clamp(
@@ -29,8 +57,15 @@ export function companionPlacement(
     height: size,
   };
   const bubble = surface !== null;
-  const width = Math.min(surface === "status" ? 240 : 320, area.width - 24);
-  const height = surface === "status" ? 48 : 180;
+  const maxWidth = Math.max(
+    1,
+    Math.min(surface === "status" ? 280 : 320, area.width - 24),
+  );
+  const width = Math.min(measured?.width ?? maxWidth, maxWidth);
+  const height = Math.min(
+    measured?.height ?? (surface === "status" ? 36 : 180),
+    Math.max(1, area.height - 24),
+  );
   let bubbleY = body.y - height - 8;
   const below = bubbleY < area.y + 8;
   if (below) bubbleY = y + 10;
@@ -59,8 +94,8 @@ export function companionPlacement(
         left: bubbleX - left,
         top: bubbleY - top,
         width,
-        below,
-        tail: clamp(x - bubbleX, 20, width - 20),
+        maxWidth,
+        height,
       },
     },
   };

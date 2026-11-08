@@ -4,17 +4,8 @@
     "Microsoft YaHei", sans-serif;
   font-size: 14px;
   line-height: 1.65;
-  color: #273c37;
+  color: var(--ink);
   color-scheme: light dark;
-  --surface: light-dark(#ffffff, #1e2d29);
-  --page: light-dark(#f5f7f4, #18241f);
-  --ink: light-dark(#273c37, #e5ede7);
-  --muted: light-dark(#70817a, #9daf9f);
-  --line: light-dark(#e6ebe5, #35453b);
-  --soft: light-dark(#eef4ef, #283a30);
-  --accent: light-dark(#31755f, #a4d6ba);
-  --accent-ink: light-dark(#ffffff, #173c2a);
-  --error: light-dark(#9a4a3f, #efb5a7);
   background: transparent;
 }
 * {
@@ -138,34 +129,17 @@ button {
     animation: none;
   }
 }
-.reminder {
-  position: absolute;
-  z-index: 2;
-  padding: 12px 15px 14px;
-  border-radius: 18px;
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 4px 15px #11251b1c;
-}
+.reminder,
 .status-notice {
   position: absolute;
   z-index: 2;
+}
+.status-notice {
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 38px;
-  padding: 9px 13px;
-  border: 1px solid #dce7df;
-  border-radius: 14px;
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 4px 15px #11251b14;
-  font-size: 12px;
   text-align: left;
 }
 .status-light {
-  width: 6px;
-  height: 6px;
   flex-shrink: 0;
   border-radius: 50%;
   background: var(--accent);
@@ -176,43 +150,17 @@ button {
 .status-notice.error .status-light {
   background: #c36256;
 }
-.status-arrow {
-  margin-left: auto;
-  color: var(--muted);
-}
 .quiet-row small {
   display: block;
   color: var(--muted);
   font-size: 11px;
   margin-top: 3px;
 }
-.settings .quiet-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.reminder::after {
-  content: "";
-  position: absolute;
-  left: var(--tail-left);
-  bottom: -6px;
-  width: 13px;
-  height: 13px;
-  background: var(--surface);
-  transform: translateX(-50%) rotate(45deg);
-  border-radius: 0 0 3px 0;
-}
-.reminder.below::after {
-  top: -6px;
-  bottom: auto;
-}
 .reminder header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 3px;
 }
 .eyebrow {
   font-size: 10px;
@@ -222,8 +170,6 @@ button {
 }
 .reminder p {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.7;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -232,11 +178,6 @@ button {
 }
 .reminder footer {
   display: flex;
-  gap: 6px;
-  margin-top: 12px;
-}
-.reminder .primary span {
-  margin-left: 7px;
 }
 .companion-badges {
   position: absolute;
@@ -273,75 +214,6 @@ button {
   color: var(--error);
   font-size: 11px;
 }
-[data-view="chat"] body {
-  background: var(--page);
-}
-.chat-shell {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.chat-titlebar {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 18px 18px 15px;
-  border-bottom: 1px solid var(--line);
-  -webkit-app-region: drag;
-  flex-shrink: 0;
-}
-.brand-mark,
-.empty-mark {
-  display: grid;
-  place-content: center;
-  grid-auto-flow: column;
-  font-family: Georgia, serif;
-  background: var(--soft);
-  color: var(--accent);
-  font-weight: 500;
-}
-.brand-mark {
-  width: 36px;
-  height: 39px;
-  border-radius: 12px 12px 12px 4px;
-  font-size: 22px;
-}
-.brand-mark span,
-.empty-mark span {
-  color: var(--accent);
-}
-.chat-heading {
-  flex: 1;
-  min-width: 0;
-}
-.chat-heading h1 {
-  font-size: 15px;
-  font-weight: 600;
-  margin: 0;
-  letter-spacing: 0.01em;
-}
-.chat-heading > span {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 1px;
-}
-.chat-titlebar nav {
-  display: flex;
-  gap: 2px;
-}
-.settings {
-  padding: 16px 19px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--line);
-  flex-shrink: 0;
-}
-.settings label {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-}
 .endpoint-row {
   display: flex;
   gap: 8px;
@@ -356,13 +228,6 @@ button {
   border-radius: 9px;
   padding: 7px 9px;
   font-size: 12px;
-}
-.settings .scale-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  margin-top: 14px;
 }
 .scale-row > span {
   margin-left: auto;
@@ -435,13 +300,6 @@ button {
   padding: 20px 0 40px;
   text-align: center;
 }
-.empty-mark {
-  width: 58px;
-  height: 64px;
-  font-size: 36px;
-  border-radius: 18px 18px 18px 5px;
-  margin-bottom: 18px;
-}
 .empty-chat h2 {
   font-size: 17px;
   font-weight: 500;
@@ -468,7 +326,6 @@ button {
   overflow-wrap: anywhere;
 }
 .message.user {
-  margin-left: 34px;
   padding: 10px 13px;
   border-radius: 15px 15px 4px 15px;
   background: var(--soft);
@@ -560,11 +417,6 @@ button {
   padding: 12px 16px 13px;
   flex-shrink: 0;
 }
-.settings {
-  max-height: 48vh;
-  overflow-y: auto;
-  flex-shrink: 0;
-}
 .voice-settings {
   margin: 14px 0 4px;
   padding: 12px 0 0;
@@ -578,7 +430,7 @@ button {
   font-weight: 600;
 }
 .voice-settings .quiet-row {
-  margin: 8px 0;
+  gap: 16px;
 }
 .voice-status {
   display: flex;
@@ -613,6 +465,11 @@ button {
 .mic-button.recording {
   color: #b53e42;
   background: #f8e5e4;
+}
+.voice-notice {
+  padding: 0 6px 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .read-aloud {
   display: inline-flex;
@@ -701,21 +558,6 @@ button {
 .loading {
   padding: 20px;
   color: var(--muted);
-}
-@media (max-height: 510px) {
-  .chat-titlebar {
-    padding-top: 10px;
-    padding-bottom: 10px;
-  }
-  .chat-composer {
-    padding-top: 4px;
-  }
-  .empty-chat {
-    padding-bottom: 10px;
-  }
-  .settings {
-    padding: 10px 16px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   * {

@@ -5,6 +5,7 @@ import { ReMeClient } from "../src/main/reme-client.ts";
 import { defaultSettings } from "../src/main/storage.ts";
 import {
   encodeWave,
+  hasAudibleSignal,
   narrationParts,
   narrationText,
   validRecording,
@@ -87,6 +88,37 @@ test("recording validation rejects escapes in format, lengths, channels, rates a
     assert.equal(validRecording(invalid), false, String(offset));
   }
   assert.equal(validRecording(encodeWave(new Int16Array(500_000))), false);
+});
+
+test("the local energy gate rejects silence and a click but retains sustained quiet audio", () => {
+  assert.equal(hasAudibleSignal(new Int16Array()), false);
+  const silence = new Int16Array(16000);
+  assert.equal(hasAudibleSignal(silence), false);
+  silence[8000] = 32767;
+  assert.equal(hasAudibleSignal(silence), false);
+  const tone = (amplitude: number) =>
+    Int16Array.from(
+      { length: 16000 },
+      (_, i) => Math.sin((i * Math.PI * 2 * 440) / 16000) * amplitude * 32767,
+    );
+  assert.equal(hasAudibleSignal(tone(0.0001)), false);
+  assert.equal(hasAudibleSignal(tone(0.003)), true);
+  assert.equal(hasAudibleSignal(tone(0.5)), true);
+});
+
+test("an empty transcript finishes capture normally instead of raising a service error", async () => {
+  for (const text of ["", "  \n"]) {
+    const { speech } = harness(async () => text as never);
+    speech.beginCapture("empty");
+    speech.recording("empty");
+    assert.equal(
+      await speech.transcribe("empty", encodeWave(new Int16Array(16000))),
+      "",
+    );
+    assert.equal(speech.state.capture, null);
+    assert.equal(speech.state.error, null);
+    await speech.close();
+  }
 });
 
 test("only new successful turns narrate once; snapshots, failed turns, quiet and disabled updates stay silent", async () => {

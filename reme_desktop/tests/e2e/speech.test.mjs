@@ -43,6 +43,7 @@ test(
           window.desktop.bootstrap().then((value) => value.state),
         );
       const open = async () => {
+        await app.evaluate(({ app }) => app.focus({ steal: true }));
         await companion.evaluate(() =>
           window.desktop.action({ type: "chat.open" }),
         );
@@ -63,13 +64,21 @@ test(
           return audio;
         };
         window.voiceStreams = [];
+        window.voiceAmplitude = 1;
+        window.voiceDelay = 0;
         // Synthetic streams guarantee tests never open a physical microphone.
         navigator.mediaDevices.getUserMedia = async () => {
+          if (window.voiceDelay)
+            await new Promise((resolve) =>
+              setTimeout(resolve, window.voiceDelay),
+            );
           const context = new AudioContext();
           const oscillator = context.createOscillator();
           const destination = context.createMediaStreamDestination();
           oscillator.frequency.value = 440;
-          oscillator.connect(destination);
+          const gain = context.createGain();
+          gain.gain.value = window.voiceAmplitude;
+          oscillator.connect(gain).connect(destination);
           oscillator.start();
           await context.resume();
           const stream = destination.stream;
@@ -127,11 +136,23 @@ test(
         async () => {
           await chat.getByRole("button", { name: "设置", exact: true }).click();
           await chat
-            .getByRole("checkbox", { name: "自动语音播报", exact: true })
-            .check();
-          await chat
-            .getByRole("checkbox", { name: "朗读主动提醒", exact: true })
-            .check();
+            .locator(".settings-nav")
+            .getByRole("button", { name: "语音", exact: true })
+            .click();
+          const narration = chat.getByRole("switch", {
+            name: "自动语音播报",
+            exact: true,
+          });
+          await narration.click();
+          await expect(narration).not.toBeChecked();
+          await narration.click();
+          await expect(narration).toBeChecked();
+          const reminders = chat.getByRole("switch", {
+            name: "朗读主动提醒",
+            exact: true,
+          });
+          await reminders.click();
+          await expect(reminders).toBeChecked();
           const volume = chat.getByRole("slider", {
             name: "语音音量",
             exact: true,
@@ -146,7 +167,7 @@ test(
           await chat.screenshot({
             path: path.join(project, "reports/voice-settings.png"),
           });
-          await chat.getByRole("button", { name: "设置", exact: true }).click();
+          await chat.getByRole("tab", { name: "Remy", exact: true }).click();
           await chat
             .getByRole("textbox", { name: "消息", exact: true })
             .fill("请回复我的研究计划");
@@ -517,6 +538,170 @@ test(
           await expect
             .poll(async () => (await state()).speech.playback?.phase)
             .toBe("playing");
+        },
+      );
+      const input = chat.getByRole("textbox", { name: "消息", exact: true });
+      await open();
+      await chat.getByRole("tab", { name: "Remy", exact: true }).click();
+      const modifier = process.platform === "darwin" ? "meta" : "control";
+      const modifierKey = process.platform === "darwin" ? "Command" : "Control";
+      // CDP keyboard events bypass Electron's before-input-event/menu pipeline.
+      const nativeKey = (type, keyCode, modifiers = []) =>
+        app.evaluate(
+          ({ BrowserWindow }, input) => {
+            BrowserWindow.getAllWindows()
+              .find((win) => win.webContents.getURL().includes("view=chat"))
+              .webContents.sendInputEvent(input);
+          },
+          { type, keyCode, modifiers },
+        );
+      const hold = async () => {
+        await nativeKey("keyDown", modifierKey, [modifier]);
+        await nativeKey("keyDown", "R", [modifier]);
+        await expect(chat.locator(".voice-status")).toContainText("录音中 1");
+      };
+      const release = async () => {
+        await nativeKey("keyUp", "R", [modifier]);
+        await nativeKey("keyUp", modifierKey);
+      };
+      await chat.evaluate(() =>
+        window.desktop.action({
+          type: "settings.update",
+          voiceAutoSend: false,
+        }),
+      );
+      await t.test(
+        "holding Cmd/Ctrl R captures once and releasing the modifier first still stops without reload",
+        async () => {
+          await input.fill("快捷语音：");
+          await input.press("End");
+          const before = backend.asrRequests.length;
+          const marker = await chat.evaluate(
+            () => (window.voiceTestMarker = crypto.randomUUID()),
+          );
+          await hold();
+          const capture = (await state()).speech.capture.id;
+          await nativeKey("keyDown", "R", [modifier, "isautorepeat"]);
+          assert.equal((await state()).speech.capture.id, capture);
+          await nativeKey("keyUp", modifierKey);
+          await expect(input).toHaveValue("快捷语音：语音输入的研究计划。");
+          await nativeKey("keyUp", "R");
+          assert.equal(backend.asrRequests.length, before + 1);
+          assert.equal(
+            await chat.evaluate(() => window.voiceTestMarker),
+            marker,
+          );
+        },
+      );
+      await t.test(
+        "silence is discarded locally and empty recognition never auto-sends the existing draft",
+        async () => {
+          const draft = await input.inputValue();
+          const before = backend.asrRequests.length;
+          await chat.evaluate(() => (window.voiceAmplitude = 0));
+          await hold();
+          await release();
+          await expect(chat.locator(".voice-notice")).toHaveText(
+            "未检测到语音",
+          );
+          await expect(chat.getByRole("alert")).toHaveCount(0);
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          assert.equal(backend.asrRequests.length, before);
+          await chat.evaluate(() => (window.voiceAmplitude = 0.003));
+          backend.setAsrText("");
+          await chat.evaluate(() =>
+            window.desktop.action({
+              type: "settings.update",
+              voiceAutoSend: true,
+            }),
+          );
+          const users = (await state()).messages.filter(
+            (message) => message.role === "user",
+          ).length;
+          await hold();
+          await release();
+          await expect.poll(() => backend.asrRequests.length).toBe(before + 1);
+          await expect(chat.locator(".voice-notice")).toHaveText(
+            "未检测到语音",
+          );
+          await expect(input).toHaveValue(draft);
+          assert.equal(
+            (await state()).messages.filter(
+              (message) => message.role === "user",
+            ).length,
+            users,
+          );
+          await expect(chat.getByRole("alert")).toHaveCount(0);
+          await chat.screenshot({
+            path: path.join(project, "reports/voice-no-speech.png"),
+          });
+          await expect(chat.locator(".voice-notice")).toHaveCount(0);
+          backend.setAsrText("语音输入的研究计划。");
+          await chat.evaluate(() => {
+            window.voiceAmplitude = 1;
+          });
+        },
+      );
+      await t.test(
+        "early key release, Escape and switching pages cancel held capture and release tracks",
+        async () => {
+          const before = backend.asrRequests.length;
+          await chat.evaluate(() => (window.voiceDelay = 500));
+          await nativeKey("keyDown", modifierKey, [modifier]);
+          await nativeKey("keyDown", "R", [modifier]);
+          await expect
+            .poll(async () => (await state()).speech.capture?.phase)
+            .toBe("starting");
+          await release();
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          await chat.evaluate(() => (window.voiceDelay = 0));
+          await hold();
+          await chat.keyboard.press("Escape");
+          await release();
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          await hold();
+          await chat.getByRole("tab", { name: "知识库", exact: true }).click();
+          await release();
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          await expect
+            .poll(() =>
+              chat.evaluate(() =>
+                window.voiceStreams.every((stream) =>
+                  stream
+                    .getTracks()
+                    .every((track) => track.readyState === "ended"),
+                ),
+              ),
+            )
+            .toBe(true);
+          assert.equal(backend.asrRequests.length, before);
+          await chat.getByRole("tab", { name: "Remy", exact: true }).click();
+          await app.evaluate(({ app, BrowserWindow }) => {
+            app.focus({ steal: true });
+            BrowserWindow.getAllWindows()
+              .find((win) => win.webContents.getURL().includes("view=chat"))
+              .focus();
+          });
+          await expect.poll(async () => (await state()).chatFocused).toBe(true);
+          await hold();
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((win) => win.webContents.getURL().includes("view=chat"))
+              .blur(),
+          );
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          await release();
+          assert.equal(backend.asrRequests.length, before);
         },
       );
       assert.deepEqual(errors, []);

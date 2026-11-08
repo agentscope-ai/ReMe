@@ -93,9 +93,11 @@ test(
       ).toBeVisible();
       await companion.getByRole("button", { name: "展开聊聊" }).click();
       await expect(
-        chat.getByText("你关注的 Agent 记忆论文有更新，想看看重点吗？", {
-          exact: true,
-        }),
+        chat
+          .locator(".chat-history")
+          .getByText("你关注的 Agent 记忆论文有更新，想看看重点吗？", {
+            exact: true,
+          }),
       ).toBeVisible();
       await app.evaluate(({ nativeTheme }) => {
         nativeTheme.themeSource = "dark";
@@ -103,11 +105,13 @@ test(
       await chat.emulateMedia({ colorScheme: "dark" });
       assert.equal(
         await chat.evaluate(
-          () => getComputedStyle(document.body).backgroundColor,
+          () =>
+            getComputedStyle(document.querySelector(".workspace-main"))
+              .backgroundColor,
         ),
-        "rgb(24, 36, 31)",
+        "rgba(29, 37, 33, 0.96)",
       );
-      await expect(chat.locator(".chat-shell")).toBeVisible();
+      await expect(chat.locator(".workspace-shell")).toBeVisible();
       await mkdir(path.join(project, "reports"), { recursive: true });
       await chat.screenshot({
         path: path.join(project, "reports/chat-dark.png"),
@@ -155,7 +159,7 @@ test(
         return {
           url: window?.webContents.getURL(),
           body: await window?.webContents.executeJavaScript(
-            'Boolean(document.querySelector(".chat-shell"))',
+            'Boolean(document.querySelector(".workspace-shell"))',
           ),
         };
       });

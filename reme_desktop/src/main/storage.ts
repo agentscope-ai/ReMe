@@ -5,6 +5,7 @@ import type { Presentation, Settings } from "../shared/protocol.ts";
 
 export const defaultSettings: Settings = {
   language: defaultLanguage,
+  theme: "system",
   endpoint: "http://127.0.0.1:2333",
   scale: 1,
   quietUntil: 0,
@@ -65,6 +66,10 @@ export class Storage {
     );
     this.settings = {
       language: settings.language === "en" ? "en" : defaultLanguage,
+      theme:
+        settings.theme === "light" || settings.theme === "dark"
+          ? settings.theme
+          : "system",
       endpoint: normalizeEndpoint(
         settings.endpoint ?? defaultSettings.endpoint,
       ),
@@ -86,6 +91,18 @@ export class Storage {
       Number.isFinite(settings.anchor.x) &&
       Number.isFinite(settings.anchor.y)
         ? { anchor: settings.anchor }
+        : {}),
+      ...(settings.windowBounds &&
+      Object.values(settings.windowBounds).length === 4 &&
+      [
+        settings.windowBounds.x,
+        settings.windowBounds.y,
+        settings.windowBounds.width,
+        settings.windowBounds.height,
+      ].every(Number.isFinite) &&
+      settings.windowBounds.width >= 500 &&
+      settings.windowBounds.height >= 400
+        ? { windowBounds: settings.windowBounds }
         : {}),
     };
     this.presentations = await load(

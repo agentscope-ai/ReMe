@@ -1,9 +1,14 @@
 import worklet from "./capture-worklet.js?raw";
-import { encodeWave, MAX_RECORD_MS, SAMPLE_RATE } from "../../shared/speech.ts";
+import {
+  encodeWave,
+  hasAudibleSignal,
+  MAX_RECORD_MS,
+  SAMPLE_RATE,
+} from "../../shared/speech.ts";
 import { UiError } from "../../shared/i18n.ts";
 
 export interface Recorder {
-  stop(): Promise<{ audio: Uint8Array; duration: number; peak: number }>;
+  stop(): Promise<{ audio: Uint8Array; duration: number; audible: boolean }>;
   cancel(): void;
 }
 
@@ -17,7 +22,6 @@ export async function openRecorder(
   let closed = false;
   const chunks: Float32Array[] = [];
   let frames = 0;
-  let peak = 0;
   const cancel = () => {
     if (closed) return;
     closed = true;
@@ -62,7 +66,6 @@ export async function openRecorder(
       let blockPeak = 0;
       for (const value of samples)
         blockPeak = Math.max(blockPeak, Math.abs(value));
-      peak = Math.max(peak, blockPeak);
       progress(frames / SAMPLE_RATE, Math.min(1, blockPeak * 5));
     };
     const source = context.createMediaStreamSource(stream);
@@ -88,7 +91,7 @@ export async function openRecorder(
         return {
           audio: encodeWave(pcm),
           duration: (frames / SAMPLE_RATE) * 1000,
-          peak,
+          audible: hasAudibleSignal(pcm),
         };
       },
     };

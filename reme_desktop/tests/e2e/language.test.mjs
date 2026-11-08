@@ -163,6 +163,7 @@ test(
               { exact: true },
             ),
           ).toBeVisible();
+          await chat.getByRole("tab", { name: "Remy", exact: true }).click();
           await expect(
             chat.getByRole("textbox", { name: "消息", exact: true }),
           ).toHaveValue("保留草稿 / keep this draft");
@@ -189,7 +190,9 @@ test(
             chat.getByRole("textbox", { name: "Message", exact: true }),
           ).toBeVisible();
           await expect(
-            chat.getByText("历史提醒不会在启动时补弹。", { exact: true }),
+            chat
+              .locator(".chat-history")
+              .getByText("历史提醒不会在启动时补弹。", { exact: true }),
           ).toBeVisible();
           await app.evaluate(({ Notification }) => {
             Notification.isSupported = () => true;
@@ -205,9 +208,9 @@ test(
               this.emit("close");
             };
           });
-          await chat
-            .getByRole("button", { name: "Hide chat", exact: true })
-            .click();
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
           await companion.evaluate(() =>
             window.desktop.action({
               type: "settings.update",

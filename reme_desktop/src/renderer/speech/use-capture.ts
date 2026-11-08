@@ -11,6 +11,7 @@ interface Capture {
   recorder?: Recorder;
   phase: "starting" | "recording" | "transcribing";
   bound: boolean;
+  held: boolean;
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -22,6 +23,7 @@ export function useCapture(
   const [phase, setPhase] = useState<Capture["phase"] | null>(null);
   const [seconds, setSeconds] = useState(0);
   const [level, setLevel] = useState(0);
+  const [notice, setNotice] = useState(false);
   const active = useRef<Capture | null>(null);
   const latest = useRef({ state, insert, fail });
   latest.current = { state, insert, fail };
@@ -52,14 +54,18 @@ export function useCapture(
       const clip = await capture.recorder.stop();
       if (active.current !== capture) return;
       if (clip.duration < MIN_RECORD_MS) return;
-      if (clip.peak < 0.002) throw new UiError("speechSilent");
+      if (!clip.audible) {
+        setNotice(true);
+        return;
+      }
       const result = await window.desktop.transcribe({
         id: capture.id,
         audio: clip.audio,
       });
       if (active.current !== capture) return;
       if (result.error) throw deserializeError(result.error);
-      latest.current.insert(result.text);
+      if (result.text.trim()) latest.current.insert(result.text);
+      else setNotice(true);
     } catch (error) {
       if (
         active.current === capture &&
@@ -71,14 +77,16 @@ export function useCapture(
       if (active.current === capture) cancel();
     }
   };
-  const start = async () => {
+  const start = async (held = false) => {
     if (active.current || !latest.current.state.chatVisible) return;
     latest.current.fail(null);
+    setNotice(false);
     const capture: Capture = {
       id: crypto.randomUUID(),
       controller: new AbortController(),
       phase: "starting",
       bound: false,
+      held,
     };
     active.current = capture;
     setSeconds(0);
@@ -122,10 +130,16 @@ export function useCapture(
   }, [state.speech.capture]);
   useEffect(() => {
     cancel();
+    setNotice(false);
   }, [state.sessionId, state.settings.endpoint]);
   useEffect(() => {
     if (!state.chatVisible || state.connection !== "connected") cancel();
   }, [state.chatVisible, state.connection]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(false), 3000);
+    return () => clearTimeout(timer);
+  }, [notice]);
   useEffect(
     () => () => {
       cancel();
@@ -134,7 +148,22 @@ export function useCapture(
   );
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (!latest.current.state.chatVisible || event.repeat) return;
+      if (!latest.current.state.chatVisible) return;
+      const modifier =
+        document.documentElement.dataset.platform === "darwin"
+          ? event.metaKey
+          : event.ctrlKey;
+      if (
+        modifier &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.code === "KeyR"
+      ) {
+        event.preventDefault();
+        if (!event.repeat) void start(true);
+        return;
+      }
+      if (event.repeat) return;
       if (event.key === "Escape" && active.current) {
         event.preventDefault();
         cancel();
@@ -149,12 +178,33 @@ export function useCapture(
       }
     };
     window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
+    const release = (event: KeyboardEvent) => {
+      const modifier =
+        document.documentElement.dataset.platform === "darwin"
+          ? "Meta"
+          : "Control";
+      if (
+        active.current?.held &&
+        (event.code === "KeyR" || event.key === modifier)
+      ) {
+        event.preventDefault();
+        void finish();
+      }
+    };
+    window.addEventListener("keyup", release);
+    const blur = () => cancel();
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", release);
+      window.removeEventListener("blur", blur);
+    };
   }, []);
   return {
     phase,
     seconds,
     level,
+    notice,
     start: () => void start(),
     finish: () => void finish(),
     cancel,

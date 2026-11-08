@@ -12,11 +12,13 @@ const subscribe = <T>(channel: string, callback: (value: T) => void) => {
 const api: DesktopApi = {
   bootstrap: () => ipcRenderer.invoke(channels.bootstrap),
   action: (action) => ipcRenderer.invoke(channels.action, action),
+  workspace: (request) => ipcRenderer.invoke(channels.workspace, request),
   transcribe: (request) => ipcRenderer.invoke(channels.transcribe, request),
   onState: (callback) => subscribe(channels.state, callback),
   onLayout: (callback) => subscribe(channels.layout, callback),
   onCommand: (callback) => subscribe(channels.command, callback),
   pointer: (interactive) => ipcRenderer.send(channels.pointer, interactive),
+  measureSurface: (size) => ipcRenderer.send(channels.surfaceSize, size),
   drag: (phase) => ipcRenderer.send(channels.drag, phase),
 };
 

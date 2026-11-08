@@ -1,6 +1,6 @@
 import { UiError } from "../shared/i18n.ts";
 import { readStream } from "../shared/stream.ts";
-import type { StreamChunk } from "../shared/protocol.ts";
+import type { JobResponse, StreamChunk } from "../shared/protocol.ts";
 
 export class ReMeClient {
   constructor(readonly endpoint: string) {}
@@ -11,6 +11,15 @@ export class ReMeClient {
     signal: AbortSignal,
     options: { timeoutMs?: number; maxBytes?: number } = {},
   ): Promise<T> {
+    return (await this.request<T>(job, body, signal, options)).answer;
+  }
+
+  async request<T>(
+    job: string,
+    body: object,
+    signal: AbortSignal,
+    options: { timeoutMs?: number; maxBytes?: number } = {},
+  ): Promise<JobResponse<T>> {
     const response = await fetch(`${this.endpoint}/${job}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -22,7 +31,7 @@ export class ReMeClient {
     });
     if (!response.ok)
       throw new UiError("httpError", { job, status: response.status });
-    let payload: { success: boolean; answer: T };
+    let payload: JobResponse<T>;
     if (options.maxBytes && response.body) {
       const reader = response.body.getReader();
       const chunks: Uint8Array[] = [];
@@ -45,7 +54,7 @@ export class ReMeClient {
       throw typeof payload.answer === "string"
         ? new Error(payload.answer)
         : new UiError("jobFailed", { job });
-    return payload.answer;
+    return { ...payload, metadata: payload.metadata ?? {} };
   }
 
   async stream(

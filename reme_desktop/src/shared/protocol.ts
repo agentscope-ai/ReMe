@@ -114,6 +114,7 @@ export interface Presentation {
 
 export interface Settings {
   language: Language;
+  theme: "system" | "light" | "dark";
   endpoint: string;
   scale: number;
   quietUntil: number;
@@ -124,9 +125,11 @@ export interface Settings {
   voiceReminders: boolean;
   voiceVolume: number;
   anchor?: { x: number; y: number };
+  windowBounds?: { x: number; y: number; width: number; height: number };
 }
 
-export type SettingsUpdate = Partial<Omit<Settings, "anchor">>;
+export type SettingsUpdate = Partial<Omit<Settings, "anchor" | "windowBounds">>;
+export type DesktopPage = "remy" | "knowledge" | "settings";
 
 export interface Bubble {
   kind: "reminder";
@@ -159,9 +162,12 @@ export interface DesktopState {
   bubble: Bubble | null;
   surface: CompanionSurface | null;
   unread: number;
+  readMessageIds: string[];
+  activePage: DesktopPage;
   chatVisible: boolean;
   chatFocused: boolean;
   focusMessageId: string | null;
+  focusRequest: number;
   behavior: Behavior;
   speech: SpeechState;
 }
@@ -213,8 +219,8 @@ export interface WindowLayout {
     left: number;
     top: number;
     width: number;
-    below: boolean;
-    tail: number;
+    maxWidth: number;
+    height: number;
   };
 }
 
@@ -222,6 +228,8 @@ export interface Bootstrap {
   state: DesktopState;
   manifest: AnimationManifest;
   layout: WindowLayout;
+  platform: string;
+  version: string;
 }
 
 export type DesktopAction =
@@ -246,6 +254,11 @@ export type DesktopAction =
   | { type: "chat.close" }
   | { type: "chat.send"; query: string }
   | { type: "chat.stop" }
+  | { type: "page.select"; page: DesktopPage }
+  | { type: "window.minimize" }
+  | { type: "window.maximize" }
+  | { type: "companion.reset" }
+  | { type: "companion.visibility"; visible: boolean }
   | { type: "session.new" }
   | { type: "messages.read"; sessionId: string; ids: string[] }
   | { type: "bubble.dismiss"; id: string }
@@ -262,6 +275,9 @@ export type DesktopCommand =
 export interface DesktopApi {
   bootstrap(): Promise<Bootstrap>;
   action(action: DesktopAction): Promise<ErrorData | null>;
+  workspace(
+    request: WorkspaceRequest,
+  ): Promise<JobResponse | { error: ErrorData }>;
   transcribe(request: {
     id: string;
     audio: Uint8Array;
@@ -272,6 +288,7 @@ export interface DesktopApi {
   onLayout(callback: (layout: WindowLayout) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   pointer(interactive: boolean): void;
+  measureSurface(size: import("./surface.ts").SurfaceSize): void;
   drag(phase: "start" | "move" | "end"): void;
 }
 
@@ -281,8 +298,39 @@ export const channels = {
   state: "reme:state",
   layout: "reme:layout",
   pointer: "reme:pointer",
+  surfaceSize: "reme:surface-size",
   drag: "reme:drag",
   command: "reme:command",
   transcribe: "reme:transcribe",
+  workspace: "reme:workspace",
 } as const;
+
+export interface JobResponse<T = unknown> {
+  success: boolean;
+  answer: T;
+  metadata: Record<string, unknown>;
+}
+
+export interface WorkspaceConfig {
+  workspace_dir: string;
+  daily_dir: string;
+  digest_dir: string;
+  tag_key: string;
+  jobs: string[];
+}
+
+export type WorkspaceRequest =
+  | { type: "config" }
+  | { type: "list"; path: string }
+  | { type: "load"; path: string }
+  | { type: "tags"; page: number }
+  | { type: "tagFiles"; tags: string[]; path: string; page: number }
+  | { type: "search"; query: string; tags: string[]; path: string };
+
+export interface TagFiles {
+  total_files: number;
+  total_pages: number;
+  page: number;
+  items: { path: string; tags: string[] }[];
+}
 import type { ErrorData, Language } from "./i18n.ts";

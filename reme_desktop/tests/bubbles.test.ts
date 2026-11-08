@@ -72,6 +72,42 @@ test("bubble expansion keeps the canvas anchor fixed on negative-coordinate disp
   assert.ok(expanded.bounds.x + expanded.bounds.width <= area.x + area.width);
 });
 
+test("measured surfaces shrink around short text and grow without moving the pet", () => {
+  const area = { x: -1440, y: 0, width: 1440, height: 900 };
+  const anchor = { x: -300, y: 820 };
+  const short = companionPlacement(anchor, 1, "status", area, {
+    width: 116,
+    height: 34,
+  });
+  const wrapped = companionPlacement(anchor, 1, "status", area, {
+    width: 280,
+    height: 70,
+  });
+  assert.equal(short.layout.bubble.width, 116);
+  assert.equal(wrapped.layout.bubble.width, 280);
+  assert.equal(wrapped.layout.bubble.height, 70);
+  for (const placement of [short, wrapped]) {
+    assert.equal(
+      placement.bounds.x +
+        placement.layout.body.left +
+        placement.layout.body.size / 2,
+      anchor.x,
+    );
+    assert.equal(
+      placement.bounds.y +
+        placement.layout.body.top +
+        placement.layout.body.size,
+      anchor.y,
+    );
+    assert.equal(
+      placement.layout.bubble.top + placement.layout.bubble.height + 8,
+      placement.layout.body.top,
+    );
+    assert.ok(placement.bounds.x >= area.x);
+    assert.ok(placement.bounds.y >= area.y);
+  }
+});
+
 test("interrupted reminders preserve their visible time without consuming another appearance", () => {
   const queue = new BubbleQueue(600_000);
   queue.offer({ id: "a", text: "message" });

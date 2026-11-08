@@ -1,0 +1,99 @@
+/* Local glass styling keeps the artwork's surroundings fully transparent. */
+.companion .status-notice,
+.companion .reminder {
+  width: max-content;
+  border: 1px solid light-dark(#ffffffd9, #ffffff26);
+  background:
+    linear-gradient(145deg, light-dark(#ffffffa8, #ffffff12), transparent 65%),
+    light-dark(#edf3eddb, #22322ae6);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 light-dark(#ffffffd9, #ffffff16),
+    0 3px 7px light-dark(#243b2810, #00000024);
+  backdrop-filter: blur(20px) saturate(145%);
+  -webkit-backdrop-filter: blur(20px) saturate(145%);
+}
+.companion .status-notice {
+  min-height: 34px;
+  padding: 7px 11px;
+  gap: 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.status-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.companion .status-light {
+  width: 5px;
+  height: 5px;
+  box-shadow: 0 0 0 3px light-dark(#36775f0a, #9aceb00b);
+}
+.companion .status-arrow {
+  margin-left: 1px;
+  flex-shrink: 0;
+  color: var(--muted);
+  opacity: 0.65;
+}
+.companion .status-notice:hover {
+  border-color: light-dark(#9ab9a080, #b5d6bf50);
+}
+.companion .status-notice:hover .status-arrow {
+  color: var(--accent);
+  opacity: 1;
+}
+.companion .reminder {
+  padding: 11px 13px 12px;
+  border-radius: 16px;
+}
+.companion .reminder header {
+  margin-bottom: 6px;
+}
+.reminder-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 0.2px;
+}
+.companion .reminder .icon-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+.companion .reminder p {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.companion .reminder footer {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.companion .reminder footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 17px;
+}
+.companion .reminder footer .subtle {
+  background: light-dark(#ffffff58, #ffffff08);
+  border: 1px solid var(--line);
+}
+.companion .reminder footer .primary {
+  border: 1px solid transparent;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .companion .status-notice,
+  .companion .reminder {
+    background: light-dark(#f5f8f4, #25352c);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

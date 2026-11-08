@@ -5,25 +5,28 @@ import remarkGfm from "remark-gfm";
 import { action } from "../desktop.ts";
 import { displayMessages } from "../../shared/messages.ts";
 import type { DesktopState } from "../../shared/protocol.ts";
-import { useSpeechPlayback } from "../speech/playback.ts";
 import { useCapture } from "../speech/use-capture.ts";
-import VoiceSettings from "../speech/settings.tsx";
+import { Plus, Sparkles, ArrowUpRight } from "lucide-react";
 
-export default function Chat({ state }: { state: DesktopState }) {
+export default function Chat({
+  state,
+  active,
+  onSettings,
+}: {
+  state: DesktopState;
+  active: boolean;
+  onSettings: () => void;
+}) {
   const language = state.settings.language;
   const t = translator(language);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<unknown>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [endpoint, setEndpoint] = useState(state.settings.endpoint);
-  const [scale, setScale] = useState(state.settings.scale);
   const history = useRef<HTMLDivElement | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const queryRef = useRef(query);
   queryRef.current = query;
-  useSpeechPlayback(state);
   const capture = useCapture(
-    state,
+    { ...state, chatVisible: state.chatVisible && active },
     (text) => {
       const value = queryRef.current;
       const from = input.current?.selectionStart ?? value.length;
@@ -65,38 +68,32 @@ export default function Chat({ state }: { state: DesktopState }) {
     }
   };
 
-  useEffect(
-    () => setEndpoint(state.settings.endpoint),
-    [state.settings.endpoint],
-  );
-  useEffect(() => setScale(state.settings.scale), [state.settings.scale]);
-  useEffect(
-    () =>
-      window.desktop.onCommand((command) => {
-        if (command.type === "settings.open") setSettingsOpen(true);
-      }),
-    [],
-  );
   useEffect(() => {
-    if (!state.chatVisible || !state.focusMessageId) return;
+    if (!active || !state.chatVisible || !state.focusMessageId) return;
     const element = [
       ...(history.current?.querySelectorAll<HTMLElement>("[data-message-id]") ??
         []),
     ].find((node) => node.dataset.messageId === state.focusMessageId);
     element?.scrollIntoView({ block: "center" });
     follow.current = false;
-  }, [state.focusMessageId, state.chatVisible]);
+  }, [state.focusMessageId, state.focusRequest, state.chatVisible, active]);
   useEffect(() => {
-    if (follow.current && history.current)
+    if (active && follow.current && history.current)
       history.current.scrollTop = history.current.scrollHeight;
-  }, [state.messages, state.pending?.text, state.chatVisible]);
+  }, [state.messages, state.pending?.text, state.chatVisible, active]);
   useEffect(() => {
-    if (state.chatVisible && !settingsOpen) input.current?.focus();
-  }, [state.chatVisible, settingsOpen]);
+    if (state.chatVisible && active) input.current?.focus();
+  }, [state.chatVisible, active]);
 
   useEffect(() => {
     const root = history.current;
-    if (!root || !state.sessionId || !state.chatVisible || !state.chatFocused)
+    if (
+      !active ||
+      !root ||
+      !state.sessionId ||
+      !state.chatVisible ||
+      !state.chatFocused
+    )
       return;
     const visible = new Set<string>();
     const acknowledged = new Set<string>();
@@ -142,6 +139,7 @@ export default function Chat({ state }: { state: DesktopState }) {
     proactiveSignature,
     state.chatVisible,
     state.chatFocused,
+    active,
   ]);
 
   const send = async (text = queryRef.current) => {
@@ -156,132 +154,35 @@ export default function Chat({ state }: { state: DesktopState }) {
   };
 
   return (
-    <main className="chat-shell">
-      <header className="chat-titlebar">
-        <div className="brand-mark" aria-hidden>
-          R<span>·</span>
+    <main className="conversation-pane">
+      <header className="conversation-header">
+        <div className="avatar-mark">
+          <Sparkles size={19} />
         </div>
-        <div className="chat-heading">
-          <h1>Remy</h1>
+        <div className="conversation-heading">
+          <h2>Remy</h2>
           <span>
-            {state.connection !== "connected"
-              ? t("waitingConnection")
-              : state.behavior.label}
+            {state.connection === "connected"
+              ? state.behavior.label
+              : t("waitingConnection")}
           </span>
         </div>
-        <nav aria-label={t("chatActions")}>
-          <button
-            className="icon-button"
-            aria-label={t("newConversation")}
-            disabled={busy || !state.workspace}
-            onClick={() => {
-              follow.current = true;
-              void run({ type: "session.new" });
-            }}
-          >
-            ＋
-          </button>
-          <button
-            className={`icon-button ${settingsOpen ? "selected" : ""}`}
-            aria-label={t("settings")}
-            aria-pressed={settingsOpen}
-            onClick={() => setSettingsOpen(!settingsOpen)}
-          >
-            ⚙
-          </button>
-          <button
-            className="icon-button"
-            aria-label={t("closeChat")}
-            onClick={() => void run({ type: "chat.close" })}
-          >
-            ×
-          </button>
-        </nav>
+        <button
+          className="icon-button"
+          aria-label={t("newConversation")}
+          disabled={busy || !state.workspace}
+          onClick={() => {
+            follow.current = true;
+            void run({ type: "session.new" });
+          }}
+        >
+          <Plus size={18} />
+        </button>
       </header>
-      {settingsOpen && (
-        <section className="settings" aria-label={t("desktopSettings")}>
-          <label>
-            {t("endpoint")}
-            <div className="endpoint-row">
-              <input
-                value={endpoint}
-                onChange={(event) => setEndpoint(event.target.value)}
-                spellCheck={false}
-                aria-label={t("endpoint")}
-              />
-              <button
-                className="primary"
-                disabled={Boolean(state.pending?.streaming)}
-                onClick={() => void run({ type: "settings.update", endpoint })}
-              >
-                {t("connect")}
-              </button>
-            </div>
-          </label>
-          <label className="scale-row">
-            {t("characterSize")} <span>{Math.round(scale * 100)}%</span>
-            <input
-              type="range"
-              aria-label={t("characterSize")}
-              min="0.7"
-              max="1.5"
-              step="0.05"
-              value={scale}
-              onChange={(event) => setScale(Number(event.target.value))}
-              onPointerUp={() => void run({ type: "settings.update", scale })}
-              onKeyUp={() => void run({ type: "settings.update", scale })}
-            />
-          </label>
-          <div className="quiet-row">
-            <span>{t("reminder")}</span>
-            <button
-              className="secondary"
-              onClick={() =>
-                void run({
-                  type: "settings.update",
-                  quietUntil:
-                    state.settings.quietUntil > Date.now()
-                      ? 0
-                      : Date.now() + 30 * 60_000,
-                })
-              }
-            >
-              {state.settings.quietUntil > Date.now()
-                ? t("resume")
-                : t("quiet")}
-            </button>
-          </div>
-          <label className="quiet-row">
-            <span>
-              {t("notifications")} <small>{t("notificationHint")}</small>
-            </span>
-            <input
-              type="checkbox"
-              aria-label={t("notifications")}
-              checked={state.settings.notifications}
-              onChange={(event) =>
-                void run({
-                  type: "settings.update",
-                  notifications: event.target.checked,
-                })
-              }
-            />
-          </label>
-          <VoiceSettings state={state} run={run} />
-          {state.workspace && (
-            <p className="workspace-path" title={state.workspace}>
-              {t("workspace", { path: state.workspace })}
-            </p>
-          )}
-          <p className="settings-note">{t("shortcutHint")}</p>
-        </section>
-      )}
       {state.connectionError && (
         <div className="connection-banner" role="status">
           <span>{state.connectionError}</span>
-          <button onClick={() => setSettingsOpen(true)}>
-            {t("connectionSettings")}
-          </button>
+          <button onClick={onSettings}>{t("connectionSettings")}</button>
         </div>
       )}
       {displayedError !== null && (
@@ -313,11 +214,32 @@ export default function Chat({ state }: { state: DesktopState }) {
       >
         {messages.length === 0 && (
           <div className="empty-chat">
-            <div className="empty-mark" aria-hidden>
-              R<span>·</span>
+            <div className="welcome-orbit">
+              <img src="reme-assets://remy/frames/idle/00.png" alt="Remy" />
             </div>
-            <h2>{t("emptyTitle")}</h2>
-            <p>{t("emptyDescription")}</p>
+            <span className="eyebrow">{t("privateMemory")}</span>
+            <h2>{t("welcomeTitle")}</h2>
+            <p>{t("welcomeHint")}</p>
+            <div className="conversation-prompts">
+              {(["promptRecall", "promptConnect"] as const).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setQuery(
+                      t(
+                        key === "promptRecall"
+                          ? "promptRecallQuery"
+                          : "promptConnectQuery",
+                      ),
+                    );
+                    input.current?.focus();
+                  }}
+                >
+                  {t(key)}
+                  <ArrowUpRight size={14} />
+                </button>
+              ))}
+            </div>
             {state.connection !== "connected" && (
               <p className="start-hint">
                 {t("startService")}
@@ -326,12 +248,13 @@ export default function Chat({ state }: { state: DesktopState }) {
             )}
           </div>
         )}
+
         {messages.map((message) => (
           <article
             key={message.id}
             data-message-id={message.id}
             data-proactive={Boolean(message.proactive)}
-            className={`message ${message.role}`}
+            className={`message ${message.role} ${state.focusMessageId === message.id ? "message-focused" : ""}`}
           >
             {message.proactive && (
               <div className="proactive-label" data-message-id={message.id}>
@@ -424,6 +347,11 @@ export default function Chat({ state }: { state: DesktopState }) {
         ))}
       </div>
       <footer className="chat-composer">
+        {capture.notice && (
+          <div className="voice-notice" role="status">
+            {t("speechNoInput")}
+          </div>
+        )}
         {(capture.phase || voice) && (
           <div className="voice-status" role="status">
             <span>

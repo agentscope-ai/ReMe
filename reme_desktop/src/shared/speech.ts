@@ -5,6 +5,25 @@ export const MIN_RECORD_MS = 300;
 export const MAX_AUDIO_BYTES = 768 * 1024;
 export const AUTO_SPEECH_CHARS = 600;
 
+/** Conservative energy gate: reject silence and isolated clicks, not quiet voices. This is not VAD. */
+export function hasAudibleSignal(pcm: Int16Array): boolean {
+  const window = SAMPLE_RATE / 50;
+  let active = 0;
+  for (let start = 0; start < pcm.length; start += window) {
+    const end = Math.min(start + window, pcm.length);
+    let energy = 0;
+    let peak = 0;
+    for (let i = start; i < end; i++) {
+      const value = pcm[i] / 32768;
+      energy += value * value;
+      peak = Math.max(peak, Math.abs(value));
+    }
+    if (peak >= 0.002 && Math.sqrt(energy / (end - start)) >= 0.001)
+      active += end - start;
+  }
+  return active >= SAMPLE_RATE * 0.06;
+}
+
 export function encodeWave(
   pcm: Int16Array,
   sampleRate = SAMPLE_RATE,

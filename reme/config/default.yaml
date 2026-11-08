@@ -486,6 +486,26 @@ jobs:
     steps:
       - backend: list_tags_step
 
+  list_tag_files:
+    backend: base
+    description: "Browse existing files matching any selected memory tag, with directory scope and pagination."
+    parameters:
+      type: object
+      properties:
+        tags:
+          type: array
+          items: {type: string}
+          minItems: 1
+        path:
+          type: string
+          default: ""
+          description: "workspace-relative directory; empty means the whole workspace"
+        page: {type: integer, minimum: 1, default: 1}
+        page_size: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      required: [tags]
+    steps:
+      - backend: list_tag_files_step
+
   reindex:
     backend: base
     description: "rebuild BM25, embedding, and/or tag indexes without rescanning workspace files"

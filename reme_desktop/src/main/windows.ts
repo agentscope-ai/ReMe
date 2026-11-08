@@ -1,5 +1,5 @@
-import { BrowserWindow, screen } from "electron";
-import { companionPlacement, clamp } from "./placement.ts";
+import { BrowserWindow, screen, nativeTheme } from "electron";
+import { companionPlacement, workspacePlacement } from "./placement.ts";
 import { StateUpdates } from "./view-state.ts";
 import { channels } from "../shared/protocol.ts";
 import type {
@@ -8,13 +8,20 @@ import type {
   WindowLayout,
 } from "../shared/protocol.ts";
 import type { Storage } from "./storage.ts";
+import { surfaceKey, type SurfaceSize } from "../shared/surface.ts";
 
 export class DesktopWindows {
   readonly companion: BrowserWindow;
   readonly chat: BrowserWindow;
   layout: WindowLayout = {
     body: { left: 12, top: 12, size: 180 },
-    bubble: { left: 0, top: 0, width: 320, below: false, tail: 270 },
+    bubble: {
+      left: 0,
+      top: 0,
+      width: 320,
+      maxWidth: 320,
+      height: 180,
+    },
   };
   private anchor: { x: number; y: number };
   private dragging: {
@@ -24,11 +31,11 @@ export class DesktopWindows {
   } | null = null;
   private state: DesktopState | null = null;
   private disposed = false;
-  private positionChatOnOpen = true;
   private readonly companionUpdates = new StateUpdates(true);
   private readonly chatUpdates = new StateUpdates(false);
   private geometry = "";
   private companionBounds = "";
+  private surfaceSize: SurfaceSize | undefined;
 
   constructor(
     readonly storage: Storage,
@@ -65,18 +72,61 @@ export class DesktopWindows {
       type: process.platform === "darwin" ? "panel" : undefined,
       webPreferences,
     });
+    const display = screen.getDisplayNearestPoint(this.anchor);
     this.chat = new BrowserWindow({
-      width: 440,
-      height: 640,
-      minWidth: 340,
-      minHeight: 430,
+      ...workspacePlacement(
+        display.workArea,
+        display.bounds,
+        storage.settings.windowBounds,
+      ),
+      minWidth: Math.min(900, display.workArea.width),
+      minHeight: Math.min(560, display.workArea.height),
       show: false,
-      frame: false,
-      backgroundColor: "#f5f7f4",
+      frame: process.platform === "darwin",
+      titleBarStyle: process.platform === "darwin" ? "hiddenInset" : undefined,
+      trafficLightPosition:
+        process.platform === "darwin" ? { x: 20, y: 25 } : undefined,
+      transparent: process.platform === "darwin",
+      backgroundColor: process.platform === "darwin" ? "#00000000" : "#f4f5f7",
+      visualEffectState: "followWindow",
       title: "Remy · ReMe",
       icon: paths.icon,
       webPreferences,
     });
+    if (process.platform === "darwin") {
+      // The optional native material owns no tasks; its views are owned by NSWindow.
+      this.chat.webContents.once("did-finish-load", async () => {
+        if (this.disposed || nativeTheme.prefersReducedTransparency) return;
+        try {
+          const { default: glass } = await import("electron-liquid-glass");
+          if (
+            !this.disposed &&
+            glass.isGlassSupported() &&
+            glass.addView(this.chat.getNativeWindowHandle(), {
+              cornerRadius: 18,
+            }) >= 0
+          ) {
+            return;
+          }
+        } catch {
+          /* Built-in vibrancy remains available without the native addon. */
+        }
+        if (!this.disposed) this.chat.setVibrancy("sidebar");
+      });
+    }
+    const rememberBounds = () => {
+      if (
+        this.disposed ||
+        this.chat.isMinimized() ||
+        this.chat.isMaximized() ||
+        this.chat.isFullScreen()
+      )
+        return;
+      storage.settings.windowBounds = this.chat.getBounds();
+      storage.changed();
+    };
+    this.chat.on("move", rememberBounds);
+    this.chat.on("resize", rememberBounds);
     for (const window of [this.companion, this.chat]) {
       if (process.platform !== "darwin") window.setMenu(null);
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
@@ -104,7 +154,23 @@ export class DesktopWindows {
     this.chat.on("show", () => this.onVisibility(true));
     this.chat.on("hide", () => this.onVisibility(false));
     this.chat.on("focus", () => onFocus(true));
-    this.chat.on("blur", () => onFocus(false));
+    this.chat.on("blur", () => {
+      this.chat.webContents.setIgnoreMenuShortcuts(false);
+      onFocus(false);
+    });
+    this.chat.webContents.on("before-input-event", (_event, input) => {
+      const modifier =
+        process.platform === "darwin" ? input.meta : input.control;
+      // Suppress Reload while leaving keydown/keyup available to the audio host.
+      this.chat.webContents.setIgnoreMenuShortcuts(
+        input.type === "keyDown" &&
+          input.code === "KeyR" &&
+          modifier &&
+          !input.alt &&
+          !input.shift &&
+          this.state?.activePage === "remy",
+      );
+    });
     screen.on("display-removed", this.reposition);
     screen.on("display-metrics-changed", this.reposition);
   }
@@ -118,7 +184,7 @@ export class DesktopWindows {
 
   update(state: DesktopState): void {
     this.state = state;
-    const geometry = `${state.settings.scale}:${state.surface?.kind ?? "none"}`;
+    const geometry = `${state.settings.scale}:${surfaceKey(state.surface)}`;
     if (geometry !== this.geometry) {
       this.geometry = geometry;
       this.reposition();
@@ -141,6 +207,9 @@ export class DesktopWindows {
       this.storage.settings.scale,
       this.state?.surface?.kind ?? null,
       area,
+      this.surfaceSize?.key === surfaceKey(this.state?.surface ?? null)
+        ? this.surfaceSize
+        : undefined,
     );
     this.anchor = placement.anchor;
     const encoded = JSON.stringify(placement.bounds);
@@ -152,45 +221,47 @@ export class DesktopWindows {
       this.layout = placement.layout;
       this.companion.webContents.send(channels.layout, this.layout);
     }
-    const bounds = this.chat.getBounds();
-    const width = Math.min(bounds.width, area.width);
-    const height = Math.min(bounds.height, area.height);
-    if (
-      this.positionChatOnOpen ||
-      bounds.x + bounds.width < area.x ||
-      bounds.x > area.x + area.width ||
-      bounds.y + bounds.height < area.y ||
-      bounds.y > area.y + area.height
-    ) {
-      this.chat.setBounds(
-        {
-          width,
-          height,
-          x: Math.round(
-            clamp(
-              this.anchor.x - width - 80,
-              area.x,
-              area.x + area.width - width,
-            ),
-          ),
-          y: Math.round(
-            clamp(
-              this.anchor.y - height,
-              area.y,
-              area.y + area.height - height,
-            ),
-          ),
-        },
-        false,
-      );
-    }
   };
+
+  measureSurface(size: SurfaceSize): void {
+    if (
+      this.disposed ||
+      !this.state?.surface ||
+      !size ||
+      size.key !== surfaceKey(this.state.surface) ||
+      !Number.isFinite(size.width) ||
+      !Number.isFinite(size.height) ||
+      size.width < 40 ||
+      size.width > 640 ||
+      size.height < 24 ||
+      size.height > 480
+    )
+      return;
+    const next = {
+      key: size.key,
+      width: Math.ceil(size.width),
+      height: Math.ceil(size.height),
+    };
+    if (
+      this.surfaceSize?.key === next.key &&
+      this.surfaceSize.width === next.width &&
+      this.surfaceSize.height === next.height
+    )
+      return;
+    this.surfaceSize = next;
+    this.reposition();
+  }
 
   openChat(): void {
     if (this.chat.isMinimized()) this.chat.restore();
-    this.positionChatOnOpen = !this.chat.isVisible();
     this.reposition();
-    this.positionChatOnOpen = false;
+    if (!this.chat.isMaximized() && !this.chat.isFullScreen()) {
+      const bounds = this.chat.getBounds();
+      const display = screen.getDisplayMatching(bounds);
+      this.chat.setBounds(
+        workspacePlacement(display.workArea, display.bounds, bounds),
+      );
+    }
     this.chat.show();
     this.chat.focus();
   }

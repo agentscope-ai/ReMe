@@ -296,12 +296,10 @@ test(
             await expect(
               chat.getByRole("region", { name: "桌面设置" }),
             ).toBeVisible();
-            await chat
-              .getByRole("button", { name: "设置", exact: true })
-              .click();
-            await chat
-              .getByRole("button", { name: "收起聊天", exact: true })
-              .click();
+            await chat.getByRole("tab", { name: "Remy", exact: true }).click();
+            await chat.evaluate(() =>
+              window.desktop.action({ type: "chat.close" }),
+            );
             await expect
               .poll(() =>
                 companion.evaluate(() =>
@@ -484,9 +482,9 @@ test(
               ),
               before,
             );
-            await chat
-              .getByRole("button", { name: "收起聊天", exact: true })
-              .click();
+            await chat.evaluate(() =>
+              window.desktop.action({ type: "chat.close" }),
+            );
             await expect
               .poll(() =>
                 companion.evaluate(() =>
@@ -631,9 +629,9 @@ test(
           await expect(
             chat.getByText("回复已停止", { exact: true }),
           ).toBeVisible();
-          await chat
-            .getByRole("button", { name: "收起聊天", exact: true })
-            .click();
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
           backend.disconnect();
           backend.push("missed-during-reconnect", "重连后补齐的消息");
           await expect
@@ -751,7 +749,7 @@ test(
             )
             .toBe("session-2");
           await expect(
-            chat.getByRole("heading", { name: "有什么想和我说的？" }),
+            chat.getByRole("heading", { name: "想聊些什么？" }),
           ).toBeVisible();
           assert.deepEqual(errors, []);
           assert.deepEqual(logs, []);

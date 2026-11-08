@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { Bootstrap } from "../../shared/protocol.ts";
 import { Character, hitCharacter } from "../animation/player.tsx";
 import { action } from "../desktop.ts";
 import { translator } from "../../shared/i18n.ts";
+import { ArrowUpRight, Sparkles, X, Volume2, Square } from "lucide-react";
+import { surfaceKey } from "../../shared/surface.ts";
 
 export default function Companion({ state, manifest, layout }: Bootstrap) {
   const language = state.settings.language;
@@ -16,6 +17,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
   const dragging = animation.clip === "dragged";
   const surface = state.surface;
   const reminder = surface?.kind === "reminder" ? surface : null;
+  const measurementKey = surfaceKey(surface);
   const run = (value: Parameters<typeof action>[0]) => {
     void action(value).catch((error: unknown) => setError(error));
   };
@@ -25,6 +27,20 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
     if (gesture.current) window.desktop.drag("end");
     gesture.current = null;
   };
+
+  useLayoutEffect(() => {
+    const element = bubbleElement.current;
+    if (!element || !measurementKey) return;
+    const measure = () => {
+      const { width, height } = element.getBoundingClientRect();
+      if (width && height)
+        window.desktop.measureSurface({ key: measurementKey, width, height });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [measurementKey]);
 
   useEffect(() => {
     if (!reminder || !state.sessionId) return;
@@ -83,19 +99,13 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       {reminder && (
         <section
           ref={bubbleElement}
-          className={`reminder ${layout.bubble.below ? "below" : ""}`}
+          className="reminder"
           data-interactive
-          style={
-            {
-              left: layout.bubble.left,
-              top: layout.bubble.below
-                ? layout.bubble.top
-                : layout.body.top - 12,
-              transform: layout.bubble.below ? undefined : "translateY(-100%)",
-              width: layout.bubble.width,
-              "--tail-left": `${layout.bubble.tail}px`,
-            } as CSSProperties
-          }
+          style={{
+            left: layout.bubble.left,
+            top: layout.bubble.top,
+            maxWidth: layout.bubble.maxWidth,
+          }}
           aria-label={t("reminder")}
           onPointerEnter={() =>
             run({ type: "bubble.pause", id: reminder.id, paused: true })
@@ -105,13 +115,16 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           }
         >
           <header>
-            <span className="eyebrow">{t("reminderHeading")}</span>
+            <span className="reminder-heading">
+              <Sparkles size={13} aria-hidden />
+              {t("reminderHeading")}
+            </span>
             <button
               aria-label={t("dismissReminder")}
               className="icon-button"
               onClick={() => run({ type: "bubble.dismiss", id: reminder.id })}
             >
-              ×
+              <X size={13} />
             </button>
           </header>
           <p>{reminder.text.replace(/^#+\s*/gm, "").slice(0, 400)}</p>
@@ -136,14 +149,18 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
                   )
                 }
               >
-                {state.speech.playback?.messageId === reminder.id ? "■" : "♫"}
+                {state.speech.playback?.messageId === reminder.id ? (
+                  <Square size={13} />
+                ) : (
+                  <Volume2 size={14} />
+                )}
               </button>
             )}
             <button
               className="primary"
               onClick={() => run({ type: "chat.open", messageId: reminder.id })}
             >
-              {t("expandReminder")} <span aria-hidden>↗</span>
+              {t("expandReminder")} <ArrowUpRight size={13} aria-hidden />
             </button>
             <button
               className="subtle"
@@ -156,24 +173,22 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       )}
       {surface?.kind === "status" && (
         <button
-          className={`status-notice ${surface.tone} ${layout.bubble.below ? "below" : ""}`}
+          ref={bubbleElement as React.RefObject<HTMLButtonElement | null>}
+          className={`status-notice ${surface.tone}`}
           data-interactive
           aria-label={t("statusOpen", { text: surface.text })}
           onClick={openChat}
           style={{
             left: layout.bubble.left,
-            top: layout.bubble.below ? layout.bubble.top : layout.body.top - 12,
-            width: layout.bubble.width,
-            transform: layout.bubble.below ? undefined : "translateY(-100%)",
+            top: layout.bubble.top,
+            maxWidth: layout.bubble.maxWidth,
           }}
         >
           <span className="status-light" aria-hidden />
-          <span role="status" aria-live="polite">
+          <span className="status-text" role="status" aria-live="polite">
             {surface.text}
           </span>
-          <span className="status-arrow" aria-hidden>
-            ↗
-          </span>
+          <ArrowUpRight className="status-arrow" size={13} aria-hidden />
         </button>
       )}
       <button

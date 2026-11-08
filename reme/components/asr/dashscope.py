@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import re
 
 from .base_asr import BaseASR
 from .._dashscope_speech import DashScopeSpeechComponent
@@ -56,11 +57,28 @@ class DashScopeASR(DashScopeSpeechComponent, BaseASR):
                     "parameters": parameters,
                 },
             )
-            await self._check_response(response)
-            body = response.json()
-        self._check_error(body)
+            try:
+                body = response.json()
+            except ValueError:
+                await self._check_response(response)
+                raise
+            # Only this explicit no-words response is a normal empty transcription.
+            no_words = (
+                response.status_code in (200, 400)
+                and isinstance(body, dict)
+                and (
+                    body.get("code") == "ASR_RESPONSE_HAVE_NO_WORDS"
+                    or (
+                        body.get("code") == "CLIENT_ERROR"
+                        and re.search(r"\bASR_RESPONSE_HAVE_NO_WORDS\b", str(body.get("message", "")))
+                    )
+                )
+            )
+            if not no_words:
+                await self._check_response(response)
+                self._check_error(body)
         output = body.get("output") or {}
-        text = output.get("text", (output.get("sentence") or {}).get("text"))
+        text = "" if no_words else output.get("text", (output.get("sentence") or {}).get("text"))
         if not isinstance(text, str):
             raise RuntimeError("DashScope ASR returned no transcription text")
         return ASRResult(

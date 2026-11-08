@@ -343,7 +343,6 @@ export class SpeechController {
         throw new UiError("speechCancelled");
       if (typeof text !== "string")
         throw new UiError("speechInvalidTranscript");
-      if (!text.trim()) throw new UiError("speechSilent");
       return text.trim();
     } finally {
       if (this.capture === capture) this.cancelCapture(id);

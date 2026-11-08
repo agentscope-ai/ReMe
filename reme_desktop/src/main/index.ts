@@ -11,6 +11,7 @@ import {
   globalShortcut,
   ipcMain,
   nativeImage,
+  nativeTheme,
   protocol,
   shell,
   Tray,
@@ -24,6 +25,7 @@ import { Storage, normalizeEndpoint } from "./storage.ts";
 import { DesktopWindows } from "./windows.ts";
 import { desktopMenu } from "./menu.ts";
 import { SystemNotifications } from "./system-notifications.ts";
+import { isTrustedSender } from "./ipc.ts";
 import { viewState } from "./view-state.ts";
 import { channels } from "../shared/protocol.ts";
 import type { DesktopAction } from "../shared/protocol.ts";
@@ -107,6 +109,7 @@ else {
       } finally {
         language = storage.settings.language;
       }
+      nativeTheme.themeSource = storage.settings.theme;
       if (process.env.REME_DESKTOP_API_URL)
         storage.settings.endpoint = normalizeEndpoint(
           process.env.REME_DESKTOP_API_URL,
@@ -115,6 +118,8 @@ else {
         storage,
         (state) => {
           language = state.settings.language;
+          if (nativeTheme.themeSource !== state.settings.theme)
+            nativeTheme.themeSource = state.settings.theme;
           windows?.update(state);
           notifications?.update(state);
           refreshTray();
@@ -184,14 +189,15 @@ else {
         controller!.setCompanionReady(false),
       );
 
+      const validSender = (
+        event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+      ) =>
+        !quitting &&
+        isTrustedSender(event, (id) => windows?.isSender(id) === true);
       const trusted = (
         event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
       ) => {
-        if (
-          !windows!.isSender(event.sender.id) ||
-          event.senderFrame !== event.sender.mainFrame
-        )
-          throw new UiError("invalidSender");
+        if (!validSender(event)) throw new UiError("invalidSender");
       };
       ipcMain.handle(channels.bootstrap, (event) => {
         trusted(event);
@@ -202,6 +208,8 @@ else {
           ),
           manifest: assets.manifest,
           layout: windows!.layout,
+          platform: process.platform,
+          version: app.getVersion(),
         };
       });
       const dispatch = async (
@@ -302,6 +310,28 @@ else {
           case "chat.stop":
             controller!.stopReply();
             return;
+          case "page.select":
+            if (
+              event.sender.id !== windows!.chat.webContents.id ||
+              !["remy", "knowledge", "settings"].includes(action.page)
+            )
+              throw new UiError("invalidAction");
+            controller!.selectPage(action.page);
+            return;
+          case "window.minimize":
+            windows!.chat.minimize();
+            return;
+          case "window.maximize":
+            if (windows!.chat.isMaximized()) windows!.chat.unmaximize();
+            else windows!.chat.maximize();
+            return;
+          case "companion.reset":
+            windows!.resetPosition();
+            return;
+          case "companion.visibility":
+            if (action.visible) windows!.showCompanion();
+            else windows!.companion.hide();
+            return;
           case "session.new":
             return controller!.newSession();
           case "messages.read":
@@ -329,6 +359,7 @@ else {
             return;
           case "settings.update":
             return controller!.settings({
+              ...(action.theme !== undefined ? { theme: action.theme } : {}),
               ...(action.language !== undefined
                 ? { language: action.language }
                 : {}),
@@ -380,6 +411,16 @@ else {
           return serializeError(error);
         }
       });
+      ipcMain.handle(channels.workspace, async (event, request) => {
+        try {
+          trusted(event);
+          if (event.sender.id !== windows!.chat.webContents.id)
+            throw new UiError("invalidSender");
+          return await controller!.workspace(request);
+        } catch (error) {
+          return { error: serializeError(error) };
+        }
+      });
       ipcMain.handle(channels.transcribe, async (event, request) => {
         try {
           trusted(event);
@@ -400,12 +441,17 @@ else {
         }
       });
       ipcMain.on(channels.pointer, (event, interactive) => {
-        trusted(event);
+        if (!validSender(event)) return;
         if (event.sender.id === windows!.companion.webContents.id)
           windows!.pointer(interactive === true);
       });
+      ipcMain.on(channels.surfaceSize, (event, size) => {
+        if (!validSender(event)) return;
+        if (event.sender.id === windows!.companion.webContents.id)
+          windows!.measureSurface(size);
+      });
       ipcMain.on(channels.drag, (event, phase) => {
-        trusted(event);
+        if (!validSender(event)) return;
         if (
           event.sender.id === windows!.companion.webContents.id &&
           ["start", "move", "end"].includes(phase)

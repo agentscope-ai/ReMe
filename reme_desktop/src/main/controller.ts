@@ -8,6 +8,7 @@ import type { SystemNotice } from "./notifications.ts";
 import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
 import { normalizeEndpoint, Storage } from "./storage.ts";
+import { requestWorkspace } from "./workspace.ts";
 import { reduceReply } from "../shared/stream.ts";
 import type { ReplyProgress } from "../shared/stream.ts";
 import type {
@@ -20,6 +21,8 @@ import type {
   PlaybackStatus,
   SettingsUpdate,
   DesktopCommand,
+  DesktopPage,
+  WorkspaceRequest,
 } from "../shared/protocol.ts";
 
 export class DesktopController {
@@ -71,9 +74,12 @@ export class DesktopController {
       bubble: null,
       surface: null,
       unread: 0,
+      readMessageIds: [],
+      activePage: "remy",
       chatVisible: false,
       chatFocused: false,
       focusMessageId: null,
+      focusRequest: 0,
       behavior: this.behavior.value,
       speech: emptySpeech(),
     };
@@ -398,7 +404,7 @@ export class DesktopController {
       this.notificationEligible();
     const bubble = this.bubbles.tick(
       now,
-      this.state.chatVisible ||
+      (this.state.chatVisible && this.state.activePage === "remy") ||
         !(native || (this.companionVisible && this.companionReady)) ||
         this.behavior.dragging ||
         Boolean(this.state.pending?.streaming) ||
@@ -460,6 +466,9 @@ export class DesktopController {
     this.state.status = this.model.status;
     this.state.messages = this.model.messages;
     const receipts = this.presentation()?.receipts ?? {};
+    this.state.readMessageIds = Object.keys(receipts).filter(
+      (id) => receipts[id].read,
+    );
     this.state.unread = this.model.messages.filter(
       (message) =>
         message.source === "proactive" &&
@@ -563,13 +572,17 @@ export class DesktopController {
       if (this.state.speech.playback?.kind === "manual") this.speech.stop();
     }
     this.state.focusMessageId = messageId ?? null;
+    if (messageId) {
+      this.state.activePage = "remy";
+      this.state.focusRequest++;
+    }
     this.tick();
     this.emit();
   }
 
   setChatFocused(focused: boolean): void {
     this.state.chatFocused = focused;
-    if (!focused && this.state.speech.capture?.phase === "recording")
+    if (!focused && this.state.speech.capture?.phase !== "transcribing")
       this.speech.cancelCapture();
     if (focused) this.behavior.touch();
     this.tick();
@@ -634,6 +647,11 @@ export class DesktopController {
     )
       throw new UiError("invalidQuiet");
     const changedEndpoint = endpoint !== settings.endpoint;
+    if (
+      update.theme !== undefined &&
+      !["system", "light", "dark"].includes(update.theme)
+    )
+      throw new UiError("invalidTheme");
     if (update.language !== undefined && !languages.includes(update.language))
       throw new UiError("invalidLanguage");
     if (
@@ -678,7 +696,8 @@ export class DesktopController {
     if (
       sessionId !== this.model.sessionId ||
       !this.state.chatVisible ||
-      !this.state.chatFocused
+      !this.state.chatFocused ||
+      this.state.activePage !== "remy"
     )
       return;
     const presentation = this.presentation();
@@ -695,6 +714,18 @@ export class DesktopController {
     if (!changed) return;
     this.tick();
     this.emit();
+  }
+
+  selectPage(page: DesktopPage): void {
+    this.state.activePage = page;
+    if (page !== "remy") this.speech.cancelCapture();
+    this.tick();
+    this.emit();
+  }
+
+  workspace(request: WorkspaceRequest) {
+    if (!this.lifecycle || this.closed) throw new UiError("closed");
+    return requestWorkspace(this.client(), request, this.lifecycle.signal);
   }
 
   bubbleAction(

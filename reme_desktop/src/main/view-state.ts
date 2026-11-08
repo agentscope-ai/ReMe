@@ -15,9 +15,11 @@ export function viewState(
     ? {
         ...state,
         messages: noMessages,
+        readMessageIds: [],
         pending: null,
         workspace: "",
         focusMessageId: null,
+        focusRequest: 0,
       }
     : state;
 }

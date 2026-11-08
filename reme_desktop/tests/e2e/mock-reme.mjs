@@ -23,10 +23,33 @@ export function toneWave(seconds = 2) {
   return wave;
 }
 
-export async function mockReMe({ speech = false } = {}) {
+export async function mockReMe({ speech = false, workspace = false } = {}) {
+  const documents = {
+    "digest/wiki/agent-memory.md":
+      "---\nname: Agent 记忆，从记录到连接\ndescription: 让零散的信息成为可以被再次理解、关联和使用的知识。\nmemory_tags:\n  - Agent\n  - memory\n---\n## 记忆的价值，在于再次连接\n\n一份好的记忆，不只保存发生过什么，也帮助我们理解下一步可以做什么。\n\n> 文件属于你，索引可以重建。\n\n### 一个持续生长的知识库\n\n- **记录**：保留值得记住的事实与想法。\n- **关联**：通过标签与链接发现共同主题。\n- **回顾**：在需要的时候，让过去的经验重新发挥作用。\n\n参见 [[daily/2026-11-08/research.md|今天的研究笔记]]。\n\n| 来源 | 作用 |\n| --- | --- |\n| 每日记忆 | 保留上下文 |\n| 知识库 | 沉淀可复用知识 |\n",
+    "daily/2026-11-08/research.md":
+      "---\nname: 今天的研究笔记\nmemory_tags: [research, agent]\n---\n## 从想法开始\n\n记录下一个值得继续的问题。\n\n回到 [[digest/wiki/agent-memory.md|Agent 记忆]]。",
+    "digest/personal/preferences.md":
+      "---\nname: 我的工作习惯\nmemory_tags: [personal]\n---\n## 留出思考的空间\n\n喜欢清晰、安静、有条理的工作界面。",
+    "daily/long-title.md":
+      "---\ncreated_at: '2026-11-08T10:53:47+08:00'\nstatus: unsent\ntarget_session_id: example-session-id\nmemory_tags: [research]\ncontext:\n  source: local\n  reviewed: true\n---\n# 研究笔记：把零散记录连接成知识，从每日观察、主题标签与文档链接出发，在持续回顾中保留事实、整理线索并发现下一步值得探索的问题，让每一份记忆都能在需要的时候被重新理解与使用\n\n## 观察与记录\n\n这是一份用于验证长标题和文档属性的示例笔记。\n\n| 字段 | 说明 |\n| --- | --- |\n| 记录 | 保留上下文 |\n\n```yaml\nsource: local\n```\n\n" +
+      Array.from(
+        { length: 12 },
+        (_, i) => `### 回顾 ${i + 1}\n\n记录事实，建立联系，留待下一次回顾。\n`,
+      ).join("\n"),
+    "daily/invalid-yaml.md":
+      "---\nmemory_tags: [unclosed\n---\n# 属性格式有误的笔记\n\n正文依然可以阅读。",
+  };
   const ttsRequests = [];
+  let tagItems = [
+    ["agent", 2],
+    ["memory", 1],
+    ["personal", 1],
+    ["research", 1],
+  ];
   const asrRequests = [];
   let speechError = false;
+  let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
   const sockets = new Set();
   const events = [];
@@ -94,14 +117,16 @@ export async function mockReMe({ speech = false } = {}) {
     const buffers = [];
     for await (const chunk of request) buffers.push(chunk);
     const body = JSON.parse(Buffer.concat(buffers).toString() || "{}");
-    const json = (answer) => {
+    const json = (answer, metadata = {}) => {
       response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ success: true, answer, metadata: {} }));
+      response.end(JSON.stringify({ success: true, answer, metadata }));
     };
     const job = request.url;
     if (job === "/app_config")
       return json({
         workspace_dir: "/mock/user-workspace",
+        daily_dir: "daily",
+        digest_dir: "digest",
         jobs: Object.fromEntries(
           [
             "pa_events",
@@ -110,6 +135,9 @@ export async function mockReMe({ speech = false } = {}) {
             "pa_new_session",
             "session_read",
             ...(speech ? ["tts_demo", "asr_demo"] : []),
+            ...(workspace
+              ? ["list", "load", "list_tags", "list_tag_files", "search"]
+              : []),
           ].map((name) => [
             name,
             {
@@ -121,6 +149,61 @@ export async function mockReMe({ speech = false } = {}) {
           ]),
         ),
       });
+    if (workspace && job === "/list")
+      return json("Files", {
+        items: Object.keys(documents).filter(
+          (path) => !body.path || path.startsWith(body.path + "/"),
+        ),
+      });
+    if (workspace && job === "/load")
+      return json(documents[body.path] ?? "", {
+        mtime: "2026-11-08T10:30:00",
+        path: body.path,
+      });
+    if (workspace && job === "/list_tags")
+      return json({
+        total_tags: tagItems.length,
+        total_pages: Math.ceil(tagItems.length / body.page_size),
+        page: body.page,
+        items: tagItems.slice(
+          (body.page - 1) * body.page_size,
+          body.page * body.page_size,
+        ),
+      });
+    if (workspace && (job === "/list_tag_files" || job === "/search")) {
+      const items = Object.keys(documents)
+        .filter(
+          (path) =>
+            (!body.path || path.startsWith(body.path + "/")) &&
+            (!body.tags?.length ||
+              body.tags.some((tag) =>
+                documents[path].toLowerCase().includes(tag.toLowerCase()),
+              )),
+        )
+        .map((path) => ({ path, tags: [], text: "Memory" }));
+      if (job === "/search")
+        return json("Search results", {
+          results: items,
+          tag_filter: {
+            applied: body.query !== "unavailable",
+            tags: body.tags.map((tag) => tag.toLowerCase()),
+          },
+        });
+      return json(
+        {
+          total_files: items.length,
+          total_pages: 1,
+          page: 1,
+          items,
+        },
+        {
+          tag_filter: {
+            applied: true,
+            tags: body.tags.map((tag) => tag.toLowerCase()),
+          },
+        },
+      );
+    }
     if (speech && (job === "/tts_demo" || job === "/asr_demo")) {
       (job === "/tts_demo" ? ttsRequests : asrRequests).push(body);
       const fail = speechError;
@@ -137,7 +220,7 @@ export async function mockReMe({ speech = false } = {}) {
         } else
           json(
             job === "/asr_demo"
-              ? "语音输入的研究计划。"
+              ? asrText
               : {
                   audio: toneWave().toString("base64"),
                   format: "wav",
@@ -316,6 +399,15 @@ export async function mockReMe({ speech = false } = {}) {
     asrRequests,
     setSpeechError(value) {
       speechError = value;
+    },
+    setAsrText(value) {
+      asrText = value;
+    },
+    setTags(value) {
+      tagItems = value;
+    },
+    setDocument(path, content) {
+      documents[path] = content;
     },
     setSpeechDelay(value) {
       speechDelay = value;

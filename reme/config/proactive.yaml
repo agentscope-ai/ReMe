@@ -17,6 +17,22 @@ service:
   timeout_graceful_shutdown: 5  # Cancel open subscriptions before application shutdown.
 
 jobs:
+  index_update_loop:
+    backend: background
+    watch_dirs: [daily_dir, digest_dir]
+    watch_suffixes: [md]
+    steps:
+      - backend: init_changes_step
+        monitor_type: file_store
+        monitor_name: default
+        dispatch_steps: [update_index_step]
+      - backend: watch_changes_step
+        watch_mode: awatch
+        monitor_type: file_store
+        dispatch_steps:
+          - backend: update_index_step
+            persist: false
+
   task_agent:
     backend: base
     enable_serve: false
@@ -345,6 +361,52 @@ jobs:
     steps:
       - backend: reindex_step
 
+  list_tags:
+    backend: base
+    description: "List active memory tags with workspace-wide file counts."
+    parameters:
+      type: object
+      properties:
+        page: {type: integer, minimum: 1, default: 1}
+        page_size: {type: integer, minimum: 1, maximum: 1000, default: 100}
+        order_by: {type: string, enum: [tag, file_count], default: tag}
+        order: {type: string, enum: [asc, desc]}
+    steps:
+      - backend: list_tags_step
+
+  list_tag_files:
+    backend: base
+    description: "Browse existing files matching any selected memory tag, within a workspace directory."
+    parameters:
+      type: object
+      properties:
+        tags: {type: array, items: {type: string}, minItems: 1}
+        path: {type: string, default: ""}
+        page: {type: integer, minimum: 1, default: 1}
+        page_size: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      required: [tags]
+    steps:
+      - backend: list_tag_files_step
+
+  search:
+    backend: base
+    description: "Search local Markdown memories with BM25 and optional memory-tag filters; no model calls."
+    parameters:
+      type: object
+      properties:
+        query: {type: string}
+        tags: {type: array, items: {type: string}, default: []}
+        limit: {type: integer, minimum: 1, default: 20}
+        search_filter:
+          type: object
+          properties:
+            path_prefix: {type: string}
+      required: [query]
+    steps:
+      - backend: search_step
+        vector_weight: 0.0
+        expand_links: false
+
   list:
     backend: base
     description: "List files under a workspace path."
@@ -533,3 +595,11 @@ components:
       embedding_store: ""
       keyword_index: default
       file_graph: default
+      tag_index: default
+
+  tag_index:
+    default:
+      backend: local
+      tag_key: memory_tags
+      max_tags_per_file: 3
+      max_tag_length: 64

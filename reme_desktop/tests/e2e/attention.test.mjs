@@ -106,7 +106,9 @@ test(
           assert.equal(await notices(), 1);
           await app.evaluate(() => globalThis.noticeClicks[0]());
           await expect(
-            chat.getByText("这是一条系统提醒", { exact: true }),
+            chat
+              .locator(".chat-history")
+              .getByText("这是一条系统提醒", { exact: true }),
           ).toBeVisible();
         },
       );
@@ -180,7 +182,7 @@ test(
       );
 
       await t.test(
-        "phase changes update the status surface without resizing or rebroadcasting history",
+        "phase text resizes the surface, while repeated phases do not resize or rebroadcast history",
         async () => {
           backend.activity("thinking", "chat", "work");
           await status("正在认真想…");
@@ -209,13 +211,41 @@ test(
             bounds: globalThis.boundsCalls,
             patches: globalThis.statePatches,
           }));
-          assert.equal(updates.bounds, 0);
+          assert.ok(updates.bounds > 0);
           assert.ok(updates.patches.length >= 2);
           assert.ok(
             updates.patches.every(
               (patch) => !("messages" in patch) && !("pending" in patch),
             ),
           );
+          await expect
+            .poll(() =>
+              companion.evaluate(() => {
+                const rect = document
+                  .querySelector(".status-notice")
+                  .getBoundingClientRect();
+                return window.desktop
+                  .bootstrap()
+                  .then(
+                    ({ layout }) =>
+                      layout.bubble.width === Math.ceil(rect.width),
+                  );
+              }),
+            )
+            .toBe(true);
+          const count = await app.evaluate(() => globalThis.boundsCalls);
+          const revision = await companion.evaluate(() =>
+            window.desktop.bootstrap().then(({ state }) => state.revision),
+          );
+          backend.activity("answering", "chat", "work");
+          await expect
+            .poll(() =>
+              companion.evaluate(() =>
+                window.desktop.bootstrap().then(({ state }) => state.revision),
+              ),
+            )
+            .toBeGreaterThan(revision);
+          assert.equal(await app.evaluate(() => globalThis.boundsCalls), count);
           await mkdir(path.join(project, "reports"), { recursive: true });
           await companion.screenshot({
             path: path.join(project, "reports/status.png"),
