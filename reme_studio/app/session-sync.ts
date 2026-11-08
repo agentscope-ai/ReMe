@@ -1,37 +1,5 @@
 import { applyStreamChunk, finishChatMessage } from "./chat-stream.ts";
-import type {
-  ChatMessage,
-  SessionSnapshot,
-  StreamChunk,
-  WorkspaceTab,
-} from "./types";
-
-export function selectPaSession(
-  tab: Extract<WorkspaceTab, { type: "agent" }>,
-  sessionId: string | null,
-) {
-  if (tab.streaming || tab.sessionId === (sessionId ?? undefined)) return tab;
-  return { ...tab, sessionId: sessionId ?? undefined, title: "", messages: [] };
-}
-
-/** Ordinary chats retain their history; PA queries may reach a newly selected server session. */
-export function bindChatSession(
-  tab: Extract<WorkspaceTab, { type: "agent" }>,
-  messageId: string,
-  chunk: StreamChunk,
-) {
-  if (!chunk.session_id || chunk.session_id === tab.sessionId) return tab;
-  if (tab.mode === "chat") return { ...tab, sessionId: chunk.session_id };
-  const index = tab.messages.findIndex((message) => message.id === messageId);
-  if (index < 0) return tab;
-  const messages = tab.messages.slice(Math.max(0, index - 1), index + 1);
-  return {
-    ...tab,
-    sessionId: chunk.session_id,
-    title: messages[0]?.content.slice(0, 18) || "",
-    messages,
-  };
-}
+import type { ChatMessage, SessionSnapshot, WorkspaceTab } from "./types";
 
 export function mergeSessionTab(
   tab: Extract<WorkspaceTab, { type: "agent" }>,

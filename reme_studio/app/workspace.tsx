@@ -5,15 +5,14 @@ import dynamic from "next/dynamic";
 import { IS_DEMO } from "./studio-mode";
 import { loadWorkspaceFile, openWorkspaceFile } from "./open-file";
 import { SparkMenuExpandLine, SparkMenuFoldLine } from "@agentscope-ai/icons";
-import { BookOpenText, Settings } from "lucide-react";
-import ChatEntries from "./chat-entries";
+import { BookOpenText, Settings, Sparkles } from "lucide-react";
 import FilesNavigator from "./files-workspace/FilesNavigator";
 import MemoryGraphView from "./files-workspace/MemoryGraphView";
 import { clampNavigatorWidth } from "./files-workspace/panel-resize";
 import { useI18n, useLanguageStore } from "./i18n";
 import { useWorkspaceStore } from "./store";
 import { useThemeStore } from "./theme";
-import type { AppConfig, WorkspaceTab } from "./types";
+import type { WorkspaceTab } from "./types";
 import ThemeMenu from "./workspace-theme";
 import Tabs from "./workspace-tabs";
 import Chat from "./workspace-chat";
@@ -52,8 +51,7 @@ function Workspace() {
   const [navigatorWidth, setNavigatorWidth] = useState(260);
   const [resizingNavigator, setResizingNavigator] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [config, setConfig] = useState<AppConfig>();
-  const { tabs, activeTabId } = useWorkspaceStore();
+  const { tabs, activeTabId, openAgent } = useWorkspaceStore();
   const active = tabs.find((tab) => tab.id === activeTabId);
   useEffect(() => {
     let mounted = true;
@@ -236,8 +234,6 @@ function Workspace() {
       {DemoBar && <DemoBar />}
       <div className="surface">
         <FilesNavigator
-          config={config}
-          onConfigChange={setConfig}
           open={navOpen}
           width={navigatorWidth}
           resizing={resizingNavigator}
@@ -258,7 +254,10 @@ function Workspace() {
                   <span>Studio</span>
                 </h1>
                 <p>{t("welcomeDescription")}</p>
-                <ChatEntries config={config} />
+                <button onClick={openAgent}>
+                  <Sparkles size={16} />
+                  {t("startChat")}
+                </button>
                 <small>{t("localFiles")}</small>
               </div>
             )}
@@ -267,12 +266,7 @@ function Workspace() {
             )}
             {tabs.map((tab) =>
               tab.type === "agent" ? (
-                <Chat
-                  key={tab.id}
-                  tab={tab}
-                  config={config}
-                  active={activeTabId === tab.id}
-                />
+                <Chat key={tab.id} tab={tab} active={activeTabId === tab.id} />
               ) : null,
             )}
             {active?.type === "graph" && (
