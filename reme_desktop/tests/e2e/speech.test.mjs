@@ -556,6 +556,8 @@ test(
           { type, keyCode, modifiers },
         );
       const hold = async () => {
+        await expect(input).toBeVisible();
+        await input.focus();
         await nativeKey("keyDown", modifierKey, [modifier]);
         await nativeKey("keyDown", "R", [modifier]);
         await expect(chat.locator(".voice-status")).toContainText("录音中 1");
