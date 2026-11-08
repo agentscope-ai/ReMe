@@ -26,6 +26,20 @@ only when the connected application has no selected session. Studio and Desktop 
 session; creating a new conversation switches both clients. Restarting Desktop reconnects to that session. Restoring the
 selected session after restarting the ReMe service remains the backend's responsibility.
 
+### Windows
+
+The Windows target is Windows 10/11 x64. Run the source commands above in PowerShell and start the ReMe service in a
+separate terminal, with ReMe and its configured agent runtime installed:
+
+```powershell
+reme start config=proactive workspace_dir="C:/ReMeWorkspace"
+```
+
+The installer contains the Electron client and Remy artwork. Python, agent runtimes, provider credentials, and workspace
+files are managed separately. For a service on another machine, change the endpoint in Settings; backend tools such as
+screen capture run on that machine. Native notifications require the installed Start Menu shortcut. Development runs
+do not establish notification delivery. Recording requires Windows microphone privacy settings to allow desktop apps.
+
 ## Interaction
 
 - Left-click Remy for a short happy response and chat; hold and drag to move it, including between displays. Its position
@@ -137,9 +151,18 @@ npm run format:check
 npm run test:e2e          # Real Electron windows against a local mocked ReMe service
 npm run test:dev          # Development renderer and sandboxed preload
 npm run pack             # Local unpacked application for the host platform
-npm run test:packaged    # macOS: validate the locally packaged application
+npm run test:packaged    # macOS/Windows: validate the locally packaged application
 npm run dist             # Installers for the host platform; never publishes
 ```
+
+Build the Windows x64 NSIS installer on Windows with `npm run dist -- --win --x64`. It is written to
+`dist/ReMe Desktop-<version>-x64-setup.exe`. Installation offers a selectable directory and a Start Menu shortcut;
+uninstalling preserves desktop settings and the separately managed ReMe workspace.
+
+Desktop CI runs on macOS and Windows. Windows checks install into a directory containing spaces, verify the Start Menu
+shortcut's application ID, run the packaged tests against the installed executable, and uninstall the app. Successful
+Windows jobs upload the `reme-desktop-windows-x64` installer artifact. To test another installed copy, set
+`REME_DESKTOP_EXECUTABLE` to its full executable path before running `npm run test:packaged`.
 
 Build outputs (`out/`, `dist/`) and UI test captures (`reports/`) are ignored. Installer signing is a release concern;
 local package generation does not establish Windows/Linux behavior, macOS Spaces/fullscreen behavior, or performance.

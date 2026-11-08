@@ -30,6 +30,8 @@ import type { DesktopAction } from "../shared/protocol.ts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 app.setName("ReMe Desktop");
+if (process.platform === "win32")
+  app.setAppUserModelId("io.agentscope.reme.desktop");
 if (process.env.REME_DESKTOP_DATA_DIR)
   app.setPath("userData", path.resolve(process.env.REME_DESKTOP_DATA_DIR));
 protocol.registerSchemesAsPrivileged([
@@ -126,6 +128,7 @@ else {
         {
           preload: path.join(here, "../preload/index.cjs"),
           renderer: path.join(here, "../renderer/index.html"),
+          icon: path.join(directory, "frames/idle/00.png"),
         },
         (visible) => controller!.setChatVisible(visible),
         (focused) => controller!.setChatFocused(focused),

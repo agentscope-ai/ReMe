@@ -77,9 +77,17 @@
       ]
     },
     "win": {
+      "icon": "../assets/remy/anime/animations/v1/frames/idle/00.png",
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}",
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": [

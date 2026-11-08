@@ -32,7 +32,7 @@ export class DesktopWindows {
 
   constructor(
     readonly storage: Storage,
-    private readonly paths: { preload: string; renderer: string },
+    private readonly paths: { preload: string; renderer: string; icon: string },
     private readonly onVisibility: (visible: boolean) => void,
     onFocus: (focused: boolean) => void,
   ) {
@@ -74,9 +74,11 @@ export class DesktopWindows {
       frame: false,
       backgroundColor: "#f5f7f4",
       title: "Remy · ReMe",
+      icon: paths.icon,
       webPreferences,
     });
     for (const window of [this.companion, this.chat]) {
+      if (process.platform !== "darwin") window.setMenu(null);
       window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       window.webContents.on("will-navigate", (event) => event.preventDefault());
       window.on("close", (event) => {
@@ -185,6 +187,7 @@ export class DesktopWindows {
   };
 
   openChat(): void {
+    if (this.chat.isMinimized()) this.chat.restore();
     this.positionChatOnOpen = !this.chat.isVisible();
     this.reposition();
     this.positionChatOnOpen = false;

@@ -101,6 +101,53 @@ test(
       );
 
       await t.test(
+        "reopening a minimized conversation restores its native window",
+        async () => {
+          await companion.evaluate(() =>
+            window.desktop.action({ type: "chat.open" }),
+          );
+          const windowState = () =>
+            app.evaluate(({ BrowserWindow }) => {
+              const window = BrowserWindow.getAllWindows().find((entry) =>
+                entry.webContents.getURL().includes("view=chat"),
+              );
+              return {
+                minimized: window.isMinimized(),
+                visible: window.isVisible(),
+                menuVisible:
+                  process.platform !== "darwin" && window.isMenuBarVisible(),
+              };
+            });
+          assert.equal((await windowState()).menuVisible, false);
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((window) =>
+                window.webContents.getURL().includes("view=chat"),
+              )
+              .minimize(),
+          );
+          await expect
+            .poll(async () => (await windowState()).minimized)
+            .toBe(true);
+          await companion.evaluate(() =>
+            window.desktop.action({ type: "chat.open" }),
+          );
+          await expect
+            .poll(async () => (await windowState()).minimized)
+            .toBe(false);
+          await expect
+            .poll(async () => (await windowState()).visible)
+            .toBe(true);
+          await companion.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
+          await expect
+            .poll(async () => (await windowState()).visible)
+            .toBe(false);
+        },
+      );
+
+      await t.test(
         "right-click opens native controls without starting a drag or opening chat",
         async () => {
           await app.evaluate(({ Menu }) => {

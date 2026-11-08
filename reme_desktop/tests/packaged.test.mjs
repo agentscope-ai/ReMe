@@ -11,8 +11,11 @@ import { mockReMe } from "./e2e/mock-reme.mjs";
 const project = fileURLToPath(new URL("../", import.meta.url));
 
 test(
-  "packaged macOS application loads its bundled frames and subscription",
-  { timeout: 30_000, skip: process.platform !== "darwin" },
+  "packaged application loads its bundled frames and subscription",
+  {
+    timeout: 30_000,
+    skip: !["darwin", "win32"].includes(process.platform),
+  },
   async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "reme-desktop-packaged-"),
@@ -20,26 +23,36 @@ test(
     const backend = await mockReMe();
     let app;
     try {
-      const resources = path.join(
-        project,
-        `dist/${process.arch === "arm64" ? "mac-arm64" : "mac"}/ReMe Desktop.app/Contents/Resources`,
+      const executable =
+        process.env.REME_DESKTOP_EXECUTABLE ??
+        path.join(
+          project,
+          process.platform === "win32"
+            ? "dist/win-unpacked/ReMe Desktop.exe"
+            : `dist/${process.arch === "arm64" ? "mac-arm64" : "mac"}/ReMe Desktop.app/Contents/MacOS/ReMe Desktop`,
+        );
+      const resources = path.resolve(
+        path.dirname(executable),
+        process.platform === "darwin" ? "../Resources" : "resources",
       );
       const manifest = JSON.parse(
         await readFile(path.join(resources, "remy/manifest.json"), "utf8"),
       );
-      const plist = await readFile(
-        path.join(resources, "../Info.plist"),
-        "utf8",
-      );
-      assert.match(plist, /NSMicrophoneUsageDescription/);
-      assert.match(plist, /Microphone access is used only when you record/);
+      if (process.platform === "darwin") {
+        const plist = await readFile(
+          path.join(resources, "../Info.plist"),
+          "utf8",
+        );
+        assert.match(plist, /NSMicrophoneUsageDescription/);
+        assert.match(plist, /Microphone access is used only when you record/);
+      }
       for (const clip of manifest.animations)
         for (const frame of clip.frame_files)
           assert.ok(
             (await readFile(path.join(resources, "remy", frame))).length > 0,
           );
       app = await electron.launch({
-        executablePath: path.join(resources, "../MacOS/ReMe Desktop"),
+        executablePath: executable,
         args: [],
         env: {
           ...process.env,
@@ -107,6 +120,19 @@ test(
           .map(({ type, memory }) => ({ type, memory })),
       }));
       assert.equal(info.packaged, true);
+      assert.equal(info.name, "ReMe Desktop");
+      if (process.platform === "win32") {
+        assert.equal(
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((window) =>
+                window.webContents.getURL().includes("view=chat"),
+              )
+              .isMenuBarVisible(),
+          ),
+          false,
+        );
+      }
       await writeFile(
         path.join(project, "reports/packaged.json"),
         JSON.stringify(info, null, 2),
