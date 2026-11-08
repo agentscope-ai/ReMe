@@ -276,7 +276,7 @@ BEAM covers ten categories of tasks, including contradiction resolution, event o
 
 ReMe also uses $\pi$-Bench to evaluate the potential of multi-session reasoning to improve agent proactivity. The PROC score in $\pi$-Bench evaluates capabilities including directly fulfilling hidden intent, guiding targeted clarification, recovering cross-session preferences, reusing cross-session conventions, inferring cross-task dependencies, and advancing underspecified requests. Across five user personas, ReMe Agent achieved an average PROC score of 0.580, outperforming NanoBot by 2.4% under the same test-model configuration. See the [$\pi$-Bench paper](https://arxiv.org/abs/2605.14678) for details about the benchmark.
 
-Multimodal evaluation covers **MemLens-256K** and **MobileMem-Omni**. With Qwen3.8-Max, ReMe Image achieves **72.49%** and **60.69%** LLM-Judge accuracy, respectively. The [MemLens report](../../benchmark/memlens/docs/en/evaluation.md) compares five methods across four models on a fixed 189/195-question set; the [MobileMem report](../../benchmark/mobilemem/docs/en/evaluation.md) compares Image and Text across three models on 1,333 questions, with Kimi Image's history variant identified separately.
+Multimodal evaluation covers **MemLens-256K** and **MobileMem-Omni**. With Qwen3.8-Max, ReMe Image achieves **72.49%** and **60.69%** LLM-Judge accuracy, respectively. The [MemLens report](../../benchmark/memlens/docs/en/evaluation.md) compares five methods across four models on a fixed 189/195-question set; the [MobileMem report](../../benchmark/mobilemem/docs/en/evaluation.md) compares ReMe Image and ReMe Text across three models on 1,333 questions.
 
 ## Who Is ReMe For?
 

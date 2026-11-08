@@ -292,7 +292,7 @@ cases / 400 题上取得 66.1%，在 1M 设置下的 35 cases / 700 题上取得
 Agent 在 5 种用户角色（User Persona）上平均取得 0.580 的 PROC 分数，超出相同测试模型配置的 NanoBot
 2.4%。关于该基准的详细介绍见 [$\pi$-Bench 论文](https://arxiv.org/abs/2605.14678)。
 
-多模态评测覆盖 **MemLens-256K** 和 **MobileMem-Omni**。Qwen3.8-Max 下，ReMe Image 的 LLM-Judge 准确率分别为 **72.49%** 和 **60.69%**。[MemLens 评测](../../benchmark/memlens/docs/zh/evaluation.md)在固定的 189/195 题上比较四个模型、五种方法；[MobileMem 评测](../../benchmark/mobilemem/docs/zh/evaluation.md)在 1,333 题上比较三个模型的 Image 与 Text，并单独标明 Kimi Image 的 history 变体。
+多模态评测覆盖 **MemLens-256K** 和 **MobileMem-Omni**。Qwen3.8-Max 下，ReMe Image 的 LLM-Judge 准确率分别为 **72.49%** 和 **60.69%**。[MemLens 评测](../../benchmark/memlens/docs/zh/evaluation.md)在固定的 189/195 题上比较四个模型、五种方法；[MobileMem 评测](../../benchmark/mobilemem/docs/zh/evaluation.md)在 1,333 题上比较三个模型的 ReMe Image 与 ReMe Text。
 
 ## ReMe 能帮谁？
 

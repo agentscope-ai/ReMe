@@ -6,7 +6,7 @@ This report describes the settings, data selection and four-model results behind
 
 The evaluation uses the 195 questions in the official [MemLens](https://huggingface.co/datasets/xiyuRenBill/MEMLENS) `agent_subset_195.json`, each with its 256K history. Six questions triggered provider content moderation in at least one method's model requests. All four models and all methods exclude these six questions so that every row reports results on the same **189/195 questions**.
 
-The official category/subtype-specific LLM-Judge assigns each valid answer 0 or 1; accuracy is `100 × correct / 189`. SubEM measures whether the normalized reference is a substring of the prediction, and F1 measures normalized token overlap. All metrics are question-level macro averages. Missing Kimi and DeepSeek results count as zero in the 189-question aggregate, with valid coverage listed separately. Existing answers and scores, including zero scores, keep their original values.
+The official category/subtype-specific LLM-Judge assigns each valid answer 0 or 1; accuracy is `100 × correct / 189`. SubEM measures whether the normalized reference is a substring of the prediction, and F1 measures normalized token overlap. Each metric is calculated per question, then averaged over all 189 questions (macro average). Missing Kimi and DeepSeek results count as zero in the aggregate, with valid coverage listed separately. Existing answers and scores, including zero scores, keep their original values.
 
 | Model | Method | Valid / 189 | SubEM (%) | F1 (%) | Judge correct / 189 | LLM-Judge (%) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |

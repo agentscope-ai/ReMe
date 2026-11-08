@@ -8,7 +8,7 @@ The evaluation uses the official MobileMem-Omni `visual_reasoning` subset: **20 
 
 Dataset revision: `989ba00900bddf4e0d4b0c7dd52f0840a7ee3a54`. The QA template and metrics follow the [official evaluation code](https://github.com/zjunlp/MobileMem/tree/fa5cd13c9c659699df9caf650987ba2bea8ca085/omni/eval/eval).
 
-All percentages are question-level macro averages over the same **1,333 questions**. LLM-Judge is binary accuracy; F1 and BLEU-1 use the official token-overlap implementations. One Qwen ReMe Image question and three Text questions remained incomplete after successful history processing. After multiple rounds of retrieval and reading, a subsequent model request's accumulated input exceeded the service's 983,616-token limit and was rejected. Each question retrieves different material over a different number of rounds, so only these requests reached the limit. These four questions count as zero in the aggregate, with valid coverage listed separately.
+Each metric is calculated per question, then averaged over all **1,333 questions** (macro average). LLM-Judge is binary accuracy; F1 and BLEU-1 use the official token-overlap implementations. One Qwen ReMe Image question and three Text questions remained incomplete after successful history processing. After multiple rounds of retrieval and reading, a subsequent model request's accumulated input exceeded the service's 983,616-token limit and was rejected. Each question retrieves different material over a different number of rounds, so only these requests reached the limit. These four questions count as zero in the aggregate, with valid coverage listed separately.
 
 | Model | Method | Valid / 1,333 | Judge correct / 1,333 | LLM-Judge (%) | F1 (%) | BLEU-1 (%) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
@@ -19,6 +19,8 @@ All percentages are question-level macro averages over the same **1,333 question
 | Kimi-K3 | ReMe Image (history variant) | 1,333 | 682 / 1,333 | **51.16** | 7.43 | 4.02 |
 | DeepSeek-V4.1-Flash | ReMe Text | 1,333 | 525 / 1,333 | 39.38 | 5.43 | 2.96 |
 | DeepSeek-V4.1-Flash | ReMe Image | 1,333 | 749 / 1,333 | **56.19** | 7.14 | 3.87 |
+
+The Kimi-K3 row is marked as a history variant because the histories used for the final **130 questions** omit two sessions whose memory ingestion was blocked by content moderation: `8_69` of `uuid_8` (original zero-based position 127) and `14_74_2` of `uuid_14` (position 116). The completed results for the other **1,203 questions** are retained, and all 1,333 questions remain in the evaluation. Other sessions keep their original order; image and text handling, prompts, generation and scoring parameters, and the 30-iteration answer limit are unchanged. Each question uses the first successfully completed answer and judgment, including zero scores.
 
 ReMe Image exceeds ReMe Text in LLM-Judge accuracy for all three models. On Qwen3.8-Max, it also exceeds Full Context by 13.88 percentage points, while Full Context has higher F1 and BLEU-1.
 
@@ -32,7 +34,7 @@ Kimi and DeepSeek Full Context are **N/A**: their complete histories exceeded th
 | ReMe Text | Builds memory from the original dialogue text; BM25 searches daily notes, digest notes and original sessions. |
 | ReMe Image | Builds memory from original dialogue text and images; searches the same sources as Text and can use `read_image` to reopen saved attachments as needed. Inputs retain original resolution; MPO primary pictures are converted to PNG. |
 
-History text, timestamps, roles and image order are preserved, subject to the declared Kimi Image exclusions below. Separate dataset captions, summaries, reference answers and evidence annotations are not added to candidate inputs. The official QA prompt is retained.
+History text, timestamps, roles and image order are preserved apart from the two Kimi Image session exclusions described above. Separate dataset captions, summaries, reference answers and evidence annotations are not added to candidate inputs. The official QA prompt is retained.
 
 | Setting | ReMe memory / compression | ReMe answer | Full Context reader | Judge |
 | --- | --- | --- | --- | --- |
@@ -45,9 +47,3 @@ History text, timestamps, roles and image order are preserved, subject to the de
 Each ReMe question starts a fresh Agent with at most **30 iterations**. The Agent can search and read text through `search` and `read`, and compress its context when needed. Image can also use `read_image` to reopen images, with a 50 MiB read limit and up to 4,096 images retained in the Agent context.
 
 All rows use the default **MemBase Judge** prompt and parsing rules, with the Qwen3.8-Max scoring settings above. The protocol is named `membase_default`; see the [MobileMem Judge](../../../../plugins/mobilemem-judge/README.md) for its implementation. Only the Judge receives reference answers and evidence annotations.
-
-## Kimi Image History Variant {#kimi-history-variant}
-
-The final Kimi Image result retains **1,203 previously successful answers** and adds the remaining **130 questions from two users**. For those two users, memory ingestion excludes session `8_69` of `uuid_8` (original zero-based position 127) and `14_74_2` of `uuid_14` (position 116). All 1,333 questions remain in the evaluation, and other sessions keep their original order. This row is marked as a history variant in the table.
-
-Apart from the two session exclusions, image and text handling, prompts, generation and scoring parameters, and the 30-iteration answer limit are unchanged. Each question uses the first successfully completed answer and judgment, including zero scores.
