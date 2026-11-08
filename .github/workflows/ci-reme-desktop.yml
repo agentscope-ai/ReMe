@@ -52,6 +52,9 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run test:e2e
+        timeout-minutes: 3
+        env:
+          DEBUG: pw:browser*
       - run: npm run test:dev
       - run: npx electron-builder --dir --publish never --config.electronDist=node_modules/electron/dist
         env:

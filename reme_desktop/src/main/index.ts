@@ -479,6 +479,7 @@ else {
       controller.start();
     })
     .catch((error) => {
+      console.error(error);
       dialog.showErrorBox(
         translate(language, "startupFailed"),
         errorText(error, language),
