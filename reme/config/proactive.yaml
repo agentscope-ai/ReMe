@@ -204,7 +204,8 @@ jobs:
       additionalProperties: false
       properties:
         content: {type: string, maxLength: 200, description: "Brief conversational reminder; empty string withdraws pending content and skips sending"}
-      required: [content]
+        kind: {type: string, enum: [normal, morning, midday, evening], description: "Use a special kind only with this round's matching hint; evening closes proactive communication until the next opening"}
+      required: [content, kind]
     steps:
       - backend: send_reminder_step
 
@@ -416,6 +417,7 @@ components:
         start_time: "0900"
         end_time: "2300"
         interval_minutes: 5
+        tasks_follow_active_hours: true
         hints_enabled: true
         hint_probabilities:
           morning: 1.0

@@ -27,7 +27,8 @@ class PaLoopStep(BaseStep):
                 delay = 30
             else:
                 now = self.pa._now()
-                wakeup = config.next_wakeup(anchor) if config.is_active(now) else config.next_start(now)
+                reason = await self.pa.proactive_skip_reason(config)
+                wakeup = config.next_start(now) if reason else config.next_wakeup(anchor)
                 delay = (wakeup - now).total_seconds()
                 if delay <= 0:
                     await self.run_job(self.kwargs.get("job", "pa_proactive"), stop_event=stop)

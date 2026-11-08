@@ -13,7 +13,12 @@ from reme.steps.proactive.tools import GetReminderStep, SendReminderStep
 
 async def submit(env, content):
     async with env.runtime.proactive_round() as current:
-        return await env.runtime.send_reminder(content, round_id=current.id, session_id=current.session_id)
+        return await env.runtime.send_reminder(
+            content,
+            kind="normal",
+            round_id=current.id,
+            session_id=current.session_id,
+        )
 
 
 @pytest.mark.asyncio
@@ -24,10 +29,10 @@ async def test_requires_current_bound_round_and_rejects_stale_tokens(pa_workspac
     async with env.runtime.proactive_round() as current:
         old = current.id
         with pytest.raises(ValueError, match="live, server-bound"):
-            await env.runtime.send_reminder("hello", round_id=current.id, session_id="another")
+            await env.runtime.send_reminder("hello", kind="normal", round_id=current.id, session_id="another")
     async with env.runtime.proactive_round():
         with pytest.raises(ValueError, match="live, server-bound"):
-            await env.runtime.send_reminder("hello", round_id=old, session_id="session-1")
+            await env.runtime.send_reminder("hello", kind="normal", round_id=old, session_id="session-1")
     assert await env.runtime.get_reminder() == []
 
 
@@ -37,12 +42,22 @@ async def test_concurrent_retries_in_one_round_inject_only_once(pa_workspace):
     async with env.runtime.proactive_round() as current:
 
         async def send():
-            return await env.runtime.send_reminder("结果有价值。", round_id=current.id, session_id=current.session_id)
+            return await env.runtime.send_reminder(
+                "结果有价值。",
+                kind="normal",
+                round_id=current.id,
+                session_id=current.session_id,
+            )
 
         first, second = await asyncio.gather(send(), send())
         assert first["id"] == second["id"] and first["status"] == second["status"] == "sent"
         with pytest.raises(ValueError, match="Only one"):
-            await env.runtime.send_reminder("different", round_id=current.id, session_id=current.session_id)
+            await env.runtime.send_reminder(
+                "different",
+                kind="normal",
+                round_id=current.id,
+                session_id=current.session_id,
+            )
     env.agent.append_session.assert_awaited_once()
     assert len(await env.runtime.get_reminder()) == 1
 
@@ -123,7 +138,7 @@ async def test_cancelled_submission_finishes_injection_and_status_publication(pa
     env.agent.append_session = AsyncMock(side_effect=append)
     async with env.runtime.proactive_round() as current:
         task = asyncio.create_task(
-            env.runtime.send_reminder("确定结果。", round_id=current.id, session_id=current.session_id),
+            env.runtime.send_reminder("确定结果。", kind="normal", round_id=current.id, session_id=current.session_id),
         )
         await entered.wait()
         task.cancel()

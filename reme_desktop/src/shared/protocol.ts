@@ -87,10 +87,17 @@ export interface PaEvent {
   session_id?: string | null;
   status?: SessionStatus | null;
   activities: Activities;
+  notifications?: NotificationWindow | null;
   message?: SessionMessage;
   snapshot?: SessionSnapshot;
   reason?: string;
   error?: string;
+}
+
+export interface NotificationWindow {
+  starts_at: string;
+  ends_at: string;
+  closing_message_id?: string | null;
 }
 
 export interface Receipt {

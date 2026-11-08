@@ -36,7 +36,12 @@ def model(env, monkeypatch, *, content="", advance=None):
             env.now[0] = advance
         if stage == 4:
             bound = kwargs["injected_job_kwargs"]
-            await env.runtime.send_reminder(content, round_id=bound["pa_round_id"], session_id=bound["session_id"])
+            await env.runtime.send_reminder(
+                content,
+                kind="normal",
+                round_id=bound["pa_round_id"],
+                session_id=bound["session_id"],
+            )
         return {"session_id": "agent-hints", "status": "completed", "result": f"stage {stage}"}
 
     env.agent.reply = AsyncMock(side_effect=reply)
@@ -215,7 +220,8 @@ async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence
     response = await ProactiveAgentStep(app_context=env.context)()
     assert len(calls) == 6
     assert [index for index, query in enumerate(calls) if "本轮可选交流方向" in query] == [3]
-    assert "午间招呼" in calls[3] and "早安" not in calls[3] and "晚安" not in calls[3]
+    hint = calls[3].split("本轮可选交流方向", 1)[1]
+    assert "午间招呼" in hint and "早安" not in hint and "晚安" not in hint
     assert response.metadata["proactive_hint"] == "hint_midday_1"
     assert response.answer["status"] == "skipped"
     env.agent.append_session.assert_not_awaited()

@@ -48,7 +48,9 @@ class ProactiveHints:
             raise RuntimeError("Proactive hints require an active round")
         if current.session_id != self.runtime.session_id:
             return None
-        return await complete_in_thread(self._draw, config, now, period, current.id)
+        hint = await complete_in_thread(self._draw, config, now, period, current.id)
+        current.hint_period = period if hint is not None else None
+        return hint
 
     def _draw(self, config: PaProactiveConfig, now: datetime, period: HintPeriod, round_id: str) -> str | None:
         path = self.runtime._metadata_file("hint_state.json")

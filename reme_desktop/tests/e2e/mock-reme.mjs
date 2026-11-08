@@ -35,12 +35,18 @@ export async function mockReMe({ speech = false } = {}) {
   let messages = [];
   let status = "idle";
   let activities = {};
+  let notifications = {
+    starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+    ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+    closing_message_id: null,
+  };
   let turn = 0;
   const frame = (response, chunk) =>
     response.write(`data: ${JSON.stringify(chunk)}\n\n`);
   const emit = (event) => {
     const value = structuredClone({
       ...event,
+      notifications,
       session_id: sessionId,
       cursor: `test-epoch:${events.length + 1}`,
     });
@@ -181,6 +187,7 @@ export async function mockReMe({ speech = false } = {}) {
               session_id: sessionId,
               status,
               activities,
+              notifications,
               snapshot: snapshot(),
               cursor: `test-epoch:${events.length}`,
             },
@@ -194,6 +201,7 @@ export async function mockReMe({ speech = false } = {}) {
             session_id: sessionId,
             status,
             activities,
+            notifications,
             snapshot: snapshot(),
             cursor: `test-epoch:${events.length}`,
           },
@@ -297,6 +305,10 @@ export async function mockReMe({ speech = false } = {}) {
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   return {
+    notificationWindow(value) {
+      notifications = value;
+      emit({ type: "status_changed", status, activities });
+    },
     url: `http://127.0.0.1:${server.address().port}`,
     push,
     cursors,

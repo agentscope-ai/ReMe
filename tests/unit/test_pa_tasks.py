@@ -34,13 +34,16 @@ def snapshot(env, identifier="one", time="120000", day="2026-11-08", status="unr
 
 def stub_model(env, monkeypatch, *, content="此前总结。\n\n本次发现。", fail_at=None):
     captured = {}
+    summaries = {}
     original = TaskAgentStep.prompt_format
     monkeypatch.setattr(TaskAgentStep, "_now", lambda _self: env.now[0])
 
     def prompt(step, name, **kwargs):
+        rendered = original(step, name, **kwargs)
         if name == "query_summary":
             captured.update(kwargs)
-        return original(step, name, **kwargs)
+            summaries[rendered] = kwargs
+        return rendered
 
     monkeypatch.setattr(TaskAgentStep, "prompt_format", prompt)
 
@@ -49,7 +52,7 @@ def stub_model(env, monkeypatch, *, content="此前总结。\n\n本次发现。"
         if stage == fail_at:
             raise RuntimeError("provider failed")
         if stage == 2 and content is not None:
-            path = Path(captured["staging_path"])
+            path = Path(summaries[_query]["staging_path"])
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         return {"session_id": "task-session", "status": "completed", "result": "finished"}
@@ -270,9 +273,14 @@ async def test_scheduler_reconciles_edits_and_keeps_valid_schedule_on_invalid_js
 
 
 @pytest.mark.asyncio
-async def test_real_cron_executes_outside_proactive_hours_and_closes_on_cancellation(pa_workspace, monkeypatch):
+async def test_real_cron_can_opt_out_of_active_hours_and_closes_on_cancellation(pa_workspace, monkeypatch):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=2)
+    config = await env.runtime.get_proactive_config()
+    env.runtime._write_json(
+        env.runtime.proactive_config_path,
+        {**config.model_dump(), "tasks_follow_active_hours": False},
+    )
     configure(env, [task(), task("two")])
     stub_model(env, monkeypatch)
     env.context.jobs["task_agent"] = BaseJob(

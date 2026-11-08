@@ -23,6 +23,10 @@ class TaskAgentStep(BasePaStep):
             return await self._run_task(task)
 
     async def _run_task(self, task):
+        config = await self.pa.get_proactive_config()
+        if config.tasks_follow_active_hours and not config.is_active(self._now()):
+            self.context.response.answer = {"task_id": task.id, "status": "skipped", "reason": "outside_active_hours"}
+            return self.context.response
         files = self.pa.tasks
         for path in (self.pa.task_runs_path, files.daily_path):
             if not _check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
@@ -37,7 +41,9 @@ class TaskAgentStep(BasePaStep):
             }
             if self.context.stop_event is not None and self.context.stop_event.is_set():
                 raise asyncio.CancelledError()
-            reply = await self.agent_wrapper.reply(task.query, **options)
+            reply = await self._reply(task.query, task=True, **options)
+            if reply is None:
+                return self._skip_run(run)
             run.agent_session_id = reply["session_id"]
             self._check_reply(reply)
             usages = [reply.get("usage")]
@@ -56,7 +62,9 @@ class TaskAgentStep(BasePaStep):
                     result_path=target,
                     now=now.isoformat(),
                 )
-                reply = await self.agent_wrapper.reply(query, resume=run.agent_session_id, **options)
+                reply = await self._reply(query, task=True, resume=run.agent_session_id, **options)
+                if reply is None:
+                    return self._skip_run(run)
                 self._check_reply(reply)
                 usages.append(reply.get("usage"))
                 usage = TokenUsage.combine([TokenUsage.model_validate(usage) for usage in usages if usage is not None])
@@ -81,6 +89,11 @@ class TaskAgentStep(BasePaStep):
         finally:
             run.finished_at = self._now()
             await files.record(run)
+        return self.context.response
+
+    def _skip_run(self, run):
+        run.status, run.error = "interrupted", "outside_active_hours"
+        self.context.response.answer = {"task_id": run.task_id, "status": run.status, "reason": run.error}
         return self.context.response
 
     @staticmethod

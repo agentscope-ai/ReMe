@@ -1,4 +1,4 @@
-"""Run six sequential queries in one fresh proactive conversation per wakeup."""
+"""Run up to six queries per wakeup, stopping at the window deadline or evening close."""
 
 import asyncio
 
@@ -22,8 +22,9 @@ class ProactiveAgentStep(BasePaStep):
 
     async def _run_round(self, runtime, max_turns, current):
         config = await runtime.get_proactive_config()
-        if not config.is_active(self._now()):
-            self.context.response.answer = {"sent": False, "reason": "outside_active_hours"}
+        reason = await runtime.proactive_skip_reason(config)
+        if reason:
+            self.context.response.answer = {"sent": False, "reason": reason}
             return self.context.response
         await self._ensure_memory()
         session_id, round_id = current.session_id, current.id
@@ -67,9 +68,14 @@ class ProactiveAgentStep(BasePaStep):
                             "optional_hint",
                             now=now.isoformat(),
                             hint=self.get_prompt(hint),
+                            period=current.hint_period,
                         )
                         self.context.response.metadata["proactive_hint"] = hint
-                reply = await self.agent_wrapper.reply(
+                reason = await runtime.proactive_skip_reason()
+                if reason:
+                    self.context.response.answer = {**current.result, "reason": reason}
+                    return self.context.response
+                reply = await self._reply(
                     query,
                     resume=agent_session_id,
                     system_prompt=system_prompt,
@@ -78,6 +84,9 @@ class ProactiveAgentStep(BasePaStep):
                     activity_source="proactive",
                     activity_session_id=session_id,
                 )
+                if reply is None:
+                    self.context.response.answer = {**current.result, "reason": "outside_active_hours"}
+                    return self.context.response
                 agent_session_id = reply["session_id"]
                 if reply["status"] != "completed":
                     raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")

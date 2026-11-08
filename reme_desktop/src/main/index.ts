@@ -163,11 +163,14 @@ else {
       windows.chat.webContents.on("render-process-gone", () =>
         controller!.speech.rendererReady(false),
       );
-      notifications = new SystemNotifications((notice) => {
-        if (!controller!.canOpenNotice(notice)) return;
-        windows!.openChat();
-        controller!.setChatVisible(true, notice.messageId);
-      });
+      notifications = new SystemNotifications(
+        (notice) => {
+          if (!controller!.canOpenNotice(notice)) return;
+          windows!.openChat();
+          controller!.setChatVisible(true, notice.messageId);
+        },
+        (notice) => controller!.canNotify(notice),
+      );
       windows.companion.webContents.on("did-start-loading", () =>
         controller!.setCompanionReady(false),
       );

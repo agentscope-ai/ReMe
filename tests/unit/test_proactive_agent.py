@@ -28,7 +28,12 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
         if stage == fail_at:
             raise RuntimeError("query failed")
         if stage == 4 and decide:
-            await env.runtime.send_reminder("", round_id=bound["pa_round_id"], session_id=bound["session_id"])
+            await env.runtime.send_reminder(
+                "",
+                kind="normal",
+                round_id=bound["pa_round_id"],
+                session_id=bound["session_id"],
+            )
         if stage == 5 and adjust:
             env.runtime._write_json(
                 env.runtime.proactive_config_path,

@@ -13,7 +13,7 @@ def record():
         "jobs": [
             {
                 "name": name,
-                "args": {"content": ""} if name == "send_reminder" else {},
+                "args": {"content": "", "kind": "normal"} if name == "send_reminder" else {},
                 "response": {"success": True},
             }
             for name in (

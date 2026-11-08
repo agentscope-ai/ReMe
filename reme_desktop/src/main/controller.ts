@@ -367,10 +367,23 @@ export class DesktopController {
       settingsChanged = true;
     }
     const receipts = this.presentation()?.receipts ?? {};
+    if (this.bubbles.active) {
+      const active = this.model.messages.find(
+        (message) => message.id === this.bubbles.active?.id,
+      );
+      if (!active || !this.model.canNotify(active, now))
+        this.bubbles.dismiss(this.bubbles.active.id);
+    }
     for (const message of this.model.messages) {
       const receipt = receipts[message.id];
       if (!receipt || receipt.read || receipt.suppressed || !message.completed)
         continue;
+      if (!this.model.canNotify(message, now)) {
+        receipt.suppressed = true;
+        this.bubbles.dismiss(message.id);
+        this.storage.changed();
+        continue;
+      }
       if (receipt.snoozeUntil && receipt.snoozeUntil > now) continue;
       if (!receipt.presented || receipt.snoozeUntil)
         this.bubbles.offer({
@@ -413,6 +426,7 @@ export class DesktopController {
           scope: this.scope,
           sessionId,
           messageId: bubble.id,
+          expiresAt: Date.parse(this.model.notifications!.ends_at),
           title: translate(this.state.settings.language, "reminderTitle"),
           body: bubble.text.replace(/\s+/g, " ").slice(0, 140),
         },
@@ -484,11 +498,21 @@ export class DesktopController {
   }
 
   private notifyOnce(notice: SystemNotice, shown: () => void = () => {}): void {
-    if (!this.notificationEligible() || this.notified.has(notice.id)) return;
+    if (!this.canNotify(notice) || this.notified.has(notice.id)) return;
     this.notified.add(notice.id);
     this.notify(notice, () => {
-      if (this.canOpenNotice(notice)) shown();
+      if (this.canNotify(notice)) shown();
     });
+  }
+
+  canNotify(notice: SystemNotice): boolean {
+    if (!this.notificationEligible() || !this.canOpenNotice(notice))
+      return false;
+    if (!notice.messageId) return true;
+    const message = this.model.messages.find(
+      (entry) => entry.id === notice.messageId,
+    );
+    return Boolean(message && this.model.canNotify(message, Date.now()));
   }
 
   canOpenNotice(notice: SystemNotice): boolean {

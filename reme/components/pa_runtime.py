@@ -26,7 +26,9 @@ from ..schema.agent_session import SessionMessage, SessionSnapshot, SessionStatu
 from ..schema.pa_event import PaEvent
 from ..schema.agent_activity import AgentActivity
 from ..schema.pa_session import PaSessionCursor
-from ..schema.pa_proactive import PaProactiveConfig
+from ..schema.pa_proactive import PaNotificationWindow, PaProactiveConfig
+from ..schema.pa_hint import HintPeriod
+from ..schema.reminder import ReminderKind
 from ..schema.pa_task import PaTask
 from ..utils.async_utils import complete_in_thread, finish_cleanup
 from ..constants import DEFAULT_MAX_FILE_BYTES
@@ -42,7 +44,8 @@ class ProactiveRound:
 
     session_id: str | None
     id: str = field(default_factory=lambda: uuid4().hex)
-    request: str | None = None
+    hint_period: HintPeriod | None = None
+    request: tuple[str, ReminderKind] | None = None
     result: dict = field(default_factory=lambda: {"sent": False, "status": "skipped"})
 
 
@@ -92,6 +95,7 @@ class PaRuntime(BaseComponent):
         self.hints = ProactiveHints(self)
         self.tasks = TaskFiles(self)
         self.reminders = ReminderDelivery(self)
+        self.notifications: PaNotificationWindow | None = None
         self._inbox_lock = asyncio.Lock()
         self._proactive_lock = asyncio.Lock()
         self._work_context_lock = threading.Lock()
@@ -148,6 +152,14 @@ class PaRuntime(BaseComponent):
     async def get_proactive_config(self) -> PaProactiveConfig:
         """Reload user edits without caching a second configuration source."""
         return await asyncio.to_thread(self._load_proactive_config)
+
+    async def proactive_skip_reason(self, config: PaProactiveConfig | None = None) -> str | None:
+        """Apply local scheduling rules before spending any model tokens."""
+        config = config or await self.get_proactive_config()
+        window = await self.reminders.window(config)
+        if not config.is_active(self._now()):
+            return "outside_active_hours"
+        return "day_closed" if window.closing_message_id is not None else None
 
     async def read_handoff(self) -> str:
         """Read the previous summary within the workspace file-size limit."""
@@ -277,11 +289,11 @@ class PaRuntime(BaseComponent):
             finally:
                 self.current_round = None
 
-    async def send_reminder(self, content: str, *, round_id: str, session_id: str | None) -> dict:
+    async def send_reminder(self, content: str, kind: ReminderKind, *, round_id: str, session_id: str | None) -> dict:
         """Own binding, validation, one-decision semantics and cancellation-safe publication."""
-        return await finish_cleanup(self._submit_reminder(content, round_id, session_id))
+        return await finish_cleanup(self._submit_reminder(content, kind, round_id, session_id))
 
-    async def _submit_reminder(self, content: str, round_id: str, session_id: str | None) -> dict:
+    async def _submit_reminder(self, content: str, kind: ReminderKind, round_id: str, session_id: str | None) -> dict:
         async with self.reminders.lock:
             current = self.current_round
             if current is None or current.id != round_id or current.session_id != session_id:
@@ -289,13 +301,17 @@ class PaRuntime(BaseComponent):
             if not isinstance(content, str) or len(content.strip()) > 200:
                 raise ValueError("content must be a string of at most 200 characters")
             content = content.strip()
+            if kind not in ("normal", "morning", "midday", "evening"):
+                raise ValueError("kind must be normal, morning, midday or evening")
+            if not content and kind != "normal":
+                raise ValueError("Empty decisions must use kind=normal")
             if current.request is not None:
-                if current.request != content:
+                if current.request != (content, kind):
                     raise ValueError("Only one reminder decision may be submitted per round")
                 if not content:
                     return current.result
-            result = await self.reminders.submit(content, session_id=session_id, message_id=current.id)
-            current.request = content
+            result = await self.reminders.submit(content, kind, session_id=session_id, message_id=current.id)
+            current.request = (content, kind)
             current.result = result
             return result
 
@@ -476,6 +492,7 @@ class PaRuntime(BaseComponent):
         if self.app_context is None or not isinstance(self.agent_wrapper, CodexAgentWrapper):
             raise RuntimeError("PaRuntime requires an ApplicationContext and CodexAgentWrapper")
         await complete_in_thread(self._initialize_files)
+        await self.reminders.window(await self.get_proactive_config())
         sessions = await asyncio.to_thread(self._load_session_ids)
         self.session_id = sessions[-1].session_id if sessions else None
         self._closed = False
@@ -619,7 +636,13 @@ class PaRuntime(BaseComponent):
 
     def _publish(self, event_type: str, **values) -> None:
         self._sequence += 1
-        event = PaEvent(type=event_type, cursor=self.cursor, session_id=self.session_id, **values)
+        event = PaEvent(
+            type=event_type,
+            cursor=self.cursor,
+            session_id=self.session_id,
+            notifications=self.notifications,
+            **values,
+        )
         serialized = event.model_dump_json(exclude_none=True)
         size = len(serialized.encode("utf-8"))
         self._buffer.append((self._sequence, serialized, size))
@@ -645,6 +668,7 @@ class PaRuntime(BaseComponent):
             status,
             tuple(flags),
             tuple((source, value.model_dump_json()) for source, value in sorted(self._activities.items())),
+            self.notifications.model_dump_json() if self.notifications is not None else None,
         )
         if signature != self._published_status:
             self._revision += 1
@@ -714,6 +738,7 @@ class PaRuntime(BaseComponent):
             revision, session_id = self._revision, self.session_id
             snapshot, error = None, None
             try:
+                await self.reminders.window(await self.get_proactive_config())
                 if session_id is not None:
                     async with asyncio.timeout(30):
                         snapshot = await self.agent_wrapper.read_session(session_id)
@@ -737,6 +762,7 @@ class PaRuntime(BaseComponent):
                 status=status,
                 active_flags=flags,
                 activities=self._activities,
+                notifications=self.notifications,
                 snapshot=snapshot,
                 error=error,
             )

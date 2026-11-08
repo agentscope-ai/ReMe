@@ -26,6 +26,68 @@ async function until(check: () => boolean, label: string): Promise<void> {
   }
 }
 
+test("closing policy drops queued reminders and the deadline removes the active bubble", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-reminder-window-"));
+  const backend = await mockReMe();
+  const storage = new Storage(directory);
+  storage.settings.endpoint = backend.url;
+  const controller = new DesktopController(storage, () => {}, manifest);
+  controller.setCompanionReady(true);
+  controller.setChatVisible(true);
+  controller.start();
+  try {
+    await until(
+      () => controller.state.connection === "connected",
+      "window snapshot",
+    );
+    backend.push("old-queued", "旧提醒");
+    await until(() => controller.state.unread === 1, "queued old reminder");
+    const starts_at = new Date(Date.now() - 3_600_000).toISOString();
+    backend.notificationWindow({
+      starts_at,
+      ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+      closing_message_id: "closing",
+    });
+    backend.push("closing", "晚安");
+    await until(
+      () =>
+        controller.state.messages.some((message) => message.id === "closing"),
+      "closing message",
+    );
+    controller.setChatVisible(false);
+    await until(
+      () => controller.state.bubble?.id === "closing",
+      "only closing may appear",
+    );
+    backend.push("too-late", "收尾后的提醒");
+    await until(
+      () =>
+        controller.state.messages.some((message) => message.id === "too-late"),
+      "late message retained in history",
+    );
+    assert.equal(controller.state.bubble?.id, "closing");
+    backend.notificationWindow({
+      starts_at,
+      ends_at: new Date(Date.now() - 1).toISOString(),
+      closing_message_id: "closing",
+    });
+    await until(
+      () => controller.state.bubble === null,
+      "expired bubble removed",
+    );
+    backend.notificationWindow({
+      starts_at,
+      ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(controller.state.bubble, null);
+  } finally {
+    await controller.close();
+    await backend.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("failed settings writes preserve the active endpoint", async () => {
   const directory = await mkdtemp(
     path.join(tmpdir(), "reme-desktop-settings-"),
@@ -278,6 +340,7 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
     )!.receipts.native;
     assert.equal(receipt.presented, false);
     assert.equal(controller.state.unread, 1);
+    assert.equal(controller.canNotify(notices[0].notice), true);
     notices[0].shown();
     assert.equal(receipt.presented, true);
     assert.equal(receipt.read, false);
@@ -287,6 +350,15 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
       notices.length,
       1,
       "native reminders must honor the same ten-minute cooldown",
+    );
+    backend.notificationWindow({
+      starts_at: new Date(Date.now() - 3_600_000).toISOString(),
+      ends_at: new Date(Date.now() + 3_600_000).toISOString(),
+      closing_message_id: "closing",
+    });
+    await until(
+      () => !controller.canNotify(notices[0].notice),
+      "queued native reminder revoked at evening close",
     );
     await controller.newSession();
     await until(

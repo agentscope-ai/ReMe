@@ -6,15 +6,23 @@ from __future__ import annotations
 
 import asyncio
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
+import re
 from typing import TYPE_CHECKING
 
 from .codex_app_server import SessionChangedError
-from ..schema.reminder import ReminderRecord
+from ..schema.pa_proactive import PaNotificationWindow, PaProactiveConfig
+from ..schema.reminder import ReminderKind, ReminderRecord
 from ..utils.async_utils import complete_in_thread
 
 if TYPE_CHECKING:
     from .pa_runtime import PaRuntime
+
+_GREETINGS = {
+    "morning": re.compile(r"早安|早上好|\bgood\s+morning\b", re.IGNORECASE),
+    "midday": re.compile(r"午安|中午好|\bgood\s+afternoon\b", re.IGNORECASE),
+    "evening": re.compile(r"晚安|晚上好|\bgood\s*(?:night|evening)\b|\bnighty[ -]?night\b", re.IGNORECASE),
+}
 
 
 class ReminderDelivery:
@@ -25,6 +33,32 @@ class ReminderDelivery:
         self.lock = asyncio.Lock()
         self.pending: ReminderRecord | None = None
         self.idle: tuple[str, float] | None = None
+
+    @staticmethod
+    def _window(config: PaProactiveConfig, now: datetime, records: list[ReminderRecord]) -> PaNotificationWindow:
+        start, end = config.active_window(now)
+        closing = next(
+            (record for record in records if record.kind == "evening" and start <= record.created_at < end),
+            None,
+        )
+        return PaNotificationWindow(
+            starts_at=start,
+            ends_at=end,
+            closing_message_id=f"reme-proactive-{closing.id}" if closing is not None else None,
+        )
+
+    async def _refresh_window(self, config: PaProactiveConfig | None = None) -> PaNotificationWindow:
+        config = config or await self.runtime.get_proactive_config()
+        records = await asyncio.to_thread(self.read)
+        window = self._window(config, self.runtime._now(), records)
+        self.runtime.notifications = window
+        self.runtime.publish_status()
+        return window
+
+    async def window(self, config: PaProactiveConfig) -> PaNotificationWindow:
+        """Project the current window from the journal, serialized with decisions."""
+        async with self.lock:
+            return await self._refresh_window(config)
 
     def read(self) -> list[ReminderRecord]:
         """Read the latest state of each reminder, newest creation first."""
@@ -78,14 +112,15 @@ class ReminderDelivery:
         )
         self.pending = None
         self.idle = None
+        await self._refresh_window()
         return record
 
-    async def submit(self, content: str, *, session_id: str | None, message_id: str) -> dict:
+    async def submit(self, content: str, kind: ReminderKind, *, session_id: str | None, message_id: str) -> dict:
         """Persist a validated round decision; the caller holds the submission lock."""
         records = await asyncio.to_thread(self.read)
         existing = next((record for record in records if record.id == message_id), None)
         if existing is not None:
-            if existing.content != content:
+            if existing.content != content or existing.kind != kind:
                 raise ValueError("message_id already belongs to different content")
             return self.answer(existing)
         if not content:
@@ -94,12 +129,28 @@ class ReminderDelivery:
             return {"id": message_id, "sent": False, "status": "skipped", "reason": "empty_content"}
         config = await self.runtime.get_proactive_config()
         now = self.runtime._now()
+        window = self._window(config, now, records)
+        if not config.is_active(now):
+            return {"id": message_id, "sent": False, "status": "skipped", "reason": "outside_active_hours"}
+        if window.closing_message_id is not None:
+            return {"id": message_id, "sent": False, "status": "skipped", "reason": "day_closed"}
+        if kind != "normal":
+            if any(
+                record.kind == kind and record.created_at.astimezone(now.tzinfo).date() == now.date()
+                for record in records
+            ):
+                return {"id": message_id, "sent": False, "status": "skipped", "reason": "period_used"}
+            if self.runtime.current_round.hint_period != kind or self.runtime.hints._period(config, now) != kind:
+                raise ValueError("A special reminder requires this round's matching sampled hint")
+        if any(pattern.search(content) for period, pattern in _GREETINGS.items() if period != kind):
+            raise ValueError("Greeting wording requires the matching special reminder kind")
         record = ReminderRecord(
             id=message_id,
             content=content,
+            kind=kind,
             created_at=now,
             updated_at=now,
-            expires_at=now + timedelta(minutes=config.interval_minutes),
+            expires_at=min(now + timedelta(minutes=config.interval_minutes), window.ends_at),
             session_id=session_id,
             reason="waiting_for_idle",
         )
@@ -111,6 +162,7 @@ class ReminderDelivery:
         )
         self.pending = record
         self.idle = None
+        await self._refresh_window(config)
         if previous is not None:
             previous = previous.model_copy(
                 update={
@@ -174,11 +226,17 @@ class ReminderDelivery:
                         return await self._finish("discarded", "outside_active_hours")
                     if self.runtime._now() >= record.expires_at:
                         return await self._finish("discarded", "expired")
+                    window = await self._refresh_window(config)
+                    if not window.allows(self.runtime._now(), f"reme-proactive-{record.id}"):
+                        return await self._finish("discarded", "day_closed")
+                    timeout = min(1, (record.expires_at - self.runtime._now()).total_seconds())
+                    if timeout <= 0:
+                        return await self._finish("discarded", "expired")
                     await self.runtime.agent_wrapper.append_session(
                         record.session_id,
                         record.content,
                         message_id=record.id,
-                        timeout=1,
+                        timeout=timeout,
                         expected_turn_id=turn_id,
                     )
                 except (SessionChangedError, TimeoutError):

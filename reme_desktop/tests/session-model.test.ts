@@ -29,6 +29,58 @@ const snapshot = (
   messages,
 });
 
+test("reminder display uses the server window, rejects old backlog and keeps only the closing message", () => {
+  const model = new SessionModel();
+  const starts_at = "2026-11-08T09:00:00+08:00";
+  const ends_at = "2026-11-08T23:00:00+08:00";
+  const current = {
+    ...message("closing"),
+    created_at: "2026-11-08T22:30:00+08:00",
+  };
+  const other = { ...message("other"), created_at: current.created_at };
+  const old = { ...message("old"), created_at: "2026-11-07T22:59:00+08:00" };
+  const at = (clock: string) => Date.parse(`2026-11-08T${clock}:00+08:00`);
+  model.notifications = { starts_at, ends_at };
+  assert.equal(model.canNotify(current, at("08:59")), false);
+  assert.equal(model.canNotify(current, at("09:00")), true);
+  assert.equal(model.canNotify(current, at("22:59")), true);
+  assert.equal(model.canNotify(current, at("23:00")), false);
+  assert.equal(model.canNotify(old, at("22:59")), false);
+  assert.equal(model.canNotify(message("unknown-time"), at("22:59")), false);
+  model.notifications.closing_message_id = current.id;
+  assert.equal(model.canNotify(current, at("22:59")), true);
+  assert.equal(model.canNotify(other, at("22:59")), false);
+  model.notifications = null;
+  assert.equal(model.canNotify(current, at("22:59")), false);
+});
+
+test("invalid notification windows cannot advance accepted policy or cursor", () => {
+  const model = new SessionModel();
+  model.apply({
+    type: "snapshot",
+    activities: {},
+    cursor: "epoch:1",
+    session_id: "s",
+    snapshot: snapshot("s"),
+    notifications: {
+      starts_at: "2026-11-08T09:00:00+08:00",
+      ends_at: "2026-11-08T23:00:00+08:00",
+    },
+  });
+  const policy = model.notifications;
+  assert.throws(() =>
+    model.apply({
+      type: "status_changed",
+      activities: {},
+      cursor: "epoch:2",
+      session_id: "s",
+      notifications: { starts_at: "invalid", ends_at: "invalid" },
+    }),
+  );
+  assert.equal(model.notifications, policy);
+  assert.equal(model.cursor, "epoch:1");
+});
+
 test("replayed upserts replace by ID and never concatenate complete snapshots", () => {
   const model = new SessionModel();
   model.apply({

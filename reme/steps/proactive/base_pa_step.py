@@ -1,5 +1,6 @@
 """Shared workspace, memory and runtime access for Remy's agents."""
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,6 +21,23 @@ class BasePaStep(BaseStep):
     def _now(self) -> datetime:
         timezone = self.app_context.app_config.timezone
         return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+
+    async def _reply(self, query: str, *, task: bool = False, **kwargs):
+        """Return None when active hours end; cancel native work at the deadline."""
+        config = await self.pa.get_proactive_config()
+        now = self._now()
+        follows = not task or config.tasks_follow_active_hours
+        if follows and not config.is_active(now):
+            return None
+        timeout = (config.active_window(now)[1] - now).total_seconds() if follows else None
+        deadline = asyncio.timeout(timeout)
+        try:
+            async with deadline:
+                return await self.agent_wrapper.reply(query, **kwargs)
+        except TimeoutError:
+            if not deadline.expired():
+                raise
+            return None
 
     def _path(self, path: str) -> Path:
         target, error = resolve_path(self.workspace_path, path)

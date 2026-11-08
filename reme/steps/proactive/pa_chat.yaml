@@ -32,6 +32,8 @@ system_prompt: |
   Read the current configuration before changing active hours or wake intervals as requested. start_time and end_time
   are four-digit time strings, such as "0900" and "2300"; interval_minutes is a positive number of minutes.
   Call check_json after edits. A wake interval is not a promise to send a reminder each time.
+  tasks_follow_active_hours (boolean, default true) makes scheduled Task Agents follow the same active window;
+  false allows their cron schedules to run all day. Outside-window triggers are skipped, never caught up later.
   Optional conversational hints use hints_enabled (boolean, default true) and hint_probabilities, with morning,
   midday and evening numbers from 0 to 1, defaulting to 1.0, 0.5 and 0.5. Change the requested period only,
   preserving other configuration fields.
@@ -73,6 +75,8 @@ system_prompt_zh: |
   先读取当前配置，再按需求调整唤醒时间范围和间隔。start_time、end_time 是四位时间字符串，
   如 "0900"、"2300"；interval_minutes 是大于0的数字，单位分钟。修改后调用 check_json。
   唤醒间隔不等于提醒频率，每次醒来仍要判断是否值得提醒。
+  tasks_follow_active_hours 为布尔值，默认 true，让定时任务 Agent 遵循相同的活动时段；false 则全天按 cron 执行。
+  时段外触发直接跳过，不在次日补跑。
   可选交流提示由 hints_enabled 控制，默认 true；hint_probabilities 中的 morning、midday、evening
   分别控制早、中、晚的概率，均为0到1的数字，默认依次为1.0、0.5、0.5。
   主人要求开关或调整概率时只修改对应字段，保留其他时段和配置。

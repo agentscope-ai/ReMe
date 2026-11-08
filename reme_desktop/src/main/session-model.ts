@@ -5,6 +5,7 @@ import type {
   SessionSnapshot,
   SessionStatus,
   Activities,
+  NotificationWindow,
 } from "../shared/protocol.ts";
 
 const eventTypes = new Set([
@@ -48,6 +49,22 @@ export class SessionModel {
   cursor: string | undefined;
   waitingForSnapshot = false;
   activities: Activities = {};
+  notifications: NotificationWindow | null = null;
+
+  canNotify(message: SessionMessage, now: number): boolean {
+    const window = this.notifications;
+    if (!window) return false;
+    const start = Date.parse(window.starts_at);
+    const end = Date.parse(window.ends_at);
+    const created = Date.parse(message.created_at ?? "");
+    return (
+      start <= now &&
+      now < end &&
+      start <= created &&
+      created < end &&
+      (!window.closing_message_id || window.closing_message_id === message.id)
+    );
+  }
 
   clear(): void {
     this.sessionId = null;
@@ -56,6 +73,7 @@ export class SessionModel {
     this.cursor = undefined;
     this.waitingForSnapshot = false;
     this.activities = {};
+    this.notifications = null;
   }
 
   select(sessionId: string | null): void {
@@ -92,6 +110,19 @@ export class SessionModel {
     )
       throw new UiError("invalidEvent");
     const event = value as PaEvent;
+    if (event.notifications != null) {
+      const window = event.notifications;
+      const start = Date.parse(window.starts_at);
+      const end = Date.parse(window.ends_at);
+      if (
+        !Number.isFinite(start) ||
+        !Number.isFinite(end) ||
+        start >= end ||
+        (window.closing_message_id != null &&
+          typeof window.closing_message_id !== "string")
+      )
+        throw new UiError("invalidEvent");
+    }
     if (event.status != null && !statuses.has(event.status))
       throw new UiError("invalidStatus");
     if (["snapshot", "status_changed"].includes(event.type)) {
@@ -163,6 +194,8 @@ export class SessionModel {
           );
       }
     }
+    if (event.type === "snapshot" || event.type === "status_changed")
+      this.notifications = event.notifications ?? null;
     if (event.cursor) this.cursor = event.cursor;
     return event;
   }

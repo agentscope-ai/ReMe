@@ -147,7 +147,7 @@ these are client settings, not the provider's maximum context claim. Native long
 `CODEX_MODEL_NAME` can override the model; review the model catalog capabilities when changing it. File changes load
 on the next service start and apply to subsequent chats in the restored session.
 
-The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for six sequential queries:
+The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for up to six sequential queries:
 long-term memory and previous handoff, chat feedback and recent conversation, unread task summaries, reminder decisions,
 optional wake-configuration changes, then the next handoff. Tool bindings remain fixed for that session. The handoff is
 atomically replaced only after the last query completes with a nonempty summary. Consumed inputs and partial progress
@@ -184,11 +184,12 @@ endpoints mean all day. Within active hours, the next delay starts after the pre
 the loop waits for the next opening. Sleep checks JSON edits at most every 30 seconds, so changing the file requires no
 restart. Invalid configuration pauses model work while reporting the error. The former YAML wakeup delay, in-memory
 override and `set_next_wakeup` tool are removed. Resource cleanup remains an independent CronJob.
+Every model query rechecks active hours. Closed hours or an evening decision stop further proactive queries, retaining
+partial checkpoints for the next opening. In-flight background queries are interrupted at the window deadline. Polling and policy checks spend no model tokens.
 
 Optional conversational hints default to enabled. Set `hints_enabled: false` in `proactive.json` to disable sampling
 and injection. `hint_probabilities` separately configures `morning`, `midday` and `evening`, defaulting to 1.0, 0.5 and 0.5;
 each accepts numbers from 0 to 1. YAML `default_proactive` seeds new files; missing fields or periods use schema defaults.
-Configurations with the former scalar `hint_probability` must remove it and use the `hint_probabilities` object instead.
 Within active hours, sampling occurs at most once
 per local day in each window: 06:00–12:00, 12:00–14:00, and the last 30 minutes before an evening closing time (no earlier
 than 18:00). Overnight and all-day activity use an evening window after 21:00, never an evening hint in the morning.
@@ -198,6 +199,12 @@ to prevent rerolls after restart and avoid the last selected variant of each kin
 updates remain independent of sampling. Actual delivery is recorded in `reminders.jsonl`. Sampled directions are not
 personal memories or instructions to repeat in future rounds.
 The 18 directions concern everyday life, care and playful surprises; only one evening direction summarizes confirmed todos.
+Special reminder kinds are `morning`, `midday` and `evening`: each requires this round's matching sampled hint and
+consumes one slot per local date, including failed or discarded submissions; a failed closing decision never reopens that window after an uncertain delivery. Normal information uses `normal`, without
+explicit greeting wording. Every nonempty evening decision is the final proactive message for that window, even without
+literal good-night wording. Pending closing messages cannot be replaced by ordinary reminders. Sent closing messages
+stop proactive queries until the next opening; misses and empty decisions do not close the day. The reminder journal
+owns this state across restarts and session switches, without a separate quiet-state file.
 
 `read_conversation(max_turns=20)` consumes completed unread rounds across the latest 100 registered chats. Each user
 input stays with its replies; tools and proactive messages are excluded. It returns an oldest-first string within the
@@ -209,14 +216,27 @@ it under a shared component lock. `get_reminder(limit=10, offset=0)` reads each 
 first, without consuming history. JSONL appends share an ID for successive `pending`, `sent`, `discarded` or `failed`
 states, with creation/update/expiry/sent times and the target session. This replaces the former `is_draft` contract.
 
-`send_reminder(content)` accepts one decision per round, at most 200 characters. Empty content withdraws pending content
+`send_reminder(content, kind)` accepts one decision per round, at most 200 characters. Required `kind` is one of
+`normal`, `morning`, `midday`, `evening`; empty content uses `normal`. Empty content withdraws pending content
 for the bound chat and returns `skipped`. A newly accepted nonempty reminder supersedes the old pending reminder. If chat
 is idle, the tool attempts immediate insertion and returns `sent`; otherwise it returns `pending` without waiting for
 chat to finish. The native `reminder_delivery` background Job waits for ten continuous idle seconds, resetting when chat
-starts again. Delivery rechecks the current session, native turn, active hours and expiry. The pending lifetime is one
-wake interval from submission. Missing or changed sessions, closed active hours and expiry discard the reminder.
+starts again. Delivery rechecks the current session, native turn, active hours and expiry. The pending lifetime ends after one
+wake interval or at the current window deadline, whichever comes first. Missing or changed sessions, closed active hours and expiry discard the reminder.
 Restart rebuilds pending state from JSONL and repeats the checks and idle delay. Retries use the same native message ID.
 Sent means inserted into chat, not read; insertion and JSONL status publication are separate operations.
+`pa_events` snapshots and status events carry a derived `notifications` window with absolute start/end times and the
+closing message ID. Desktop bubbles and proactive system notifications recheck it before display, allowing only the
+closing message after that decision and dropping stale queues. Display stops at the deadline, without replaying old
+messages the next day. Chat history remains intact. Stop the service before explicitly migrating an existing journal;
+runtime schemas and tools require the new contract:
+
+```bash
+python scripts/migrate_pa_reminder_kinds.py /path/to/workspace/reme_metadata/pa/reminders.jsonl
+```
+
+The script validates every row, retains an original `.bak`, identifies saved hint rounds and marks other old records
+as `normal` before atomic replacement.
 
 The proactive agent has feedback, conversation, task-result, screen-capture, reminder-history, reminder-submission
 and JSON-validation Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
@@ -233,8 +253,10 @@ Defaults seed missing files only; update an existing `tasks.json` explicitly to 
 The `task_schedule` background Job checks file modification time every second and owns one ReMe `CronJob` per enabled task.
 Valid edits add, replace or stop schedules; invalid edits are reported while existing valid schedules remain active.
 Replacement closes the old Job before starting the new one, so the same task cannot overlap. Jobs and agent work close
-with the application. Scheduling is independent of proactive active hours. Each task starts at its next cron time;
-executions are serial per task and missed triggers are skipped rather than replayed.
+with the application. Each task starts at its next cron time; executions are serial per task and missed triggers are skipped.
+`tasks_follow_active_hours` in `proactive.json` defaults to `true`: every Task Agent query checks the same `start_time` /
+`end_time` and skips closed hours without model tokens. Set it to `false` for all-day cron execution; edits take effect
+without restarting. Evening closure stops proactive communication; independent tasks follow their configured active hours.
 
 Each execution creates a fresh agent session. Query 1 is the configured query. Query 2 resumes that session, reads the
 latest one or two completed snapshots (across dates), and consolidates still-valid history and new findings into a

@@ -1170,6 +1170,7 @@ def seed(root: Path, case: dict) -> list[str]:
             {
                 "id": f"earlier-{index}",
                 "content": note["content"][:200],
+                "kind": "normal",
                 "status": note["status"],
                 "created_at": (frozen_now() - timedelta(minutes=index + 1)).isoformat(),
                 "updated_at": NOW,

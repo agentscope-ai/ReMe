@@ -81,18 +81,23 @@ query_tasks_zh: |
 
 query_reminder: |
   Call get_reminder to inspect earlier proactive messages, especially sent and pending records. Avoid repeated information
-  and reassess anything unsent. Then call send_reminder exactly once with content: one concise, conversational topic in
+  and reassess anything unsent. Then call send_reminder exactly once with content and kind: one concise, conversational topic in
   1-3 sentences and at most 200 characters, only if it offers value or fresh interest to Master; otherwise use an empty
   string. Empty content withdraws pending content; a new accepted message supersedes the previous pending one.
   The tool handles immediate injection or waiting until chat has been idle for 10 seconds. Do not wait yourself.
   Keep the returned ID and status for the handoff; pending does not mean sent. Nothing worth saying means stay quiet.
+  Use kind=normal for new information or empty content. Morning, midday and evening greetings require the matching
+  hint in this round and may be submitted only once per local day. Do not put greeting wording in a normal reminder.
+  An evening reminder is today's final proactive message. Once submitted, do not plan another reminder tonight.
 query_reminder_zh: |
   调用 get_reminder 查看之前的主动提醒，重点看已发送和仍未发送的内容，避免重复，并重新判断未发送内容是否仍值得提醒。
-  然后只调用一次 send_reminder，填写 content：有价值或主人可能感兴趣的新内容才发，像寻常对话一样简短自然，
+  然后只调用一次 send_reminder，填写 content 和 kind：有价值或主人可能感兴趣的新内容才发，像寻常对话一样简短自然，
   一个主题、1–3句、最多200字符；没有合适内容就填写空字符串，没事情不要打扰主人。
   空内容会撤销旧的待发送提醒；新内容成功提交后替换旧的待发送提醒。
   工具内部负责直接注入，或等待对话结束后连续空闲10秒再投递，你无需等待。
   保留工具返回的提醒 ID 和状态供交接；pending 只是等待，不是已经发送。
+  新信息或空内容使用 kind=normal。只有本轮有对应 hint 时才使用 morning、midday 或 evening，每天各一次。
+  普通提醒不夹带早安、午安、晚安等问候。evening 是今天最后一条主动消息，提交后今晚不再安排其他提醒。
 
 query_config: |
   Optionally update {proactive_config_path} based on explicit feedback and the value or timing of recent work; skip if
@@ -101,12 +106,14 @@ query_config: |
   and evening numbers from 0 to 1, defaulting to 1.0, 0.5 and 0.5. Read current values before editing, preserve other
   periods and settings, and call check_json afterward.
   Respect Master's explicit settings.
+  tasks_follow_active_hours is a boolean, default true: scheduled Task Agents use the same start/end window.
 query_config_zh: |
   根据明确反馈、近期工作的价值和时机，判断是否需要修改 {proactive_config_path}；没有必要就跳过。
   start_time、end_time 为四位 HHMM 字符串，interval_minutes 为大于0的分钟数。
   hints_enabled 控制可选交流提示，默认 true；hint_probabilities 的 morning、midday、evening 分别控制早、中、晚，
   均为0到1的数字，默认依次为1.0、0.5、0.5。修改前读取当前值，保留其他时段和设置，尊重主人的明确设置，
   修改后调用 check_json。
+  tasks_follow_active_hours 为布尔值，默认 true，让定时任务 Agent 遵循相同的开始和结束时间。
 
 query_handoff: |
   You are about to sleep. The current interval is {interval_minutes} minutes; the estimated next wakeup is {next_wakeup}.
@@ -127,6 +134,7 @@ optional_hint: |
   ## Optional conversational direction for this round
   Current time: {now}
   {hint}
+  If you use this direction, send_reminder.kind must be {period}; otherwise use normal or remain silent.
   A brief, timely greeting, considerate check-in or playful everyday moment may also offer value in this round.
   This is optional inspiration, not a requirement to speak or wording to copy. Use Master's language and adapt naturally
   to recent conversation, task findings, preferences and reminders already sent. Ignore it if repetitive, unsupported,
@@ -140,6 +148,7 @@ optional_hint_zh: |
   ## 本轮可选交流方向
   当前时间：{now}
   {hint}
+  使用这个方向时，send_reminder.kind 必须为 {period}；不使用则选择 normal 或保持静默。
   本轮中，简短且适时的问候、关怀或轻松的生活小彩蛋，也可以作为交流价值。
   这是可选灵感，不是必须发言的任务，也不是要照抄的话术。结合近期对话、任务发现、主人偏好和已发送内容自然发挥。
   重复、缺少依据、不受欢迎或时机不合适时忽略，仍可以提交空的 send_reminder。保持一个主题，简短自然，不超过200字符。

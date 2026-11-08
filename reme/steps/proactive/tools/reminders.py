@@ -16,6 +16,7 @@ class SendReminderStep(BaseStep):
             raise PermissionError("no permission to write reminder history")
         self.context.response.answer = await self.pa.send_reminder(
             self.context.get("content"),
+            self.context.get("kind"),
             round_id=self.context.get("pa_round_id"),
             session_id=self.context.get("session_id"),
         )

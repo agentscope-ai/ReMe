@@ -4,13 +4,30 @@ import type { SystemNotice } from "./notifications.ts";
 
 /** Native resources are closed on attention changes, session switches, and shutdown. */
 export class SystemNotifications {
-  private readonly active = new Map<string, Notification>();
+  private readonly active = new Map<
+    string,
+    {
+      notification: Notification;
+      notice: SystemNotice;
+      timer?: ReturnType<typeof setTimeout>;
+    }
+  >();
   private session = "";
 
-  constructor(private readonly open: (notice: SystemNotice) => void) {}
+  constructor(
+    private readonly open: (notice: SystemNotice) => void,
+    private readonly allowed: (notice: SystemNotice) => boolean,
+  ) {}
 
   show(notice: SystemNotice, shown: () => void): void {
-    if (!Notification.isSupported() || this.active.has(notice.id)) return;
+    if (
+      !Notification.isSupported() ||
+      this.active.has(notice.id) ||
+      !this.allowed(notice)
+    )
+      return;
+    if (notice.expiresAt !== undefined && Date.now() >= notice.expiresAt)
+      return;
     let notification: Notification | undefined;
     try {
       notification = new Notification({
@@ -19,20 +36,27 @@ export class SystemNotifications {
         silent: true,
       });
       if (this.active.size >= 5) {
-        const [oldest, previous] = this.active.entries().next().value!;
-        previous.removeAllListeners();
-        previous.close();
-        this.active.delete(oldest);
+        this.remove(this.active.keys().next().value!);
       }
-      this.active.set(notice.id, notification);
-      notification.once("show", shown);
+      const timer =
+        notice.expiresAt === undefined
+          ? undefined
+          : setTimeout(
+              () => this.remove(notice.id),
+              Math.max(0, notice.expiresAt - Date.now()),
+            );
+      this.active.set(notice.id, { notification, notice, timer });
+      notification.once("show", () => {
+        if (this.allowed(notice)) shown();
+        else this.remove(notice.id);
+      });
       notification.once("click", () => this.open(notice));
-      notification.once("close", () => this.active.delete(notice.id));
-      notification.once("failed", () => this.active.delete(notice.id));
+      notification.once("close", () => this.remove(notice.id));
+      notification.once("failed", () => this.remove(notice.id));
       notification.show();
     } catch {
       notification?.removeAllListeners();
-      this.active.delete(notice.id);
+      this.remove(notice.id);
     }
   }
 
@@ -46,13 +70,21 @@ export class SystemNotifications {
     )
       this.close();
     this.session = session;
+    for (const [id, entry] of this.active) {
+      if (!this.allowed(entry.notice)) this.remove(id);
+    }
   }
 
   close(): void {
-    for (const value of this.active.values()) {
-      value.removeAllListeners();
-      value.close();
-    }
-    this.active.clear();
+    for (const id of this.active.keys()) this.remove(id);
+  }
+
+  private remove(id: string): void {
+    const entry = this.active.get(id);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    entry.notification.removeAllListeners();
+    entry.notification.close();
+    this.active.delete(id);
   }
 }

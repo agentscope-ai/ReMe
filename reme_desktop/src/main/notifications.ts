@@ -7,6 +7,7 @@ export interface SystemNotice {
   scope: string;
   sessionId: string;
   messageId?: string;
+  expiresAt?: number;
   title: string;
   body: string;
 }

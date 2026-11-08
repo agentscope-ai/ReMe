@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .agent_session import SessionMessage, SessionSnapshot
 from .agent_activity import AgentActivity
+from .pa_proactive import PaNotificationWindow
 
 
 class PaEvent(BaseModel):
@@ -24,6 +25,7 @@ class PaEvent(BaseModel):
     status: Literal["active", "idle", "not_loaded", "error"] | None = None
     active_flags: list[str] = Field(default_factory=list)
     activities: dict[Literal["chat", "proactive"], AgentActivity] = Field(default_factory=dict)
+    notifications: PaNotificationWindow | None = None
     message: SessionMessage | None = None
     snapshot: SessionSnapshot | None = None
     reason: str | None = None
