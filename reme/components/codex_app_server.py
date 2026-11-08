@@ -91,6 +91,12 @@ class CodexAppServer(BaseComponent):
             str,
             set[Callable[[AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None], None]],
         ] = {}
+        self._activity_listeners: set[Callable[[AgentActivity | None], None]] = set()
+
+    def watch_activity(self, listener: Callable[[AgentActivity | None], None]) -> Callable[[], None]:
+        """Observe execution across native sessions; None invalidates all activity."""
+        self._activity_listeners.add(listener)
+        return lambda: self._activity_listeners.discard(listener)
 
     def watch_session(
         self,
@@ -115,6 +121,8 @@ class CodexAppServer(BaseComponent):
         session_id: str | None,
         change: AgentActivity | SessionMessage | SessionSnapshot | SessionStatus | None,
     ) -> None:
+        if session_id is None and change is None:
+            self._notify_activity(None)
         listeners = (
             set(self._session_listeners.get(session_id, ()))
             if session_id is not None
@@ -129,6 +137,14 @@ class CodexAppServer(BaseComponent):
     def publish_activity(self, activity: AgentActivity) -> None:
         """Publish a phase without coupling model execution to desktop observers."""
         self._notify_session(activity.session_id, activity)
+        self._notify_activity(activity)
+
+    def _notify_activity(self, activity: AgentActivity | None) -> None:
+        for listener in tuple(self._activity_listeners):
+            try:
+                listener(activity)
+            except Exception as exc:
+                self.logger.warning(f"Activity listener failed: {exc}")
 
     async def _publish_history(self, session_id: str) -> None:
         """Confirm visible history after a turn, without coupling observers to its outcome."""

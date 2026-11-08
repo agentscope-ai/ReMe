@@ -25,6 +25,7 @@ class PaEvent(BaseModel):
     status: Literal["active", "idle", "not_loaded", "error"] | None = None
     active_flags: list[str] = Field(default_factory=list)
     activities: dict[Literal["chat", "proactive"], AgentActivity] = Field(default_factory=dict)
+    task_activities: dict[str, AgentActivity] = Field(default_factory=dict)
     notifications: PaNotificationWindow | None = None
     message: SessionMessage | None = None
     snapshot: SessionSnapshot | None = None

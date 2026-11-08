@@ -13,12 +13,42 @@ from reme.steps.proactive.tools import GetReminderStep, SendReminderStep
 
 async def submit(env, content):
     async with env.runtime.proactive_round() as current:
+        current.phase = "query_reminder"
         return await env.runtime.send_reminder(
             content,
             kind="normal",
             round_id=current.id,
             session_id=current.session_id,
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "phase",
+    [None, "query_memory", "query_conversation", "query_tasks", "query_research", "query_config", "query_handoff"],
+)
+@pytest.mark.parametrize("content", ["", "不应提前发送。"])
+async def test_other_phases_cannot_submit_or_consume_the_reminder_decision(pa_workspace, phase, content):
+    env = pa_workspace
+    async with env.runtime.proactive_round() as current:
+        current.phase = phase
+        with pytest.raises(ValueError, match="only allowed during query_reminder"):
+            await SendReminderStep(app_context=env.context)(
+                content=content,
+                kind="normal",
+                pa_round_id=current.id,
+                session_id=current.session_id,
+            )
+        assert current.request is None and await env.runtime.get_reminder() == []
+        env.agent.append_session.assert_not_awaited()
+        current.phase = "query_reminder"
+        result = await env.runtime.send_reminder(
+            "有用的新结果。",
+            kind="normal",
+            round_id=current.id,
+            session_id=current.session_id,
+        )
+        assert result["sent"] and len(await env.runtime.get_reminder()) == 1
 
 
 @pytest.mark.asyncio
@@ -40,6 +70,7 @@ async def test_requires_current_bound_round_and_rejects_stale_tokens(pa_workspac
 async def test_concurrent_retries_in_one_round_inject_only_once(pa_workspace):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
+        current.phase = "query_reminder"
 
         async def send():
             return await env.runtime.send_reminder(
@@ -137,6 +168,7 @@ async def test_cancelled_submission_finishes_injection_and_status_publication(pa
 
     env.agent.append_session = AsyncMock(side_effect=append)
     async with env.runtime.proactive_round() as current:
+        current.phase = "query_reminder"
         task = asyncio.create_task(
             env.runtime.send_reminder("确定结果。", kind="normal", round_id=current.id, session_id=current.session_id),
         )

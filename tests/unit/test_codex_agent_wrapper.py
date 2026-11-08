@@ -1706,3 +1706,23 @@ async def test_activity_closes_when_the_consumer_stops_or_the_provider_fails(sys
         assert "completed" not in phases
     finally:
         unsubscribe()
+
+
+@pytest.mark.asyncio
+async def test_task_activity_publishes_to_application_observers_without_a_selected_session(system):
+    first, _second, server, _job = system
+    observed = []
+    unsubscribe = server.watch_activity(observed.append)
+    try:
+        await first.reply(
+            "task result",
+            job_tools=[],
+            activity_source="task",
+            activity_run_id="run",
+            activity_task_id="research",
+        )
+        assert observed[0].phase == "thinking" and observed[-1].phase == "completed"
+        assert all(item.source == "task" and item.run_id == "run" and item.task_id == "research" for item in observed)
+        assert len({item.session_id for item in observed}) == 1
+    finally:
+        unsubscribe()

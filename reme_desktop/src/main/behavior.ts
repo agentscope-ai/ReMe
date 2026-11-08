@@ -13,11 +13,10 @@ import type {
   Behavior,
   DesktopState,
   PlaybackStatus,
-  StatusNotice,
+  TaskActivities,
 } from "../shared/protocol.ts";
 
-const terminal = (phase: AgentActivity["phase"]) =>
-  ["completed", "failed", "interrupted"].includes(phase);
+import { terminal } from "../shared/messages.ts";
 const clips = {
   thinking: "thinking",
   working: "thinking",
@@ -39,19 +38,19 @@ type Owner =
   | "ambient";
 type Input = Pick<
   DesktopState,
-  "connection" | "chatFocused" | "pending" | "bubble" | "settings" | "speech"
->;
+  "connection" | "chatFocused" | "pending" | "settings" | "speech"
+> & { reminderId: string | null };
 
 /** One owner per animation. Temporary gestures always return to current activity. */
 export class BehaviorController {
   value: Behavior = {
     animation: { id: 0, clip: "idle", mode: "loop" },
     label: translate(defaultLanguage, "idle"),
-    notice: null,
     error: "",
   };
   dragging = false;
   private activities: Activities = {};
+  private taskActivities: TaskActivities = {};
   private key = "idle";
   private owner: Owner = "base";
   private sequence = 0;
@@ -64,6 +63,7 @@ export class BehaviorController {
   private nextAmbient: number;
   private ambient: string | null = null;
   private lastAmbient = "";
+  private ambientRepeats = 0;
   private preview: string | null = null;
   private cue: {
     key: string;
@@ -85,7 +85,7 @@ export class BehaviorController {
   }
 
   private nextIdle(now: number): number {
-    return now + 15_000 + this.random() * 30_000;
+    return now + 12_000 + this.random() * 13_000;
   }
 
   get foregroundActive(): boolean {
@@ -102,16 +102,25 @@ export class BehaviorController {
 
   reset(now = Date.now()): void {
     this.activities = {};
+    this.taskActivities = {};
     this.cue = null;
     this.preview = null;
     this.reminder = null;
     this.seenTerminal = "";
     this.dragging = false;
+    this.lastAmbient = "";
+    this.ambientRepeats = 0;
     this.touch(now);
   }
 
-  observe(activities: Activities, live: boolean, now = Date.now()): void {
+  observe(
+    activities: Activities,
+    live: boolean,
+    now = Date.now(),
+    tasks: TaskActivities = {},
+  ): void {
     this.activities = activities;
+    this.taskActivities = tasks;
     const activity = activities.chat;
     if (!activity) {
       this.cue = null;
@@ -205,7 +214,6 @@ export class BehaviorController {
     label: string,
     now: number,
     segment?: AnimationIntent["segment"],
-    notice: StatusNotice | null = null,
   ): Behavior {
     const error = this.unavailable.size
       ? translate(this.language, "animationUnavailable")
@@ -234,18 +242,14 @@ export class BehaviorController {
           id: ++this.sequence,
           clip,
           mode,
+          startedAt: now,
           ...(segment ? { segment } : {}),
         },
         label,
-        notice,
         error,
       };
-    } else if (
-      label !== this.value.label ||
-      error !== this.value.error ||
-      JSON.stringify(notice) !== JSON.stringify(this.value.notice)
-    )
-      this.value = { ...this.value, label, notice, error };
+    } else if (label !== this.value.label || error !== this.value.error)
+      this.value = { ...this.value, label, error };
     return this.value;
   }
 
@@ -264,13 +268,7 @@ export class BehaviorController {
       mode: AnimationIntent["mode"],
       label: string,
       segment?: AnimationIntent["segment"],
-      notice?: StatusNotice,
-    ) => this.choose(owner, key, clip, mode, label, now, segment, notice);
-    const notice = (
-      id: string,
-      text: string,
-      tone: StatusNotice["tone"] = "working",
-    ): StatusNotice => ({ kind: "status", id, text, tone });
+    ) => this.choose(owner, key, clip, mode, label, now, segment);
     if (this.dragging)
       return select("base", "dragging", "dragged", "loop", t("dragging"));
     if (!visible || input.connection !== "connected") {
@@ -300,8 +298,6 @@ export class BehaviorController {
           : "speaking",
         "loop",
         label,
-        undefined,
-        notice("speech", label),
       );
     }
     const activity = this.activities.chat;
@@ -324,17 +320,15 @@ export class BehaviorController {
         clips[phase],
         "loop",
         t(phase),
-        undefined,
-        notice(
-          `chat:${activity?.turn_id ?? input.pending?.id}:${phase}`,
-          t(phase),
-          phase === "waiting" ? "waiting" : "working",
-        ),
       );
     }
-    if (input.bubble && input.bubble.id !== this.reminder?.id)
-      this.reminder = { id: input.bubble.id, stage: "enter" };
-    else if (!input.bubble && this.reminder && this.reminder.stage !== "exit")
+    if (input.reminderId && input.reminderId !== this.reminder?.id)
+      this.reminder = { id: input.reminderId, stage: "enter" };
+    else if (
+      !input.reminderId &&
+      this.reminder &&
+      this.reminder.stage !== "exit"
+    )
       this.reminder.stage = "exit";
     if (this.reminder) {
       this.touched = now;
@@ -366,12 +360,6 @@ export class BehaviorController {
         this.cue.clip,
         "once",
         t(this.cue.label),
-        undefined,
-        notice(
-          this.cue.key,
-          t(this.cue.label),
-          this.cue.clip === "happy" ? "success" : "error",
-        ),
       );
     if (this.preview)
       return select(
@@ -383,29 +371,34 @@ export class BehaviorController {
       );
     if (input.chatFocused && now - this.touched < 15_000)
       return select("base", "listening", "listening", "loop", t("listening"));
-    const background = this.activities.proactive;
+    const task = Object.values(this.taskActivities).find(
+      (item) => !terminal(item.phase),
+    );
+    const proactive = this.activities.proactive;
+    const background =
+      task ?? (proactive && !terminal(proactive.phase) ? proactive : undefined);
     const quiet = input.settings.quietUntil > now;
     if (input.chatFocused || quiet) this.ambient = null;
-    if (
-      background &&
-      !terminal(background.phase) &&
-      !input.chatFocused &&
-      !quiet &&
-      now - this.touched < 300_000
-    )
+    if (background) {
+      this.touched = now;
+      this.ambient = null;
+      this.nextAmbient = this.nextIdle(now);
+    }
+    if (background && !input.chatFocused && !quiet) {
+      const label = task
+        ? t("taskBackground", { task: task.task_id! })
+        : t("background");
       return select(
         "background",
-        `background:${background.turn_id}:${background.phase}`,
-        clips[background.phase],
+        `background:${background.run_id ?? background.turn_id}:${background.phase}`,
+        background.phase === "answering"
+          ? "remembering"
+          : clips[background.phase],
         "loop",
-        t("background"),
-        undefined,
-        notice(
-          `background:${background.turn_id}:${background.phase}`,
-          t("background"),
-        ),
+        label,
       );
-    if (now - this.touched >= 300_000)
+    }
+    if (now - this.touched >= 900_000)
       return select("base", "sleeping", "sleeping", "loop", t("sleeping"));
     if (
       !input.chatFocused &&
@@ -414,10 +407,26 @@ export class BehaviorController {
       now >= this.nextAmbient
     ) {
       const pool = this.manifest.ambient.filter(
-        (clip) => clip !== this.lastAmbient && !this.unavailable.has(clip),
+        (clip) =>
+          (clip !== this.lastAmbient ||
+            (clip === "petting_fish" && this.ambientRepeats < 2)) &&
+          !this.unavailable.has(clip),
       );
       if (pool.length) {
-        this.ambient = pool[Math.floor(this.random() * pool.length)];
+        const weight = (clip: string) =>
+          this.manifest.ambient_weights?.[clip] ?? 1;
+        let choice =
+          this.random() * pool.reduce((sum, clip) => sum + weight(clip), 0);
+        this.ambient = pool[pool.length - 1];
+        for (const clip of pool) {
+          choice -= weight(clip);
+          if (choice < 0) {
+            this.ambient = clip;
+            break;
+          }
+        }
+        this.ambientRepeats =
+          this.ambient === this.lastAmbient ? this.ambientRepeats + 1 : 1;
         this.lastAmbient = this.ambient;
       }
     }

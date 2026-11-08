@@ -489,6 +489,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         emitted_usage = None
         source = kwargs.pop("activity_source", "chat")
         target_session = kwargs.pop("activity_session_id", None)
+        run_id = kwargs.pop("activity_run_id", None)
+        task_id = kwargs.pop("activity_task_id", None)
         activity = None
         try:
             async with self._session(kwargs) as thread:
@@ -499,6 +501,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
                     turn_id=turn.id,
                     source=source,
                     phase="thinking",
+                    run_id=run_id,
+                    task_id=task_id,
                 )
                 self.app_server.publish_activity(activity)
                 tracker = ActivityTracker(activity)

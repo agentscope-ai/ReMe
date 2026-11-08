@@ -1,7 +1,11 @@
 import { errorText, languages, translate, UiError } from "../shared/i18n.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { BubbleQueue } from "./bubbles.ts";
+import type { Reminder } from "./bubbles.ts";
 import { BehaviorController } from "./behavior.ts";
+import { PresentationController } from "./presentation.ts";
+import { displayMessages } from "../shared/messages.ts";
+import { surfaceKey } from "../shared/surface.ts";
 import { NotificationPolicy } from "./notifications.ts";
 import { emptySpeech, SpeechController } from "./speech.ts";
 import type { SystemNotice } from "./notifications.ts";
@@ -31,6 +35,9 @@ export class DesktopController {
   readonly state: DesktopState;
   readonly speech: SpeechController;
   private readonly behavior: BehaviorController;
+  private readonly presentationController = new PresentationController();
+  private messageInputs: unknown[] = [];
+  private visibleReminder: Reminder | null = null;
   private scope = "";
   private lifecycle: AbortController | null = null;
   private stream: AbortController | null = null;
@@ -71,7 +78,6 @@ export class DesktopController {
       status: null,
       messages: [],
       pending: null,
-      bubble: null,
       surface: null,
       unread: 0,
       readMessageIds: [],
@@ -131,10 +137,12 @@ export class DesktopController {
     this.ready = false;
     this.model.clear();
     this.behavior.reset();
+    this.presentationController.reset();
     this.notificationPolicy.reset();
     this.notified.clear();
     this.bubbles.clear();
-    this.state.bubble = null;
+    this.visibleReminder = null;
+    this.state.surface = null;
     this.state.pending = null;
     this.pendingIssue = null;
     this.state.workspace = "";
@@ -264,15 +272,23 @@ export class DesktopController {
             if (previous !== this.model.sessionId) {
               this.speech.reset();
               this.behavior.reset();
+              this.presentationController.reset();
               this.notificationPolicy.reset();
               this.notified.clear();
               this.bubbles.clear();
+              this.visibleReminder = null;
               this.state.focusMessageId = null;
             }
             if (event.type === "snapshot" || event.type === "status_changed") {
+              this.presentationController.observe(
+                this.model.activities.chat,
+                event.type !== "snapshot",
+              );
               this.behavior.observe(
                 this.model.activities,
                 event.type !== "snapshot",
+                Date.now(),
+                this.model.taskActivities,
               );
             }
             this.ready = !this.model.waitingForSnapshot;
@@ -362,6 +378,7 @@ export class DesktopController {
 
   private tick(): void {
     const now = Date.now();
+    this.synchronize();
     this.speech.tick(now);
     let settingsChanged = false;
     if (
@@ -398,30 +415,34 @@ export class DesktopController {
           snoozed: Boolean(receipt.snoozeUntil),
         });
     }
-    const before = this.state.bubble;
+    const before = surfaceKey(this.state.surface);
     const native =
       (!this.companionVisible || !this.companionReady) &&
       this.notificationEligible();
     const bubble = this.bubbles.tick(
       now,
-      (this.state.chatVisible && this.state.activePage === "remy") ||
-        !(native || (this.companionVisible && this.companionReady)) ||
+      !(native || (this.companionVisible && this.companionReady)) ||
         this.behavior.dragging ||
         Boolean(this.state.pending?.streaming) ||
         this.behavior.foregroundActive ||
+        (this.companionVisible &&
+          this.companionReady &&
+          this.presentationController.foregroundActive) ||
         this.model.status === "active" ||
         this.state.settings.quietUntil > now ||
         !this.ready,
     );
-    this.state.bubble =
+    this.visibleReminder =
       this.companionVisible && this.companionReady ? bubble : null;
+    this.resolvePresentation();
     this.bubbles.holdForSpeech(
       Boolean(bubble && this.state.speech.playback?.messageId === bubble.id),
       now,
     );
     if (
       this.state.speech.playback?.kind === "reminder" &&
-      this.state.speech.playback.messageId !== this.state.bubble?.id
+      (this.state.surface?.kind !== "message" ||
+        this.state.speech.playback.messageId !== this.state.surface.message.id)
     )
       this.speech.stop();
     if (native && bubble && this.model.sessionId) {
@@ -453,7 +474,7 @@ export class DesktopController {
     const previous = this.state.behavior;
     this.resolveBehavior();
     if (
-      before !== this.state.bubble ||
+      before !== surfaceKey(this.state.surface) ||
       settingsChanged ||
       previous !== this.state.behavior
     )
@@ -462,9 +483,15 @@ export class DesktopController {
 
   private emit(): void {
     this.state.revision++;
+    this.synchronize();
+    this.resolvePresentation();
+    this.resolveBehavior();
+    this.publish(this.state);
+  }
+
+  private synchronize(): void {
     this.state.sessionId = this.model.sessionId;
     this.state.status = this.model.status;
-    this.state.messages = this.model.messages;
     const receipts = this.presentation()?.receipts ?? {};
     this.state.readMessageIds = Object.keys(receipts).filter(
       (id) => receipts[id].read,
@@ -484,16 +511,57 @@ export class DesktopController {
         this.pendingIssue,
         this.state.settings.language,
       );
-    this.resolveBehavior();
-    this.publish(this.state);
+    const pending = this.state.pending;
+    const inputs = [
+      this.model.messages,
+      this.model.sessionId,
+      this.model.activities.chat,
+      this.state.settings.language,
+      pending?.id,
+      pending?.turnId,
+      pending?.sessionId,
+      pending?.text,
+      pending?.streaming,
+      pending?.error,
+    ];
+    if (inputs.some((value, index) => value !== this.messageInputs[index])) {
+      this.messageInputs = inputs;
+      this.state.messages = displayMessages(
+        {
+          sessionId: this.model.sessionId,
+          messages: this.model.messages,
+          pending,
+        },
+        this.model.activities.chat,
+        this.state.settings.language,
+      );
+    }
+  }
+
+  private resolvePresentation(): void {
+    this.state.surface = this.presentationController.resolve(
+      this.state,
+      this.model.activities.chat,
+      this.model.taskActivities,
+      this.model.activities.proactive,
+      this.visibleReminder,
+      this.companionVisible && this.companionReady,
+      this.behavior.dragging,
+    );
   }
 
   private resolveBehavior(): void {
     this.state.behavior = this.behavior.resolve(
-      this.state,
+      {
+        ...this.state,
+        reminderId:
+          this.state.surface?.kind === "message" &&
+          this.state.surface.message.source === "proactive"
+            ? this.state.surface.message.id
+            : null,
+      },
       this.companionVisible,
     );
-    this.state.surface = this.state.bubble ?? this.state.behavior.notice;
   }
 
   private notificationEligible(): boolean {
@@ -537,7 +605,9 @@ export class DesktopController {
       this.closed ||
       !this.companionVisible ||
       !this.companionReady ||
-      this.state.bubble?.id !== id
+      this.state.surface?.kind !== "message" ||
+      this.state.surface.message.source !== "proactive" ||
+      this.state.surface.message.id !== id
     )
       return;
     if (this.confirmPresentation(sessionId, id, presentationId)) {
@@ -708,7 +778,7 @@ export class DesktopController {
       receipt.read = true;
       changed = true;
       delete receipt.snoozeUntil;
-      this.bubbles.dismiss(id);
+      if (this.bubbles.active?.id !== id) this.bubbles.dismiss(id);
       this.storage.changed();
     }
     if (!changed) return;
@@ -733,6 +803,18 @@ export class DesktopController {
     action: "dismiss" | "snooze" | "pause",
     paused = false,
   ): void {
+    if (
+      this.state.surface?.kind === "message" &&
+      this.state.surface.message.source === "chat"
+    ) {
+      if (action === "snooze") return;
+      if (!this.presentationController.action(id, action, paused)) return;
+      if (action === "dismiss" && this.state.speech.playback?.messageId === id)
+        this.speech.stop();
+      this.tick();
+      this.emit();
+      return;
+    }
     if (id !== this.bubbles.active?.id) return;
     if (action === "pause") this.bubbles.pause(id, paused, Date.now());
     else {
@@ -782,6 +864,7 @@ export class DesktopController {
       streaming: true,
     };
     this.state.pending = pending;
+    this.state.focusMessageId = null;
     this.pendingIssue = null;
     const generation = this.generation;
     const controller = new AbortController();
@@ -856,7 +939,12 @@ export class DesktopController {
         message.turn_id === pending.turnId &&
         message.completed,
     );
-    if (native && !pending.error) this.state.pending = null;
+    if (!native) return;
+    if (this.state.focusMessageId === `local-assistant:${pending.id}`) {
+      this.state.focusMessageId = native.id;
+      this.state.focusRequest++;
+    }
+    if (!pending.error) this.state.pending = null;
   }
 
   stopReply(): void {

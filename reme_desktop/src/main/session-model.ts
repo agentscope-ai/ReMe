@@ -5,6 +5,8 @@ import type {
   SessionSnapshot,
   SessionStatus,
   Activities,
+  TaskActivities,
+  AgentActivity,
   NotificationWindow,
 } from "../shared/protocol.ts";
 
@@ -17,6 +19,21 @@ const eventTypes = new Set([
   "heartbeat",
 ]);
 const statuses = new Set(["active", "idle", "not_loaded", "error"]);
+const phases = new Set([
+  "thinking",
+  "working",
+  "remembering",
+  "answering",
+  "waiting",
+  "completed",
+  "failed",
+  "interrupted",
+]);
+const validActivity = (activity: AgentActivity) =>
+  activity &&
+  typeof activity.session_id === "string" &&
+  typeof activity.turn_id === "string" &&
+  phases.has(activity.phase);
 
 function message(value: SessionMessage): SessionMessage {
   if (
@@ -49,6 +66,7 @@ export class SessionModel {
   cursor: string | undefined;
   waitingForSnapshot = false;
   activities: Activities = {};
+  taskActivities: TaskActivities = {};
   notifications: NotificationWindow | null = null;
 
   canNotify(message: SessionMessage, now: number): boolean {
@@ -73,6 +91,7 @@ export class SessionModel {
     this.cursor = undefined;
     this.waitingForSnapshot = false;
     this.activities = {};
+    this.taskActivities = {};
     this.notifications = null;
   }
 
@@ -134,23 +153,31 @@ export class SessionModel {
         throw new UiError("missingActivities");
       for (const [source, activity] of Object.entries(event.activities)) {
         if (
-          !activity ||
+          !validActivity(activity) ||
           activity.source !== source ||
           !["chat", "proactive"].includes(source) ||
-          activity.session_id !== event.session_id ||
-          typeof activity.turn_id !== "string" ||
-          ![
-            "thinking",
-            "working",
-            "remembering",
-            "answering",
-            "waiting",
-            "completed",
-            "failed",
-            "interrupted",
-          ].includes(activity.phase)
+          activity.session_id !== event.session_id
         )
           throw new UiError("invalidActivity");
+      }
+      if (event.task_activities !== undefined) {
+        if (
+          !event.task_activities ||
+          typeof event.task_activities !== "object" ||
+          Array.isArray(event.task_activities)
+        )
+          throw new UiError("invalidActivity");
+        for (const [runId, activity] of Object.entries(event.task_activities)) {
+          if (
+            !validActivity(activity) ||
+            activity.source !== "task" ||
+            activity.run_id !== runId ||
+            !runId ||
+            typeof activity.task_id !== "string" ||
+            !activity.task_id
+          )
+            throw new UiError("invalidActivity");
+        }
       }
     }
     if (event.type === "reset") {
@@ -194,8 +221,10 @@ export class SessionModel {
           );
       }
     }
-    if (event.type === "snapshot" || event.type === "status_changed")
+    if (event.type === "snapshot" || event.type === "status_changed") {
       this.notifications = event.notifications ?? null;
+      this.taskActivities = event.task_activities ?? {};
+    }
     if (event.cursor) this.cursor = event.cursor;
     return event;
   }

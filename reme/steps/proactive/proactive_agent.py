@@ -1,4 +1,4 @@
-"""Run up to six queries per wakeup, stopping at the window deadline or evening close."""
+"""Run up to seven queries per wakeup, stopping at the window deadline or evening close."""
 
 import asyncio
 
@@ -40,6 +40,7 @@ class ProactiveAgentStep(BasePaStep):
                 "query_memory",
                 "query_conversation",
                 "query_tasks",
+                "query_research",
                 "query_reminder",
                 "query_config",
                 "query_handoff",
@@ -75,15 +76,19 @@ class ProactiveAgentStep(BasePaStep):
                 if reason:
                     self.context.response.answer = {**current.result, "reason": reason}
                     return self.context.response
-                reply = await self._reply(
-                    query,
-                    resume=agent_session_id,
-                    system_prompt=system_prompt,
-                    job_tools=list(self.kwargs.get("job_tools") or []),
-                    injected_job_kwargs={"session_id": session_id, "pa_round_id": round_id},
-                    activity_source="proactive",
-                    activity_session_id=session_id,
-                )
+                current.phase = query_name
+                try:
+                    reply = await self._reply(
+                        query,
+                        resume=agent_session_id,
+                        system_prompt=system_prompt,
+                        job_tools=list(self.kwargs.get("job_tools") or []),
+                        injected_job_kwargs={"session_id": session_id, "pa_round_id": round_id},
+                        activity_source="proactive",
+                        activity_session_id=session_id,
+                    )
+                finally:
+                    current.phase = None
                 if reply is None:
                     self.context.response.answer = {**current.result, "reason": "outside_active_hours"}
                     return self.context.response

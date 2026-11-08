@@ -26,7 +26,8 @@ class BaseConnectorStep(BaseStep):
     def collect(self, directory: Path, created_at: datetime) -> ConnectorResult:
         """Return textual context and staged relative paths; raise on collection failure."""
 
-    async def execute(self):
+    def resource_target(self) -> Path:
+        """Validate the publication destination before collecting any external data."""
         root = resource_root(self)
         error = validate_filename_component(self.source, kind="connector source")
         if error:
@@ -36,9 +37,17 @@ class BaseConnectorStep(BaseStep):
             raise ValueError("connector directory must not contain symlinks")
         if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to write connector resources")
+        return target
+
+    def collection_time(self) -> datetime:
+        """Use the application's timezone consistently for native and file timestamps."""
         config = self.app_context.app_config if self.app_context else ApplicationConfig()
         timezone = config.timezone
-        now = datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+
+    async def execute(self):
+        target = self.resource_target()
+        now = self.collection_time()
         cancelled = self._cancelled = Event()
         task = asyncio.create_task(asyncio.to_thread(self._collect_and_publish, target, now, cancelled))
         try:

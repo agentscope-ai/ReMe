@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { StateUpdates } from "../src/main/view-state.ts";
+import { StateUpdates, viewState } from "../src/main/view-state.ts";
 import { mergeState } from "../src/renderer/desktop.ts";
 import type { DesktopState } from "../src/shared/protocol.ts";
 
@@ -14,7 +14,6 @@ const state = () =>
     behavior: {
       animation: { id: 1, clip: "idle", mode: "loop" },
       label: "idle",
-      notice: null,
       error: "",
     },
   }) as unknown as DesktopState;
@@ -32,7 +31,8 @@ test("history and local prompts never enter companion patches, and revisions alo
       source: "chat",
       content: "private text",
       completed: true,
-      chunks: [],
+      streaming: false,
+      status: null,
     },
   ];
   value.pending = {
@@ -75,4 +75,36 @@ test("a delayed bootstrap cannot replace newer patches, or drop untouched fields
   assert.equal(merged.unread, 3);
   assert.equal(merged.connection, "connected");
   assert.equal(mergeState(merged, { revision: 2, unread: 0 }), merged);
+});
+
+test("only the selected message preview crosses into the companion, and full chat text stays intact", () => {
+  const value = state();
+  const message = {
+    id: "answer",
+    role: "assistant" as const,
+    source: "chat" as const,
+    content: "a".repeat(1000),
+    completed: false,
+    streaming: true,
+    status: null,
+  };
+  value.messages = [message];
+  value.surface = {
+    kind: "message",
+    message,
+    presentationId: 1,
+    paused: false,
+  };
+  const companion = viewState(value, true);
+  assert.deepEqual(companion.messages, []);
+  assert.equal(companion.surface?.kind, "message");
+  if (companion.surface?.kind !== "message") throw new Error("Missing preview");
+  assert.equal(companion.surface.message.id, message.id);
+  assert.equal(companion.surface.message.content, `${"a".repeat(400)}…`);
+  assert.equal(viewState(value, false).messages[0].content.length, 1000);
+  assert.equal(
+    message.content.length,
+    1000,
+    "projection cannot truncate canonical history",
+  );
 });

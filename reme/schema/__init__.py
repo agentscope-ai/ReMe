@@ -33,6 +33,7 @@ from .request import Request
 from .response import Response
 from .reminder import ReminderRecord
 from .connector_result import ConnectorResult
+from .screen_capture import CapturedDisplay
 from .stream_chunk import StreamChunk
 from .speech import ASRResult, TTSResult
 from .token_usage import TokenUsage
@@ -52,6 +53,7 @@ __all__ = [
     "ApplicationConfig",
     "ComponentConfig",
     "ConnectorResult",
+    "CapturedDisplay",
     "DreamExtractOutput",
     "DreamState",
     "DreamUnit",

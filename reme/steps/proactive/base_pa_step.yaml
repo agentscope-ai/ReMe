@@ -5,10 +5,10 @@ default_memory: |
   ## Known interests
   - Enjoys financial news and follows important economic events, policy changes, and market developments.
   - Follows advances in AI, especially new techniques with practical applications.
-  - Follows the ReMe project's progress and development.
 
   ## Proactive reminders
-  - Only remind the user about valuable, important information. Avoid unimportant or repetitive updates with no new value.
+  - Share only useful new information: at most three items by importance, without filling a quota;
+    each keeps one short conclusion and necessary evidence.
 
 default_memory_zh: |
   # 个人记忆
@@ -16,7 +16,6 @@ default_memory_zh: |
   ## 主要关注
   - 喜欢财经新闻，关注重要经济事件、政策变化和市场动态。
   - 关注 AI 的前沿进展，尤其是有实际应用价值的新技术。
-  - 关注 ReMe 项目的近况和发展。
 
   ## 主动提醒要求
-  - 只提醒有价值的内容；非重要、重复或没有新增价值的信息不要打扰主人。
+  - 只提醒有用的新信息，按重要性选最多三件，不凑数；每件只保留一句结论和必要依据。

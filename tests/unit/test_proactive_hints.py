@@ -31,10 +31,10 @@ def model(env, monkeypatch, *, content="", advance=None):
 
     async def reply(query, **kwargs):
         calls.append(query)
-        stage = (len(calls) - 1) % 6 + 1
+        stage = (len(calls) - 1) % 7 + 1
         if stage == 3 and advance is not None:
             env.now[0] = advance
-        if stage == 4:
+        if stage == 5:
             bound = kwargs["injected_job_kwargs"]
             await env.runtime.send_reminder(
                 content,
@@ -218,9 +218,9 @@ async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence
     monkeypatch.setattr("reme.components._pa_hints.random.choice", lambda choices: choices[0])
     calls = model(env, monkeypatch)
     response = await ProactiveAgentStep(app_context=env.context)()
-    assert len(calls) == 6
-    assert [index for index, query in enumerate(calls) if "本轮可选交流方向" in query] == [3]
-    hint = calls[3].split("本轮可选交流方向", 1)[1]
+    assert len(calls) == 7
+    assert [index for index, query in enumerate(calls) if "本轮可选交流方向" in query] == [4]
+    hint = calls[4].split("本轮可选交流方向", 1)[1]
     assert "午间招呼" in hint and "早安" not in hint and "晚安" not in hint
     assert response.metadata["proactive_hint"] == "hint_midday_1"
     assert response.answer["status"] == "skipped"
@@ -241,7 +241,7 @@ async def test_disabled_round_still_delivers_normal_information_and_reads_hot_co
         config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     second = await ProactiveAgentStep(app_context=env.context)()
-    assert "proactive_hint" in second.metadata and "本轮可选交流方向" in calls[9]
+    assert "proactive_hint" in second.metadata and "本轮可选交流方向" in calls[11]
 
 
 @pytest.mark.asyncio
@@ -255,7 +255,7 @@ async def test_hint_uses_time_after_tasks_finish_not_round_start(pa_workspace, m
     calls = model(env, monkeypatch, advance=env.now[0].replace(hour=12, minute=1))
     response = await ProactiveAgentStep(app_context=env.context)()
     assert response.metadata["proactive_hint"].startswith("hint_midday_")
-    assert "12:01:00" in calls[3]
+    assert "12:01:00" in calls[4]
 
 
 @pytest.mark.asyncio

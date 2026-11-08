@@ -67,7 +67,7 @@ def grade(case_id: str, record: dict) -> dict:
             )
     else:
         successful = {job["name"] for job in jobs if job.get("response", {}).get("success")}
-        checks["six_query_protocol"] = {
+        checks["required_tools"] = {
             "get_proactive_messages",
             "read_conversation",
             "read_task_results",
@@ -91,7 +91,7 @@ def grade(case_id: str, record: dict) -> dict:
             content = " ".join(message.get("content", "") for message in record.get("delivered", []))
             checks["retains_core_result"] = "37" in content and "本地" in content
             checks["preserves_scope"] = any(word in content for word in ("未", "没有", "仅", "只"))
-    protocol_ok = checks["completed"] and checks["no_tool_errors"] and checks.get("six_query_protocol", True)
+    protocol_ok = checks["completed"] and checks["no_tool_errors"] and checks.get("required_tools", True)
     score = round(100 * sum(checks.values()) / len(checks), 3) if protocol_ok else 0
     return {"score": score, "checks": checks, "violations": {"nonempty_send_attempts": len(attempts)}}
 

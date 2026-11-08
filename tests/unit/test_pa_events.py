@@ -137,6 +137,55 @@ async def select(_agent, runtime):
     return await runtime.new_session()
 
 
+@pytest.mark.asyncio
+async def test_parallel_task_activity_survives_chat_switches_and_replays_without_task_history(system):
+    from datetime import datetime, timezone
+    from reme.schema import AgentActivity
+    from reme.schema.pa_task import PaTaskRun
+
+    _app, agent, runtime, server = system
+    await select(agent, runtime)
+    runs = [
+        PaTaskRun(task_id=name, query="private task query", started_at=datetime.now(timezone.utc))
+        for name in ("research", "watch")
+    ]
+    for run in runs:
+        runtime.start_task_activity(run)
+    first, second = runs
+    update = AgentActivity(
+        session_id="native-task-session",
+        turn_id="native-task-turn",
+        source="task",
+        run_id=first.run_id,
+        task_id=first.task_id,
+        phase="remembering",
+    )
+    async with aclosing(runtime.events()) as events:
+        initial = await next_event(events)
+        assert set(initial.task_activities) == {first.run_id, second.run_id}
+        cursor = initial.cursor
+        server.publish_activity(update)
+        changed = await next_event(events)
+        assert changed.task_activities[first.run_id] == update
+        assert changed.activities == {} and changed.message is None
+    async with aclosing(runtime.events(cursor)) as events:
+        assert (await next_event(events)).task_activities[first.run_id] == update
+    server.publish_activity(update.model_copy(update={"phase": "completed"}))
+    assert runtime._task_activities[first.run_id].phase == "working", "summary and publication still belong to the run"
+    await select(agent, runtime)
+    runtime.finish_task_activity(first.run_id)
+    server.publish_activity(update)
+    async with aclosing(runtime.events()) as events:
+        current = await next_event(events)
+        assert set(current.task_activities) == {second.run_id}
+        assert current.snapshot.messages == []
+    server._notify_session(None, None)
+    assert runtime._task_activities == {}
+    assert server._activity_listeners
+    await runtime.close()
+    assert not server._activity_listeners
+
+
 def append(agent, server, session_id, identifier="reminder", *, completed=True):
     message = SessionMessage(
         id=identifier,

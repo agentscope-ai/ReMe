@@ -124,7 +124,7 @@ workspace). PA prompts contain this path and the configured workspace. The chat 
 before responding and to read the complete latest file before merging updates. Memory contents are not injected into the
 session prompt. Before a new session or proactive round, shared code initializes a missing memory file using
 `default_memory` from `reme/steps/proactive/base_pa_step.yaml`, with per-path locking and atomic writes. The defaults cover financial
-news, AI advances, and ReMe, and require valuable proactive
+news and AI advances, and require valuable proactive
 reminders without unimportant or repetitive interruptions. Existing files, including empty
 ones, are preserved; there is no onboarding or empty-memory gate.
 
@@ -147,9 +147,20 @@ these are client settings, not the provider's maximum context claim. Native long
 `CODEX_MODEL_NAME` can override the model; review the model catalog capabilities when changing it. File changes load
 on the next service start and apply to subsequent chats in the restored session.
 
-The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for up to six sequential queries:
-long-term memory and previous handoff, chat feedback and recent conversation, unread task summaries, reminder decisions,
-optional wake-configuration changes, then the next handoff. Tool bindings remain fixed for that session. The handoff is
+The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for up to seven sequential queries:
+long-term memory and previous handoff, chat feedback and recent conversation, unread task summaries, source research,
+reminder decisions, optional wake-configuration changes, then the next handoff. Tool bindings remain fixed for that session.
+Research checks reminder history first, selects at most two useful leads and searches and reads primary sources;
+without a useful lead, it skips searching. Prompts require external findings to include a verified original-source link
+within the existing 200-character limit, including URLs and Markdown, and to withhold unverified external claims.
+Reminders select at most three worthwhile items, ordered by relevance, urgency and impact, without filling a quota.
+Details of one event are merged; each item keeps one short conclusion and necessary evidence.
+Reminders explain findings and their relevance conversationally, keeping verification work internal; source links must
+support the core claim, rather than only background. Verification, selection and wording remain agent judgments.
+Code accepts submissions, including empty decisions, only during `query_reminder`; other phases cannot consume the decision.
+The phase clears after the model call completes or is cancelled. Accepted reminders retain independent background delivery.
+Handoffs retain facts, unfinished work, open questions and reminder IDs/statuses, without future send decisions or reminder drafts.
+Current preferences override older summaries; workspace names and screenshots do not establish project interests. The handoff is
 atomically replaced only after the last query completes with a nonempty summary. Consumed inputs and partial progress
 are checkpointed in `proactive_context.jsonl` before inbox clearing or cursor advancement. Failed rounds retain this
 recovery context and the previous handoff; a successful handoff clears the recovery file.
@@ -174,8 +185,8 @@ Before Jobs start, the PA component creates missing files under `{metadata_dir}/
 | `reminders.jsonl` | Empty |
 | `task_runs.jsonl` | Empty |
 
-Defaults are configured in `reme/config/proactive.yaml`. The proactive defaults are `start_time: "0900"`,
-`end_time: "2300"`, and `interval_minutes: 5`. Existing files, including empty text files and empty task lists, are kept;
+Defaults are configured in `reme/config/proactive.yaml`. The proactive defaults are `start_time: "0700"`,
+`end_time: "2330"`, and `interval_minutes: 5`. Existing files, including empty text files and empty task lists, are kept;
 invalid existing JSON fails explicitly instead of being replaced with defaults. Each agent initializes missing personal
 memory before invoking its model, using the localized defaults in `base_pa_step.yaml`.
 
@@ -247,7 +258,12 @@ Forgotten facts must not be restored through old conversations or summaries.
 
 The chat agent maintains `{metadata_dir}/pa/tasks.json`: a JSON list of stable `id`, five-field `cron`, nonblank `query`,
 boolean `enabled`, and optional `created_at`. Read before editing, preserve identities, and validate JSON afterward.
+Optional `preflight: screen_capture` checks screenshots before invoking the task agent. Similar screens skip both model
+queries and summary publication; changed captures are reused by the normal screenshot tool without changing the query.
+The default screen task enables this field; existing task files need an explicit edit. See [screen comparison](auto_resource.md#connector-tools-and-screen-capture).
 Default tasks observe screen activity every five minutes and fetch relevant financial news hourly at the top of the hour.
+They also search for fresh developments matching the user's interests daily at 08:00, 12:00, and 18:00. All three times
+share the `daily_fresh_news` task identity and history.
 Defaults seed missing files only; update an existing `tasks.json` explicitly to change existing task schedules.
 
 The `task_schedule` background Job checks file modification time every second and owns one ReMe `CronJob` per enabled task.
@@ -259,8 +275,11 @@ with the application. Each task starts at its next cron time; executions are ser
 without restarting. Evening closure stops proactive communication; independent tasks follow their configured active hours.
 
 Each execution creates a fresh agent session. Query 1 is the configured query. Query 2 resumes that session, reads the
-latest one or two completed snapshots (across dates), and consolidates still-valid history and new findings into a
-standalone cumulative Markdown document. The agent writes a staging file; code validates its nonempty body, adds
+latest one or two completed snapshots (across dates), and combines essential valid context and new findings into a
+standalone Markdown summary. Task replies, summaries and proactive handoffs use plain language, at most five short
+bullets and 400 characters, with updates first and no accumulated logs, audit labels, personal profiles or timelines.
+These are prompt constraints and agent judgments; code does not truncate content. Background replies and summaries do not prove the user has seen them.
+The agent writes a staging file; code validates its nonempty body, adds
 `task_id`, `run_id`, `created_at` and `status: unread`, and publishes it exclusively as:
 
 ```text

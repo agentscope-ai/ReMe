@@ -21,6 +21,19 @@ export async function loadAssets(
     !Array.isArray(manifest.animations)
   )
     throw new UiError("invalidManifest");
+  if (
+    manifest.ambient_weights !== undefined &&
+    (!manifest.ambient_weights ||
+      typeof manifest.ambient_weights !== "object" ||
+      Array.isArray(manifest.ambient_weights) ||
+      Object.entries(manifest.ambient_weights).some(
+        ([id, weight]) =>
+          !manifest.ambient.includes(id) ||
+          !Number.isFinite(weight) ||
+          weight <= 0,
+      ))
+  )
+    throw new UiError("invalidManifest");
   const files = new Map<string, string>();
   for (const clip of manifest.animations) {
     if (
@@ -65,6 +78,7 @@ export async function loadAssets(
       "sleeping",
       "dragged",
       "listening",
+      "walking",
       ...manifest.ambient,
     ].some((id) => !manifest.animations.some((clip) => clip.id === id)) ||
     !manifest.animations.find((clip) => clip.id === "reminding")?.segments

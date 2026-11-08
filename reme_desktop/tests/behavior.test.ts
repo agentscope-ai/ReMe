@@ -23,14 +23,14 @@ const input = () =>
     connection: "connected",
     chatFocused: false,
     pending: null,
-    bubble: null,
+    reminderId: null,
     settings: {
       language: "zh",
       endpoint: "http://localhost",
       quietUntil: 0,
       scale: 1,
     },
-  }) as DesktopState;
+  }) as DesktopState & { reminderId: string | null };
 const activity = (
   phase: AgentActivity["phase"],
   turn = "t",
@@ -102,13 +102,7 @@ test("recording and actual audio playback temporarily own animation and return t
 test("reminders enter, hold and exit with the bubble rather than disappearing after one clip", () => {
   const behavior = new BehaviorController(manifest, 0, () => 0);
   const state = input();
-  state.bubble = {
-    kind: "reminder",
-    presentationId: 1,
-    id: "m",
-    text: "reminder",
-    paused: false,
-  };
+  state.reminderId = "m";
   const enter = behavior.resolve(state, true, 0).animation;
   assert.equal(enter.segment, "enter");
   behavior.report(enter.id, "ended", 1500);
@@ -116,7 +110,7 @@ test("reminders enter, hold and exit with the bubble rather than disappearing af
   assert.equal(hold.segment, "hold");
   behavior.report(hold.id, "started", 1500);
   assert.equal(behavior.resolve(state, true, 7000).animation.mode, "hold");
-  state.bubble = null;
+  state.reminderId = null;
   const exit = behavior.resolve(state, true, 7100).animation;
   assert.equal(exit.segment, "exit");
   behavior.report(enter.id, "ended", 7150);
@@ -142,7 +136,11 @@ test("terminal feedback is live once per turn, never from historical snapshots",
 });
 
 test("ambient gestures are neutral and interruptible, and quiet mode is independent of sleep", () => {
-  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const behavior = new BehaviorController(
+    { ...manifest, ambient: ["idle", "listening"] },
+    0,
+    () => 0,
+  );
   const state = input();
   const first = behavior.resolve(state, true, 15001).animation;
   assert.equal(first.mode, "once");
@@ -160,9 +158,112 @@ test("ambient gestures are neutral and interruptible, and quiet mode is independ
   );
   state.chatFocused = false;
   assert.equal(
-    behavior.resolve(state, true, 337000).animation.clip,
+    behavior.resolve(state, true, 937000).animation.clip,
     "sleeping",
   );
+});
+
+test("weighted fish gestures can repeat twice, yield to work, and never celebrate at random", () => {
+  const fishManifest = {
+    ...manifest,
+    ambient: ["petting_fish", "listening", "idle"],
+    ambient_weights: { petting_fish: 65, listening: 20, idle: 15 },
+  };
+  const behavior = new BehaviorController(fishManifest, 0, () => 0);
+  const state = input();
+  let now = 12001;
+  for (const expected of ["petting_fish", "petting_fish", "listening"]) {
+    const animation = behavior.resolve(state, true, now).animation;
+    assert.equal(animation.clip, expected);
+    assert.equal(animation.mode, "once");
+    behavior.report(animation.id, "ended", now + 4000);
+    behavior.resolve(state, true, now + 4000);
+    now += 16001;
+  }
+  behavior.observe({ chat: activity("working") }, true, now);
+  const working = behavior.resolve(state, true, now).animation;
+  assert.equal(working.clip, "thinking");
+  behavior.report(working.id, "started", now);
+  assert.equal(
+    behavior.resolve(state, true, now + 1_000_000).animation.clip,
+    "thinking",
+  );
+  const weighted = new BehaviorController(fishManifest, 0, () => 0.5);
+  assert.equal(
+    weighted.resolve(state, true, 18501).animation.clip,
+    "petting_fish",
+  );
+});
+
+test("background tasks survive long inactivity, yield to chat, and return to remaining work", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  const first = {
+    ...activity("answering", "task-turn", "task"),
+    run_id: "one",
+    task_id: "research",
+  };
+  const second = {
+    ...first,
+    run_id: "two",
+    task_id: "watch",
+    phase: "remembering" as const,
+  };
+  const tasks = { one: first, two: second };
+  behavior.observe({}, true, 0, tasks);
+  let resolved = behavior.resolve(state, true, 1_000_000);
+  assert.equal(
+    resolved.animation.clip,
+    "remembering",
+    "background text is not spoken to the user",
+  );
+  assert.match(resolved.label, /research/);
+  behavior.report(resolved.animation.id, "started", 1_000_000);
+  behavior.observe({ chat: activity("answering") }, true, 1_000_010, tasks);
+  resolved = behavior.resolve(state, true, 1_000_010);
+  assert.equal(resolved.animation.clip, "speaking");
+  behavior.report(resolved.animation.id, "started", 1_000_010);
+  behavior.observe({}, true, 1_000_020, { two: second });
+  resolved = behavior.resolve(state, true, 1_000_020);
+  assert.match(resolved.label, /watch/);
+  assert.equal(resolved.animation.clip, "remembering");
+  state.settings.quietUntil = 3_000_000;
+  resolved = behavior.resolve(state, true, 2_000_000);
+  assert.equal(
+    resolved.animation.clip,
+    "idle",
+    "quiet mode hides gestures without pretending to sleep",
+  );
+  behavior.report(resolved.animation.id, "started", 2_000_000);
+  behavior.observe({}, true, 2_000_001);
+  assert.equal(behavior.resolve(state, true, 2_899_999).animation.clip, "idle");
+  assert.equal(
+    behavior.resolve(state, true, 2_900_000).animation.clip,
+    "sleeping",
+  );
+});
+
+test("active proactive work prevents sleep even when chat is focused or quiet", () => {
+  for (const focused of [false, true]) {
+    const behavior = new BehaviorController(manifest, 0, () => 0);
+    const state = input();
+    state.chatFocused = focused;
+    state.settings.quietUntil = 3_000_000;
+    behavior.observe(
+      { proactive: activity("working", "background", "proactive") },
+      true,
+      0,
+    );
+    const resolved = behavior.resolve(state, true, 1_000_000);
+    assert.equal(resolved.animation.clip, "idle");
+    behavior.report(resolved.animation.id, "started", 1_000_000);
+    state.settings.quietUntil = 0;
+    state.chatFocused = false;
+    assert.equal(
+      behavior.resolve(state, true, 1_000_100).animation.clip,
+      "thinking",
+    );
+  }
 });
 
 test("foreground work outranks background work and connection loss clears busy presentation", () => {
@@ -188,20 +289,6 @@ test("foreground work outranks background work and connection loss clears busy p
   assert.equal(behavior.resolve(state, false, 300).animation.mode, "hold");
 });
 
-test("semantic notices follow foreground priority without replaying a completed snapshot", () => {
-  const behavior = new BehaviorController(manifest, 0, () => 0);
-  const state = input();
-  behavior.observe({ chat: activity("waiting") }, true, 0);
-  const waiting = behavior.resolve(state, true, 0);
-  assert.equal(waiting.notice?.tone, "waiting");
-  behavior.dragging = true;
-  assert.equal(behavior.resolve(state, true, 100).notice, null);
-  behavior.dragging = false;
-  assert.equal(behavior.resolve(state, true, 200).notice?.tone, "waiting");
-  behavior.observe({ chat: activity("completed", "history") }, false, 300);
-  assert.equal(behavior.resolve(state, true, 300).notice, null);
-});
-
 test("failed playback falls back without losing activity or letting stale failures disable another clip", () => {
   const behavior = new BehaviorController(manifest, 0, () => 0);
   const state = input();
@@ -211,7 +298,7 @@ test("failed playback falls back without losing activity or letting stale failur
   const fallback = behavior.resolve(state, true, 10);
   assert.equal(fallback.animation.clip, "idle");
   assert.ok(fallback.error);
-  assert.equal(fallback.notice?.tone, "working");
+  assert.equal(fallback.label, "正在认真想…");
   behavior.report(fallback.animation.id, "started", 10);
   behavior.observe({ chat: activity("answering") }, true, 100);
   const answering = behavior.resolve(state, true, 100).animation;
@@ -247,7 +334,6 @@ test("language changes update active and terminal captions without restarting pl
   const english = behavior.resolve(state, true, 100);
   assert.equal(english.animation.id, initial.animation.id);
   assert.equal(english.label, "Thinking it through…");
-  assert.equal(english.notice?.text, english.label);
   behavior.observe({ chat: activity("completed") }, true, 200);
   const completed = behavior.resolve(state, true, 200);
   assert.equal(completed.label, "All done");

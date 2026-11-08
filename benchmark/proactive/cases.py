@@ -1,4 +1,4 @@
-"""Synthetic chat and six-query proactive cases; all reported facts are fixture data."""
+"""Synthetic chat and seven-query proactive cases; all reported facts are fixture data."""
 
 import json
 from datetime import datetime, timedelta

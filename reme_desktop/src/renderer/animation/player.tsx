@@ -16,12 +16,14 @@ export function Character({
   animation,
   canvasRef,
   onPlayback,
+  active = true,
 }: {
   manifest: AnimationManifest;
   language: Language;
   animation: AnimationIntent;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   onPlayback: (id: number, status: PlaybackStatus) => void;
+  active?: boolean;
 }) {
   const t = translator(language);
   const [failed, setFailed] = useState(false);
@@ -66,16 +68,13 @@ export function Character({
           (index) => (clip.ticks[index] / manifest.output_fps) * 1000,
         );
         const duration = holds.reduce((a, b) => a + b, 0);
-        const start = performance.now();
+        const start = animation.startedAt ?? Date.now();
         let last = -1;
         const paint = () => {
           if (!live) return;
-          const elapsed = performance.now() - start;
-          if (animation.mode === "once" && elapsed >= duration) {
-            report.current(animation.id, "ended");
-            return;
-          }
-          let position = elapsed % duration;
+          const elapsed = Math.max(0, Date.now() - start);
+          const ended = animation.mode === "once" && elapsed >= duration;
+          let position = ended ? duration - 0.001 : elapsed % duration;
           let index = 0;
           while (index < holds.length - 1 && position >= holds[index])
             position -= holds[index++];
@@ -90,10 +89,11 @@ export function Character({
               manifest.canvas[0],
               manifest.canvas[1],
             );
-            if (last === -1) report.current(animation.id, "started");
+            if (last === -1 && active) report.current(animation.id, "started");
             last = index;
           }
-          if (animation.mode !== "hold")
+          if (ended && active) report.current(animation.id, "ended");
+          else if (active && animation.mode !== "hold")
             timer = setTimeout(paint, Math.max(10, holds[index] - position));
         };
         paint();
@@ -103,14 +103,14 @@ export function Character({
         if (live && canvasRef.current) {
           canvasRef.current.dataset.error = String(error);
           setFailed(true);
-          report.current(animation.id, "failed");
+          if (active) report.current(animation.id, "failed");
         }
       });
     return () => {
       live = false;
       clearTimeout(timer);
     };
-  }, [manifest, animation.id, canvasRef]);
+  }, [manifest, animation.id, canvasRef, active]);
   return (
     <canvas
       ref={canvasRef}

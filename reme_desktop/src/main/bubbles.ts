@@ -1,4 +1,9 @@
-import type { Bubble } from "../shared/protocol.ts";
+export interface Reminder {
+  id: string;
+  text: string;
+  presentationId: number;
+  paused: boolean;
+}
 
 interface Candidate {
   id: string;
@@ -8,7 +13,7 @@ interface Candidate {
 
 /** One reminder, with time counted only while visible and confirmed by the renderer. */
 export class BubbleQueue {
-  active: Bubble | null = null;
+  active: Reminder | null = null;
   private waiting: Candidate | null = null;
   private remaining = 0;
   private confirmation = 0;
@@ -87,7 +92,7 @@ export class BubbleQueue {
     this.speaking = false;
   }
 
-  tick(now: number, blocked: boolean): Bubble | null {
+  tick(now: number, blocked: boolean): Reminder | null {
     this.advance(now);
     if (this.active && !this.confirmed && this.confirmation <= 0) {
       this.waiting ??= { id: this.active.id, text: this.active.text };
@@ -119,7 +124,6 @@ export class BubbleQueue {
       this.confirmation = 5000;
       this.confirmed = false;
       this.active = {
-        kind: "reminder",
         id: candidate.id,
         presentationId: ++this.sequence,
         text: candidate.text,

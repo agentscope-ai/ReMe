@@ -39,7 +39,7 @@ export function workspacePlacement(
 export function companionPlacement(
   anchor: { x: number; y: number },
   scale: number,
-  surface: "status" | "reminder" | null,
+  surface: "status" | "message" | null,
   area: Rect,
   measured?: { width: number; height: number },
 ) {
@@ -66,12 +66,13 @@ export function companionPlacement(
     measured?.height ?? (surface === "status" ? 36 : 180),
     Math.max(1, area.height - 24),
   );
-  let bubbleY = body.y - height - 8;
+  const gap = 6;
+  let bubbleY = body.y - height - gap;
   const below = bubbleY < area.y + 8;
-  if (below) bubbleY = y + 10;
+  if (below) bubbleY = y + gap;
   bubbleY = clamp(bubbleY, area.y + 8, area.y + area.height - height - 8);
   const bubbleX = clamp(
-    x - width + 48,
+    x - width / 2,
     area.x + 12,
     area.x + area.width - width - 12,
   );

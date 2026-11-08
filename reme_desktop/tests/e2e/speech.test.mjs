@@ -200,6 +200,12 @@ test(
       await t.test(
         "only painted reminders narrate; quiet mode interrupts without replay",
         async () => {
+          const surface = (await state()).surface;
+          if (surface?.kind === "message" && surface.message.source === "chat")
+            await companion.evaluate(
+              (id) => window.desktop.action({ type: "bubble.dismiss", id }),
+              surface.message.id,
+            );
           await chat.evaluate(() =>
             window.desktop.action({ type: "chat.close" }),
           );
@@ -213,7 +219,7 @@ test(
           await expect
             .poll(async () => (await state()).speech.playback?.phase)
             .toBe("playing");
-          await expect(companion.locator(".reminder")).toBeVisible();
+          await expect(companion.locator(".message-bubble")).toBeVisible();
           await companion.evaluate(() =>
             window.desktop.action({
               type: "settings.update",
@@ -227,7 +233,7 @@ test(
           await companion.evaluate(() =>
             window.desktop.action({ type: "settings.update", quietUntil: 0 }),
           );
-          await expect(companion.locator(".reminder")).toBeVisible();
+          await expect(companion.locator(".message-bubble")).toBeVisible();
           assert.equal(backend.ttsRequests.length, calls);
           await companion
             .getByRole("button", { name: "朗读这条回复", exact: true })
@@ -236,7 +242,7 @@ test(
             .poll(async () => (await state()).speech.playback?.kind)
             .toBe("manual");
           await companion
-            .getByRole("button", { name: "收起提醒", exact: true })
+            .getByRole("button", { name: "收起气泡", exact: true })
             .click();
           await expect
             .poll(async () => (await state()).speech.playback)

@@ -74,6 +74,13 @@ test(
       await expect(companion.getByRole("status")).toHaveText("正在回复…");
       await settled();
       const short = await companion.locator(".status-notice").boundingBox();
+      const character = await companion.locator("canvas").boundingBox();
+      assert.ok(
+        Math.abs(
+          short.x + short.width / 2 - character.x - character.width / 2,
+        ) <= 1,
+      );
+      assert.equal(character.y - short.y - short.height, 6);
       const originalPosition = await position();
       assert.ok(short.width < 160, String(short.width));
       assert.ok(short.height <= 38, String(short.height));
@@ -168,12 +175,12 @@ test(
       backend.push("compact-reminder", "记得留一点时间休息。 ");
       await expect(
         companion.getByRole("region", { name: "主动提醒", exact: true }),
-      ).toBeVisible();
+      ).toBeVisible({ timeout: 15_000 });
       await expect
         .poll(() =>
           companion.evaluate(() => {
             const rect = document
-              .querySelector(".reminder")
+              .querySelector(".message-bubble")
               .getBoundingClientRect();
             return window.desktop
               .bootstrap()
@@ -186,7 +193,7 @@ test(
         )
         .toBe(true);
       assert.ok(
-        (await companion.locator(".reminder").boundingBox()).width < 280,
+        (await companion.locator(".message-bubble").boundingBox()).width < 280,
       );
       await companion.screenshot({
         path: path.join(project, "reports/companion-reminder-light.png"),

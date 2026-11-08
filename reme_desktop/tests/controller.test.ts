@@ -56,7 +56,10 @@ test("closing policy drops queued reminders and the deadline removes the active 
     );
     controller.setChatVisible(false);
     await until(
-      () => controller.state.bubble?.id === "closing",
+      () =>
+        (controller.state.surface?.kind === "message"
+          ? controller.state.surface.message.id
+          : null) === "closing",
       "only closing may appear",
     );
     backend.push("too-late", "收尾后的提醒");
@@ -65,14 +68,19 @@ test("closing policy drops queued reminders and the deadline removes the active 
         controller.state.messages.some((message) => message.id === "too-late"),
       "late message retained in history",
     );
-    assert.equal(controller.state.bubble?.id, "closing");
+    assert.equal(
+      controller.state.surface?.kind === "message"
+        ? controller.state.surface.message.id
+        : null,
+      "closing",
+    );
     backend.notificationWindow({
       starts_at,
       ends_at: new Date(Date.now() - 1).toISOString(),
       closing_message_id: "closing",
     });
     await until(
-      () => controller.state.bubble === null,
+      () => controller.state.surface === null,
       "expired bubble removed",
     );
     backend.notificationWindow({
@@ -80,7 +88,7 @@ test("closing policy drops queued reminders and the deadline removes the active 
       ends_at: new Date(Date.now() + 3_600_000).toISOString(),
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
-    assert.equal(controller.state.bubble, null);
+    assert.equal(controller.state.surface, null);
   } finally {
     await controller.close();
     await backend.close();
@@ -178,7 +186,7 @@ test(
         "initial snapshot",
       );
       assert.equal(controller.state.unread, 0);
-      assert.equal(controller.state.bubble, null);
+      assert.equal(controller.state.surface, null);
       backend.push("new", "还没完成", false);
       await until(
         () => controller.state.messages.some((message) => message.id === "new"),
@@ -192,7 +200,7 @@ test(
         () => controller.state.unread === 1,
         "reminder while character is hidden",
       );
-      assert.equal(controller.state.bubble, null);
+      assert.equal(controller.state.surface, null);
       assert.ok(
         Object.values(storage.presentations).some(
           (entry) => entry.receipts.new?.presented === false,
@@ -200,11 +208,14 @@ test(
       );
       controller.setCompanionVisible(true);
       await until(
-        () => controller.state.bubble?.id === "new",
+        () =>
+          (controller.state.surface?.kind === "message"
+            ? controller.state.surface.message.id
+            : null) === "new",
         "completed reminder",
       );
       assert.equal(controller.state.unread, 1);
-      const bubble = controller.state.bubble!;
+      const bubble = controller.bubbles.active!;
       const receipt = Object.values(storage.presentations).find(
         (entry) => entry.receipts.new,
       )?.receipts.new;
@@ -219,7 +230,7 @@ test(
       assert.equal(receipt?.presented, true);
       controller.bubbleAction("new", "dismiss");
       assert.equal(controller.state.unread, 1);
-      assert.equal(controller.state.bubble, null);
+      assert.equal(controller.state.surface, null);
       controller.setChatVisible(true);
       controller.setChatFocused(true);
       controller.markRead("session-1", ["new"]);
@@ -429,13 +440,13 @@ test("switching language preserves the PA subscription, animation instance, and 
     );
     const cursor = controller.model.cursor;
     const animation = controller.state.behavior.animation.id;
-    const history = controller.state.messages;
+    const history = controller.model.messages;
     const connections = backend.cursors.length;
     await controller.settings({ language: "en" });
     assert.equal(controller.state.behavior.label, "Thinking it through…");
     assert.equal(controller.state.behavior.animation.id, animation);
     assert.equal(controller.model.cursor, cursor);
-    assert.equal(controller.state.messages, history);
+    assert.equal(controller.model.messages, history);
     assert.equal(backend.cursors.length, connections);
     await assert.rejects(
       controller.settings({ language: "fr" as never }),

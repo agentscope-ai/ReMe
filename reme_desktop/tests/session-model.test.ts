@@ -3,7 +3,6 @@ import test from "node:test";
 import { SessionModel } from "../src/main/session-model.ts";
 import { displayMessages } from "../src/shared/messages.ts";
 import type {
-  DesktopState,
   SessionMessage,
   SessionSnapshot,
 } from "../src/shared/protocol.ts";
@@ -19,6 +18,59 @@ const message = (
   source: "proactive",
   completed,
   chunks: [],
+});
+
+test("task activity is independent of chat selection and rejects malformed run identities atomically", () => {
+  const model = new SessionModel();
+  const task = {
+    session_id: "native-task-session",
+    turn_id: "native-task-turn",
+    source: "task",
+    phase: "working",
+    run_id: "run",
+    task_id: "research",
+  };
+  model.apply({
+    type: "snapshot",
+    activities: {},
+    session_id: "s",
+    snapshot: snapshot("s"),
+    task_activities: { run: task },
+    cursor: "e:1",
+  });
+  assert.equal(model.taskActivities.run.task_id, "research");
+  for (const task_activities of [
+    null,
+    [],
+    { other: task },
+    { run: { ...task, source: "chat" } },
+    { run: { ...task, phase: "unknown" } },
+    { run: { ...task, task_id: null } },
+  ]) {
+    assert.throws(() =>
+      model.apply({
+        type: "status_changed",
+        activities: {},
+        session_id: "s",
+        task_activities,
+        cursor: "e:2",
+      }),
+    );
+    assert.equal(model.cursor, "e:1");
+    assert.equal(model.taskActivities.run.task_id, "research");
+  }
+  model.apply({ type: "session_changed", session_id: "new", cursor: "e:2" });
+  assert.equal(model.taskActivities.run.task_id, "research");
+  model.apply({
+    type: "status_changed",
+    activities: {},
+    session_id: "new",
+    task_activities: {},
+    cursor: "e:3",
+  });
+  assert.deepEqual(model.taskActivities, {});
+  model.clear();
+  assert.deepEqual(model.taskActivities, {});
 });
 const snapshot = (
   id: string,
@@ -200,13 +252,13 @@ test("native turn IDs reconcile streamed answers without duplicating prompts", (
       turnId: "t",
       streaming: true,
     },
-  } as DesktopState;
+  } as Parameters<typeof displayMessages>[0];
   assert.deepEqual(
-    displayMessages(state).map((entry) => entry.content),
+    displayMessages(state, undefined, "zh").map((entry) => entry.content),
     ["你好", "最终快照"],
   );
   state.pending!.turnId = "unaccepted-turn";
-  assert.equal(displayMessages(state).length, 4);
+  assert.equal(displayMessages(state, undefined, "zh").length, 4);
 });
 
 test("invalid snapshots and statuses leave accepted history and cursor intact", () => {

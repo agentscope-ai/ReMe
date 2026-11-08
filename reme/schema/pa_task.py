@@ -15,6 +15,7 @@ class PaTask(BaseModel):
     cron: str
     query: str = Field(min_length=1)
     enabled: StrictBool = True
+    preflight: Literal["screen_capture"] | None = None
     created_at: AwareDatetime | None = None
 
     @field_validator("cron")
@@ -46,7 +47,8 @@ class PaTaskRun(BaseModel):
     query: str
     started_at: AwareDatetime
     finished_at: AwareDatetime | None = None
-    status: Literal["running", "succeeded", "failed", "interrupted"] = "running"
+    status: Literal["running", "succeeded", "failed", "interrupted", "skipped"] = "running"
+    reason: str | None = None
     result_path: str | None = None
     error: str | None = None
     agent_session_id: str | None = None

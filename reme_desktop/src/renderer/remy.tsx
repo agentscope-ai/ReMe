@@ -65,8 +65,8 @@ export default function Remy({
               </div>
             )}
             {messages.map((message) => {
-              const date = message.created_at
-                ? new Date(message.created_at)
+              const date = message.createdAt
+                ? new Date(message.createdAt)
                 : null;
               const valid = date && !Number.isNaN(date.getTime());
               const day = valid

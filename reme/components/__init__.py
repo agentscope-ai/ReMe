@@ -16,6 +16,7 @@ from . import job
 from . import keyword_index
 from . import outbound_proxy
 from .pa_runtime import PaRuntime
+from .screen_capture import ScreenCapture
 from . import service
 from . import tag_index
 from . import tokenizer
@@ -33,6 +34,7 @@ __all__ = [
     "ComponentRegistry",
     "CodexAppServer",
     "PaRuntime",
+    "ScreenCapture",
     "R",
     "create_application_registry",
     "PromptHandler",

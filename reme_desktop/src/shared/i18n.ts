@@ -262,6 +262,8 @@ export const messages = {
   animationConfused: ["疑惑", "Confused"],
   animationSleeping: ["睡觉", "Sleeping"],
   animationDragged: ["拖动", "Dragged"],
+  animationPettingFish: ["摸鱼", "Petting a fish"],
+  animationWalking: ["走路", "Walking"],
   thinking: ["正在认真想…", "Thinking it through…"],
   working: ["正在查找和处理…", "Searching and working…"],
   remembering: ["正在回忆…", "Recalling…"],
@@ -279,6 +281,7 @@ export const messages = {
   ],
   listening: ["我在听，慢慢说", "I’m listening. Take your time"],
   background: ["在整理一些信息…", "Organizing a few things…"],
+  taskBackground: ["正在执行任务：{task}", "Working on task: {task}"],
   sleeping: ["休息一会儿", "Resting for a while"],
   ambient: ["安静陪着你", "Quietly keeping you company"],
   animationUnavailable: [
@@ -293,7 +296,9 @@ export const messages = {
   companion: ["Remy 桌面助手", "Remy desktop companion"],
   reminder: ["主动提醒", "Proactive reminder"],
   reminderHeading: ["REMY 想到一件事", "REMY HAS SOMETHING TO SHARE"],
-  dismissReminder: ["收起提醒", "Dismiss reminder"],
+  dismissBubble: ["收起气泡", "Dismiss bubble"],
+  reply: ["Remy 的回复", "Remy’s reply"],
+  replyHeading: ["REMY 的回复", "REMY’S REPLY"],
   expandReminder: ["展开聊聊", "Open conversation"],
   snoozeReminder: ["10 分钟后", "In 10 minutes"],
   statusOpen: [
@@ -340,7 +345,6 @@ export const messages = {
   startService: ["先启动 ReMe 服务：", "Start the ReMe service first:"],
   proactiveLabel: ["Remy 的主动提醒", "Proactive reminder from Remy"],
   image: ["图片", "Image"],
-  thinkingPlaceholder: ["正在思考", "Thinking"],
   draftWhileBusy: ["可以先写下，等我说完…", "You can draft while I finish…"],
   messagePlaceholder: ["和 Remy 说点什么…", "Say something to Remy…"],
   message: ["消息", "Message"],
@@ -505,6 +509,8 @@ export const animationLabels: Record<string, TranslationKey> = {
   confused: "animationConfused",
   sleeping: "animationSleeping",
   dragged: "animationDragged",
+  petting_fish: "animationPettingFish",
+  walking: "animationWalking",
 };
 
 export function translate(

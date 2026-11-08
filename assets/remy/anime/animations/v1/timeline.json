@@ -177,10 +177,46 @@
         5
       ],
       "description": "轻轻悬空，双脚晃一晃，惊讶地看着你。"
+    },
+    {
+      "id": "petting_fish",
+      "label": "摸鱼",
+      "ticks": [
+        7,
+        6,
+        10,
+        9,
+        14,
+        10,
+        6,
+        7
+      ],
+      "description": "托着橙色小鱼，轻轻抚摸鱼背，看着小鱼摆尾回应，再回到待机。"
+    },
+    {
+      "id": "walking",
+      "label": "走路",
+      "ticks": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "description": "朝右迈步，双脚交替、手臂自然摆动；向左移动时由播放器镜像。"
     }
   ],
   "ambient": [
-    "idle",
-    "listening"
-  ]
+    "petting_fish",
+    "listening",
+    "idle"
+  ],
+  "ambient_weights": {
+    "petting_fish": 65,
+    "listening": 20,
+    "idle": 15
+  }
 }

@@ -68,12 +68,16 @@ test(
         "hidden reminders are opt-in, acknowledged, rate-limited, and clickable",
         async () => {
           await action({ type: "chat.close" });
-          await app.evaluate(({ BrowserWindow }) =>
-            BrowserWindow.getAllWindows()
-              .find((win) =>
-                win.webContents.getURL().includes("view=companion"),
-              )
-              .hide(),
+          await action({ type: "companion.visibility", visible: false });
+          assert.equal(
+            await app.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()
+                .find((win) =>
+                  win.webContents.getURL().includes("view=companion"),
+                )
+                .isVisible(),
+            ),
+            false,
           );
           await expect
             .poll(() =>
@@ -116,13 +120,7 @@ test(
       await t.test(
         "focused and quiet outcomes stay quiet; waiting can return to its own conversation",
         async () => {
-          await app.evaluate(({ BrowserWindow }) =>
-            BrowserWindow.getAllWindows()
-              .find((win) =>
-                win.webContents.getURL().includes("view=companion"),
-              )
-              .showInactive(),
-          );
+          await action({ type: "companion.visibility", visible: true });
           backend.activity("thinking", "chat", "focused");
           backend.activity("waiting", "chat", "focused");
           await status("等你确认…");
@@ -139,7 +137,7 @@ test(
               chat.evaluate(() =>
                 window.desktop
                   .bootstrap()
-                  .then(({ state }) => state.behavior.notice?.id),
+                  .then(({ state }) => state.surface?.id),
               ),
             )
             .toContain("quiet");

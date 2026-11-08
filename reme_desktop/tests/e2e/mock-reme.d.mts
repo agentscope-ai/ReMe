@@ -5,12 +5,15 @@ export function mockReMe(options?: {
 }): Promise<{
   url: string;
   push(id: string, content?: string, completed?: boolean): void;
+  upsert(message: import("../../src/shared/protocol.ts").SessionMessage): void;
+  setReplyDelay(value: number): void;
   notificationWindow(value: {
     starts_at: string;
     ends_at: string;
     closing_message_id?: string | null;
   }): void;
   activity(phase: string, source?: "chat" | "proactive", turnId?: string): void;
+  taskActivity(phase: string, taskId?: string, runId?: string): void;
   cursors: (string | undefined)[];
   ttsRequests: { text: string }[];
   asrRequests: { audio: string; audio_format: string; sample_rate: number }[];

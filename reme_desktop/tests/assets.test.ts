@@ -13,10 +13,11 @@ test("runtime frames match the source timing and shared transparent canvas", asy
     await readFile(path.join(directory, "timeline.json"), "utf8"),
   );
   const { manifest, files } = await loadAssets(directory);
-  assert.equal(manifest.animations.length, 10);
-  assert.equal(files.size, 80);
+  assert.equal(manifest.animations.length, 12);
+  assert.equal(files.size, 96);
   assert.equal(manifest.output_fps, timeline.fps);
   assert.deepEqual(manifest.ambient, timeline.ambient);
+  assert.deepEqual(manifest.ambient_weights, timeline.ambient_weights);
   for (const clip of manifest.animations) {
     const source = timeline.animations.find(
       (entry: { id: string }) => entry.id === clip.id,

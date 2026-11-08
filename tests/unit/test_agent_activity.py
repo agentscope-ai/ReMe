@@ -6,6 +6,23 @@ from reme.schema import AgentActivity, StreamChunk
 from reme.utils.agent_activity import ActivityTracker
 
 
+def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_changes():
+    """A native turn is not the identity of a two-query task run."""
+    for fields in ({}, {"run_id": "run"}, {"task_id": "research"}):
+        with pytest.raises(ValueError, match="requires run_id and task_id"):
+            AgentActivity(session_id="s", turn_id="t", source="task", phase="thinking", **fields)
+    activity = AgentActivity(
+        session_id="s",
+        turn_id="t",
+        source="task",
+        phase="thinking",
+        run_id="run",
+        task_id="research",
+    )
+    updated = ActivityTracker(activity).update(StreamChunk(chunk_type="tool_call", tool_call_name="read_memory"))
+    assert updated.phase == "remembering" and updated.run_id == "run" and updated.task_id == "research"
+
+
 @pytest.mark.parametrize(
     "payload, phase",
     [

@@ -1,6 +1,6 @@
 # Remy character assets
 
-Remy is ReMe's original long-haired bookmark companion. The desktop reads the ten animations from
+Remy is ReMe's original long-haired bookmark companion. The desktop reads the twelve animations from
 [`anime/animations/v1/manifest.json`](anime/animations/v1/manifest.json) and the PNG frames it names.
 
 The [animation source guide](anime/animations/v1/README.md) describes the source sheets, generation prompts,

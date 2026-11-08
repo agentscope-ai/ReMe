@@ -2,9 +2,15 @@
   "name": "Remy",
   "version": 2,
   "ambient": [
-    "idle",
-    "listening"
+    "petting_fish",
+    "listening",
+    "idle"
   ],
+  "ambient_weights": {
+    "petting_fish": 65,
+    "listening": 20,
+    "idle": 15
+  },
   "canvas": [
     512,
     512
@@ -256,6 +262,52 @@
         "frames/dragged/05.png",
         "frames/dragged/06.png",
         "frames/dragged/07.png"
+      ]
+    },
+    {
+      "id": "petting_fish",
+      "ticks": [
+        7,
+        6,
+        10,
+        9,
+        14,
+        10,
+        6,
+        7
+      ],
+      "frame_files": [
+        "frames/petting_fish/00.png",
+        "frames/petting_fish/01.png",
+        "frames/petting_fish/02.png",
+        "frames/petting_fish/03.png",
+        "frames/petting_fish/04.png",
+        "frames/petting_fish/05.png",
+        "frames/petting_fish/06.png",
+        "frames/petting_fish/07.png"
+      ]
+    },
+    {
+      "id": "walking",
+      "ticks": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "frame_files": [
+        "frames/walking/00.png",
+        "frames/walking/01.png",
+        "frames/walking/02.png",
+        "frames/walking/03.png",
+        "frames/walking/04.png",
+        "frames/walking/05.png",
+        "frames/walking/06.png",
+        "frames/walking/07.png"
       ]
     }
   ]

@@ -29,7 +29,7 @@ from ..schema.pa_session import PaSessionCursor
 from ..schema.pa_proactive import PaNotificationWindow, PaProactiveConfig
 from ..schema.pa_hint import HintPeriod
 from ..schema.reminder import ReminderKind
-from ..schema.pa_task import PaTask
+from ..schema.pa_task import PaTask, PaTaskRun
 from ..utils.async_utils import complete_in_thread, finish_cleanup
 from ..constants import DEFAULT_MAX_FILE_BYTES
 
@@ -44,6 +44,7 @@ class ProactiveRound:
 
     session_id: str | None
     id: str = field(default_factory=lambda: uuid4().hex)
+    phase: str | None = None
     hint_period: HintPeriod | None = None
     request: tuple[str, ReminderKind] | None = None
     result: dict = field(default_factory=lambda: {"sent": False, "status": "skipped"})
@@ -110,8 +111,10 @@ class PaRuntime(BaseComponent):
         self._changed = asyncio.Event()
         self._closed = True
         self._unsubscribe: Callable[[], None] | None = None
+        self._unsubscribe_activity: Callable[[], None] | None = None
         self._native_status: SessionStatus | None = None
         self._activities: dict[str, AgentActivity] = {}
+        self._task_activities: dict[str, AgentActivity] = {}
         self._published_status: tuple | None = None
         self._fingerprints: dict[str, bytes] = {}
         self._needs_refresh = False
@@ -298,6 +301,8 @@ class PaRuntime(BaseComponent):
             current = self.current_round
             if current is None or current.id != round_id or current.session_id != session_id:
                 raise ValueError("send_reminder requires a live, server-bound proactive round")
+            if current.phase != "query_reminder":
+                raise ValueError("send_reminder is only allowed during query_reminder")
             if not isinstance(content, str) or len(content.strip()) > 200:
                 raise ValueError("content must be a string of at most 200 characters")
             content = content.strip()
@@ -496,6 +501,7 @@ class PaRuntime(BaseComponent):
         sessions = await asyncio.to_thread(self._load_session_ids)
         self.session_id = sessions[-1].session_id if sessions else None
         self._closed = False
+        self._unsubscribe_activity = self.agent_wrapper.app_server.watch_activity(self.observe_task_activity)
         self._invalidate("cursor_expired")
         self.select_session()
 
@@ -668,12 +674,52 @@ class PaRuntime(BaseComponent):
             status,
             tuple(flags),
             tuple((source, value.model_dump_json()) for source, value in sorted(self._activities.items())),
+            tuple((run_id, value.model_dump_json()) for run_id, value in sorted(self._task_activities.items())),
             self.notifications.model_dump_json() if self.notifications is not None else None,
         )
         if signature != self._published_status:
             self._revision += 1
             self._published_status = signature
-            self._publish("status_changed", status=status, active_flags=flags, activities=self._activities)
+            self._publish(
+                "status_changed",
+                status=status,
+                active_flags=flags,
+                activities=self._activities,
+                task_activities=self._task_activities,
+            )
+
+    def start_task_activity(self, run: PaTaskRun) -> None:
+        """Keep a run busy through both model queries and Markdown publication."""
+        if self._closed:
+            return
+        self._task_activities[run.run_id] = AgentActivity(
+            session_id=run.agent_session_id or run.run_id,
+            turn_id=run.run_id,
+            source="task",
+            phase="working",
+            run_id=run.run_id,
+            task_id=run.task_id,
+        )
+        self.publish_status()
+
+    def observe_task_activity(self, change: AgentActivity | None) -> None:
+        """Task runs outlive selected-chat changes and never enter its transcript."""
+        if self._closed:
+            return
+        if change is None:
+            self._task_activities.clear()
+        elif change.source == "task" and change.run_id in self._task_activities:
+            if change.phase == "completed":
+                change = change.model_copy(update={"phase": "working", "tool": None})
+            self._task_activities[change.run_id] = change
+        else:
+            return
+        self.publish_status()
+
+    def finish_task_activity(self, run_id: str) -> None:
+        """Retire the live presentation even when durable final recording fails."""
+        self._task_activities.pop(run_id, None)
+        self.publish_status()
 
     def select_session(self) -> None:
         """Follow the committed selection, dropping listeners for superseded sessions."""
@@ -713,7 +759,7 @@ class PaRuntime(BaseComponent):
             self._native_status = SessionStatus(session_id=session_id, status="error") if session_id else None
             self._invalidate("upstream_disconnected")
         elif isinstance(change, AgentActivity):
-            if change.session_id != session_id:
+            if change.session_id != session_id or change.source == "task":
                 return
             self._activities[change.source] = change
         elif isinstance(change, SessionMessage):
@@ -762,6 +808,7 @@ class PaRuntime(BaseComponent):
                 status=status,
                 active_flags=flags,
                 activities=self._activities,
+                task_activities=self._task_activities,
                 notifications=self.notifications,
                 snapshot=snapshot,
                 error=error,
@@ -835,8 +882,12 @@ class PaRuntime(BaseComponent):
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        if self._unsubscribe_activity is not None:
+            self._unsubscribe_activity()
+            self._unsubscribe_activity = None
         self._buffer.clear()
         self._buffer_bytes = 0
         self._fingerprints.clear()
         self._activities.clear()
+        self._task_activities.clear()
         self._wake()

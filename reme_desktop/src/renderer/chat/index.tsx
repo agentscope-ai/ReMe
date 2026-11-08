@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import Markdown from "react-markdown";
 import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
-import remarkGfm from "remark-gfm";
 import { action } from "../desktop.ts";
-import { displayMessages } from "../../shared/messages.ts";
+import MessageBody from "../message-body.tsx";
 import type { DesktopState } from "../../shared/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
 import { Plus, Sparkles, ArrowUpRight } from "lucide-react";
@@ -49,12 +47,19 @@ export default function Chat({
   const displayedError =
     error ?? (state.speech.error ? deserializeError(state.speech.error) : null);
   const follow = useRef(true);
+  const focusedMessage = useRef("");
   const sending = useRef(false);
-  const messages = displayMessages(state);
+  const messages = state.messages;
+  const visibleStatus =
+    state.surface?.kind === "status"
+      ? state.surface
+      : state.surface?.message.status;
   const proactiveSignature = state.messages
     .filter((message) => message.source === "proactive")
-    .map((message) => `${message.id}:${message.completed}`)
+    .map((message) => `${message.id}:${message.streaming}`)
     .join("\n");
+  const readIds = useRef(new Set<string>());
+  readIds.current = new Set(state.readMessageIds);
   const busy = Boolean(state.pending?.streaming) || state.status === "active";
   const ready = state.connection === "connected" && state.status !== "error";
   const run = async (value: Parameters<typeof action>[0]) => {
@@ -70,17 +75,28 @@ export default function Chat({
 
   useEffect(() => {
     if (!active || !state.chatVisible || !state.focusMessageId) return;
+    const request = `${state.sessionId}:${state.focusRequest}:${state.focusMessageId}`;
+    if (focusedMessage.current === request) return;
     const element = [
       ...(history.current?.querySelectorAll<HTMLElement>("[data-message-id]") ??
         []),
     ].find((node) => node.dataset.messageId === state.focusMessageId);
-    element?.scrollIntoView({ block: "center" });
-    follow.current = false;
-  }, [state.focusMessageId, state.focusRequest, state.chatVisible, active]);
+    if (element) {
+      element.scrollIntoView({ block: "center" });
+      follow.current = false;
+      focusedMessage.current = request;
+    }
+  }, [
+    state.focusMessageId,
+    state.focusRequest,
+    state.chatVisible,
+    state.messages,
+    active,
+  ]);
   useEffect(() => {
     if (active && follow.current && history.current)
       history.current.scrollTop = history.current.scrollHeight;
-  }, [state.messages, state.pending?.text, state.chatVisible, active]);
+  }, [state.messages, state.chatVisible, active]);
   useEffect(() => {
     if (state.chatVisible && active) input.current?.focus();
   }, [state.chatVisible, active]);
@@ -96,21 +112,30 @@ export default function Chat({
     )
       return;
     const visible = new Set<string>();
-    const acknowledged = new Set<string>();
+    let live = true;
+    let pending = false;
     let timer: ReturnType<typeof setTimeout>;
     const acknowledge = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => {
+      if (!live) return;
+      timer = setTimeout(async () => {
         if (!document.hasFocus() || document.visibilityState !== "visible")
           return;
-        const ids = [...visible].filter((id) => !acknowledged.has(id));
-        if (ids.length) {
-          ids.forEach((id) => acknowledged.add(id));
-          void action({
-            type: "messages.read",
-            sessionId: state.sessionId!,
-            ids,
-          }).catch(() => ids.forEach((id) => acknowledged.delete(id)));
+        const ids = [...visible].filter((id) => !readIds.current.has(id));
+        if (ids.length && !pending) {
+          pending = true;
+          try {
+            await action({
+              type: "messages.read",
+              sessionId: state.sessionId!,
+              ids,
+            });
+          } catch {
+            // Retry visible headings until the main process confirms their receipt.
+          } finally {
+            pending = false;
+            acknowledge();
+          }
         }
       }, 600);
     };
@@ -130,6 +155,7 @@ export default function Chat({
       .forEach((element) => observer.observe(element));
     window.addEventListener("focus", acknowledge);
     return () => {
+      live = false;
       clearTimeout(timer);
       observer.disconnect();
       window.removeEventListener("focus", acknowledge);
@@ -163,7 +189,7 @@ export default function Chat({
           <h2>Remy</h2>
           <span>
             {state.connection === "connected"
-              ? state.behavior.label
+              ? (visibleStatus?.text ?? state.behavior.label)
               : t("waitingConnection")}
           </span>
         </div>
@@ -253,55 +279,24 @@ export default function Chat({
           <article
             key={message.id}
             data-message-id={message.id}
-            data-proactive={Boolean(message.proactive)}
+            data-proactive={message.source === "proactive"}
             className={`message ${message.role} ${state.focusMessageId === message.id ? "message-focused" : ""}`}
           >
-            {message.proactive && (
+            {message.source === "proactive" && (
               <div className="proactive-label" data-message-id={message.id}>
                 <span aria-hidden>✦</span> {t("proactiveLabel")}
               </div>
             )}
-            <div className="message-body">
-              {message.role === "user" ? (
-                <p>{message.content}</p>
-              ) : message.content ? (
-                <Markdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a: ({ href, children }) => (
-                      <a
-                        href={href}
-                        onClick={(event) => {
-                          event.preventDefault();
-                          if (href) void run({ type: "link.open", url: href });
-                        }}
-                      >
-                        {children}
-                      </a>
-                    ),
-                    img: ({ alt }) => (
-                      <span className="image-placeholder">
-                        {alt || t("image")}
-                      </span>
-                    ),
-                  }}
-                >
-                  {message.content}
-                </Markdown>
-              ) : message.streaming ? (
-                <span className="thinking">
-                  {t("thinkingPlaceholder")}
-                  <span aria-hidden> · · ·</span>
-                </span>
-              ) : null}
-            </div>
-            {message.error && <p className="message-error">{message.error}</p>}
+            <MessageBody
+              message={message}
+              language={language}
+              onLink={(url) => void run({ type: "link.open", url })}
+            />
             {message.role === "assistant" &&
-              !message.streaming &&
+              message.completed &&
+              message.content &&
               !message.error &&
-              state.messages.some(
-                (entry) => entry.id === message.id && entry.completed,
-              ) && (
+              message.status?.tone !== "error" && (
                 <button
                   type="button"
                   className="read-aloud"

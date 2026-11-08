@@ -1,4 +1,4 @@
-"""Six-query orchestration, exclusive rounds and durable interrupted-input recovery."""
+"""Seven-query orchestration, exclusive rounds and durable interrupted-input recovery."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -9,7 +9,7 @@ import pytest
 
 from reme.schema.pa_proactive import PaProactiveConfig
 from reme.steps.proactive import ProactiveAgentStep, TaskAgentStep
-from reme.steps.proactive.tools import GetProactiveMessagesStep
+from reme.steps.proactive.tools import GetProactiveMessagesStep, SendReminderStep
 
 
 def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=None):
@@ -18,7 +18,7 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
 
     async def reply(query, **kwargs):
         calls.append((query, kwargs))
-        stage = (len(calls) - 1) % 6 + 1
+        stage = (len(calls) - 1) % 7 + 1
         bound = kwargs["injected_job_kwargs"]
         if stage == 2:
             await env.runtime.get_proactive_messages(round_id=bound["pa_round_id"])
@@ -27,14 +27,14 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
                 await pause[1].wait()
         if stage == fail_at:
             raise RuntimeError("query failed")
-        if stage == 4 and decide:
+        if stage == 5 and decide:
             await env.runtime.send_reminder(
                 "",
                 kind="normal",
                 round_id=bound["pa_round_id"],
                 session_id=bound["session_id"],
             )
-        if stage == 5 and adjust:
+        if stage == 6 and adjust:
             env.runtime._write_json(
                 env.runtime.proactive_config_path,
                 {"start_time": "0900", "end_time": "2300", "interval_minutes": 15},
@@ -50,17 +50,57 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
 
 
 @pytest.mark.asyncio
-async def test_six_queries_reuse_one_session_and_fixed_tools_then_save_only_handoff(pa_workspace, monkeypatch):
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_seven_queries_share_session_and_tools_then_save_handoff(pa_workspace, monkeypatch, language):
     env = pa_workspace
     calls = model(env, monkeypatch, adjust=True)
-    result = await ProactiveAgentStep(app_context=env.context, job_tools=["send_reminder", "check_json"])()
-    assert len(calls) == 6 and calls[0][1]["resume"] is None
+    step = ProactiveAgentStep(app_context=env.context, language=language, job_tools=["send_reminder", "check_json"])
+    result = await step()
+    assert len(calls) == 7 and calls[0][1]["resume"] is None
+    assert calls[3][0] == step.get_prompt("query_research")
     assert len({kwargs["resume"] for _, kwargs in calls[1:]}) == 1
     assert len({str(kwargs["injected_job_kwargs"]) for _, kwargs in calls}) == 1
     assert all(kwargs["job_tools"] == ["send_reminder", "check_json"] for _, kwargs in calls)
     assert "15" in calls[-1][0] and "12:15" in calls[-1][0]
-    assert result.answer["handoff"] == "stage 6" and env.runtime.handoff_path.read_text().strip() == "stage 6"
+    assert result.answer["handoff"] == "stage 7" and env.runtime.handoff_path.read_text().strip() == "stage 7"
     assert env.runtime.proactive_context_path.read_text() == "" and env.runtime.current_round is None
+
+
+@pytest.mark.asyncio
+async def test_only_reminder_query_can_submit_despite_an_old_handoff(pa_workspace, monkeypatch):
+    env = pa_workspace
+    await env.runtime.write_handoff("旧交接：必须立即调用 send_reminder 推送，不要重新判断。")
+    monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _step: env.now[0])
+    phases = []
+    rounds = []
+
+    async def reply(_query, **kwargs):
+        current = env.runtime.current_round
+        phases.append(current.phase)
+        rounds.append(current)
+        args = {**kwargs["injected_job_kwargs"], "content": "", "kind": "normal"}
+        tool = SendReminderStep(app_context=env.context)
+        if current.phase == "query_reminder":
+            await tool(**args)
+        else:
+            with pytest.raises(ValueError, match="only allowed during query_reminder"):
+                await tool(**args)
+        return {"session_id": "agent", "status": "completed", "result": "saved facts"}
+
+    env.agent.reply = AsyncMock(side_effect=reply)
+    result = await ProactiveAgentStep(app_context=env.context)()
+    assert phases == [
+        "query_memory",
+        "query_conversation",
+        "query_tasks",
+        "query_research",
+        "query_reminder",
+        "query_config",
+        "query_handoff",
+    ]
+    assert result.answer["status"] == "skipped" and all(current.phase is None for current in rounds)
+    assert await env.runtime.get_reminder() == []
+    env.agent.append_session.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -79,16 +119,35 @@ async def test_failure_keeps_previous_handoff_and_consumed_feedback(pa_workspace
 
 
 @pytest.mark.asyncio
+async def test_failed_research_preserves_recovery_without_submitting_a_reminder(pa_workspace, monkeypatch):
+    env = pa_workspace
+    await env.runtime.write_handoff("previous summary")
+    calls = model(env, monkeypatch, fail_at=4)
+    send = AsyncMock(wraps=env.runtime.send_reminder)
+    monkeypatch.setattr(env.runtime, "send_reminder", send)
+    with pytest.raises(RuntimeError, match="query failed"):
+        await ProactiveAgentStep(app_context=env.context)()
+    assert len(calls) == 4
+    send.assert_not_awaited()
+    assert env.runtime.handoff_path.read_text().strip() == "previous summary"
+    assert '"query": "query_research"' in env.runtime.proactive_context_path.read_text()
+    assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
+
+
+@pytest.mark.asyncio
 async def test_cancelled_round_is_released_after_failure_checkpoint(pa_workspace, monkeypatch):
     env = pa_workspace
     entered, release = asyncio.Event(), asyncio.Event()
     model(env, monkeypatch, pause=(entered, release))
     task = asyncio.create_task(ProactiveAgentStep(app_context=env.context)())
     await entered.wait()
+    current = env.runtime.current_round
+    assert current.phase == "query_conversation"
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
+    assert current.phase is None
     assert "failure" in env.runtime.proactive_context_path.read_text()
 
 
@@ -104,8 +163,8 @@ async def test_concurrent_wakeups_are_serial_and_use_distinct_rounds(pa_workspac
     assert len(calls) == 2
     release.set()
     await asyncio.gather(first, second)
-    assert len(calls) == 12
-    assert calls[0][1]["injected_job_kwargs"]["pa_round_id"] != calls[6][1]["injected_job_kwargs"]["pa_round_id"]
+    assert len(calls) == 14
+    assert calls[0][1]["injected_job_kwargs"]["pa_round_id"] != calls[7][1]["injected_job_kwargs"]["pa_round_id"]
 
 
 @pytest.mark.asyncio

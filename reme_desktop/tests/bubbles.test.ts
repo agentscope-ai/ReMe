@@ -57,7 +57,7 @@ test("bubble expansion keeps the canvas anchor fixed on negative-coordinate disp
   const area = { x: -1920, y: -200, width: 1920, height: 1080 };
   const anchor = { x: -1870, y: -150 };
   const small = companionPlacement(anchor, 1, null, area);
-  const expanded = companionPlacement(small.anchor, 1, "reminder", area);
+  const expanded = companionPlacement(small.anchor, 1, "message", area);
   assert.deepEqual(expanded.anchor, small.anchor);
   assert.equal(
     expanded.bounds.x + expanded.layout.body.left,
@@ -100,11 +100,45 @@ test("measured surfaces shrink around short text and grow without moving the pet
       anchor.y,
     );
     assert.equal(
-      placement.layout.bubble.top + placement.layout.bubble.height + 8,
+      placement.layout.bubble.top + placement.layout.bubble.height + 6,
       placement.layout.body.top,
     );
     assert.ok(placement.bounds.x >= area.x);
     assert.ok(placement.bounds.y >= area.y);
+  }
+});
+
+test("short labels and message previews share the head centre at every character size", () => {
+  const area = { x: -1920, y: -200, width: 1920, height: 1080 };
+  for (const scale of [0.7, 1, 1.5]) {
+    for (const kind of ["status", "message"] as const) {
+      const placed = companionPlacement(
+        { x: -960, y: 800 },
+        scale,
+        kind,
+        area,
+        { width: 140, height: 60 },
+      );
+      const { body, bubble } = placed.layout;
+      assert.ok(
+        Math.abs(bubble.left + bubble.width / 2 - body.left - body.size / 2) <=
+          0.5,
+      );
+      assert.equal(body.top - bubble.top - bubble.height, 6);
+    }
+    for (const point of [
+      { x: -1920, y: -200 },
+      { x: 0, y: -200 },
+      { x: 0, y: 880 },
+    ]) {
+      const placed = companionPlacement(point, scale, "message", area, {
+        width: 320,
+        height: 240,
+      });
+      assert.ok(placed.bounds.x >= area.x && placed.bounds.y >= area.y);
+      assert.ok(placed.bounds.x + placed.bounds.width <= area.x + area.width);
+      assert.ok(placed.bounds.y + placed.bounds.height <= area.y + area.height);
+    }
   }
 });
 

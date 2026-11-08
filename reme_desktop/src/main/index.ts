@@ -137,6 +137,12 @@ else {
         },
         (visible) => controller!.setChatVisible(visible),
         (focused) => controller!.setChatFocused(focused),
+        (visible) => {
+          if (quitting) return;
+          if (visible) notifications?.close();
+          controller!.setCompanionVisible(visible);
+          refreshTray();
+        },
       );
       const canCapture = () =>
         !quitting &&
@@ -207,7 +213,7 @@ else {
             event.sender.id === windows!.companion.webContents.id,
           ),
           manifest: assets.manifest,
-          layout: windows!.layout,
+          layout: windows!.layoutFor(event.sender.id),
           platform: process.platform,
           version: app.getVersion(),
         };
@@ -262,7 +268,7 @@ else {
             return;
           case "playback.report":
             if (
-              event.sender.id === windows!.companion.webContents.id &&
+              windows!.isCompanionSender(event.sender.id) &&
               Number.isSafeInteger(action.id) &&
               ["started", "ended", "failed"].includes(action.status)
             )
@@ -270,8 +276,9 @@ else {
             return;
           case "bubble.shown":
             if (
-              event.sender.id === windows!.companion.webContents.id &&
-              windows!.companion.isVisible() &&
+              windows!.isCompanionSender(event.sender.id) &&
+              (event.sender.id === windows!.companion.webContents.id ||
+                windows!.chat.isFocused()) &&
               typeof action.sessionId === "string" &&
               typeof action.id === "string" &&
               Number.isSafeInteger(action.presentationId)
@@ -286,7 +293,7 @@ else {
             controller!.interact();
             return;
           case "companion.menu":
-            if (event.sender.id !== windows!.companion.webContents.id)
+            if (!windows!.isCompanionSender(event.sender.id))
               throw new UiError("menuFromCharacter");
             openMenu();
             return;
@@ -330,7 +337,7 @@ else {
             return;
           case "companion.visibility":
             if (action.visible) windows!.showCompanion();
-            else windows!.companion.hide();
+            else windows!.hideCompanion();
             return;
           case "session.new":
             return controller!.newSession();
@@ -447,16 +454,22 @@ else {
       });
       ipcMain.on(channels.surfaceSize, (event, size) => {
         if (!validSender(event)) return;
-        if (event.sender.id === windows!.companion.webContents.id)
+        if (windows!.isCompanionSender(event.sender.id))
           windows!.measureSurface(size);
+      });
+      ipcMain.on(channels.habitat, (event, value) => {
+        if (
+          validSender(event) &&
+          event.sender.id === windows!.chat.webContents.id
+        )
+          windows!.measureHabitat(value);
       });
       ipcMain.on(channels.drag, (event, phase) => {
         if (!validSender(event)) return;
         if (
-          event.sender.id === windows!.companion.webContents.id &&
-          ["start", "move", "end"].includes(phase)
+          ["start", "move", "end"].includes(phase) &&
+          windows!.drag(phase, event.sender.id)
         ) {
-          windows!.drag(phase);
           controller!.drag(phase);
         }
       });
@@ -497,7 +510,7 @@ else {
           state.settings.quietUntil > Date.now(),
           state.status,
           Boolean(state.pending?.streaming),
-          windows!.companion.isVisible(),
+          windows!.companionVisible,
         ]);
         if (next !== menuState) {
           menuState = next;
@@ -505,18 +518,13 @@ else {
           tray!.setToolTip(translate(state.settings.language, "trayTooltip"));
         }
       };
-      openMenu = () => menu().popup({ window: windows!.companion });
-      windows.companion.on("show", () => {
-        if (quitting) return;
-        notifications?.close();
-        controller!.setCompanionVisible(true);
-        refreshTray();
-      });
-      windows.companion.on("hide", () => {
-        if (quitting) return;
-        controller!.setCompanionVisible(false);
-        refreshTray();
-      });
+      openMenu = () =>
+        menu().popup({
+          window:
+            windows!.layout.presence?.host === "app"
+              ? windows!.chat
+              : windows!.companion,
+        });
       refreshTray();
       tray.on("click", () => windows!.openChat());
       globalShortcut.register("CommandOrControl+Shift+Space", () =>

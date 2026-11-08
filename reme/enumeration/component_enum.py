@@ -46,6 +46,8 @@ class ComponentEnum(str, Enum):
 
     CODEX_APP_SERVER = "codex_app_server"
 
+    SCREEN_CAPTURE = "screen_capture"
+
     MAIL = "mail"
 
     OUTBOUND_PROXY = "outbound_proxy"

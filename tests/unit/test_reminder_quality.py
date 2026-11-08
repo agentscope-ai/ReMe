@@ -32,7 +32,7 @@ def record():
 
 def test_empty_submission_is_successful_silence():
     verdict = checks(scenarios()["proactive_seen_page"], record(), False)
-    assert verdict["delivery"] and verdict["send_attempts"] and verdict["six_query_protocol"]
+    assert verdict["delivery"] and verdict["send_attempts"] and verdict["required_tools"]
 
 
 def test_native_rejected_call_is_not_hidden_by_no_delivery():
@@ -46,7 +46,7 @@ def test_tool_rejection_fails_protocol_and_error_checks():
     result["jobs"] = []
     result["tool_events"] = [{"chunk_type": "tool_result", "chunk": {"error": {"message": "requires approval"}}}]
     verdict = checks(scenarios()["proactive_seen_page"], result, False)
-    assert not verdict["six_query_protocol"] and not verdict["no_tool_errors"]
+    assert not verdict["required_tools"] and not verdict["no_tool_errors"]
 
 
 def test_awaited_result_requires_actual_delivery_and_nonempty_submission():

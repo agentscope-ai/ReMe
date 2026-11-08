@@ -17,6 +17,7 @@ import frontmatter
 
 from ..constants import DEFAULT_MAX_FILE_BYTES
 from ..schema.pa_task import PaTask, PaTaskRun
+from ..schema.screen_capture import CapturedDisplay
 from ..utils.async_utils import complete_in_thread
 from ..utils.file_utils import get_path_lock
 
@@ -82,6 +83,8 @@ class TaskFiles:
     async def record(self, run: PaTaskRun) -> None:
         """Finish each append before allowing cancellation to leave its caller."""
         await complete_in_thread(self.runtime._append_jsonl, self.runtime.task_runs_path, run.model_dump(mode="json"))
+        if run.status == "running":
+            self.runtime.start_task_activity(run)
 
     def paths(self, task_id: str) -> list[Path]:
         """Find published snapshots, newest first, across local calendar dates."""
@@ -102,7 +105,28 @@ class TaskFiles:
                     paths.append(self.checked(path))
         return sorted(paths, key=lambda path: (path.parents[2].name, path.name), reverse=True)
 
-    async def publish(self, staging: Path, target: Path, task_id: str, run_id: str) -> None:
+    def screen_baseline(self, task_id: str) -> list[dict]:
+        """Recover only images attached by code to the latest successful task summary."""
+        paths = self.paths(task_id)
+        if not paths:
+            return []
+        try:
+            values = frontmatter.loads(self.read(paths[0])).get("screen_capture", [])
+            if not isinstance(values, list) or len(values) > 32:
+                return []
+            return [CapturedDisplay.model_validate(value).model_dump(mode="json") for value in values]
+        except (OSError, ValueError):
+            return []
+
+    async def publish(
+        self,
+        staging: Path,
+        target: Path,
+        task_id: str,
+        run_id: str,
+        *,
+        screen_capture: list[dict] | None = None,
+    ) -> None:
         """Publish only a completed, nonempty snapshot, exclusively at its final name."""
 
         def publish():
@@ -116,6 +140,11 @@ class TaskFiles:
                 created_at=self.runtime._now().isoformat(),
                 status="unread",
             )
+            post.metadata.pop("screen_capture", None)
+            if screen_capture is not None:
+                post.metadata["screen_capture"] = [
+                    CapturedDisplay.model_validate(value).model_dump(mode="json") for value in screen_capture
+                ]
             content = frontmatter.dumps(post) + "\n"
             if len(content.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
                 raise ValueError("Task summary exceeds the file read limit after adding metadata")

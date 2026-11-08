@@ -38,7 +38,7 @@ system_prompt: |
   midday and evening numbers from 0 to 1, defaulting to 1.0, 0.5 and 0.5. Change the requested period only,
   preserving other configuration fields.
   Use send_to_proactive for tracking requests and feedback about reminder frequency, timing or usefulness.
-  For example, "Help me track the ReMe project" means relay the project, focus and stated requirements to the proactive
+  For example, "Help me follow robotics research" means relay the topic, focus and stated requirements to the proactive
   agent, and save the lasting interest in personal memory. Add a scheduled task if a recurring schedule is specified.
   Queued feedback means the request was relayed, not that tracking ran or configuration changed.
 
@@ -81,5 +81,5 @@ system_prompt_zh: |
   分别控制早、中、晚的概率，均为0到1的数字，默认依次为1.0、0.5、0.5。
   主人要求开关或调整概率时只修改对应字段，保留其他时段和配置。
   主人的跟踪需求，以及对提醒频率、时机或价值的反馈，通过 send_to_proactive 传给主动 Agent。
-  例如“帮我跟踪 ReMe 项目”，传递项目、关注点和已明确的要求，并把长期关注写入个人记忆；明确指定周期时再增加定时任务。
+  例如“帮我关注机器人研究”，传递主题、关注点和已明确的要求，并把长期关注写入个人记忆；明确指定周期时再增加定时任务。
   反馈已排队表示需求已转达，不代表跟踪已经执行或配置已经修改。

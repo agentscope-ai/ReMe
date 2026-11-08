@@ -1,6 +1,16 @@
 /* Local glass styling keeps the artwork's surroundings fully transparent. */
+.embedded-companion {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.embedded-companion button,
+.embedded-companion [data-interactive] {
+  pointer-events: auto;
+}
 .companion .status-notice,
-.companion .reminder {
+.companion .message-bubble {
   width: max-content;
   border: 1px solid light-dark(#ffffffd9, #ffffff26);
   background:
@@ -43,14 +53,14 @@
   color: var(--accent);
   opacity: 1;
 }
-.companion .reminder {
+.companion .message-bubble {
   padding: 11px 13px 12px;
   border-radius: 16px;
 }
-.companion .reminder header {
+.companion .message-bubble header {
   margin-bottom: 6px;
 }
-.reminder-heading {
+.bubble-heading {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -58,21 +68,29 @@
   font-size: 10px;
   letter-spacing: 0.2px;
 }
-.companion .reminder .icon-button {
+.companion .message-bubble .icon-button {
   width: 22px;
   height: 22px;
   border-radius: 7px;
 }
-.companion .reminder p {
+.companion .message-bubble p {
   font-size: 12px;
   line-height: 1.8;
 }
-.companion .reminder footer {
+.companion .message-bubble .message-body {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.companion .message-bubble .message-content {
+  max-height: 160px;
+  overflow: hidden;
+}
+.companion .message-bubble footer {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 10px;
 }
-.companion .reminder footer button {
+.companion .message-bubble footer button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -82,16 +100,16 @@
   font-size: 10px;
   line-height: 17px;
 }
-.companion .reminder footer .subtle {
+.companion .message-bubble footer .subtle {
   background: light-dark(#ffffff58, #ffffff08);
   border: 1px solid var(--line);
 }
-.companion .reminder footer .primary {
+.companion .message-bubble footer .primary {
   border: 1px solid transparent;
 }
 @media (prefers-reduced-transparency: reduce) {
   .companion .status-notice,
-  .companion .reminder {
+  .companion .message-bubble {
     background: light-dark(#f5f8f4, #25352c);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;

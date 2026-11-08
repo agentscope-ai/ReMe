@@ -1,7 +1,7 @@
 # ReMe Desktop
 
 Electron + React desktop client for ReMe's proactive agent. Remy stays on the desktop, opens a conversation when clicked,
-and shows incoming proactive messages in a small bubble. Memory and conversation history stay in the ReMe workspace.
+and mirrors replies and proactive messages in a small bubble. Memory and conversation history stay in the ReMe workspace.
 
 The wide workspace has two persistent tabs: **Remy** pairs an update inbox with the conversation; **Knowledge** pairs
 Studio's Workspace / Daily / Knowledge directory views with a document reader. The top-right **Settings** icon opens
@@ -17,6 +17,13 @@ preferences are respected. Light, dark, and system themes are available in Setti
 The initial window follows the display's aspect ratio; subsequent opens restore its saved bounds within a connected display.
 Companion status and reminder bubbles share the selected theme and glass styling, fit their content, and wrap long text
 within a bounded width. Resizing a bubble keeps the desktop character anchored in place.
+
+When the Remy page has enough space beside the conversation and composer, the companion walks into the workspace.
+It returns to the desktop when that space disappears or the window is closed or minimized. Same-display moves walk;
+cross-display moves fade to the destination display before walking into place. Display IDs and logical coordinates
+handle mixed scaling and negative screen origins. Dragging the character out keeps it on the desktop until the next
+window opening. The workspace and desktop share one behavior state; only the visible host handles playback and input.
+Reduced-motion mode changes locations directly.
 
 Knowledge uses read-only `app_config`, `list`, `load`, `list_tags`, `list_tag_files`, and `search` jobs through main-process
 IPC. File and directory paths come from the connected service; Markdown supports workspace wikilinks and YAML memory
@@ -172,9 +179,13 @@ to allow desktop apps.
   notifications without reconnecting or restarting playback. Conversation content keeps its original language.
 - Use **Command/Ctrl + Shift + Space**, or the tray/menu bar, to reopen chat. Closing chat keeps the subscription running.
 - Enter sends a message; Shift + Enter inserts a newline. Stop explicitly cancels the current chat request.
+- Chat and the character share the same message text and execution status. Reply bubbles stream the current answer,
+  then remain for twelve visible seconds after completion. Hover and narration pause expiry. Expand locates the same
+  message in chat; dismissing a reply does not cancel generation. Reply previews do not use the reminder budget.
 - A completed proactive message shows a bubble. Expand opens the original conversation; close preserves its unread state;
   **10 minutes later** snoozes the same message. Hover pauses expiry. Ordinary bubbles have a ten-minute cooldown and a
   maximum of three appearances per hour; explicit snoozes bypass that cooldown. Backlogs coalesce to the latest candidate.
+  Opening chat does not hide the bubble, and reading the message does not shorten an already visible preview.
 - Viewing a reminder's heading in the focused Remy tab marks it read. Knowledge and Settings never mark reminders read.
   Selecting an inbox entry locates its original message in the conversation. Historical messages on the first connection
   establish a quiet baseline instead of producing a burst of old reminders.
@@ -198,24 +209,35 @@ Each entry identifies its selected PA session, native turn, source, phase, and o
 events for every client sharing that PA session, including conversations started in Studio. Activity is transient;
 conversation files remain the source of truth.
 
+The additive `task_activities` field tracks active task runs by `run_id`, with `source="task"` and a `task_id`. These
+entries describe independent native sessions, survive selected-chat changes, and never add task transcripts to chat.
+A run remains busy between its two queries and during publication; finishing, cancellation, or an upstream disconnect
+clears its live presentation. These fields require an updated service for task-state animation; older services continue
+to drive chat and proactive animations.
+
 The backend tracks unfinished tools by call ID for each turn. Out-of-order or duplicate results cannot finish another
 tool, and the working phase remains until the last tool completes. Terminal outcomes clear that turn's tracking state.
 
 `src/main/behavior.ts` owns animation priority: dragging, foreground work, visible reminders, completion/error feedback,
 manual previews, attentive listening, background work, then ambient gestures or sleep. Working uses the existing thinking
-clip; answering uses speaking. Foreground work interrupts previews, and dragging restores the latest activity when released.
+clip; foreground answering uses speaking, while background answering uses remembering. Foreground work interrupts
+previews, and dragging restores the latest activity when released. Active tasks take priority over proactive work.
 Repeated text deltas do not restart an animation. Short thinking/recall transitions are smoothed over 350 ms.
 
 Reminders raise the note, hold it while their bubble is visible, and lower it when the bubble closes. A playback ID rejects
 stale completion callbacks. The renderer only plays the chosen clip or segment in `once`, `loop`, or `hold` mode.
-Neutral idle/listening gestures vary every 15–45 seconds; semantic actions such as thinking and reminding are event-driven.
-After five minutes without interaction Remy sleeps. Quiet mode suppresses ambient/background gestures and bubbles while
-foreground interaction remains available. No model calls are made to choose ambient actions.
+Semantic actions such as thinking and reminding are event-driven.
+Idle gestures wait 12–25 seconds after completion and use the asset manifest's relative weights. Petting fish has a
+weight of 65, listening 20, and idle 15; fish may repeat twice, while other gestures do not repeat consecutively.
+After fifteen minutes without interaction and with no agent work Remy sleeps. Quiet mode suppresses ambient/background
+gestures and reminder bubbles while foreground interaction remains available. No model calls are made to choose ambient actions.
 
-The desktop chooses one surface: a reminder bubble, an active task label, a request for attention, or brief outcome
-feedback. Status updates do not consume reminder appearances. Hidden/preempted reminders retain their remaining visible
-time. Display duration, cooldown, and hourly counts begin only after the renderer acknowledges a painted bubble or the
-OS confirms a native notification; presentation never marks a message read.
+`src/main/presentation.ts` chooses one surface: the current reply or its status, a reminder, speech status, or background
+work. Both windows render the main process's conversation projection with the same message-body component; animation
+timing and asset failures cannot delay or replace its text. The character receives only the selected, shortened preview.
+Status updates do not consume reminder appearances. Hidden/preempted reminders retain their remaining visible time.
+Reminder duration, cooldown, and hourly counts begin only after the renderer acknowledges a painted bubble or the OS
+confirms a native notification; presentation never marks a message read.
 
 Animation playback reports start, end, and failure with its playback ID. Missing acknowledgements and asset failures
 recover to idle without changing the agent's real activity. The companion receives only presentation data; chat history

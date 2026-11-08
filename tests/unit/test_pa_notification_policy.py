@@ -27,6 +27,7 @@ def settings(env, **overrides):
 
 async def send(env, content="新发现。", kind="normal", sample=False):
     async with env.runtime.proactive_round() as current:
+        current.phase = "query_reminder"
         if sample:
             await env.runtime.hints.select(await env.runtime.get_proactive_config(), env.now[0])
         return await env.runtime.send_reminder(content, kind, round_id=current.id, session_id=current.session_id)
@@ -130,7 +131,7 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
 
     async def reply(query, **kwargs):
         calls.append(query)
-        if len(calls) == 4:
+        if len(calls) == 5:
             bound = kwargs["injected_job_kwargs"]
             await env.runtime.send_reminder(
                 "晚安。",
@@ -143,9 +144,9 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
     env.agent.reply = AsyncMock(side_effect=reply)
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["sent"] and result.answer["reason"] == "day_closed"
-    assert len(calls) == 4 and env.runtime.proactive_context_path.read_text()
+    assert len(calls) == 5 and env.runtime.proactive_context_path.read_text()
     assert (await ProactiveAgentStep(app_context=env.context)()).answer["reason"] == "day_closed"
-    assert len(calls) == 4
+    assert len(calls) == 5
 
 
 @pytest.mark.asyncio
@@ -180,7 +181,7 @@ async def test_slow_hint_sampling_cannot_start_a_query_after_deadline(pa_workspa
     monkeypatch.setattr(env.runtime.hints, "select", sample)
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["reason"] == "outside_active_hours"
-    assert env.agent.reply.await_count == 3
+    assert env.agent.reply.await_count == 4
 
 
 @pytest.mark.asyncio

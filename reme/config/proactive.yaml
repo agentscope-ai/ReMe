@@ -94,13 +94,14 @@ jobs:
 
   screen_capture:
     backend: base
-    description: "Capture each display as an original-size PNG; return textual context and workspace-relative paths."
+    description: "Compare displays by stable identity; return context and changed original-size PNG paths, or paths=[] when unchanged."
     parameters:
       type: object
       properties: {}
       additionalProperties: false
     steps:
       - backend: screen_capture_step
+        screen_capture: default
 
   finance_news:
     backend: base
@@ -214,7 +215,7 @@ jobs:
   send_reminder:
     backend: base
     enable_serve: false
-    description: "Submit a reminder: inject if idle or return pending for background delivery after 10 idle seconds. Empty content withdraws pending content."
+    description: "Only during query_reminder: submit a reminder for immediate injection or background delivery after 10 idle seconds. Empty content withdraws pending content."
     parameters:
       type: object
       additionalProperties: false
@@ -468,6 +469,18 @@ components:
       sample_rate: 22050
       timeout: 60
 
+  screen_capture:
+    default:
+      backend: local
+      timeout: 90
+      long_edge: 1280
+      pixel_delta: 20
+      changed_ratio: 0.0005
+      tile_size: 32
+      tile_stride: 16
+      tile_changed_ratio: 0.015
+      ignore_clock: true
+
   pa:
     default:
       backend: local
@@ -476,8 +489,8 @@ components:
       max_buffer_bytes: 4194304
       heartbeat_seconds: 15
       default_proactive:
-        start_time: "0900"
-        end_time: "2300"
+        start_time: "0700"
+        end_time: "2330"
         interval_minutes: 5
         tasks_follow_active_hours: true
         hints_enabled: true
@@ -490,9 +503,14 @@ components:
           cron: "*/5 * * * *"
           query: "通过截屏看看主人在干啥"
           enabled: true
+          preflight: screen_capture
         - id: finance_news
           cron: "0 * * * *"
           query: "看看有什么主人喜欢的财经新闻"
+          enabled: true
+        - id: daily_fresh_news
+          cron: "0 8,12,18 * * *"
+          query: "搜索下今天有什么主人喜欢的新鲜事"
           enabled: true
 
   codex_app_server:

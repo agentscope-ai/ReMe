@@ -200,12 +200,45 @@ test(
             assert.ok(menu.labels.includes("和 Remy 聊聊"));
             assert.ok(menu.labels.includes("播放动作"));
             assert.ok(menu.labels.includes("设置…"));
-            assert.equal(menu.animations, 10);
+            assert.equal(menu.animations, 12);
             assert.equal(menu.unreadEnabled, false);
             assert.equal(menu.chatVisible, false);
             assert.equal(menu.popupWindow, menu.companionId);
             await expect(companion.locator(".character")).not.toHaveClass(
               /dragging/,
+            );
+
+            await choose("animation:petting_fish");
+            await expect(companion.locator("canvas")).toHaveAttribute(
+              "data-animation",
+              "petting_fish",
+            );
+            await expect
+              .poll(() =>
+                companion.locator("canvas").evaluate((canvas) => {
+                  const pixels = canvas
+                    .getContext("2d")
+                    .getImageData(0, 0, canvas.width, canvas.height).data;
+                  let orange = 0;
+                  for (let i = 0; i < pixels.length; i += 4)
+                    if (
+                      pixels[i] > 180 &&
+                      pixels[i + 1] > 60 &&
+                      pixels[i + 1] < 190 &&
+                      pixels[i + 2] < 100 &&
+                      pixels[i + 3] > 150
+                    )
+                      orange++;
+                  return orange;
+                }),
+              )
+              .toBeGreaterThan(800);
+            await companion.locator("canvas").screenshot({
+              path: path.join(project, "reports/petting-fish.png"),
+            });
+            await expect(companion.locator("canvas")).toHaveAttribute(
+              "data-animation",
+              "idle",
             );
 
             await choose("animation:remembering");
@@ -536,7 +569,7 @@ test(
             omitBackground: true,
           });
           await companion
-            .getByRole("button", { name: "收起提醒", exact: true })
+            .getByRole("button", { name: "收起气泡", exact: true })
             .click();
           await expect(
             companion.getByRole("region", { name: "主动提醒" }),
@@ -577,6 +610,17 @@ test(
             "data-animation",
             "happy",
           );
+          await app.evaluate(({ app, BrowserWindow }) => {
+            app.focus({ steal: true });
+            BrowserWindow.getAllWindows()
+              .find((window) =>
+                window.webContents.getURL().includes("view=chat"),
+              )
+              .focus();
+          });
+          await expect
+            .poll(() => chat.evaluate(() => document.hasFocus()))
+            .toBe(true);
           await expect
             .poll(() =>
               companion.evaluate(() =>
@@ -603,8 +647,8 @@ test(
             )
             .toBe(null);
           await expect(
-            chat.getByText("你好 Remy", { exact: true }),
-          ).toHaveCount(1);
+            chat.locator(".message.user .message-body").last(),
+          ).toHaveText("你好 Remy");
           await expect(chat.getByText("旧的增量", { exact: true })).toHaveCount(
             0,
           );
@@ -627,8 +671,8 @@ test(
             .getByRole("button", { name: "停止回复", exact: true })
             .click();
           await expect(
-            chat.getByText("回复已停止", { exact: true }),
-          ).toBeVisible();
+            chat.locator(".message.assistant .message-status").last(),
+          ).toHaveText("回复已停止");
           await chat.evaluate(() =>
             window.desktop.action({ type: "chat.close" }),
           );
@@ -727,6 +771,47 @@ test(
               ),
             )
             .toBe("idle");
+        },
+      );
+
+      await t.test(
+        "concurrent task animations yield to foreground work and resume the remaining task",
+        async () => {
+          backend.taskActivity("remembering", "research", "one");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "remembering",
+          );
+          backend.taskActivity("working", "watch", "two");
+          backend.taskActivity("completed", "research", "one");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "thinking",
+          );
+          await expect
+            .poll(() =>
+              companion.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => state.behavior.label),
+              ),
+            )
+            .toContain("watch");
+          backend.activity("answering", "chat", "foreground-priority");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "speaking",
+          );
+          backend.activity("interrupted", "chat", "foreground-priority");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "thinking",
+          );
+          backend.taskActivity("completed", "watch", "two");
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "idle",
+          );
         },
       );
 

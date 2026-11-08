@@ -3,7 +3,7 @@ export type SessionStatus = "active" | "idle" | "not_loaded" | "error";
 export interface AgentActivity {
   session_id: string;
   turn_id: string;
-  source: "chat" | "proactive";
+  source: "chat" | "proactive" | "task";
   phase:
     | "thinking"
     | "working"
@@ -14,23 +14,25 @@ export interface AgentActivity {
     | "failed"
     | "interrupted";
   tool?: string | null;
+  run_id?: string | null;
+  task_id?: string | null;
 }
 
-export type Activities = Partial<
-  Record<AgentActivity["source"], AgentActivity>
->;
+export type Activities = Partial<Record<"chat" | "proactive", AgentActivity>>;
+
+export type TaskActivities = Record<string, AgentActivity>;
 
 export interface AnimationIntent {
   id: number;
   clip: string;
   mode: "once" | "loop" | "hold";
+  startedAt?: number;
   segment?: "enter" | "hold" | "exit";
 }
 
 export interface Behavior {
   animation: AnimationIntent;
   label: string;
-  notice: StatusNotice | null;
   error: string;
 }
 
@@ -41,9 +43,30 @@ export interface StatusNotice {
   id: string;
   text: string;
   tone: "working" | "waiting" | "success" | "error";
+  messageId?: string;
 }
 
-export type CompanionSurface = Bubble | StatusNotice;
+export interface DisplayMessage {
+  id: string;
+  turnId?: string;
+  createdAt?: string | null;
+  role: "user" | "assistant";
+  source: "chat" | "proactive";
+  content: string;
+  completed: boolean;
+  streaming: boolean;
+  status: StatusNotice | null;
+  error?: string;
+}
+
+export interface MessageBubble {
+  kind: "message";
+  message: DisplayMessage;
+  presentationId: number;
+  paused: boolean;
+}
+
+export type CompanionSurface = MessageBubble | StatusNotice;
 
 export interface StreamChunk {
   chunk_type: string;
@@ -87,6 +110,7 @@ export interface PaEvent {
   session_id?: string | null;
   status?: SessionStatus | null;
   activities: Activities;
+  task_activities?: TaskActivities;
   notifications?: NotificationWindow | null;
   message?: SessionMessage;
   snapshot?: SessionSnapshot;
@@ -131,14 +155,6 @@ export interface Settings {
 export type SettingsUpdate = Partial<Omit<Settings, "anchor" | "windowBounds">>;
 export type DesktopPage = "remy" | "knowledge" | "settings";
 
-export interface Bubble {
-  kind: "reminder";
-  id: string;
-  presentationId: number;
-  text: string;
-  paused: boolean;
-}
-
 export interface PendingTurn {
   id: string;
   query: string;
@@ -157,9 +173,8 @@ export interface DesktopState {
   workspace: string;
   sessionId: string | null;
   status: SessionStatus | null;
-  messages: SessionMessage[];
+  messages: DisplayMessage[];
   pending: PendingTurn | null;
-  bubble: Bubble | null;
   surface: CompanionSurface | null;
   unread: number;
   readMessageIds: string[];
@@ -208,6 +223,7 @@ export interface AnimationClip {
 export interface AnimationManifest {
   version: 2;
   ambient: string[];
+  ambient_weights?: Record<string, number>;
   canvas: [number, number];
   output_fps: number;
   animations: AnimationClip[];
@@ -221,6 +237,12 @@ export interface WindowLayout {
     width: number;
     maxWidth: number;
     height: number;
+  };
+  presence?: {
+    host: "desktop" | "app";
+    visible: boolean;
+    opacity: number;
+    motion?: { id: number; startedAt: number; direction: 1 | -1 };
   };
 }
 
@@ -289,6 +311,10 @@ export interface DesktopApi {
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   pointer(interactive: boolean): void;
   measureSurface(size: import("./surface.ts").SurfaceSize): void;
+  measureHabitat(value: {
+    slot: { x: number; y: number; width: number; height: number } | null;
+    reducedMotion: boolean;
+  }): void;
   drag(phase: "start" | "move" | "end"): void;
 }
 
@@ -299,6 +325,7 @@ export const channels = {
   layout: "reme:layout",
   pointer: "reme:pointer",
   surfaceSize: "reme:surface-size",
+  habitat: "reme:habitat",
   drag: "reme:drag",
   command: "reme:command",
   transcribe: "reme:transcribe",

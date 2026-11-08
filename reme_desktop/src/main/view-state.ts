@@ -1,12 +1,13 @@
 import type {
   DesktopPatch,
   DesktopState,
-  SessionMessage,
+  DisplayMessage,
 } from "../shared/protocol.ts";
+import { previewContent } from "../shared/surface.ts";
 
-const noMessages: SessionMessage[] = [];
+const noMessages: DisplayMessage[] = [];
 
-/** The companion only receives presentation data; conversation text belongs to chat. */
+/** The companion receives the selected preview, never the full history or local prompt. */
 export function viewState(
   state: DesktopState,
   companion: boolean,
@@ -15,6 +16,16 @@ export function viewState(
     ? {
         ...state,
         messages: noMessages,
+        surface:
+          state.surface?.kind === "message"
+            ? {
+                ...state.surface,
+                message: {
+                  ...state.surface.message,
+                  content: previewContent(state.surface.message.content),
+                },
+              }
+            : state.surface,
         readMessageIds: [],
         pending: null,
         workspace: "",

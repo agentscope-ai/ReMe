@@ -129,10 +129,11 @@ button {
     animation: none;
   }
 }
-.reminder,
+.message-bubble,
 .status-notice {
   position: absolute;
   z-index: 2;
+  transform: translateX(-50%);
 }
 .status-notice {
   display: flex;
@@ -156,7 +157,7 @@ button {
   font-size: 11px;
   margin-top: 3px;
 }
-.reminder header {
+.message-bubble header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -168,7 +169,7 @@ button {
   color: var(--muted);
   font-weight: 500;
 }
-.reminder p {
+.message-bubble p {
   margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 3;
@@ -176,7 +177,7 @@ button {
   overflow: hidden;
   overflow-wrap: anywhere;
 }
-.reminder footer {
+.message-bubble footer {
   display: flex;
 }
 .companion-badges {
@@ -409,9 +410,17 @@ button {
   font-size: 11px;
   margin-top: 8px;
 }
-.thinking {
+.message-status {
+  display: block;
   color: var(--muted);
   font-size: 12px;
+  margin-top: 4px;
+}
+.message-status.error {
+  color: var(--error);
+}
+.message-status.waiting {
+  color: var(--accent);
 }
 .chat-composer {
   padding: 12px 16px 13px;

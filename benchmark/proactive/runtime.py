@@ -1,4 +1,4 @@
-"""Run current chat and six-query proactive jobs with controlled clock and evidence."""
+"""Run current chat and seven-query proactive jobs with controlled clock and evidence."""
 
 # pylint: disable=protected-access
 

@@ -107,6 +107,7 @@ const manifest = {
   name: "Remy",
   version: config.version,
   ambient: config.ambient,
+  ambient_weights: config.ambient_weights,
   canvas: config.canvas,
   output_fps: config.fps,
   animations: config.animations.map((item) => ({

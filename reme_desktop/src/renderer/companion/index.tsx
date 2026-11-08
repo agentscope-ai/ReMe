@@ -4,19 +4,39 @@ import { Character, hitCharacter } from "../animation/player.tsx";
 import { action } from "../desktop.ts";
 import { translator } from "../../shared/i18n.ts";
 import { ArrowUpRight, Sparkles, X, Volume2, Square } from "lucide-react";
+import MessageBody from "../message-body.tsx";
 import { surfaceKey } from "../../shared/surface.ts";
 
-export default function Companion({ state, manifest, layout }: Bootstrap) {
+export default function Companion({
+  state,
+  manifest,
+  layout,
+  embedded = false,
+}: Bootstrap & { embedded?: boolean }) {
+  const active = layout.presence
+    ? layout.presence.visible &&
+      layout.presence.host === (embedded ? "app" : "desktop")
+    : !embedded;
   const language = state.settings.language;
   const t = translator(language);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const bubbleElement = useRef<HTMLElement | null>(null);
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const animation = state.behavior.animation;
+  const motion = active ? layout.presence?.motion : undefined;
+  const animation = motion
+    ? {
+        id: -motion.id,
+        clip: "walking",
+        mode: "loop" as const,
+        startedAt: motion.startedAt,
+      }
+    : state.behavior.animation;
   const dragging = animation.clip === "dragged";
-  const surface = state.surface;
-  const reminder = surface?.kind === "reminder" ? surface : null;
+  const surface = active && !motion ? state.surface : null;
+  const bubble = surface?.kind === "message" ? surface : null;
+  const message = bubble?.message;
+  const reminder = message?.source === "proactive";
   const measurementKey = surfaceKey(surface);
   const run = (value: Parameters<typeof action>[0]) => {
     void action(value).catch((error: unknown) => setError(error));
@@ -43,7 +63,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
   }, [measurementKey]);
 
   useEffect(() => {
-    if (!reminder || !state.sessionId) return;
+    if (!reminder || !bubble || !state.sessionId) return;
     let second = 0;
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => {
@@ -55,8 +75,8 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         run({
           type: "bubble.shown",
           sessionId: state.sessionId!,
-          id: reminder.id,
-          presentationId: reminder.presentationId,
+          id: message!.id,
+          presentationId: bubble!.presentationId,
         });
       });
     });
@@ -64,9 +84,10 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       cancelAnimationFrame(first);
       cancelAnimationFrame(second);
     };
-  }, [reminder?.presentationId, state.sessionId]);
+  }, [reminder, bubble?.presentationId, state.sessionId]);
 
   useEffect(() => {
+    if (!active || embedded) return;
     let last = false;
     const move = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -92,82 +113,103 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerout", leave);
     };
-  }, []);
+  }, [active, embedded]);
 
   return (
-    <main className="companion" aria-label={t("companion")}>
-      {reminder && (
+    <main
+      className={`companion ${embedded ? "embedded-companion" : ""}`}
+      aria-label={t("companion")}
+      data-host={embedded ? "app" : "desktop"}
+      style={{
+        display: active ? undefined : "none",
+        opacity: layout.presence?.opacity ?? 1,
+      }}
+    >
+      {bubble && message && (
         <section
           ref={bubbleElement}
-          className="reminder"
+          className="message-bubble"
+          data-message-id={message.id}
+          data-source={message.source}
           data-interactive
           style={{
-            left: layout.bubble.left,
+            left: layout.bubble.left + layout.bubble.width / 2,
             top: layout.bubble.top,
             maxWidth: layout.bubble.maxWidth,
           }}
-          aria-label={t("reminder")}
+          aria-label={t(reminder ? "reminder" : "reply")}
           onPointerEnter={() =>
-            run({ type: "bubble.pause", id: reminder.id, paused: true })
+            run({ type: "bubble.pause", id: message.id, paused: true })
           }
           onPointerLeave={() =>
-            run({ type: "bubble.pause", id: reminder.id, paused: false })
+            run({ type: "bubble.pause", id: message.id, paused: false })
           }
         >
           <header>
-            <span className="reminder-heading">
+            <span className="bubble-heading">
               <Sparkles size={13} aria-hidden />
-              {t("reminderHeading")}
+              {t(reminder ? "reminderHeading" : "replyHeading")}
             </span>
             <button
-              aria-label={t("dismissReminder")}
+              aria-label={t("dismissBubble")}
               className="icon-button"
-              onClick={() => run({ type: "bubble.dismiss", id: reminder.id })}
+              onClick={() => run({ type: "bubble.dismiss", id: message.id })}
             >
               <X size={13} />
             </button>
           </header>
-          <p>{reminder.text.replace(/^#+\s*/gm, "").slice(0, 400)}</p>
+          <MessageBody
+            message={message}
+            language={language}
+            compact
+            onLink={(url) => run({ type: "link.open", url })}
+          />
           <footer>
-            {state.speech.tts && (
-              <button
-                className="subtle"
-                aria-label={t(
-                  state.speech.playback?.messageId === reminder.id
-                    ? "stopSpeech"
-                    : "readAloud",
-                )}
-                onClick={() =>
-                  run(
-                    state.speech.playback?.messageId === reminder.id
-                      ? { type: "speech.stop" }
-                      : {
-                          type: "speech.speak",
-                          sessionId: state.sessionId!,
-                          messageId: reminder.id,
-                        },
-                  )
-                }
-              >
-                {state.speech.playback?.messageId === reminder.id ? (
-                  <Square size={13} />
-                ) : (
-                  <Volume2 size={14} />
-                )}
-              </button>
-            )}
+            {state.speech.tts &&
+              message.completed &&
+              message.content &&
+              !message.error &&
+              message.status?.tone !== "error" && (
+                <button
+                  className="subtle"
+                  aria-label={t(
+                    state.speech.playback?.messageId === message.id
+                      ? "stopSpeech"
+                      : "readAloud",
+                  )}
+                  onClick={() =>
+                    run(
+                      state.speech.playback?.messageId === message.id
+                        ? { type: "speech.stop" }
+                        : {
+                            type: "speech.speak",
+                            sessionId: state.sessionId!,
+                            messageId: message.id,
+                          },
+                    )
+                  }
+                >
+                  {state.speech.playback?.messageId === message.id ? (
+                    <Square size={13} />
+                  ) : (
+                    <Volume2 size={14} />
+                  )}
+                </button>
+              )}
             <button
               className="primary"
-              onClick={() => run({ type: "chat.open", messageId: reminder.id })}
+              onClick={() => run({ type: "chat.open", messageId: message.id })}
             >
               {t("expandReminder")} <ArrowUpRight size={13} aria-hidden />
             </button>
-            <button
-              className="subtle"
-              onClick={() => run({ type: "bubble.snooze", id: reminder.id })}
-            >
-              {t("snoozeReminder")}
-            </button>
+            {reminder && (
+              <button
+                className="subtle"
+                onClick={() => run({ type: "bubble.snooze", id: message.id })}
+              >
+                {t("snoozeReminder")}
+              </button>
+            )}
           </footer>
         </section>
       )}
@@ -177,9 +219,11 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           className={`status-notice ${surface.tone}`}
           data-interactive
           aria-label={t("statusOpen", { text: surface.text })}
-          onClick={openChat}
+          onClick={() =>
+            run({ type: "chat.open", messageId: surface.messageId })
+          }
           style={{
-            left: layout.bubble.left,
+            left: layout.bubble.left + layout.bubble.width / 2,
             top: layout.bubble.top,
             maxWidth: layout.bubble.maxWidth,
           }}
@@ -200,6 +244,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           top: layout.body.top,
           width: layout.body.size,
           height: layout.body.size,
+          transform: motion?.direction === -1 ? "scaleX(-1)" : undefined,
         }}
         onClick={(event) => {
           if (event.detail === 0) openChat();
@@ -252,9 +297,10 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           manifest={manifest}
           language={language}
           animation={animation}
+          active={active}
           canvasRef={canvas}
           onPlayback={(id, status) =>
-            run({ type: "playback.report", id, status })
+            !motion && run({ type: "playback.report", id, status })
           }
         />
       </button>

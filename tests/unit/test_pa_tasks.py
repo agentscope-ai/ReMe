@@ -13,6 +13,8 @@ import pytest
 from reme.components.job import BaseJob, CronJob
 from reme.components.runtime_context import RuntimeContext
 from reme.schema.pa_task import PaTask
+from reme.schema import Response
+from reme.schema.screen_capture import CapturedDisplay
 from reme.steps.proactive import TaskAgentStep, TaskScheduleStep
 from reme.steps.proactive.tools import ReadTaskResultsStep
 
@@ -98,6 +100,9 @@ async def test_two_queries_share_session_and_publish_latest_cross_day_summary(pa
     assert len(calls) == 2 and calls[0].args[0] == task()["query"]
     assert "resume" not in calls[0].kwargs and calls[1].kwargs["resume"] == "task-session"
     assert all(call.kwargs["job_tools"] == ["screen_capture"] for call in calls)
+    assert all(call.kwargs["activity_source"] == "task" for call in calls)
+    assert calls[0].kwargs["activity_run_id"] == calls[1].kwargs["activity_run_id"]
+    assert all(call.kwargs["activity_task_id"] == "one" for call in calls)
     assert captured["previous_paths"].splitlines() == [str(newer), str(old)]
     path = env.runtime.workspace_path / result.answer["path"]
     assert path == env.runtime.tasks.daily_path / "2026-11-08/cron/one/120000.md"
@@ -139,8 +144,27 @@ async def test_existing_snapshot_is_never_overwritten(pa_workspace, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_final_record_failure_clears_live_task_activity(pa_workspace, monkeypatch):
+    env = pa_workspace
+    env.runtime._closed = False
+    stub_model(env, monkeypatch)
+    record = env.runtime.tasks.record
+
+    async def fail_final(run):
+        if run.status != "running":
+            raise OSError("disk full")
+        await record(run)
+
+    monkeypatch.setattr(env.runtime.tasks, "record", fail_final)
+    with pytest.raises(OSError, match="disk full"):
+        await TaskAgentStep(app_context=env.context)(task=task())
+    assert env.runtime._task_activities == {}
+
+
+@pytest.mark.asyncio
 async def test_task_cancellation_records_interruption(pa_workspace):
     env = pa_workspace
+    env.runtime._closed = False
     entered = asyncio.Event()
 
     async def reply(*_args, **_kwargs):
@@ -150,11 +174,13 @@ async def test_task_cancellation_records_interruption(pa_workspace):
     env.agent.reply = AsyncMock(side_effect=reply)
     pending = asyncio.create_task(TaskAgentStep(app_context=env.context)(task=task()))
     await entered.wait()
+    assert len(env.runtime._task_activities) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
     rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "interrupted" and not env.runtime.tasks.paths("one")
+    assert env.runtime._task_activities == {}
 
 
 @pytest.mark.asyncio
@@ -382,3 +408,90 @@ async def test_stopped_task_does_not_start_a_model_turn(pa_workspace):
     env.agent.reply.assert_not_awaited()
     rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "interrupted"
+
+
+def captured_frame(env, name="new.png"):
+    from PIL import Image
+
+    path = env.runtime.workspace_path / "resource/screen_capture" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), "white").save(path)
+    return CapturedDisplay(
+        display_id="stable-display",
+        stable_id=True,
+        bounds=(0, 0, 64, 64),
+        pixel_size=(64, 64),
+        path=env.runtime.to_workspace_relative(path),
+        scope="task:one",
+        captured_at=env.now[0],
+    ).model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_unchanged_screen_preflight_skips_both_model_queries_and_unread_summary(pa_workspace):
+    env = pa_workspace
+    env.agent.reply = AsyncMock()
+    capture = AsyncMock(return_value=Response(answer={"context": "与上次一致", "paths": []}))
+    env.context.jobs["screen_capture"] = capture
+    result = await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    assert result.answer == {"task_id": "one", "status": "skipped", "reason": "screen_unchanged"}
+    env.agent.reply.assert_not_awaited()
+    assert not env.runtime.tasks.paths("one")
+    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    assert [row["status"] for row in rows] == ["running", "skipped"]
+    assert rows[-1]["reason"] == "screen_unchanged"
+
+
+@pytest.mark.asyncio
+async def test_changed_preflight_keeps_original_query_and_reuses_normal_tool_result(pa_workspace, monkeypatch):
+    env = pa_workspace
+    frame = captured_frame(env)
+    payload = {"context": "changed", "paths": [frame["path"]]}
+    capture = AsyncMock(return_value=Response(answer=payload, metadata={"screen_capture": [frame]}))
+    env.context.jobs["screen_capture"] = capture
+    stub_model(env, monkeypatch)
+    result = await TaskAgentStep(app_context=env.context, job_tools=["screen_capture"])(
+        task=task(preflight="screen_capture"),
+    )
+    calls = env.agent.reply.await_args_list
+    assert calls[0].args[0] == task()["query"]
+    assert calls[0].kwargs["job_tools"] == ["screen_capture"]
+    assert calls[0].kwargs["injected_job_kwargs"]["_screen_preflight"] == {"result": payload, "frames": [frame]}
+    assert calls[0].kwargs["injected_job_kwargs"] == calls[1].kwargs["injected_job_kwargs"]
+    assert capture.await_args.kwargs["_screen_baseline"] == []
+    post = frontmatter.load(env.runtime.workspace_path / result.answer["path"])
+    assert post["screen_capture"] == [frame]
+    assert env.runtime.tasks.screen_baseline("one") == [frame]
+
+
+@pytest.mark.asyncio
+async def test_model_failure_keeps_previous_successful_screen_baseline(pa_workspace, monkeypatch):
+    env = pa_workspace
+    old, new = captured_frame(env, "old.png"), captured_frame(env)
+    previous = snapshot(env, time="110000")
+    previous.write_text(frontmatter.dumps(frontmatter.Post("previous", task_id="one", screen_capture=[old])))
+    before = previous.read_bytes()
+    env.context.jobs["screen_capture"] = AsyncMock(
+        return_value=Response(
+            answer={"context": "changed", "paths": [new["path"]]},
+            metadata={"screen_capture": [new]},
+        ),
+    )
+    stub_model(env, monkeypatch, fail_at=1)
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    assert previous.read_bytes() == before
+    assert env.runtime.tasks.screen_baseline("one") == [old]
+    assert env.context.jobs["screen_capture"].await_args.kwargs["_screen_baseline"] == [old]
+
+
+@pytest.mark.asyncio
+async def test_screen_capture_failure_is_not_misreported_as_unchanged(pa_workspace):
+    env = pa_workspace
+    env.agent.reply = AsyncMock()
+    env.context.jobs["screen_capture"] = AsyncMock(return_value=Response(success=False, answer="capture timed out"))
+    with pytest.raises(RuntimeError, match="timed out"):
+        await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    env.agent.reply.assert_not_awaited()
+    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    assert rows[-1]["status"] == "failed" and rows[-1]["reason"] is None

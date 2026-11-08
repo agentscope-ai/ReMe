@@ -106,20 +106,40 @@ reme check_json path=reme_metadata/pa/proactive.json
 instructions; paths are workspace-relative files or directories for progressive inspection. Text-only results may return
 an empty path list. No `metadata.json` is generated. Callers that retain task results should retain both fields together.
 
-`screen_capture` saves one original-size PNG per display under:
+`screen_capture` compares displays by stable identity and saves changed original-size PNGs under:
 
 ```text
-resource/screen_capture/2026-11-07_10-20-30-123456_screen_1.png
-resource/screen_capture/2026-11-07_10-20-30-123456_screen_2.png
+resource/screen_capture/2026-11-07_10-20-30-123456_display_<identity-hash>.png
 ```
 
+The filename token hashes the native display identity; it is not an enumeration index. macOS uses display UUIDs;
+other backends use MSS's optional `unique_id`. Missing or ambiguous identities always warrant analysis. PNG metadata
+retains identity, geometry and comparison exclusions; original pixels are unchanged. Missing, unreadable, or differently
+sized baselines also warrant analysis. Manual calls compare against the last successfully published manual capture.
+When all screens are similar, the tool returns an explanation and `paths=[]`, without publishing files.
+
+Comparison settings live in `components.screen_capture.default`: longest edge 1280, RGB channel difference greater
+than 20, global changed-pixel ratio 0.0005, and overlapping 32×32 tiles at stride 16 with ratio 0.015. Either ratio reaching
+its threshold warrants analysis. On macOS, floating windows titled `Remy · ReMe` and the known clock region are excluded
+from comparison; both old and new window positions are considered. The original screenshots still include these regions.
+Other desktop changes, including caret blinking and hover UI, may warrant analysis without being worth a reminder.
+
+The lifecycle-owned component permits one capture at a time and rejects concurrent requests. Native APIs run in a child
+process with a 90-second default deadline; timeout, cancellation, stop, and shutdown terminate and reap the child.
+Comparison and publication run off the service event loop. Capture failures are errors, never unchanged results.
+
 The textual context includes the capture time with timezone, display count, and interpretation instructions. Displays are
-captured sequentially; their enumeration numbers apply only to that collection. Files are staged before publication;
+captured sequentially. Files are staged before publication;
 a failed or cancelled collection removes its own published files without overwriting existing captures. Unlike the old
 resource-package layout, publication of multiple flat files is not a single atomic directory operation.
 
 Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/tasks.json`, independently dispatched by a ReMe
-CronJob through `task_agent` every five minutes. Disable it by setting `enabled` to false; file edits reload automatically.
+CronJob through `task_agent` every five minutes. Its `preflight: screen_capture` captures before either model query;
+unchanged screens return `status=skipped, reason=screen_unchanged`, without a new unread summary. Changed captures are
+reused by the ordinary screenshot tool, and the configured query is unchanged. Only successfully published summaries
+advance that task's baseline through their code-owned `screen_capture` frontmatter. Failed runs cannot advance it.
+Existing screenshot tasks must explicitly add this preflight field; other tasks keep running independently.
+Disable the task by setting `enabled` to false; file edits reload automatically.
 Cumulative summaries live under `{daily_dir}/YYYY-MM-DD/cron/screen_activity/` for proactive consumption. Install `reme-ai[core]` and grant screen-recording permission to the process
 running ReMe. Availability depends on the local MSS backend.
 

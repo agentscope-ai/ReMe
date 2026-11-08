@@ -51,6 +51,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
   let speechError = false;
   let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
+  let replyDelay = 300;
   const sockets = new Set();
   const events = [];
   const cursors = [];
@@ -58,6 +59,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
   let messages = [];
   let status = "idle";
   let activities = {};
+  let taskActivities = {};
   let notifications = {
     starts_at: new Date(Date.now() - 3_600_000).toISOString(),
     ends_at: new Date(Date.now() + 3_600_000).toISOString(),
@@ -69,6 +71,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
   const emit = (event) => {
     const value = structuredClone({
       ...event,
+      task_activities: taskActivities,
       notifications,
       session_id: sessionId,
       cursor: `test-epoch:${events.length + 1}`,
@@ -270,6 +273,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
               session_id: sessionId,
               status,
               activities,
+              task_activities: taskActivities,
               notifications,
               snapshot: snapshot(),
               cursor: `test-epoch:${events.length}`,
@@ -284,6 +288,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
             session_id: sessionId,
             status,
             activities,
+            task_activities: taskActivities,
             notifications,
             snapshot: snapshot(),
             cursor: `test-epoch:${events.length}`,
@@ -380,7 +385,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
         status = "idle";
         activities.chat = { ...activities.chat, phase: "completed" };
         emit({ type: "status_changed", status, activities });
-      }, 300);
+      }, replyDelay);
       return;
     }
     response.writeHead(404);
@@ -394,6 +399,10 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
     },
     url: `http://127.0.0.1:${server.address().port}`,
     push,
+    upsert,
+    setReplyDelay(value) {
+      replyDelay = value;
+    },
     cursors,
     ttsRequests,
     asrRequests,
@@ -427,6 +436,21 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
         status = ["completed", "failed", "interrupted"].includes(phase)
           ? "idle"
           : "active";
+      emit({ type: "status_changed", status, activities });
+    },
+    taskActivity(phase, taskId = "research", runId = taskId) {
+      if (["completed", "failed", "interrupted"].includes(phase))
+        delete taskActivities[runId];
+      else
+        taskActivities[runId] = {
+          session_id: `task-session:${runId}`,
+          turn_id: `task-turn:${runId}`,
+          source: "task",
+          phase,
+          run_id: runId,
+          task_id: taskId,
+          tool: null,
+        };
       emit({ type: "status_changed", status, activities });
     },
     disconnect() {
