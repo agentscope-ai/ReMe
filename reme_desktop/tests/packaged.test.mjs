@@ -99,17 +99,22 @@ test(
             exact: true,
           }),
       ).toBeVisible();
-      await app.evaluate(({ nativeTheme }) => {
-        nativeTheme.themeSource = "dark";
-      });
-      await chat.emulateMedia({ colorScheme: "dark" });
+      await chat.evaluate(() =>
+        window.desktop.action({ type: "settings.update", theme: "dark" }),
+      );
+      await expect(chat.locator("html")).toHaveAttribute("data-theme", "dark");
+      const background = await chat.evaluate(() => ({
+        color: getComputedStyle(document.querySelector(".workspace-main"))
+          .backgroundColor,
+        reducedTransparency: matchMedia(
+          "(prefers-reduced-transparency: reduce)",
+        ).matches,
+      }));
       assert.equal(
-        await chat.evaluate(
-          () =>
-            getComputedStyle(document.querySelector(".workspace-main"))
-              .backgroundColor,
-        ),
-        "rgba(29, 37, 33, 0.96)",
+        background.color,
+        background.reducedTransparency
+          ? "rgb(29, 37, 33)"
+          : "rgba(29, 37, 33, 0.96)",
       );
       await expect(chat.locator(".workspace-shell")).toBeVisible();
       await mkdir(path.join(project, "reports"), { recursive: true });
