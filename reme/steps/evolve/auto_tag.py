@@ -247,7 +247,7 @@ class AutoTagStep(BaseStep):
         }
         if self.direct_llm:
             generated_tags = await self._direct_tags(target)
-            result_text = f"Generated tags: {json.dumps(generated_tags, ensure_ascii=False)}"
+            text = f"Generated tags: {json.dumps(generated_tags, ensure_ascii=False)}"
         else:
             result = await self.agent_wrapper.reply(
                 self.prompt_format("user_message", path=target.path, change=target.change, tag_key=tag_key),
@@ -259,6 +259,7 @@ class AutoTagStep(BaseStep):
                 job_tools=self.tools,
                 injected_job_kwargs=tool_context,
             )
+            text = agent_reply_result_text(result)
 
         path = self.workspace_path / target.path
         metadata = dict(frontmatter.loads(path.read_text(encoding="utf-8")).metadata or {})
@@ -281,7 +282,7 @@ class AutoTagStep(BaseStep):
             )
             if not response.success:
                 raise RuntimeError(str(response.answer))
-        return result_text if self.direct_llm else agent_reply_result_text(result)
+        return text
 
     async def execute(self):
         assert self.context is not None

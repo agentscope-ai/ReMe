@@ -351,7 +351,7 @@ async def test_compact_session_uses_claude_command(tmp_path, monkeypatch):
 
     async def reply(inputs, **kwargs):
         calls.append((inputs, kwargs))
-        return {"last_message": {"is_error": False}}
+        return {"status": "completed", "error": None}
 
     monkeypatch.setattr(wrapper, "reply", reply)
 
@@ -483,7 +483,9 @@ async def test_reply_stream_emits_one_reply_end_for_normal_sdk_lifecycle(tmp_pat
     delta_usage = next(chunk for chunk in chunks if chunk.metadata.get("stop_reason") == "end_turn")
     assert delta_usage.chunk_type == ChunkEnum.USAGE
     assert delta_usage.output_tokens == 2
-    assert not recorded_usages
+    assert [usage.model_dump() for usage in recorded_usages] == [
+        {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+    ]
 
 
 @pytest.mark.asyncio
@@ -597,17 +599,23 @@ async def test_reply_stream_reports_session_mirror_errors(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "wrapper_factory",
-    [
-        _wrapper,
-        lambda tmp_path: AsAgentWrapper(as_llm="", app_context=ApplicationContext(workspace_dir=str(tmp_path))),
-    ],
-)
 @pytest.mark.parametrize("schema", [{}, {"type": "object"}])
-async def test_reply_stream_rejects_output_schema(tmp_path, wrapper_factory, schema):
-    """Streaming wrappers reject structured-output schemas consistently."""
-    wrapper = wrapper_factory(tmp_path)
+async def test_reply_stream_supports_output_schema(tmp_path, monkeypatch, schema):
+    """Structured output uses the same execution path for both return modes."""
+    from claude_agent_sdk import ResultMessage
 
-    with pytest.raises(NotImplementedError, match="Structured output is not supported"):
-        await anext(wrapper.reply_stream("hello", output_schema=schema))
+    async def query(**kwargs):
+        assert kwargs["options"].output_format == {"type": "json_schema", "schema": schema}
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="session",
+            structured_output={},
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    chunks = [chunk async for chunk in _wrapper(tmp_path).reply_stream("hello", output_schema=schema)]
+    assert chunks[-1].chunk["structured_output"] == {}

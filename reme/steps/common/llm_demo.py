@@ -14,18 +14,16 @@ class LLMDemoStep(BaseStep):
 
     Inputs (from RuntimeContext):
         query     (str, required): user message content.
-        sys_prompt (str, optional): system prompt for the agent.
+        sys_prompt (str, optional): system prompt for the agent; defaults to empty.
 
     Output (written to context.response.answer):
         The agent's final reply text.
     """
 
-    DEFAULT_SYS_PROMPT = "You are a helpful assistant. Provide clear and detailed responses."
-
     async def execute(self):
         assert self.context is not None
         query: str = self.context.get("query", "")
-        sys_prompt: str = self.context.get("sys_prompt") or self.DEFAULT_SYS_PROMPT
+        sys_prompt: str = self.context.get("sys_prompt") or ""
         structured_model: Type[BaseModel] | None = self.context.get("structured_model")
 
         if not query:
@@ -42,18 +40,17 @@ class LLMDemoStep(BaseStep):
 
         result = await self.agent_wrapper.reply(query, **wrapper_kwargs)
 
-        structured_content = result.get("structured_output")
-        text = (result.get("result") or "").strip()
+        text = result["result"].strip()
         self.logger.info(f"[{self.name}] response: {text!r}")
 
-        self.context.response.success = True
-        self.context.response.answer = text
+        self.context.response.success = result["status"] == "completed"
+        self.context.response.answer = result["error"] or text
         self.context.response.metadata.update(
             {
+                **result,
                 "query": query,
                 "sys_prompt": sys_prompt,
                 "response": text,
-                "structured_output": structured_content,
             },
         )
         return self.context.response

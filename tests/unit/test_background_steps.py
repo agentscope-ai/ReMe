@@ -54,8 +54,8 @@ from reme.steps.index import (
     WatchChangesStep,
 )
 from reme.steps.index._change_batch import bucket_changes
-from reme.steps.index._watch_rules import WatchRule, build_watch_rules, collect_existing, match_file
 from reme.utils.file_utils import FileChangedDuringChunkingError
+from reme.utils.file_watch import WatchRule, build_watch_rules, collect_existing, match_file
 
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="jieba")
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="pkg_resources")
@@ -82,7 +82,7 @@ class _FakeAgentWrapper(BaseAgentWrapper):
         self.kwargs = kwargs
         if self.on_reply is not None:
             self.on_reply(inputs, kwargs)
-        return {"result": "ok"}
+        return self._reply_result(session_id="stub", result="ok", raw={})
 
 
 class _StepJob:
@@ -121,7 +121,7 @@ def _install_file_jobs(app_context, file_store) -> None:
 
 
 # ---------------------------------------------------------------------------
-# _watch_rules module tests
+# file_watch module tests
 # ---------------------------------------------------------------------------
 
 

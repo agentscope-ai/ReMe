@@ -5,14 +5,32 @@ import pytest
 from scripts.sync_qwenpaw_agentscope import sync_pin
 
 QWENPAW = '[project]\ndependencies = ["agentscope[model-ollama]==2.0.8"]\n'
-REME = '[project.optional-dependencies]\nas = ["agentscope[model-ollama]==2.0.7.post1"]\n'
+REME = (
+    "[project.optional-dependencies]\n"
+    'as = ["agentscope[model-ollama]==2.0.7.post1"]\n'
+    'decision = ["agentscope[classifier-jev]==2.0.7.post1"]\n'
+)
 
 
-def test_sync_pin_updates_only_reme_pin():
-    """A stable QwenPaw pin replaces ReMe's exact pin."""
+def test_sync_pin_updates_both_reme_pins():
+    """The model and decision extras must resolve to the same stable version."""
     version, updated = sync_pin(QWENPAW, REME)
     assert version == "2.0.8"
     assert updated == REME.replace("2.0.7.post1", "2.0.8")
+
+
+def test_sync_pin_accepts_qwenpaw_classifier_extra():
+    """Additional host extras do not change ReMe's independently selected extras."""
+    upstream = '[project]\ndependencies = ["agentscope[model-ollama,classifier-jev]==2.0.11"]\n'
+    version, updated = sync_pin(upstream, REME)
+    assert version == "2.0.11"
+    assert updated == REME.replace("2.0.7.post1", "2.0.11")
+
+
+def test_sync_pin_preserves_already_aligned_manifest():
+    """A repeated sync does not rewrite an aligned manifest."""
+    current = REME.replace("2.0.7.post1", "2.0.8")
+    assert sync_pin(QWENPAW, current) == ("2.0.8", current)
 
 
 @pytest.mark.parametrize(

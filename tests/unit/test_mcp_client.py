@@ -1,9 +1,11 @@
 """MCP client addresses and SDK tool descriptors."""
 
+# pylint: disable=protected-access
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from mcp.types import Tool, ToolAnnotations
+from mcp.types import CallToolResult, ImageContent, TextContent, Tool, ToolAnnotations
 import pytest
 
 from reme.components.client.mcp_client import MCPClient
@@ -56,3 +58,30 @@ async def test_mcp_catalog_uses_sdk_field_names():
     assert action["annotations"]["open_world_hint"] is False
     assert action["meta"] == metadata
     assert {"inputSchema", "outputSchema", "_meta"}.isdisjoint(action)
+
+
+@pytest.mark.asyncio
+async def test_mcp_execute_preserves_all_text_content_blocks():
+    """MCP responses may have multiple text blocks separated by non-text blocks."""
+    result = CallToolResult(
+        content=[
+            TextContent(text="First result"),
+            ImageContent(data="aW1hZ2U=", mime_type="image/png"),
+            TextContent(text="Second result"),
+        ],
+    )
+    mcp = SimpleNamespace(call_tool=AsyncMock(return_value=result))
+    client = MCPClient()
+    client.client = mcp
+
+    chunks = [chunk async for chunk in client._execute("search", {"query": "topic"})]
+
+    assert chunks == ["First result\nSecond result"]
+    mcp.call_tool.assert_awaited_once_with("search", {"query": "topic"})
+
+
+def test_mcp_extract_text_falls_back_when_response_has_no_text_blocks():
+    """Non-text-only responses retain the existing fallback representation."""
+    content = CallToolResult(content=[ImageContent(data="aW1hZ2U=", mime_type="image/png")])
+
+    assert MCPClient._extract_text(content) == str(content.content)

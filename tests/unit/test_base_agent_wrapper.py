@@ -81,6 +81,16 @@ async def test_session_commands_are_backend_neutral():
     assert wrapper.compacted_session == "session-1"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+async def test_session_path_lookup_is_explicitly_unsupported(tmp_path, wrapper_class):
+    """Backends without native path lookup raise the shared capability error."""
+    wrapper = wrapper_class(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+
+    with pytest.raises(NotImplementedError, match=f"{wrapper_class.__name__} does not support session path lookup"):
+        await wrapper.get_session_path("session-1")
+
+
 @pytest.mark.parametrize(
     ("wrapper_class", "sdk_package"),
     [
@@ -192,13 +202,14 @@ async def test_agentscope_builtin_tools_are_opt_in(tmp_path, monkeypatch, reply_
 
         def __init__(self, **kwargs):
             self.state = kwargs["state"]
+            observed["system_prompt"] = kwargs["system_prompt"]
 
     monkeypatch.setattr(wrapper, "_builtin_tools", builtin_tools)
     monkeypatch.setattr(as_agent_wrapper, "Agent", FakeAgent)
 
     await wrapper._build_agent("hello", **reply_kwargs)  # pylint: disable=protected-access
 
-    assert observed == {"names": expected, "sequential_tool_calls": True}
+    assert observed == {"names": expected, "sequential_tool_calls": True, "system_prompt": ""}
 
 
 @pytest.mark.asyncio
@@ -212,22 +223,9 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         async def generate_structured_output(self, **kwargs):
             """Return a successful structured response."""
             observed.update(kwargs)
-            return SimpleNamespace(content={"ok": True}, usage=None)
+            from agentscope.model import StructuredResponse
 
-    class FakeMessage:
-        """Minimal AgentScope reply message."""
-
-        usage = None
-
-        @staticmethod
-        def model_dump():
-            """Return serialized message content."""
-            return {"content": "answer"}
-
-        @staticmethod
-        def get_text_content():
-            """Return plain text content."""
-            return "answer"
+            return StructuredResponse(content={"ok": True})
 
     class FakeAgent:
         """Minimal AgentScope agent."""
@@ -235,14 +233,13 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         state = SimpleNamespace(session_id="session-1", context=["context"])
 
         @staticmethod
-        async def observe(_inputs):
-            """Accept an input message."""
-            return None
+        async def reply_stream(_inputs, **_kwargs):
+            """Stream real SDK termination and message shapes."""
+            from agentscope.event import ReplyEndEvent
+            from agentscope.message import AssistantMsg
 
-        @staticmethod
-        async def reply():
-            """Return the fake reply message."""
-            return FakeMessage()
+            yield ReplyEndEvent(session_id="session-1", reply_id="reply", finished_reason="completed")
+            yield AssistantMsg(name="agent", content="answer", finished_reason="completed")
 
     wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
     wrapper.as_llm = SimpleNamespace(model=FakeModel())

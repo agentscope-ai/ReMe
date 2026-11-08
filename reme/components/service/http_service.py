@@ -67,10 +67,15 @@ class HttpService(BaseService):
 
     def build_service(self, app: "Application") -> None:
         """Create one FastAPI app containing JSON/SSE and optional MCP routes."""
+        from fastmcp.utilities.lifespan import combine_lifespans
+
         lifespan = self._lifespan(app, self.host, self.port)
+        servers = self.app_context.components.get("codex_app_server", {}) if self.app_context else {}
+        # TLS listeners may use certificates that cannot be verified through a loopback address.
+        if self.kwargs.get("ssl_certfile") or self.kwargs.get("ssl_keyfile"):
+            servers = {}
         if self.mcp_enabled:
             from fastmcp import FastMCP
-            from fastmcp.utilities.lifespan import combine_lifespans
 
             self.mcp_server = FastMCP(name=app.config.app_name)
             self.mcp_app = self.mcp_server.http_app(
@@ -84,6 +89,13 @@ class HttpService(BaseService):
             title=app.config.app_name,
             lifespan=lifespan,
         )
+        for server in servers.values():
+            gateway = server.jobs_mcp
+            self.service.router.lifespan_context = combine_lifespans(
+                gateway.app.lifespan,
+                self.service.router.lifespan_context,
+            )
+            self.service.router.routes.append(Route(gateway.path, endpoint=gateway, methods=["GET", "POST", "DELETE"]))
         cors_origins = ["*"]
         self.service.add_middleware(
             CORSMiddleware,  # type: ignore[arg-type]
@@ -232,7 +244,7 @@ class HttpService(BaseService):
         """Register a StreamJob as POST /{job.name} streaming chunks as text/event-stream."""
 
         async def endpoint(request: Request) -> StreamingResponse:
-            stream_queue: asyncio.Queue = asyncio.Queue()
+            stream_queue: asyncio.Queue = asyncio.Queue(maxsize=job.stream_queue_size)
             task = asyncio.create_task(
                 job(stream_queue=stream_queue, **request.model_dump(exclude_none=True)),
             )

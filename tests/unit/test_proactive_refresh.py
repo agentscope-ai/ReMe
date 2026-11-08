@@ -147,11 +147,11 @@ class _AgentWrapper(BaseAgentWrapper):
         return {
             "session_id": "stub",
             "result": text,
-            "last_message": {"content": [{"type": "text", "text": text}]},
+            "status": "completed",
         }
 
 
-class _DummyModel(ChatModelBase):
+class _DummyModel(ChatModelBase):  # pylint: disable=abstract-method
     """Placeholder model satisfying dream extract's llm_available check."""
 
     def __init__(self):
@@ -624,6 +624,7 @@ async def test_refresh_chain_e2e(tmp_path):
     resp_finish = await finish(context)
 
     assert resp_extract.success and resp_topics.success and resp_finish.success
+    assert "duration_ms" not in resp_finish.metadata["proactive"]
     state = context.get("proactive")
     assert state["llm_calls"] == 1
     assert state["push"] is True

@@ -54,25 +54,19 @@ class HttpClient(BaseClient):
                         continue
                     data_str = line[len("data:") :]
                     if data_str.strip() == "[DONE]":
+                        yield StreamChunk(chunk_type=ChunkEnum.DONE, chunk="", done=True)
                         return
-                    try:
-                        data = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                    data = json.loads(data_str)
                     chunk = StreamChunk(**data)
-                    if chunk.chunk_type == ChunkEnum.ERROR:
-                        # Surface server-side errors as exceptions so callers don't
-                        # mistake error chunks for valid content.
-                        raise RuntimeError(str(chunk.chunk))
-                    if chunk.done:
-                        return
                     yield chunk
-            else:
-                body = await resp.aread()
-                yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=body.decode())
+                    if chunk.done or chunk.chunk_type == ChunkEnum.DONE:
+                        return
+                raise RuntimeError("Stream ended without DONE")
+            body = await resp.aread()
+            yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk=body.decode())
 
     async def stream_chunks(self, action: str, **kwargs) -> AsyncGenerator[StreamChunk, None]:
-        """HTTP-specific richer access: yield raw StreamChunk objects (no display formatting)."""
+        """Yield the complete event stream, including errors and DONE, without display formatting."""
         async for chunk in self._iter_stream_chunks(action, kwargs):
             yield chunk
 
@@ -116,8 +110,31 @@ class HttpClient(BaseClient):
     # pylint: disable=invalid-overridden-method
     async def _execute(self, action: str, payload: dict) -> AsyncGenerator[str, None]:
         """Yield text chunks for CLI display; JSON responses are pretty-formatted."""
+        text_blocks: dict[str, str] = {}
         async for chunk in self._iter_stream_chunks(action, payload):
+            if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
+                raise RuntimeError(str(chunk.chunk))
+            if chunk.chunk_type == ChunkEnum.DONE:
+                continue
+            if chunk.chunk_type == ChunkEnum.REPLY_END and chunk.status != "completed":
+                outcome = chunk.chunk if isinstance(chunk.chunk, dict) else {}
+                raise RuntimeError(
+                    outcome.get("error") or chunk.metadata.get("error") or f"Agent reply ended: {chunk.status}",
+                )
             chunk_payload = chunk.chunk
+            if chunk.chunk_type in {ChunkEnum.REPLY_START, ChunkEnum.REPLY_END}:
+                continue
+            if chunk_payload is None or chunk.metadata.get("visibility") == "diagnostic":
+                continue
+            if chunk.chunk_type == ChunkEnum.CONTENT and isinstance(chunk_payload, str) and chunk.block_id:
+                previous = text_blocks.get(chunk.block_id, "")
+                text_blocks[chunk.block_id] = previous + chunk_payload if chunk.event == "delta" else chunk_payload
+                if chunk.event != "delta":
+                    chunk_payload = (
+                        chunk_payload[len(previous) :] if chunk_payload.startswith(previous) else "\n" + chunk_payload
+                    )
+                if not chunk_payload:
+                    continue
             text = chunk_payload if isinstance(chunk_payload, str) else json.dumps(chunk_payload, ensure_ascii=False)
             yield self._format_for_display(text)
 

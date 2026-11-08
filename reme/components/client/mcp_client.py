@@ -106,7 +106,8 @@ class MCPClient(BaseClient):
 
     @staticmethod
     def _extract_text(result: "CallToolResult") -> str:
-        for block in result.content:
-            if hasattr(block, "text"):
-                return block.text
+        """Join text blocks in order and ignore non-text content when text is available."""
+        texts = [block.text for block in result.content if isinstance(getattr(block, "text", None), str)]
+        if texts:
+            return "\n".join(texts)
         return str(result.content)

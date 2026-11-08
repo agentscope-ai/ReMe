@@ -130,3 +130,84 @@ Memory Construction 平均 token 消耗（default agent，35 cases 全量构建�
 | Agent | input tok/case | output tok/case | total tok/case |
 |---|---|---|---|
 | default | 31,943,817 | 1,417,061 | 33,360,878 |
+
+
+## 准备 Home 实验
+
+安装 Home 插件后，在仓库根目录执行：
+
+```bash
+reme plugins install plugins/home
+python benchmark/beam/run_home.py
+```
+
+该入口只创建工作区、准备数据和代码，不运行评测或优化。
+参数见 [config_home.yaml](config_home.yaml)，路径相对仓库根目录；
+可通过 `--config` 更换配置，通过 `--workspace-dir` 指定新工作区。
+默认工作区为 `benchmark/beam/workspaces/home-100K`。
+代码从 `source_ref: HEAD` 对应的 Git 提交导出，不包含未提交修改。
+准备失败会回滚；成功后禁止再次准备同一工作区。
+Python 中也可调用 `await benchmark.beam.run_home.run(workspace_dir=...)`。
+
+顶层 `sampling_policy` 配置采样默认值：`max_cases`、`max_queries`（null 表示不限）、
+`temperature`、`ewma_alpha` 和 `uniform_exploration`。入口校验后将其传给宿主
+`home.evaluation` Component，仍只准备、不执行评测；每次评测分别控制 `sampling`
+和 `record_history`。
+
+顶层 `validation_cycle_time_budget_minutes` 配置宿主 optimizer 两次已完成正式评测之间的
+建议用时，默认 150 分钟；可改为其他正数，或设为 null 关闭时间提醒。
+
+顶层 `max_evaluations` 配置 optimizer 的正式评测次数预算，必须为正整数，默认 10。
+首次成功启动 sandbox 时扣一次，之后失败或取消也不退还；初始 baseline 和 debug 不计入。
+
+顶层 `memory_limit_mib` 配置优化、诊断、case study 和评估审查的宿主 agent 沙箱内存限制。
+在 runner YAML 中设置 `memory_limit_mib: 0` 可关闭 Linux cgroup 内存限制；
+省略或设为 null 时保留平台默认值（Linux 为 4096 MiB），macOS 不执行内存限制。
+
+准备完成后，用同一份配置进行本地一次性优化：
+
+```bash
+python benchmark/beam/run_home.py --optimize
+```
+
+若准备时指定了 `--config` 或 `--workspace-dir`，优化时传入相同参数。
+可用 `--instruction "优化检索质量"` 指定目标。该入口将配置中的两个预算和采样策略
+应用到实际 `home_optimize` 调用，不重复准备；Python 可调用同模块的 `await optimize(...)`。
+不加 `--optimize` 时仍只准备。
+
+默认选择 BEAM **100K 全部 case**。
+
+
+## 独立测试集评测
+
+默认在独立工作区评测 **100K 全部 case**，与旧独立评测入口一致，不代表与训练集互斥的留出集。
+可在 [config_home_eval.yaml](config_home_eval.yaml) 更换 `variant`，或把 `all_cases: true`
+替换为 `case_ids: [...]`，指定测试数据。
+
+入口从已有 Home 优化工作区导出指定候选提交，接受完整 SHA 或无歧义的十六进制短 SHA，
+并复制该实验已准备的固定 runtime。无需原始 ReMe 源码仓库，也不会切换或修改优化工作区。
+配置内路径均相对仓库根目录。
+
+先准备测试工作区，再分别在两个终端启动服务和调用评测（替换 `CANDIDATE_SHA`）：
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA --prepare-only
+# 终端 1：
+reme start workspace_dir=benchmark/beam/workspaces/home-test-100K 'plugins=["home","beam-judge"]'
+# 终端 2：
+reme home_evaluate workspace_dir=benchmark/beam/workspaces/home-test-100K record_history=false
+```
+
+### 本地一次性测试评测
+
+```bash
+python benchmark/beam/run_home_eval.py --commit CANDIDATE_SHA
+# 可选：--config /path/to/test.yaml --source-workspace /path/to/search --test-workspace /path/to/test
+```
+
+Python 可调用 `await benchmark.beam.run_home_eval.run(commit="CANDIDATE_SHA")`。
+入口完整重建记忆并对所选 case 的全部 query 评分，关闭采样与优化历史记录，使用现有 Docker
+评测环境和宿主 judge 配置；实际评测需要模型凭证。结果保存在测试工作区的 `home/evaluations/`，
+manifest 的 `test_evaluation` 记录来源候选，导出后的本地提交另记为 `evaluation_commit_sha`。
+相同请求可复用未改动的准备结果并新增一次评测；更换候选或数据选择时需使用新测试工作区。
+测试工作区与来源工作区必须互不包含。

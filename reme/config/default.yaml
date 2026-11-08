@@ -72,7 +72,7 @@ jobs:
   dream_cron:
     backend: cron
     cron: "0 23 * * *"
-    steps:
+    steps: &dream_steps
       - backend: dream_extract_step
         file_catalog: dream
         scan_days: 2
@@ -100,7 +100,7 @@ jobs:
           type: string
           description: "YYYY-MM-DD to refresh; defaults to today in the application's timezone"
           default: ""
-    steps:
+    steps: &proactive_refresh_steps
       - backend: proactive_extract_step
         file_catalog: proactive
         scan_days: 2
@@ -122,24 +122,7 @@ jobs:
   proactive_refresh_cron:
     backend: cron
     cron: "0 18 * * *"             # once a day at 18:00
-    steps:
-      - backend: proactive_extract_step
-        file_catalog: proactive
-        scan_days: 2
-        carry_forward_days: 14
-        max_carry_forward_topics: 20
-        llm_timeout_seconds: 300
-        max_chars_per_file: 60000
-        max_total_chars: 300000
-      - backend: proactive_topics_step
-        known_threshold: 0.85
-        known_threshold_calibrated_for: text-embedding-v4@1024
-        min_push_confidence: 0.5
-        max_topics: 10
-      - backend: proactive_plan_step
-      - backend: proactive_agenda_step
-      - backend: proactive_finish_step
-        file_catalog: proactive
+    steps: *proactive_refresh_steps
 
   auto_dream:
     backend: base
@@ -167,16 +150,7 @@ jobs:
           type: integer
           description: "estimated bytes of changed file content per extraction call, taken from file size; it excludes prompt overhead and a single oversized file still gets its own call, so it is a batching budget rather than a hard request limit"
           default: 40000
-    steps:
-      - backend: dream_extract_step
-        file_catalog: dream
-        scan_days: 2
-        max_units: 5
-        max_chars_per_batch: 40000
-      - backend: dream_integrate_step
-      - backend: dream_finish_step
-        file_catalog: dream
-      - backend: auto_tag_step
+    steps: *dream_steps
 
   auto_memory:
     backend: base
@@ -297,6 +271,45 @@ jobs:
     steps:
       - backend: version_step
 
+  session_read:
+    backend: base
+    description: "Read session history, including proactive assistant messages."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+      required: [session_id]
+    steps:
+      - backend: session_read_step
+        agent_wrapper: default
+
+  session_status:
+    backend: base
+    description: "Inspect session activity without waiting for generation."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+      required: [session_id]
+    steps:
+      - backend: session_status_step
+        agent_wrapper: default
+
+  session_append:
+    backend: base
+    description: "Append a proactive assistant message once the session is idle; retry with the same message_id."
+    parameters:
+      type: object
+      properties:
+        session_id: {type: string, description: "agent session identifier"}
+        message_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "stable retry/idempotency identifier"}
+        content: {type: string, minLength: 1, maxLength: 100000}
+        wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
+      required: [session_id, message_id, content]
+    steps:
+      - backend: session_append_step
+        agent_wrapper: default
+
   app_config:
     backend: base
     description: "return the effective application config with secrets redacted"
@@ -309,6 +322,11 @@ jobs:
   chat:
     backend: stream
     description: "Stream a read-only agent conversation over the ReMe workspace."
+    system_prompt: |
+      You are ReMe Agent, an assistant for a local-first memory workspace.
+      Use the available ReMe tools when workspace facts are needed. Cite workspace-relative file paths
+      when referring to notes. Never invent file contents, and do not claim to have changed files because
+      this chat intentionally provides read-only tools. Reply in the user's language.
     parameters:
       type: object
       properties:
@@ -335,6 +353,27 @@ jobs:
       properties: { }
     steps:
       - backend: health_check_step
+
+  job_status:
+    backend: base
+    description: "Query in-memory job executions and current step paths, newest first per job."
+    parameters:
+      type: object
+      properties:
+        name:
+          type: string
+          description: "Optional job name; defaults to all tracked jobs"
+        status:
+          type: string
+          enum: [running, succeeded, failed, stopped, cancelled]
+          description: "Optional execution status filter"
+        limit:
+          type: integer
+          minimum: 1
+          default: 20
+          description: "Maximum executions returned per job"
+    steps:
+      - backend: job_status_step
 
   status:
     backend: base
@@ -501,6 +540,26 @@ jobs:
         candidate_multiplier: 5.0
         expand_links: true
         max_links_per_direction: 10
+
+  dashscope_search:
+    backend: base
+    description: >-
+      Search the web with qwen3.8-flash; requires DASHSCOPE_API_KEY.
+      Returns raw search_info sources and separate model-generated content; page bodies and snippets are not guaranteed.
+    parameters:
+      type: object
+      properties:
+        query:
+          type: string
+          description: "web search query"
+      required:
+        - query
+    steps:
+      - backend: dashscope_search_step
+        model: qwen3.8-flash
+        api_key: ${DASHSCOPE_API_KEY:-}
+        search_strategy: turbo
+        timeout: 60
 
   node_search:
     backend: base
@@ -910,6 +969,58 @@ components:
         max_tokens: 65536
         thinking_enable: false
 
+  codex_app_server:
+    default:
+      backend: sdk
+      auth_mode: api_key
+      api_key: ${CODEX_API_KEY:-}
+      base_url: ${CODEX_BASE_URL:-}
+      codex_home: .codex
+      supports_websockets: false
+      config_overrides:
+        - 'model_reasoning_effort="xhigh"'
+        - 'review_model="qwen3.8-max"'
+        - 'agents.default_subagent_model="qwen3.8-max"'
+        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'memories.extract_model="qwen3.8-flash"'
+        - 'memories.consolidation_model="qwen3.8-max"'
+      model_catalog:
+        models:
+          - &codex_model_defaults
+            slug: &codex_simple_model qwen3.8-flash
+            display_name: Qwen3.8 Flash
+            description: Simple tasks and automatic approval review
+            auto_review_model_override: *codex_simple_model
+            default_reasoning_level: xhigh
+            multi_agent_reasoning_effort: xhigh
+            supported_reasoning_levels:
+              - effort: xhigh
+                description: Maximum reasoning
+            context_window: 983616
+            input_modalities: [text, image]
+            supports_parallel_tool_calls: false
+            supports_reasoning_summaries: false
+            support_verbosity: false
+            shell_type: default
+            visibility: list
+            supported_in_api: true
+            priority: 1
+            base_instructions: ""
+            experimental_supported_tools: []
+            truncation_policy:
+              mode: bytes
+              limit: 10000
+          - <<: *codex_model_defaults
+            slug: &codex_complex_model qwen3.8-max
+            display_name: Qwen3.8 Max
+            description: Main conversations and complex tasks
+            default_reasoning_level: xhigh
+            priority: 0
+    oauth:
+      backend: sdk
+      auth_mode: oauth
+      codex_home: ${CODEX_HOME:-~/.codex}
+
   agent_wrapper:
     default:
       backend: agentscope
@@ -931,18 +1042,16 @@ components:
       permission_mode: bypassPermissions
     codex:
       backend: codex
-      auth_mode: api_key
-      model: ${CODEX_MODEL_NAME:-}
-      api_key: ${CODEX_API_KEY:-}
-      base_url: ${CODEX_BASE_URL:-}
-      approval_mode: auto_review
+      app_server: default
+      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      effort: xhigh
+      approval_mode: deny_all
       sandbox: full-access
     codex_oauth:
       backend: codex
-      auth_mode: oauth
-      model: ${CODEX_MODEL_NAME:-}
-      codex_home: ${CODEX_HOME:-~/.codex}
-      approval_mode: auto_review
+      app_server: oauth
+      model: ${CODEX_OAUTH_MODEL_NAME:-}
+      approval_mode: deny_all
       sandbox: full-access
 
   file_graph:

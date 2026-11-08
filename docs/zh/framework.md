@@ -70,6 +70,7 @@ reme/
     as_llm/, as_embedding/   # 模型封装
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
+    codex_app_server.py      # 共享 Codex 进程与会话锁
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -528,13 +529,68 @@ flowchart LR
 | `as_decision_model`   | `default`                       | 默认未配置；示例为 `agentscope` | 可选概率决策；通过继承 default 的 decision_demo 配置演示   |
 | `agent_wrapper`   | `default`                       | `agentscope`                | AgentScope wrapper                                         |
 | `agent_wrapper`   | `claude_code`                   | `claude_code`               | Claude Code wrapper                                        |
-| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 分别使用 API key 与 OAuth 的 Codex wrapper                 |
+| `codex_app_server` | `default/oauth`                | `sdk`                       | 分别使用 API key 与 OAuth 的共享 Codex 进程                |
+| `agent_wrapper`   | `codex/codex_oauth`             | `codex`                     | 引用具名 Codex app-server 的 agent 配置                    |
 | `file_graph`      | `default`                       | `local`                     | wikilink 图谱                                              |
 | `file_catalog`    | `default/resource/digest/dream` | `local`                     | 文件变更 checkpoint                                        |
 | `file_chunker`    | `markdown`                      | `markdown`                  | Markdown AST 分块                                          |
 | `file_chunker`    | `json/jsonl/default`            | `json/jsonl/default`        | JSON、JSONL 与通用文本分块；默认通用分块支持 `txt`、`log`  |
 | `keyword_index`   | `default`                       | `bm25`                      | BM25 关键词索引                                            |
 | `file_store`      | `default`                       | `local`                     | 组合 file_graph、keyword_index；默认 `embedding_store: ""` |
+
+三个 agent 后端统一通过 `reply_stream()` 执行，`reply()` 收集同一条流，返回
+[`AgentReply`](../../reme/schema/agent_reply.py) 字典：`session_id`、最终文本 `result`、`structured_output`、
+本次调用的 `usage`、`status`、`error`、`raw` 和完整、有序的 JSON `events`。两种模式均支持 `output_schema`。
+只有 `completed` 表示成功；`failed`、`interrupted` 和 `waiting` 保留未完成的结果。启动、传输异常和调用方的
+取消继续传播。两种模式均按调用记录一次已报告的 token 用量；无法获取用量时为 null。
+
+[`StreamChunk`](../../reme/schema/stream_chunk.py) 使用 `start`、追加内容的 `delta` 和 `end` 操作。
+start/end 的非 null 内容替换对应块的累计内容；null 表示不变，空字符串表示清空。会话、调用、消息、内容块和
+工具调用 ID 用于关联更新。`metadata.native` 保留完整原生事件，包括未知字段和诊断通知。
+`reply_end.chunk` 携带上述结果字段，不含 `events`；`reply_start`/`reply_end` 包含一次 agent 调用内的模型与工具
+循环，DONE 仅关闭传输。`collect_reply(stream)` 与 `replay_reply(reply)` 在异步流和 JSON 结果间无损转换，保留
+payload、顺序、原生元数据和终止状态；缺少或重复的终止结果会明确报错。
+
+`raw` 保留原生结果：AgentScope 的最终消息在 `raw.message`，额外结构化结果在 `raw.structured_response`；
+Claude 保留 `ResultMessage`，Codex 保留 `TurnResult`。需要原样重放时应保存完整 AgentReply；原生会话历史提供
+item 快照，不含原始流的逐次增量。Studio 合并内容快照，展示结构化输出和终止状态，历史刷新保留已有实时事件。
+HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函数单独处理报错。
+迁移：用 `result`/`raw` 替代 `last_message`/`turn`，消费终止结果，不再拼接所有流式 payload。
+纯文本生产者使用默认 `delta` 操作。
+
+Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
+并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
+不同 thread 可以并发，同一 thread 的操作串行。
+
+`await wrapper.get_session_path(session_id)` 返回原生会话文件的 `Path`；Codex 未提供路径时返回 `None`。
+第一轮对话前文件可能尚未创建。查询错误继续传播，返回路径必须位于配置的 `codex_home` 内。
+查询不恢复 thread，也不加载对话历史。其他后端暂时抛出 `NotImplementedError`。
+
+默认使用 `approval_mode: deny_all` 和 `sandbox: full-access`；SDK 将该模式映射为 `approval_policy: never`，
+可用工具直接执行，不经过人工或模型审批。需要新增权限的请求直接拒绝，不弹出审批。
+如需自动审批，可显式设置 `approval_mode: auto_review`。工具白名单与注入参数约束继续生效。
+
+使用 API key 和自定义 `base_url` 时，共享组件会配置独立的 Responses provider，默认直接使用 HTTP/SSE。
+仅当端点支持 Responses WebSocket 传输时，才在 `codex_app_server` 上设置 `supports_websockets: true`。
+显式 `config_overrides` 优先于自动生成的 provider 默认值。
+
+API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
+处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `xhigh`。
+模型目录仅开放 `xhigh` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。
+主模型由 wrapper 的 `model` 配置，其余原生配置显式写在
+`codex_app_server.default.config_overrides` 和 `model_catalog` 中；ReMe 将原生 Codex 模型目录写为共享组件私有目录内的
+可重建元数据。`auto_review_model_override` 单独选择审批模型，仅修改主模型不会改变审批模型。原生会话压缩沿用
+thread 的模型。OAuth 使用账号支持的模型，通过独立的 `CODEX_OAUTH_MODEL_NAME` 覆盖。
+使用 `LLM_API_KEY`、`LLM_BASE_URL` 的完整 API key 配置见 [demo 配置](../../reme/config/demo.yaml)。
+
+迁移：将 wrapper 上的 `auth_mode`、`api_key`、`base_url`、`codex_home`、`codex_bin`、`config_overrides` 和
+`experimental_api` 移到 `components.codex_app_server.<名称>`，并使用 `backend: sdk`。默认 Codex 目录为
+`{workspace_dir}/.codex`；如需继续使用原有登录和会话，请将 `codex_home` 指向旧目录。
+多个服务组件需要独立账号或会话存储时，分别显式配置 `codex_home`。
+删除 `mcp_config` 和 `release_threads`。job 工具通过受限 MCP 入口调用当前 Application 中的原有 job，明文 HTTP 模式复用现有
+监听器，TLS、CLI 和嵌入式模式使用随组件关闭的本地监听器。工具白名单及隐藏参数绑定到已加载的 thread；thread 卸载后可在
+恢复时重新绑定。内部 job 仅对显式选择的工具开放，不改变其公共服务可见性。关闭 wrapper 不关闭共享进程，由 Application
+统一关闭。连接断开时当前请求报错且不重放工具，后续请求可以重连并恢复会话。
 
 注意：`search` step 的配置含 `vector_weight`，但默认 `file_store.default.embedding_store` 为空，因此实际是否有向量检索取决于运行配置是否启用
 embedding store。

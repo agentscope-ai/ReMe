@@ -2,12 +2,40 @@
 
 import asyncio
 import os
+from types import SimpleNamespace
 
 import anyio
 import psutil
 import pytest
 
-from reme.utils.local_backend import LocalProcessBackend, finish_cleanup
+from reme.utils.local_backend import LocalProcessBackend, ProcessTimeout, finish_cleanup
+
+
+@pytest.mark.asyncio
+async def test_timeout_retains_output_when_pipe_draining_is_cancelled(monkeypatch):
+    """Bounded cleanup must retain bytes captured before an inherited pipe stalls."""
+    from unittest.mock import AsyncMock, Mock
+
+    backend = LocalProcessBackend()
+    process = SimpleNamespace(returncode=-9, _transport=Mock(), wait=AsyncMock(return_value=-9))
+
+    async def collect(_process, _data, stdout, stderr, _exceeded):
+        stdout.extend(b"partial output")
+        stderr.extend(b"diagnostic")
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(backend, "_collect_output", collect)
+    monkeypatch.setattr(backend, "_kill_process", lambda _process: None)
+    monkeypatch.setattr("reme.utils.local_backend._CLEANUP_TIMEOUT", 0.01)
+    with pytest.raises(ProcessTimeout) as caught:
+        await asyncio.wait_for(
+            backend._communicate(process, timeout=0.02, raise_errors=True),  # pylint: disable=protected-access
+            timeout=1,
+        )
+    assert caught.value.result.exit_code == -9
+    assert caught.value.result.stdout == b"partial output"
+    assert caught.value.result.stderr == b"diagnostic"
+    process._transport.close.assert_called_once()  # pylint: disable=protected-access
 
 
 @pytest.mark.asyncio

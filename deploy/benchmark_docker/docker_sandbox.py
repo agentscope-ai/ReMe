@@ -7,12 +7,13 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 import gzip
 import io
+import inspect
 import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import re
 import tarfile
-from typing import Any, BinaryIO, Callable, Literal, Protocol
+from typing import Any, Awaitable, BinaryIO, Callable, Literal, Protocol
 import uuid
 
 from ._cleanup import cleanup_on_error
@@ -239,13 +240,13 @@ def _archive_workspace(source: str | Path) -> bytes:
 
 
 def _default_workspace_builder(workspace_id: str, image: str, env: dict[str, str]) -> Workspace:
-    """Create the AgentScope 2.0.9 Docker backend lazily."""
+    """Create the AgentScope 2.0.11 Docker backend lazily."""
     import agentscope
 
     from .direct_docker_workspace import DirectDockerWorkspace
 
-    if agentscope.__version__ != "2.0.9":
-        raise RuntimeError(f"benchmark Docker host requires agentscope 2.0.9, got {agentscope.__version__}")
+    if agentscope.__version__ != "2.0.11":
+        raise RuntimeError(f"benchmark Docker host requires agentscope 2.0.11, got {agentscope.__version__}")
     return DirectDockerWorkspace(
         workspace_id=workspace_id,
         base_image=image,
@@ -272,8 +273,12 @@ class DockerReMeSandboxFactory:
         plugins: tuple[str, ...] | list[str] = (),
         command_timeout: float = 1800.0,
         workspace_builder: WorkspaceBuilder | None = None,
+        on_sandbox_started: Callable[[], None | Awaitable[None]] | None = None,
     ) -> None:
         self.candidate = candidate
+        self._on_sandbox_started = on_sandbox_started
+        self._sandbox_started_reported = False
+        self._sandbox_started_lock = asyncio.Lock()
         self.env = dict(env or {})
         self.config = config
         self.plugins = tuple(plugins)
@@ -309,6 +314,13 @@ class DockerReMeSandboxFactory:
         )
         try:
             await case.initialize()
+            if self._on_sandbox_started is not None:
+                async with self._sandbox_started_lock:
+                    if not self._sandbox_started_reported:
+                        result = self._on_sandbox_started()
+                        if inspect.isawaitable(result):
+                            await result
+                        self._sandbox_started_reported = True
         except BaseException as exc:
             await cleanup_on_error([(f"workspace {container_id!r}", workspace.close())], exc)
             raise
@@ -489,9 +501,9 @@ class DockerReMeSandbox:
         )
         result = await self._exec_checked("validate_candidate", [python, "-c", script])
         validation = json.loads(_decode(result.stdout))
-        if validation.get("agentscope") != "2.0.9":
+        if validation.get("agentscope") != "2.0.11":
             raise SandboxCommandError(
-                f"candidate environment requires agentscope 2.0.9, got {validation.get('agentscope')!r}",
+                f"candidate environment requires agentscope 2.0.11, got {validation.get('agentscope')!r}",
             )
         candidate_root = PurePosixPath(CANDIDATE_ROOT)
 

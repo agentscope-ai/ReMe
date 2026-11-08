@@ -1,9 +1,12 @@
 """Per-request runtime context shared across steps and jobs."""
 
 import asyncio
+from contextvars import ContextVar
 
 from ..enumeration import ChunkEnum
-from ..schema import Response, StreamChunk
+from ..schema import JobExecution, Response, StreamChunk
+
+_current_job_execution: ContextVar[JobExecution | None] = ContextVar("reme_job_execution", default=None)
 
 
 class RuntimeContext:
@@ -24,6 +27,10 @@ class RuntimeContext:
         self.stream_queue: asyncio.Queue | None = stream_queue
         self.stop_event: asyncio.Event | None = stop_event
         self.data: dict = kwargs
+        self.job_execution: JobExecution | None = _current_job_execution.get()
+        self.step_error: Exception | None = None
+        # Providers can emit terminal errors without raising or changing the Response.
+        self.stream_error: str | None = None
 
     # ----- Data dict access ----------------------------------------------
 
@@ -66,6 +73,12 @@ class RuntimeContext:
         """Put a chunk on the stream queue; raises when streaming is disabled."""
         if self.stream_queue is None:
             raise RuntimeError("Stream queue not initialized")
+        if chunk.chunk_type == ChunkEnum.ERROR and chunk.metadata.get("will_retry") is not True:
+            self.stream_error = str(chunk.chunk)
+        if chunk.chunk_type == ChunkEnum.REPLY_END and chunk.status == "failed":
+            self.stream_error = self.stream_error or str(
+                chunk.metadata.get("error") or chunk.metadata.get("finished_reason") or "Agent reply failed",
+            )
         await self.stream_queue.put(chunk)
 
     async def add_stream_string(self, chunk: str, chunk_type: ChunkEnum) -> "RuntimeContext":

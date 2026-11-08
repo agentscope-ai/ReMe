@@ -26,6 +26,37 @@ reme app_config
 - `status` estimates stateful component memory and process RSS;
 - `app_config` returns the effective configuration with secrets redacted.
 
+## Job execution status
+
+Query the running service from another terminal:
+
+```bash
+reme job_status
+reme job_status name=dream_cron limit=10
+reme job_status status=running
+```
+
+Results map Job names to execution lists, newest first, with at most `limit` records per Job (default 20).
+Each record includes an application-local `id`, UTC `started_at`/`finished_at`, `status`, a bounded `error` summary,
+`step_path`, `step_started_at`, and `failed_step`. Status is `running`, `succeeded`, `failed`, `stopped` (cooperative
+background shutdown), or `cancelled`. A failed response also records a failure even when no exception was raised.
+Terminal ERROR chunks also mark a run as failed; notifications with `will_retry=true` remain recoverable.
+Completed records clear the active step path; failures retain the innermost failed step path.
+
+Background Jobs record each body invocation, including supervisor restarts. Cron Jobs record each trigger; waiting
+for a schedule does not create an execution. A tracked Job that has not run returns an empty list. Watcher Jobs remain
+`running` while waiting for changes; a path such as `["watch_changes_step", "update_index_step"]` shows an active handler
+and returns to `["watch_changes_step"]` afterward. Step paths describe invocation boundaries, not progress inside a Step.
+Executor-backed Jobs finish their records when the worker body exits, even if the outer Future was cancelled earlier.
+
+Background/cron tracking is on by default; base/stream tracking is opt-in through `jobs.<name>.track_execution`.
+The `job_status` query itself is untracked by default. Records contain no request payloads or full responses, live only
+in application memory, and retain the latest 100 completed executions per Job by default. Configure
+[`job_history_limit`](./configuration.md#application-fields) to change that limit; active executions are always retained.
+
+The Python evaluation helper `check_job_count(name, app.context)` reports cumulative starts, including failed and
+cancelled calls. Its count is independent of execution tracking, query filters, and history retention.
+
 ## Logs and common symptoms
 
 `log_to_console` and `log_to_file` control logging. For startup failures, inspect the first exception rather than later client connection errors.

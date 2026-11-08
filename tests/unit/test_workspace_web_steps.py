@@ -3,13 +3,14 @@
 import asyncio
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 import pytest
 
-from reme.components.agent_wrapper import BaseAgentWrapper
+from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.application_context import ApplicationContext
+from reme.components.job import StreamJob
 from reme.components.runtime_context import RuntimeContext
+from reme.config.config_parser import _load_config
 from reme.enumeration import ChunkEnum
 from reme.schema import StreamChunk
 from reme.steps.common.chat import ChatStep
@@ -17,21 +18,34 @@ from reme.steps.file_io.load import LoadStep
 from reme.steps.file_io.save import SaveStep
 
 
-class _StreamingAgent(BaseAgentWrapper):
+class _StreamingAgent(CodexAgentWrapper):
     """Minimal agent that records resume/tool arguments and emits rich chunks."""
 
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+        super().__init__(app_server="", **kwargs)
         self.reply_kwargs = {}
 
     async def reply(self, inputs, **kwargs) -> dict:
         raise AssertionError("ChatStep must always use reply_stream()")
 
+    async def create_session(self, **kwargs) -> str:
+        return "session-new"
+
     async def reply_stream(self, inputs, **kwargs):
         self.reply_kwargs = kwargs
         yield StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, chunk="{}", tool_call_id="tool-1", tool_call_name="search")
         yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="hello", session_id="session-new")
-        yield StreamChunk(chunk_type=ChunkEnum.REPLY_END, chunk="", session_id="session-new")
+        yield StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            event="end",
+            status="completed",
+            session_id="session-new",
+            chunk={
+                key: value
+                for key, value in self._reply_result(session_id="session-new", result="hello", raw={}).items()
+                if key != "events"
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -124,7 +138,7 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
     assert response.answer == "hello"
     assert chunks[0].tool_call_name == "search"
     assert chunks[1].session_id == "session-new"
-    assert chunks[2].metadata["answer"] == "hello"
+    assert chunks[2].chunk["result"] == "hello"
     assert agent.reply_kwargs["resume"] == "session-old"
     assert agent.reply_kwargs["job_tools"] == [
         "search",
@@ -136,25 +150,71 @@ async def test_chat_step_streams_rich_chunks_and_resumes_session(tmp_path):
         "traverse",
     ]
     assert agent.reply_kwargs["builtin_tools"] == []
-    system_prompt = agent.reply_kwargs["system_prompt"]
-    assert f"Current date: {datetime.now(ZoneInfo('Asia/Shanghai')).date().isoformat()}" in system_prompt
-    assert f"Current working directory: {tmp_path.resolve()}" in system_prompt
+    assert agent.reply_kwargs["system_prompt"] == ""
 
 
 @pytest.mark.asyncio
-async def test_chat_step_appends_environment_context_to_system_prompt_override(tmp_path):
-    """A caller prompt override retains request-time date and cwd context."""
+@pytest.mark.parametrize("system_prompt", ["", None, "Custom prompt.\n"])
+async def test_chat_step_passes_system_prompt_override_verbatim(tmp_path, system_prompt):
+    """A caller prompt reaches the wrapper without extra environment text."""
 
     app_context = ApplicationContext(workspace_dir=str(tmp_path), timezone="Asia/Shanghai")
     agent = _StreamingAgent(app_context=app_context)
 
     await ChatStep(agent_wrapper=agent, app_context=app_context)(
         query="hello",
-        system_prompt="Custom prompt.",
+        system_prompt=system_prompt,
         stream_queue=asyncio.Queue(),
     )
 
-    system_prompt = agent.reply_kwargs["system_prompt"]
-    assert system_prompt.startswith("Custom prompt.\n\n<environment_context>")
-    assert "Current date:" in system_prompt
-    assert f"Current working directory: {tmp_path.resolve()}" in system_prompt
+    assert agent.reply_kwargs["system_prompt"] == (system_prompt or "")
+
+
+@pytest.mark.asyncio
+async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp_path):
+    """The built-in prompt comes from config and can be explicitly cleared."""
+    config = _load_config("default")
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    agent = _StreamingAgent(app_context=app_context)
+    app_context.components["agent_wrapper"] = {"default": agent}
+    chat = StreamJob(name="chat", app_context=app_context, **config["jobs"]["chat"])
+
+    async with chat:
+        await chat(query="hello", stream_queue=asyncio.Queue())
+        assert agent.reply_kwargs["system_prompt"] == config["jobs"]["chat"]["system_prompt"]
+        assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
+        await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
+        assert agent.reply_kwargs["system_prompt"] == ""
+
+
+@pytest.mark.asyncio
+async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
+    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
+
+    config = _load_config("proactive")
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    agent = _StreamingAgent(app_context=app_context)
+    app_context.components["agent_wrapper"] = {"default": agent}
+    chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
+    queue = asyncio.Queue()
+
+    await chat.start()
+    try:
+        await chat(query="Help plan my day", stream_queue=queue)
+        assert agent.reply_kwargs["job_tools"] == []
+        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
+        memory = tmp_path / "digest/personal/REME_MEMORY.md"
+        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
+        assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
+        assert "financial news" in memory.read_text(encoding="utf-8")
+        assert agent.reply_kwargs["resume"] == "session-new"
+        chunks = [await queue.get() for _ in range(5)]
+        assert [chunk.chunk_type for chunk in chunks] == [
+            ChunkEnum.DATA,
+            ChunkEnum.TOOL_CALL,
+            ChunkEnum.CONTENT,
+            ChunkEnum.REPLY_END,
+            ChunkEnum.DONE,
+        ]
+    finally:
+        await chat.close()

@@ -69,7 +69,7 @@ def _saved_line(message):
 def memory_setup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     wrapper = AsAgentWrapper(backend="agentscope", as_llm="")
-    wrapper.reply = AsyncMock(return_value={"result": "ok"})
+    wrapper.reply = AsyncMock(return_value={"status": "completed", "result": "ok"})
     store = LocalFileStore(embedding_store="")
     app = SimpleNamespace(
         registry=R,
@@ -112,7 +112,7 @@ def test_only_include_images_is_exposed_and_disabled_by_default():
 async def test_text_path_keeps_main_input_kwargs_metadata_and_jsonl(setup, monkeypatch, options, images):
     step, _, path = setup
     wrapper = CcAgentWrapper(backend="claude_code")
-    wrapper.reply = AsyncMock(return_value={"result": "ok"})
+    wrapper.reply = AsyncMock(return_value={"status": "completed", "result": "ok"})
     wrapper.kwargs["context_config"] = {"max_image_num": 0}
     step.kwargs["agent_wrapper"] = wrapper
     message = _message(images=images)
@@ -380,7 +380,7 @@ async def test_configured_backend_and_job_switch(tmp_path, monkeypatch, backend,
     wrapper = app.context.components["agent_wrapper"]["default"]
     assert isinstance(wrapper, AsAgentWrapper if backend == "agentscope" else CcAgentWrapper)
     assert wrapper.backend == backend
-    wrapper.reply = AsyncMock(return_value={"result": "ok"})
+    wrapper.reply = AsyncMock(return_value={"status": "completed", "result": "ok"})
     monkeypatch.setattr(AutoMemoryStep, "_list_session_note", AsyncMock(return_value=None))
     job = app.context.jobs["auto_memory"]
     await job.start()
@@ -414,7 +414,7 @@ async def test_history_merge_keeps_main_source_contract(setup, enabled, history)
     elif history == "backfill":
         messages, expected = [older, original], _saved_line(older) + initial
     elif history == "same-id":
-        messages, expected = [replacement], initial
+        messages, expected = [replacement], _saved_line(replacement)
     else:
         messages, expected = [older, replacement], _saved_line(older) + _saved_line(replacement)
     before = [message.model_dump() for message in messages]
@@ -439,7 +439,7 @@ async def test_default_job_still_passes_memory_changes_to_auto_tag(setup, monkey
 
     async def write_memory(*_args, **_kwargs):
         _write_note(target)
-        return {"result": "Memory written."}
+        return {"status": "completed", "result": "Memory written."}
 
     monkeypatch.setattr(AutoMemoryStep, "_list_session_note", find_note)
     wrapper.reply.side_effect = write_memory
@@ -502,7 +502,7 @@ async def test_image_links_survive_native_full_rewrite_and_keep_context(setup, m
         # Native write replaces frontmatter as well as the body. Auto Memory
         # must restore previous image sources without rewriting this body.
         await writer(path=note_path, name="image-memory", description="Images", content=body)
-        return {"result": "Updated."}
+        return {"status": "completed", "result": "Updated."}
 
     wrapper.reply.side_effect = full_rewrite
     await _run(step, [first, second], include_images=True)
