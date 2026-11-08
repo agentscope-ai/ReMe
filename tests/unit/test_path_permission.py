@@ -7,6 +7,7 @@ per-invocation RuntimeContext, where the file I/O steps read it.
 
 Covers:
 - ReadStep / EditStep / WriteStep / FrontmatterUpdateStep honoring the scope.
+- DeleteStep / MoveStep / FrontmatterDeleteStep honoring the scope.
 - Exact-file scope (least privilege) vs directory scope, custom daily dirs.
 - Fail-closed behavior for invalid injected constraints.
 - Wrapper-level injection: merge, conflict rejection, schema hiding
@@ -25,8 +26,11 @@ import pytest
 
 from reme.components.file_store import LocalFileStore
 from reme.steps.file_io._path import _check_path_permission
+from reme.steps.file_io.delete import DeleteStep
 from reme.steps.file_io.edit import EditStep
+from reme.steps.file_io.frontmatter_delete import FrontmatterDeleteStep
 from reme.steps.file_io.frontmatter_update import FrontmatterUpdateStep
+from reme.steps.file_io.move import MoveStep
 from reme.steps.file_io.read import ReadStep
 from reme.steps.file_io.write import WriteStep
 
@@ -121,6 +125,100 @@ async def test_update_scope_rejects_paths_outside_daily_dir():
             assert resp.success is False
             assert "no permission" in str(resp.answer).lower()
         assert outside.read_text(encoding="utf-8") == "roadmap\n"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_scope_allows_exact_note_and_rejects_outside():
+    """DeleteStep honors the scope: the exact note is removable, everything else is not."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE, "target\n")
+        outside = _seed(Path(tmp), OUTSIDE, "roadmap\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(DeleteStep, store, path=OUTSIDE, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.read_text(encoding="utf-8") == "roadmap\n"
+
+        resp = await _run(DeleteStep, store, path=NOTE, **scope)
+        assert resp.success is True
+        assert not (Path(tmp) / NOTE).exists()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_delete_directory_scope_rejects_ancestor_and_sibling_folders():
+    """Directory scope deletes the scoped folder itself but not ancestors or siblings."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        _seed(workspace, "daily/2025-06-01/note.md", "n\n")
+        _seed(workspace, "topics/x.md", "x\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(DeleteStep, store, path="daily", **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert (workspace / "daily/2025-06-01/note.md").exists()
+
+        resp = await _run(DeleteStep, store, path="topics", **scope)
+        assert resp.success is False
+        assert (workspace / "topics/x.md").exists()
+
+        resp = await _run(DeleteStep, store, path="daily/2025-06-01", **scope)
+        assert resp.success is True
+        assert not (workspace / "daily/2025-06-01").exists()
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_move_scope_requires_both_endpoints_in_scope():
+    """MoveStep denies any move whose source or destination is outside the scope."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        workspace = Path(tmp)
+        _seed(workspace, NOTE, "target\n")
+        _seed(workspace, SIBLING, "sibling\n")
+        outside = _seed(workspace, OUTSIDE, "roadmap\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": ["daily/2025-06-01"]}
+
+        resp = await _run(MoveStep, store, src_path=NOTE, dst_path=SIBLING, overwrite=True, **scope)
+        assert resp.success is True
+        assert not (workspace / NOTE).exists()
+        assert (workspace / SIBLING).exists()
+
+        resp = await _run(MoveStep, store, src_path=SIBLING, dst_path=OUTSIDE, overwrite=True, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.read_text(encoding="utf-8") == "roadmap\n"
+        assert (workspace / SIBLING).exists()
+
+        resp = await _run(MoveStep, store, src_path=OUTSIDE, dst_path=SIBLING, overwrite=True, **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert outside.exists()
+        assert (workspace / SIBLING).read_text(encoding="utf-8") == "target\n"
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_frontmatter_delete_scope_rejects_outside_note():
+    """Exact-file scope denies removing frontmatter keys from another note."""
+    with tempfile.TemporaryDirectory() as tmp, temp_chdir(tmp):
+        _seed(Path(tmp), NOTE)
+        sibling = _seed(Path(tmp), SIBLING, "---\nname: s\nstatus: draft\n---\nkeep\n")
+        store = await _make_store()
+        scope = {"_allowed_paths": [NOTE]}
+
+        resp = await _run(FrontmatterDeleteStep, store, path=SIBLING, keys=["status"], **scope)
+        assert resp.success is False
+        assert "no permission" in str(resp.answer).lower()
+        assert "status: draft" in sibling.read_text(encoding="utf-8")
+
+        resp = await _run(FrontmatterDeleteStep, store, path=NOTE, keys=["status"], **scope)
+        assert resp.success is True
         await store.close()
 
 

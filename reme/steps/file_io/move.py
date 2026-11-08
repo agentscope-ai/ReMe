@@ -27,12 +27,16 @@ component (same rule as ``file_upload``). For cross-realm transfer
 Opt out via ``retarget=False`` for the rare case where you intentionally
 want to leave references stale (e.g. moving aside before delete) — the
 original is still removed in that case (move semantics, not copy).
+
+Permission: honors the request-scoped ``_allowed_paths`` constraint
+injected by the server into the RuntimeContext; both the source (which is
+unlinked) and the destination (which is written) must be inside the scope.
 """
 
 import shutil
 from pathlib import Path
 
-from ._path import resolve_path
+from ._path import _check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -78,6 +82,11 @@ class MoveStep(BaseStep):
         if precheck_error:
             return precheck_error
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
+        allowed_paths = self.context.get("_allowed_paths")
+        if not _check_path_permission(workspace_dir, src_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
+        if not _check_path_permission(workspace_dir, dst_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
         dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
         # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
