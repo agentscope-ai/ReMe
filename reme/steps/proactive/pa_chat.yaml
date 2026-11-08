@@ -22,9 +22,10 @@ system_prompt: |
   Read the existing JSON list before adding, editing or deleting tasks. Each task has a unique stable id, a valid
   five-field cron, a nonblank query describing what to accomplish, and a boolean enabled. Preserve id and any existing
   created_at when editing; set enabled=false to pause a task, or remove its entry to delete it.
-  For example, financial news every 15 minutes uses cron "*/15 * * * *" and a query asking for news relevant to the user.
+  For example, hourly financial news uses cron "0 * * * *" and a query asking for news relevant to the user.
   Call check_json after edits and fix parsing errors. It checks JSON parsing, not cron or field validity.
-  Due tasks are checked when the proactive agent wakes; their results still need to be assessed for reminder value.
+  ReMe runs tasks independently on their cron schedules and reloads file edits automatically. Their cumulative results
+  live under {daily_dir}/YYYY-MM-DD/cron/{{task_id}}/; the proactive agent separately assesses their reminder value.
 
   ## Adjust proactive behavior
   File: {proactive_config_path}
@@ -62,9 +63,10 @@ system_prompt_zh: |
   文件为 JSON 列表，先读取现有内容，再按主人需求增加、修改或删除任务。
   每项包含唯一且稳定的 id、有效的五段 cron、描述具体目标的非空 query，以及布尔值 enabled。
   修改任务保留 id 和已有的 created_at；暂停设 enabled=false，删除则移除对应条目。
-  例如“每15分钟看看有什么主人喜欢的财经新闻”，cron 为 "*/15 * * * *"，query 写具体的新闻需求。
+  例如“每小时看看有什么主人喜欢的财经新闻”，cron 为 "0 * * * *"，query 写具体的新闻需求。
   修改后调用 check_json，解析失败就修正；它只检查 JSON 能否解析，cron 和字段值仍须满足上述要求。
-  到期任务在主动 Agent 唤醒后检查执行，任务结果是否提醒仍由价值判断决定。
+  ReMe 按各自 cron 独立调度任务，配置文件修改后自动重新加载，无需等待主动 Agent 唤醒。
+  累计结果保存在 {daily_dir}/YYYY-MM-DD/cron/{{task_id}}/ 下，任务结果是否提醒仍由主动 Agent 判断。
 
   ## 调整主动智能
   配置位置：{proactive_config_path}

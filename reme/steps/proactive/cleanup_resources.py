@@ -9,10 +9,10 @@ import time
 
 from ._resource import resource_root
 from ..base_step import BaseStep
-from ..file_io._file_io import get_path_lock
 from ..file_io._path import _check_path_permission
 from ...components import R
 from ...utils.async_utils import complete_in_thread
+from ...utils.file_utils import get_path_lock
 
 
 @R.register("cleanup_resources_step")

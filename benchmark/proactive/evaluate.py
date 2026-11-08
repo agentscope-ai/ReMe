@@ -8,7 +8,7 @@ from pathlib import Path
 
 def grade(case_id: str, record: dict) -> dict:
     """Grade actual job decisions, including rejected nonempty send attempts."""
-    from benchmark.proactive.cases import CASES, MEMORY
+    from benchmark.proactive.cases import CASES, MEMORY, frozen_now
 
     case = record.get("fixture", CASES.get(case_id, {}))
     jobs = record.get("jobs", [])
@@ -70,13 +70,17 @@ def grade(case_id: str, record: dict) -> dict:
         checks["six_query_protocol"] = {
             "get_proactive_messages",
             "read_conversation",
-            "run_due_tasks",
+            "read_task_results",
             "get_reminder",
             "send_reminder",
         } <= successful
         checks["memory_preserved"] = text == before.get(MEMORY)
+        task_paths = {
+            f"daily/{frozen_now():%Y-%m-%d}/cron/fixture-{index}/{frozen_now():%H%M%S}.md"
+            for index in range(len(case.get("resources", {})))
+        }
         checks["no_unexpected_files"] = not any(
-            name not in before and not name.startswith("reme_metadata/pa/") for name in after
+            name not in before and name not in task_paths and not name.startswith("reme_metadata/pa/") for name in after
         )
         expected = case.get("expected_send", False)
         checks["delivery"] = len(record.get("delivered", [])) == int(expected)

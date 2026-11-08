@@ -20,9 +20,9 @@ from ....enumeration import ComponentEnum
 from ....schema import ProactiveStateFile, ProactiveTopic
 from ....schema.proactive import clamp_confidence
 from ....utils import get_logger
-from ...file_io._file_io import get_path_lock
 from .._evolve import now
 from ..dream.utils import clean_paths, recent_dates, scan_day_files
+from ....utils.file_utils import get_path_lock
 
 logger = get_logger(log_to_file=False)
 

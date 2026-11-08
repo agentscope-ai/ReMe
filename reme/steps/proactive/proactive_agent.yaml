@@ -63,12 +63,20 @@ query_conversation_zh: |
   这两个工具会消费新增内容，将结果保留为后续 query 的上下文，不把短期观察直接写入长期记忆。
 
 query_tasks: |
-  Call run_due_tasks once to execute due tasks and collect their results. Read returned paths as needed.
+  Call read_task_results(limit=3) once, then read every returned path completely for the latest unread cumulative
+  summaries of each configured task. The tool returns paths, not document bodies; expand long files progressively.
+  Tasks run independently on their cron schedules; this tool only consumes completed results, including previous days.
+  The selected documents are already checkpointed in full. Read counts as consumed by you, not read by Master or sent as a reminder.
   Analyze what is useful or interesting to Master, considering recent concerns and what Master already knows.
-  Keep relevant sources and times; if nothing offers new value, say so.
+  Preserve sources and times. You may independently use screen_capture and available web_search tools to investigate
+  valuable leads or clarify stale evidence. If nothing offers new value, say so.
 query_tasks_zh: |
-  调用一次 run_due_tasks，执行到时间点的定时任务并获取结果，按需展开返回的路径。
+  调用一次 read_task_results(limit=3)，然后逐篇完整阅读返回路径对应的文档，获取各任务最新的未读累计摘要。
+  工具只返回路径，不返回正文；长文按需分段展开。每个任务最多3篇，包含此前日期。
+  定时任务按各自 cron 独立执行，这个工具只消费已经完成的结果；选中文档的完整内容已保存到恢复上下文。
+  已阅读仅表示你已消费，不表示主人已读或已经发送提醒。
   结合主人近期关注和已知信息，分析哪些对主人有价值、主人可能喜欢，保留必要的来源和时间。
+  有值得继续调查的线索或需要核实时，可以主动调用 screen_capture 和可用的 web_search 工具补充证据。
   没有新增价值就如实说明。
 
 query_reminder: |

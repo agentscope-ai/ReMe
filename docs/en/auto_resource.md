@@ -118,9 +118,9 @@ captured sequentially; their enumeration numbers apply only to that collection. 
 a failed or cancelled collection removes its own published files without overwriting existing captures. Unlike the old
 resource-package layout, publication of multiple flat files is not a single atomic directory operation.
 
-Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/tasks.json`, executed by `run_due_tasks` through
-`task_agent`. The default screen query is scheduled every five minutes; disable it by setting its `enabled` to false.
-This replaces the fixed `screen_capture_cron`. Install `reme-ai[core]` and grant screen-recording permission to the process
+Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/tasks.json`, independently dispatched by a ReMe
+CronJob through `task_agent` every five minutes. Disable it by setting `enabled` to false; file edits reload automatically.
+Cumulative summaries live under `{daily_dir}/YYYY-MM-DD/cron/screen_activity/` for proactive consumption. Install `reme-ai[core]` and grant screen-recording permission to the process
 running ReMe. Availability depends on the local MSS backend.
 
 `finance_news` fetches the last 24 hours of CLS telegraph news, deduplicates against `news_id` values in retained JSONL

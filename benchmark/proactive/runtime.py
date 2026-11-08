@@ -86,7 +86,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         "read_conversation",
         "get_proactive_messages",
         "get_reminder",
-        "run_due_tasks",
+        "read_task_results",
         "send_reminder",
         "send_to_proactive",
         "check_json",
@@ -248,6 +248,12 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
                         if reply["status"] != "completed":
                             raise RuntimeError(reply.get("error") or reply["status"])
                 else:
+                    # Simulate cron triggers before proactive wakes, using the real two-query task Job.
+                    for task in await asyncio.to_thread(runtime.tasks.load):
+                        if task.enabled:
+                            response = await app.run_job("task_agent", task=task.model_dump(mode="json"))
+                            if not response.success:
+                                raise RuntimeError(str(response.answer))
                     response = await app.run_job("pa_proactive")
                     record["response"] = plain(response)
                     if not response.success:

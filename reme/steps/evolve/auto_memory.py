@@ -18,13 +18,14 @@ from agentscope.message import DataBlock, Msg, TextBlock, UserMsg
 
 from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
-from ..file_io import extract_daily_date, get_path_lock, parse_daily_date, refresh_day_index, write_file_safe
+from ..file_io import extract_daily_date, parse_daily_date, refresh_day_index, write_file_safe
 from ..file_io import validate_filename_component, validate_session_id
 from ..file_io._path import IMAGE_MIME_BY_EXT, _check_path_permission, resolve_path
 from ..index import normalize_posix_path
 from ...components import R
 from ...schema import Response
 from ...utils.wikilink_handler import WikilinkHandler
+from ...utils.file_utils import get_path_lock
 
 _SESSION_ID_KEY = "session_id"
 _SOURCE_CONVERSATION_KEY = "source_conversation"

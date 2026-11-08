@@ -148,7 +148,7 @@ these are client settings, not the provider's maximum context claim. Native long
 on the next service start and apply to subsequent chats in the restored session.
 
 The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for six sequential queries:
-long-term memory and previous handoff, chat feedback and recent conversation, due task results, reminder decisions,
+long-term memory and previous handoff, chat feedback and recent conversation, unread task summaries, reminder decisions,
 optional wake-configuration changes, then the next handoff. Tool bindings remain fixed for that session. The handoff is
 atomically replaced only after the last query completes with a nonempty summary. Consumed inputs and partial progress
 are checkpointed in `proactive_context.jsonl` before inbox clearing or cursor advancement. Failed rounds retain this
@@ -167,7 +167,7 @@ Before Jobs start, the PA component creates missing files under `{metadata_dir}/
 | --- | --- |
 | `session_ids.json` | `[]`; the last entry selects the current chat |
 | `proactive.json` | `components.pa.default.default_proactive` |
-| `tasks.json` | `components.pa.default.default_tasks`, with IDs and registration times |
+| `tasks.json` | `components.pa.default.default_tasks` |
 | `proactive_inbox.txt` | Empty |
 | `handoff.txt` | Empty |
 | `proactive_context.jsonl` | Empty recovery journal |
@@ -218,29 +218,48 @@ wake interval from submission. Missing or changed sessions, closed active hours 
 Restart rebuilds pending state from JSONL and repeats the checks and idle delay. Retries use the same native message ID.
 Sent means inserted into chat, not read; insertion and JSONL status publication are separate operations.
 
-The proactive agent has only feedback, conversation, due-task, reminder-history, reminder-submission and JSON-validation
-Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
+The proactive agent has feedback, conversation, task-result, screen-capture, reminder-history, reminder-submission
+and JSON-validation Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
 agent decisions. Long-term memory is maintained by chat; recent concerns and unfinished work belong in the handoff.
 Forgotten facts must not be restored through old conversations or summaries.
 
 ### Scheduled Task Queries
 
-Private tool `run_due_tasks()` reloads `{metadata_dir}/pa/tasks.json` and serially invokes `task_agent(query=...)` for due
-tasks. Missing definitions are initialized from `components.pa.default.default_tasks`; existing empty lists are preserved,
-and invalid files fail without replacement. Tasks have stable IDs, five-field cron expressions, queries, enabled flags and
-an automatically filled registration time. Defaults inspect screen activity every five minutes and find relevant financial
-news every fifteen minutes. Native file tools edit the definitions; `check_json` checks syntax, and the loader validates
-schedule fields. Query or cron edits retain the ID and execution history.
+The chat agent maintains `{metadata_dir}/pa/tasks.json`: a JSON list of stable `id`, five-field `cron`, nonblank `query`,
+boolean `enabled`, and optional `created_at`. Read before editing, preserve identities, and validate JSON afterward.
+Default tasks observe screen activity every five minutes and fetch relevant financial news hourly at the top of the hour.
+Defaults seed missing files only; update an existing `tasks.json` explicitly to change existing task schedules.
 
-New tasks start at the next cron time after registration. The latest missed slot is executed once; missed intervals are
-coalesced. Before calling the task agent, the PA component appends a running event to `{metadata_dir}/pa/task_runs.jsonl`.
-A finish event shares its run ID and records scheduled/start/finish times, status, interpreted result and agent session ID.
-Failures do not stop other tasks. Cancellation records interruption; a later invocation marks an unfinished running event
-interrupted with an unknown outcome and does not replay the same slot. Component locking serializes invocations.
+The `task_schedule` background Job checks file modification time every second and owns one ReMe `CronJob` per enabled task.
+Valid edits add, replace or stop schedules; invalid edits are reported while existing valid schedules remain active.
+Replacement closes the old Job before starting the new one, so the same task cannot overlap. Jobs and agent work close
+with the application. Scheduling is independent of proactive active hours. Each task starts at its next cron time;
+executions are serial per task and missed triggers are skipped rather than replayed.
 
-The tool returns this invocation's finished records, or `[]` when no tasks are due. The proactive agent calls it each wakeup;
-actual execution latency depends on wakeup frequency and task duration. It replaces the fixed screenshot CronJob; resource
-TTL cleanup remains an independent CronJob.
+Each execution creates a fresh agent session. Query 1 is the configured query. Query 2 resumes that session, reads the
+latest one or two completed snapshots (across dates), and consolidates still-valid history and new findings into a
+standalone cumulative Markdown document. The agent writes a staging file; code validates its nonempty body, adds
+`task_id`, `run_id`, `created_at` and `status: unread`, and publishes it exclusively as:
+
+```text
+{daily_dir}/YYYY-MM-DD/cron/{task_id}/HHMMSS.md
+```
+
+Existing snapshots are never overwritten. Failed or interrupted agent work does not publish a partial snapshot.
+`task_runs.jsonl` records matching start/finish events with execution status, times, session ID, result path or error;
+the Markdown files own the result content.
+
+During its task query, proactive calls private tool `read_task_results(limit=3)` once, then reads every returned path.
+The tool returns up to three latest unread snapshot paths **per configured task**, including paused tasks and previous days.
+Bodies are read from files to avoid truncation in tool responses. Removed tasks are no longer scanned; their
+files remain intact. Full inputs are checkpointed before frontmatter changes: selected snapshots become `read`, and older
+unread snapshots covered by the cumulative summaries become `superseded`. Read means consumed by proactive, not read by
+the user or sent as a reminder. Recovery context preserves inputs if the round fails. Relevance and reminder value remain
+agent decisions. Proactive may also call `screen_capture` and available native `web_search` tools to investigate leads;
+the proactive config enables live native search, subject to the configured provider's support.
+
+The former `run_due_tasks` Job, Step and wakeup-driven scheduler are removed. `task_agent` now accepts a complete `task`
+object and is private; there is no compatibility entrypoint. Raw resource retention remains a separate CronJob.
 
 ## MCP
 

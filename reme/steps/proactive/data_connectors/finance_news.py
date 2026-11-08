@@ -13,9 +13,9 @@ from pydantic import ValidationError
 
 from .base_connector import BaseConnectorStep
 from .._resource import resource_root
-from ...file_io._file_io import get_path_lock
 from ....components import R
 from ....schema import ConnectorResult, FinanceNewsItem
+from ....utils.file_utils import get_path_lock
 
 API_URL = "https://www.cls.cn/v1/roll/get_roll_list"
 HEADERS = {

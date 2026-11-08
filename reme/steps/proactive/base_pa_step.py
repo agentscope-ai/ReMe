@@ -5,10 +5,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from ..base_step import BaseStep, Ref
-from ..file_io._file_io import get_path_lock, write_file_safe
+from ..file_io._file_io import write_file_safe
 from ..file_io._path import resolve_path
 from ...components import PaRuntime
 from ...components.agent_wrapper import CodexAgentWrapper
+from ...utils.file_utils import get_path_lock
 
 
 class BasePaStep(BaseStep):
@@ -45,6 +46,7 @@ class BasePaStep(BaseStep):
             memory_path=self._memory_path(),
             proactive_config_path=self.pa.proactive_config_path,
             tasks_path=self.pa.tasks_path,
+            daily_dir=self.config_value("daily_dir"),
             **details,
         )
 

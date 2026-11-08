@@ -107,8 +107,9 @@ resource/screen_capture/2026-11-07_10-20-30-123456_screen_2.png
 文字说明包含带时区的采集时间、显示器数量和理解图片所需的信息。各显示器依次采集，编号仅代表本次枚举顺序。
 文件先暂存再发布；失败或取消时清理本次已发布文件，不覆盖已有截图。多个平铺文件的发布不再是单次原子目录操作。
 
-定时截图解读改为 `{metadata_dir}/pa/tasks.json` 中的 query，由 `run_due_tasks` 交给 `task_agent` 执行，默认每五分钟
-到期一次；将该任务的 enabled 改为 false 可关闭。这替代固定的 `screen_capture_cron`。需要安装 `reme-ai[core]`，
+定时截图解读是 `{metadata_dir}/pa/tasks.json` 中的 query，由 ReMe CronJob 独立调度 `task_agent`，默认每五分钟
+执行一次；将 enabled 改为 false 可关闭，文件修改后自动重新加载。累计摘要保存在
+`{daily_dir}/YYYY-MM-DD/cron/screen_activity/`，供 proactive 消费。需要安装 `reme-ai[core]`，
 并为实际运行 ReMe 的进程授予录屏权限；可用性取决于本机 MSS 后端。
 
 `finance_news` 查询最近 24 小时的财联社电报，按保留的 JSONL 文件中的 `news_id` 去重，只将本次新增保存为一个文件：

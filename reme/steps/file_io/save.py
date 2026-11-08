@@ -3,9 +3,10 @@
 from datetime import datetime
 
 from ._base import _FileIOStep
-from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
+from ._file_io import detect_file_encoding, write_file_safe
 from ._path import _check_path_permission, resolve_path
 from ...components import R
+from ...utils.file_utils import get_path_lock
 
 
 @R.register("save_step")

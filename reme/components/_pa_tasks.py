@@ -1,145 +1,171 @@
-"""Cron-slot reservation and task execution owned by PaRuntime."""
+"""User-owned task definitions, cumulative Markdown results and consumption receipts."""
 
 # pylint: disable=protected-access
 
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 import json
 import os
-from collections.abc import Awaitable, Callable
-from datetime import datetime, timedelta
+from pathlib import Path
+import re
+from stat import S_ISREG
 from typing import TYPE_CHECKING
+
+import frontmatter
 
 from ..constants import DEFAULT_MAX_FILE_BYTES
 from ..schema.pa_task import PaTask, PaTaskRun
-from ..schema.response import Response
 from ..utils.async_utils import complete_in_thread
+from ..utils.file_utils import get_path_lock
 
 if TYPE_CHECKING:
     from .pa_runtime import PaRuntime
 
 
-class TaskScheduler:
-    """Own task serialization; definitions and history remain workspace files."""
+class TaskFiles:
+    """Keep results authoritative in files; serialize publication and consumption."""
 
     def __init__(self, runtime: PaRuntime):
         self.runtime = runtime
         self.lock = asyncio.Lock()
+        self.run_locks: dict[str, asyncio.Lock] = {}
+
+    def checked(self, path: Path) -> Path:
+        """Reject workspace escapes and symlink aliases before any file operation."""
+        resolved = path.resolve()
+        if resolved != path.absolute() or not resolved.is_relative_to(self.runtime.workspace_path.resolve()):
+            raise ValueError("Task files must stay inside the workspace without symlinks")
+        return path
+
+    @property
+    def daily_path(self) -> Path:
+        """Honor the configured daily directory."""
+        return self.checked(self.runtime.workspace_path / self.runtime.app_context.app_config.daily_dir)
+
+    def initialize(self) -> None:
+        """Seed missing definitions once; never replace an existing user configuration."""
+        self.runtime._write_text(
+            self.runtime.tasks_path,
+            json.dumps(
+                [task.model_dump(mode="json") for task in self.runtime.default_tasks],
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            create_only=True,
+        )
+        self.load()
+
+    def read(self, path: Path) -> str:
+        """Read a complete bounded UTF-8 document."""
+        target = self.checked(path)
+        if not S_ISREG(target.stat().st_mode):
+            raise ValueError(f"Task file must be a regular file: {path}")
+        with target.open("rb") as handle:
+            content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
+        if len(content) > DEFAULT_MAX_FILE_BYTES:
+            raise ValueError(f"Task file exceeds the read limit: {path}")
+        return content.decode("utf-8")
 
     def load(self) -> list[PaTask]:
-        """Validate task definitions and persist missing stable IDs and creation times."""
-        try:
-            with self.runtime.tasks_path.open("rb") as handle:
-                content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
-        except FileNotFoundError:
-            data = [task.model_dump(mode="json") for task in self.runtime.default_tasks]
-            changed = True
-        else:
-            if len(content) > DEFAULT_MAX_FILE_BYTES:
-                raise ValueError("tasks.json exceeds the file read limit")
-            data = json.loads(content)
-            changed = False
+        """Validate the complete configuration without changing it."""
+        data = json.loads(self.read(self.runtime.tasks_path))
         if not isinstance(data, list):
             raise ValueError("tasks.json must contain a list of task definitions")
         tasks = [PaTask.model_validate(item) for item in data]
         if len({task.id for task in tasks}) != len(tasks):
             raise ValueError("tasks.json contains duplicate task IDs")
-        now = self.runtime._now()
-        for raw, task in zip(data, tasks):
-            if "id" not in raw:
-                changed = True
-            if task.created_at is None:
-                task.created_at = now
-                changed = True
-        if changed:
-            self.runtime._write_json(self.runtime.tasks_path, [task.model_dump(mode="json") for task in tasks])
         return tasks
 
-    def latest(self, task_ids: set[str]) -> dict[str, PaTaskRun]:
-        """Read each selected task's most recent execution event."""
-        if not task_ids:
-            return {}
-        try:
-            descriptor = os.open(self.runtime.task_runs_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-        except FileNotFoundError:
-            return {}
-        latest = {}
-        with os.fdopen(descriptor, "rb") as handle:
-            for line in self.runtime._reverse_jsonl_lines(handle):
-                run = PaTaskRun.model_validate_json(line)
-                if run.task_id in task_ids and run.task_id not in latest:
-                    latest[run.task_id] = run
-                if latest.keys() >= task_ids:
-                    break
-        return latest
+    async def record(self, run: PaTaskRun) -> None:
+        """Finish each append before allowing cancellation to leave its caller."""
+        await complete_in_thread(self.runtime._append_jsonl, self.runtime.task_runs_path, run.model_dump(mode="json"))
 
-    async def run(
-        self,
-        runner: Callable[..., Awaitable[Response]],
-        *,
-        stop_event: asyncio.Event | None = None,
-    ) -> list[dict]:
-        """Reserve each due slot before serial execution; coalesce missed slots to the latest one."""
-        from croniter import croniter
+    def paths(self, task_id: str) -> list[Path]:
+        """Find published snapshots, newest first, across local calendar dates."""
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", task_id):
+            raise ValueError("Invalid task_id")
+        today = self.runtime._now().date()
+        paths = []
+        for directory in self.daily_path.glob("????-??-??"):
+            try:
+                day = date.fromisoformat(directory.name)
+            except ValueError:
+                continue
+            if day > today:
+                continue
+            root = self.checked(directory / "cron" / task_id)
+            for path in root.glob("*.md"):
+                if re.fullmatch(r"(?:[01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]", path.stem):
+                    paths.append(self.checked(path))
+        return sorted(paths, key=lambda path: (path.parents[2].name, path.name), reverse=True)
+
+    async def publish(self, staging: Path, target: Path, task_id: str, run_id: str) -> None:
+        """Publish only a completed, nonempty snapshot, exclusively at its final name."""
+
+        def publish():
+            self.checked(target)
+            post = frontmatter.loads(self.read(staging))
+            if not post.content.strip():
+                raise ValueError("Task agent did not write a nonempty summary")
+            post.metadata.update(
+                task_id=task_id,
+                run_id=run_id,
+                created_at=self.runtime._now().isoformat(),
+                status="unread",
+            )
+            content = frontmatter.dumps(post) + "\n"
+            if len(content.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
+                raise ValueError("Task summary exceeds the file read limit after adding metadata")
+            self.runtime._write_text(staging, content)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.link(self.checked(staging), self.checked(target))
 
         async with self.lock:
-            tasks = await complete_in_thread(self.load)
-            latest = await asyncio.to_thread(self.latest, {task.id for task in tasks})
-            for previous in latest.values():
-                if previous.status == "running":
-                    previous.status = "interrupted"
-                    previous.finished_at = self.runtime._now()
-                    previous.error = "Previous execution has no completion record; outcome unknown"
-                    await complete_in_thread(
-                        self.runtime._append_jsonl,
-                        self.runtime.task_runs_path,
-                        previous.model_dump(mode="json"),
-                    )
-            results = []
-            for task in tasks:
-                if stop_event is not None and stop_event.is_set():
-                    break
-                if not task.enabled:
-                    continue
-                now = self.runtime._now()
-                scheduled_at = croniter(task.cron, now + timedelta(microseconds=1)).get_prev(datetime)
-                previous = latest.get(task.id)
-                if scheduled_at <= task.created_at or (previous is not None and previous.scheduled_at >= scheduled_at):
-                    continue
-                run = PaTaskRun(
-                    task_id=task.id,
-                    cron=task.cron,
-                    query=task.query,
-                    scheduled_at=scheduled_at,
-                    started_at=now,
-                )
-                await complete_in_thread(
-                    self.runtime._append_jsonl,
-                    self.runtime.task_runs_path,
-                    run.model_dump(mode="json"),
-                )
-                try:
-                    response = await runner(query=task.query, stop_event=stop_event)
-                    run.status = "succeeded" if response.success else "failed"
-                    run.result = response.answer
-                    run.agent_session_id = response.metadata.get("session_id")
-                    if not response.success:
-                        run.error = str(response.answer)[:1000]
-                except asyncio.CancelledError:
-                    run.status = "interrupted"
-                    run.error = "Execution cancelled; outcome may be incomplete"
-                    raise
-                except Exception as exc:
-                    run.status = "failed"
-                    run.error = str(exc)[:1000]
-                finally:
-                    run.finished_at = self.runtime._now()
-                    await complete_in_thread(
-                        self.runtime._append_jsonl,
-                        self.runtime.task_runs_path,
-                        run.model_dump(mode="json"),
-                    )
-                latest[task.id] = run
-                results.append(run.model_dump(mode="json"))
-            return results
+            async with await get_path_lock(target):
+                await complete_in_thread(publish)
+
+    async def consume(self, limit: int, round_id: str) -> list[dict]:
+        """Checkpoint full inputs before acknowledging read or superseded snapshots."""
+        if type(limit) is not int or not 1 <= limit <= 3:
+            raise ValueError("limit must be an integer from 1 to 3")
+
+        def select():
+            documents, updates = [], []
+            for task in self.load():
+                count = 0
+                for path in self.paths(task.id):
+                    text = self.read(path)
+                    post = frontmatter.loads(text)
+                    if post.get("status") != "unread":
+                        continue
+                    if post.get("task_id") != task.id:
+                        raise ValueError(f"Task result identity does not match its directory: {path}")
+                    if not post.content.strip():
+                        raise ValueError(f"Empty task result: {path}")
+                    status = "read" if count < limit else "superseded"
+                    if status == "read":
+                        documents.append(
+                            {"task_id": task.id, "path": self.runtime.to_workspace_relative(path), "content": text},
+                        )
+                    updates.append((path, text, status))
+                    count += 1
+            return documents, updates
+
+        def acknowledge(path, original, status):
+            # Preserve concurrent user edits for a later round instead of overwriting them.
+            if self.read(path) != original:
+                return
+            post = frontmatter.loads(original)
+            post["status"] = status
+            self.runtime._write_text(self.checked(path), frontmatter.dumps(post) + "\n")
+
+        async with self.lock:
+            documents, updates = await asyncio.to_thread(select)
+            await self.runtime.checkpoint_proactive(round_id, "task_results", documents)
+            for path, original, status in updates:
+                async with await get_path_lock(path):
+                    await complete_in_thread(acknowledge, path, original, status)
+            return [{"task_id": document["task_id"], "path": document["path"]} for document in documents]

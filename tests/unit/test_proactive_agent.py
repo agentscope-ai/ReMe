@@ -132,12 +132,12 @@ async def test_feedback_checkpoint_failure_does_not_clear_inbox(pa_workspace, mo
 
 
 @pytest.mark.asyncio
-async def test_task_agent_needs_no_pa_runtime_and_has_no_implicit_tools(pa_workspace):
+async def test_task_agent_requires_a_complete_task_definition(pa_workspace):
     env = pa_workspace
-    env.context.components.pop("pa")
     env.agent.reply = AsyncMock(return_value={"session_id": "task", "status": "completed", "result": "result"})
-    result = await TaskAgentStep(app_context=env.context)(query="理解本地结果")
-    assert result.answer == "result" and env.agent.reply.await_args.kwargs["job_tools"] == []
+    with pytest.raises(ValueError):
+        await TaskAgentStep(app_context=env.context)(task={"query": "理解本地结果"})
+    env.agent.reply.assert_not_awaited()
 
 
 @pytest.mark.parametrize("minutes", [0, -1, True, "5", float("nan"), float("inf")])

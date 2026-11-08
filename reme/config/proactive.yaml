@@ -4,7 +4,7 @@
 # Start: reme start config=proactive
 # Open: http://127.0.0.1:2333
 # Temporary assets live under resource/; keep permanent assets outside it.
-# Connectors return {context, paths}; default task queries check screens every five minutes and finance every fifteen.
+# Connectors return {context, paths}; independent task schedules check screens every five minutes and finance hourly.
 # Resource retention scans file mtimes daily and does not use a catalog.
 
 language: zh
@@ -19,14 +19,15 @@ service:
 jobs:
   task_agent:
     backend: base
+    enable_serve: false
     track_execution: true
-    description: "Interpret screenshots, news and other evidence to answer a concrete task query in a fresh agent session."
+    description: "Execute a scheduled task, then publish a cumulative Markdown summary in the same fresh agent session."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        query: {type: string, minLength: 1, description: "What to learn or accomplish, e.g. find financial news relevant to the user"}
-      required: [query]
+        task: {type: object, description: "Complete task definition from tasks.json: id, cron, query and enabled"}
+      required: [task]
     steps:
       - backend: task_agent_step
         agent_wrapper: default
@@ -124,6 +125,11 @@ jobs:
     steps:
       - backend: pa_loop_step
 
+  task_schedule:
+    backend: background
+    steps:
+      - backend: task_schedule_step
+
   pa_proactive:
     backend: base
     enable_serve: false
@@ -132,20 +138,20 @@ jobs:
       - backend: proactive_agent_step
         agent_wrapper: default
         max_turns: 20
-        job_tools: [get_proactive_messages, read_conversation, run_due_tasks, get_reminder, send_reminder, check_json]
+        job_tools: [get_proactive_messages, read_conversation, read_task_results, screen_capture, get_reminder, send_reminder, check_json]
 
-  run_due_tasks:
+  read_task_results:
     backend: base
     enable_serve: false
     track_execution: true
-    description: "Execute due tasks serially via task_agent, reserve each cron slot and append start/finish records."
+    description: "Return up to three latest unread summary paths per configured task; read the files. Full inputs are checkpointed before acknowledgement."
     parameters:
       type: object
-      properties: {}
+      properties:
+        limit: {type: integer, minimum: 1, maximum: 3, default: 3, description: "Maximum unread documents per task"}
       additionalProperties: false
     steps:
-      - backend: run_due_tasks_step
-        task_job: task_agent
+      - backend: read_task_results_step
 
   send_to_proactive:
     backend: base
@@ -421,7 +427,7 @@ components:
           query: "通过截屏看看主人在干啥"
           enabled: true
         - id: finance_news
-          cron: "*/15 * * * *"
+          cron: "0 * * * *"
           query: "看看有什么主人喜欢的财经新闻"
           enabled: true
 
@@ -435,6 +441,7 @@ components:
       supports_websockets: false
       experimental_api: true
       config_overrides:
+        - 'web_search="live"'
         # Tested client budget; this is not the provider's maximum context size.
         - model_context_window=65536
         - model_auto_compact_token_limit=56000

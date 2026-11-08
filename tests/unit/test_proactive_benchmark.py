@@ -20,8 +20,18 @@ def record_for(root, case_id):
     seed(root, CASES[case_id])
     original = files(root)
     jobs = [
-        {"name": name, "args": {"content": ""} if name == "send_reminder" else {}, "response": {"success": True}}
-        for name in ("get_proactive_messages", "read_conversation", "run_due_tasks", "get_reminder", "send_reminder")
+        {
+            "name": name,
+            "args": {"content": ""} if name == "send_reminder" else {},
+            "response": {"success": True},
+        }
+        for name in (
+            "get_proactive_messages",
+            "read_conversation",
+            "read_task_results",
+            "get_reminder",
+            "send_reminder",
+        )
     ]
     return {
         "fixture": CASES[case_id],
@@ -85,7 +95,7 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
         CASES["proactive_evidence"],
     )
     assert cfg["jobs"]["task_agent"]["steps"][0]["job_tools"] == ["screen_capture", "finance_news"]
-    assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 6
+    assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 7
     assert "reminder_delivery" not in cfg["jobs"]
 
 
@@ -109,6 +119,17 @@ def test_incomplete_or_missing_protocol_cannot_score_for_inaction(tmp_path):
     record["completed"] = True
     record["jobs"] = []
     assert grade("proactive_known", record)["score"] == 0
+
+
+def test_only_configured_task_snapshot_paths_are_allowed_new_files(tmp_path):
+    from benchmark.proactive.cases import frozen_now
+
+    record = record_for(tmp_path, "proactive_evidence")
+    snapshot = f"daily/{frozen_now():%Y-%m-%d}/cron/fixture-0/{frozen_now():%H%M%S}.md"
+    record["after"][snapshot] = "completed cumulative result"
+    assert grade("proactive_evidence", record)["checks"]["no_unexpected_files"]
+    record["after"][snapshot.replace("fixture-0", "unknown")] = "unexpected"
+    assert not grade("proactive_evidence", record)["checks"]["no_unexpected_files"]
 
 
 def test_forgetting_detects_copies_and_keeps_unrelated_facts(tmp_path):

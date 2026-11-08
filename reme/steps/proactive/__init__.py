@@ -8,6 +8,7 @@ from .loop import PaLoopStep
 from .proactive_agent import ProactiveAgentStep
 from .reminder_delivery import ReminderDeliveryStep
 from .task_agent import TaskAgentStep
+from .task_schedule import TaskScheduleStep
 
 __all__ = [
     "CleanupResourcesStep",
@@ -19,6 +20,7 @@ __all__ = [
     "ProactiveAgentStep",
     "ReminderDeliveryStep",
     "TaskAgentStep",
+    "TaskScheduleStep",
     "data_connectors",
     "tools",
 ]

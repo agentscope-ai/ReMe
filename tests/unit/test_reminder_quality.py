@@ -11,11 +11,15 @@ def record():
         "before": {MEMORY: "confirmed memory"},
         "after": {MEMORY: "confirmed memory"},
         "jobs": [
-            {"name": name, "args": {"content": ""} if name == "send_reminder" else {}, "response": {"success": True}}
+            {
+                "name": name,
+                "args": {"content": ""} if name == "send_reminder" else {},
+                "response": {"success": True},
+            }
             for name in (
                 "get_proactive_messages",
                 "read_conversation",
-                "run_due_tasks",
+                "read_task_results",
                 "get_reminder",
                 "send_reminder",
             )

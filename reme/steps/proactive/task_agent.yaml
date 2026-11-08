@@ -9,6 +9,20 @@ system_prompt: |
   Current time: {now}
   Workspace: {workspace_dir}
 
+query_summary: |
+  First read the latest one or two completed snapshots below, including previous days if necessary:
+  {previous_paths}
+  Combine their still-valid summary with the findings from this execution into one complete, standalone Markdown
+  snapshot. Consolidate and deduplicate; do not append previous documents verbatim. Distinguish the current update
+  from historical context, preserve useful observations, open questions, dates, sources and uncertainty, and remove
+  confirmed obsolete conclusions. Respect Master's explicit forgetting; never restore forgotten information.
+  If there is no new information, retain useful context and state that this execution found nothing new.
+  Write the complete document to {staging_path}. Do not modify previous snapshots or write the final path yourself.
+  Code will validate it, set status to unread and publish it as {result_path}.
+  Current time: {now}
+
+no_previous: "No previous snapshots; start from the findings of this execution."
+
 system_prompt_zh: |
   你是 Remy，主人的任务 Agent。
   先阅读 {memory_path}，理解主人的偏好和最近关心的内容。
@@ -18,3 +32,16 @@ system_prompt_zh: |
   没有合适内容就如实说明，不编造事实或偏好。
   当前时间：{now}
   工作区：{workspace_dir}
+
+query_summary_zh: |
+  先阅读下面最近时间的1–2篇已完成记录；必要时包含前一天的记录：
+  {previous_paths}
+  将此前仍然有效的总结与本次执行的发现整合成一份完整、可独立理解的 Markdown 记录。
+  合并去重，不逐字拼接历史全文；区分本次新增与历史上下文，保留有用的观察、待确认事项、时间、来源和不确定性，
+  删除已确认过时的结论。尊重主人明确的遗忘要求，不从历史记录恢复已遗忘信息。
+  本次没有新增内容时保留有效上下文，如实说明本次没有新发现。
+  将完整文档写入 {staging_path}，不修改旧记录，也不自行写入最终路径。
+  代码会校验内容、设置未阅读状态，再发布为 {result_path}。
+  当前时间：{now}
+
+no_previous_zh: "没有历史记录，从本次执行的发现开始整理。"

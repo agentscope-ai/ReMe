@@ -16,10 +16,10 @@ from pathlib import Path
 
 import frontmatter
 
-from ._file_io import get_path_lock
 from ._path import _check_path_permission, display_path, gate_md, resolve_path
 from ..base_step import BaseStep
 from ...components import R
+from ...utils.file_utils import get_path_lock
 
 
 @R.register("frontmatter_update_step")

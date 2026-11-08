@@ -5,9 +5,9 @@ import json
 import aiofiles
 
 from ...base_step import BaseStep
-from ...file_io._file_io import get_path_lock
 from ...file_io._path import _check_path_permission, resolve_path
 from ....components import R
+from ....utils.file_utils import get_path_lock
 
 
 @R.register("check_json_step")

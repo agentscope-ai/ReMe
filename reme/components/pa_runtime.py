@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -21,14 +21,13 @@ from .base_component import BaseComponent
 from .component_registry import R
 from ._pa_hints import ProactiveHints
 from ._pa_reminders import ReminderDelivery
-from ._pa_tasks import TaskScheduler
+from ._pa_tasks import TaskFiles
 from ..schema.agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from ..schema.pa_event import PaEvent
 from ..schema.agent_activity import AgentActivity
 from ..schema.pa_session import PaSessionCursor
 from ..schema.pa_proactive import PaProactiveConfig
 from ..schema.pa_task import PaTask
-from ..schema.response import Response
 from ..utils.async_utils import complete_in_thread, finish_cleanup
 from ..constants import DEFAULT_MAX_FILE_BYTES
 
@@ -91,7 +90,7 @@ class PaRuntime(BaseComponent):
         self.session_lock = asyncio.Lock()
         self.current_round: ProactiveRound | None = None
         self.hints = ProactiveHints(self)
-        self.tasks = TaskScheduler(self)
+        self.tasks = TaskFiles(self)
         self.reminders = ReminderDelivery(self)
         self._inbox_lock = asyncio.Lock()
         self._proactive_lock = asyncio.Lock()
@@ -308,15 +307,6 @@ class PaRuntime(BaseComponent):
         """Return the latest reminder states with pagination."""
         return await self.reminders.history(limit, offset)
 
-    async def run_due_tasks(
-        self,
-        runner: Callable[..., Awaitable[Response]],
-        *,
-        stop_event: asyncio.Event | None = None,
-    ) -> list[dict]:
-        """Delegate due-slot reservation and execution to the scheduler."""
-        return await self.tasks.run(runner, stop_event=stop_event)
-
     @staticmethod
     def _reverse_jsonl_lines(handle):
         """Scan JSONL from EOF without loading its entire history."""
@@ -505,7 +495,7 @@ class PaRuntime(BaseComponent):
                 create_only=True,
             )
         self._load_proactive_config()
-        self.tasks.load()
+        self.tasks.initialize()
         for path in (
             self.proactive_inbox_path,
             self.reminders_path,

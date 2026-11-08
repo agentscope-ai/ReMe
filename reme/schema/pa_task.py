@@ -1,6 +1,6 @@
 """File-native scheduled tasks and append-only execution events."""
 
-from typing import Any, Literal
+from typing import Literal
 from uuid import uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator
@@ -11,7 +11,7 @@ class PaTask(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(default_factory=lambda: uuid4().hex, pattern=r"^[A-Za-z0-9_-]{1,128}$")
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,128}$")
     cron: str
     query: str = Field(min_length=1)
     enabled: StrictBool = True
@@ -37,18 +37,16 @@ class PaTask(BaseModel):
 
 
 class PaTaskRun(BaseModel):
-    """Start and finish events share the same run_id and scheduled_at."""
+    """Start and finish events share a run_id; Markdown owns successful results."""
 
     model_config = ConfigDict(extra="forbid")
 
     run_id: str = Field(default_factory=lambda: uuid4().hex)
     task_id: str
-    cron: str
     query: str
-    scheduled_at: AwareDatetime
     started_at: AwareDatetime
     finished_at: AwareDatetime | None = None
     status: Literal["running", "succeeded", "failed", "interrupted"] = "running"
-    result: Any = None
+    result_path: str | None = None
     error: str | None = None
     agent_session_id: str | None = None

@@ -138,7 +138,7 @@ Codex 客户端采用 65536 token 的上下文预算和 56000 token 的自动压
 路径无效或初始化失败时，新建失败并保留原来的当前会话。
 
 `proactive` 配置每次唤醒创建一个主动 Agent 会话，在同一会话中依次执行六个 query：长期记忆及上轮交接、
-对话反馈和近期对话、到期任务及价值分析、提醒决策、可选的唤醒配置调整、生成下轮交接。整轮工具绑定保持一致。
+对话反馈和近期对话、未读任务摘要及价值分析、提醒决策、可选的唤醒配置调整、生成下轮交接。整轮工具绑定保持一致。
 只有最后一问成功且摘要非空时才原子覆盖交接文件。消费反馈和推进游标前，先将输入保存到 `proactive_context.jsonl`，
 并追加本轮阶段结果；失败保留恢复上下文和上轮摘要，成功完成交接后清空恢复文件。
 
@@ -153,7 +153,7 @@ PA 组件在 Job 启动前创建 `{metadata_dir}/pa/` 下缺失的文件：
 | --- | --- |
 | `session_ids.json` | `[]`，最后一条表示当前对话 |
 | `proactive.json` | `components.pa.default.default_proactive` |
-| `tasks.json` | `components.pa.default.default_tasks`，补齐 ID 和登记时间 |
+| `tasks.json` | `components.pa.default.default_tasks` |
 | `proactive_inbox.txt` | 空文件 |
 | `handoff.txt` | 空文件 |
 | `proactive_context.jsonl` | 空的恢复记录 |
@@ -196,24 +196,43 @@ JSONL 用相同 ID 追加 `pending`、`sent`、`discarded`、`failed` 状态，�
 无会话、会话切换、离开活动时间或过期时废弃。重启从 JSONL 重建待发送状态，并重新检查和等待。
 重试复用原生消息 ID；`sent` 表示已注入，不代表主人已读。注入与 JSONL 状态落盘仍是两个操作。
 
-主动 Agent 只装备反馈获取、对话读取、到期任务、提醒历史、提醒提交和 JSON 校验六个 Job 工具。
+主动 Agent 装备反馈获取、对话读取、任务结果读取、截图、提醒历史、提醒提交和 JSON 校验 Job 工具。
 会话状态查询归通用会话操作，不再放在主动工具目录。相关性、语义去重和提醒价值由 Agent 判断。
 长期个人记忆由对话 Agent 维护，近期关注和未完成工作保留在交接摘要；旧对话和摘要不能恢复已遗忘信息。
 
 ### 定时任务 query
 
-私有工具 `run_due_tasks()` 每次重新读取 `{metadata_dir}/pa/tasks.json`，依次通过 `task_agent(query=...)` 执行到期任务。
-文件缺失时从 `components.pa.default.default_tasks` 初始化，已有空列表保留，错误文件报错而不覆盖。任务包含稳定 id、
-五段 cron、query、enabled 和代码补齐的登记时间。默认每五分钟观察屏幕活动，每十五分钟寻找主人可能喜欢的财经新闻。
-通过原生文件工具编辑，使用 `check_json` 检查语法，加载器校验业务字段；修改 query 或 cron 保留任务 ID 与历史。
+对话 Agent 维护 `{metadata_dir}/pa/tasks.json`：JSON 列表，每项包含稳定的 `id`、五段 `cron`、非空 `query`、
+布尔值 `enabled` 和可选的 `created_at`。修改前读取，编辑时保留任务身份，之后校验 JSON。
+默认每五分钟观察屏幕活动，每小时整点获取主人可能感兴趣的财经新闻。默认值只初始化缺失文件；
+已有 `tasks.json` 需要明确编辑，修改 YAML 不会覆盖已有任务。
 
-新任务从登记后的下一个 cron 时间开始，错过多个周期时只执行最近一期。启动任务 Agent 前，PA 组件先向
-`{metadata_dir}/pa/task_runs.jsonl` 追加 running 记录；完成后用相同 run_id 追加结束记录，包含计划、开始及结束时间、
-状态、最终解读和任务会话 ID。单个失败不阻塞其他任务，取消时记录中断。后续调用将遗留 running 标记为中断、结果未知，
-同一计划时刻不会自动重跑。组件锁串行化工具调用。
+`task_schedule` 后台 Job 每秒检查配置文件修改时间，为每个启用的任务管理一个 ReMe `CronJob`。
+有效修改会新增、替换或停止调度；配置无效时报告错误，保留已有有效调度。替换时先关闭旧 Job 再启动新 Job，
+同一任务不会重叠执行，所有 Job 和执行中的 Agent 随应用关闭。任务调度独立于 proactive 活跃时段，
+从下一个 cron 时刻开始执行；每个任务串行，错过的触发不补跑。
 
-返回本轮完成的任务记录列表，没有到期任务返回 `[]`。主动 Agent 每次醒来调用，实际执行延迟取决于唤醒频率和任务耗时。
-这替代固定的截图 CronJob；资源 TTL 清理仍为独立 CronJob。
+每次执行创建新 Agent 会话：q1 是配置中的 query；q2 在同一会话中读取该任务最近的1–2篇已完成记录，
+允许跨日期，将仍有效的历史总结和本次发现整合成完整、可独立理解的累计 Markdown。
+Agent 先写暂存文件，代码校验正文非空，补充 `task_id`、`run_id`、`created_at` 和 `status: unread`，再独占发布为：
+
+```text
+{daily_dir}/YYYY-MM-DD/cron/{task_id}/HHMMSS.md
+```
+
+不覆盖已有记录；Agent 失败或中断不发布半成品。`task_runs.jsonl` 追加相同运行 ID 的开始、结束记录，
+保存状态、时间、会话 ID、结果路径或错误，正文以 Markdown 为准。
+
+Proactive 的任务步骤调用一次私有工具 `read_task_results(limit=3)`，再逐篇完整阅读返回路径对应的文档。
+工具只返回**每个配置任务**各自最新的未读摘要路径，每项最多3篇，包括暂停任务和此前日期；正文从文件读取，
+避免被工具输出限制截断。删除配置条目后不再扫描其任务目录，历史文件仍然保留。
+完整输入先写入恢复上下文，再将实际返回的文档标为 `read`，被累计摘要覆盖的更旧未读版本标为 `superseded`。
+已读只表示 proactive 已消费，不表示主人已读或已发送提醒；轮次失败时通过恢复上下文继续处理。
+相关性与提醒价值仍由 Agent 判断，也可以主动调用 `screen_capture` 和可用的原生 `web_search` 补充调查。
+`proactive` 配置开启原生实时搜索，实际可用性取决于配置的模型服务支持。
+
+旧 `run_due_tasks` Job、Step 和依赖主动唤醒的调度逻辑已移除；`task_agent` 改为接收完整 `task` 对象的私有 Job，
+不保留兼容入口。原始资源 TTL 清理仍由独立 CronJob 执行。
 
 ## MCP
 
