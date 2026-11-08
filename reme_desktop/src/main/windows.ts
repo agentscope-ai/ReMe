@@ -91,7 +91,8 @@ export class DesktopWindows {
       visualEffectState: "followWindow",
       title: "Remy · ReMe",
       icon: paths.icon,
-      webPreferences,
+      // This renderer also plays audio while the workspace is hidden.
+      webPreferences: { ...webPreferences, backgroundThrottling: false },
     });
     if (process.platform === "darwin") {
       // The optional native material owns no tasks; its views are owned by NSWindow.

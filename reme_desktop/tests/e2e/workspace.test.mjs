@@ -200,13 +200,20 @@ test(
           await expect(
             chat.getByRole("button", { name: "Settings", exact: true }),
           ).toBeVisible();
-          const bounds = await app.evaluate(({ BrowserWindow }) =>
-            BrowserWindow.getAllWindows()
+          const restored = await app.evaluate(({ BrowserWindow, screen }) => {
+            const bounds = BrowserWindow.getAllWindows()
               .find((win) => win.webContents.getURL().includes("view=chat"))
-              .getBounds(),
+              .getBounds();
+            return { bounds, area: screen.getDisplayMatching(bounds).workArea };
+          });
+          assert.equal(
+            restored.bounds.width,
+            Math.min(settings.windowBounds.width, restored.area.width),
           );
-          assert.equal(bounds.width, 1080);
-          assert.equal(bounds.height, 680);
+          assert.equal(
+            restored.bounds.height,
+            Math.min(settings.windowBounds.height, restored.area.height),
+          );
         },
       );
       assert.deepEqual(errors, []);
