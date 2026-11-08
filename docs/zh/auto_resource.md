@@ -172,6 +172,74 @@ resource/YYYY-MM-DD/{uuid_hex}/
 取消时等待正在执行的同步采集退出并清理暂存文件；每日产生 96 次计划采集，失败轮次不保存。
 资源包沿用上述七天 TTL。该任务只采集，不直接调用 LLM，也不生成 daily 卡片。
 
+## 带凭证的远程采集器
+
+`reme start config=proactive_remote` 在 `proactive` 工作区之上追加 `mail_capture_cron` 和 `github_capture_cron` 两个
+cron Job，其余配置完全继承。它们产出的是普通资源包，因此既有的 watcher、`resource_changes` / `resource_processed`
+确认机制、PA 采集轮次和 7 天 TTL 都照常生效。`reme/config/proactive_remote.yaml` 中的任何取值都可以在命令行覆盖：
+
+```bash
+reme start config=proactive_remote jobs.mail_capture_cron.cron="*/30 * * * *"
+```
+
+凭证来自环境变量或工作目录下的 `.env`（ReMe 在解析配置前加载它）。缺少凭证的采集器只记录一条告警且不发布资源包，
+Job 本身仍然成功，因此在配置任何密钥之前启动该配置是安全的。采集器严格只读：邮件以 `BODY.PEEK` 在只读 `SELECT`
+下读取，不标记已读、不回信；GitHub 通知也不会被标记已读。采集内容属于隐私数据：邮件正文和 issue 文本写入
+`resource/`，并随其 TTL 一起删除。
+
+密钥在每次轮询时从环境读取，故意不写成 `proactive_remote.yaml` 里的 `${VAR}` 占位符：配置解析会对形似数字的取值
+做类型转换，例如 `1e5` 会被变成 `100000.0` 再交给服务商。非密钥配置仍留在 YAML 中，可在命令行覆盖。`.env`
+有三个容易踩的点：搜索从工作目录开始、最多向上 5 层、且只加载第一个命中的 `.env`，因此要在持有该文件的目录
+或其子目录里启动 ReMe；`.env` 中的值会覆盖已经 export 的同名 shell 变量，临时用 shell 覆盖会看起来"不生效"；
+每行必须是纯 `KEY=VALUE`——`export ` 前缀会成为键名的一部分，`${}` 不做插值，没有 `=` 的行被静默忽略。
+
+缺少凭证时该轮跳过并记一条告警、Job 仍然成功；凭证被拒绝时该轮直接失败报错，所以配置完要主动验证一次，
+不要以"日志安静"当作成功。`mailboxes` 必须使用服务商自己的文件夹名（以 IMAP `LIST` 结果为准）；文件夹不存在
+会让该轮失败而不是被跳过，因此一期建议只配 `INBOX`。SASL 认证要求服务器在 capability 中声明 `AUTH=`；只提供
+`IMAP4rev1 ID` 的服务器必须走 `auth_mode=password`，配合应用专用密码或服务商授权码。同一数据源要并行接入两个
+账号时，需要为每个 Step 配置不同的 `state_key`；更换账号应删除对应的 `metadata/step/{state_key}.json`——
+`UIDVALIDITY` 变化会自动重置邮箱游标，但若两者恰好相同，就会沿用上一个账号的位置。
+
+`ImapMailStep`（`imap_mail_step`）需要 `IMAP_HOST`、`IMAP_USER`，以及 `IMAP_PASSWORD`（应用专用密码或服务商授权码）
+或 `IMAP_ACCESS_TOKEN` 之一。`IMAP_AUTH_MODE=oauthbearer` 或 `xoauth2` 走 SASL 认证；配置 `IMAP_REFRESH_TOKEN`、
+`IMAP_CLIENT_ID`、`IMAP_CLIENT_SECRET` 时，访问令牌会通过 `IMAP_TOKEN_URL`（默认 Google 令牌端点）自动刷新。
+`IMAP_MAILBOXES` 为逗号分隔列表，每个邮箱各自保存 `UIDVALIDITY` 与已消费的最大 UID 游标；`UIDVALIDITY` 变化说明
+服务端重新编号，该邮箱回退到 `initial_window_days` 限定的时间窗重新开始。消息按 UID 从旧到新消费，单轮上限
+`max_messages`，积压会在后续轮次继续排空而不会被跳过；`unseen_only` 只搜索未读邮件。超过 `max_message_bytes`
+的邮件会被整封跳过，正文按 `max_body_bytes` 截断，附件只记录名称、不下载。每封邮件产出一个 Markdown 文件：
+
+```text
+resource/YYYY-MM-DD/{uuid_hex}/
+  messages/001-INBOX-4242.md
+  metadata.json
+```
+
+`GithubNotificationsStep`（`github_notifications_step`）和 `GithubActivityStep`（`github_activity_step`）需要
+`GITHUB_TOKEN`（或 `GH_TOKEN`）：通知接口要求带 `notifications` 权限的 classic token，活动接口要求对 issue 和
+pull request 的读权限。`GITHUB_API_BASE` 用于 GitHub Enterprise 的 API 根地址。通知以 `since` 轮询，并用响应的
+`Last-Modified` 作为下一次游标（GitHub 文档保证该方式不漏数据）；`include_read`、`participating`、`repos`、
+`exclude_repos`、`reasons` 控制保留范围，被过滤掉的通知同样会关闭其时间窗。活动接口必须配置
+`GITHUB_ACTIVITY_REPOS`（逗号分隔或 JSON 列表，数量上限 `max_repos`），每个仓库各自维护 `since` 游标并推进到本轮
+见到的最新 `updated_at`；`exclude_labels`、`include_issues`、`include_pulls`、`only_involving_you` 用于过滤，
+当前登录账号通过 `/user` 解析一次后缓存。额度耗尽时只停止本轮翻页而不会丢数据，因为两个游标都来自服务端时间戳。
+每个采集器发布一份摘要：
+
+```text
+resource/YYYY-MM-DD/{uuid_hex}/notifications.md      # 按仓库分组，含原因与可点击链接
+resource/YYYY-MM-DD/{uuid_hex}/activity.md           # 按仓库列出状态、作者、标签、是否与本人相关
+```
+
+两个远程采集器都继承 `BaseRemoteConnectorStep`，它在 `BaseConnectorStep` 之上补齐带凭证数据源需要的采集侧能力。
+配置项依次从 Step kwargs、`env_defaults` 中映射的环境变量、默认值解析；`timeout_seconds` 约束每次网络调用，
+`max_retries` 与 `retry_backoff_seconds` 约束指数退避，服务端的 `Retry-After` 或限流重置时间会被遵守，上限为
+`max_backoff_seconds`。`min_interval_minutes` 在发出任何请求之前就拒绝过密的轮询，避免手工调用重复打扰服务商。
+`max_pages` 与 `per_page` 约束翻页。通过 `stage_state` 暂存的游标只有在资源包原子发布成功后才写入
+`metadata/step/{state_key}.json`，因此失败或被取消的轮询会重读同一时间窗；没有新内容的轮询不发布资源包，只刷新
+`last_poll_at` 与 `polls`。`state_key` 默认取 Step 的 `backend`，所以同一数据源要并行接入多个账号时，需要为每个
+Step 配置不同的 `state_key`。删除状态文件即可让该采集器从初始时间窗重新开始。载荷辅助方法保证服务商文本不会逃出
+资源包：`write_payload` 拒绝空载荷和不安全路径，`safe_name` 把不可信文本压缩成一个文件名成分，`truncate` 在 UTF-8
+字符边界处截断。
+
 ## 图像资源
 
 文本和图像共用 agent-wrapper 与笔记写入工具；图片输入只是在理解提示词旁加入原生 AgentScope 图像块。

@@ -1,0 +1,78 @@
+# The proactive workspace plus credentialed mail and GitHub collectors feeding the same PA loop.
+# Start: reme start config=proactive_remote
+#
+# Secrets are read from the environment when a poll runs; they are deliberately absent from this
+# file. A `${VAR}` placeholder would pass the value through the config parser's type coercion, which
+# turns a number-looking secret such as 1e5 into the float 100000.0 before any Step sees it.
+#   mail:    IMAP_HOST IMAP_USER IMAP_PASSWORD (or IMAP_ACCESS_TOKEN / IMAP_REFRESH_TOKEN)
+#   github:  GITHUB_TOKEN (or GH_TOKEN) and GITHUB_ACTIVITY_REPOS
+# Environment means the process environment or a .env file, which ReMe loads before parsing this
+# file. Two .env rules bite often: the search stops at the working directory's fifth parent and uses
+# the first .env it finds, and a .env value overrides an already exported shell variable. Write
+# plain KEY=VALUE lines; an "export " prefix becomes part of the key and ${} is not interpolated.
+#
+# A collector without credentials logs a warning and publishes nothing, so this config is safe to
+# start before any secret exists — but that also means a typo collects nothing quietly. Verify once
+# after configuring; see "Credentialed Remote Collectors" in docs/en/auto_resource.md.
+# Every package lands in resource/ under its own date directory and expires with that catalog's TTL,
+# where the PA loop's collector agent finds it through resource_changes. Nothing here is marked read,
+# replied to, or written back to the provider.
+#
+# Override any value on the command line, for example:
+#   reme start config=proactive_remote jobs.mail_capture_cron.cron="*/30 * * * *"
+
+extends: proactive
+
+jobs:
+  mail_capture_cron:
+    backend: cron
+    cron: "*/15 * * * *"  # Application timezone; no startup collection.
+    steps:
+      - backend: imap_mail_step
+        host: ${IMAP_HOST:-}
+        user: ${IMAP_USER:-}
+        auth_mode: ${IMAP_AUTH_MODE:-password}  # password, oauthbearer, or xoauth2
+        token_url: ${IMAP_TOKEN_URL:-}  # OAuth refresh endpoint; defaults to Google
+        mailboxes: ${IMAP_MAILBOXES:-INBOX}  # Server-side folder names, comma-separated.
+        unseen_only: false
+        ssl: true
+        initial_window_days: 1  # First run only; later runs use the stored UID cursor.
+        max_messages: 25  # Oldest first, so a backlog is drained across polls.
+        max_body_bytes: 20000
+        max_message_bytes: 2097152  # Larger messages are skipped.
+        min_interval_minutes: 5  # Ignores manual runs that would double-poll the mailbox.
+        timeout_seconds: 30
+        max_retries: 3
+
+  github_capture_cron:
+    backend: cron
+    cron: "*/10 * * * *"
+    steps:
+      - backend: github_notifications_step
+        api_base: ${GITHUB_API_BASE:-}  # GitHub Enterprise: https://github.example.com/api/v3
+        include_read: false
+        participating: false
+        repos: ${GITHUB_NOTIFICATION_REPOS:-}  # Empty means every repository.
+        exclude_repos: ${GITHUB_EXCLUDE_REPOS:-}
+        reasons: ${GITHUB_NOTIFICATION_REASONS:-}  # Empty means every reason.
+        initial_window_hours: 24
+        per_page: 50
+        max_pages: 5
+        min_interval_minutes: 5
+        timeout_seconds: 30
+        max_retries: 3
+      - backend: github_activity_step
+        api_base: ${GITHUB_API_BASE:-}
+        repos: ${GITHUB_ACTIVITY_REPOS:-}  # Required; empty publishes nothing.
+        viewer: ${GITHUB_VIEWER:-}  # Optional login; resolved once through /user and cached.
+        exclude_labels: ${GITHUB_EXCLUDE_LABELS:-}
+        include_issues: true
+        include_pulls: true
+        only_involving_you: false
+        initial_window_hours: 72
+        max_repos: 10
+        per_page: 50
+        max_pages: 5
+        min_interval_minutes: 5
+        timeout_seconds: 30
+        max_retries: 3

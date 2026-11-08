@@ -192,6 +192,88 @@ the directory appears in `resource/` only after all images and the manifest are 
 to finish and cleans staged files. There are 96 scheduled collections per day; failed runs save nothing. Packages use
 the seven-day TTL described above. Capture does not call an LLM or generate daily cards.
 
+## Credentialed Remote Collectors
+
+`reme start config=proactive_remote` extends the `proactive` workspace with two cron Jobs, `mail_capture_cron` and
+`github_capture_cron`, and changes nothing else. Their packages are ordinary resource packages, so the existing watcher,
+`resource_changes` / `resource_processed` acknowledgement, PA collection rounds, and seven-day TTL all apply unchanged.
+Every value in `reme/config/proactive_remote.yaml` can be overridden on the command line:
+
+```bash
+reme start config=proactive_remote jobs.mail_capture_cron.cron="*/30 * * * *"
+```
+
+Credentials come from the environment or from a `.env` file in the working directory, which ReMe loads before parsing
+configuration. A collector whose credentials are missing logs a warning and publishes nothing; the Job still succeeds, so
+this configuration is safe to start before any secret exists. Collectors are strictly read-only: mail is fetched with
+`BODY.PEEK` in a read-only `SELECT`, nothing is marked read or answered, and no GitHub notification is marked read.
+Collected content is private: message bodies and issue text are written under `resource/` and deleted with its TTL.
+
+Secrets are read from the environment when a poll runs and are deliberately not `${VAR}` placeholders
+in `proactive_remote.yaml`: configuration parsing coerces values that look like numbers, so a
+secret such as `1e5` would reach the provider as `100000.0`. Non-secret settings stay in the YAML and
+can be overridden on the command line. `.env` handling has three sharp edges. The search starts at the
+working directory, stops at its fifth parent, and loads only the first `.env` it finds, so start ReMe
+from a directory at or below the one holding the file. A `.env` value overrides an already exported
+shell variable, which makes a temporary shell override appear to be ignored. Lines are plain
+`KEY=VALUE`: an `export ` prefix becomes part of the key, `${}` is not interpolated, and a line without
+`=` is dropped silently.
+
+A missing credential skips the round with a warning and leaves the Job successful, while a rejected
+credential fails the round with an error, so verify once after configuring rather than trusting a
+quiet log. `mailboxes` must use the provider's own folder names as reported by IMAP `LIST`; an unknown
+folder fails that round instead of being skipped, so start with `INBOX`. SASL authentication requires
+the server to advertise an `AUTH=` capability; a server offering only `IMAP4rev1 ID` needs
+`auth_mode=password` with an app password or provider authorization code. Running two accounts of one
+source side by side needs a distinct `state_key` per Step, and switching an account should delete its
+`metadata/step/{state_key}.json`: a changed `UIDVALIDITY` resets a mailbox cursor automatically, but an
+identical one would keep the previous account's position.
+
+`ImapMailStep` (`imap_mail_step`) needs `IMAP_HOST`, `IMAP_USER`, and either `IMAP_PASSWORD` (an app password or provider
+authorization code) or `IMAP_ACCESS_TOKEN`. `IMAP_AUTH_MODE=oauthbearer` or `xoauth2` selects SASL authentication; with
+`IMAP_REFRESH_TOKEN`, `IMAP_CLIENT_ID`, and `IMAP_CLIENT_SECRET` the access token is refreshed through `IMAP_TOKEN_URL`
+(Google's token endpoint by default). `IMAP_MAILBOXES` is a comma-separated list, each mailbox keeping its own cursor of
+`UIDVALIDITY` and the highest consumed UID. A changed `UIDVALIDITY` restarts that mailbox from a bounded
+`initial_window_days` window. Messages are consumed oldest first up to `max_messages`, so a backlog drains across polls
+instead of being skipped; `unseen_only` restricts the search to unread mail. Messages above `max_message_bytes`
+are skipped, and bodies are cut at `max_body_bytes`. Attachments are listed by name and never
+downloaded. The package holds one Markdown file per message:
+
+```text
+resource/YYYY-MM-DD/{uuid_hex}/
+  messages/001-INBOX-4242.md
+  metadata.json
+```
+
+`GithubNotificationsStep` (`github_notifications_step`) and `GithubActivityStep` (`github_activity_step`) need
+`GITHUB_TOKEN` (or `GH_TOKEN`): a classic token with the `notifications` scope for notifications, and read access to
+issues and pull requests for activity. `GITHUB_API_BASE` targets a GitHub Enterprise API root. Notifications are polled
+with `since` and the response `Last-Modified` header becomes the next cursor, which GitHub documents as gap-free;
+`include_read`, `participating`, `repos`, `exclude_repos`, and `reasons` filter what is kept, and filtered-out
+notifications still close their window. Activity requires `GITHUB_ACTIVITY_REPOS` (comma-separated or a JSON list, capped
+by `max_repos`) and keeps one `since` cursor per repository, advanced to the newest `updated_at` seen; `exclude_labels`,
+`include_issues`, `include_pulls`, and `only_involving_you` filter items, and the authenticated login is resolved once
+through `/user` and cached. Exhausting the rate budget stops pagination for that poll without losing items, because both
+cursors derive from provider timestamps. Each collector publishes one digest:
+
+```text
+resource/YYYY-MM-DD/{uuid_hex}/notifications.md      # grouped by repository, with reasons and browser links
+resource/YYYY-MM-DD/{uuid_hex}/activity.md           # per repository, with state, author, labels, involvement
+```
+
+Both remote collectors extend `BaseRemoteConnectorStep`, which adds the collection-side concerns a credentialed source
+needs on top of `BaseConnectorStep`. Settings resolve from Step kwargs, then the mapped environment variable in
+`env_defaults`, then the default; `timeout_seconds` bounds every network call, `max_retries` and
+`retry_backoff_seconds` bound exponential backoff, and a provider `Retry-After` or rate-limit reset is honored up to
+`max_backoff_seconds`. `min_interval_minutes` refuses an early poll before any request is issued, which keeps manual runs
+from double-polling a provider. `max_pages` and `per_page` bound pagination. A cursor queued with `stage_state` is written
+to `metadata/step/{state_key}.json` only after the package has been published atomically, so a failed or cancelled poll
+re-reads the same window; a poll with nothing new publishes no package and only refreshes `last_poll_at` and `polls`.
+`state_key` defaults to the Step `backend`, so running two accounts of one source side by side means setting a distinct
+`state_key` on each. Deleting a state file restarts that collector from its initial window. Payload helpers keep provider
+text inside the package: `write_payload` rejects empty payloads and unsafe paths, `safe_name` reduces untrusted text to a
+filename component, and `truncate` cuts on a UTF-8 boundary.
+
 ## Image Resources
 
 Text and image resources share the same agent-wrapper and note-writing tools. Image inputs add a native AgentScope
