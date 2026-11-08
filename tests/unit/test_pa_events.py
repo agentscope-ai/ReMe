@@ -72,8 +72,11 @@ async def system(tmp_path):
     )
     server = CodexAppServer(app_context=app.context)
     agent = EventAgent(server, app_context=app.context)
-    runtime = PaRuntime(app_context=app.context, heartbeat_seconds=0.02,
-                        default_proactive=config["components"]["pa"]["default"]["default_proactive"])
+    runtime = PaRuntime(
+        app_context=app.context,
+        heartbeat_seconds=0.02,
+        default_proactive=config["components"]["pa"]["default"]["default_proactive"],
+    )
     app.context.components.update(
         codex_app_server={"default": server},
         agent_wrapper={"default": agent},
@@ -130,7 +133,7 @@ async def test_activity_is_replayable_scoped_and_included_in_snapshots(system):
         assert (await next_event(events)).activities == {}
 
 
-async def select(agent, runtime):
+async def select(_agent, runtime):
     return await runtime.new_session()
 
 

@@ -20,10 +20,12 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def digest(value) -> str:
+    """Hash JSON inputs deterministically for reproducible manifests."""
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
 def sources() -> dict:
+    """Fingerprint the source files that define this benchmark."""
     paths = list((REPO / "reme/steps/proactive").rglob("*.py")) + list((REPO / "reme/steps/proactive").glob("*.yaml"))
     paths += list((REPO / "reme/components").glob("*pa*.py"))
     paths += [REPO / "reme/config/proactive.yaml", REPO / "reme/components/agent_wrapper/codex_agent_wrapper.py"]
@@ -34,6 +36,7 @@ def sources() -> dict:
 
 
 def credentials() -> dict:
+    """Read explicit provider credentials without persisting them."""
     path = REPO / ".env"
     values = parse_env_file(path) if path.exists() else {}
     auth = {key: os.environ.get(key) or values.get(key) for key in ("LLM_API_KEY", "LLM_BASE_URL")}
@@ -43,6 +46,7 @@ def credentials() -> dict:
 
 
 def initialize(root: Path, *, models=None, repeats: int | None = None) -> dict:
+    """Create or validate a frozen benchmark manifest."""
     if root.resolve().is_relative_to(REPO):
         raise ValueError("Benchmark output must be outside the repository")
     root.mkdir(parents=True, exist_ok=True)
@@ -59,27 +63,42 @@ def initialize(root: Path, *, models=None, repeats: int | None = None) -> dict:
             raise ValueError("Repeat count changed; choose a new output directory")
         return manifest
     cfg = resolve_app_config(config="proactive", log_config=False)
-    manifest = {**inputs, "fingerprint": fingerprint, "seed": 20261108,
-                "models": models or [cfg["components"]["agent_wrapper"]["default"]["model"]],
-                "profile": {"effort": EFFORT, "repeats": repeats or 1, "clock": "fixed", "evidence": "synthetic"}}
+    manifest = {
+        **inputs,
+        "fingerprint": fingerprint,
+        "seed": 20261108,
+        "models": models or [cfg["components"]["agent_wrapper"]["default"]["model"]],
+        "profile": {"effort": EFFORT, "repeats": repeats or 1, "clock": "fixed", "evidence": "synthetic"},
+    }
     save(path, manifest)
     return manifest
 
 
 def make_tasks(manifest: dict) -> list[dict]:
+    """Create a deterministic matrix with safe, unique output paths."""
     model_keys = {
-        model: re.sub(r"[^A-Za-z0-9_-]", "_", model)[:64] + "-" + digest(model)[:12]
-        for model in manifest["models"]
+        model: re.sub(r"[^A-Za-z0-9_-]", "_", model)[:64] + "-" + digest(model)[:12] for model in manifest["models"]
     }
-    tasks = [{"id": f"{model_keys[model]}__{prompt}__{case}__{repeat}", "model": model, "prompt": prompt,
-              "case": case, "repeat": repeat, "role": fixture["role"]}
-             for model in manifest["models"] for prompt in manifest["prompts"]
-             for case, fixture in manifest["cases"].items() for repeat in range(manifest["profile"]["repeats"])]
+    tasks = [
+        {
+            "id": f"{model_keys[model]}__{prompt}__{case}__{repeat}",
+            "model": model,
+            "prompt": prompt,
+            "case": case,
+            "repeat": repeat,
+            "role": fixture["role"],
+        }
+        for model in manifest["models"]
+        for prompt in manifest["prompts"]
+        for case, fixture in manifest["cases"].items()
+        for repeat in range(manifest["profile"]["repeats"])
+    ]
     random.Random(manifest["seed"]).shuffle(tasks)
     return tasks
 
 
 async def run(args) -> None:
+    """Execute unfinished matrix entries and save their results."""
     manifest = initialize(args.root, models=args.models.split(",") if args.models else None, repeats=args.repeats)
     auth = credentials()
     cfg = resolve_app_config(config="proactive", log_config=False)
@@ -94,14 +113,25 @@ async def run(args) -> None:
         folder = args.root / "cases" / task["id"]
         if (folder / "result.json").exists():
             continue
-        record = await execute(cfg, task["model"], manifest["prompts"][task["prompt"]], manifest["cases"][task["case"]], folder, args.timeout)
+        record = await execute(
+            cfg,
+            task["model"],
+            manifest["prompts"][task["prompt"]],
+            manifest["cases"][task["case"]],
+            folder,
+            args.timeout,
+        )
         result = {**task, "record": record, "grade": grade(task["case"], record)}
         save(folder / "result.json", result)
-        print(json.dumps({"id": task["id"], "score": result["grade"]["score"], "completed": record["completed"]}), flush=True)
+        print(
+            json.dumps({"id": task["id"], "score": result["grade"]["score"], "completed": record["completed"]}),
+            flush=True,
+        )
     save(args.root / "report.json", report(args.root))
 
 
 def main():
+    """Parse arguments for the opt-in provider benchmark."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--models", help="Comma-separated model IDs; defaults to the configured model")

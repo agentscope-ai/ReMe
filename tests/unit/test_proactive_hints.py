@@ -207,7 +207,8 @@ async def test_no_current_or_superseded_chat_does_not_consume_hint(pa_workspace,
 async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence(pa_workspace, monkeypatch):
     env = pa_workspace
     env.runtime._write_json(
-        env.runtime.proactive_config_path, config(hint_probabilities={"midday": 1, "evening": 1}).model_dump()
+        env.runtime.proactive_config_path,
+        config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     monkeypatch.setattr("reme.components._pa_hints.random.choice", lambda choices: choices[0])
     calls = model(env, monkeypatch)
@@ -230,7 +231,8 @@ async def test_disabled_round_still_delivers_normal_information_and_reads_hot_co
     assert first.answer["sent"] and not any("本轮可选交流方向" in query for query in calls)
     assert not env.runtime._metadata_file("hint_state.json").exists()
     env.runtime._write_json(
-        env.runtime.proactive_config_path, config(hint_probabilities={"midday": 1, "evening": 1}).model_dump()
+        env.runtime.proactive_config_path,
+        config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     second = await ProactiveAgentStep(app_context=env.context)()
     assert "proactive_hint" in second.metadata and "本轮可选交流方向" in calls[9]
@@ -241,7 +243,8 @@ async def test_hint_uses_time_after_tasks_finish_not_round_start(pa_workspace, m
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=11, minute=59)
     env.runtime._write_json(
-        env.runtime.proactive_config_path, config(hint_probabilities={"midday": 1, "evening": 1}).model_dump()
+        env.runtime.proactive_config_path,
+        config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     calls = model(env, monkeypatch, advance=env.now[0].replace(hour=12, minute=1))
     response = await ProactiveAgentStep(app_context=env.context)()

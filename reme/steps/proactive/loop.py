@@ -1,5 +1,7 @@
 """Serial proactive wakeups controlled by the user-owned JSON configuration."""
 
+# pylint: disable=protected-access
+
 import asyncio
 
 from ..base_step import BaseStep, Ref

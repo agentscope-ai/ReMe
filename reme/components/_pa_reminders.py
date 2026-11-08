@@ -1,5 +1,7 @@
 """Reminder state and deferred delivery owned by PaRuntime."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
@@ -25,6 +27,7 @@ class ReminderDelivery:
         self.idle: tuple[str, float] | None = None
 
     def read(self) -> list[ReminderRecord]:
+        """Read the latest state of each reminder, newest creation first."""
         latest = {}
         try:
             descriptor = os.open(self.runtime.reminders_path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
@@ -37,27 +40,42 @@ class ReminderDelivery:
         return sorted(latest.values(), key=lambda record: record.created_at, reverse=True)
 
     def restore(self) -> None:
+        """Restore the newest pending reminder and discard superseded ones."""
         pending = [record for record in self.read() if record.status == "pending"]
         self.pending = pending[0] if pending else None
         self.idle = None
         for record in pending[1:]:
-            record = record.model_copy(update={
-                "status": "discarded", "reason": "superseded", "updated_at": self.runtime._now(),
-            })
+            record = record.model_copy(
+                update={
+                    "status": "discarded",
+                    "reason": "superseded",
+                    "updated_at": self.runtime._now(),
+                },
+            )
             self.runtime._append_jsonl(self.runtime.reminders_path, record.model_dump(mode="json"))
 
     @staticmethod
     def answer(record: ReminderRecord) -> dict:
+        """Expose persisted state together with its delivery outcome."""
         return {"sent": record.status == "sent", **record.model_dump(mode="json")}
 
     async def _finish(self, status: str, reason: str | None = None, error: str | None = None) -> ReminderRecord:
         record = self.pending
         now = self.runtime._now()
-        record = record.model_copy(update={
-            "status": status, "reason": reason, "error": error, "updated_at": now,
-            "sent_at": now if status == "sent" else None,
-        })
-        await complete_in_thread(self.runtime._append_jsonl, self.runtime.reminders_path, record.model_dump(mode="json"))
+        record = record.model_copy(
+            update={
+                "status": status,
+                "reason": reason,
+                "error": error,
+                "updated_at": now,
+                "sent_at": now if status == "sent" else None,
+            },
+        )
+        await complete_in_thread(
+            self.runtime._append_jsonl,
+            self.runtime.reminders_path,
+            record.model_dump(mode="json"),
+        )
         self.pending = None
         self.idle = None
         return record
@@ -77,28 +95,47 @@ class ReminderDelivery:
         config = await self.runtime.get_proactive_config()
         now = self.runtime._now()
         record = ReminderRecord(
-            id=message_id, content=content, created_at=now, updated_at=now,
+            id=message_id,
+            content=content,
+            created_at=now,
+            updated_at=now,
             expires_at=now + timedelta(minutes=config.interval_minutes),
-            session_id=session_id, reason="waiting_for_idle",
+            session_id=session_id,
+            reason="waiting_for_idle",
         )
         previous = self.pending
-        await complete_in_thread(self.runtime._append_jsonl, self.runtime.reminders_path, record.model_dump(mode="json"))
+        await complete_in_thread(
+            self.runtime._append_jsonl,
+            self.runtime.reminders_path,
+            record.model_dump(mode="json"),
+        )
         self.pending = record
         self.idle = None
         if previous is not None:
-            previous = previous.model_copy(update={
-                "status": "discarded", "reason": "superseded", "updated_at": now,
-            })
-            await complete_in_thread(self.runtime._append_jsonl, self.runtime.reminders_path, previous.model_dump(mode="json"))
+            previous = previous.model_copy(
+                update={
+                    "status": "discarded",
+                    "reason": "superseded",
+                    "updated_at": now,
+                },
+            )
+            await complete_in_thread(
+                self.runtime._append_jsonl,
+                self.runtime.reminders_path,
+                previous.model_dump(mode="json"),
+            )
         result = await self._deliver(immediate=True)
         return self.answer(result or record)
 
     async def deliver_pending(self) -> None:
+        """Serialize an idle check for the current pending reminder."""
         if self.pending is not None:
             async with self.lock:
                 await self._deliver()
 
     async def _deliver(self, *, immediate: bool = False) -> ReminderRecord | None:
+        # Terminal-state guard clauses keep the delivery rules explicit.
+        # pylint: disable=too-many-return-statements
         record = self.pending
         if record is None:
             return None
@@ -138,8 +175,11 @@ class ReminderDelivery:
                     if self.runtime._now() >= record.expires_at:
                         return await self._finish("discarded", "expired")
                     await self.runtime.agent_wrapper.append_session(
-                        record.session_id, record.content, message_id=record.id,
-                        timeout=1, expected_turn_id=turn_id,
+                        record.session_id,
+                        record.content,
+                        message_id=record.id,
+                        timeout=1,
+                        expected_turn_id=turn_id,
                     )
                 except (SessionChangedError, TimeoutError):
                     self.idle = None
@@ -158,4 +198,4 @@ class ReminderDelivery:
             raise ValueError("offset must be a non-negative integer")
         async with self.lock:
             records = await asyncio.to_thread(self.read)
-            return [self.answer(record) for record in records[offset:offset + limit]]
+            return [self.answer(record) for record in records[offset : offset + limit]]

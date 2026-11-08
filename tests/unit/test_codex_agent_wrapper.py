@@ -375,6 +375,7 @@ async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system
     context = agent.app_context
     context.app_config.language = language
     from .pa_helpers import bind_pa
+
     bind_pa(context, agent)
     context.components["agent_wrapper"] = {"default": agent}
     memory = agent.workspace_path / "daily/personal/MEMORY.md"

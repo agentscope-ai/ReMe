@@ -21,7 +21,12 @@ def factory(tmp_path):
     snapshots = {}
 
     def make(workspace=tmp_path, session_dir="conversations", metadata_dir="metadata"):
-        context = ApplicationContext(workspace_dir=str(workspace), session_dir=session_dir, metadata_dir=metadata_dir, language="zh")
+        context = ApplicationContext(
+            workspace_dir=str(workspace),
+            session_dir=session_dir,
+            metadata_dir=metadata_dir,
+            language="zh",
+        )
         server = CodexAppServer(app_context=context)
         agent = CodexAgentWrapper(app_context=context, app_server="")
         agent.app_server = server
@@ -185,13 +190,19 @@ async def test_selection_cannot_escape_the_workspace(factory, tmp_path, escape):
     if escape == "symlink":
         (workspace / "metadata").symlink_to(outside, target_is_directory=True)
     with pytest.raises(ValueError, match="workspace"):
-        _context, _agent, runtime = factory(workspace, metadata_dir="../outside" if escape == "traversal" else "metadata")
+        _context, _agent, runtime = factory(
+            workspace,
+            metadata_dir="../outside" if escape == "traversal" else "metadata",
+        )
         await runtime.start()
     assert not list(outside.iterdir())
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("payload", ["{", "{}", '[{"session_id":42}]', '[{"session_id":"../outside","last_active_at":"now"}]'])
+@pytest.mark.parametrize(
+    "payload",
+    ["{", "{}", '[{"session_id":42}]', '[{"session_id":"../outside","last_active_at":"now"}]'],
+)
 async def test_corrupt_registry_fails_startup_without_replacing_it(factory, payload):
     _context, agent, runtime = factory()
     path = runtime.session_ids_path
@@ -211,7 +222,10 @@ async def test_empty_registry_and_missing_native_history_never_create_a_replacem
         assert runtime.session_id is None and json.loads(runtime.session_ids_path.read_text()) == []
         agent.read_session.assert_not_awaited()
         agent.create_session.assert_not_awaited()
-    runtime._write_json(runtime.session_ids_path, [{"session_id": "missing-session", "last_active_at": "2026-11-08T12:00:00+08:00"}])
+    runtime._write_json(
+        runtime.session_ids_path,
+        [{"session_id": "missing-session", "last_active_at": "2026-11-08T12:00:00+08:00"}],
+    )
     original = runtime.session_ids_path.read_bytes()
     context, agent, restored = factory()
     async with restored:

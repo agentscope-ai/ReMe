@@ -26,7 +26,9 @@ class PaChatStep(BasePaStep):
         async with self.pa.chat_session(**reply_kwargs) as session_id:
             await self.context.add_stream_chunk(
                 StreamChunk(
-                    chunk_type=ChunkEnum.DATA, chunk=None, session_id=session_id,
+                    chunk_type=ChunkEnum.DATA,
+                    chunk=None,
+                    session_id=session_id,
                     metadata={"visibility": "diagnostic"},
                 ),
             )

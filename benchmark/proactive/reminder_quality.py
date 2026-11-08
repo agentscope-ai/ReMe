@@ -17,18 +17,22 @@ SEEN_REPLY = "主人刚问过主动提醒产品的设计方法，助手已经回
 
 
 def scenarios() -> dict:
+    """Build silence and useful-result scenarios with synthetic evidence."""
     cases = {}
     for name, evidence in (("seen_page", SEEN_PAGE), ("seen_reply", SEEN_REPLY), ("empty_history", SEEN_PAGE)):
         cases[f"proactive_{name}"] = {
-            "role": "proactive", "expected_send": False,
+            "role": "proactive",
+            "expected_send": False,
             "messages": [] if name == "empty_history" else history(("user", evidence), ("assistant", "主人，了解。")),
-            "resources": {"resource/fixtures/screen.md": evidence}, "reminders": [],
+            "resources": {"resource/fixtures/screen.md": evidence},
+            "reminders": [],
         }
     cases["proactive_awaited_result"] = deepcopy(CASES["proactive_timely"])
     return cases
 
 
 def checks(case: dict, record: dict, expected_send: bool) -> dict[str, bool]:
+    """Evaluate expected delivery and preservation of personal memory."""
     fixture = {**case, "expected_send": expected_send}
     verdict = grade("quality_case", {**record, "fixture": fixture})["checks"]
     verdict["memory_preserved"] = record.get("after", {}).get(MEMORY) == record.get("before", {}).get(MEMORY)
@@ -36,6 +40,7 @@ def checks(case: dict, record: dict, expected_send: bool) -> dict[str, bool]:
 
 
 async def run(root: Path, timeout: float) -> None:
+    """Execute quality scenarios in a fresh isolated output directory."""
     if root.exists() or root.is_relative_to(REPO):
         raise ValueError("Choose a fresh output directory outside the repository")
     auth = credentials()
@@ -53,6 +58,7 @@ async def run(root: Path, timeout: float) -> None:
 
 
 def main():
+    """Parse the opt-in quality benchmark command."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=600)

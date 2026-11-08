@@ -228,7 +228,10 @@ test(
         async () => {
           await open();
           await chat.evaluate(() =>
-            window.desktop.action({ type: "settings.update", voiceAutoSend: false }),
+            window.desktop.action({
+              type: "settings.update",
+              voiceAutoSend: false,
+            }),
           );
           const input = chat.getByRole("textbox", {
             name: "消息",
@@ -471,26 +474,50 @@ test(
         },
       );
 
-      await t.test("voice auto-send submits the composed draft and narrates the reply", async () => {
-        backend.setSpeechDelay(0);
-        await chat.evaluate(() => window.desktop.action({
-          type: "settings.update", voiceAutoSend: true, voiceEnabled: true, voiceReplies: true, quietUntil: 0,
-        }));
-        const input = chat.getByRole("textbox", { name: "消息", exact: true });
-        await input.fill("语音：");
-        await input.press("End");
-        await chat.locator(".mic-button").hover();
-        await chat.mouse.down();
-        await expect(chat.locator(".voice-status")).toContainText("录音中 1");
-        await chat.mouse.up();
-        await expect.poll(async () => (await state()).messages.some(message =>
-          message.role === "user" && message.content === "语音：语音输入的研究计划。",
-        )).toBe(true);
-        await expect(input).toHaveValue("");
-        await expect.poll(async () => (await state()).speech.capture).toBe(null);
-        await expect.poll(async () => (await state()).speech.playback?.kind).toBe("reply");
-        await expect.poll(async () => (await state()).speech.playback?.phase).toBe("playing");
-      });
+      await t.test(
+        "voice auto-send submits the composed draft and narrates the reply",
+        async () => {
+          backend.setSpeechDelay(0);
+          await chat.evaluate(() =>
+            window.desktop.action({
+              type: "settings.update",
+              voiceAutoSend: true,
+              voiceEnabled: true,
+              voiceReplies: true,
+              quietUntil: 0,
+            }),
+          );
+          const input = chat.getByRole("textbox", {
+            name: "消息",
+            exact: true,
+          });
+          await input.fill("语音：");
+          await input.press("End");
+          await chat.locator(".mic-button").hover();
+          await chat.mouse.down();
+          await expect(chat.locator(".voice-status")).toContainText("录音中 1");
+          await chat.mouse.up();
+          await expect
+            .poll(async () =>
+              (await state()).messages.some(
+                (message) =>
+                  message.role === "user" &&
+                  message.content === "语音：语音输入的研究计划。",
+              ),
+            )
+            .toBe(true);
+          await expect(input).toHaveValue("");
+          await expect
+            .poll(async () => (await state()).speech.capture)
+            .toBe(null);
+          await expect
+            .poll(async () => (await state()).speech.playback?.kind)
+            .toBe("reply");
+          await expect
+            .poll(async () => (await state()).speech.playback?.phase)
+            .toBe("playing");
+        },
+      );
       assert.deepEqual(errors, []);
     } finally {
       await app.close();

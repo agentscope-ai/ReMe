@@ -12,10 +12,16 @@ class ReadConversationStep(BaseStep):
     pa: PaRuntime = Ref(PaRuntime, "pa")
 
     async def execute(self):
-        if not _check_path_permission(self.workspace_path, self.pa.session_ids_path, self.context.get("_allowed_paths")):
+        if not _check_path_permission(
+            self.workspace_path,
+            self.pa.session_ids_path,
+            self.context.get("_allowed_paths"),
+        ):
             raise PermissionError("no permission to access conversation cursors")
         if self.context.get("pa_round_id") is not None and not _check_path_permission(
-            self.workspace_path, self.pa.proactive_context_path, self.context.get("_allowed_paths"),
+            self.workspace_path,
+            self.pa.proactive_context_path,
+            self.context.get("_allowed_paths"),
         ):
             raise PermissionError("no permission to save conversation recovery context")
         self.context.response.answer = await self.pa.read_conversation(

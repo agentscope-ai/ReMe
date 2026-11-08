@@ -275,8 +275,10 @@ async def test_capture_job_is_registered_without_a_resource_catalog(tmp_path, sc
 @pytest.mark.asyncio
 async def test_text_and_directory_results_preserve_progressive_reading(tmp_path):
     """Text-only results and directory references use the same public schema."""
+
     class Connector(BaseConnectorStep):
         """Supply a directory that an agent can list before opening individual files."""
+
         source = "test"
 
         def collect(self, directory, created_at):
@@ -295,7 +297,8 @@ async def test_text_and_directory_results_preserve_progressive_reading(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_publish_failure_rolls_back_only_this_collection(tmp_path, screens, monkeypatch):
+@pytest.mark.usefixtures("screens")
+async def test_publish_failure_rolls_back_only_this_collection(tmp_path, monkeypatch):
     """A failure on the second file preserves unrelated files and removes the first publication."""
     target = tmp_path / "resource/screen_capture"
     target.mkdir(parents=True)
@@ -317,9 +320,13 @@ async def test_publish_failure_rolls_back_only_this_collection(tmp_path, screens
 
 
 @pytest.mark.asyncio
-async def test_timestamp_collision_preserves_existing_files(tmp_path, screens, monkeypatch):
+@pytest.mark.usefixtures("screens")
+async def test_timestamp_collision_preserves_existing_files(tmp_path, monkeypatch):
     """Identical capture timestamps fail explicitly rather than overwriting another capture."""
+
     class Clock(datetime):
+        """Force identical filenames for successive captures."""
+
         @classmethod
         def now(cls, tz=None):
             return cls(2026, 11, 7, 12, tzinfo=tz)

@@ -1,5 +1,7 @@
 """Incremental conversation rounds, bounded text and durable recovery before cursor commits."""
 
+# pylint: disable=missing-function-docstring,protected-access
+
 import json
 from unittest.mock import AsyncMock
 
@@ -14,8 +16,14 @@ def dialogue():
         SessionMessage(id="q1", role="user", content="old question", turn_id="turn-1"),
         SessionMessage(id="a1", role="assistant", content="old answer", turn_id="turn-1"),
         SessionMessage(id="q2", role="user", content="new question", turn_id="turn-2"),
-        SessionMessage(id="a2", role="assistant", content="new answer", turn_id="turn-2",
-                       created_at="2026-11-08T12:00:00+08:00", chunks=[{"chunk_type": "think", "chunk": "private"}]),
+        SessionMessage(
+            id="a2",
+            role="assistant",
+            content="new answer",
+            turn_id="turn-2",
+            created_at="2026-11-08T12:00:00+08:00",
+            chunks=[{"chunk_type": "think", "chunk": "private"}],
+        ),
         SessionMessage(id="reminder", role="assistant", source="proactive", content="not a chat round"),
     ]
 
@@ -45,14 +53,19 @@ async def test_latest_round_limit_keeps_question_and_answer_together(pa_workspac
 @pytest.mark.asyncio
 async def test_total_budget_truncates_bodies_and_preserves_both_roles(pa_workspace):
     env = pa_workspace
-    env.snapshot.messages = [SessionMessage(id="q", role="user", content="q" * 500),
-                             SessionMessage(id="a", role="assistant", content="a" * 500)]
+    env.snapshot.messages = [
+        SessionMessage(id="q", role="user", content="q" * 500),
+        SessionMessage(id="a", role="assistant", content="a" * 500),
+    ]
     result = (await ReadConversationStep(app_context=env.context)(max_chars=300)).answer
     assert len(result) <= 300 and "[user]" in result and "[assistant]" in result and "[已截断]" in result
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kwargs", [{"max_turns": value} for value in (0, True, 101)] + [{"max_chars": 0}, {"max_message_chars": False}])
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"max_turns": value} for value in (0, True, 101)] + [{"max_chars": 0}, {"max_message_chars": False}],
+)
 async def test_invalid_budgets_fail_before_reading(pa_workspace, kwargs):
     with pytest.raises(ValueError):
         await ReadConversationStep(app_context=pa_workspace.context)(**kwargs)

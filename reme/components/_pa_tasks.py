@@ -1,5 +1,7 @@
 """Cron-slot reservation and task execution owned by PaRuntime."""
 
+# pylint: disable=protected-access
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +28,7 @@ class TaskScheduler:
         self.lock = asyncio.Lock()
 
     def load(self) -> list[PaTask]:
+        """Validate task definitions and persist missing stable IDs and creation times."""
         try:
             with self.runtime.tasks_path.open("rb") as handle:
                 content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
@@ -54,6 +57,7 @@ class TaskScheduler:
         return tasks
 
     def latest(self, task_ids: set[str]) -> dict[str, PaTaskRun]:
+        """Read each selected task's most recent execution event."""
         if not task_ids:
             return {}
         try:
@@ -71,7 +75,10 @@ class TaskScheduler:
         return latest
 
     async def run(
-        self, runner: Callable[..., Awaitable[Response]], *, stop_event: asyncio.Event | None = None,
+        self,
+        runner: Callable[..., Awaitable[Response]],
+        *,
+        stop_event: asyncio.Event | None = None,
     ) -> list[dict]:
         """Reserve each due slot before serial execution; coalesce missed slots to the latest one."""
         from croniter import croniter
@@ -84,7 +91,11 @@ class TaskScheduler:
                     previous.status = "interrupted"
                     previous.finished_at = self.runtime._now()
                     previous.error = "Previous execution has no completion record; outcome unknown"
-                    await complete_in_thread(self.runtime._append_jsonl, self.runtime.task_runs_path, previous.model_dump(mode="json"))
+                    await complete_in_thread(
+                        self.runtime._append_jsonl,
+                        self.runtime.task_runs_path,
+                        previous.model_dump(mode="json"),
+                    )
             results = []
             for task in tasks:
                 if stop_event is not None and stop_event.is_set():
@@ -97,10 +108,17 @@ class TaskScheduler:
                 if scheduled_at <= task.created_at or (previous is not None and previous.scheduled_at >= scheduled_at):
                     continue
                 run = PaTaskRun(
-                    task_id=task.id, cron=task.cron, query=task.query,
-                    scheduled_at=scheduled_at, started_at=now,
+                    task_id=task.id,
+                    cron=task.cron,
+                    query=task.query,
+                    scheduled_at=scheduled_at,
+                    started_at=now,
                 )
-                await complete_in_thread(self.runtime._append_jsonl, self.runtime.task_runs_path, run.model_dump(mode="json"))
+                await complete_in_thread(
+                    self.runtime._append_jsonl,
+                    self.runtime.task_runs_path,
+                    run.model_dump(mode="json"),
+                )
                 try:
                     response = await runner(query=task.query, stop_event=stop_event)
                     run.status = "succeeded" if response.success else "failed"
@@ -117,7 +135,11 @@ class TaskScheduler:
                     run.error = str(exc)[:1000]
                 finally:
                     run.finished_at = self.runtime._now()
-                    await complete_in_thread(self.runtime._append_jsonl, self.runtime.task_runs_path, run.model_dump(mode="json"))
+                    await complete_in_thread(
+                        self.runtime._append_jsonl,
+                        self.runtime.task_runs_path,
+                        run.model_dump(mode="json"),
+                    )
                 latest[task.id] = run
                 results.append(run.model_dump(mode="json"))
             return results

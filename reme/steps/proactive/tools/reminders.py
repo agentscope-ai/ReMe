@@ -15,7 +15,9 @@ class SendReminderStep(BaseStep):
         if not _check_path_permission(self.workspace_path, self.pa.reminders_path, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to write reminder history")
         self.context.response.answer = await self.pa.send_reminder(
-            self.context.get("content"), round_id=self.context.get("pa_round_id"), session_id=self.context.get("session_id"),
+            self.context.get("content"),
+            round_id=self.context.get("pa_round_id"),
+            session_id=self.context.get("session_id"),
         )
         return self.context.response
 
@@ -30,6 +32,7 @@ class GetReminderStep(BaseStep):
         if not _check_path_permission(self.workspace_path, self.pa.reminders_path, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to read reminder history")
         self.context.response.answer = await self.pa.get_reminder(
-            limit=self.context.get("limit", 10), offset=self.context.get("offset", 0),
+            limit=self.context.get("limit", 10),
+            offset=self.context.get("offset", 0),
         )
         return self.context.response

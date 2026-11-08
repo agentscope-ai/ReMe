@@ -54,13 +54,12 @@ class DashScopeSpeechComponent(BaseComponent):
             except ValueError:
                 body = None
             if isinstance(body, dict):
-                detail = ": ".join(
-                    str(body[key])[:1000] for key in ("code", "message", "request_id") if body.get(key)
-                )
+                detail = ": ".join(str(body[key])[:1000] for key in ("code", "message", "request_id") if body.get(key))
                 if detail:
                     raise httpx.HTTPStatusError(
                         f"DashScope HTTP {response.status_code}: {detail}",
-                        request=response.request, response=response,
+                        request=response.request,
+                        response=response,
                     )
         response.raise_for_status()
 

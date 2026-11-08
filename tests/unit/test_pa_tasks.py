@@ -1,5 +1,7 @@
 """Cron-slot deduplication, failure isolation and interrupted execution records."""
 
+# pylint: disable=missing-function-docstring,protected-access
+
 import asyncio
 import json
 from datetime import timedelta
@@ -11,8 +13,13 @@ from reme.schema import Response
 
 
 def task(env, identifier="one", query="query"):
-    return {"id": identifier, "cron": "*/5 * * * *", "query": query, "enabled": True,
-            "created_at": (env.now[0] - timedelta(hours=1)).isoformat()}
+    return {
+        "id": identifier,
+        "cron": "*/5 * * * *",
+        "query": query,
+        "enabled": True,
+        "created_at": (env.now[0] - timedelta(hours=1)).isoformat(),
+    }
 
 
 @pytest.mark.asyncio

@@ -295,9 +295,16 @@ async def test_provider_errors_are_not_empty_successes(provider, mode):
 @pytest.mark.parametrize("component_class", [DashScopeASR, DashScopeTTS])
 async def test_http_errors_preserve_provider_reason(provider, component_class):
     """ASR and streamed TTS failures must explain a provider's rejected input."""
-    provider[0].append(httpx.Response(400, json={
-        "code": "InvalidParameter", "message": "No valid speech detected", "request_id": "speech-request",
-    }))
+    provider[0].append(
+        httpx.Response(
+            400,
+            json={
+                "code": "InvalidParameter",
+                "message": "No valid speech detected",
+                "request_id": "speech-request",
+            },
+        ),
+    )
     component = component_class()
     try:
         with pytest.raises(httpx.HTTPStatusError, match="InvalidParameter: No valid speech detected: speech-request"):

@@ -74,9 +74,15 @@ test(
               )
               .hide(),
           );
-          await expect.poll(() => chat.evaluate(() =>
-            window.desktop.bootstrap().then(({ state }) => state.chatVisible),
-          )).toBe(false);
+          await expect
+            .poll(() =>
+              chat.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => state.chatVisible),
+              ),
+            )
+            .toBe(false);
           backend.push("native-one", "这是一条系统提醒");
           await expect
             .poll(() =>

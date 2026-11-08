@@ -84,7 +84,9 @@ class PaRuntime(BaseComponent):
         self.max_buffer_bytes = max_buffer_bytes
         self.heartbeat_seconds = heartbeat_seconds
         self.default_tasks = [PaTask.model_validate(item) for item in default_tasks or []]
-        self.default_proactive = PaProactiveConfig.model_validate(default_proactive) if default_proactive is not None else None
+        self.default_proactive = (
+            PaProactiveConfig.model_validate(default_proactive) if default_proactive is not None else None
+        )
         self.session_id: str | None = None
         self.session_lock = asyncio.Lock()
         self.current_round: ProactiveRound | None = None
@@ -129,10 +131,12 @@ class PaRuntime(BaseComponent):
 
     @property
     def proactive_config_path(self) -> Path:
+        """Return the user-owned wakeup configuration path."""
         return self._metadata_file("proactive.json")
 
     @property
     def handoff_path(self) -> Path:
+        """Return the fixed handoff summary path."""
         return self._metadata_file("handoff.txt")
 
     def _load_proactive_config(self) -> PaProactiveConfig:
@@ -147,6 +151,8 @@ class PaRuntime(BaseComponent):
         return await asyncio.to_thread(self._load_proactive_config)
 
     async def read_handoff(self) -> str:
+        """Read the previous summary within the workspace file-size limit."""
+
         def read():
             with self.handoff_path.open("rb") as handle:
                 content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
@@ -174,17 +180,27 @@ class PaRuntime(BaseComponent):
     def _checkpoint_context(self, round_id: str | None, kind: str, value) -> None:
         if round_id is not None and value:
             with self._work_context_lock:
-                self._append_jsonl(self.proactive_context_path, {
-                    "round_id": round_id, "time": self._now().isoformat(), "kind": kind, "value": value,
-                })
+                self._append_jsonl(
+                    self.proactive_context_path,
+                    {
+                        "round_id": round_id,
+                        "time": self._now().isoformat(),
+                        "kind": kind,
+                        "value": value,
+                    },
+                )
 
     async def checkpoint_proactive(self, round_id: str | None, kind: str, value) -> None:
+        """Durably retain consumed inputs or progress for interrupted rounds."""
         await complete_in_thread(self._checkpoint_context, round_id, kind, value)
 
     async def clear_proactive_context(self) -> None:
+        """Clear recovery records after the handoff has been saved."""
+
         def clear():
             with self._work_context_lock:
                 self._write_text(self.proactive_context_path, "")
+
         await complete_in_thread(clear)
 
     async def send_to_proactive(self, message: str) -> None:
@@ -207,7 +223,10 @@ class PaRuntime(BaseComponent):
             await complete_in_thread(append)
 
     async def get_proactive_messages(
-        self, max_bytes: int = DEFAULT_MAX_FILE_BYTES, *, round_id: str | None = None,
+        self,
+        max_bytes: int = DEFAULT_MAX_FILE_BYTES,
+        *,
+        round_id: str | None = None,
     ) -> str:
         """Read and clear the inbox under the same lock used by appends."""
         if type(max_bytes) is not int or max_bytes < 1:
@@ -248,9 +267,9 @@ class PaRuntime(BaseComponent):
             handle.flush()
             os.fsync(handle.fileno())
 
-
     @asynccontextmanager
     async def proactive_round(self):
+        """Serialize proactive rounds and bind their tool-call identity."""
         async with self._proactive_lock:
             current = ProactiveRound(session_id=self.session_id)
             self.current_round = current
@@ -282,14 +301,20 @@ class PaRuntime(BaseComponent):
             return result
 
     async def deliver_pending_reminder(self) -> None:
+        """Check deferred delivery without starting a model turn."""
         await self.reminders.deliver_pending()
 
     async def get_reminder(self, limit: int = 10, offset: int = 0) -> list[dict]:
+        """Return the latest reminder states with pagination."""
         return await self.reminders.history(limit, offset)
 
     async def run_due_tasks(
-        self, runner: Callable[..., Awaitable[Response]], *, stop_event: asyncio.Event | None = None,
+        self,
+        runner: Callable[..., Awaitable[Response]],
+        *,
+        stop_event: asyncio.Event | None = None,
     ) -> list[dict]:
+        """Delegate due-slot reservation and execution to the scheduler."""
         return await self.tasks.run(runner, stop_event=stop_event)
 
     @staticmethod
@@ -309,7 +334,6 @@ class PaRuntime(BaseComponent):
         if pending.strip():
             yield pending
 
-
     @property
     def tasks_path(self) -> Path:
         """User-editable task definitions."""
@@ -319,7 +343,6 @@ class PaRuntime(BaseComponent):
     def task_runs_path(self) -> Path:
         """Append-only task start and finish records."""
         return self._metadata_file("task_runs.jsonl")
-
 
     @property
     def session_ids_path(self) -> Path:
@@ -359,12 +382,17 @@ class PaRuntime(BaseComponent):
             )
 
     async def read_conversation(
-        self, max_turns: int = 20, max_message_chars: int = 2000, max_chars: int = 20000,
-        *, round_id: str | None = None,
+        self,
+        max_turns: int = 20,
+        max_message_chars: int = 2000,
+        max_chars: int = 20000,
+        *,
+        round_id: str | None = None,
     ) -> str:
         """Consume recent unread chat rounds, keeping each user input with its replies."""
         for name, value, maximum in (
-            ("max_turns", max_turns, 100), ("max_message_chars", max_message_chars, 32000),
+            ("max_turns", max_turns, 100),
+            ("max_message_chars", max_message_chars, 32000),
             ("max_chars", max_chars, 32000),
         ):
             if type(value) is not int or not 1 <= value <= maximum:
@@ -378,7 +406,7 @@ class PaRuntime(BaseComponent):
 
         def truncate(text: str, size: int) -> str:
             marker = "…[已截断]"
-            return text if len(text) <= size else text[:max(0, size - len(marker))] + marker[:size]
+            return text if len(text) <= size else text[: max(0, size - len(marker))] + marker[:size]
 
         async with self._conversation_lock:
             async with self._sessions_lock:
@@ -406,10 +434,15 @@ class PaRuntime(BaseComponent):
                         break
                     messages = [message for _, message in turn]
                     created_at = next((message.created_at for message in messages if message.created_at), None)
-                    candidates.append((
-                        timestamp(created_at or entry.last_active_at), session_index, turn_index,
-                        entry.session_id, messages,
-                    ))
+                    candidates.append(
+                        (
+                            timestamp(created_at or entry.last_active_at),
+                            session_index,
+                            turn_index,
+                            entry.session_id,
+                            messages,
+                        ),
+                    )
                     cursors[entry.session_id] = messages[-1].id
                 candidates = sorted(candidates, key=lambda item: item[:3])[-max_turns:]
             chunks, remaining = [], max_chars
@@ -423,8 +456,7 @@ class PaRuntime(BaseComponent):
                 if budget < 1:
                     break
                 text = "\n\n".join(
-                    header + truncate(message.content.strip(), budget)
-                    for header, message in zip(headers, messages)
+                    header + truncate(message.content.strip(), budget) for header, message in zip(headers, messages)
                 )
                 chunks.append(text)
                 remaining -= len(text) + (2 if len(chunks) > 1 else 0)
@@ -439,7 +471,9 @@ class PaRuntime(BaseComponent):
                         if entry.session_id in cursors:
                             entry.last_read_message_id = cursors[entry.session_id]
                     await complete_in_thread(
-                        self._write_json, self.session_ids_path, [entry.model_dump() for entry in current],
+                        self._write_json,
+                        self.session_ids_path,
+                        [entry.model_dump() for entry in current],
                     )
             return result
 
@@ -466,12 +500,17 @@ class PaRuntime(BaseComponent):
             if self.default_proactive is None:
                 raise ValueError("PA requires default_proactive when proactive.json does not exist")
             self._write_text(
-                self.proactive_config_path, self.default_proactive.model_dump_json(indent=2) + "\n", create_only=True,
+                self.proactive_config_path,
+                self.default_proactive.model_dump_json(indent=2) + "\n",
+                create_only=True,
             )
         self._load_proactive_config()
         self.tasks.load()
         for path in (
-            self.proactive_inbox_path, self.reminders_path, self.task_runs_path, self.handoff_path,
+            self.proactive_inbox_path,
+            self.reminders_path,
+            self.task_runs_path,
+            self.handoff_path,
             self.proactive_context_path,
         ):
             self._write_text(path, "", create_only=True)
@@ -509,6 +548,7 @@ class PaRuntime(BaseComponent):
 
     @asynccontextmanager
     async def session_operation(self):
+        """Reject overlapping chat operations and publish activity changes."""
         if self.session_lock.locked():
             raise RuntimeError("PA is busy; wait for the current operation to finish")
         try:
@@ -520,6 +560,7 @@ class PaRuntime(BaseComponent):
 
     @asynccontextmanager
     async def chat_session(self, **reply_kwargs):
+        """Select or create the application-owned conversation for one request."""
         async with self.session_operation():
             session_id = self.session_id
             if session_id is None:
@@ -529,6 +570,7 @@ class PaRuntime(BaseComponent):
             yield session_id
 
     async def new_session(self, **reply_kwargs) -> str:
+        """Create and select an empty conversation without model generation."""
         async with self.session_operation():
             return await finish_cleanup(self._new_session(reply_kwargs))
 

@@ -34,7 +34,8 @@ class ScreenCaptureStep(BaseConnectorStep):
         return ConnectorResult(
             context=(
                 f"Captured {len(paths)} displays at {created_at.isoformat()}, one original-size PNG per display. "
-                "Displays were captured sequentially. screen_1, screen_2, etc. are display numbers for this collection. "
+                "Displays were captured sequentially. screen_1, screen_2, etc. "
+                "are display numbers for this collection. "
                 "These images show the desktop at capture time, not the current live desktop. "
                 "Read the listed images as needed to understand their content."
             ),

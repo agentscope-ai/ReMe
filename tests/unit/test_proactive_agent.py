@@ -1,5 +1,7 @@
 """Six-query orchestration, exclusive rounds and durable interrupted-input recovery."""
 
+# pylint: disable=missing-function-docstring,protected-access
+
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -28,8 +30,15 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
         if stage == 4 and decide:
             await env.runtime.send_reminder("", round_id=bound["pa_round_id"], session_id=bound["session_id"])
         if stage == 5 and adjust:
-            env.runtime._write_json(env.runtime.proactive_config_path, {"start_time": "0900", "end_time": "2300", "interval_minutes": 15})
-        return {"session_id": kwargs.get("resume") or f"agent-{bound['pa_round_id']}", "status": "completed", "result": f"stage {stage}"}
+            env.runtime._write_json(
+                env.runtime.proactive_config_path,
+                {"start_time": "0900", "end_time": "2300", "interval_minutes": 15},
+            )
+        return {
+            "session_id": kwargs.get("resume") or f"agent-{bound['pa_round_id']}",
+            "status": "completed",
+            "result": f"stage {stage}",
+        }
 
     env.agent.reply = AsyncMock(side_effect=reply)
     return calls

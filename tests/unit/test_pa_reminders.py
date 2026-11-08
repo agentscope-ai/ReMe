@@ -1,5 +1,7 @@
 """Round binding, last-decision state and cancellation-safe deferred delivery."""
 
+# pylint: disable=missing-function-docstring,protected-access
+
 import asyncio
 from datetime import timedelta
 from unittest.mock import AsyncMock
@@ -33,8 +35,10 @@ async def test_requires_current_bound_round_and_rejects_stale_tokens(pa_workspac
 async def test_concurrent_retries_in_one_round_inject_only_once(pa_workspace):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
+
         async def send():
             return await env.runtime.send_reminder("结果有价值。", round_id=current.id, session_id=current.session_id)
+
         first, second = await asyncio.gather(send(), send())
         assert first["id"] == second["id"] and first["status"] == second["status"] == "sent"
         with pytest.raises(ValueError, match="Only one"):
@@ -87,7 +91,10 @@ async def test_new_decision_replaces_pending_and_empty_decision_withdraws_it(pa_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("condition, reason", [("session", "session_changed"), ("expired", "expired"), ("hours", "outside_active_hours")])
+@pytest.mark.parametrize(
+    "condition, reason",
+    [("session", "session_changed"), ("expired", "expired"), ("hours", "outside_active_hours")],
+)
 async def test_stale_pending_content_is_discarded(pa_workspace, condition, reason):
     env = pa_workspace
     env.snapshot.state.status = "active"
@@ -108,12 +115,16 @@ async def test_stale_pending_content_is_discarded(pa_workspace, condition, reaso
 async def test_cancelled_submission_finishes_injection_and_status_publication(pa_workspace):
     env = pa_workspace
     entered, release = asyncio.Event(), asyncio.Event()
+
     async def append(*_args, **_kwargs):
         entered.set()
         await release.wait()
+
     env.agent.append_session = AsyncMock(side_effect=append)
     async with env.runtime.proactive_round() as current:
-        task = asyncio.create_task(env.runtime.send_reminder("确定结果。", round_id=current.id, session_id=current.session_id))
+        task = asyncio.create_task(
+            env.runtime.send_reminder("确定结果。", round_id=current.id, session_id=current.session_id),
+        )
         await entered.wait()
         task.cancel()
         await asyncio.sleep(0)

@@ -53,7 +53,11 @@ class CleanupResourcesStep(BaseStep):
                 root_fd = os.open(part, flags, dir_fd=root_fd)
                 stack.callback(os.close, root_fd)
             for directory, dirs, files, directory_fd in os.fwalk(
-                ".", topdown=False, follow_symlinks=False, dir_fd=root_fd, onerror=scan_error,
+                ".",
+                topdown=False,
+                follow_symlinks=False,
+                dir_fd=root_fd,
+                onerror=scan_error,
             ):
                 for name in files:
                     path = (relative / directory / name).as_posix()

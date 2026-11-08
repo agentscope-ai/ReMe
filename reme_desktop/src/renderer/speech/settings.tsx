@@ -43,40 +43,45 @@ export default function VoiceSettings({
       {!state.speech.tts && (
         <p className="settings-note">{t("speechTtsUnavailable")}</p>
       )}
-      {(["voiceAutoSend", "voiceEnabled", "voiceReplies", "voiceReminders"] as const).map(
-        (key) => (
-          <label className="quiet-row" key={key}>
-            <span>{t(key)}</span>
-            <input
-              type="checkbox"
-              aria-label={t(key)}
-              checked={flags[key]}
-              disabled={
-                saving ||
-                (key === "voiceAutoSend"
-                  ? !state.speech.asr
-                  : !state.speech.tts ||
-                    (key !== "voiceEnabled" && !flags.voiceEnabled))
-              }
-              onChange={async (event) => {
-                const checked = event.target.checked;
-                setFlags((flags) => ({ ...flags, [key]: checked }));
-                setSaving(true);
-                const saved = await run({
-                  type: "settings.update",
-                  [key]: checked,
-                });
-                if (saved === false)
-                  setFlags((flags) => ({
-                    ...flags,
-                    [key]: state.settings[key],
-                  }));
-                setSaving(false);
-              }}
-            />
-          </label>
-        ),
-      )}
+      {(
+        [
+          "voiceAutoSend",
+          "voiceEnabled",
+          "voiceReplies",
+          "voiceReminders",
+        ] as const
+      ).map((key) => (
+        <label className="quiet-row" key={key}>
+          <span>{t(key)}</span>
+          <input
+            type="checkbox"
+            aria-label={t(key)}
+            checked={flags[key]}
+            disabled={
+              saving ||
+              (key === "voiceAutoSend"
+                ? !state.speech.asr
+                : !state.speech.tts ||
+                  (key !== "voiceEnabled" && !flags.voiceEnabled))
+            }
+            onChange={async (event) => {
+              const checked = event.target.checked;
+              setFlags((flags) => ({ ...flags, [key]: checked }));
+              setSaving(true);
+              const saved = await run({
+                type: "settings.update",
+                [key]: checked,
+              });
+              if (saved === false)
+                setFlags((flags) => ({
+                  ...flags,
+                  [key]: state.settings[key],
+                }));
+              setSaving(false);
+            }}
+          />
+        </label>
+      ))}
       <label className="scale-row">
         {t("voiceVolume")} <span>{Math.round(volume * 100)}%</span>
         <input

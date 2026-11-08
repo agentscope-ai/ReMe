@@ -1,5 +1,7 @@
 """Run current chat and six-query proactive jobs with controlled clock and evidence."""
 
+# pylint: disable=protected-access
+
 import asyncio
 import json
 import time
@@ -18,10 +20,12 @@ EFFORT = "xhigh"
 
 
 def plain(value):
+    """Convert schema objects to JSON-compatible values."""
     return json.loads(json.dumps(value, ensure_ascii=False, default=lambda obj: obj.model_dump(mode="json")))
 
 
 def save(path: Path, value) -> None:
+    """Atomically replace one recorded benchmark result."""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + f".{uuid4().hex}.tmp")
     try:
@@ -32,6 +36,7 @@ def save(path: Path, value) -> None:
 
 
 def files(root: Path) -> dict[str, str]:
+    """Snapshot visible text fixtures without following symlinks."""
     result = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
@@ -45,38 +50,71 @@ def files(root: Path) -> dict[str, str]:
 
 
 class FrozenProactive(ProactiveAgentStep):
+    """Use the fixture clock for proactive queries."""
+
     def _now(self):
         return frozen_now()
 
 
 class FrozenTask(TaskAgentStep):
+    """Use the fixture clock for task queries."""
+
     def _now(self):
         return frozen_now()
 
 
 class FixtureConnector(BaseStep):
+    """Return synthetic evidence without accessing external data."""
+
     async def execute(self):
+        """Run one case and retain its outcomes and workspace evidence."""
         self.context.response.answer = self.kwargs["payload"]
         return self.context.response
 
 
 def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: dict) -> dict:
+    """Adapt production jobs to one isolated benchmark case."""
     cfg = deepcopy(base)
     names = (
-        "pa_chat", "pa_session", "pa_new_session", "pa_proactive", "task_agent", "screen_capture", "finance_news",
-        "read_conversation", "get_proactive_messages", "get_reminder", "run_due_tasks", "send_reminder",
-        "send_to_proactive", "check_json",
+        "pa_chat",
+        "pa_session",
+        "pa_new_session",
+        "pa_proactive",
+        "task_agent",
+        "screen_capture",
+        "finance_news",
+        "read_conversation",
+        "get_proactive_messages",
+        "get_reminder",
+        "run_due_tasks",
+        "send_reminder",
+        "send_to_proactive",
+        "check_json",
     )
     cfg["jobs"] = {name: cfg["jobs"][name] for name in names}
     cfg["components"] = {name: cfg["components"][name] for name in ("codex_app_server", "agent_wrapper", "pa")}
-    cfg.update(workspace_dir=str(workspace), metadata_dir="reme_metadata", language="zh",
-               service={"backend": "cli"}, enable_logo=False, log_to_console=False, log_to_file=False)
+    cfg.update(
+        workspace_dir=str(workspace),
+        metadata_dir="reme_metadata",
+        language="zh",
+        service={"backend": "cli"},
+        enable_logo=False,
+        log_to_console=False,
+        log_to_file=False,
+    )
     server = cfg["components"]["codex_app_server"]["default"]
     server["codex_home"] = ".codex"
-    server["config_overrides"] = [item for item in server.get("config_overrides", []) if not any(
-        word in item for word in ("memories", "subagent", "review_model", "web_search")
-    )] + ["features.memories=false", "memories.generate_memories=false", "memories.use_memories=false",
-         "features.multi_agent=false", 'web_search="disabled"']
+    server["config_overrides"] = [
+        item
+        for item in server.get("config_overrides", [])
+        if not any(word in item for word in ("memories", "subagent", "review_model", "web_search"))
+    ] + [
+        "features.memories=false",
+        "memories.generate_memories=false",
+        "memories.use_memories=false",
+        "features.multi_agent=false",
+        'web_search="disabled"',
+    ]
     catalog = deepcopy(server["model_catalog"]["models"][0])
     catalog.update(slug=model, display_name=model, input_modalities=["text"])
     server["model_catalog"] = {"models": [catalog]}
@@ -84,23 +122,33 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
     for name in ("pa_chat", "pa_new_session"):
         cfg["jobs"][name]["steps"][0]["prompt_dict"] = {**bundle["memory"], **bundle["pa"]}
     cfg["jobs"]["pa_proactive"]["steps"][0].update(
-        backend="benchmark_proactive", prompt_dict={**bundle["memory"], **bundle["proactive"]},
+        backend="benchmark_proactive",
+        prompt_dict={**bundle["memory"], **bundle["proactive"]},
     )
     cfg["jobs"]["task_agent"]["steps"][0].update(
-        backend="benchmark_task", prompt_dict={**bundle["memory"], **bundle["task"]},
+        backend="benchmark_task",
+        prompt_dict={**bundle["memory"], **bundle["task"]},
     )
     for name in ("screen_capture", "finance_news"):
-        cfg["jobs"][name]["steps"] = [{"backend": "benchmark_connector", "payload": {
-            "context": "Synthetic benchmark evidence; read paths for complete contents.",
-            "paths": list(case.get("resources", {})),
-        }}]
+        cfg["jobs"][name]["steps"] = [
+            {
+                "backend": "benchmark_connector",
+                "payload": {
+                    "context": "Synthetic benchmark evidence; read paths for complete contents.",
+                    "paths": list(case.get("resources", {})),
+                },
+            },
+        ]
     return cfg
 
 
 def bind_owner(agent, case: dict, record: dict) -> None:
+    """Replace fixture-session I/O while preserving other native sessions."""
     snapshot = SessionSnapshot(
-        session_id=SESSION_ID, state=SessionStatus(session_id=SESSION_ID, status=case.get("session_status", "idle")),
-        messages=[SessionMessage.model_validate(row) for row in case.get("messages", [])], last_turn_id="fixture-turn",
+        session_id=SESSION_ID,
+        state=SessionStatus(session_id=SESSION_ID, status=case.get("session_status", "idle")),
+        messages=[SessionMessage.model_validate(row) for row in case.get("messages", [])],
+        last_turn_id="fixture-turn",
     )
     read, status, append = agent.read_session, agent.get_session_status, agent.append_session
 
@@ -127,6 +175,7 @@ def bind_owner(agent, case: dict, record: dict) -> None:
 
 
 def instrument(app, folder: Path, record: dict) -> None:
+    """Record job execution and model events at their real boundaries."""
     agent = app.context.components["agent_wrapper"]["default"]
     original = agent.reply_stream
 
@@ -144,7 +193,9 @@ def instrument(app, folder: Path, record: dict) -> None:
                 if native.get("method") == "thread/tokenUsage/updated":
                     turn["native_token_usage"] = native.get("payload", {})
                 if row["chunk_type"] == "reply_end":
-                    turn.update({key: value for key, value in (row["chunk"] or {}).items() if key not in {"raw", "events"}})
+                    turn.update(
+                        {key: value for key, value in (row["chunk"] or {}).items() if key not in {"raw", "events"}},
+                    )
                 yield chunk
         finally:
             turn["duration_s"] = round(time.monotonic() - started, 3)
@@ -168,6 +219,7 @@ def instrument(app, folder: Path, record: dict) -> None:
 
 
 async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path, timeout: float) -> dict:
+    """Run one case and retain its outcomes and workspace evidence."""
     workspace = folder / "workspace"
     workspace.mkdir(parents=True)
     seed(workspace, case)
@@ -177,7 +229,11 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
     try:
         async with asyncio.timeout(timeout):
             app = Application(**cfg)
-            for name, cls in (("benchmark_proactive", FrozenProactive), ("benchmark_task", FrozenTask), ("benchmark_connector", FixtureConnector)):
+            for name, cls in (
+                ("benchmark_proactive", FrozenProactive),
+                ("benchmark_task", FrozenTask),
+                ("benchmark_connector", FixtureConnector),
+            ):
                 app.context.registry.add(name, cls, owner="benchmark.proactive")
             runtime = app.context.components["pa"]["default"]
             runtime._now = frozen_now

@@ -515,6 +515,9 @@ def test_role_prompts_have_matching_localized_placeholders(module):
 
     root = Path(__file__).resolve().parents[2]
     prompts = yaml.safe_load((root / f"reme/steps/proactive/{module}.yaml").read_text())
-    fields = lambda value: {field for _, field, _, _ in Formatter().parse(value) if field}
+
+    def fields(value):
+        return {field for _, field, _, _ in Formatter().parse(value) if field}
+
     assert fields(prompts["system_prompt"]) == fields(prompts["system_prompt_zh"])
     assert "memory_path" in fields(prompts["system_prompt"])

@@ -6,6 +6,7 @@ PA_CONFIG = {"start_time": "0900", "end_time": "2300", "interval_minutes": 5}
 
 
 def bind_pa(context, agent):
+    """Bind one concrete session owner to an isolated PA runtime."""
     context.components["agent_wrapper"] = {"default": agent}
     server = context.components.get("codex_app_server", {}).get("default")
     if server is None:

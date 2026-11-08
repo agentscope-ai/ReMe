@@ -30,14 +30,17 @@ async def test_check_json_returns_every_json_value_without_modifying_file(app, t
 
 
 @pytest.mark.asyncio
-async def test_parse_error_contains_path_line_column_and_error(app, tmp_path):
-    content = '{\n  "value": 1,\n}\n'
+@pytest.mark.parametrize("content", ['{\n  "value": 1,\n}\n', '{\n  "value": nope\n}\n'])
+async def test_parse_error_contains_path_line_column_and_error(app, tmp_path, content):
     (tmp_path / "broken.json").write_text(content)
     result = await CheckJsonStep(app_context=app)(path="broken.json")
     assert not result.success
     assert result.answer["path"] == "broken.json"
-    assert result.answer["line"] == 3 and result.answer["column"] == 1
-    assert "property name" in result.answer["error"]
+    with pytest.raises(json.JSONDecodeError) as expected:
+        json.loads(content)
+    assert result.answer["line"] == expected.value.lineno
+    assert result.answer["column"] == expected.value.colno
+    assert result.answer["error"] == str(expected.value)
     assert (tmp_path / "broken.json").read_text() == content
 
 

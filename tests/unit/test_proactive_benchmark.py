@@ -1,5 +1,7 @@
 """Current-workflow benchmark inputs, rejected actions and native usage accounting."""
 
+# pylint: disable=missing-function-docstring,protected-access
+
 from copy import deepcopy
 from pathlib import Path
 
@@ -17,10 +19,21 @@ from reme.config import resolve_app_config
 def record_for(root, case_id):
     seed(root, CASES[case_id])
     original = files(root)
-    jobs = [{"name": name, "args": {"content": ""} if name == "send_reminder" else {}, "response": {"success": True}}
-            for name in ("get_proactive_messages", "read_conversation", "run_due_tasks", "get_reminder", "send_reminder")]
-    return {"fixture": CASES[case_id], "before": original, "after": deepcopy(original), "jobs": jobs,
-            "turns": [], "tool_events": [], "delivered": [], "completed": True, "duration_s": 1}
+    jobs = [
+        {"name": name, "args": {"content": ""} if name == "send_reminder" else {}, "response": {"success": True}}
+        for name in ("get_proactive_messages", "read_conversation", "run_due_tasks", "get_reminder", "send_reminder")
+    ]
+    return {
+        "fixture": CASES[case_id],
+        "before": original,
+        "after": deepcopy(original),
+        "jobs": jobs,
+        "turns": [],
+        "tool_events": [],
+        "delivered": [],
+        "completed": True,
+        "duration_s": 1,
+    }
 
 
 def test_current_bundle_freezes_all_three_roles_and_shared_memory():
@@ -64,8 +77,13 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
     assert paths and all(name.startswith("resource/fixtures/") for name in paths)
     assert (tmp_path / MEMORY).is_file() and (tmp_path / META / "session_ids.json").is_file()
     repo = Path(__file__).resolve().parents[2]
-    cfg = configuration(resolve_app_config(config="proactive", log_config=False), "fixture-model", tmp_path,
-                        freeze(repo)["current"], CASES["proactive_evidence"])
+    cfg = configuration(
+        resolve_app_config(config="proactive", log_config=False),
+        "fixture-model",
+        tmp_path,
+        freeze(repo)["current"],
+        CASES["proactive_evidence"],
+    )
     assert cfg["jobs"]["task_agent"]["steps"][0]["job_tools"] == ["screen_capture", "finance_news"]
     assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 6
     assert "reminder_delivery" not in cfg["jobs"]
@@ -74,8 +92,13 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
 def test_empty_decision_is_valid_silence_but_nonempty_rejected_attempt_is_not(tmp_path):
     record = record_for(tmp_path, "proactive_known")
     assert grade("proactive_known", record)["score"] == 100
-    record["tool_events"] = [{"event": "start", "tool_call_name": "mcp__reme_jobs__send_reminder",
-                              "chunk": {"arguments": {"content": "should not send"}}}]
+    record["tool_events"] = [
+        {
+            "event": "start",
+            "tool_call_name": "mcp__reme_jobs__send_reminder",
+            "chunk": {"arguments": {"content": "should not send"}},
+        },
+    ]
     assert not grade("proactive_known", record)["checks"]["send_attempts"]
 
 
@@ -101,16 +124,40 @@ def test_forgetting_detects_copies_and_keeps_unrelated_facts(tmp_path):
 def test_report_deltas_native_cache_and_reasoning_counters(tmp_path, portable):
     turns = []
     for index, (tokens, cached, reasoning) in enumerate(((100, 4, 2), (220, 9, 6))):
-        turn = {"session_id": "same", "native_token_usage": {"tokenUsage": {"total": {
-            "inputTokens": tokens, "outputTokens": 20 * (index + 1), "cachedInputTokens": cached,
-            "reasoningOutputTokens": reasoning,
-        }}}}
+        turn = {
+            "session_id": "same",
+            "native_token_usage": {
+                "tokenUsage": {
+                    "total": {
+                        "inputTokens": tokens,
+                        "outputTokens": 20 * (index + 1),
+                        "cachedInputTokens": cached,
+                        "reasoningOutputTokens": reasoning,
+                    },
+                },
+            },
+        }
         if portable:
-            turn["usage"] = {"input_tokens": 100 if index == 0 else 120, "output_tokens": 20, "total_tokens": 120 if index == 0 else 140}
+            turn["usage"] = {
+                "input_tokens": 100 if index == 0 else 120,
+                "output_tokens": 20,
+                "total_tokens": 120 if index == 0 else 140,
+            }
         turns.append(turn)
-    result = report(tmp_path, results=[{"model": "fixture", "prompt": "current", "case": "pa_preferences", "role": "pa",
-                                        "repeat": 0, "grade": {"score": 100},
-                                        "record": {"completed": True, "duration_s": 1, "turns": turns}}])
+    result = report(
+        tmp_path,
+        results=[
+            {
+                "model": "fixture",
+                "prompt": "current",
+                "case": "pa_preferences",
+                "role": "pa",
+                "repeat": 0,
+                "grade": {"score": 100},
+                "record": {"completed": True, "duration_s": 1, "turns": turns},
+            },
+        ],
+    )
     usage = result["ranking"][0]["usage"]
     assert usage["cached_input_tokens"] == 9 and usage["reasoning_output_tokens"] == 6
     assert usage["input_tokens"] == 220

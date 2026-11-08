@@ -30,9 +30,12 @@ class GetProactiveMessagesStep(BaseStep):
         paths = [self.pa.proactive_inbox_path]
         if self.context.get("pa_round_id") is not None:
             paths.append(self.pa.proactive_context_path)
-        if any(not _check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")) for path in paths):
+        if any(
+            not _check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")) for path in paths
+        ):
             raise PermissionError("no permission to consume proactive feedback and save recovery context")
         self.context.response.answer = await self.pa.get_proactive_messages(
-            max_bytes=self.max_file_bytes(), round_id=self.context.get("pa_round_id"),
+            max_bytes=self.max_file_bytes(),
+            round_id=self.context.get("pa_round_id"),
         )
         return self.context.response

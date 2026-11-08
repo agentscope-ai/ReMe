@@ -8,6 +8,7 @@ from benchmark.proactive.runtime import save
 
 
 def analyze(root: Path) -> dict:
+    """Re-score a recorded run and save its analysis separately."""
     result = report(root, rescore=True)
     save(root / "analysis" / "report.json", result)
     return result

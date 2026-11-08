@@ -67,7 +67,10 @@ async def test_live_empty_session_chat_and_proactive_history_survive_restarting_
         assert [message.id for message in restored.messages] == [message.id for message in history.messages]
         new_session = (await app.run_job("pa_new_session")).answer
         assert new_session != selected
-        assert json.loads(app.context.components["pa"]["default"].session_ids_path.read_text())[-1]["session_id"] == new_session
+        assert (
+            json.loads(app.context.components["pa"]["default"].session_ids_path.read_text())[-1]["session_id"]
+            == new_session
+        )
         assert [message.id for message in (await agent.read_session(selected)).messages] == [
             message.id for message in history.messages
         ]

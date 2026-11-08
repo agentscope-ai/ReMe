@@ -193,7 +193,6 @@ async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tm
 
     from types import MethodType
     from unittest.mock import AsyncMock
-    from reme.components.agent_wrapper import CodexAgentWrapper
     from .pa_helpers import bind_pa
 
     config = _load_config("proactive")

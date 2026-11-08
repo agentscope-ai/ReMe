@@ -31,20 +31,29 @@ class ProactiveAgentStep(BasePaStep):
         query_name = "query_memory"
         try:
             system_prompt = self._system_prompt(
-                now=self._now().isoformat(), handoff=await runtime.read_handoff(),
+                now=self._now().isoformat(),
+                handoff=await runtime.read_handoff(),
                 recovery_path=runtime.proactive_context_path,
             )
             for query_name in (
-                "query_memory", "query_conversation", "query_tasks", "query_reminder", "query_config", "query_handoff",
+                "query_memory",
+                "query_conversation",
+                "query_tasks",
+                "query_reminder",
+                "query_config",
+                "query_handoff",
             ):
                 if self.context.stop_event is not None and self.context.stop_event.is_set():
                     raise asyncio.CancelledError()
                 config = await runtime.get_proactive_config()
                 now = self._now()
                 query = self.prompt_format(
-                    query_name, memory_path=self._memory_path(), max_turns=max_turns,
+                    query_name,
+                    memory_path=self._memory_path(),
+                    max_turns=max_turns,
                     proactive_config_path=runtime.proactive_config_path,
-                    interval_minutes=config.interval_minutes, next_wakeup=config.next_wakeup(now).isoformat(),
+                    interval_minutes=config.interval_minutes,
+                    next_wakeup=config.next_wakeup(now).isoformat(),
                     now=now.isoformat(),
                 )
                 if query_name == "query_reminder":
@@ -55,30 +64,45 @@ class ProactiveAgentStep(BasePaStep):
                         hint = None
                     if hint is not None:
                         query += "\n\n" + self.prompt_format(
-                            "optional_hint", now=now.isoformat(), hint=self.get_prompt(hint),
+                            "optional_hint",
+                            now=now.isoformat(),
+                            hint=self.get_prompt(hint),
                         )
                         self.context.response.metadata["proactive_hint"] = hint
                 reply = await self.agent_wrapper.reply(
-                    query, resume=agent_session_id, system_prompt=system_prompt,
+                    query,
+                    resume=agent_session_id,
+                    system_prompt=system_prompt,
                     job_tools=list(self.kwargs.get("job_tools") or []),
                     injected_job_kwargs={"session_id": session_id, "pa_round_id": round_id},
-                    activity_source="proactive", activity_session_id=session_id,
+                    activity_source="proactive",
+                    activity_session_id=session_id,
                 )
                 agent_session_id = reply["session_id"]
                 if reply["status"] != "completed":
                     raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
                 await runtime.checkpoint_proactive(round_id, query_name, reply["result"])
                 if query_name == "query_reminder" and current.request is None:
-                    raise RuntimeError("The reminder query must submit a send_reminder decision, including empty content")
+                    raise RuntimeError(
+                        "The reminder query must submit a send_reminder decision, including empty content",
+                    )
             await runtime.write_handoff(reply["result"])
             await runtime.clear_proactive_context()
             self.context.response.answer = {**current.result, "handoff": reply["result"]}
             self.context.response.metadata["proactive_session_id"] = agent_session_id
         except BaseException as exc:
             try:
-                await finish_cleanup(runtime.checkpoint_proactive(round_id, "failure", {
-                    "query": query_name, "session_id": agent_session_id, "error": str(exc) or type(exc).__name__,
-                }))
+                await finish_cleanup(
+                    runtime.checkpoint_proactive(
+                        round_id,
+                        "failure",
+                        {
+                            "query": query_name,
+                            "session_id": agent_session_id,
+                            "error": str(exc) or type(exc).__name__,
+                        },
+                    ),
+                )
             except Exception as checkpoint_error:
                 self.logger.warning(f"Could not save proactive failure context: {checkpoint_error}")
             raise
