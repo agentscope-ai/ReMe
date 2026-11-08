@@ -9,7 +9,7 @@ import { expect } from "playwright/test";
 import config from "../electron.vite.config.ts";
 import { mockReMe } from "./e2e/mock-reme.mjs";
 
-const project = fileURLToPath(new URL("../", import.meta.url));
+const project = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 
 test(
   "Vite development renderer starts with React refresh and sandboxed preload",

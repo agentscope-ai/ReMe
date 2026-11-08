@@ -8,7 +8,7 @@ import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
 import { mockReMe } from "./mock-reme.mjs";
 
-const project = fileURLToPath(new URL("../../", import.meta.url));
+const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 test(
   "voice input, narration, reminders and cancellation in real sandboxed Electron windows",

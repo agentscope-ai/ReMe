@@ -8,7 +8,7 @@ import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
 import { mockReMe } from "./mock-reme.mjs";
 
-const project = fileURLToPath(new URL("../../", import.meta.url));
+const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 test(
   "all pages collapse their sidebar independently, preserve content and restore preferences",
@@ -63,11 +63,20 @@ test(
         page.locator(".workspace-page:visible .split-handle"),
       ).toBeHidden();
       await expect(toggle()).toHaveAttribute("aria-expanded", "false");
-      const main = await page
-        .locator(".workspace-page:visible .workspace-main")
-        .boundingBox();
-      assert.ok(main.x < 5);
-      assert.ok(main.width > 1190);
+      await expect
+        .poll(() =>
+          page.locator(".workspace-page:visible").evaluate((element) => {
+            const available = element.getBoundingClientRect();
+            const main = element
+              .querySelector(".workspace-main")
+              .getBoundingClientRect();
+            return (
+              Math.abs(main.x - available.x) < 1 &&
+              Math.abs(main.width - available.width) < 1
+            );
+          }),
+        )
+        .toBe(true);
     };
     try {
       await launch();
