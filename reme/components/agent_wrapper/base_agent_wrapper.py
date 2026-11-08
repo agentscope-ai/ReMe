@@ -307,6 +307,7 @@ class BaseAgentWrapper(BaseComponent):
         message_id: str,
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
         """Append an idempotent assistant message, optionally requiring the current conversation turn."""
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")

@@ -26,6 +26,8 @@ const message = (content: string, completed = true): SessionMessage => ({
   turn_id: "turn",
   content,
   completed,
+  delivery: "idle",
+  notification_eligible: true,
   chunks: [],
 });
 function setup() {

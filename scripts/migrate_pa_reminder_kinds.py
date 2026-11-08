@@ -55,7 +55,7 @@ def migrate(path: Path) -> int:
 def main() -> None:
     """Run only while the service owning this journal is stopped."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("journal", type=Path, help="Path to {metadata_dir}/pa/reminders.jsonl; stop ReMe first")
+    parser.add_argument("journal", type=Path, help="Path to {metadata_dir}/pa/chat_inbox.jsonl; stop ReMe first")
     args = parser.parse_args()
     print(f"Migrated {migrate(args.journal)} journal rows; originals are retained in a .bak file")
 

@@ -22,15 +22,15 @@ def record_for(root, case_id):
     jobs = [
         {
             "name": name,
-            "args": {"content": "", "kind": "normal"} if name == "send_reminder" else {},
+            "args": {"content": "", "kind": "normal"} if name == "send_chat_message" else {},
             "response": {"success": True},
         }
         for name in (
-            "get_proactive_messages",
             "read_conversation",
-            "read_task_results",
-            "get_reminder",
-            "send_reminder",
+            "read_proactive_inbox",
+            "read_cron_results",
+            "get_chat_messages",
+            "send_chat_message",
         )
     ]
     return {
@@ -49,7 +49,7 @@ def record_for(root, case_id):
 def test_current_bundle_freezes_all_three_roles_and_shared_memory():
     repo = Path(__file__).resolve().parents[2]
     bundle = freeze(repo)
-    assert set(bundle) == {"current"} and set(bundle["current"]) == {"pa", "proactive", "task", "memory"}
+    assert set(bundle) == {"current"} and set(bundle["current"]) == {"pa", "proactive", "cron", "memory"}
     prompts = yaml.safe_load((repo / "reme/steps/proactive/proactive_agent.yaml").read_text())
     assert bundle["current"]["proactive"] == prompts
 
@@ -94,8 +94,9 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
         freeze(repo)["current"],
         CASES["proactive_evidence"],
     )
-    assert cfg["jobs"]["task_agent"]["steps"][0]["job_tools"] == ["screen_capture", "finance_news"]
+    assert cfg["jobs"]["cron_agent"]["steps"][0]["job_tools"] == ["screen_capture", "finance_news"]
     assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 7
+    assert set(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) <= cfg["jobs"].keys()
     assert "reminder_delivery" not in cfg["jobs"]
 
 
@@ -105,7 +106,7 @@ def test_empty_decision_is_valid_silence_but_nonempty_rejected_attempt_is_not(tm
     record["tool_events"] = [
         {
             "event": "start",
-            "tool_call_name": "mcp__reme_jobs__send_reminder",
+            "tool_call_name": "mcp__reme_jobs__send_chat_message",
             "chunk": {"arguments": {"content": "should not send"}},
         },
     ]
@@ -125,7 +126,7 @@ def test_only_configured_task_snapshot_paths_are_allowed_new_files(tmp_path):
     from benchmark.proactive.cases import frozen_now
 
     record = record_for(tmp_path, "proactive_evidence")
-    snapshot = f"daily/{frozen_now():%Y-%m-%d}/cron/fixture-0/{frozen_now():%H%M%S}.md"
+    snapshot = f"{META}/cron/fixture-0/{frozen_now():%Y-%m-%d}/{frozen_now():%H%M%S}.md"
     record["after"][snapshot] = "completed cumulative result"
     assert grade("proactive_evidence", record)["checks"]["no_unexpected_files"]
     record["after"][snapshot.replace("fixture-0", "unknown")] = "unexpected"

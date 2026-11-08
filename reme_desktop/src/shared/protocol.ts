@@ -49,6 +49,7 @@ export interface StatusNotice {
 export interface DisplayMessage {
   id: string;
   turnId?: string;
+  originSessionId?: string;
   createdAt?: string | null;
   role: "user" | "assistant";
   source: "chat" | "proactive";
@@ -89,6 +90,9 @@ export interface SessionMessage {
   created_at?: string | null;
   turn_id?: string | null;
   completed: boolean;
+  delivery: "idle" | "immediate";
+  origin_session_id?: string | null;
+  notification_eligible: boolean;
   chunks: StreamChunk[];
 }
 
@@ -113,12 +117,14 @@ export interface PaEvent {
   task_activities?: TaskActivities;
   notifications?: NotificationWindow | null;
   message?: SessionMessage;
+  inbox_messages?: SessionMessage[] | null;
   snapshot?: SessionSnapshot;
   reason?: string;
   error?: string;
 }
 
 export interface NotificationWindow {
+  enabled: boolean;
   starts_at: string;
   ends_at: string;
   closing_message_id?: string | null;
@@ -174,6 +180,7 @@ export interface DesktopState {
   sessionId: string | null;
   status: SessionStatus | null;
   messages: DisplayMessage[];
+  inboxMessages: DisplayMessage[];
   pending: PendingTurn | null;
   surface: CompanionSurface | null;
   unread: number;
@@ -286,6 +293,7 @@ export type DesktopAction =
   | { type: "companion.reset" }
   | { type: "companion.visibility"; visible: boolean }
   | { type: "session.new" }
+  | { type: "session.select"; sessionId: string }
   | { type: "messages.read"; sessionId: string; ids: string[] }
   | { type: "bubble.dismiss"; id: string }
   | { type: "bubble.snooze"; id: string }
@@ -352,6 +360,17 @@ export interface WorkspaceConfig {
 
 export type WorkspaceRequest =
   | { type: "config" }
+  | {
+      type: "proactiveInbox";
+      kind?: InboxKind | "all";
+      filter?: "all" | "pending" | "unread";
+      taskId?: string;
+      offset?: number;
+      limit?: number;
+    }
+  | { type: "proactiveInboxEntry"; id: string }
+  | { type: "taskResult"; path: string; markRead: boolean }
+  | { type: "conversation"; sessionId: string }
   | { type: "list"; path: string }
   | { type: "load"; path: string }
   | { type: "tags"; page: number }
@@ -365,3 +384,40 @@ export interface TagFiles {
   items: { path: string; tags: string[] }[];
 }
 import type { ErrorData, Language } from "./i18n.ts";
+
+export type InboxKind = "task_result" | "instruction";
+export type InboxStatus =
+  "pending" | "received" | "superseded" | "removed" | "unknown";
+
+export interface ProactiveInboxItem {
+  id: string;
+  kind: InboxKind;
+  title: string;
+  preview: string;
+  status: InboxStatus;
+  created_at: string | null;
+  task_id: string | null;
+  path: string | null;
+  user_read_at: string | null;
+  source_modified: boolean;
+  source_present: boolean | null;
+  receipt_status: string | null;
+}
+
+export interface ProactiveInboxPage {
+  items: ProactiveInboxItem[];
+  total: number;
+  offset: number;
+  limit: number;
+  task_ids: string[];
+  pending: number;
+  complete: boolean;
+  warnings: string[];
+}
+
+export interface ProactiveInboxDetail {
+  item: ProactiveInboxItem;
+  content: string;
+  received_at: string | null;
+  warnings: string[];
+}

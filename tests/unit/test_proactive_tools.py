@@ -115,7 +115,12 @@ async def test_finance_source_failure_publishes_no_resources(app, tmp_path, monk
 async def test_new_tools_run_through_registered_native_jobs(app, tmp_path, monkeypatch):
     monkeypatch.setattr(FinanceNewsStep, "_fetch_recent", lambda _step, _end: [])
     jobs = resolve_app_config(config="proactive", log_config=False)["jobs"]
-    assert jobs["pa_chat"]["steps"][0]["job_tools"] == ["screen_capture", "check_json", "send_to_proactive"]
+    assert jobs["pa_chat"]["steps"][0]["job_tools"] == [
+        "screen_capture",
+        "check_json",
+        "write_proactive_inbox",
+        "manage_temp_proactive_agent",
+    ]
     for name in ["finance_news", "check_json"]:
         job = BaseJob(name=name, app_context=app, **jobs[name])
         async with job:

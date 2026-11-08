@@ -29,5 +29,6 @@ class PaEvent(BaseModel):
     notifications: PaNotificationWindow | None = None
     message: SessionMessage | None = None
     snapshot: SessionSnapshot | None = None
+    inbox_messages: list[SessionMessage] | None = None
     reason: str | None = None
     error: str | None = None

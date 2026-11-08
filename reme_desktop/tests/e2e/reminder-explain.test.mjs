@@ -58,6 +58,8 @@ test(
         role: "assistant",
         source: "chat",
         content: "一条普通的对话回复。",
+        delivery: "idle",
+        notification_eligible: true,
         completed: true,
         chunks: [],
       });

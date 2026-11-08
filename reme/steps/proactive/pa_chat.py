@@ -13,8 +13,14 @@ class PaChatStep(BasePaStep):
     async def _reply_kwargs(self) -> dict:
         await self._ensure_memory()
         return {
-            "system_prompt": self._system_prompt(now=self._now().isoformat()),
+            "system_prompt": self._system_prompt(
+                now=self._now().isoformat(),
+                cron_runs_path=self.pa.cron_runs_path,
+                cron_results_dir=self.pa.tasks.root_path,
+                temporary_results_dir=self.pa.temp_tasks.root_path,
+            ),
             "job_tools": list(self.kwargs.get("job_tools") or []),
+            "injected_job_kwargs": {"pa_caller": "chat"},
         }
 
     async def execute(self):
@@ -62,4 +68,18 @@ class PaSessionStep(BasePaStep):
         self.context.response.answer, error = await self.pa.get_selected_session()
         if error is not None:
             self.context.response.metadata["error"] = error
+        return self.context.response
+
+
+@R.register("pa_select_session_step")
+class PaSelectSessionStep(BasePaStep):
+    """Select a source conversation while no Main operation is running."""
+
+    async def execute(self):
+        self._validate("session_id")
+        identifier = self.context.get("session_id")
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError("session_id is required")
+        await self.pa.select_existing_session(identifier)
+        self.context.response.answer = {"session_id": identifier}
         return self.context.response

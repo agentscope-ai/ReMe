@@ -83,6 +83,8 @@ test(
             role: "assistant",
             source: "chat",
             content: source,
+            delivery: "idle",
+            notification_eligible: true,
             completed: true,
             chunks: [],
           });

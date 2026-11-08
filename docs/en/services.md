@@ -147,28 +147,50 @@ these are client settings, not the provider's maximum context claim. Native long
 `CODEX_MODEL_NAME` can override the model; review the model catalog capabilities when changing it. File changes load
 on the next service start and apply to subsequent chats in the restored session.
 
-The `proactive` configuration creates one fresh agent session per wake cycle and resumes it for up to seven sequential queries:
-long-term memory and previous handoff, chat feedback and recent conversation, unread task summaries, source research,
-reminder decisions, optional wake-configuration changes, then the next handoff. Tool bindings remain fixed for that session.
-Research checks reminder history first, selects at most two useful leads and searches and reads primary sources;
+The `proactive` configuration forks the selected Main conversation to prepare a context summary, then starts a clean
+agent session for seven work queries: combined conversation, memory and inbox reading; unread task summaries; injected-message
+history; source research; message decisions; optional wake-configuration changes; and a closing TODO.
+Every wakeup prepares fresh Main context. The opening summary uses only the inherited Main conversation. The first work query
+calls the private `read_conversation(max_turns=10)` tool and reads personal memory, inbox feedback and previous TODOs together
+to understand newly completed Main rounds and maintain supported lasting memory. Tool bindings stay fixed.
+Research checks reminder history first, selects at most three useful leads and searches and reads primary sources;
 without a useful lead, it skips searching. Prompts require external findings to include a verified original-source link
 within the existing 200-character limit, including URLs and Markdown, and to withhold unverified external claims.
 Reminders select at most three worthwhile items, ordered by relevance, urgency and impact, without filling a quota.
 Details of one event are merged; each item keeps one short conclusion and necessary evidence.
 Reminders explain findings and their relevance conversationally, keeping verification work internal; source links must
 support the core claim, rather than only background. Verification, selection and wording remain agent judgments.
-Code accepts submissions, including empty decisions, only during `query_reminder`; other phases cannot consume the decision.
+`query_message` weighs whether interrupting is worthwhile before choosing content. Repeated nonresponse calls for fewer
+interruptions; an occasional gentle check-in may ask whether Master prefers fewer messages, without demanding a reply.
+Light, welcome affection is allowed without guilt or invented distress. Empty content withdraws the older pending proactive
+message; new content supersedes it while retaining discarded history.
+Code accepts submissions, including empty decisions, only during `query_message`; other phases cannot consume the decision.
 The phase clears after the model call completes or is cancelled. Accepted reminders retain independent background delivery.
-Handoffs retain facts, unfinished work, open questions and reminder IDs/statuses, without future send decisions or reminder drafts.
-Current preferences override older summaries; workspace names and screenshots do not establish project interests. The handoff is
-atomically replaced only after the last query completes with a nonempty summary. Consumed inputs and partial progress
-are checkpointed in `proactive_context.jsonl` before inbox clearing or cursor advancement. Failed rounds retain this
-recovery context and the previous handoff; a successful handoff clears the recovery file.
+Current preferences override older summaries; workspace names and screenshots do not establish project interests.
+Consumed inputs and partial progress are checkpointed in `proactive_context.jsonl` before cursor advancement.
+The final `query_todo` returns only unfinished work worth continuing, concrete next actions and essential sources or recheck
+conditions. Completed items, forgotten facts and message drafts are excluded. Code atomically saves it to
+`{metadata_dir}/pa/proactive_todo.md` and injects freshly read contents into the next work session. Current conversation,
+memory and feedback take precedence; TODOs are not send approval. The sleep prompt uses the current interval (five minutes
+by default); active hours and explicit pause settings still govern wakeups.
+Failed or interrupted rounds retain recovery context and the previous TODO; successful TODO publication clears recovery.
+The old `handoff.txt` is no longer created, read or updated; existing files are left intact.
+
+Main context for Proactive and one-shot preparation fork their source session and append only a summary query,
+retaining its instructions, model, turn settings and tool definitions. Cron-task handoffs continue in the work session.
+Scene-specific queries share a common requirement to preserve supported preferences,
+interests, requirements, recent projects and goals, distinguishing lasting preferences, recent focus and one-shot requests.
+Handoff prompts request a complete, clear context summary without prescribing a Markdown format.
+Summary-only behavior is a prompt instruction; tool definitions remain available. Code saves the returned summary without
+replacing the working session ID. The wrapper retains effective settings in session-side `.config.jsonl` files so forks can
+restore them after unload or restart, with fresh application tool credentials. Legacy sessions without a settings record use
+native fork defaults until their next normal invocation records the effective settings. Prefix preservation enables cache
+reuse; actual cache hits depend on the provider.
 
 PA chat, selection and event Steps require the configured `PaRuntime`; there is no metadata-state fallback.
 The runtime owns session lifecycle and one typed active round. Internal task and reminder owners keep their own locks;
 the delivery worker can continue after an agent round ends. Reminder submission requires a live server-bound round.
-Feedback tools share `feedback.py`; reminder tools share `reminders.py`. Task tools are configured only in YAML, with
+Inbox tools share `proactive_inbox.py`; message tools share `chat_messages.py`. Task tools are configured only in YAML, with
 screen capture and finance as defaults. Session selection is restored only from `session_ids.json`; the old `pa.json`
 startup migration has been removed.
 
@@ -178,12 +200,19 @@ Before Jobs start, the PA component creates missing files under `{metadata_dir}/
 | --- | --- |
 | `session_ids.json` | `[]`; the last entry selects the current chat |
 | `proactive.json` | `components.pa.default.default_proactive` |
-| `tasks.json` | `components.pa.default.default_tasks` |
-| `proactive_inbox.txt` | Empty |
-| `handoff.txt` | Empty |
+| `cron.json` | `components.pa.default.default_tasks` |
+| `proactive_inbox.md` | Empty |
+| `proactive_inbox_receipts.jsonl` | Empty request receipts |
+| `temp_tasks.json` | `[]` |
 | `proactive_context.jsonl` | Empty recovery journal |
-| `reminders.jsonl` | Empty |
-| `task_runs.jsonl` | Empty |
+| `proactive_todo.md` | Empty; later holds unfinished work |
+| `chat_inbox.jsonl` | Empty |
+| `cron_runs.jsonl` | Empty |
+
+Inbox names identify their recipient: `proactive_inbox.md` carries Main's instructions to Proactive, with
+`proactive_inbox_cursor.json` consumption state and `proactive_inbox_receipts.jsonl` request receipts.
+`chat_inbox.jsonl` carries background messages addressed to Main and their delivery states.
+Cron documents live under `cron/{task_id}/`; one-shot documents live under `temporary/{id}/`, both inside this PA directory.
 
 Defaults are configured in `reme/config/proactive.yaml`. The proactive defaults are `start_time: "0700"`,
 `end_time: "2330"`, and `interval_minutes: 5`. Existing files, including empty text files and empty task lists, are kept;
@@ -207,7 +236,7 @@ than 18:00). Overnight and all-day activity use an evening window after 21:00, n
 Misses also consume the opportunity. A current chat is required. Results are saved in lazily created `hint_state.json`
 to prevent rerolls after restart and avoid the last selected variant of each kind. Bilingual directions come from
 `proactive_agent.yaml` and are injected only before the reminder decision. The agent may ignore them; ordinary useful
-updates remain independent of sampling. Actual delivery is recorded in `reminders.jsonl`. Sampled directions are not
+updates remain independent of sampling. Actual delivery is recorded in `chat_inbox.jsonl`. Sampled directions are not
 personal memories or instructions to repeat in future rounds.
 The 18 directions concern everyday life, care and playful surprises; only one evening direction summarizes confirmed todos.
 Special reminder kinds are `morning`, `midday` and `evening`: each requires this round's matching sampled hint and
@@ -217,80 +246,158 @@ literal good-night wording. Pending closing messages cannot be replaced by ordin
 stop proactive queries until the next opening; misses and empty decisions do not close the day. The reminder journal
 owns this state across restarts and session switches, without a separate quiet-state file.
 
-`read_conversation(max_turns=20)` consumes completed unread rounds across the latest 100 registered chats. Each user
-input stays with its replies; tools and proactive messages are excluded. It returns an oldest-first string within the
-2000-character per-message and 20000-character total defaults. Older rounds outside the recent window are omitted.
-Unknown times are labelled explicitly. Read or checkpoint errors preserve cursors. The proactive agent reads once in q2.
+The backend consumes completed unread rounds across the latest 100 registered chats before context preparation.
+Each user input stays with its replies; tools and injected messages are excluded. Defaults remain 20 rounds,
+2000 characters per message and 20000 total. Read or checkpoint errors preserve cursors.
 
-`send_to_proactive(message)` appends timestamped feedback; `get_proactive_messages()` returns all queued text and clears
-it under a shared component lock. `get_reminder(limit=10, offset=0)` reads each reminder's latest state, newest creation
-first, without consuming history. JSONL appends share an ID for successive `pending`, `sent`, `discarded` or `failed`
+`write_proactive_inbox(message)` queues timestamped Markdown for Proactive's next wakeup. Put topics, reminder feedback
+and settings requests in the message; Proactive interprets them and edits its own configuration during its configuration phase.
+Queued or received means the message was saved or read, not that its requested work or setting change is complete.
+While notifications are paused, outside active hours or blocked by invalid settings, explicit inbox requests still get
+a settings-only round. It can repair or resume settings without researching or sending reminders; failed requests remain retryable.
+`read_proactive_inbox()` checkpoints appended or edited content before advancing a content-hash
+cursor, retaining the source file. It returns `input_path`, `round_id` and `record_kind` for reading the complete checkpoint,
+plus `receipt_path` for original requests and latest statuses. Feedback bodies do not pass through bounded tool output.
+Main chat and the Proactive memory phase share a write lock for personal memory.
+
+`manage_temp_proactive_agent(action="list")` returns `items` and `total`, including each task's ID, query, execution time and
+state. Listing is read-only; use the returned IDs when managing tasks.
+`manage_temp_proactive_agent(action="create", query=..., run_at? | delay_minutes?, request_id?)` persists one-shot work tied to the source
+Main session. Preparation runs in the background after that conversation releases its current turn. At the deadline,
+a clean agent executes `task.query` and calls `send_chat_message_immediate(content)` before completing the same turn;
+there is no separate sending turn. The management tool accepts update, pause,
+resume or cancel with `task_id`; only create accepts `request_id`, and only create/update accept query/time fields.
+`delay_minutes` supports fractional minutes, such as `0.5` for 30 seconds.
+Revisions invalidate stale workers. Overdue tasks execute once on
+restart and label delayed results. Temporary results display immediately without interrupting Main; voice still follows
+quiet settings. Native history insertion waits for the source session to become available and uses a stable message ID.
+Results remain in Main's Chat inbox and become read after their bubble is actually shown; submission alone does not mark them read.
+Preparation failures retain an error and `retry_at`, retrying after 30 seconds. Prepared context and query results live in
+`{metadata_dir}/pa/temporary/{id}/`, with identity and revision metadata for recovery if progress-state publication was interrupted.
+At execution time, the agent receives its source transcript path for optional fresh context.
+The immediate tool saves the result before delivery, so restart recovery delivers saved content without reexecuting the query.
+It is bound to the active temporary task and accepts at most 3980 characters.
+Use native file tools to read cron definitions in `cron.json`, execution records in `cron_runs.jsonl` under `{metadata_dir}/pa/`,
+and result files under `{metadata_dir}/pa/cron/`. Recorded states do not prove a worker is
+currently running. Read result bodies without changing consumption or user-read markers; no separate task-status tool remains.
+
+Proactive uses `get_chat_messages(limit=10, offset=0)` to read each reminder's latest state, newest creation
+first, without consuming history. Results include complete message content and delivery states; use `limit` and `offset` to paginate.
+JSONL appends share an ID for successive `pending`, `sent`, `discarded` or `failed`
 states, with creation/update/expiry/sent times and the target session. This replaces the former `is_draft` contract.
+Main handles reminder follow-ups from the current conversation and explicit user context, without querying this history.
 
-`send_reminder(content, kind)` accepts one decision per round, at most 200 characters. Required `kind` is one of
+`send_chat_message(content, kind="normal")` uses a backend-bound sender policy; the model cannot override delivery.
+For ordinary Proactive it accepts one decision per round, at most 200 characters. `kind` is one of
 `normal`, `morning`, `midday`, `evening`; empty content uses `normal`. Empty content withdraws pending content
-for the bound chat and returns `skipped`. A newly accepted nonempty reminder supersedes the old pending reminder. If chat
-is idle, the tool attempts immediate insertion and returns `sent`; otherwise it returns `pending` without waiting for
-chat to finish. The native `reminder_delivery` background Job waits for ten continuous idle seconds, resetting when chat
-starts again. Delivery rechecks the current session, native turn, active hours and expiry. The pending lifetime ends after one
+for the bound chat and returns `skipped`. A newly accepted nonempty reminder supersedes the old pending reminder and returns
+`pending`, including when Main is already idle. The native `reminder_delivery` background Job waits for ten continuous
+idle seconds after submission, resetting when chat
+starts again. Delivery rechecks the current session, native turn, active hours and expiry. The ordinary pending lifetime ends after one
 wake interval or at the current window deadline, whichever comes first. Missing or changed sessions, closed active hours and expiry discard the reminder.
 Restart rebuilds pending state from JSONL and repeats the checks and idle delay. Retries use the same native message ID.
 Sent means inserted into chat, not read; insertion and JSONL status publication are separate operations.
 `pa_events` snapshots and status events carry a derived `notifications` window with absolute start/end times and the
-closing message ID. Desktop bubbles and proactive system notifications recheck it before display, allowing only the
+closing message ID and enabled state. Temporary messages carry `delivery: immediate` and bypass this ordinary window.
+Desktop bubbles and proactive system notifications recheck it before display, allowing only the
 closing message after that decision and dropping stale queues. Display stops at the deadline, without replaying old
 messages the next day. Chat history remains intact. Stop the service before explicitly migrating an existing journal;
 runtime schemas and tools require the new contract:
 
 ```bash
-python scripts/migrate_pa_reminder_kinds.py /path/to/workspace/reme_metadata/pa/reminders.jsonl
+python scripts/migrate_pa_reminder_kinds.py /path/to/workspace/reme_metadata/pa/chat_inbox.jsonl
 ```
 
 The script validates every row, retains an original `.bak`, identifies saved hint rounds and marks other old records
 as `normal` before atomic replacement.
 
-The proactive agent has feedback, conversation, task-result, screen-capture, reminder-history, reminder-submission
+The proactive agent has inbox-reading, task-result, screen-capture, message-history, message-submission
 and JSON-validation Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
-agent decisions. Long-term memory is maintained by chat; recent concerns and unfinished work belong in the handoff.
+agent decisions. Long-term memory is maintained by Main and the Proactive memory phase; recent concerns and unfinished work belong in the handoff.
 Forgotten facts must not be restored through old conversations or summaries.
+
+Desktop's Remy inbox has stacked, collapsible Chat Agent and Proactive Agent sections sharing one scroll container.
+Chat shows reminders and counts user-unread messages. Proactive shows cumulative task results, Main's instructions and
+request receipts, with a separate agent-pending count. `proactive_inbox_view(action="list", ...)` is read-only,
+with `kind` set to `all`, `task_result` or `instruction`, `filter` set to `all`, `pending` or `unread`, and pagination.
+The `unread` and `task_id` filters require `task_result`; `unread` means not yet viewed by the user.
+`action="read", entry_id=...` returns current source text and receipt
+without advancing consumption. Partial reads show a warning and suppress a definitive pending count.
+`task_results(action="read", path=..., mark_read=true)` independently records user reading while retaining Proactive's
+consumption state. Received does not mean work completed; edited instructions are processed again.
+Reading creates no chat message.
+Reminders include results from other source sessions. They open a read-only conversation preview while Main continues;
+`pa_select_session(session_id)` selects that source for further discussion when Main is idle.
+Snapshots and immediate-message events carry a bounded `inbox_messages` projection rebuilt from the delivery journal.
+Desktop presentation/read and speech receipts remain separate from native `sent` state.
 
 ### Scheduled Task Queries
 
-The chat agent maintains `{metadata_dir}/pa/tasks.json`: a JSON list of stable `id`, five-field `cron`, nonblank `query`,
-boolean `enabled`, and optional `created_at`. Read before editing, preserve identities, and validate JSON afterward.
-Optional `preflight: screen_capture` checks screenshots before invoking the task agent. Similar screens skip both model
+The chat agent maintains `{metadata_dir}/pa/cron.json`: a JSON list with stable `id`, five-field `cron`, boolean `enabled`,
+optional `created_at`, and exactly one nonblank `query` or fixed `message`. `delivery` defaults to `inbox`; fixed messages
+require `immediate`, and all immediate tasks require `source_session_id` from the current Main conversation. Main obtains
+that exact ID by running `printenv CODEX_THREAD_ID` through its native shell, never by guessing from task or chat history.
+Read the latest file before patching, preserve other tasks and identities, save atomically, then read back and call `check_json`.
+The scheduler validates task fields and reloads valid edits automatically; parsing JSON alone does not confirm loading.
+Report saved for automatic loading. Check execution records, result files and service logs when investigating failures.
+Fixed messages deliver at every cron trigger without model calls. Immediate queries begin at the trigger, publish their
+result and deliver when complete; neither immediate mode follows ordinary idle waits, active hours or evening closure.
+Voice obeys quiet settings. Definitions are rechecked before publication and pending native insertion; cron never catches up
+missed triggers. The three-query cumulative flow below describes ordinary collection and generated results.
+Optional `preflight: screen_capture` checks screenshots before invoking the cron agent. Similar screens skip all three model
 queries and summary publication; changed captures are reused by the normal screenshot tool without changing the query.
 The default screen task enables this field; existing task files need an explicit edit. See [screen comparison](auto_resource.md#connector-tools-and-screen-capture).
 Default tasks observe screen activity every five minutes and fetch relevant financial news hourly at the top of the hour.
 They also search for fresh developments matching the user's interests daily at 08:00, 12:00, and 18:00. All three times
 share the `daily_fresh_news` task identity and history.
-Defaults seed missing files only; update an existing `tasks.json` explicitly to change existing task schedules.
+Defaults seed missing files only; update an existing `cron.json` explicitly to change existing task schedules.
 
-The `task_schedule` background Job checks file modification time every second and owns one ReMe `CronJob` per enabled task.
+The `cron_schedule` background Job checks file modification time every second and owns one ReMe `CronJob` per enabled task.
 Valid edits add, replace or stop schedules; invalid edits are reported while existing valid schedules remain active.
 Replacement closes the old Job before starting the new one, so the same task cannot overlap. Jobs and agent work close
 with the application. Each task starts at its next cron time; executions are serial per task and missed triggers are skipped.
-`tasks_follow_active_hours` in `proactive.json` defaults to `true`: every Task Agent query checks the same `start_time` /
+`tasks_follow_active_hours` in `proactive.json` defaults to `true`: every Cron Agent query checks the same `start_time` /
 `end_time` and skips closed hours without model tokens. Set it to `false` for all-day cron execution; edits take effect
 without restarting. Evening closure stops proactive communication; independent tasks follow their configured active hours.
 
-Each execution creates a fresh agent session. Query 1 is the configured query. Query 2 resumes that session, reads the
-latest one or two completed snapshots (across dates), and combines essential valid context and new findings into a
-standalone Markdown summary. Task replies, summaries and proactive handoffs use plain language, at most five short
-bullets and 400 characters, with updates first and no accumulated logs, audit labels, personal profiles or timelines.
-These are prompt constraints and agent judgments; code does not truncate content. Background replies and summaries do not prove the user has seen them.
-The agent writes a staging file; code validates its nonempty body, adds
-`task_id`, `run_id`, `created_at` and `status: unread`, and publishes it exclusively as:
+Each execution creates a fresh session with current personal-memory contents and the task's previous handoff injected
+into the system prompt. Query 1 uses the configured query verbatim. Query 2 reads the latest one or two completed results
+across dates and writes a concise standalone summary connecting developments chronologically. With no valuable
+update it writes no file and returns exactly `NO_UPDATE`; a missing file without this decision is an error. Query 3 returns
+an internal handoff in the same work session, atomically saved as `{metadata_dir}/pa/cron/{task_id}/handoff.md`.
+Findings and cumulative results stay concise while retaining essential context and sources, without a fixed 400-character template.
+Internal handoffs share the requirements for progress, decisions, constraints, preferences, interests, recent projects,
+goals, unfinished work, next steps and necessary sources, within file/context budgets.
+Background findings do not prove the user has seen them. Code validates the staged summary, adds
+`task_id`, `run_id`, `created_at`, `status: unread` and `user_read_at: null`, and publishes it exclusively as:
 
 ```text
-{daily_dir}/YYYY-MM-DD/cron/{task_id}/HHMMSS.md
+{metadata_dir}/pa/cron/{task_id}/YYYY-MM-DD/HHMMSS.md
 ```
 
-Existing snapshots are never overwritten. Failed or interrupted agent work does not publish a partial snapshot.
-`task_runs.jsonl` records matching start/finish events with execution status, times, session ID, result path or error;
-the Markdown files own the result content.
+Same-second collisions append the run ID instead of overwriting a result. Code manages `recovery.json` without exposing
+its path in the system prompt. It retains completed phases,
+the native session and screenshot tool binding; subsequent schedules resume unfinished work after failure or window closure.
+A handoff failure does not delete a published result or cause it to be republished. Successful handoffs also save screenshot
+baselines when there is no new message. Changed task definitions take precedence over old recovery records.
+`cron_runs.jsonl` records run ID, phase, times, session ID, result and handoff paths or errors; Markdown owns result content.
+Proactive consumption preserves the independent `user_read_at` field used by Desktop task-result browsing.
 
-During its task query, proactive calls private tool `read_task_results(limit=3)` once, then reads every returned path.
+Stop the service before upgrading an old workspace, migrate offline, then restart:
+
+```bash
+python -m scripts.migrate_pa_tasks /path/to/workspace
+```
+
+Use `--check` to validate and preview without writing; pass `--metadata-dir` and `--daily-dir` for custom directories.
+The script copies old daily/cron and root-level results into PA, renames the three journals, and rewrites stored result,
+handoff and recovery references. It retains originals and backs up in-place reference updates; conflicts fail before writing.
+Historical inline run results become consumed Markdown archives, preserving content without triggering new proactive inputs.
+`chat_inbox.jsonl` is published last. Startup rejects an unmigrated layout rather than seeding empty replacement state.
+After migration, only the new paths are authoritative; retained originals are backups.
+
+During its task query, proactive calls private tool `read_cron_results(limit=3)` once, then reads every returned path.
+This consumes cron results only; one-shot temporary task results follow their separate immediate-delivery path.
 The tool returns up to three latest unread snapshot paths **per configured task**, including paused tasks and previous days.
 Bodies are read from files to avoid truncation in tool responses. Removed tasks are no longer scanned; their
 files remain intact. Full inputs are checkpointed before frontmatter changes: selected snapshots become `read`, and older
@@ -299,7 +406,7 @@ the user or sent as a reminder. Recovery context preserves inputs if the round f
 agent decisions. Proactive may also call `screen_capture` and available native `web_search` tools to investigate leads;
 the proactive config enables live native search, subject to the configured provider's support.
 
-The former `run_due_tasks` Job, Step and wakeup-driven scheduler are removed. `task_agent` now accepts a complete `task`
+The former `run_due_tasks` Job, Step and wakeup-driven scheduler are removed. `cron_agent` now accepts a complete `task`
 object and is private; there is no compatibility entrypoint. Raw resource retention remains a separate CronJob.
 
 ## MCP

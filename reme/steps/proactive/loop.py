@@ -20,14 +20,18 @@ class PaLoopStep(BaseStep):
             raise RuntimeError("pa_loop_step requires an asyncio stop_event")
         anchor = self.pa._now()
         while not stop.is_set():
+            config = None
             try:
                 config = await self.pa.get_proactive_config()
             except (OSError, ValueError) as exc:
                 self.logger.error(f"Cannot load proactive configuration: {exc}")
+            reason = await self.pa.proactive_skip_reason(config) if config is not None else "invalid_config"
+            if reason and await asyncio.to_thread(self.pa.inbox.pending):
+                await self.run_job(self.kwargs.get("job", "pa_proactive"), stop_event=stop)
+                anchor = self.pa._now()
                 delay = 30
-            else:
+            elif config is not None:
                 now = self.pa._now()
-                reason = await self.pa.proactive_skip_reason(config)
                 wakeup = config.next_start(now) if reason else config.next_wakeup(anchor)
                 delay = (wakeup - now).total_seconds()
                 if delay <= 0:
@@ -35,6 +39,8 @@ class PaLoopStep(BaseStep):
                     anchor = self.pa._now()
                     continue
                 delay = min(delay, 30)
+            else:
+                delay = 30
             try:
                 await asyncio.wait_for(stop.wait(), timeout=delay)
             except asyncio.TimeoutError:

@@ -32,6 +32,12 @@ import type {
 export class DesktopController {
   readonly model = new SessionModel();
   readonly bubbles: BubbleQueue;
+  private readonly instantBubbles = new BubbleQueue(
+    0,
+    () => {},
+    Infinity,
+    false,
+  );
   readonly state: DesktopState;
   readonly speech: SpeechController;
   private readonly behavior: BehaviorController;
@@ -77,6 +83,7 @@ export class DesktopController {
       sessionId: null,
       status: null,
       messages: [],
+      inboxMessages: [],
       pending: null,
       surface: null,
       unread: 0,
@@ -141,6 +148,7 @@ export class DesktopController {
     this.notificationPolicy.reset();
     this.notified.clear();
     this.bubbles.clear();
+    this.instantBubbles.clear();
     this.visibleReminder = null;
     this.state.surface = null;
     this.state.pending = null;
@@ -234,6 +242,7 @@ export class DesktopController {
         if (scope !== this.scope) {
           this.model.clear();
           this.bubbles.clear();
+          this.instantBubbles.clear();
           this.scope = scope;
         }
         this.state.workspace = config.workspace_dir;
@@ -276,6 +285,7 @@ export class DesktopController {
               this.notificationPolicy.reset();
               this.notified.clear();
               this.bubbles.clear();
+              this.instantBubbles.clear();
               this.visibleReminder = null;
               this.state.focusMessageId = null;
             }
@@ -317,6 +327,10 @@ export class DesktopController {
                 this.observeMessages([event.message], false);
                 this.speech.observe(event.message);
               }
+              this.observeMessages(
+                this.model.inboxMessages,
+                event.type === "snapshot",
+              );
               if (event.type !== "snapshot")
                 this.speech.finish(this.model.activities.chat);
             }
@@ -351,10 +365,49 @@ export class DesktopController {
     return this.storage.presentation(`${this.scope}:${this.model.sessionId}`);
   }
 
+  private notificationMessage(
+    id: string | undefined,
+  ): SessionMessage | undefined {
+    return (
+      this.model.inboxMessages.find((message) => message.id === id) ??
+      this.model.messages.find((message) => message.id === id)
+    );
+  }
+
+  private notificationMessages(): SessionMessage[] {
+    return [
+      ...new Map(
+        [...this.model.messages, ...this.model.inboxMessages].map((message) => [
+          message.id,
+          message,
+        ]),
+      ).values(),
+    ]
+      .filter(
+        (message) =>
+          message.source === "proactive" &&
+          message.role === "assistant" &&
+          message.completed,
+      )
+      .sort(
+        (left, right) =>
+          (Date.parse(left.created_at ?? "") || 0) -
+          (Date.parse(right.created_at ?? "") || 0),
+      );
+  }
+
+  private notificationPresentation(
+    message: SessionMessage,
+  ): Presentation | undefined {
+    const session = message.origin_session_id ?? this.model.sessionId;
+    return this.scope && session
+      ? this.storage.presentation(`${this.scope}:${session}`)
+      : undefined;
+  }
+
   private observeMessages(messages: SessionMessage[], snapshot: boolean): void {
-    const presentation = this.presentation();
-    if (!presentation) return;
-    const baseline = snapshot && !presentation.initialized;
+    const current = this.presentation();
+    const initialize = new Set<Presentation>();
     for (const message of messages) {
       if (
         message.source !== "proactive" ||
@@ -362,6 +415,13 @@ export class DesktopController {
         !message.completed
       )
         continue;
+      const presentation = this.notificationPresentation(message);
+      if (!presentation) continue;
+      const baseline =
+        snapshot &&
+        !presentation.initialized &&
+        message.delivery !== "immediate";
+      if (snapshot) initialize.add(presentation);
       if (!Object.hasOwn(presentation.receipts, message.id)) {
         presentation.receipts[message.id] = {
           read: baseline,
@@ -370,9 +430,12 @@ export class DesktopController {
         this.storage.changed();
       }
     }
-    if (!presentation.initialized) {
-      presentation.initialized = true;
-      this.storage.changed();
+    if (snapshot && current) initialize.add(current);
+    for (const presentation of initialize) {
+      if (!presentation.initialized) {
+        presentation.initialized = true;
+        this.storage.changed();
+      }
     }
   }
 
@@ -389,7 +452,17 @@ export class DesktopController {
       this.storage.changed();
       settingsChanged = true;
     }
-    const receipts = this.presentation()?.receipts ?? {};
+    this.instantBubbles.retain(
+      new Set(
+        this.model.inboxMessages
+          .filter(
+            (message) =>
+              message.delivery === "immediate" &&
+              this.model.canNotify(message, now),
+          )
+          .map((message) => message.id),
+      ),
+    );
     if (this.bubbles.active) {
       const active = this.model.messages.find(
         (message) => message.id === this.bubbles.active?.id,
@@ -397,8 +470,15 @@ export class DesktopController {
       if (!active || !this.model.canNotify(active, now))
         this.bubbles.dismiss(this.bubbles.active.id);
     }
-    for (const message of this.model.messages) {
-      const receipt = receipts[message.id];
+    for (const message of this.notificationMessages()) {
+      if (
+        message.delivery !== "immediate" &&
+        (message.origin_session_id ?? this.model.sessionId) !==
+          this.model.sessionId
+      )
+        continue;
+      const receipt =
+        this.notificationPresentation(message)?.receipts[message.id];
       if (!receipt || receipt.read || receipt.suppressed || !message.completed)
         continue;
       if (!this.model.canNotify(message, now)) {
@@ -409,7 +489,10 @@ export class DesktopController {
       }
       if (receipt.snoozeUntil && receipt.snoozeUntil > now) continue;
       if (!receipt.presented || receipt.snoozeUntil)
-        this.bubbles.offer({
+        (message.delivery === "immediate"
+          ? this.instantBubbles
+          : this.bubbles
+        ).offer({
           id: message.id,
           text: message.content,
           snoozed: Boolean(receipt.snoozeUntil),
@@ -419,7 +502,16 @@ export class DesktopController {
     const native =
       (!this.companionVisible || !this.companionReady) &&
       this.notificationEligible();
-    const bubble = this.bubbles.tick(
+    const immediateNative =
+      (!this.companionVisible || !this.companionReady) &&
+      this.notificationEligible(true);
+    const immediate = this.instantBubbles.tick(
+      now,
+      !(immediateNative || (this.companionVisible && this.companionReady)) ||
+        this.behavior.dragging ||
+        !this.ready,
+    );
+    const ordinary = this.bubbles.tick(
       now,
       !(native || (this.companionVisible && this.companionReady)) ||
         this.behavior.dragging ||
@@ -430,8 +522,10 @@ export class DesktopController {
           this.presentationController.foregroundActive) ||
         this.model.status === "active" ||
         this.state.settings.quietUntil > now ||
-        !this.ready,
+        !this.ready ||
+        Boolean(immediate),
     );
+    const bubble = immediate ?? ordinary;
     this.visibleReminder =
       this.companionVisible && this.companionReady ? bubble : null;
     this.resolvePresentation();
@@ -443,6 +537,14 @@ export class DesktopController {
       ),
       now,
     );
+    this.instantBubbles.holdForSpeech(
+      Boolean(
+        immediate &&
+        this.state.speech.playback?.messageId === immediate.id &&
+        this.state.speech.playback.phase !== "error",
+      ),
+      now,
+    );
     if (
       this.state.speech.playback?.kind === "reminder" &&
       this.state.speech.playback.phase !== "error" &&
@@ -450,7 +552,11 @@ export class DesktopController {
         this.state.speech.playback.messageId !== this.state.surface.message.id)
     )
       this.speech.stop();
-    if (native && bubble && this.model.sessionId) {
+    if (
+      (immediate ? immediateNative : native) &&
+      bubble &&
+      this.model.sessionId
+    ) {
       const sessionId = this.model.sessionId;
       this.notifyOnce(
         {
@@ -458,7 +564,9 @@ export class DesktopController {
           scope: this.scope,
           sessionId,
           messageId: bubble.id,
-          expiresAt: Date.parse(this.model.notifications!.ends_at),
+          expiresAt: immediate
+            ? now + 24 * 60 * 60_000
+            : Date.parse(this.model.notifications!.ends_at),
           title: translate(this.state.settings.language, "reminderTitle"),
           body: bubble.text.replace(/\s+/g, " ").slice(0, 140),
         },
@@ -497,15 +605,24 @@ export class DesktopController {
   private synchronize(): void {
     this.state.sessionId = this.model.sessionId;
     this.state.status = this.model.status;
-    const receipts = this.presentation()?.receipts ?? {};
-    this.state.readMessageIds = Object.keys(receipts).filter(
-      (id) => receipts[id].read,
-    );
-    this.state.unread = this.model.messages.filter(
-      (message) =>
-        message.source === "proactive" &&
-        message.completed &&
-        receipts[message.id]?.read === false,
+    const notifications = this.notificationMessages();
+    this.state.inboxMessages = displayMessages(
+      {
+        sessionId: this.model.sessionId,
+        messages: notifications,
+        pending: null,
+      },
+      undefined,
+      this.state.settings.language,
+    ).filter((message) => message.source === "proactive");
+    this.state.readMessageIds = notifications
+      .filter(
+        (message) =>
+          this.notificationPresentation(message)?.receipts[message.id]?.read,
+      )
+      .map((message) => message.id);
+    this.state.unread = this.state.inboxMessages.filter(
+      (message) => !this.state.readMessageIds.includes(message.id),
     ).length;
     this.state.connectionError =
       this.connectionIssue === null
@@ -544,6 +661,26 @@ export class DesktopController {
   }
 
   private resolvePresentation(): void {
+    const instant =
+      this.visibleReminder && this.notificationMessage(this.visibleReminder.id);
+    if (instant?.delivery === "immediate" && this.visibleReminder) {
+      this.state.surface = {
+        kind: "message",
+        message: {
+          id: instant.id,
+          createdAt: instant.created_at,
+          role: "assistant",
+          source: "proactive",
+          content: instant.content,
+          completed: true,
+          streaming: false,
+          status: null,
+        },
+        presentationId: this.visibleReminder.presentationId,
+        paused: this.visibleReminder.paused,
+      };
+      return;
+    }
     this.state.surface = this.presentationController.resolve(
       this.state,
       this.model.activities.chat,
@@ -569,13 +706,13 @@ export class DesktopController {
     );
   }
 
-  private notificationEligible(): boolean {
+  private notificationEligible(immediate = false): boolean {
     return (
       !this.closed &&
       this.state.settings.notifications &&
       this.state.connection === "connected" &&
       !this.state.chatFocused &&
-      this.state.settings.quietUntil <= Date.now()
+      (immediate || this.state.settings.quietUntil <= Date.now())
     );
   }
 
@@ -588,12 +725,12 @@ export class DesktopController {
   }
 
   canNotify(notice: SystemNotice): boolean {
-    if (!this.notificationEligible() || !this.canOpenNotice(notice))
+    const immediate =
+      this.notificationMessage(notice.messageId)?.delivery === "immediate";
+    if (!this.notificationEligible(immediate) || !this.canOpenNotice(notice))
       return false;
     if (!notice.messageId) return true;
-    const message = this.model.messages.find(
-      (entry) => entry.id === notice.messageId,
-    );
+    const message = this.notificationMessage(notice.messageId);
     return Boolean(message && this.model.canNotify(message, Date.now()));
   }
 
@@ -616,8 +753,28 @@ export class DesktopController {
     )
       return;
     if (this.confirmPresentation(sessionId, id, presentationId)) {
-      const message = this.model.messages.find((message) => message.id === id);
-      if (message) this.speech.speak(message, "reminder");
+      const message = this.notificationMessage(id);
+      if (message) {
+        if (message.delivery === "immediate") {
+          const receipt = this.notificationPresentation(message)?.receipts[id];
+          if (receipt) {
+            receipt.read = true;
+            this.storage.changed();
+            this.emit();
+          }
+        }
+        const settings = this.state.settings;
+        if (
+          message.delivery === "immediate" &&
+          settings.voiceEnabled &&
+          settings.voiceReminders &&
+          settings.quietUntil <= Date.now() &&
+          settings.voiceVolume > 0 &&
+          !this.state.speech.capture
+        )
+          this.speech.stop();
+        this.speech.speak(message, "reminder");
+      }
     }
   }
 
@@ -626,12 +783,20 @@ export class DesktopController {
     id: string,
     presentationId: number,
   ): boolean {
+    const message = this.notificationMessage(id);
     if (
       sessionId !== this.model.sessionId ||
-      !this.bubbles.presented(id, presentationId, Date.now())
+      !message ||
+      !this.model.canNotify(message, Date.now()) ||
+      !(
+        this.instantBubbles.active?.id === id
+          ? this.instantBubbles
+          : this.bubbles
+      ).presented(id, presentationId, Date.now())
     )
       return false;
-    const receipt = this.presentation()?.receipts[id];
+    const receipt =
+      message && this.notificationPresentation(message)?.receipts[id];
     if (!receipt) return false;
     receipt.presented = true;
     delete receipt.snoozeUntil;
@@ -769,21 +934,27 @@ export class DesktopController {
 
   markRead(sessionId: string, ids: string[]): void {
     if (
-      sessionId !== this.model.sessionId ||
       !this.state.chatVisible ||
       !this.state.chatFocused ||
       this.state.activePage !== "remy"
     )
       return;
-    const presentation = this.presentation();
     let changed = false;
     for (const id of ids.slice(0, 100)) {
-      const receipt = presentation?.receipts[id];
+      const message = this.notificationMessage(id);
+      if (
+        !message ||
+        (message.origin_session_id ?? this.model.sessionId) !== sessionId
+      )
+        continue;
+      const receipt = this.notificationPresentation(message)?.receipts[id];
       if (!receipt || receipt.read) continue;
       receipt.read = true;
       changed = true;
       delete receipt.snoozeUntil;
       if (this.bubbles.active?.id !== id) this.bubbles.dismiss(id);
+      if (this.instantBubbles.active?.id !== id)
+        this.instantBubbles.dismiss(id);
       this.storage.changed();
     }
     if (!changed) return;
@@ -820,17 +991,23 @@ export class DesktopController {
       this.emit();
       return;
     }
-    if (id !== this.bubbles.active?.id) return;
-    if (action === "pause") this.bubbles.pause(id, paused, Date.now());
+    const queue =
+      this.instantBubbles.active?.id === id
+        ? this.instantBubbles
+        : this.bubbles;
+    if (id !== queue.active?.id) return;
+    if (action === "pause") queue.pause(id, paused, Date.now());
     else {
       if (this.state.speech.playback?.messageId === id) this.speech.stop();
-      const receipt: Receipt | undefined = this.presentation()?.receipts[id];
+      const message = this.notificationMessage(id);
+      const receipt: Receipt | undefined =
+        message && this.notificationPresentation(message)?.receipts[id];
       if (receipt) {
         receipt.presented = true;
         if (action === "snooze") receipt.snoozeUntil = Date.now() + 10 * 60_000;
         this.storage.changed();
       }
-      this.bubbles.dismiss(id);
+      queue.dismiss(id);
     }
     this.tick();
     this.emit();
@@ -849,6 +1026,29 @@ export class DesktopController {
     this.speech.cancel();
     await this.client().call("pa_new_session", {}, this.lifecycle!.signal);
     this.state.pending = null;
+    this.emit();
+  }
+
+  async selectSession(sessionId: string): Promise<void> {
+    if (
+      !this.lifecycle ||
+      this.state.pending?.streaming ||
+      this.model.status === "active"
+    )
+      throw new UiError("sessionBusy");
+    await this.client().call(
+      "pa_select_session",
+      { session_id: sessionId },
+      this.lifecycle.signal,
+    );
+    this.speech.cancel();
+    this.state.pending = null;
+    const snapshot = await this.client().call<SessionSnapshot>(
+      "session_read",
+      { session_id: sessionId },
+      this.lifecycle.signal,
+    );
+    this.model.snapshot(snapshot);
     this.emit();
   }
 

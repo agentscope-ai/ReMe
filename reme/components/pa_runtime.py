@@ -22,6 +22,8 @@ from .component_registry import R
 from ._pa_hints import ProactiveHints
 from ._pa_reminders import ReminderDelivery
 from ._pa_tasks import TaskFiles
+from ._pa_inbox import ProactiveInbox
+from ._pa_temp_tasks import TempTasks
 from ..schema.agent_session import SessionMessage, SessionSnapshot, SessionStatus
 from ..schema.pa_event import PaEvent
 from ..schema.agent_activity import AgentActivity
@@ -48,6 +50,7 @@ class ProactiveRound:
     hint_period: HintPeriod | None = None
     request: tuple[str, ReminderKind] | None = None
     result: dict = field(default_factory=lambda: {"sent": False, "status": "skipped"})
+    feedback_version: str | None = None
 
 
 @R.register("local")
@@ -91,18 +94,20 @@ class PaRuntime(BaseComponent):
             PaProactiveConfig.model_validate(default_proactive) if default_proactive is not None else None
         )
         self.session_id: str | None = None
+        self.started_at: datetime | None = None
         self.session_lock = asyncio.Lock()
+        self.memory_lock = asyncio.Lock()
         self.current_round: ProactiveRound | None = None
         self.hints = ProactiveHints(self)
         self.tasks = TaskFiles(self)
         self.reminders = ReminderDelivery(self)
+        self.inbox = ProactiveInbox(self)
+        self.temp_tasks = TempTasks(self)
         self.notifications: PaNotificationWindow | None = None
-        self._inbox_lock = asyncio.Lock()
         self._proactive_lock = asyncio.Lock()
         self._work_context_lock = threading.Lock()
         self._sessions_lock = asyncio.Lock()
         self._conversation_lock = asyncio.Lock()
-        self._handoff_lock = asyncio.Lock()
         self._epoch = uuid4().hex
         self._sequence = 0
         self._revision = 0
@@ -123,7 +128,7 @@ class PaRuntime(BaseComponent):
     @property
     def proactive_inbox_path(self) -> Path:
         """Keep proactive feedback in the PA component's metadata directory."""
-        return self._metadata_file("proactive_inbox.txt")
+        return self._metadata_file("proactive_inbox.md")
 
     def _metadata_file(self, name: str) -> Path:
         path = self.component_metadata_path / name
@@ -140,11 +145,6 @@ class PaRuntime(BaseComponent):
         """Return the user-owned wakeup configuration path."""
         return self._metadata_file("proactive.json")
 
-    @property
-    def handoff_path(self) -> Path:
-        """Return the fixed handoff summary path."""
-        return self._metadata_file("handoff.txt")
-
     def _load_proactive_config(self) -> PaProactiveConfig:
         with self.proactive_config_path.open("rb") as handle:
             content = handle.read(4097)
@@ -154,42 +154,48 @@ class PaRuntime(BaseComponent):
 
     async def get_proactive_config(self) -> PaProactiveConfig:
         """Reload user edits without caching a second configuration source."""
-        return await asyncio.to_thread(self._load_proactive_config)
+        try:
+            return await asyncio.to_thread(self._load_proactive_config)
+        except (OSError, ValueError):
+            self.notifications = None
+            self.publish_status()
+            raise
 
     async def proactive_skip_reason(self, config: PaProactiveConfig | None = None) -> str | None:
         """Apply local scheduling rules before spending any model tokens."""
         config = config or await self.get_proactive_config()
+        if not config.enabled:
+            return "disabled"
         window = await self.reminders.window(config)
         if not config.is_active(self._now()):
             return "outside_active_hours"
         return "day_closed" if window.closing_message_id is not None else None
 
-    async def read_handoff(self) -> str:
-        """Read the previous summary within the workspace file-size limit."""
-
-        def read():
-            with self.handoff_path.open("rb") as handle:
-                content = handle.read(DEFAULT_MAX_FILE_BYTES + 1)
-            if len(content) > DEFAULT_MAX_FILE_BYTES:
-                raise ValueError("handoff.txt exceeds the file read limit")
-            return content.decode("utf-8")
-
-        async with self._handoff_lock:
-            return await asyncio.to_thread(read)
-
-    async def write_handoff(self, content: str) -> None:
-        """Replace the previous summary only after a completed, nonempty round."""
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError("handoff must contain a non-empty summary")
-        if len(content.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
-            raise ValueError("handoff exceeds the file size limit")
-        async with self._handoff_lock:
-            await complete_in_thread(self._write_text, self.handoff_path, content.strip() + "\n")
-
     @property
     def proactive_context_path(self) -> Path:
-        """Consumed inputs and partial progress, retained until a handoff is saved."""
+        """Consumed inputs and partial progress, retained until the round completes."""
         return self._metadata_file("proactive_context.jsonl")
+
+    @property
+    def proactive_todo_path(self) -> Path:
+        """Keep unfinished proactive work beside the other PA state files."""
+        return self._metadata_file("proactive_todo.md")
+
+    async def read_proactive_todo(self) -> str:
+        """Load the latest bounded TODO, including after an application restart."""
+        try:
+            return await asyncio.to_thread(self.tasks.read, self.proactive_todo_path)
+        except FileNotFoundError:
+            return ""
+
+    async def save_proactive_todo(self, content: str) -> None:
+        """Publish the model's TODO list only after its final query completes."""
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError("Proactive TODO list must not be empty")
+        content = content.strip() + "\n"
+        if len(content.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
+            raise ValueError("Proactive TODO exceeds the file read limit")
+        await complete_in_thread(self._write_text, self.proactive_todo_path, content)
 
     def _checkpoint_context(self, round_id: str | None, kind: str, value) -> None:
         if round_id is not None and value:
@@ -209,7 +215,7 @@ class PaRuntime(BaseComponent):
         await complete_in_thread(self._checkpoint_context, round_id, kind, value)
 
     async def clear_proactive_context(self) -> None:
-        """Clear recovery records after the handoff has been saved."""
+        """Clear recovery records after the work queries complete."""
 
         def clear():
             with self._work_context_lock:
@@ -217,67 +223,32 @@ class PaRuntime(BaseComponent):
 
         await complete_in_thread(clear)
 
-    async def send_to_proactive(self, message: str) -> None:
-        """Append timestamped feedback without starting an agent turn."""
-        if not isinstance(message, str) or not message.strip():
-            raise ValueError("message must be a non-empty string")
-        entry = f"[{self._now().isoformat()}] Chat Agent\n{message.strip()}\n\n"
+    async def write_proactive_inbox(self, message: str) -> dict:
+        """Queue a message for the proactive agent's next wakeup."""
+        return await finish_cleanup(self.inbox.write(message))
 
-        def append():
-            target = self.proactive_inbox_path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target = self.proactive_inbox_path
-            flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
-            with os.fdopen(os.open(target, flags, 0o600), "a", encoding="utf-8") as handle:
-                handle.write(entry)
-                handle.flush()
-                os.fsync(handle.fileno())
-
-        async with self._inbox_lock:
-            await complete_in_thread(append)
-
-    async def get_proactive_messages(
+    async def read_proactive_inbox(
         self,
         max_bytes: int = DEFAULT_MAX_FILE_BYTES,
         *,
         round_id: str | None = None,
-    ) -> str:
-        """Read and clear the inbox under the same lock used by appends."""
-        if type(max_bytes) is not int or max_bytes < 1:
-            raise ValueError("max_bytes must be a positive integer")
-
-        def consume() -> str:
-            target = self.proactive_inbox_path
-            try:
-                descriptor = os.open(target, os.O_RDWR | getattr(os, "O_NOFOLLOW", 0))
-            except FileNotFoundError:
-                return ""
-            with os.fdopen(descriptor, "r+b") as handle:
-                content = handle.read(max_bytes + 1)
-                if len(content) > max_bytes:
-                    raise ValueError(f"proactive inbox exceeds read limit of {max_bytes} bytes; inbox was not cleared")
-                text = content.decode("utf-8")
-                if content:
-                    self._checkpoint_context(round_id, "feedback", text)
-                    handle.seek(0)
-                    handle.truncate()
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                return text
-
-        async with self._inbox_lock:
-            return await complete_in_thread(consume)
+    ) -> dict:
+        """Checkpoint newly appended or edited Markdown without deleting the user's inbox."""
+        return await self.inbox.read(round_id=round_id, max_bytes=max_bytes)
 
     @property
-    def reminders_path(self) -> Path:
-        """Append-only reminder history owned by the PA component."""
-        return self._metadata_file("reminders.jsonl")
+    def chat_inbox_path(self) -> Path:
+        """Append-only background messages and delivery states addressed to Main."""
+        return self._metadata_file("chat_inbox.jsonl")
 
     def _append_jsonl(self, path: Path, data: dict) -> None:
+        self._append_text(path, json.dumps(data, ensure_ascii=False) + "\n")
+
+    def _append_text(self, path: Path, content: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
         with os.fdopen(os.open(path, flags, 0o600), "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(data, ensure_ascii=False) + "\n")
+            handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
 
@@ -286,23 +257,37 @@ class PaRuntime(BaseComponent):
         """Serialize proactive rounds and bind their tool-call identity."""
         async with self._proactive_lock:
             current = ProactiveRound(session_id=self.session_id)
+            current.feedback_version = await asyncio.to_thread(self.inbox.version)
             self.current_round = current
             try:
                 yield current
             finally:
                 self.current_round = None
 
-    async def send_reminder(self, content: str, kind: ReminderKind, *, round_id: str, session_id: str | None) -> dict:
+    async def send_chat_message(
+        self,
+        content: str,
+        kind: ReminderKind,
+        *,
+        round_id: str,
+        session_id: str | None,
+    ) -> dict:
         """Own binding, validation, one-decision semantics and cancellation-safe publication."""
-        return await finish_cleanup(self._submit_reminder(content, kind, round_id, session_id))
+        return await finish_cleanup(self._submit_chat_message(content, kind, round_id, session_id))
 
-    async def _submit_reminder(self, content: str, kind: ReminderKind, round_id: str, session_id: str | None) -> dict:
+    async def _submit_chat_message(
+        self,
+        content: str,
+        kind: ReminderKind,
+        round_id: str,
+        session_id: str | None,
+    ) -> dict:
         async with self.reminders.lock:
             current = self.current_round
             if current is None or current.id != round_id or current.session_id != session_id:
-                raise ValueError("send_reminder requires a live, server-bound proactive round")
-            if current.phase != "query_reminder":
-                raise ValueError("send_reminder is only allowed during query_reminder")
+                raise ValueError("send_chat_message requires a live, server-bound proactive round")
+            if current.phase != "query_message":
+                raise ValueError("send_chat_message is only allowed during query_message")
             if not isinstance(content, str) or len(content.strip()) > 200:
                 raise ValueError("content must be a string of at most 200 characters")
             content = content.strip()
@@ -324,7 +309,7 @@ class PaRuntime(BaseComponent):
         """Check deferred delivery without starting a model turn."""
         await self.reminders.deliver_pending()
 
-    async def get_reminder(self, limit: int = 10, offset: int = 0) -> list[dict]:
+    async def get_chat_messages(self, limit: int = 10, offset: int = 0) -> list[dict]:
         """Return the latest reminder states with pagination."""
         return await self.reminders.history(limit, offset)
 
@@ -346,14 +331,14 @@ class PaRuntime(BaseComponent):
             yield pending
 
     @property
-    def tasks_path(self) -> Path:
-        """User-editable task definitions."""
-        return self._metadata_file("tasks.json")
+    def cron_path(self) -> Path:
+        """User-editable cron definitions."""
+        return self._metadata_file("cron.json")
 
     @property
-    def task_runs_path(self) -> Path:
-        """Append-only task start and finish records."""
-        return self._metadata_file("task_runs.jsonl")
+    def cron_runs_path(self) -> Path:
+        """Append-only cron start and finish records."""
+        return self._metadata_file("cron_runs.jsonl")
 
     @property
     def session_ids_path(self) -> Path:
@@ -394,7 +379,7 @@ class PaRuntime(BaseComponent):
 
     async def read_conversation(
         self,
-        max_turns: int = 20,
+        max_turns: int = 10,
         max_message_chars: int = 2000,
         max_chars: int = 20000,
         *,
@@ -501,12 +486,30 @@ class PaRuntime(BaseComponent):
         sessions = await asyncio.to_thread(self._load_session_ids)
         self.session_id = sessions[-1].session_id if sessions else None
         self._closed = False
+        self.started_at = self._now()
         self._unsubscribe_activity = self.agent_wrapper.app_server.watch_activity(self.observe_task_activity)
         self._invalidate("cursor_expired")
         self.select_session()
 
     def _initialize_files(self) -> None:
         """Create missing PA files before jobs start, preserving all existing content."""
+        renamed = {
+            "tasks.json": self.cron_path,
+            "proactive_inbox.txt": self.proactive_inbox_path,
+            "reminders.jsonl": self.chat_inbox_path,
+            "task_runs.jsonl": self.cron_runs_path,
+            "proactive_requests.jsonl": self.inbox.receipts_path,
+        }
+        pending_layout = not self.chat_inbox_path.exists()
+        legacy = [
+            self._metadata_file(name) for name, target in renamed.items() if pending_layout or not target.exists()
+        ]
+        if pending_layout:
+            legacy.append(self.tasks.checked(self.workspace_path / "reme_cron"))
+        if any(path.exists() for path in legacy):
+            raise ValueError(
+                "Legacy PA layout requires offline migration: python -m scripts.migrate_pa_tasks WORKSPACE",
+            )
         self._write_text(self.session_ids_path, "[]\n", create_only=True)
         self._load_session_ids()
         if not self.proactive_config_path.exists():
@@ -519,15 +522,35 @@ class PaRuntime(BaseComponent):
             )
         self._load_proactive_config()
         self.tasks.initialize()
+        self.inbox.initialize()
+        self.temp_tasks.initialize()
         for path in (
             self.proactive_inbox_path,
-            self.reminders_path,
-            self.task_runs_path,
-            self.handoff_path,
+            self.chat_inbox_path,
+            self.cron_runs_path,
             self.proactive_context_path,
+            self.proactive_todo_path,
         ):
             self._write_text(path, "", create_only=True)
         self.reminders.restore()
+
+    async def announce_messages(self) -> None:
+        """Offer an immediate result independently of the selected chat's generation lock."""
+        if self._closed:
+            return
+        messages = await asyncio.to_thread(self.reminders.inbox_messages)
+        if self._closed:
+            return
+        self._revision += 1
+        status, flags = self._activity()
+        self._publish(
+            "status_changed",
+            status=status,
+            active_flags=flags,
+            activities=self._activities,
+            task_activities=self._task_activities,
+            inbox_messages=messages,
+        )
 
     def _write_json(self, path: Path, data) -> None:
         self._write_text(path, json.dumps(data, ensure_ascii=False, indent=2) + "\n")
@@ -580,12 +603,26 @@ class PaRuntime(BaseComponent):
                 session_id = await finish_cleanup(self._new_session(reply_kwargs))
             else:
                 await self.remember_session(session_id)
-            yield session_id
+            async with self.memory_lock:
+                yield session_id
 
     async def new_session(self, **reply_kwargs) -> str:
         """Create and select an empty conversation without model generation."""
         async with self.session_operation():
             return await finish_cleanup(self._new_session(reply_kwargs))
+
+    async def select_existing_session(self, session_id: str) -> str:
+        """Select a readable source conversation without overlapping Main work."""
+        async with self.session_operation():
+            await self.agent_wrapper.read_session(session_id)
+
+            async def commit():
+                await self.remember_session(session_id)
+                self.session_id = session_id
+                self.select_session()
+
+            await finish_cleanup(commit())
+        return session_id
 
     async def _new_session(self, reply_kwargs: dict) -> str:
         session_id = await self.agent_wrapper.create_session(**reply_kwargs)
@@ -785,11 +822,16 @@ class PaRuntime(BaseComponent):
             snapshot, error = None, None
             try:
                 await self.reminders.window(await self.get_proactive_config())
+            except (OSError, ValueError) as exc:
+                self.notifications = None
+                self.logger.warning(f"Ordinary notifications paused by invalid configuration: {exc}")
+            try:
                 if session_id is not None:
                     async with asyncio.timeout(30):
                         snapshot = await self.agent_wrapper.read_session(session_id)
             except Exception as exc:
                 error = str(exc)
+            inbox_messages = await asyncio.to_thread(self.reminders.inbox_messages)
             if self._closed:
                 return None
             if revision != self._revision or session_id != self.session_id:
@@ -810,6 +852,7 @@ class PaRuntime(BaseComponent):
                 activities=self._activities,
                 task_activities=self._task_activities,
                 notifications=self.notifications,
+                inbox_messages=inbox_messages,
                 snapshot=snapshot,
                 error=error,
             )

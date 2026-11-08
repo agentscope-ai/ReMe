@@ -120,8 +120,8 @@ macOS 比较时排除标题为 `Remy · ReMe` 的悬浮窗口和已知时钟区�
 文字说明包含带时区的采集时间、显示器数量和理解图片所需的信息。各显示器依次采集。
 文件先暂存再发布；失败或取消时清理本次已发布文件，不覆盖已有截图。多个平铺文件的发布不再是单次原子目录操作。
 
-定时截图解读是 `{metadata_dir}/pa/tasks.json` 中的 query，由 ReMe CronJob 独立调度 `task_agent`，默认每五分钟
-执行一次。该任务设置 `preflight: screen_capture`，在两次模型查询前先采集比较；无变化时返回
+定时截图解读是 `{metadata_dir}/pa/cron.json` 中的 query，由 ReMe CronJob 独立调度 `cron_agent`，默认每五分钟
+执行一次。该任务设置 `preflight: screen_capture`，在 Agent 执行前先采集比较；无变化时返回
 `status=skipped, reason=screen_unchanged`，不生成新的未读摘要。有变化时，普通截图工具复用本轮已采集结果，query 保持原样。
 只有成功发布的摘要才通过代码写入的 `screen_capture` frontmatter 更新该任务的基准，失败不会前移基准。
 已有截图任务需明确添加此字段，其他任务独立运行。将 enabled 改为 false 可关闭，文件修改后自动重新加载。累计摘要保存在

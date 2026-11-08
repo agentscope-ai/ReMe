@@ -729,6 +729,97 @@ async def test_loaded_thread_constraints_cannot_be_changed_by_another_wrapper(sy
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("restore", ["loaded", "unloaded", "restart"])
+async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore):
+    from openai_codex import Sandbox
+    from openai_codex.types import ReasoningEffort
+
+    first, second, server, job = system
+    original = await first.reply(
+        "source work",
+        system_prompt="Original instructions.",
+        model="original-model",
+        effort="high",
+        sandbox="read-only",
+        personality="friendly",
+        job_tools=[job.name],
+        injected_job_kwargs={"_allowed_paths": ["original.md"]},
+        config={"mcp_servers": {"external": {"url": "https://example.test/mcp"}}},
+    )
+    source_id = original["session_id"]
+    source_token = server._threads[source_id].token
+    source_tools = server.jobs_mcp.scopes[source_token]
+    settings_path = server._message_path(source_id).with_suffix(".config.jsonl")
+    assert source_token not in settings_path.read_text()
+    native = _Codex.instances[0]
+    if restore != "loaded":
+        native.loaded.clear()
+    if restore == "restart":
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+    second.kwargs.update(system_prompt="Other instructions.", model="other-model", effort="low", job_tools=[])
+
+    forked = await second.reply("Only summarize.", resume=source_id, fork_session=True)
+
+    assert forked["session_id"] != source_id and native.threads[source_id].inputs == ["source work"]
+    assert native.threads[forked["session_id"]].inputs == ["Only summarize."]
+    operation, parent, options = native.opened[-1]
+    assert operation == "fork" and parent == source_id
+    assert options["developer_instructions"] == "Original instructions."
+    assert options["model"] == "original-model" and options["sandbox"] == Sandbox.read_only
+    assert options["config"]["personality"] == "friendly"
+    assert options["config"]["mcp_servers"]["external"]["url"] == "https://example.test/mcp"
+    fork_token = server._threads[forked["session_id"]].token
+    assert fork_token != source_token
+    tools = server.jobs_mcp.scopes[fork_token]
+    assert [(tool.name, tool.description, tool.parameters) for tool in tools] == [
+        (tool.name, tool.description, tool.parameters) for tool in source_tools
+    ]
+    await tools[0].fn(query="read")
+    assert job.calls[-1]["_allowed_paths"] == ["original.md"]
+    assert native.threads[forked["session_id"]].options[-1]["effort"] == ReasoningEffort.high
+
+
+@pytest.mark.asyncio
+async def test_fork_waits_for_source_and_cancellation_preserves_its_tools(system):
+    first, second, server, _ = system
+    source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    entered, release = asyncio.Event(), asyncio.Event()
+    native = _Codex.instances[0]
+
+    async def hold(_thread, _inputs):
+        entered.set()
+        await release.wait()
+
+    native.run_hook = hold
+    running = asyncio.create_task(first.reply("running", resume=source_id, job_tools=["search"]))
+    await asyncio.wait_for(entered.wait(), 2)
+    forked = asyncio.create_task(second.reply("handoff", resume=source_id, fork_session=True))
+    try:
+        await asyncio.sleep(0.02)
+        assert not any(operation == "fork" for operation, _, _ in native.opened)
+        forked.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await forked
+        assert token in server.jobs_mcp.scopes and len(server.jobs_mcp.scopes) == 1
+    finally:
+        release.set()
+        await running
+
+
+@pytest.mark.asyncio
+async def test_failed_fork_revokes_only_its_new_tool_scope(system, monkeypatch):
+    first, _, server, _ = system
+    source_id = (await first.reply("source", job_tools=["search"]))["session_id"]
+    token = server._threads[source_id].token
+    monkeypatch.setattr(_Codex.instances[0], "thread_fork", AsyncMock(side_effect=RuntimeError("fork failed")))
+    with pytest.raises(RuntimeError, match="fork failed"):
+        await first.reply("handoff", resume=source_id, fork_session=True)
+    assert set(server.jobs_mcp.scopes) == {token}
+
+
+@pytest.mark.asyncio
 async def test_application_bound_tool_approval_preserves_native_read_only_and_external_policy(system):
     from openai_codex import Sandbox
 

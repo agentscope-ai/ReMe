@@ -2,13 +2,14 @@
 
 from . import data_connectors, tools
 from .cleanup_resources import CleanupResourcesStep
-from .pa_chat import PaChatStep, PaNewSessionStep, PaSessionStep
+from .pa_chat import PaChatStep, PaNewSessionStep, PaSessionStep, PaSelectSessionStep
 from .events import PaEventsStep
 from .loop import PaLoopStep
 from .proactive_agent import ProactiveAgentStep
 from .reminder_delivery import ReminderDeliveryStep
-from .task_agent import TaskAgentStep
-from .task_schedule import TaskScheduleStep
+from .cron_agent import CronAgentStep
+from .cron_schedule import CronScheduleStep
+from .temp_proactive import TempProactiveStep
 
 __all__ = [
     "CleanupResourcesStep",
@@ -17,10 +18,12 @@ __all__ = [
     "PaLoopStep",
     "PaNewSessionStep",
     "PaSessionStep",
+    "PaSelectSessionStep",
     "ProactiveAgentStep",
     "ReminderDeliveryStep",
-    "TaskAgentStep",
-    "TaskScheduleStep",
+    "CronAgentStep",
+    "CronScheduleStep",
+    "TempProactiveStep",
     "data_connectors",
     "tools",
 ]

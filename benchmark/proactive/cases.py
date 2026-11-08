@@ -1157,7 +1157,7 @@ def seed(root: Path, case: dict) -> list[str]:
         }
         for index, name in enumerate(resources)
     ]
-    write_text(root, f"{META}/tasks.json", json.dumps(tasks, ensure_ascii=False))
+    write_text(root, f"{META}/cron.json", json.dumps(tasks, ensure_ascii=False))
     rows = (
         []
         if case["role"] == "pa"
@@ -1181,7 +1181,7 @@ def seed(root: Path, case: dict) -> list[str]:
         )
     write_text(
         root,
-        f"{META}/reminders.jsonl",
+        f"{META}/chat_inbox.jsonl",
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in reminders),
     )
     return list(resources)

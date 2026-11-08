@@ -133,8 +133,8 @@ captured sequentially. Files are staged before publication;
 a failed or cancelled collection removes its own published files without overwriting existing captures. Unlike the old
 resource-package layout, publication of multiple flat files is not a single atomic directory operation.
 
-Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/tasks.json`, independently dispatched by a ReMe
-CronJob through `task_agent` every five minutes. Its `preflight: screen_capture` captures before either model query;
+Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/cron.json`, independently dispatched by a ReMe
+CronJob through `cron_agent` every five minutes. Its `preflight: screen_capture` captures before starting the agent;
 unchanged screens return `status=skipped, reason=screen_unchanged`, without a new unread summary. Changed captures are
 reused by the ordinary screenshot tool, and the configured query is unchanged. Only successfully published summaries
 advance that task's baseline through their code-owned `screen_capture` frontmatter. Failed runs cannot advance it.

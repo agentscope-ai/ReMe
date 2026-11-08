@@ -44,6 +44,7 @@ test("closing policy drops queued reminders and the deadline removes the active 
     await until(() => controller.state.unread === 1, "queued old reminder");
     const starts_at = new Date(Date.now() - 3_600_000).toISOString();
     backend.notificationWindow({
+      enabled: true,
       starts_at,
       ends_at: new Date(Date.now() + 3_600_000).toISOString(),
       closing_message_id: "closing",
@@ -75,6 +76,7 @@ test("closing policy drops queued reminders and the deadline removes the active 
       "closing",
     );
     backend.notificationWindow({
+      enabled: true,
       starts_at,
       ends_at: new Date(Date.now() - 1).toISOString(),
       closing_message_id: "closing",
@@ -84,6 +86,7 @@ test("closing policy drops queued reminders and the deadline removes the active 
       "expired bubble removed",
     );
     backend.notificationWindow({
+      enabled: true,
       starts_at,
       ends_at: new Date(Date.now() + 3_600_000).toISOString(),
     });
@@ -324,6 +327,65 @@ test(
   },
 );
 
+test("immediate results become read only after their bubble is shown", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "reme-immediate-read-"));
+  const backend = await mockReMe();
+  const storage = new Storage(directory);
+  storage.settings.endpoint = backend.url;
+  const controller = new DesktopController(storage, () => {}, manifest);
+  controller.setCompanionReady(true);
+  controller.setCompanionVisible(true);
+  controller.start();
+  try {
+    await until(() => controller.state.connection === "connected", "connect");
+    const message = {
+      id: "immediate-result",
+      role: "assistant" as const,
+      source: "proactive" as const,
+      content: "任务结果。",
+      completed: true,
+      created_at: new Date().toISOString(),
+      delivery: "immediate" as const,
+      origin_session_id: "source-session",
+      notification_eligible: true,
+      chunks: [],
+    };
+    backend.upsert(message);
+    await until(
+      () =>
+        controller.state.surface?.kind === "message" &&
+        controller.state.surface.message.id === message.id,
+      "immediate bubble selected",
+    );
+    const surface = controller.state.surface;
+    assert.ok(
+      surface?.kind === "message" && surface.presentationId !== undefined,
+    );
+    assert.equal(controller.state.unread, 1);
+    controller.bubbleShown("wrong-session", message.id, surface.presentationId);
+    assert.equal(controller.state.unread, 1);
+    controller.bubbleShown("session-1", message.id, surface.presentationId);
+    assert.equal(controller.state.unread, 0);
+    assert.ok(controller.state.readMessageIds.includes(message.id));
+    assert.ok(
+      controller.state.inboxMessages.some((item) => item.id === message.id),
+    );
+    const receipt = Object.values(storage.presentations).find(
+      (entry) => entry.receipts[message.id],
+    )!.receipts[message.id];
+    assert.equal(receipt.presented, true);
+    assert.equal(receipt.read, true);
+    controller.bubbleAction(message.id, "dismiss");
+    backend.upsert(message);
+    await until(() => controller.state.surface === null, "dismissed bubble");
+    assert.equal(controller.state.unread, 0);
+  } finally {
+    await controller.close();
+    await backend.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("hidden reminders use native show acknowledgements and share the bubble cooldown", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "reme-desktop-native-"));
   const backend = await mockReMe();
@@ -363,6 +425,7 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
       "native reminders must honor the same ten-minute cooldown",
     );
     backend.notificationWindow({
+      enabled: true,
       starts_at: new Date(Date.now() - 3_600_000).toISOString(),
       ends_at: new Date(Date.now() + 3_600_000).toISOString(),
       closing_message_id: "closing",
@@ -378,7 +441,30 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
     );
     assert.equal(controller.canOpenNotice(notices[0].notice), false);
     notices[0].shown();
-    assert.equal(controller.state.unread, 0);
+    assert.equal(
+      controller.state.unread,
+      2,
+      "switching sessions preserves unread messages from their source conversation",
+    );
+    assert.equal(
+      receipt.read,
+      false,
+      "a late presentation acknowledgement does not mark the source message read",
+    );
+    assert.equal(
+      controller.state.inboxMessages.find((message) => message.id === "native")
+        ?.originSessionId,
+      "session-1",
+    );
+    controller.setChatVisible(true);
+    controller.setChatFocused(true);
+    controller.markRead("session-1", ["native"]);
+    assert.equal(receipt.read, true);
+    assert.equal(
+      controller.state.unread,
+      1,
+      "reading a source message updates only its own receipt",
+    );
   } finally {
     await controller.close();
     await backend.close();

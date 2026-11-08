@@ -66,6 +66,7 @@ export async function mockReMe({
   let activities = {};
   let taskActivities = {};
   let notifications = {
+    enabled: true,
     starts_at: new Date(Date.now() - 3_600_000).toISOString(),
     ends_at: new Date(Date.now() + 3_600_000).toISOString(),
     closing_message_id: null,
@@ -107,6 +108,8 @@ export async function mockReMe({
       role: "assistant",
       source: "proactive",
       content,
+      delivery: "idle",
+      notification_eligible: true,
       completed,
       chunks: [],
       created_at: new Date().toISOString(),
@@ -118,6 +121,8 @@ export async function mockReMe({
     role: "assistant",
     source: "proactive",
     content: "历史提醒不会在启动时补弹。",
+    delivery: "idle",
+    notification_eligible: true,
     completed: true,
     chunks: [],
   });
@@ -142,6 +147,7 @@ export async function mockReMe({
             "pa_session",
             "pa_new_session",
             "session_read",
+            "proactive_inbox_view",
             ...(speech ? ["tts_demo", "asr_demo"] : []),
             ...(workspace
               ? ["list", "load", "list_tags", "list_tag_files", "search"]
@@ -156,6 +162,17 @@ export async function mockReMe({
             },
           ]),
         ),
+      });
+    if (job === "/proactive_inbox_view")
+      return json({
+        items: [],
+        total: 0,
+        offset: body.offset ?? 0,
+        limit: body.limit ?? 5,
+        task_ids: [],
+        pending: 0,
+        complete: true,
+        warnings: [],
       });
     if (workspace && job === "/list")
       return json("Files", {
@@ -335,6 +352,8 @@ export async function mockReMe({
         role: "user",
         source: "chat",
         content: body.query,
+        delivery: "idle",
+        notification_eligible: true,
         completed: true,
         turn_id: turnId,
         chunks: [],
@@ -357,6 +376,8 @@ export async function mockReMe({
             role: "assistant",
             source: "chat",
             content: "旧的增量",
+            delivery: "idle",
+            notification_eligible: true,
             completed: true,
             turn_id: turnId,
             chunks: [],
@@ -380,6 +401,8 @@ export async function mockReMe({
           role: "assistant",
           source: "chat",
           content: text,
+          delivery: "idle",
+          notification_eligible: true,
           completed: true,
           turn_id: turnId,
           chunks: [],

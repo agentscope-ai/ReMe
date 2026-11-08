@@ -85,7 +85,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
-        return self._merged_kwargs(kwargs)
+        # A fork inherits its source, rather than this wrapper's current defaults.
+        return dict(kwargs) if kwargs.get("fork_session") else self._merged_kwargs(kwargs)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -137,6 +138,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ephemeral=kwargs.get("ephemeral"),
                 thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
+            names = {"developer_instructions": "system_prompt"}
+            return {key: value for key, value in options.items() if names.get(key, key) in kwargs}
         else:
             options["personality"] = self._enum(Personality, kwargs.get("personality"))
             if not (kwargs.get("resume") or kwargs.get("session_id")):
@@ -163,7 +166,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork = bool(kwargs.get("fork_session"))
         if fork and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
-        jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        inherit_jobs = fork and "job_tools" not in kwargs
+        jobs = (
+            None
+            if compact or inherit_jobs
+            else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        )
         if any(isinstance(job, (BackgroundJob, StreamJob)) for job in jobs or []):
             raise TypeError("Codex job_tools must be non-stream request jobs")
         if any(not getattr(job, "enabled", True) for job in jobs or []):
@@ -302,6 +310,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         message_id: str,
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
         """Append a proactive message through the shared session owner."""
         await self.start()
@@ -311,13 +320,14 @@ class CodexAgentWrapper(BaseAgentWrapper):
             message_id=message_id,
             timeout=timeout,
             expected_turn_id=expected_turn_id,
+            delivery=delivery,
         )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
 
-        return {
+        options = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
             "cwd": str(self.cwd),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
@@ -328,6 +338,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "service_tier": kwargs.get("service_tier"),
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
+        return (
+            {key: value for key, value in options.items() if key in kwargs} if kwargs.get("fork_session") else options
+        )
 
     @classmethod
     # pylint: disable=too-many-return-statements

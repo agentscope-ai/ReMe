@@ -360,6 +360,13 @@ else {
             return;
           case "session.new":
             return controller!.newSession();
+          case "session.select":
+            if (
+              event.sender.id !== windows!.chat.webContents.id ||
+              typeof action.sessionId !== "string"
+            )
+              throw new UiError("invalidAction");
+            return controller!.selectSession(action.sessionId);
           case "messages.read":
             if (
               event.sender.id !== windows!.chat.webContents.id ||

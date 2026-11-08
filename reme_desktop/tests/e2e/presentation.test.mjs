@@ -128,6 +128,8 @@ test(
         role: "assistant",
         source: "chat",
         content: "保留的部分回答",
+        delivery: "idle",
+        notification_eligible: true,
         completed: true,
         turn_id: "failed-turn",
         chunks: [],

@@ -8,16 +8,16 @@ from pathlib import Path
 
 def grade(case_id: str, record: dict) -> dict:
     """Grade actual job decisions, including rejected nonempty send attempts."""
-    from benchmark.proactive.cases import CASES, MEMORY, frozen_now
+    from benchmark.proactive.cases import CASES, MEMORY, META, frozen_now
 
     case = record.get("fixture", CASES.get(case_id, {}))
     jobs = record.get("jobs", [])
     before, after = record.get("before", {}), record.get("after", {})
-    decisions = [job for job in jobs if job["name"] == "send_reminder"]
+    decisions = [job for job in jobs if job["name"] == "send_chat_message"]
     attempts = [job for job in decisions if str(job.get("args", {}).get("content", "")).strip()]
     native_attempts, native_contents = [], []
     for event in record.get("tool_events", []):
-        if event.get("event") != "start" or not str(event.get("tool_call_name", "")).endswith("send_reminder"):
+        if event.get("event") != "start" or not str(event.get("tool_call_name", "")).endswith("send_chat_message"):
             continue
         chunk = event.get("chunk") or {}
         arguments = chunk.get("arguments", {}) if isinstance(chunk, dict) else {}
@@ -68,19 +68,23 @@ def grade(case_id: str, record: dict) -> dict:
     else:
         successful = {job["name"] for job in jobs if job.get("response", {}).get("success")}
         checks["required_tools"] = {
-            "get_proactive_messages",
             "read_conversation",
-            "read_task_results",
-            "get_reminder",
-            "send_reminder",
+            "read_proactive_inbox",
+            "read_cron_results",
+            "get_chat_messages",
+            "send_chat_message",
         } <= successful
         checks["memory_preserved"] = text == before.get(MEMORY)
         task_paths = {
-            f"daily/{frozen_now():%Y-%m-%d}/cron/fixture-{index}/{frozen_now():%H%M%S}.md"
+            f"{META}/cron/fixture-{index}/{suffix}"
             for index in range(len(case.get("resources", {})))
+            for suffix in (f"{frozen_now():%Y-%m-%d}/{frozen_now():%H%M%S}.md", "handoff.md", "recovery.json")
         }
         checks["no_unexpected_files"] = not any(
-            name not in before and name not in task_paths and not name.startswith("reme_metadata/pa/") for name in after
+            name not in before
+            and name not in task_paths
+            and (not name.startswith(f"{META}/") or name.startswith((f"{META}/cron/", f"{META}/temporary/")))
+            for name in after
         )
         expected = case.get("expected_send", False)
         checks["delivery"] = len(record.get("delivered", [])) == int(expected)

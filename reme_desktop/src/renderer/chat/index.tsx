@@ -10,10 +10,12 @@ export default function Chat({
   state,
   active,
   onSettings,
+  readOnly = false,
 }: {
   state: DesktopState;
   active: boolean;
   onSettings: () => void;
+  readOnly?: boolean;
 }) {
   const language = state.settings.language;
   const t = translator(language);
@@ -24,7 +26,7 @@ export default function Chat({
   const queryRef = useRef(query);
   queryRef.current = query;
   const capture = useCapture(
-    { ...state, chatVisible: state.chatVisible && active },
+    { ...state, chatVisible: state.chatVisible && active && !readOnly },
     (text) => {
       const value = queryRef.current;
       const from = input.current?.selectionStart ?? value.length;
@@ -60,7 +62,8 @@ export default function Chat({
     .join("\n");
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
-  const busy = Boolean(state.pending?.streaming) || state.status === "active";
+  const busy =
+    readOnly || Boolean(state.pending?.streaming) || state.status === "active";
   const ready = state.connection === "connected" && state.status !== "error";
   const run = async (value: Parameters<typeof action>[0]) => {
     setError(null);
@@ -305,7 +308,10 @@ export default function Chat({
                     type="button"
                     className="read-aloud"
                     disabled={
-                      !state.speech.tts || !state.speech.ready || !ready
+                      readOnly ||
+                      !state.speech.tts ||
+                      !state.speech.ready ||
+                      !ready
                     }
                     aria-label={t(
                       voice?.messageId === message.id
@@ -380,7 +386,10 @@ export default function Chat({
           </article>
         ))}
       </div>
-      <footer className="chat-composer">
+      <footer
+        className="chat-composer"
+        style={readOnly ? { display: "none" } : undefined}
+      >
         {capture.notice && (
           <div className="voice-notice" role="status">
             {t("speechNoInput")}

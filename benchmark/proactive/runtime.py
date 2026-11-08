@@ -12,7 +12,7 @@ from uuid import uuid4
 from reme.application import Application
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, collect_reply
 from reme.steps.base_step import BaseStep
-from reme.steps.proactive import ProactiveAgentStep, TaskAgentStep
+from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
 
 from benchmark.proactive.cases import SESSION_ID, frozen_now, seed
 
@@ -56,7 +56,7 @@ class FrozenProactive(ProactiveAgentStep):
         return frozen_now()
 
 
-class FrozenTask(TaskAgentStep):
+class FrozenCron(CronAgentStep):
     """Use the fixture clock for task queries."""
 
     def _now(self):
@@ -80,15 +80,16 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         "pa_session",
         "pa_new_session",
         "pa_proactive",
-        "task_agent",
+        "cron_agent",
         "screen_capture",
         "finance_news",
         "read_conversation",
-        "get_proactive_messages",
-        "get_reminder",
-        "read_task_results",
-        "send_reminder",
-        "send_to_proactive",
+        "read_proactive_inbox",
+        "get_chat_messages",
+        "read_cron_results",
+        "send_chat_message",
+        "write_proactive_inbox",
+        "manage_temp_proactive_agent",
         "check_json",
     )
     cfg["jobs"] = {name: cfg["jobs"][name] for name in names}
@@ -125,9 +126,9 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         backend="benchmark_proactive",
         prompt_dict={**bundle["memory"], **bundle["proactive"]},
     )
-    cfg["jobs"]["task_agent"]["steps"][0].update(
-        backend="benchmark_task",
-        prompt_dict={**bundle["memory"], **bundle["task"]},
+    cfg["jobs"]["cron_agent"]["steps"][0].update(
+        backend="benchmark_cron",
+        prompt_dict={**bundle["memory"], **bundle["cron"]},
     )
     for name in ("screen_capture", "finance_news"):
         cfg["jobs"][name]["steps"] = [
@@ -150,7 +151,18 @@ def bind_owner(agent, case: dict, record: dict) -> None:
         messages=[SessionMessage.model_validate(row) for row in case.get("messages", [])],
         last_turn_id="fixture-turn",
     )
-    read, status, append = agent.read_session, agent.get_session_status, agent.append_session
+    read, status, append, reply = agent.read_session, agent.get_session_status, agent.append_session, agent.reply
+
+    async def reply_with_fixture(inputs, **kwargs):
+        if kwargs.get("fork_session") and kwargs.get("resume") == SESSION_ID:
+            # The synthetic owner is not a native thread. This harness exercises summary preparation,
+            # but native fork behavior belongs to provider integration validation.
+            kwargs.pop("resume")
+            kwargs.pop("fork_session")
+            dialogue = "\n".join(f"[{row.role}] {row.content}" for row in snapshot.messages if row.source == "chat")
+            inputs = f"Synthetic source conversation:\n{dialogue}\n\n{inputs}"
+            record["synthetic_context_preparation"] = True
+        return await reply(inputs, **kwargs)
 
     async def read_session(session_id):
         return snapshot.model_copy(deep=True) if session_id == SESSION_ID else await read(session_id)
@@ -166,12 +178,20 @@ def bind_owner(agent, case: dict, record: dict) -> None:
             return existing
         if snapshot.state.status != "idle":
             raise RuntimeError("Fixture chat is busy")
-        message = SessionMessage(id=message_id, role="assistant", source="proactive", content=content)
+        message = SessionMessage(
+            id=message_id,
+            role="assistant",
+            source="proactive",
+            content=content,
+            delivery=kwargs.get("delivery", "idle"),
+            origin_session_id=session_id,
+        )
         snapshot.messages.append(message)
         record["delivered"].append(message.model_dump(mode="json"))
         return message
 
     agent.read_session, agent.get_session_status, agent.append_session = read_session, get_status, append_session
+    agent.reply = reply_with_fixture
 
 
 def instrument(app, folder: Path, record: dict) -> None:
@@ -231,7 +251,7 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
             app = Application(**cfg)
             for name, cls in (
                 ("benchmark_proactive", FrozenProactive),
-                ("benchmark_task", FrozenTask),
+                ("benchmark_cron", FrozenCron),
                 ("benchmark_connector", FixtureConnector),
             ):
                 app.context.registry.add(name, cls, owner="benchmark.proactive")
@@ -248,17 +268,17 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
                         if reply["status"] != "completed":
                             raise RuntimeError(reply.get("error") or reply["status"])
                 else:
-                    # Simulate cron triggers before proactive wakes, using the real two-query task Job.
+                    # Simulate cron triggers before proactive wakes, using the real three-query task Job.
                     for task in await asyncio.to_thread(runtime.tasks.load):
                         if task.enabled:
-                            response = await app.run_job("task_agent", task=task.model_dump(mode="json"))
+                            response = await app.run_job("cron_agent", task=task.model_dump(mode="json"))
                             if not response.success:
                                 raise RuntimeError(str(response.answer))
                     response = await app.run_job("pa_proactive")
                     record["response"] = plain(response)
                     if not response.success:
                         raise RuntimeError(str(response.answer))
-                record["reminders"] = await runtime.get_reminder()
+                record["reminders"] = await runtime.get_chat_messages()
                 record["completed"] = True
     except Exception as exc:
         record.update(completed=False, error=f"{type(exc).__name__}: {exc}")

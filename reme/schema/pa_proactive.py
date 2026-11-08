@@ -16,6 +16,7 @@ class PaProactiveConfig(BaseModel):
     start_time: str = Field(pattern=r"^(?:[01][0-9]|2[0-3])[0-5][0-9]$")
     end_time: str = Field(pattern=r"^(?:[01][0-9]|2[0-3])[0-5][0-9]$")
     interval_minutes: float = Field(gt=0, allow_inf_nan=False)
+    enabled: StrictBool = True
     tasks_follow_active_hours: StrictBool = True
     hints_enabled: StrictBool = True
     hint_probabilities: PaHintProbabilities = Field(default_factory=PaHintProbabilities)
@@ -64,9 +65,12 @@ class PaNotificationWindow(BaseModel):
     starts_at: AwareDatetime
     ends_at: AwareDatetime
     closing_message_id: str | None = None
+    enabled: bool = True
 
     def allows(self, now: datetime, message_id: str | None = None) -> bool:
         """After a closing decision, only that message may still be delivered."""
-        return self.starts_at <= now < self.ends_at and (
-            self.closing_message_id is None or self.closing_message_id == message_id
+        return (
+            self.enabled
+            and self.starts_at <= now < self.ends_at
+            and (self.closing_message_id is None or self.closing_message_id == message_id)
         )

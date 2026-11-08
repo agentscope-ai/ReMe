@@ -346,6 +346,7 @@ async def test_chat_uses_current_prompt_and_tools_without_a_session_parameter_ca
             "resume": "session-1",
             "system_prompt": "修改后的提示词。",
             "job_tools": ["search"],
+            "injected_job_kwargs": {"pa_caller": "chat"},
         }
         assert "reply_kwargs" not in vars(context.components["pa"]["default"])
     await PaNewSessionStep(app_context=context, prompt_dict={"system_prompt_zh": "修改后的提示词。"})()
@@ -509,8 +510,11 @@ async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, confi
             assert (await client.post("/pa_session", json={})).json()["answer"]["session_id"] == "session-1"
 
 
-@pytest.mark.parametrize("module", ["pa_chat", "proactive_agent", "task_agent"])
-def test_role_prompts_have_matching_localized_placeholders(module):
+@pytest.mark.parametrize(
+    "module,memory_field",
+    [("pa_chat", "memory_path"), ("proactive_agent", "memory_path"), ("cron_agent", "memory")],
+)
+def test_role_prompts_have_matching_localized_placeholders(module, memory_field):
     from string import Formatter
 
     root = Path(__file__).resolve().parents[2]
@@ -520,4 +524,4 @@ def test_role_prompts_have_matching_localized_placeholders(module):
         return {field for _, field, _, _ in Formatter().parse(value) if field}
 
     assert fields(prompts["system_prompt"]) == fields(prompts["system_prompt_zh"])
-    assert "memory_path" in fields(prompts["system_prompt"])
+    assert memory_field in fields(prompts["system_prompt"])

@@ -10,11 +10,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.schema.pa_proactive import PaProactiveConfig
-from reme.steps.proactive import ProactiveAgentStep, TaskAgentStep
+from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
 from scripts.migrate_pa_reminder_kinds import migrate
 
 from .pa_helpers import PA_CONFIG, bind_pa
-from .test_pa_tasks import stub_model, task
+from .test_pa_cron import stub_model, task
 
 
 def settings(env, **overrides):
@@ -27,10 +27,10 @@ def settings(env, **overrides):
 
 async def send(env, content="新发现。", kind="normal", sample=False):
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_reminder"
+        current.phase = "query_message"
         if sample:
             await env.runtime.hints.select(await env.runtime.get_proactive_config(), env.now[0])
-        return await env.runtime.send_reminder(content, kind, round_id=current.id, session_id=current.session_id)
+        return await env.runtime.send_chat_message(content, kind, round_id=current.id, session_id=current.session_id)
 
 
 @pytest.mark.asyncio
@@ -43,7 +43,11 @@ async def test_special_messages_are_limited_across_rounds_and_restart(pa_workspa
     env.now[0] = env.now[0].replace(hour=hour, minute=minute)
     settings(env)
     first = await send(env, text, kind, sample=True)
-    assert first["sent"] and first["kind"] == kind
+    assert first["status"] == "pending" and first["kind"] == kind
+    env.agent.append_session.assert_not_awaited()
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
+    assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
     env.runtime = bind_pa(env.context, env.agent)
     env.runtime._now = lambda: env.now[0]
     env.runtime._initialize_files()
@@ -69,7 +73,7 @@ async def test_evening_pending_is_reserved_and_only_the_closing_message_is_allow
     await env.runtime.deliver_pending_reminder()
     env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
     await env.runtime.deliver_pending_reminder()
-    assert (await env.runtime.get_reminder())[0]["status"] == "sent"
+    assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
     env.agent.append_session.assert_awaited_once()
 
 
@@ -82,7 +86,7 @@ async def test_expired_closing_never_reopens_the_day_after_uncertain_delivery(pa
     assert (await send(env, "晚安。", "evening", sample=True))["status"] == "pending"
     env.now[0] += timedelta(minutes=6)
     await env.runtime.deliver_pending_reminder()
-    assert (await env.runtime.get_reminder())[0]["status"] == "discarded"
+    assert (await env.runtime.get_chat_messages())[0]["status"] == "discarded"
     assert await env.runtime.proactive_skip_reason() == "day_closed"
     assert (await send(env))["reason"] == "day_closed"
 
@@ -99,7 +103,11 @@ async def test_new_opening_releases_evening_close_and_old_messages_expire(pa_wor
     assert await env.runtime.proactive_skip_reason() == "outside_active_hours"
     env.now[0] = (env.now[0] + timedelta(days=1)).replace(hour=9, minute=0, second=0)
     assert await env.runtime.proactive_skip_reason() is None
-    assert (await send(env))["sent"]
+    assert (await send(env))["status"] == "pending"
+    await env.runtime.deliver_pending_reminder()
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
+    assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
 
 
 @pytest.mark.asyncio
@@ -109,7 +117,7 @@ async def test_special_kind_requires_sample_and_greetings_cannot_bypass_it(pa_wo
     for kind, content in [("normal", "主人，晚安。"), ("normal", "Good morning!"), ("midday", "午安。")]:
         with pytest.raises(ValueError):
             await send(env, content, kind)
-    assert not env.runtime.reminders_path.read_text()
+    assert not env.runtime.chat_inbox_path.read_text()
 
 
 @pytest.mark.asyncio
@@ -117,7 +125,10 @@ async def test_concurrent_special_decisions_use_one_daily_slot(pa_workspace):
     env = pa_workspace
     settings(env)
     results = await asyncio.gather(*(send(env, "午安。", "midday", sample=True) for _ in range(8)))
-    assert sum(result["sent"] for result in results) == 1
+    assert sum(result["status"] == "pending" for result in results) == 1
+    env.agent.append_session.assert_not_awaited()
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
     env.agent.append_session.assert_awaited_once()
 
 
@@ -131,9 +142,9 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
 
     async def reply(query, **kwargs):
         calls.append(query)
-        if len(calls) == 5:
+        if env.runtime.current_round.phase == "query_message":
             bound = kwargs["injected_job_kwargs"]
-            await env.runtime.send_reminder(
+            await env.runtime.send_chat_message(
                 "晚安。",
                 "evening",
                 round_id=bound["pa_round_id"],
@@ -143,10 +154,13 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
 
     env.agent.reply = AsyncMock(side_effect=reply)
     result = await ProactiveAgentStep(app_context=env.context)()
-    assert result.answer["sent"] and result.answer["reason"] == "day_closed"
-    assert len(calls) == 5 and env.runtime.proactive_context_path.read_text()
+    assert result.answer["status"] == "pending" and result.answer["reason"] == "day_closed"
+    assert len(calls) == 6 and env.runtime.proactive_context_path.read_text()
     assert (await ProactiveAgentStep(app_context=env.context)()).answer["reason"] == "day_closed"
-    assert len(calls) == 5
+    assert len(calls) == 6
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
+    assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
 
 
 @pytest.mark.asyncio
@@ -181,7 +195,7 @@ async def test_slow_hint_sampling_cannot_start_a_query_after_deadline(pa_workspa
     monkeypatch.setattr(env.runtime.hints, "select", sample)
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["reason"] == "outside_active_hours"
-    assert env.agent.reply.await_count == 4
+    assert env.agent.reply.await_count == 5
 
 
 @pytest.mark.asyncio
@@ -189,7 +203,7 @@ async def test_slow_hint_sampling_cannot_start_a_query_after_deadline(pa_workspa
 async def test_active_query_is_cancelled_at_the_window_deadline(pa_workspace, monkeypatch, role):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=22, minute=59, second=59, microsecond=980000)
-    step = ProactiveAgentStep if role == "proactive" else TaskAgentStep
+    step = ProactiveAgentStep if role == "proactive" else CronAgentStep
     monkeypatch.setattr(step, "_now", lambda _self: env.now[0])
     stopped = asyncio.Event()
 
@@ -221,7 +235,7 @@ def test_window_deadlines_follow_local_openings(clock, start, end, expected):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "hour,minute,follow,expected",
-    [(8, 59, True, 0), (9, 0, True, 2), (22, 59, True, 2), (23, 0, True, 0), (23, 0, False, 2)],
+    [(8, 59, True, 0), (9, 0, True, 3), (22, 59, True, 3), (23, 0, True, 0), (23, 0, False, 3)],
 )
 async def test_tasks_follow_hours_by_default_with_explicit_opt_out(
     pa_workspace,
@@ -235,11 +249,11 @@ async def test_tasks_follow_hours_by_default_with_explicit_opt_out(
     env.now[0] = env.now[0].replace(hour=hour, minute=minute)
     settings(env, tasks_follow_active_hours=follow)
     stub_model(env, monkeypatch)
-    result = await TaskAgentStep(app_context=env.context)(task=task())
+    result = await CronAgentStep(app_context=env.context)(task=task())
     assert env.agent.reply.await_count == expected
     if not expected:
         assert result.answer["reason"] == "outside_active_hours"
-        assert not env.runtime.task_runs_path.read_text()
+        assert not env.runtime.cron_runs_path.read_text()
 
 
 @pytest.mark.asyncio
@@ -254,7 +268,7 @@ async def test_task_rechecks_hot_config_before_summary_query(pa_workspace, monke
         return result
 
     env.agent.reply.side_effect = reply
-    result = await TaskAgentStep(app_context=env.context)(task=task())
+    result = await CronAgentStep(app_context=env.context)(task=task())
     assert result.answer["status"] == "interrupted"
     env.agent.reply.assert_awaited_once()
     assert not env.runtime.tasks.paths("one")
@@ -274,7 +288,7 @@ def test_task_hours_switch_defaults_on():
 @pytest.mark.parametrize("role", ["proactive", "task"])
 async def test_provider_timeout_is_not_mistaken_for_closing_time(pa_workspace, monkeypatch, role):
     env = pa_workspace
-    step = ProactiveAgentStep if role == "proactive" else TaskAgentStep
+    step = ProactiveAgentStep if role == "proactive" else CronAgentStep
     monkeypatch.setattr(step, "_now", lambda _self: env.now[0])
     env.agent.reply = AsyncMock(side_effect=TimeoutError("provider timeout"))
     with pytest.raises(TimeoutError, match="provider timeout"):
@@ -293,15 +307,15 @@ def test_explicit_journal_migration_preserves_original_and_is_idempotent(pa_work
         "expires_at": env.now[0].isoformat(),
     }
     original = (json.dumps(record, ensure_ascii=False) + "\n").encode()
-    env.runtime.reminders_path.write_bytes(original)
-    assert migrate(env.runtime.reminders_path) == 1
+    env.runtime.chat_inbox_path.write_bytes(original)
+    assert migrate(env.runtime.chat_inbox_path) == 1
     assert env.runtime.reminders.read()[0].kind == "normal"
-    assert next(env.runtime.reminders_path.parent.glob("*.bak")).read_bytes() == original
-    assert migrate(env.runtime.reminders_path) == 0
+    assert next(env.runtime.chat_inbox_path.parent.glob("*.bak")).read_bytes() == original
+    assert migrate(env.runtime.chat_inbox_path) == 0
 
 
 def test_migration_validates_every_row_before_writing(pa_workspace):
-    path = pa_workspace.runtime.reminders_path
+    path = pa_workspace.runtime.chat_inbox_path
     path.write_text('{"id":"broken"}\n')
     original = path.read_bytes()
     with pytest.raises(ValueError):
@@ -316,8 +330,8 @@ async def test_migration_recovers_saved_hint_kind_without_changing_content(pa_wo
     settings(env)
     sent = await send(env, "午安。", "midday", sample=True)
     row = {key: value for key, value in sent.items() if key not in {"kind", "sent"}}
-    env.runtime.reminders_path.write_text(json.dumps(row, ensure_ascii=False) + "\n")
-    assert migrate(env.runtime.reminders_path) == 1
+    env.runtime.chat_inbox_path.write_text(json.dumps(row, ensure_ascii=False) + "\n")
+    assert migrate(env.runtime.chat_inbox_path) == 1
     restored = env.runtime.reminders.read()[0]
     assert restored.kind == "midday" and restored.content == "午安。"
 

@@ -9,6 +9,7 @@ export function mockReMe(options?: {
   upsert(message: import("../../src/shared/protocol.ts").SessionMessage): void;
   setReplyDelay(value: number): void;
   notificationWindow(value: {
+    enabled: boolean;
     starts_at: string;
     ends_at: string;
     closing_message_id?: string | null;

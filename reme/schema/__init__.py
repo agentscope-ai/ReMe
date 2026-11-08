@@ -23,9 +23,11 @@ from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
 from .job_execution import JobExecution, JobExecutionStatus
 from .pa_event import PaEvent
+from .pa_inbox import PaInboxItem, PaInboxPage, PaInboxDetail
 from .pa_session import PaSessionCursor
 from .pa_proactive import PaProactiveConfig
-from .pa_task import PaTask, PaTaskRun
+from .pa_task import PaTask, PaTaskRun, PaTaskRecovery
+from .pa_temp_task import PaTempTask
 from .file_link import FileLink
 from .file_node import FileNode
 from .finance_news import FinanceNewsItem
@@ -71,10 +73,15 @@ __all__ = [
     "JobExecution",
     "JobExecutionStatus",
     "PaEvent",
+    "PaInboxItem",
+    "PaInboxPage",
+    "PaInboxDetail",
     "PaSessionCursor",
     "PaProactiveConfig",
     "PaTask",
     "PaTaskRun",
+    "PaTaskRecovery",
+    "PaTempTask",
     "ProactiveResult",
     "ProactiveState",
     "ProactiveStateFile",

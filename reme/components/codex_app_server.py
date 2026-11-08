@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, nullcontext, suppress
 from dataclasses import dataclass, field
 import json
 import hashlib
@@ -13,10 +13,13 @@ from pathlib import Path
 import sys
 from typing import Any, TYPE_CHECKING
 
+from pydantic_core import to_jsonable_python
+
 from .base_component import BaseComponent
 from .component_registry import R
 from .service.scoped_mcp import ScopedMCP
 from ..constants import normalize_connect_host
+from ..config.config_parser import deep_merge_config
 from ..enumeration import ComponentEnum
 from ..utils.async_utils import finish_cleanup
 from ..utils.async_utils import complete_in_thread
@@ -42,6 +45,8 @@ class _ThreadState:
     token_usage: TokenUsage | None = None
     pending: AsyncThread | None = None
     history_changed: bool = False
+    options: dict[str, Any] = field(default_factory=dict)
+    turn_options: dict[str, Any] = field(default_factory=dict)
 
 
 @R.register("sdk")
@@ -259,12 +264,15 @@ class CodexAppServer(BaseComponent):
         message_id: str,
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
         """Wait for the thread lease, then inject and publish one retry-safe assistant message."""
         from openai_codex.generated.v2_all import ThreadInjectItemsResponse
         from .agent_wrapper import codex_session_history as history
 
         path = self._message_path(session_id)
+        if delivery not in {"idle", "immediate"}:
+            raise ValueError("Invalid chat delivery policy")
         history.validate_identifier(message_id)
         if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
             raise ValueError("content must contain 1-100000 characters")
@@ -298,6 +306,7 @@ class CodexAppServer(BaseComponent):
                     raise SessionChangedError("Session changed before appending")
                 if record is None:
                     record = history.new_record(message_id, content, thread)
+                    record["message"].update(delivery=delivery, origin_session_id=session_id)
                     records.append(record)
                 # An unaccepted attempt may be retried after later user turns.
                 record["message"]["turn_id"] = thread.turns[-1].id if thread.turns else None
@@ -545,11 +554,15 @@ class CodexAppServer(BaseComponent):
 
         async def dispatch():
             nonlocal turn
+            state = self._threads[thread.id]
+            options = {**state.turn_options, **{key: value for key, value in kwargs.items() if value is not None}}
             async with self._operation(thread):
-                turn = await thread.turn(inputs, **kwargs)
-                self._threads[thread.id].pending = None
-                self._threads[thread.id].history_changed = True
+                turn = await thread.turn(inputs, **options)
+                state.pending = None
+                state.history_changed = True
                 self._notify_session(thread.id, SessionStatus(session_id=thread.id, status="active"))
+            state.turn_options = options
+            await self._save_thread_config(thread.id, state)
 
         try:
             await finish_cleanup(dispatch())
@@ -595,6 +608,98 @@ class CodexAppServer(BaseComponent):
         if inherited:
             await complete_in_thread(history.write_records, self._message_path(thread.id), inherited)
 
+    async def _save_thread_config(self, thread_id: str, state: _ThreadState) -> None:
+        """Retain effective settings without persisting generated MCP credentials."""
+        from .agent_wrapper.codex_session_history import write_records
+
+        path = self._message_path(thread_id).with_suffix(".config.jsonl")
+        await complete_in_thread(
+            write_records,
+            path,
+            [
+                to_jsonable_python(
+                    {"options": state.options, "turn_options": state.turn_options, "binding": state.binding},
+                ),
+            ],
+        )
+
+    @staticmethod
+    def _native_options(options):
+        """Restore SDK option types from the file-native session settings."""
+        from openai_codex import ApprovalMode, Sandbox
+        from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary, ThreadSource, ThreadStartSource
+
+        types = {
+            "approval_mode": ApprovalMode,
+            "sandbox": Sandbox,
+            "personality": Personality,
+            "effort": ReasoningEffort,
+            "summary": ReasoningSummary,
+            "thread_source": ThreadSource,
+            "session_start_source": ThreadStartSource,
+        }
+        return {
+            key: types[key](value) if key in types and value is not None else value for key, value in options.items()
+        }
+
+    async def _restore_thread_config(self, thread_id, state, *, restore_binding=True):
+        """Load a prior configuration without reviving expired transport credentials."""
+        from .agent_wrapper.codex_session_history import read_records
+
+        if state.options:
+            return
+        records = await asyncio.to_thread(read_records, self._message_path(thread_id).with_suffix(".config.jsonl"))
+        if records:
+            if len(records) != 1:
+                raise ValueError("Invalid Codex session configuration")
+            settings = records[0]
+            state.options = self._native_options(settings["options"])
+            state.turn_options = self._native_options(settings["turn_options"])
+            if restore_binding:
+                state.binding = settings["binding"]
+
+    @asynccontextmanager
+    async def _fork_source(self, thread_id: str) -> AsyncIterator[_ThreadState]:
+        """Pin a completed source and restore settings after unload or application restart."""
+        source = self._threads.setdefault(thread_id, _ThreadState())
+        source.users += 1
+        source.revision += 1
+        try:
+            async with source.lock:
+                await self._restore_thread_config(thread_id, source)
+                yield source
+        finally:
+            source.users -= 1
+
+    async def _bind_tools(self, state, options, jobs, injected, startup_timeout, tool_timeout):
+        """Rebind transport credentials while retaining the model-visible tool catalog."""
+        if jobs is None:
+            return options
+        injected = json.loads(json.dumps(injected or {}))
+        binding = json.dumps({"jobs": [job.name for job in jobs], "injected": injected}, sort_keys=True)
+        if state.binding is not None and state.binding != binding:
+            raise ValueError("job_tools, tool_context_id and injected_job_kwargs cannot change on a loaded thread")
+        state.binding = binding
+        config = dict(options.get("config") or {})
+        servers = dict(config.get("mcp_servers") or {})
+        if "reme_jobs" in servers:
+            raise ValueError("mcp_servers.reme_jobs is reserved for ReMe job tools")
+        servers["reme_jobs"] = {"url": "http://127.0.0.1", "enabled": False}
+        if jobs:
+            url = await self._mcp_url()
+            if state.token is None:
+                state.token = self.jobs_mcp.register(jobs, injected)
+            servers["reme_jobs"] = {
+                "url": url,
+                "http_headers": {"Authorization": f"Bearer {state.token}"},
+                "required": True,
+                "enabled_tools": [job.name for job in jobs],
+                "tools": {job.name: {"approval_mode": "approve"} for job in jobs},
+                "startup_timeout_sec": startup_timeout,
+                "tool_timeout_sec": tool_timeout,
+            }
+        return {**options, "config": {**config, "mcp_servers": servers}}
+
     @asynccontextmanager
     async def thread(
         self,
@@ -615,7 +720,7 @@ class CodexAppServer(BaseComponent):
         self._active += 1
         self._idle.clear()
         state = None
-        created_token = None
+        previous_token = None
         thread = None
         codex = None
         try:
@@ -624,66 +729,60 @@ class CodexAppServer(BaseComponent):
             state = self._threads.setdefault(thread_id, _ThreadState()) if thread_id and not fork else _ThreadState()
             state.users += 1
             state.revision += 1
+            previous_token = state.token
             async with state.lock:
-                options = dict(options or {})
-                if jobs is not None:
-                    injected = json.loads(json.dumps(injected or {}))
-                    binding = json.dumps({"jobs": [job.name for job in jobs], "injected": injected}, sort_keys=True)
-                    if state.binding is not None and state.binding != binding:
-                        raise ValueError(
-                            "job_tools, tool_context_id and injected_job_kwargs cannot change on a loaded thread",
-                        )
-                    state.binding = binding
-                    config = dict(options.get("config") or {})
-                    servers = dict(config.get("mcp_servers") or {})
-                    if "reme_jobs" in servers:
-                        raise ValueError("mcp_servers.reme_jobs is reserved for ReMe job tools")
-                    # Codex validates the transport even when a server is disabled.
-                    servers["reme_jobs"] = {"url": "http://127.0.0.1", "enabled": False}
-                    if jobs:
-                        url = await self._mcp_url()
-                        if state.token is None:
-                            state.token = self.jobs_mcp.register(jobs, injected)
-                            created_token = state.token
-                        servers["reme_jobs"] = {
-                            "url": url,
-                            "http_headers": {"Authorization": f"Bearer {state.token}"},
-                            "required": True,
-                            "enabled_tools": [job.name for job in jobs],
-                            # Application-bound Jobs have separate authorization from native file access.
-                            "tools": {job.name: {"approval_mode": "approve"} for job in jobs},
-                            "startup_timeout_sec": mcp_startup_timeout,
-                            "tool_timeout_sec": mcp_tool_timeout,
-                        }
-                    config["mcp_servers"] = servers
-                    options["config"] = config
-                if fork:
-                    source = self._threads.setdefault(thread_id, _ThreadState())
-                    source.users += 1
-                    source.revision += 1
-                    try:
-                        async with source.lock:
-                            state.token_usage = await self.token_usage(thread_id)
-                            thread = await codex.thread_fork(thread_id, **options)
-                            await finish_cleanup(self._fork_messages(thread_id, thread))
-                    finally:
-                        source.users -= 1
-                elif state.pending is not None:
-                    thread = state.pending
-                elif thread_id:
-                    thread = await codex.thread_resume(thread_id, **options)
-                else:
-                    thread = await codex.thread_start(**options)
-                    state.token_usage = TokenUsage()
-                    if keep_empty:
-                        # Native rollouts are materialized by the first turn, so an empty
-                        # thread must stay loaded and reuse its handle rather than resume.
-                        state.pending = thread
+                if thread_id and not fork:
+                    await self._restore_thread_config(thread_id, state, restore_binding=jobs is None)
+                async with self._fork_source(thread_id) if fork else nullcontext(None) as source:
+                    options = dict(options or {})
+                    if source is not None:
+                        inherited = dict(source.options)
+                        state.turn_options = dict(source.turn_options)
+                        for key in ("cwd", "model", "approval_mode", "sandbox", "service_tier"):
+                            if key in source.turn_options:
+                                inherited[key] = source.turn_options[key]
+                        options = deep_merge_config(inherited, options)
+                        personality = options.pop("personality", None)
+                        if personality is not None:
+                            options["config"] = {
+                                **options.get("config", {}),
+                                "personality": to_jsonable_python(personality),
+                            }
+                        for key in ("service_name", "session_start_source"):
+                            options.pop(key, None)
+                        if jobs is None and source.binding is not None:
+                            binding = json.loads(source.binding)
+                            jobs = [self.app_context.jobs[name] for name in binding["jobs"]]
+                            injected = {**binding["injected"], **(injected or {})}
+                    effective = {key: value for key, value in options.items() if value is not None}
+                    state.options = deep_merge_config(state.options, effective)
+                    options = await self._bind_tools(
+                        state,
+                        options,
+                        jobs,
+                        injected,
+                        mcp_startup_timeout,
+                        mcp_tool_timeout,
+                    )
+                    if fork:
+                        state.token_usage = await self.token_usage(thread_id)
+                        thread = await codex.thread_fork(thread_id, **options)
+                        await finish_cleanup(self._fork_messages(thread_id, thread))
+                    elif state.pending is not None:
+                        thread = state.pending
+                    elif thread_id:
+                        thread = await codex.thread_resume(thread_id, **options)
+                    else:
+                        thread = await codex.thread_start(**options)
+                        state.token_usage = TokenUsage()
+                        if keep_empty:
+                            state.pending = thread
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
                 state.history_changed = False
                 try:
+                    await self._save_thread_config(thread.id, state)
                     yield thread
                 finally:
                     # Interrupt acknowledgement alone does not mean that tool execution stopped.
@@ -724,9 +823,9 @@ class CodexAppServer(BaseComponent):
         finally:
             if state is not None:
                 state.users -= 1
-                if thread is None and created_token is not None:
-                    self.jobs_mcp.scopes.pop(created_token, None)
-                    state.token = None
+                if thread is None and state.token != previous_token:
+                    self.jobs_mcp.scopes.pop(state.token, None)
+                    state.token = previous_token
             self._active -= 1
             if not self._active:
                 self._idle.set()

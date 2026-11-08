@@ -21,7 +21,7 @@ function relativePath(value: unknown): string {
   return value;
 }
 
-/** Only these read-only jobs are exposed to the workspace renderer. */
+/** Expose browsing jobs and explicit user-read receipts to the renderer. */
 export async function requestWorkspace(
   client: ReMeClient,
   request: WorkspaceRequest,
@@ -75,6 +75,67 @@ export async function requestWorkspace(
   let job: string;
   let body: object;
   switch (request.type) {
+    case "proactiveInbox": {
+      const kind = request.kind ?? "all";
+      const filter = request.filter ?? "all";
+      const offset = request.offset ?? 0;
+      const limit = request.limit ?? 5;
+      if (
+        !["all", "task_result", "instruction"].includes(kind) ||
+        !["all", "pending", "unread"].includes(filter) ||
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        !Number.isSafeInteger(limit) ||
+        limit < 1 ||
+        limit > 100 ||
+        (filter === "unread" && kind !== "task_result") ||
+        (request.taskId !== undefined &&
+          (typeof request.taskId !== "string" ||
+            kind !== "task_result" ||
+            !/^[A-Za-z0-9_-]{1,128}$/.test(request.taskId)))
+      )
+        throw new UiError("invalidWorkspaceRequest");
+      job = "proactive_inbox_view";
+      body = {
+        action: "list",
+        kind,
+        filter,
+        task_id: request.taskId,
+        offset,
+        limit,
+      };
+      break;
+    }
+    case "proactiveInboxEntry":
+      if (
+        typeof request.id !== "string" ||
+        !request.id ||
+        request.id.length > 8192 ||
+        request.id.includes("\0")
+      )
+        throw new UiError("invalidWorkspaceRequest");
+      job = "proactive_inbox_view";
+      body = { action: "read", entry_id: request.id };
+      break;
+    case "taskResult":
+      if (typeof request.markRead !== "boolean")
+        throw new UiError("invalidWorkspaceRequest");
+      job = "task_results";
+      body = {
+        action: "read",
+        path: relativePath(request.path),
+        mark_read: request.markRead,
+      };
+      break;
+    case "conversation":
+      if (
+        typeof request.sessionId !== "string" ||
+        !/^[A-Za-z0-9_-]{1,128}$/.test(request.sessionId)
+      )
+        throw new UiError("invalidWorkspaceRequest");
+      job = "session_read";
+      body = { session_id: request.sessionId };
+      break;
     case "list":
       job = "list";
       body = {

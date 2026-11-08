@@ -37,6 +37,7 @@ interface Playback {
   sent: boolean;
   failure?: { index: number; error: unknown };
   turnId?: string | null;
+  immediate: boolean;
 }
 
 /** One capture or narration at a time. Audio never enters history or state broadcasts. */
@@ -133,6 +134,7 @@ export class SpeechController {
     if (!["completed", "failed", "interrupted"].includes(activity.phase)) {
       if (
         this.playback &&
+        !this.playback.immediate &&
         this.state.playback?.kind !== "manual" &&
         activity.turn_id !== this.playback.turnId
       )
@@ -197,6 +199,7 @@ export class SpeechController {
       primed: false,
       sent: false,
       turnId: message.turn_id,
+      immediate: message.delivery === "immediate",
     };
     this.playback = playback;
     this.update({

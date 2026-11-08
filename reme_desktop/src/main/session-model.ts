@@ -42,7 +42,14 @@ function message(value: SessionMessage): SessionMessage {
     !["user", "assistant"].includes(value.role) ||
     typeof value.content !== "string" ||
     !["chat", "proactive"].includes(value.source) ||
-    typeof value.completed !== "boolean"
+    typeof value.completed !== "boolean" ||
+    typeof value.notification_eligible !== "boolean" ||
+    !["idle", "immediate"].includes(value.delivery) ||
+    (value.delivery === "immediate" &&
+      (value.source !== "proactive" ||
+        value.role !== "assistant" ||
+        typeof value.origin_session_id !== "string" ||
+        !value.origin_session_id))
   )
     throw new UiError("invalidMessage");
   // Desktop renders the public message text, not provider-native tool/event traces.
@@ -54,6 +61,9 @@ function message(value: SessionMessage): SessionMessage {
     created_at: value.created_at,
     turn_id: value.turn_id,
     completed: value.completed,
+    delivery: value.delivery,
+    origin_session_id: value.origin_session_id,
+    notification_eligible: value.notification_eligible,
     chunks: [],
   };
 }
@@ -68,10 +78,18 @@ export class SessionModel {
   activities: Activities = {};
   taskActivities: TaskActivities = {};
   notifications: NotificationWindow | null = null;
+  inboxMessages: SessionMessage[] = [];
 
   canNotify(message: SessionMessage, now: number): boolean {
+    if (
+      !message.notification_eligible ||
+      this.inboxMessages.find((item) => item.id === message.id)
+        ?.notification_eligible === false
+    )
+      return false;
+    if (message.delivery === "immediate") return true;
     const window = this.notifications;
-    if (!window) return false;
+    if (!window || !window.enabled) return false;
     const start = Date.parse(window.starts_at);
     const end = Date.parse(window.ends_at);
     const created = Date.parse(message.created_at ?? "");
@@ -93,6 +111,7 @@ export class SessionModel {
     this.activities = {};
     this.taskActivities = {};
     this.notifications = null;
+    this.inboxMessages = [];
   }
 
   select(sessionId: string | null): void {
@@ -129,6 +148,19 @@ export class SessionModel {
     )
       throw new UiError("invalidEvent");
     const event = value as PaEvent;
+    let inboxMessages = this.inboxMessages;
+    if (event.inbox_messages != null) {
+      if (!Array.isArray(event.inbox_messages))
+        throw new UiError("invalidEvent");
+      const messages = new Map<string, SessionMessage>();
+      for (const item of event.inbox_messages) {
+        const incoming = message(item);
+        if (incoming.source !== "proactive" || !incoming.origin_session_id)
+          throw new UiError("invalidEvent");
+        messages.set(incoming.id, incoming);
+      }
+      inboxMessages = [...messages.values()].slice(-100);
+    }
     if (event.notifications != null) {
       const window = event.notifications;
       const start = Date.parse(window.starts_at);
@@ -136,6 +168,7 @@ export class SessionModel {
       if (
         !Number.isFinite(start) ||
         !Number.isFinite(end) ||
+        typeof window.enabled !== "boolean" ||
         start >= end ||
         (window.closing_message_id != null &&
           typeof window.closing_message_id !== "string")
@@ -211,6 +244,16 @@ export class SessionModel {
       }
       if (event.type === "message_upsert") {
         const replacement = message(event.message!);
+        if (replacement.source === "proactive") {
+          replacement.origin_session_id ??= event.session_id;
+          replacement.notification_eligible =
+            inboxMessages.find((item) => item.id === replacement.id)
+              ?.notification_eligible ?? replacement.notification_eligible;
+          inboxMessages = [
+            ...inboxMessages.filter((item) => item.id !== replacement.id),
+            replacement,
+          ].slice(-100);
+        }
         const index = this.messages.findIndex(
           (entry) => entry.id === replacement.id,
         );
@@ -225,6 +268,7 @@ export class SessionModel {
       this.notifications = event.notifications ?? null;
       this.taskActivities = event.task_activities ?? {};
     }
+    this.inboxMessages = inboxMessages;
     if (event.cursor) this.cursor = event.cursor;
     return event;
   }

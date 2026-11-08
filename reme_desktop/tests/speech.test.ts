@@ -21,6 +21,8 @@ const message = (id = "m", content = "A complete reply."): SessionMessage => ({
   content,
   role: "assistant",
   completed: true,
+  delivery: "idle",
+  notification_eligible: true,
   source: "chat",
   turn_id: "turn",
   chunks: [],

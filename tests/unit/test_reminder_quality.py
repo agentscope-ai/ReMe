@@ -13,15 +13,15 @@ def record():
         "jobs": [
             {
                 "name": name,
-                "args": {"content": "", "kind": "normal"} if name == "send_reminder" else {},
+                "args": {"content": "", "kind": "normal"} if name == "send_chat_message" else {},
                 "response": {"success": True},
             }
             for name in (
-                "get_proactive_messages",
                 "read_conversation",
-                "read_task_results",
-                "get_reminder",
-                "send_reminder",
+                "read_proactive_inbox",
+                "read_cron_results",
+                "get_chat_messages",
+                "send_chat_message",
             )
         ],
         "tool_events": [],
@@ -35,9 +35,15 @@ def test_empty_submission_is_successful_silence():
     assert verdict["delivery"] and verdict["send_attempts"] and verdict["required_tools"]
 
 
+def test_silence_requires_reading_conversation_in_the_merged_input_query():
+    result = record()
+    result["jobs"] = [job for job in result["jobs"] if job["name"] != "read_conversation"]
+    assert not checks(scenarios()["proactive_seen_page"], result, False)["required_tools"]
+
+
 def test_native_rejected_call_is_not_hidden_by_no_delivery():
     result = record()
-    result["tool_events"] = [{"event": "start", "tool_call_name": "mcp__reme_jobs__send_reminder", "chunk": {}}]
+    result["tool_events"] = [{"event": "start", "tool_call_name": "mcp__reme_jobs__send_chat_message", "chunk": {}}]
     assert not checks(scenarios()["proactive_seen_page"], result, False)["send_attempts"]
 
 
@@ -66,7 +72,7 @@ def test_unrequested_new_files_and_rejected_oversize_attempts_are_observable():
     result["tool_events"] = [
         {
             "event": "start",
-            "tool_call_name": "send_reminder",
+            "tool_call_name": "send_chat_message",
             "chunk": {"arguments": {"content": "x" * 201}},
         },
     ]

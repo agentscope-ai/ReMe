@@ -47,6 +47,7 @@ export function displayMessages(
     id: message.id,
     turnId: message.turn_id ?? undefined,
     createdAt: message.created_at,
+    originSessionId: message.origin_session_id ?? state.sessionId ?? undefined,
     role: message.role,
     content: message.content,
     completed: message.completed,

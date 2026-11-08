@@ -33,19 +33,19 @@ jobs:
           - backend: update_index_step
             persist: false
 
-  task_agent:
+  cron_agent:
     backend: base
     enable_serve: false
     track_execution: true
-    description: "Execute a scheduled task, then publish a cumulative Markdown summary in the same fresh agent session."
+    description: "Execute a task, optionally publish cumulative findings, and prepare an internal handoff in the same session."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        task: {type: object, description: "Complete task definition from tasks.json: id, cron, query and enabled"}
+        task: {type: object, description: "Complete PaTask definition from cron.json: id, cron, query or fixed message, delivery and enabled"}
       required: [task]
     steps:
-      - backend: task_agent_step
+      - backend: cron_agent_step
         agent_wrapper: default
         job_tools: [screen_capture, finance_news]
 
@@ -142,10 +142,17 @@ jobs:
     steps:
       - backend: pa_loop_step
 
-  task_schedule:
+  cron_schedule:
     backend: background
     steps:
-      - backend: task_schedule_step
+      - backend: cron_schedule_step
+
+  temp_proactive:
+    backend: background
+    steps:
+      - backend: temp_proactive_step
+        agent_wrapper: default
+        job_tools: [screen_capture, finance_news, send_chat_message_immediate]
 
   pa_proactive:
     backend: base
@@ -154,26 +161,39 @@ jobs:
     steps:
       - backend: proactive_agent_step
         agent_wrapper: default
-        max_turns: 20
-        job_tools: [get_proactive_messages, read_conversation, read_task_results, screen_capture, get_reminder, send_reminder, check_json]
+        max_turns: 10
+        job_tools: [read_conversation, read_proactive_inbox, read_cron_results, screen_capture, get_chat_messages, send_chat_message, check_json]
 
-  read_task_results:
+  read_conversation:
     backend: base
     enable_serve: false
     track_execution: true
-    description: "Return up to three latest unread summary paths per configured task; read the files. Full inputs are checkpointed before acknowledgement."
+    description: "Consume newly completed Main chat rounds, newest ten by default. Checkpoint text before advancing session cursors; excludes tools and proactive messages."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        max_turns: {type: integer, minimum: 1, maximum: 100, default: 10}
+    steps:
+      - backend: read_conversation_step
+
+  read_cron_results:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    description: "Consume up to three latest unread result paths per configured cron task; read the files. Full inputs are checkpointed before acknowledgement. Excludes temporary tasks."
     parameters:
       type: object
       properties:
         limit: {type: integer, minimum: 1, maximum: 3, default: 3, description: "Maximum unread documents per task"}
       additionalProperties: false
     steps:
-      - backend: read_task_results_step
+      - backend: read_cron_results_step
 
-  send_to_proactive:
+  write_proactive_inbox:
     backend: base
     enable_serve: false
-    description: "Append timestamped user feedback to the proactive agent's persistent text inbox."
+    description: "Queue a message in the Markdown inbox for Proactive to handle on its next wakeup, including settings requests."
     parameters:
       type: object
       additionalProperties: false
@@ -181,55 +201,50 @@ jobs:
         message: {type: string, minLength: 1, description: "User feedback or instructions for the proactive agent"}
       required: [message]
     steps:
-      - backend: send_to_proactive_step
+      - backend: write_proactive_inbox_step
 
-  get_proactive_messages:
+  read_proactive_inbox:
     backend: base
     enable_serve: false
-    description: "Return all queued chat-agent feedback as text and clear the inbox; empty inbox returns an empty string."
+    description: "Checkpoint new or edited Main feedback, then return input_path/round_id and receipt_path for complete native reading; retain source Markdown."
     parameters:
       type: object
       properties: {}
       additionalProperties: false
     steps:
-      - backend: get_proactive_messages_step
+      - backend: read_proactive_inbox_step
 
-  read_conversation:
+  send_chat_message:
     backend: base
     enable_serve: false
-    description: >-
-      Read unread completed chat rounds across the latest 100 sessions, with time, session ID and role.
-      Keep each user input with its replies, excluding tool calls and proactive messages. Return one oldest-first string,
-      prioritizing the latest 20 rounds within output limits; persist read cursors. Older rounds are omitted.
-      No new rounds returns an empty string. Consumed inputs are checkpointed during proactive rounds.
+    description: "Submit one Proactive decision for Main chat after ten continuous idle seconds. New content supersedes the older pending message; empty content withdraws it."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        max_turns: {type: integer, minimum: 1, maximum: 100, default: 20}
-        max_message_chars: {type: integer, minimum: 1, maximum: 32000, default: 2000}
-        max_chars: {type: integer, minimum: 1, maximum: 32000, default: 20000, description: "Total output character budget"}
+        content: {type: string, maxLength: 200, description: "At most 200 characters; empty withdraws pending content."}
+        kind: {type: string, enum: [normal, morning, midday, evening], default: normal, description: "Greeting kinds require this round's matching hint"}
+      required: [content]
     steps:
-      - backend: read_conversation_step
+      - backend: send_chat_message_step
 
-  send_reminder:
+  send_chat_message_immediate:
     backend: base
     enable_serve: false
-    description: "Only during query_reminder: submit a reminder for immediate injection or background delivery after 10 idle seconds. Empty content withdraws pending content."
+    description: "Publish a temporary task's result to Main chat immediately. Saves the result before delivery; quiet settings govern voice."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        content: {type: string, maxLength: 200, description: "Brief conversational reminder; empty string withdraws pending content and skips sending"}
-        kind: {type: string, enum: [normal, morning, midday, evening], description: "Use a special kind only with this round's matching hint; evening closes proactive communication until the next opening"}
-      required: [content, kind]
+        content: {type: string, minLength: 1, maxLength: 3980, description: "Concise task result with necessary links and actual limitations."}
+      required: [content]
     steps:
-      - backend: send_reminder_step
+      - backend: send_chat_message_immediate_step
 
-  get_reminder:
+  get_chat_messages:
     backend: base
     enable_serve: false
-    description: "Read each reminder's latest pending/sent/discarded/failed state, newest creation first; read-only. Defaults to the latest 10."
+    description: "Read injected messages with their complete content and latest delivery states, newest first; does not consume records or return full chat history."
     parameters:
       type: object
       additionalProperties: false
@@ -237,7 +252,59 @@ jobs:
         limit: {type: integer, minimum: 1, maximum: 100, default: 10}
         offset: {type: integer, minimum: 0, default: 0, description: "Skip this many records from the current end"}
     steps:
-      - backend: get_reminder_step
+      - backend: get_chat_messages_step
+
+  manage_temp_proactive_agent:
+    backend: base
+    enable_serve: false
+    description: "List, create, update, pause, resume or cancel one-shot Main tasks. List returns items and total, including task IDs and states. Create requires query; update/pause/resume/cancel require task_id. Preparation forks Main after the current turn."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [list, create, update, pause, resume, cancel]}
+        task_id: {type: string, minLength: 1, description: "Required for update/pause/resume/cancel; use an ID returned by list or create"}
+        query: {type: string, minLength: 1, description: "Required for create; optional for update"}
+        run_at: {type: string, format: date-time, description: "Create/update only; timezone-aware, mutually exclusive with delay_minutes"}
+        delay_minutes: {type: number, minimum: 0, description: "Delay in minutes, including fractions (0.5 = 30 seconds); create/update only; create omitting time starts immediately"}
+        request_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "Create only; optional stable idempotency key"}
+      required: [action]
+    steps:
+      - backend: manage_temp_proactive_agent_step
+
+  proactive_inbox_view:
+    backend: base
+    description: "Read-only Desktop view of Proactive task results and instructions; never consumes inputs."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [list, read], default: list}
+        kind: {type: string, enum: [all, task_result, instruction], default: all}
+        filter: {type: string, enum: [all, pending, unread], default: all}
+        task_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$"}
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+        entry_id: {type: string, minLength: 1, maxLength: 8192}
+    steps:
+      - backend: proactive_inbox_view_step
+
+  task_results:
+    backend: base
+    description: "Browse published task results or read one with an explicit user-read receipt; independent of Proactive consumption."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [list, read], default: list}
+        task_id: {type: string, minLength: 1}
+        unread: {type: boolean, default: false}
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 50}
+        path: {type: string, minLength: 1}
+        mark_read: {type: boolean, default: false}
+    steps:
+      - backend: task_results_step
 
   pa_chat:
     backend: stream
@@ -252,7 +319,7 @@ jobs:
       - &pa_options
         backend: pa_chat_step
         agent_wrapper: default
-        job_tools: [screen_capture, check_json, send_to_proactive]
+        job_tools: [screen_capture, check_json, write_proactive_inbox, manage_temp_proactive_agent]
 
   pa_events:
     backend: stream
@@ -288,6 +355,19 @@ jobs:
     steps:
       - <<: *pa_options
         backend: pa_new_session_step
+
+  pa_select_session:
+    backend: base
+    description: "Select an existing source Main conversation while chat is idle."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        session_id: {type: string, minLength: 1}
+      required: [session_id]
+    steps:
+      - backend: pa_select_session_step
+        agent_wrapper: default
 
   session_read:
     backend: base
@@ -464,7 +544,7 @@ components:
       model: qwen-audio-3.1-tts-plus
       voice: longanhuan_v3.1
       parameters:
-        instruction: "请用甜美、轻盈、软萌的少女女声朗读，语气亲切、活泼自然，吐字清晰，避免夸张。"
+        instruction: "请用甜美、轻盈、软萌的少女女声朗读。"
       audio_format: mp3
       sample_rate: 22050
       timeout: 60

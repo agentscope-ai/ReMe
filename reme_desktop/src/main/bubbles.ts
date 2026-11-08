@@ -14,7 +14,7 @@ interface Candidate {
 /** One reminder, with time counted only while visible and confirmed by the renderer. */
 export class BubbleQueue {
   active: Reminder | null = null;
-  private waiting: Candidate | null = null;
+  private waiting: Candidate[] = [];
   private remaining = 0;
   private confirmation = 0;
   private confirmed = false;
@@ -30,17 +30,25 @@ export class BubbleQueue {
   constructor(
     readonly cooldownMs = 10 * 60_000,
     private readonly onSuperseded: (id: string) => void = () => {},
+    private readonly maxPerHour = 3,
+    private readonly coalesce = true,
   ) {}
 
   offer(candidate: Candidate): void {
-    if (candidate.id === this.active?.id || candidate.id === this.waiting?.id)
+    if (
+      candidate.id === this.active?.id ||
+      this.waiting.some((item) => item.id === candidate.id)
+    )
       return;
-    if (this.waiting?.snoozed && !candidate.snoozed) {
-      this.onSuperseded(candidate.id);
-      return;
+    if (this.coalesce) {
+      if (this.waiting[0]?.snoozed && !candidate.snoozed) {
+        this.onSuperseded(candidate.id);
+        return;
+      }
+      for (const item of this.waiting) this.onSuperseded(item.id);
+      this.waiting = [];
     }
-    if (this.waiting) this.onSuperseded(this.waiting.id);
-    this.waiting = candidate;
+    this.waiting.push(candidate);
   }
 
   private advance(now: number): void {
@@ -81,12 +89,17 @@ export class BubbleQueue {
 
   dismiss(id: string): void {
     if (this.active?.id === id) this.active = null;
-    if (this.waiting?.id === id) this.waiting = null;
+    this.waiting = this.waiting.filter((item) => item.id !== id);
+  }
+
+  retain(ids: Set<string>): void {
+    if (this.active && !ids.has(this.active.id)) this.active = null;
+    this.waiting = this.waiting.filter((item) => ids.has(item.id));
   }
 
   clear(): void {
     this.active = null;
-    this.waiting = null;
+    this.waiting = [];
     this.visible = false;
     this.retryAt = 0;
     this.speaking = false;
@@ -95,7 +108,8 @@ export class BubbleQueue {
   tick(now: number, blocked: boolean): Reminder | null {
     this.advance(now);
     if (this.active && !this.confirmed && this.confirmation <= 0) {
-      this.waiting ??= { id: this.active.id, text: this.active.text };
+      if (!this.coalesce || !this.waiting.length)
+        this.waiting.unshift({ id: this.active.id, text: this.active.text });
       this.active = null;
       this.retryAt = now + 30_000;
     }
@@ -110,13 +124,13 @@ export class BubbleQueue {
     if (
       !blocked &&
       !this.active &&
-      this.waiting &&
+      this.waiting.length > 0 &&
       now >= this.retryAt &&
-      (this.waiting.snoozed ||
-        (now - this.lastShown >= this.cooldownMs && this.shown.length < 3))
+      (this.waiting[0].snoozed ||
+        (now - this.lastShown >= this.cooldownMs &&
+          this.shown.length < this.maxPerHour))
     ) {
-      const candidate = this.waiting;
-      this.waiting = null;
+      const candidate = this.waiting.shift()!;
       this.remaining = Math.max(
         8_000,
         Math.min(15_000, 4_000 + [...candidate.text].length * 100),

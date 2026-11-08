@@ -52,7 +52,7 @@ class ActivityTracker:
         if phase in {"thinking", "working"} and tool is not None:
             phase = (
                 "remembering"
-                if any(word in tool.lower() for word in ("memory", "conversation", "recall"))
+                if any(word in tool.lower() for word in ("memory", "conversation", "recall", "read_proactive_inbox"))
                 else "working"
             )
         if phase in {"completed", "failed", "interrupted"}:

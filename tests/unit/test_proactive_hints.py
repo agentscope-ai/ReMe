@@ -30,22 +30,34 @@ def model(env, monkeypatch, *, content="", advance=None):
     monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _step: env.now[0])
 
     async def reply(query, **kwargs):
+        if kwargs.get("fork_session") and kwargs.get("resume") == env.runtime.session_id:
+            return {"session_id": "context-fork", "status": "completed", "result": "Main context"}
         calls.append(query)
-        stage = (len(calls) - 1) % 7 + 1
-        if stage == 3 and advance is not None:
+        phase = env.runtime.current_round.phase
+        if phase == "query_history" and advance is not None:
             env.now[0] = advance
-        if stage == 5:
+        if phase == "query_message":
             bound = kwargs["injected_job_kwargs"]
-            await env.runtime.send_reminder(
+            await env.runtime.send_chat_message(
                 content,
                 kind="normal",
                 round_id=bound["pa_round_id"],
                 session_id=bound["session_id"],
             )
-        return {"session_id": "agent-hints", "status": "completed", "result": f"stage {stage}"}
+        return {"session_id": "agent-hints", "status": "completed", "result": f"completed {phase}"}
 
     env.agent.reply = AsyncMock(side_effect=reply)
     return calls
+
+
+def hint_positions(env, calls):
+    step = ProactiveAgentStep(app_context=env.context)
+    directions = [
+        step.get_prompt(f"hint_{period}_{index}")
+        for period in ("morning", "midday", "evening")
+        for index in range(1, 7)
+    ]
+    return [index for index, query in enumerate(calls) if any(direction in query for direction in directions)]
 
 
 def test_hints_default_on_and_probability_is_explicit():
@@ -219,8 +231,8 @@ async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence
     calls = model(env, monkeypatch)
     response = await ProactiveAgentStep(app_context=env.context)()
     assert len(calls) == 7
-    assert [index for index, query in enumerate(calls) if "本轮可选交流方向" in query] == [4]
-    hint = calls[4].split("本轮可选交流方向", 1)[1]
+    assert hint_positions(env, calls) == [4]
+    hint = ProactiveAgentStep(app_context=env.context).get_prompt(response.metadata["proactive_hint"])
     assert "午间招呼" in hint and "早安" not in hint and "晚安" not in hint
     assert response.metadata["proactive_hint"] == "hint_midday_1"
     assert response.answer["status"] == "skipped"
@@ -234,14 +246,18 @@ async def test_disabled_round_still_delivers_normal_information_and_reads_hot_co
     env.runtime._write_json(env.runtime.proactive_config_path, settings.model_dump())
     calls = model(env, monkeypatch, content="正常的新发现")
     first = await ProactiveAgentStep(app_context=env.context)()
-    assert first.answer["sent"] and not any("本轮可选交流方向" in query for query in calls)
+    assert first.answer["status"] == "pending" and hint_positions(env, calls) == []
+    env.agent.append_session.assert_not_awaited()
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
+    env.agent.append_session.assert_awaited_once()
     assert not env.runtime._metadata_file("hint_state.json").exists()
     env.runtime._write_json(
         env.runtime.proactive_config_path,
         config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     second = await ProactiveAgentStep(app_context=env.context)()
-    assert "proactive_hint" in second.metadata and "本轮可选交流方向" in calls[11]
+    assert "proactive_hint" in second.metadata and hint_positions(env, calls) == [11]
 
 
 @pytest.mark.asyncio
@@ -266,8 +282,12 @@ async def test_invalid_hint_state_is_preserved_without_blocking_normal_delivery(
     path.write_text(content)
     calls = model(env, monkeypatch, content="仍然传递有用信息")
     response = await ProactiveAgentStep(app_context=env.context)()
-    assert response.answer["sent"] and "proactive_hint" not in response.metadata
-    assert not any("本轮可选交流方向" in query for query in calls)
+    assert response.answer["status"] == "pending" and "proactive_hint" not in response.metadata
+    env.agent.append_session.assert_not_awaited()
+    env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
+    await env.runtime.deliver_pending_reminder()
+    env.agent.append_session.assert_awaited_once()
+    assert hint_positions(env, calls) == []
     assert path.read_text() == content
 
 

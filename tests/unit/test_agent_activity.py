@@ -7,7 +7,7 @@ from reme.utils.agent_activity import ActivityTracker
 
 
 def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_changes():
-    """A native turn is not the identity of a two-query task run."""
+    """A native turn is not the identity of a three-query task run."""
     for fields in ({}, {"run_id": "run"}, {"task_id": "research"}):
         with pytest.raises(ValueError, match="requires run_id and task_id"):
             AgentActivity(session_id="s", turn_id="t", source="task", phase="thinking", **fields)
@@ -28,7 +28,7 @@ def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_change
     [
         ({"chunk_type": "think", "chunk": "reason"}, "thinking"),
         ({"chunk_type": "content", "chunk": "answer"}, "answering"),
-        ({"chunk_type": "tool_call", "tool_call_name": "read_conversation"}, "remembering"),
+        ({"chunk_type": "tool_call", "tool_call_name": "read_proactive_inbox"}, "remembering"),
         ({"chunk_type": "tool_call", "tool_call_name": "web_search"}, "working"),
         ({"chunk_type": "tool_result", "status": "running"}, "working"),
         ({"chunk_type": "tool_result", "status": "failed"}, "thinking"),

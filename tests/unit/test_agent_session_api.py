@@ -354,7 +354,7 @@ async def test_recover_publication_failure_without_reinjecting(runtime, monkeypa
     original = history.write_records
 
     def fail_commit(path, records):
-        if records[-1]["injected"]:
+        if path == server._message_path("session-1") and records[-1]["injected"]:
             raise OSError("publication interrupted")
         original(path, records)
 

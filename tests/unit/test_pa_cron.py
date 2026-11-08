@@ -1,4 +1,4 @@
-"""Independent cron schedules, two-query publication and recoverable snapshot consumption."""
+"""Independent schedules, three-query tasks and recoverable file-native results."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -15,8 +15,8 @@ from reme.components.runtime_context import RuntimeContext
 from reme.schema.pa_task import PaTask
 from reme.schema import Response
 from reme.schema.screen_capture import CapturedDisplay
-from reme.steps.proactive import TaskAgentStep, TaskScheduleStep
-from reme.steps.proactive.tools import ReadTaskResultsStep
+from reme.steps.proactive import CronAgentStep, CronScheduleStep
+from reme.steps.proactive.tools import ReadCronResultsStep
 
 
 def task(identifier="one", **overrides):
@@ -24,40 +24,56 @@ def task(identifier="one", **overrides):
 
 
 def configure(env, definitions):
-    env.runtime._write_json(env.runtime.tasks_path, definitions)
+    env.runtime._write_json(env.runtime.cron_path, definitions)
 
 
 def snapshot(env, identifier="one", time="120000", day="2026-11-08", status="unread", content="累计发现"):
-    path = env.runtime.tasks.daily_path / day / "cron" / identifier / f"{time}.md"
+    path = env.runtime.tasks.task_path(identifier) / day / f"{time}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(frontmatter.dumps(frontmatter.Post(content, task_id=identifier, status=status)))
     return path
 
 
-def stub_model(env, monkeypatch, *, content="此前总结。\n\n本次发现。", fail_at=None):
+def stub_model(
+    env,
+    monkeypatch,
+    *,
+    content="此前总结。\n\n本次发现。",
+    fail_at=None,
+    no_update=False,
+    handoff="进展与来源。\n下一步调查。",
+):
     captured = {}
     summaries = {}
-    original = TaskAgentStep.prompt_format
-    monkeypatch.setattr(TaskAgentStep, "_now", lambda _self: env.now[0])
+    original = CronAgentStep.prompt_format
+    monkeypatch.setattr(CronAgentStep, "_now", lambda _self: env.now[0])
 
     def prompt(step, name, **kwargs):
         rendered = original(step, name, **kwargs)
         if name == "query_summary":
             captured.update(kwargs)
             summaries[rendered] = kwargs
+        elif name == "query_handoff":
+            summaries[rendered] = {"handoff": True}
         return rendered
 
-    monkeypatch.setattr(TaskAgentStep, "prompt_format", prompt)
+    monkeypatch.setattr(CronAgentStep, "prompt_format", prompt)
 
-    async def reply(_query, **kwargs):
-        stage = 2 if kwargs.get("resume") else 1
+    async def reply(_query, **_kwargs):
+        handoff_query = any(_query.startswith(text) and details.get("handoff") for text, details in summaries.items())
+        stage = 3 if handoff_query else 2 if _query in summaries else 1
         if stage == fail_at:
             raise RuntimeError("provider failed")
-        if stage == 2 and content is not None:
+        if stage == 2 and content is not None and not no_update:
             path = Path(summaries[_query]["staging_path"])
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
-        return {"session_id": "task-session", "status": "completed", "result": "finished"}
+        result = handoff if stage == 3 else "NO_UPDATE" if stage == 2 and no_update else "finished"
+        return {
+            "session_id": "handoff-fork" if _kwargs.get("fork_session") else "task-session",
+            "status": "completed",
+            "result": result,
+        }
 
     env.agent.reply = AsyncMock(side_effect=reply)
     return captured
@@ -82,38 +98,56 @@ def test_definition_loading_preserves_user_files_and_rejects_duplicates(pa_works
     env.runtime.tasks.initialize()
     assert env.runtime.tasks.load() == []
     configure(env, [task(), task()])
-    original = env.runtime.tasks_path.read_bytes()
+    original = env.runtime.cron_path.read_bytes()
     with pytest.raises(ValueError, match="duplicate"):
         env.runtime.tasks.load()
-    assert env.runtime.tasks_path.read_bytes() == original
+    assert env.runtime.cron_path.read_bytes() == original
 
 
 @pytest.mark.asyncio
-async def test_two_queries_share_session_and_publish_latest_cross_day_summary(pa_workspace, monkeypatch):
+@pytest.mark.parametrize("language", ["en", "zh"])
+async def test_task_summary_and_handoff_share_session_with_loaded_memory(pa_workspace, monkeypatch, language):
     env = pa_workspace
     env.context.app_config.daily_dir = "notes"
+    memory_path = env.runtime.workspace_path / "notes/personal/MEMORY.md"
+    memory_path.parent.mkdir(parents=True)
+    memory = "# 当前偏好\n只关注有来源的新信息，保留 {原始内容}。\n"
+    memory_path.write_text(memory, encoding="utf-8")
     old = snapshot(env, day="2026-11-07", time="235900", status="read")
     newer = snapshot(env, time="110000")
+    env.runtime.tasks.handoff_path("one").write_text("上次查到的来源和待确认事项。", encoding="utf-8")
     captured = stub_model(env, monkeypatch)
-    result = await TaskAgentStep(app_context=env.context, job_tools=["screen_capture"])(task=task())
+    result = await CronAgentStep(app_context=env.context, language=language, job_tools=["screen_capture"])(task=task())
     calls = env.agent.reply.await_args_list
-    assert len(calls) == 2 and calls[0].args[0] == task()["query"]
+    assert len(calls) == 3 and calls[0].args[0] == task()["query"]
     assert "resume" not in calls[0].kwargs and calls[1].kwargs["resume"] == "task-session"
+    assert all(call.kwargs["resume"] == "task-session" for call in calls[1:])
+    assert all(not call.kwargs.get("fork_session") for call in calls)
     assert all(call.kwargs["job_tools"] == ["screen_capture"] for call in calls)
+    prompt = calls[0].kwargs["system_prompt"]
+    assert memory in prompt and "上次查到的来源和待确认事项。" in prompt
+    assert str(env.runtime.tasks.recovery_path("one")) not in prompt
+    assert all(call.kwargs["system_prompt"] == prompt for call in calls)
+    assert memory_path.read_text(encoding="utf-8") == memory
     assert all(call.kwargs["activity_source"] == "task" for call in calls)
     assert calls[0].kwargs["activity_run_id"] == calls[1].kwargs["activity_run_id"]
     assert all(call.kwargs["activity_task_id"] == "one" for call in calls)
     assert captured["previous_paths"].splitlines() == [str(newer), str(old)]
     path = env.runtime.workspace_path / result.answer["path"]
-    assert path == env.runtime.tasks.daily_path / "2026-11-08/cron/one/120000.md"
+    assert path == env.runtime.tasks.task_path("one") / "2026-11-08/120000.md"
     post = frontmatter.load(path)
     assert post["status"] == "unread" and post["task_id"] == "one" and "本次发现" in post.content
     assert frontmatter.load(newer)["status"] == "unread"
+    assert post["user_read_at"] is None
+    handoff = frontmatter.load(env.runtime.tasks.handoff_path("one"))
+    assert handoff["run_id"] == post["run_id"] and "下一步" in handoff.content
+    assert not env.runtime.tasks.recovery_path("one").exists()
     assert not list(env.runtime.workspace_path.glob(".reme-task-*"))
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert [row["status"] for row in rows] == ["running", "succeeded"]
     assert rows[0]["run_id"] == rows[1]["run_id"] == post["run_id"]
     assert rows[1]["result_path"] == result.answer["path"]
+    assert rows[1]["agent_session_id"] == "task-session"
 
 
 @pytest.mark.asyncio
@@ -125,10 +159,10 @@ async def test_failed_tasks_never_publish_unread_documents(pa_workspace, monkeyp
     env = pa_workspace
     stub_model(env, monkeypatch, content=content, fail_at=fail_at)
     with pytest.raises((ValueError, OSError, RuntimeError)):
-        await TaskAgentStep(app_context=env.context)(task=task())
+        await CronAgentStep(app_context=env.context)(task=task())
     assert not env.runtime.tasks.paths("one")
     assert not list(env.runtime.workspace_path.glob(".reme-task-*"))
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "failed" and rows[-1]["error"]
 
 
@@ -138,9 +172,10 @@ async def test_existing_snapshot_is_never_overwritten(pa_workspace, monkeypatch)
     path = snapshot(env)
     original = path.read_bytes()
     stub_model(env, monkeypatch)
-    with pytest.raises(FileExistsError):
-        await TaskAgentStep(app_context=env.context)(task=task())
-    assert path.read_bytes() == original and env.agent.reply.await_count == 1
+    result = await CronAgentStep(app_context=env.context)(task=task())
+    assert path.read_bytes() == original and env.agent.reply.await_count == 3
+    assert result.answer["path"] != env.runtime.to_workspace_relative(path)
+    assert len(env.runtime.tasks.paths("one")) == 2
 
 
 @pytest.mark.asyncio
@@ -157,7 +192,7 @@ async def test_final_record_failure_clears_live_task_activity(pa_workspace, monk
 
     monkeypatch.setattr(env.runtime.tasks, "record", fail_final)
     with pytest.raises(OSError, match="disk full"):
-        await TaskAgentStep(app_context=env.context)(task=task())
+        await CronAgentStep(app_context=env.context)(task=task())
     assert env.runtime._task_activities == {}
 
 
@@ -172,13 +207,13 @@ async def test_task_cancellation_records_interruption(pa_workspace):
         await asyncio.Event().wait()
 
     env.agent.reply = AsyncMock(side_effect=reply)
-    pending = asyncio.create_task(TaskAgentStep(app_context=env.context)(task=task()))
+    pending = asyncio.create_task(CronAgentStep(app_context=env.context)(task=task()))
     await entered.wait()
     assert len(env.runtime._task_activities) == 1
     pending.cancel()
     with pytest.raises(asyncio.CancelledError):
         await pending
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "interrupted" and not env.runtime.tasks.paths("one")
     assert env.runtime._task_activities == {}
 
@@ -192,7 +227,7 @@ async def test_consume_latest_three_per_task_checkpoints_then_marks_older_supers
     paused = snapshot(env, identifier="two")
     deleted = snapshot(env, identifier="deleted")
     async with env.runtime.proactive_round() as current:
-        result = await ReadTaskResultsStep(app_context=env.context)(pa_round_id=current.id)
+        result = await ReadCronResultsStep(app_context=env.context)(pa_round_id=current.id)
     assert len(result.answer) == 4
     assert [row["path"] for row in result.answer[:3]] == [
         env.runtime.to_workspace_relative(path) for path in reversed(selected)
@@ -241,20 +276,20 @@ async def test_read_requires_live_round_and_permissions(pa_workspace):
     configure(env, [task()])
     path = snapshot(env)
     with pytest.raises(RuntimeError, match="live proactive"):
-        await ReadTaskResultsStep(app_context=env.context)(pa_round_id="fake")
+        await ReadCronResultsStep(app_context=env.context)(pa_round_id="fake")
     async with env.runtime.proactive_round() as current:
         with pytest.raises(PermissionError):
-            await ReadTaskResultsStep(app_context=env.context)(pa_round_id=current.id, _allowed_paths=[])
+            await ReadCronResultsStep(app_context=env.context)(pa_round_id=current.id, _allowed_paths=[])
     assert frontmatter.load(path)["status"] == "unread"
 
 
-@pytest.mark.parametrize("kind", ["daily", "date", "task", "file"])
+@pytest.mark.parametrize("kind", ["root", "date", "task", "file"])
 def test_result_symlinks_fail_closed(pa_workspace, tmp_path, kind):
     env = pa_workspace
     external = tmp_path / "external"
     external.mkdir()
-    path = env.runtime.tasks.daily_path / "2026-11-08/cron/one/120000.md"
-    part = {"daily": env.runtime.tasks.daily_path, "date": path.parents[2], "task": path.parent, "file": path}[kind]
+    path = env.runtime.tasks.task_path("one") / "2026-11-08/120000.md"
+    part = {"root": env.runtime.tasks.root_path, "date": path.parent, "task": path.parent.parent, "file": path}[kind]
     part.parent.mkdir(parents=True, exist_ok=True)
     part.symlink_to(external if kind != "file" else external / "note.md", target_is_directory=kind != "file")
     if kind == "file":
@@ -267,7 +302,7 @@ def test_result_symlinks_fail_closed(pa_workspace, tmp_path, kind):
 async def test_scheduler_reconciles_edits_and_keeps_valid_schedule_on_invalid_json(pa_workspace, monkeypatch):
     env = pa_workspace
     configure(env, [task()])
-    env.context.jobs["task_agent"] = BaseJob(app_context=env.context, steps=[{"backend": "task_agent_step"}])
+    env.context.jobs["cron_agent"] = BaseJob(app_context=env.context, steps=[{"backend": "cron_agent_step"}])
     created = []
 
     class ObservedCron(CronJob):
@@ -277,13 +312,13 @@ async def test_scheduler_reconciles_edits_and_keeps_valid_schedule_on_invalid_js
             await super()._start()
             created.append(self)
 
-    monkeypatch.setattr("reme.steps.proactive.task_schedule.CronJob", ObservedCron)
+    monkeypatch.setattr("reme.steps.proactive.cron_schedule.CronJob", ObservedCron)
     stop = asyncio.Event()
-    pending = asyncio.create_task(TaskScheduleStep(app_context=env.context)(RuntimeContext(stop_event=stop)))
+    pending = asyncio.create_task(CronScheduleStep(app_context=env.context)(RuntimeContext(stop_event=stop)))
     try:
         await wait_until(lambda: len(created) == 1)
         first = created[0]
-        env.runtime.tasks_path.write_text("[")
+        env.runtime.cron_path.write_text("[")
         await asyncio.sleep(1.05)
         assert first.is_started and len(created) == 1
         configure(env, [task(query="新需求", cron="0 * * * *"), task("two")])
@@ -309,9 +344,9 @@ async def test_real_cron_can_opt_out_of_active_hours_and_closes_on_cancellation(
     )
     configure(env, [task(), task("two")])
     stub_model(env, monkeypatch)
-    env.context.jobs["task_agent"] = BaseJob(
+    env.context.jobs["cron_agent"] = BaseJob(
         app_context=env.context,
-        steps=[{"backend": "task_agent_step", "job_tools": ["screen_capture"]}],
+        steps=[{"backend": "cron_agent_step", "job_tools": ["screen_capture"]}],
     )
     fired = set()
     jobs = []
@@ -326,13 +361,13 @@ async def test_real_cron_can_opt_out_of_active_hours_and_closes_on_cancellation(
                 return 0.001
             return 3600
 
-    monkeypatch.setattr("reme.steps.proactive.task_schedule.CronJob", OnceCron)
+    monkeypatch.setattr("reme.steps.proactive.cron_schedule.CronJob", OnceCron)
     pending = asyncio.create_task(
-        TaskScheduleStep(app_context=env.context)(RuntimeContext(stop_event=asyncio.Event())),
+        CronScheduleStep(app_context=env.context)(RuntimeContext(stop_event=asyncio.Event())),
     )
     try:
-        await wait_until(lambda: len(list(env.runtime.tasks.daily_path.glob("*/cron/*/*.md"))) == 2)
-        assert env.agent.reply.await_count == 4
+        await wait_until(lambda: len(list(env.runtime.tasks.root_path.glob("*/*/*.md"))) == 2)
+        await wait_until(lambda: env.agent.reply.await_count == 6)
         assert len(jobs) == 2 and all(job.is_started for job in jobs)
     finally:
         pending.cancel()
@@ -357,9 +392,11 @@ async def test_result_tool_returns_paths_and_keeps_full_recovery_inputs(pa_works
 async def test_publication_rejects_a_summary_that_exceeds_limit_after_metadata(pa_workspace, monkeypatch):
     env = pa_workspace
     monkeypatch.setattr("reme.components._pa_tasks.DEFAULT_MAX_FILE_BYTES", 512)
-    stub_model(env, monkeypatch, content="x" * 512)
+    staging = env.runtime.workspace_path / "summary.md"
+    staging.write_text("x" * 512)
+    target = env.runtime.tasks.task_path("one") / "2026-11-08/120000.md"
     with pytest.raises(ValueError, match="read limit"):
-        await TaskAgentStep(app_context=env.context)(task=task())
+        await env.runtime.tasks.publish(staging, target, "one", "run")
     assert not env.runtime.tasks.paths("one")
 
 
@@ -367,7 +404,7 @@ async def test_publication_rejects_a_summary_that_exceeds_limit_after_metadata(p
 async def test_scheduler_closes_remaining_jobs_after_one_close_fails(pa_workspace, monkeypatch):
     env = pa_workspace
     configure(env, [task(), task("two")])
-    env.context.jobs["task_agent"] = BaseJob(app_context=env.context, steps=[{"backend": "task_agent_step"}])
+    env.context.jobs["cron_agent"] = BaseJob(app_context=env.context, steps=[{"backend": "cron_agent_step"}])
     jobs = []
 
     class FailingCloseCron(CronJob):
@@ -379,12 +416,12 @@ async def test_scheduler_closes_remaining_jobs_after_one_close_fails(pa_workspac
 
         async def close(self):
             await super().close()
-            if self.name == "task_one":
+            if self.name == "cron_one":
                 raise RuntimeError("close failed")
 
-    monkeypatch.setattr("reme.steps.proactive.task_schedule.CronJob", FailingCloseCron)
+    monkeypatch.setattr("reme.steps.proactive.cron_schedule.CronJob", FailingCloseCron)
     stop = asyncio.Event()
-    pending = asyncio.create_task(TaskScheduleStep(app_context=env.context)(RuntimeContext(stop_event=stop)))
+    pending = asyncio.create_task(CronScheduleStep(app_context=env.context)(RuntimeContext(stop_event=stop)))
     try:
         await wait_until(lambda: len(jobs) == 2)
         stop.set()
@@ -404,9 +441,9 @@ async def test_stopped_task_does_not_start_a_model_turn(pa_workspace):
     stop.set()
     env.agent.reply = AsyncMock()
     with pytest.raises(asyncio.CancelledError):
-        await TaskAgentStep(app_context=env.context)(RuntimeContext(stop_event=stop), task=task())
+        await CronAgentStep(app_context=env.context)(RuntimeContext(stop_event=stop), task=task())
     env.agent.reply.assert_not_awaited()
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "interrupted"
 
 
@@ -433,11 +470,11 @@ async def test_unchanged_screen_preflight_skips_both_model_queries_and_unread_su
     env.agent.reply = AsyncMock()
     capture = AsyncMock(return_value=Response(answer={"context": "与上次一致", "paths": []}))
     env.context.jobs["screen_capture"] = capture
-    result = await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    result = await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
     assert result.answer == {"task_id": "one", "status": "skipped", "reason": "screen_unchanged"}
     env.agent.reply.assert_not_awaited()
     assert not env.runtime.tasks.paths("one")
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert [row["status"] for row in rows] == ["running", "skipped"]
     assert rows[-1]["reason"] == "screen_unchanged"
 
@@ -450,7 +487,7 @@ async def test_changed_preflight_keeps_original_query_and_reuses_normal_tool_res
     capture = AsyncMock(return_value=Response(answer=payload, metadata={"screen_capture": [frame]}))
     env.context.jobs["screen_capture"] = capture
     stub_model(env, monkeypatch)
-    result = await TaskAgentStep(app_context=env.context, job_tools=["screen_capture"])(
+    result = await CronAgentStep(app_context=env.context, job_tools=["screen_capture"])(
         task=task(preflight="screen_capture"),
     )
     calls = env.agent.reply.await_args_list
@@ -479,7 +516,7 @@ async def test_model_failure_keeps_previous_successful_screen_baseline(pa_worksp
     )
     stub_model(env, monkeypatch, fail_at=1)
     with pytest.raises(RuntimeError, match="provider failed"):
-        await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+        await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
     assert previous.read_bytes() == before
     assert env.runtime.tasks.screen_baseline("one") == [old]
     assert env.context.jobs["screen_capture"].await_args.kwargs["_screen_baseline"] == [old]
@@ -491,7 +528,171 @@ async def test_screen_capture_failure_is_not_misreported_as_unchanged(pa_workspa
     env.agent.reply = AsyncMock()
     env.context.jobs["screen_capture"] = AsyncMock(return_value=Response(success=False, answer="capture timed out"))
     with pytest.raises(RuntimeError, match="timed out"):
-        await TaskAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+        await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
     env.agent.reply.assert_not_awaited()
-    rows = [json.loads(line) for line in env.runtime.task_runs_path.read_text().splitlines()]
+    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
     assert rows[-1]["status"] == "failed" and rows[-1]["reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_no_update_keeps_handoff_and_advances_successful_screen_baseline(pa_workspace, monkeypatch):
+    env = pa_workspace
+    frame = captured_frame(env)
+    env.context.jobs["screen_capture"] = AsyncMock(
+        return_value=Response(
+            answer={"context": "changed", "paths": [frame["path"]]},
+            metadata={"screen_capture": [frame]},
+        ),
+    )
+    stub_model(env, monkeypatch, no_update=True)
+    result = await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    assert result.answer["status"] == "succeeded" and result.answer["path"] is None
+    assert result.answer["reason"] == "no_new_information"
+    assert env.agent.reply.await_count == 3 and not env.runtime.tasks.paths("one")
+    assert env.runtime.tasks.screen_baseline("one") == [frame]
+    assert env.runtime.tasks.handoff("one").content and not env.runtime.tasks.recovery_path("one").exists()
+
+
+@pytest.mark.asyncio
+async def test_handoff_failure_recovers_without_republishing_or_consumption_reset(pa_workspace, monkeypatch):
+    env = pa_workspace
+    configure(env, [task()])
+    stub_model(env, monkeypatch, fail_at=3)
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    path = env.runtime.tasks.paths("one")[0]
+    run_id = frontmatter.load(path)["run_id"]
+    await env.runtime.tasks.consume(3, "proactive-round")
+    original = path.read_bytes()
+    stub_model(env, monkeypatch)
+    result = await CronAgentStep(app_context=env.context)(task=task())
+    env.agent.reply.assert_awaited_once()
+    assert env.agent.reply.await_args.kwargs["resume"] == "task-session"
+    assert result.answer["path"] == env.runtime.to_workspace_relative(path)
+    assert env.runtime.tasks.handoff("one")["run_id"] == run_id
+    assert path.read_bytes() == original and len(env.runtime.tasks.paths("one")) == 1
+    assert not env.runtime.tasks.recovery_path("one").exists()
+
+
+@pytest.mark.asyncio
+async def test_summary_failure_recovers_original_query_context(pa_workspace, monkeypatch):
+    env = pa_workspace
+    stub_model(env, monkeypatch, fail_at=2)
+    with pytest.raises(RuntimeError, match="provider failed"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    first = env.agent.reply
+    memory = "主人最新纠正：只关注已经核实的新消息。\n"
+    (env.runtime.workspace_path / "daily/personal/MEMORY.md").write_text(memory, encoding="utf-8")
+    stub_model(env, monkeypatch)
+    await CronAgentStep(app_context=env.context)(task=task())
+    assert first.await_count == 2 and env.agent.reply.await_count == 2
+    assert all(call.args[0] != task()["query"] for call in env.agent.reply.await_args_list)
+    assert all(call.kwargs["resume"] == "task-session" for call in env.agent.reply.await_args_list)
+    assert all(not call.kwargs.get("fork_session") for call in env.agent.reply.await_args_list)
+    assert all(memory in call.kwargs["system_prompt"] for call in env.agent.reply.await_args_list)
+    assert all(
+        str(env.runtime.tasks.recovery_path("one")) not in call.kwargs["system_prompt"]
+        for call in env.agent.reply.await_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_recovery_handles_crash_between_publication_and_phase_checkpoint(pa_workspace, monkeypatch):
+    env = pa_workspace
+    stub_model(env, monkeypatch)
+    checkpoint = env.runtime.tasks.checkpoint
+
+    async def fail_handoff(saved):
+        if saved.run.phase == "handoff":
+            raise OSError("checkpoint failed")
+        await checkpoint(saved)
+
+    monkeypatch.setattr(env.runtime.tasks, "checkpoint", fail_handoff)
+    with pytest.raises(OSError, match="checkpoint failed"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    path = env.runtime.tasks.paths("one")[0]
+    original = path.read_bytes()
+    monkeypatch.setattr(env.runtime.tasks, "checkpoint", checkpoint)
+    stub_model(env, monkeypatch)
+    await CronAgentStep(app_context=env.context)(task=task())
+    env.agent.reply.assert_awaited_once()
+    assert path.read_bytes() == original and len(env.runtime.tasks.paths("one")) == 1
+
+
+@pytest.mark.asyncio
+async def test_saved_handoff_recovers_without_another_model_call(pa_workspace, monkeypatch):
+    env = pa_workspace
+    stub_model(env, monkeypatch)
+    clear = env.runtime.tasks.clear_recovery
+    monkeypatch.setattr(env.runtime.tasks, "clear_recovery", AsyncMock(side_effect=OSError("cleanup failed")))
+    with pytest.raises(OSError, match="cleanup failed"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    previous = env.runtime.tasks.handoff_path("one").read_bytes()
+    monkeypatch.setattr(env.runtime.tasks, "clear_recovery", clear)
+    env.agent.reply = AsyncMock()
+    result = await CronAgentStep(app_context=env.context)(task=task())
+    env.agent.reply.assert_not_awaited()
+    assert result.answer["status"] == "succeeded"
+    assert env.runtime.tasks.handoff_path("one").read_bytes() == previous
+
+
+@pytest.mark.asyncio
+async def test_new_task_definition_does_not_resume_old_failed_query(pa_workspace, monkeypatch):
+    env = pa_workspace
+    stub_model(env, monkeypatch, fail_at=2)
+    with pytest.raises(RuntimeError):
+        await CronAgentStep(app_context=env.context)(task=task())
+    stub_model(env, monkeypatch)
+    await CronAgentStep(app_context=env.context)(task=task(query="主人修改后的任务"))
+    assert env.agent.reply.await_args_list[0].args[0] == "主人修改后的任务"
+    assert "resume" not in env.agent.reply.await_args_list[0].kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("filename", ["handoff.md", "recovery.json"])
+async def test_task_private_files_reject_symlinks_before_model_calls(pa_workspace, monkeypatch, filename):
+    env = pa_workspace
+    root = env.runtime.tasks.task_path("one")
+    root.mkdir(parents=True)
+    target = env.runtime.workspace_path / "private.txt"
+    target.write_text("secret")
+    (root / filename).symlink_to(target)
+    stub_model(env, monkeypatch)
+    with pytest.raises(ValueError, match="without symlinks"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    env.agent.reply.assert_not_awaited()
+    assert target.read_text() == "secret"
+
+
+@pytest.mark.asyncio
+async def test_no_update_marker_cannot_hide_a_written_result(pa_workspace, monkeypatch):
+    env = pa_workspace
+    stub_model(env, monkeypatch)
+    original = env.agent.reply.side_effect
+    count = 0
+
+    async def reply(*args, **kwargs):
+        nonlocal count
+        count += 1
+        result = await original(*args, **kwargs)
+        if count == 2:
+            result["result"] = "NO_UPDATE"
+        return result
+
+    env.agent.reply.side_effect = reply
+    with pytest.raises(ValueError, match="must not accompany"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    assert not env.runtime.tasks.paths("one")
+
+
+@pytest.mark.asyncio
+async def test_empty_handoff_preserves_previous_handoff_and_published_result(pa_workspace, monkeypatch):
+    env = pa_workspace
+    path = env.runtime.tasks.handoff_path("one")
+    path.parent.mkdir(parents=True)
+    path.write_text("上次有效交接")
+    stub_model(env, monkeypatch, handoff=" ")
+    with pytest.raises(ValueError, match="nonempty"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    assert path.read_text() == "上次有效交接"
+    assert len(env.runtime.tasks.paths("one")) == 1 and env.runtime.tasks.recovery_path("one").exists()

@@ -8,5 +8,5 @@ import yaml
 def freeze(repo: Path) -> dict:
     """Capture the current localized prompts for all three agent roles."""
     folder = repo / "reme/steps/proactive"
-    files = {"pa": "pa_chat", "proactive": "proactive_agent", "task": "task_agent", "memory": "base_pa_step"}
+    files = {"pa": "pa_chat", "proactive": "proactive_agent", "cron": "cron_agent", "memory": "base_pa_step"}
     return {"current": {role: yaml.safe_load((folder / f"{name}.yaml").read_text()) for role, name in files.items()}}

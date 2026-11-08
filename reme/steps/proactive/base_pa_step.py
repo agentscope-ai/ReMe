@@ -3,7 +3,6 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from ..base_step import BaseStep, Ref
 from ..file_io._file_io import write_file_safe
@@ -19,11 +18,12 @@ class BasePaStep(BaseStep):
     pa: PaRuntime = Ref(PaRuntime, "pa")
 
     def _now(self) -> datetime:
-        timezone = self.app_context.app_config.timezone
-        return datetime.now(ZoneInfo(timezone)) if timezone else datetime.now().astimezone()
+        return self.pa._now()  # pylint: disable=protected-access
 
-    async def _reply(self, query: str, *, task: bool = False, **kwargs):
+    async def _reply(self, query: str, *, task: bool = False, immediate: bool = False, **kwargs):
         """Return None when active hours end; cancel native work at the deadline."""
+        if immediate:
+            return await self.agent_wrapper.reply(query, **kwargs)
         config = await self.pa.get_proactive_config()
         now = self._now()
         follows = not task or config.tasks_follow_active_hours
@@ -63,10 +63,13 @@ class BasePaStep(BaseStep):
             workspace_dir=self.workspace_path,
             memory_path=self._memory_path(),
             proactive_config_path=self.pa.proactive_config_path,
-            tasks_path=self.pa.tasks_path,
+            cron_path=self.pa.cron_path,
             daily_dir=self.config_value("daily_dir"),
             **details,
         )
+
+    def _handoff_prompt(self, name: str, **details) -> str:
+        return self.prompt_format(name, handoff_rules=self.get_prompt("handoff_rules"), **details)
 
     def _validate(self, *parameters: str) -> None:
         if self.app_context is None or self.agent_wrapper is None:
