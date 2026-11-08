@@ -18,6 +18,7 @@ In another terminal:
 ```bash
 cd reme_desktop
 npm ci
+npx install-electron
 npm run dev
 ```
 

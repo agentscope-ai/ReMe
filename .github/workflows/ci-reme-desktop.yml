@@ -48,6 +48,7 @@ jobs:
           cache: npm
           cache-dependency-path: reme_desktop/package-lock.json
       - run: npm ci
+      - run: npx install-electron
       - run: npm run format:check
       - run: npm test
       - run: npm run test:e2e

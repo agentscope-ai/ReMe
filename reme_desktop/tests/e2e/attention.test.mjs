@@ -16,15 +16,16 @@ test(
   async (t) => {
     const directory = await mkdtemp(path.join(tmpdir(), "reme-attention-e2e-"));
     const backend = await mockReMe();
-    const app = await electron.launch({
-      args: [project],
-      env: {
-        ...process.env,
-        REME_DESKTOP_DATA_DIR: directory,
-        REME_DESKTOP_API_URL: backend.url,
-      },
-    });
+    let app;
     try {
+      app = await electron.launch({
+        args: [project],
+        env: {
+          ...process.env,
+          REME_DESKTOP_DATA_DIR: directory,
+          REME_DESKTOP_API_URL: backend.url,
+        },
+      });
       if (app.windows().length < 2)
         await app.waitForEvent("window", {
           predicate: () => app.windows().length >= 2,
@@ -280,7 +281,7 @@ test(
         },
       );
     } finally {
-      await app.close();
+      await app?.close();
       await backend.close();
       await rm(directory, { recursive: true, force: true });
     }

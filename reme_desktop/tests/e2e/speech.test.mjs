@@ -16,16 +16,17 @@ test(
   async (t) => {
     const directory = await mkdtemp(path.join(tmpdir(), "reme-speech-e2e-"));
     const backend = await mockReMe({ speech: true });
-    const app = await electron.launch({
-      args: ["--mute-audio", project],
-      env: {
-        ...process.env,
-        REME_DESKTOP_DATA_DIR: directory,
-        REME_DESKTOP_API_URL: backend.url,
-      },
-    });
-    const errors = [];
+    let app;
     try {
+      app = await electron.launch({
+        args: ["--mute-audio", project],
+        env: {
+          ...process.env,
+          REME_DESKTOP_DATA_DIR: directory,
+          REME_DESKTOP_API_URL: backend.url,
+        },
+      });
+      const errors = [];
       if (app.windows().length < 2)
         await app.waitForEvent("window", {
           predicate: () => app.windows().length >= 2,
@@ -520,7 +521,7 @@ test(
       );
       assert.deepEqual(errors, []);
     } finally {
-      await app.close();
+      await app?.close();
       await backend.close();
       await rm(directory, { recursive: true, force: true });
     }
