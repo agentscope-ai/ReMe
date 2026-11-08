@@ -64,7 +64,7 @@ function harness(call: ReMeClient["call"] = async () => audio as never) {
   return { speech, context, commands };
 }
 
-test("narration removes markup and code, preserves Unicode, and bounds automatic speech", () => {
+test("narration removes markup and code and preserves full Unicode text in bounded parts", () => {
   assert.equal(
     narrationText(
       "## Hello **friend** [paper](https://example.com)\n```js\nsecret()\n```",
@@ -75,7 +75,7 @@ test("narration removes markup and code, preserves Unicode, and bounds automatic
   const long = "你好。🙂".repeat(400);
   assert.equal(narrationParts(long).join(""), long);
   assert.ok(narrationParts(long).every((part) => [...part].length <= 400));
-  assert.equal([...narrationParts(long, true).join("")].length, 601);
+  assert.ok([...narrationParts(long).join("")].length > 600);
 });
 
 test("recording validation rejects escapes in format, lengths, channels, rates and size", () => {
@@ -88,6 +88,29 @@ test("recording validation rejects escapes in format, lengths, channels, rates a
     assert.equal(validRecording(invalid), false, String(offset));
   }
   assert.equal(validRecording(encodeWave(new Int16Array(500_000))), false);
+});
+
+test("voice readiness has a dedicated error and stale renderer cleanup cannot disable the current host", async () => {
+  const { speech } = harness();
+  speech.rendererReady(false);
+  assert.equal(speech.state.ready, false);
+  assert.throws(
+    () => speech.beginCapture("not-ready"),
+    (error: unknown) =>
+      error instanceof Error &&
+      "key" in error &&
+      error.key === "speechNotReady",
+  );
+  speech.rendererReady(true, "old-host");
+  speech.rendererReady(true, "new-host");
+  speech.beginCapture("current");
+  speech.rendererReady(false, "old-host");
+  assert.equal(speech.state.ready, true);
+  assert.equal(speech.state.capture?.id, "current");
+  speech.rendererReady(false, "new-host");
+  assert.equal(speech.state.ready, false);
+  assert.equal(speech.state.capture, null);
+  await speech.close();
 });
 
 test("the local energy gate rejects silence and a click but retains sustained quiet audio", () => {
@@ -165,41 +188,213 @@ test("only new successful turns narrate once; snapshots, failed turns, quiet and
   await speech.close();
 });
 
-test("long manual narration advances only on ended, ignores stale reports, and reuses bounded cache", async () => {
+const longReply = () =>
+  Array.from(
+    { length: 8 },
+    (_, i) =>
+      `第${i + 1}段。` +
+      `这个段落保留自己的顺序和完整内容，数字是${i + 1}。`.repeat(12),
+  ).join("\n\n") + "\n\n最后一句必须完整读到这里。";
+const noSpace = (text: string) => text.replace(/\s+/g, "");
+const finishPart = (speech: SpeechController) => {
+  const id = speech.state.playback!.id;
+  speech.report(id, "started");
+  speech.report(id, "ended");
+};
+
+test("paragraphs, lists, decimals, versions and a long Unicode sentence survive narration", () => {
+  const source =
+    `# 研究结果\n\n- Sonnet 4.6，跌幅 12.25%，样本 1,000。\n- Opus 5.5。\n\n` +
+    "长句🙂".repeat(300);
+  const parts = narrationParts(source);
+  assert.ok(parts.every((part) => [...part].length <= 400));
+  assert.equal(noSpace(parts.join("")), noSpace(narrationText(source)));
+  for (const token of ["Sonnet 4.6", "12.25%", "1,000", "Opus 5.5"])
+    assert.ok(
+      parts.some((part) => part.includes(token)),
+      token,
+    );
+  const boundary = narrationParts(
+    "字".repeat(398) + "12.25% 版本4.7仍然完整。" + "尾".repeat(100),
+  );
+  assert.ok(boundary.some((part) => part.includes("12.25%")));
+  assert.ok(boundary.some((part) => part.includes("4.7")));
+});
+
+test("automatic long narration reaches the final sentence and cache stays reusable", async () => {
+  const requested: string[] = [];
+  const { speech, commands } = harness(async (_job, body) => {
+    requested.push((body as { text: string }).text);
+    return audio as never;
+  });
+  const source = longReply();
+  const expected = narrationParts(source);
+  speech.speak(message("long", source), "reply");
+  await flush();
+  assert.equal(speech.state.playback!.total, expected.length);
+  assert.equal(
+    requested.length,
+    3,
+    "one current block and two prefetched blocks",
+  );
+  for (let part = 1; part <= expected.length; part++) {
+    assert.equal(speech.state.playback!.part, part);
+    const id = speech.state.playback!.id;
+    speech.report(id, "ended");
+    assert.equal(
+      speech.state.playback!.part,
+      part,
+      "ended before started is ignored",
+    );
+    finishPart(speech);
+    speech.report(id, "failed");
+    assert.equal(speech.state.error, null);
+    await flush();
+  }
+  assert.equal(speech.state.playback, null);
+  assert.deepEqual(requested, expected);
+  assert.ok(requested.at(-1)!.endsWith("最后一句必须完整读到这里。"));
+  assert.equal(
+    commands.filter((item) => item.type === "speech.play").length,
+    expected.length,
+  );
+  const before = requested.length;
+  speech.speak(message("long", source));
+  await flush();
+  assert.equal(requested.length, before);
+  speech.stop();
+  speech.configure(true, true, "changed-voice");
+  speech.speak(message("long", source));
+  await flush();
+  assert.equal(requested.length, before + 3);
+  await speech.close();
+});
+
+test("synthesis is serial, primes two blocks, bounds the buffer and never plays past an unready block", async () => {
+  const pending: Array<() => void> = [];
+  let active = 0,
+    peak = 0,
+    calls = 0;
+  const { speech, commands } = harness(async (_job, _body, signal) => {
+    calls++;
+    active++;
+    peak = Math.max(peak, active);
+    return await new Promise<never>((resolve, reject) => {
+      pending.push(() => {
+        active--;
+        resolve(audio as never);
+      });
+      signal.addEventListener(
+        "abort",
+        () => {
+          active--;
+          reject(new Error("cancelled"));
+        },
+        { once: true },
+      );
+    });
+  });
+  speech.speak(message("long", longReply()));
+  await flush();
+  assert.equal(calls, 1);
+  assert.equal(commands.length, 0);
+  pending.shift()!();
+  await flush();
+  assert.equal(calls, 2);
+  assert.equal(commands.length, 0);
+  pending.shift()!();
+  await flush();
+  assert.equal(calls, 3);
+  assert.equal(
+    commands.filter((item) => item.type === "speech.play").length,
+    1,
+  );
+  assert.equal(peak, 1);
+  finishPart(speech);
+  assert.equal(speech.state.playback!.part, 2);
+  finishPart(speech);
+  const waitingId = speech.state.playback!.id;
+  assert.equal(speech.state.playback!.part, 3);
+  speech.report(waitingId, "started");
+  assert.equal(
+    speech.state.playback!.phase,
+    "loading",
+    "unsent blocks cannot acknowledge playback",
+  );
+  pending.shift()!();
+  await flush();
+  assert.equal(speech.state.playback!.part, 3);
+  assert.equal(peak, 1);
+  pending.shift()!();
+  await flush();
+  pending.shift()!();
+  await flush();
+  assert.equal(calls, 5, "the producer stops after two ready future blocks");
+  await speech.close();
+});
+
+test("prefetch failure retries once, preserves playable audio and resumes at the failed block", async () => {
+  const parts = narrationParts(longReply());
+  const requested: string[] = [];
+  let failing = true;
+  const { speech, commands } = harness(async (_job, body) => {
+    const text = (body as { text: string }).text;
+    requested.push(text);
+    if (text === parts[2] && failing)
+      throw new Error("temporary synthesis failure");
+    return audio as never;
+  });
+  speech.speak(message("long", longReply()));
+  await flush();
+  assert.equal(requested.filter((text) => text === parts[2]).length, 2);
+  assert.equal(
+    speech.state.error,
+    null,
+    "future failure does not interrupt the current block",
+  );
+  finishPart(speech);
+  finishPart(speech);
+  assert.equal(speech.state.playback!.phase, "error");
+  assert.equal(speech.state.playback!.part, 3);
+  assert.ok(speech.state.error);
+  const oldId = speech.state.playback!.id;
+  failing = false;
+  speech.retry();
+  await flush();
+  assert.equal(speech.state.playback!.part, 3);
+  speech.report(oldId, "failed");
+  assert.equal(speech.state.error, null);
+  for (let i = 2; i < parts.length; i++) {
+    finishPart(speech);
+    await flush();
+  }
+  assert.equal(speech.state.playback, null);
+  assert.equal(requested.filter((text) => text === parts[0]).length, 1);
+  assert.equal(
+    commands.filter((item) => item.type === "speech.play").length,
+    parts.length,
+  );
+  await speech.close();
+});
+
+test("a decoded-audio failure invalidates its cache and retries the same block", async () => {
   let calls = 0;
   const { speech } = harness(async () => {
     calls++;
     return audio as never;
   });
-  const long = message("long", "Sentence. ".repeat(100));
-  speech.speak(long);
+  speech.speak(message());
   await flush();
-  let id = speech.state.playback!.id;
-  assert.equal(speech.state.playback!.phase, "loading");
-  speech.report(id, "ended");
-  assert.equal(calls, 1);
-  speech.report(id, "started");
-  assert.equal(speech.state.playback!.phase, "playing");
-  speech.report(id, "ended");
-  await flush();
-  assert.equal(speech.state.playback!.part, 2);
+  const id = speech.state.playback!.id;
   speech.report(id, "failed");
-  assert.equal(speech.state.error, null);
-  while (speech.state.playback) {
-    id = speech.state.playback.id;
-    speech.report(id, "started");
-    speech.report(id, "ended");
-    await flush();
-  }
-  const before = calls;
-  speech.speak(long);
+  assert.equal(speech.state.playback!.phase, "error");
+  assert.equal(speech.state.playback!.part, 1);
+  speech.retry();
   await flush();
-  assert.equal(calls, before);
-  speech.stop();
-  speech.configure(true, true, "changed-voice");
-  speech.speak(long);
-  await flush();
-  assert.equal(calls, before + 1);
+  assert.equal(calls, 2);
+  assert.notEqual(speech.state.playback!.id, id);
+  finishPart(speech);
+  assert.equal(speech.state.playback, null);
   await speech.close();
 });
 
@@ -251,6 +446,46 @@ test("manual playback bypasses quiet mode; automatic playback stops immediately 
   await speech.close();
 });
 
+test("later automatic blocks preserve their kind and respect interruption policies", async () => {
+  for (const kind of ["reply", "reminder"] as const) {
+    for (const interruption of ["quiet", "hidden", "disabled", "turn"]) {
+      const { speech, context } = harness();
+      context.settings.voiceReminders = true;
+      speech.speak(message("long", longReply()), kind);
+      await flush();
+      finishPart(speech);
+      await flush();
+      assert.equal(speech.state.playback?.part, 2);
+      assert.equal(speech.state.playback?.kind, kind);
+      if (interruption === "quiet")
+        context.settings.quietUntil = Date.now() + 60_000;
+      else if (interruption === "hidden") context.visible = false;
+      else if (interruption === "disabled") {
+        if (kind === "reply") context.settings.voiceReplies = false;
+        else context.settings.voiceReminders = false;
+      } else
+        speech.finish({ ...completed, turn_id: "next", phase: "thinking" });
+      speech.tick();
+      assert.equal(speech.state.playback, null, `${kind}: ${interruption}`);
+      await speech.close();
+    }
+  }
+});
+
+test("explicitly resuming automatic narration becomes manual playback", async () => {
+  const { speech, context } = harness();
+  speech.speak(message("long", longReply()), "reply");
+  await flush();
+  speech.report(speech.state.playback!.id, "failed");
+  context.settings.quietUntil = Date.now() + 60_000;
+  speech.retry();
+  await flush();
+  speech.tick();
+  assert.equal(speech.state.playback?.kind, "manual");
+  assert.equal(speech.state.playback?.part, 1);
+  await speech.close();
+});
+
 test("transcription accepts only the active recording and discards late results after session reset", async () => {
   let resolve!: (value: never) => void;
   let sent: object | undefined;
@@ -282,7 +517,7 @@ test("missing capabilities degrade gracefully and invalid synthesis remains retr
   );
   speech.speak(message());
   await flush();
-  assert.equal(speech.state.playback, null);
+  assert.equal(speech.state.playback?.phase, "error");
   assert.ok(
     speech.state.error &&
       "key" in speech.state.error &&
@@ -300,7 +535,7 @@ test("unacknowledged audio and stalled capture time out instead of holding the U
   speech.speak(message());
   await flush();
   speech.tick(Date.now() + 11_000);
-  assert.equal(speech.state.playback, null);
+  assert.equal(speech.state.playback?.phase, "error");
   assert.ok(speech.state.error);
   speech.beginCapture("a");
   speech.tick(Date.now() + 61_000);

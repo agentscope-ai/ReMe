@@ -13,6 +13,7 @@ import type { ReMeClient } from "./reme-client.ts";
 export const emptySpeech = (): SpeechState => ({
   asr: false,
   tts: false,
+  ready: false,
   capture: null,
   playback: null,
   error: null,
@@ -30,13 +31,18 @@ interface Playback {
   parts: string[];
   index: number;
   deadline: number;
+  audio: Map<number, SpeechAudio>;
+  producing: boolean;
+  primed: boolean;
+  sent: boolean;
+  failure?: { index: number; error: unknown };
   turnId?: string | null;
 }
 
 /** One capture or narration at a time. Audio never enters history or state broadcasts. */
 export class SpeechController {
   state = emptySpeech();
-  private ready = false;
+  private rendererToken: string | undefined;
   private sequence = 0;
   private capture: {
     id: string;
@@ -79,8 +85,17 @@ export class SpeechController {
     this.update({ asr, tts });
   }
 
-  rendererReady(ready: boolean): void {
-    this.ready = ready;
+  rendererReady(ready: boolean, token?: string): void {
+    if (this.closed) return;
+    if (!ready && token !== undefined && token !== this.rendererToken) return;
+    if (
+      ready &&
+      this.rendererToken !== undefined &&
+      token !== this.rendererToken
+    )
+      this.cancel();
+    this.rendererToken = ready ? token : undefined;
+    this.update({ ready });
     if (!ready) this.cancel();
   }
 
@@ -139,7 +154,7 @@ export class SpeechController {
     const context = this.context();
     return (
       !this.closed &&
-      this.ready &&
+      this.state.ready &&
       context.connected &&
       context.visible &&
       context.settings.voiceEnabled &&
@@ -162,9 +177,10 @@ export class SpeechController {
       if (kind === "manual") throw new UiError("speechTtsUnavailable");
       return;
     }
-    if (this.closed || !this.ready || !this.context().connected)
+    if (this.closed || !this.context().connected)
       throw new UiError("sessionUnavailable");
-    const parts = narrationParts(message.content, kind !== "manual");
+    if (!this.state.ready) throw new UiError("speechNotReady");
+    const parts = narrationParts(message.content);
     if (!parts.length) {
       if (kind === "manual") throw new UiError("speechNoText");
       return;
@@ -176,6 +192,10 @@ export class SpeechController {
       parts,
       index: 0,
       deadline: Infinity,
+      audio: new Map(),
+      producing: false,
+      primed: false,
+      sent: false,
       turnId: message.turn_id,
     };
     this.playback = playback;
@@ -190,32 +210,125 @@ export class SpeechController {
       },
       error: null,
     });
-    this.prepare(playback);
+    this.fill(playback);
   }
 
-  private prepare(playback: Playback): void {
-    playback.deadline = Date.now() + 75_000;
-    if (this.state.playback)
-      this.update({
-        playback: {
-          ...this.state.playback,
-          id: playback.id,
-          phase: "loading",
-          part: playback.index + 1,
-        },
+  private active(playback: Playback): boolean {
+    return this.playback === playback && !playback.controller.signal.aborted;
+  }
+
+  /** A single producer fills at most two future blocks; it never owns playback order. */
+  private fill(playback: Playback): void {
+    if (!this.active(playback) || playback.producing || playback.failure)
+      return;
+    playback.producing = true;
+    const task = (async () => {
+      while (this.active(playback) && !playback.failure) {
+        const end = Math.min(
+          playback.parts.length,
+          playback.index + (playback.sent ? 3 : 2),
+        );
+        let index = playback.index;
+        while (index < end && playback.audio.has(index)) index++;
+        if (index === end) return;
+        if (!playback.sent && this.state.playback)
+          this.update({
+            playback: { ...this.state.playback, preparing: index + 1 },
+          });
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const audio = await this.loadAudio(playback, playback.parts[index]);
+            if (!this.active(playback)) return;
+            if (audio) playback.audio.set(index, audio);
+            break;
+          } catch (error) {
+            if (!this.active(playback)) return;
+            if (attempt === 1) playback.failure = { index, error };
+          }
+        }
+        this.advance(playback);
+      }
+    })()
+      .catch((error) => {
+        if (this.active(playback)) {
+          playback.failure = { index: playback.index, error };
+          this.advance(playback);
+        }
+      })
+      .finally(() => {
+        playback.producing = false;
       });
-    const task = this.loadAudio(playback).catch((error) => {
-      if (this.playback !== playback || playback.controller.signal.aborted)
-        return;
-      this.stop();
-      this.update({ error: serializeError(error) });
-    });
     this.tasks.add(task);
     void task.finally(() => this.tasks.delete(task));
   }
 
-  private async loadAudio(playback: Playback): Promise<void> {
-    const text = playback.parts[playback.index];
+  private advance(playback: Playback): void {
+    if (!this.active(playback) || playback.sent || !this.state.playback) return;
+    const audio = playback.audio.get(playback.index);
+    if (!audio) {
+      if (playback.failure?.index === playback.index)
+        this.suspend(playback, playback.failure.error);
+      return;
+    }
+    if (
+      !playback.primed &&
+      !playback.failure &&
+      playback.audio.size < Math.min(2, playback.parts.length)
+    )
+      return;
+    playback.primed = true;
+    playback.sent = true;
+    playback.deadline = Date.now() + 10_000;
+    this.update({
+      playback: {
+        ...this.state.playback,
+        phase: "loading",
+        preparing: undefined,
+      },
+    });
+    this.command({ type: "speech.play", id: playback.id, audio });
+  }
+
+  private suspend(playback: Playback, error: unknown): void {
+    playback.sent = false;
+    playback.deadline = Infinity;
+    playback.failure = { index: playback.index, error };
+    this.command({ type: "speech.stop", id: playback.id });
+    this.update({
+      playback: {
+        ...this.state.playback!,
+        phase: "error",
+        preparing: undefined,
+      },
+      error: serializeError(error),
+    });
+  }
+
+  retry(): void {
+    const playback = this.playback;
+    if (!playback || this.state.playback?.phase !== "error") return;
+    if (this.closed || !this.context().connected)
+      throw new UiError("sessionUnavailable");
+    if (!this.state.ready) throw new UiError("speechNotReady");
+    playback.failure = undefined;
+    playback.id = ++this.sequence;
+    this.update({
+      playback: {
+        ...this.state.playback,
+        id: playback.id,
+        kind: "manual",
+        phase: "loading",
+      },
+      error: null,
+    });
+    this.advance(playback);
+    this.fill(playback);
+  }
+
+  private async loadAudio(
+    playback: Playback,
+    text: string,
+  ): Promise<SpeechAudio | undefined> {
     const key = `${this.namespace}\0${text}`;
     const cached = this.cache.get(key);
     let audio: SpeechAudio;
@@ -262,28 +375,47 @@ export class SpeechController {
         this.cache.delete(first);
       }
     }
-    if (this.playback !== playback || playback.controller.signal.aborted)
-      return;
-    playback.deadline = Date.now() + 10_000;
-    this.command({ type: "speech.play", id: playback.id, audio });
+    return this.active(playback) ? audio : undefined;
   }
 
   report(id: number, status: "started" | "ended" | "failed"): void {
     const playback = this.playback;
-    if (!playback || id !== playback.id || !this.state.playback) return;
+    if (
+      !playback ||
+      id !== playback.id ||
+      !this.state.playback ||
+      !playback.sent
+    )
+      return;
     if (status === "started") {
       playback.deadline = Date.now() + 180_000;
       this.update({ playback: { ...this.state.playback, phase: "playing" } });
     } else if (status === "ended" && this.state.playback.phase === "playing") {
+      playback.audio.delete(playback.index);
+      playback.sent = false;
+      playback.deadline = Infinity;
       if (++playback.index < playback.parts.length) {
         playback.id = ++this.sequence;
-        this.prepare(playback);
+        this.update({
+          playback: {
+            ...this.state.playback,
+            id: playback.id,
+            phase: "loading",
+            part: playback.index + 1,
+          },
+        });
+        this.advance(playback);
+        this.fill(playback);
       } else this.stop();
     } else if (status === "failed") {
-      this.stop();
-      this.update({
-        error: serializeError(new UiError("speechPlaybackFailed")),
-      });
+      playback.audio.delete(playback.index);
+      const key = `${this.namespace}\0${playback.parts[playback.index]}`;
+      const cached = this.cache.get(key);
+      if (cached) {
+        this.cacheBytes -= cached.size;
+        this.cache.delete(key);
+      }
+      this.suspend(playback, new UiError("speechPlaybackFailed"));
     }
   }
 
@@ -293,9 +425,9 @@ export class SpeechController {
       this.closed ||
       !this.context().connected ||
       !this.context().chatVisible ||
-      !this.ready
+      !this.state.ready
     )
-      throw new UiError("sessionUnavailable");
+      throw new UiError("speechNotReady");
     if (typeof id !== "string" || !id || id.length > 80)
       throw new UiError("invalidAction");
     this.cancel();
@@ -390,10 +522,7 @@ export class SpeechController {
     )
       this.stop();
     else if (now > this.playback.deadline) {
-      this.stop();
-      this.update({
-        error: serializeError(new UiError("speechPlaybackFailed")),
-      });
+      this.suspend(this.playback, new UiError("speechPlaybackFailed"));
     }
   }
 

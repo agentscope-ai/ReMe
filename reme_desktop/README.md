@@ -110,12 +110,15 @@ cd reme_desktop
 npm run dev
 ```
 
-Remy 出现在桌面后，点击角色打开对话；也可使用托盘菜单或 `Command/Ctrl + Shift + Space`。
+Remy 出现在桌面后，单击角色可打开或隐藏主窗口，最小化时单击会恢复窗口；也可使用托盘菜单或 `Command/Ctrl + Shift + Space` 打开窗口。
 默认连接 `http://127.0.0.1:2333`，右上角设置图标中可以修改服务地址、语言和主题。只有后端没有已选会话时，Desktop 才会创建会话。
+主动提醒卡片右下角的“详细解读”会带上该条提醒，在当前会话中继续解读，并保留输入框草稿。
 
-When Remy appears, click the character to open chat, or use the tray menu or `Command/Ctrl + Shift + Space`.
+When Remy appears, click the character to show or hide the main window; clicking restores a minimized window.
+You can also open the window from the tray menu or with `Command/Ctrl + Shift + Space`.
 The default endpoint is `http://127.0.0.1:2333`; the top-right Settings icon opens endpoint, language, and theme preferences.
 Desktop creates a PA session only if the backend has no selected session.
+Choose “Explain in detail” at the bottom-right of a proactive reminder to discuss it in the current conversation while keeping your draft.
 
 ### 构建后运行 / Run a production build
 
@@ -251,7 +254,8 @@ still supports text chat. Model, voice, and encoding are configured on the ReMe 
 defaults to `longanhuan_v3.1` with a sweet, light, playful female voice instruction.
 
 - Hold the microphone or **Command/Ctrl + R** in the focused Remy page and release to transcribe. Releasing either key
-  finishes the recording; **Command/Ctrl + Shift + M** also toggles recording.
+  finishes the recording; macOS accepts both Command + R and Control + R. **Command/Ctrl + Shift + M** also toggles recording.
+  Voice controls wait for the audio host to initialize; a temporary readiness message does not require a new conversation.
   Recognition inserts text at the current draft selection and sends the composed message by default. Turn off
   **Send after transcription** in settings to keep an editable draft instead. **Escape** cancels.
   Recordings stop after 24 seconds. Switching pages or losing focus cancels recording. Very short recordings are
@@ -260,9 +264,13 @@ defaults to `longanhuan_v3.1` with a sweet, light, playful female voice instruct
   explicit `ASR_RESPONSE_HAVE_NO_WORDS` response to an empty transcription, preserving request diagnostics. Other provider
   failures remain errors.
 - Assistant messages and reminder bubbles have a speaker button. Select it again, or use the playback stop control, to
-  stop narration. Long messages play in sentence-based parts; code blocks and link URLs are omitted.
+  stop narration. Narration preserves the full text, omitting code blocks and link URLs. Paragraphs and sentences are
+  grouped into roughly 200–300-character parts with a 400-character maximum; decimals and version numbers stay together.
+  Synthesis is serial: two parts are prepared before playback, then at most two future parts are buffered while audio
+  plays in order. A missing part waits rather than being skipped. Each synthesis failure is retried once; a remaining
+  error pauses at that part. **Resume narration** retries the failed part without replaying the completed prefix.
 - Settings provides automatic narration, separate reply/reminder switches, and volume. New replies are read aloud by
-  default; reminder narration is off. It reads up to 600 characters of a new successful reply or a displayed reminder. Reconnection and history
+  default; reminder narration is off. Both automatic and manual narration read the complete message. Reconnection and history
   snapshots stay silent; quiet mode interrupts automatic narration. Explicit speaker playback remains available.
 - One audio host serves both windows. Actual playback drives speaking animation; recording drives listening animation.
   Spoken reminders keep their bubble visible through synthesis and playback. Narration never marks a reminder read.

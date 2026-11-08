@@ -536,6 +536,94 @@ test(
       );
 
       await t.test(
+        "clicking the character toggles chat and restores a minimized window",
+        async () => {
+          const windowState = () =>
+            app.evaluate(({ BrowserWindow }) => {
+              const window = BrowserWindow.getAllWindows().find((entry) =>
+                entry.webContents.getURL().includes("view=chat"),
+              );
+              return {
+                visible: window.isVisible(),
+                minimized: window.isMinimized(),
+              };
+            });
+          const clickCharacter = async () => {
+            await expect
+              .poll(() =>
+                companion.evaluate(() =>
+                  window.desktop
+                    .bootstrap()
+                    .then(({ layout }) => Boolean(layout.presence?.motion)),
+                ),
+              )
+              .toBe(false);
+            const host = await companion.evaluate(() =>
+              window.desktop
+                .bootstrap()
+                .then(({ layout }) => layout.presence?.host),
+            );
+            const page = host === "app" ? chat : companion;
+            const canvas = page.locator(".character canvas");
+            await expect(canvas).toBeVisible();
+            const rect = await canvas.boundingBox();
+            await page.mouse.click(
+              rect.x + rect.width / 2,
+              rect.y + rect.height * 0.35,
+            );
+          };
+          const expectVisible = async (visible) => {
+            await expect
+              .poll(async () => (await windowState()).visible)
+              .toBe(visible);
+            await expect
+              .poll(() =>
+                companion.evaluate(() =>
+                  window.desktop
+                    .bootstrap()
+                    .then(({ state }) => state.chatVisible),
+                ),
+              )
+              .toBe(visible);
+          };
+
+          await clickCharacter();
+          await expectVisible(true);
+          await clickCharacter();
+          await expectVisible(false);
+          await clickCharacter();
+          await expectVisible(true);
+
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "window.minimize" }),
+          );
+          await expect
+            .poll(async () => (await windowState()).minimized)
+            .toBe(true);
+          await clickCharacter();
+          await expectVisible(true);
+          assert.equal((await windowState()).minimized, false);
+
+          // Keyboard and assistive activation have no pointer gesture.
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
+          await expectVisible(false);
+          await companion
+            .locator(".character")
+            .evaluate((button) => button.click());
+          await expectVisible(true);
+          // Opening a message or using another open entry point must not toggle.
+          await companion.evaluate(() =>
+            window.desktop.action({ type: "chat.open" }),
+          );
+          await expectVisible(true);
+          await clickCharacter();
+          await expectVisible(false);
+        },
+      );
+
+      await t.test(
         "completed proactive upserts show once, dismissing preserves unread",
         async () => {
           backend.push("new-reminder", "未完成内容", false);

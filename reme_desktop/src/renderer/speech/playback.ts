@@ -16,6 +16,7 @@ export function useSpeechPlayback(state: DesktopState): void {
     if (current.current) current.current.audio.volume = volume.current;
   }, [state.settings.voiceVolume]);
   useEffect(() => {
+    const token = crypto.randomUUID();
     const dispose = () => {
       const active = current.current;
       current.current = null;
@@ -90,11 +91,13 @@ export function useSpeechPlayback(state: DesktopState): void {
         report("failed");
       }
     });
-    void action({ type: "speech.ready", ready: true }).catch(() => {});
+    void action({ type: "speech.ready", ready: true, token }).catch(() => {});
     return () => {
       stop();
       dispose();
-      void action({ type: "speech.ready", ready: false }).catch(() => {});
+      void action({ type: "speech.ready", ready: false, token }).catch(
+        () => {},
+      );
     };
   }, []);
 }

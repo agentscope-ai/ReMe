@@ -154,8 +154,8 @@ export const messages = {
   voiceReminders: ["朗读主动提醒", "Read proactive reminders aloud"],
   voiceVolume: ["语音音量", "Voice volume"],
   voiceHint: [
-    "自动播报最多朗读前 600 字；手动朗读可听全文。安静模式会暂停自动播报。",
-    "Automatic narration reads up to 600 characters; manual playback reads the full text. Quiet mode pauses automatic narration.",
+    "自动播报和手动朗读都会读完整消息；长文分段准备，按顺序播放。安静模式会暂停自动播报。",
+    "Automatic and manual narration read the complete message, preparing long text in parts and playing them in order. Quiet mode pauses automatic narration.",
   ],
   voiceInputHint: [
     "按住话筒说话，松开识别后默认自动发送；关闭自动发送后只填入输入框。录音发送到当前 ReMe 服务识别。",
@@ -178,6 +178,16 @@ export const messages = {
   ],
   speechTranscribing: ["正在识别…", "Transcribing…"],
   speechLoading: ["正在准备语音…", "Preparing narration…"],
+  speechNotReady: [
+    "语音功能正在准备，请稍后再试。",
+    "Voice is getting ready. Please try again shortly.",
+  ],
+  speechPreparingProgress: [
+    "正在准备第 {part} / {total} 段",
+    "Preparing part {part} of {total}",
+  ],
+  speechPaused: ["朗读已暂停", "Narration paused"],
+  speechRetry: ["继续朗读", "Resume narration"],
   speechPlaying: ["正在朗读…", "Reading aloud…"],
   speechProgress: ["第 {part} / {total} 段", "Part {part} of {total}"],
   speechAsrUnavailable: [
@@ -306,12 +316,12 @@ export const messages = {
     "{text}. Click to view the conversation",
   ],
   characterAction: [
-    "和 Remy 聊聊，按住拖动可移动角色",
-    "Chat with Remy; hold and drag to move",
+    "打开或隐藏主窗口，按住拖动可移动角色",
+    "Show or hide the main window; hold and drag to move",
   ],
   characterHint: [
-    "左键开聊 · 按住拖动 · 右键菜单",
-    "Click to chat · Hold to drag · Right-click for menu",
+    "单击打开或隐藏主窗口 · 按住拖动 · 右键菜单",
+    "Click to show or hide the main window · Hold to drag · Right-click for menu",
   ],
   offlineAction: [
     "服务未连接，点击查看",
@@ -344,6 +354,11 @@ export const messages = {
   ],
   startService: ["先启动 ReMe 服务：", "Start the ReMe service first:"],
   proactiveLabel: ["Remy 的主动提醒", "Proactive reminder from Remy"],
+  explainReminder: ["详细解读", "Explain in detail"],
+  explainReminderQuery: [
+    "请详细解读下面这条主动提醒；涉及外部事实或数据时，请核实来源并附链接：\n\n{content}",
+    "Explain this proactive reminder in detail. Verify external facts or data and include source links:\n\n{content}",
+  ],
   image: ["图片", "Image"],
   draftWhileBusy: ["可以先写下，等我说完…", "You can draft while I finish…"],
   messagePlaceholder: ["和 Remy 说点什么…", "Say something to Remy…"],

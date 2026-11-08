@@ -436,11 +436,16 @@ export class DesktopController {
       this.companionVisible && this.companionReady ? bubble : null;
     this.resolvePresentation();
     this.bubbles.holdForSpeech(
-      Boolean(bubble && this.state.speech.playback?.messageId === bubble.id),
+      Boolean(
+        bubble &&
+        this.state.speech.playback?.messageId === bubble.id &&
+        this.state.speech.playback.phase !== "error",
+      ),
       now,
     );
     if (
       this.state.speech.playback?.kind === "reminder" &&
+      this.state.speech.playback.phase !== "error" &&
       (this.state.surface?.kind !== "message" ||
         this.state.speech.playback.messageId !== this.state.surface.message.id)
     )

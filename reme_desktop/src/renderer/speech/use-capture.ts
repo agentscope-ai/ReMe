@@ -12,6 +12,7 @@ interface Capture {
   phase: "starting" | "recording" | "transcribing";
   bound: boolean;
   held: boolean;
+  heldModifier?: "Meta" | "Control";
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -77,8 +78,18 @@ export function useCapture(
       if (active.current === capture) cancel();
     }
   };
-  const start = async (held = false) => {
+  const start = async (
+    held = false,
+    heldModifier?: Capture["heldModifier"],
+  ) => {
     if (active.current || !latest.current.state.chatVisible) return;
+    if (
+      !latest.current.state.speech.ready ||
+      latest.current.state.connection !== "connected"
+    ) {
+      latest.current.fail(new UiError("speechNotReady"));
+      return;
+    }
     latest.current.fail(null);
     setNotice(false);
     const capture: Capture = {
@@ -87,6 +98,7 @@ export function useCapture(
       phase: "starting",
       bound: false,
       held,
+      heldModifier,
     };
     active.current = capture;
     setSeconds(0);
@@ -150,9 +162,9 @@ export function useCapture(
     const key = (event: KeyboardEvent) => {
       if (!latest.current.state.chatVisible) return;
       const modifier =
-        document.documentElement.dataset.platform === "darwin"
-          ? event.metaKey
-          : event.ctrlKey;
+        event.ctrlKey ||
+        (document.documentElement.dataset.platform === "darwin" &&
+          event.metaKey);
       if (
         modifier &&
         !event.shiftKey &&
@@ -160,7 +172,7 @@ export function useCapture(
         event.code === "KeyR"
       ) {
         event.preventDefault();
-        if (!event.repeat) void start(true);
+        if (!event.repeat) void start(true, event.metaKey ? "Meta" : "Control");
         return;
       }
       if (event.repeat) return;
@@ -179,13 +191,9 @@ export function useCapture(
     };
     window.addEventListener("keydown", key);
     const release = (event: KeyboardEvent) => {
-      const modifier =
-        document.documentElement.dataset.platform === "darwin"
-          ? "Meta"
-          : "Control";
       if (
         active.current?.held &&
-        (event.code === "KeyR" || event.key === modifier)
+        (event.code === "KeyR" || event.key === active.current.heldModifier)
       ) {
         event.preventDefault();
         void finish();

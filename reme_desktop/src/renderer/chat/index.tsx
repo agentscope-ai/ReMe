@@ -168,13 +168,16 @@ export default function Chat({
     active,
   ]);
 
-  const send = async (text = queryRef.current) => {
+  const send = async (
+    text = queryRef.current,
+    { preserveDraft = false } = {},
+  ) => {
     const value = text.trim();
     if (!value || busy || !ready || sending.current) return;
     sending.current = true;
-    setQuery("");
+    if (!preserveDraft) setQuery("");
     follow.current = true;
-    if (!(await run({ type: "chat.send", query: value })))
+    if (!(await run({ type: "chat.send", query: value })) && !preserveDraft)
       setQuery((current) => current || value);
     sending.current = false;
   };
@@ -297,46 +300,82 @@ export default function Chat({
               message.content &&
               !message.error &&
               message.status?.tone !== "error" && (
-                <button
-                  type="button"
-                  className="read-aloud"
-                  disabled={!state.speech.tts || !ready}
-                  aria-label={t(
-                    voice?.messageId === message.id
-                      ? "stopSpeech"
-                      : "readAloud",
-                  )}
-                  title={t(
-                    !state.speech.tts
-                      ? "speechTtsUnavailable"
-                      : voice?.messageId === message.id
-                        ? "stopSpeech"
-                        : "readAloud",
-                  )}
-                  aria-pressed={voice?.messageId === message.id}
-                  onClick={() =>
-                    void run(
+                <div className="message-actions">
+                  <button
+                    type="button"
+                    className="read-aloud"
+                    disabled={
+                      !state.speech.tts || !state.speech.ready || !ready
+                    }
+                    aria-label={t(
                       voice?.messageId === message.id
-                        ? { type: "speech.stop" }
-                        : {
-                            type: "speech.speak",
-                            sessionId: state.sessionId!,
-                            messageId: message.id,
-                          },
-                    )
-                  }
-                >
-                  <span aria-hidden>
-                    {voice?.messageId === message.id ? "■" : "♫"}
-                  </span>
-                  {t(
-                    voice?.messageId === message.id
-                      ? voice.phase === "loading"
-                        ? "speechLoading"
-                        : "stopSpeech"
-                      : "readAloud",
+                        ? voice.phase === "error"
+                          ? "speechRetry"
+                          : "stopSpeech"
+                        : "readAloud",
+                    )}
+                    title={t(
+                      !state.speech.tts
+                        ? "speechTtsUnavailable"
+                        : voice?.messageId === message.id
+                          ? voice.phase === "error"
+                            ? "speechRetry"
+                            : "stopSpeech"
+                          : "readAloud",
+                    )}
+                    aria-pressed={voice?.messageId === message.id}
+                    onClick={() =>
+                      void run(
+                        voice?.messageId === message.id
+                          ? {
+                              type:
+                                voice.phase === "error"
+                                  ? "speech.retry"
+                                  : "speech.stop",
+                            }
+                          : {
+                              type: "speech.speak",
+                              sessionId: state.sessionId!,
+                              messageId: message.id,
+                            },
+                      )
+                    }
+                  >
+                    <span aria-hidden>
+                      {voice?.messageId === message.id &&
+                      voice.phase !== "error"
+                        ? "■"
+                        : "♫"}
+                    </span>
+                    {t(
+                      voice?.messageId === message.id
+                        ? voice.phase === "loading"
+                          ? "speechLoading"
+                          : voice.phase === "error"
+                            ? "speechRetry"
+                            : "stopSpeech"
+                        : "readAloud",
+                    )}
+                  </button>
+                  {message.source === "proactive" && (
+                    <button
+                      type="button"
+                      className="explain-reminder"
+                      disabled={busy || !ready}
+                      onClick={() =>
+                        void send(
+                          t("explainReminderQuery", {
+                            content: message.content,
+                          }),
+                          { preserveDraft: true },
+                        )
+                      }
+                    >
+                      {t("explainReminder")}
+                      <ArrowUpRight size={13} aria-hidden />
+                    </button>
                   )}
-                </button>
+                </div>
               )}
           </article>
         ))}
@@ -362,7 +401,9 @@ export default function Chat({
                 : t(
                     voice!.phase === "loading"
                       ? "speechLoading"
-                      : "speechPlaying",
+                      : voice!.phase === "error"
+                        ? "speechPaused"
+                        : "speechPlaying",
                   )}
             </span>
             {capture.phase === "recording" && (
@@ -375,8 +416,28 @@ export default function Chat({
             )}
             {voice && voice.total > 1 && (
               <small>
-                {t("speechProgress", { part: voice.part, total: voice.total })}
+                {t(
+                  voice.phase === "loading" && voice.preparing
+                    ? "speechPreparingProgress"
+                    : "speechProgress",
+                  {
+                    part:
+                      voice.phase === "loading"
+                        ? (voice.preparing ?? voice.part)
+                        : voice.part,
+                    total: voice.total,
+                  },
+                )}
               </small>
+            )}
+            {voice?.phase === "error" && (
+              <button
+                type="button"
+                className="subtle"
+                onClick={() => void run({ type: "speech.retry" })}
+              >
+                {t("speechRetry")}
+              </button>
             )}
             <button
               type="button"
@@ -431,7 +492,10 @@ export default function Chat({
               state.speech.asr ? "voiceShortcut" : "speechAsrUnavailable",
             )}
             disabled={
-              !ready || !state.speech.asr || capture.phase === "transcribing"
+              !ready ||
+              !state.speech.ready ||
+              !state.speech.asr ||
+              capture.phase === "transcribing"
             }
             onPointerDown={(event) => {
               if (event.button !== 0) return;

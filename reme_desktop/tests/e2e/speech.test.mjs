@@ -601,6 +601,69 @@ test(
           );
         },
       );
+      if (process.platform === "darwin")
+        await t.test(
+          "literal Control R also records on macOS without reloading",
+          async () => {
+            const before = backend.asrRequests.length;
+            const marker = await chat.evaluate(() => window.voiceTestMarker);
+            await input.fill("Control 快捷语音：");
+            await input.press("End");
+            await nativeKey("keyDown", "Control", ["control"]);
+            await nativeKey("keyDown", "R", ["control"]);
+            await expect(chat.locator(".voice-status")).toContainText(
+              "录音中 1",
+            );
+            await nativeKey("keyUp", "Control");
+            await nativeKey("keyUp", "R");
+            await expect(input).toHaveValue(
+              "Control 快捷语音：语音输入的研究计划。",
+            );
+            assert.equal(backend.asrRequests.length, before + 1);
+            assert.equal(
+              await chat.evaluate(() => window.voiceTestMarker),
+              marker,
+            );
+          },
+        );
+      await t.test(
+        "an initializing audio host explains readiness instead of blaming the conversation",
+        async () => {
+          const before = backend.asrRequests.length;
+          await chat.evaluate(async () => {
+            await window.desktop.action({
+              type: "speech.ready",
+              ready: true,
+              token: "readiness-probe",
+            });
+            await window.desktop.action({
+              type: "speech.ready",
+              ready: false,
+              token: "readiness-probe",
+            });
+          });
+          await expect
+            .poll(async () => (await state()).speech.ready)
+            .toBe(false);
+          await nativeKey("keyDown", modifierKey, [modifier]);
+          await nativeKey("keyDown", "R", [modifier]);
+          await expect(chat.getByRole("alert")).toContainText(
+            "语音功能正在准备",
+          );
+          await release();
+          assert.equal(backend.asrRequests.length, before);
+          await chat.evaluate(() =>
+            window.desktop.action({
+              type: "speech.ready",
+              ready: true,
+              token: "readiness-recovered",
+            }),
+          );
+          await expect
+            .poll(async () => (await state()).speech.ready)
+            .toBe(true);
+        },
+      );
       await t.test(
         "silence is discarded locally and empty recognition never auto-sends the existing draft",
         async () => {

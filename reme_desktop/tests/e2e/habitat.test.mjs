@@ -148,6 +148,34 @@ test(
       );
 
       await t.test(
+        "clicking the embedded character hides the workspace and returns it to the desktop",
+        async () => {
+          const canvas = chat.locator(".embedded-companion canvas");
+          await expect(canvas).toBeVisible();
+          const rect = await canvas.boundingBox();
+          await chat.mouse.click(
+            rect.x + rect.width / 2,
+            rect.y + rect.height * 0.35,
+          );
+          await expect
+            .poll(() =>
+              app.evaluate(({ BrowserWindow }) =>
+                BrowserWindow.getAllWindows()
+                  .find((win) => win.webContents.getURL().includes("view=chat"))
+                  .isVisible(),
+              ),
+            )
+            .toBe(false);
+          await expect
+            .poll(async () => (await presence()).host)
+            .toBe("desktop");
+          await expect(companion.locator("canvas")).toBeVisible();
+          await openWide();
+          await expect.poll(async () => (await presence()).host).toBe("app");
+        },
+      );
+
+      await t.test(
         "a narrow workspace releases the pet, reopening admits it again",
         async () => {
           await setBounds({

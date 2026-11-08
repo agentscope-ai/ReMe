@@ -190,6 +190,7 @@ export interface DesktopState {
 export interface SpeechState {
   asr: boolean;
   tts: boolean;
+  ready: boolean;
   capture: {
     id: string;
     phase: "starting" | "recording" | "transcribing";
@@ -198,9 +199,10 @@ export interface SpeechState {
     id: number;
     messageId: string;
     kind: "manual" | "reply" | "reminder";
-    phase: "loading" | "playing";
+    phase: "loading" | "playing" | "error";
     part: number;
     total: number;
+    preparing?: number;
   } | null;
   error: ErrorData | null;
 }
@@ -255,12 +257,13 @@ export interface Bootstrap {
 }
 
 export type DesktopAction =
-  | { type: "speech.ready"; ready: boolean }
+  | { type: "speech.ready"; ready: boolean; token: string }
   | { type: "speech.capture"; id: string }
   | { type: "speech.recording"; id: string }
   | { type: "speech.cancel"; id: string }
   | { type: "speech.speak"; sessionId: string; messageId: string }
   | { type: "speech.stop" }
+  | { type: "speech.retry" }
   | { type: "speech.clearError" }
   | { type: "speech.report"; id: number; status: PlaybackStatus }
   | { type: "playback.report"; id: number; status: PlaybackStatus }
@@ -274,6 +277,7 @@ export type DesktopAction =
   | { type: "companion.menu" }
   | { type: "chat.open"; messageId?: string }
   | { type: "chat.close" }
+  | { type: "chat.toggle" }
   | { type: "chat.send"; query: string }
   | { type: "chat.stop" }
   | { type: "page.select"; page: DesktopPage }

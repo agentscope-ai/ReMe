@@ -436,6 +436,32 @@ html[data-platform="darwin"] .workspace-titlebar {
   font-size: 9px;
   margin-top: 10px;
 }
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.message-actions .read-aloud {
+  margin-top: 0;
+}
+.explain-reminder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid light-dark(#d6e4d8, #b3d7bc25);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+  white-space: nowrap;
+}
+.explain-reminder:hover:not(:disabled) {
+  background: var(--soft);
+}
 .empty-chat {
   padding: 0 10px 35px;
 }

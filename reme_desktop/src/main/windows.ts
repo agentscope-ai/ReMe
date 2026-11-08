@@ -204,7 +204,7 @@ export class DesktopWindows {
     });
     this.chat.webContents.on("before-input-event", (_event, input) => {
       const modifier =
-        process.platform === "darwin" ? input.meta : input.control;
+        input.control || (process.platform === "darwin" && input.meta);
       // Suppress Reload while leaving keydown/keyup available to the audio host.
       this.chat.webContents.setIgnoreMenuShortcuts(
         input.type === "keyDown" &&

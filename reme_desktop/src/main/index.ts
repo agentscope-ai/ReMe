@@ -233,9 +233,18 @@ else {
           case "speech.report":
             if (event.sender.id !== windows!.chat.webContents.id)
               throw new UiError("invalidSender");
-            if (action.type === "speech.ready")
-              controller!.speech.rendererReady(action.ready === true);
-            else if (action.type === "speech.capture")
+            if (action.type === "speech.ready") {
+              if (
+                typeof action.token !== "string" ||
+                !action.token ||
+                action.token.length > 80
+              )
+                throw new UiError("invalidAction");
+              controller!.speech.rendererReady(
+                action.ready === true,
+                action.token,
+              );
+            } else if (action.type === "speech.capture")
               controller!.speech.beginCapture(action.id);
             else if (action.type === "speech.recording")
               controller!.speech.recording(action.id);
@@ -262,6 +271,9 @@ else {
           }
           case "speech.stop":
             controller!.speech.cancel();
+            return;
+          case "speech.retry":
+            controller!.speech.retry();
             return;
           case "speech.clearError":
             controller!.speech.clearError();
@@ -298,18 +310,25 @@ else {
             openMenu();
             return;
           case "chat.open":
-            if (
-              event.sender.id === windows!.companion.webContents.id &&
-              !action.messageId
-            )
-              controller!.preview("happy");
-            windows!.openChat();
-            controller!.setChatVisible(true, action.messageId);
-            return;
           case "chat.close":
-            windows!.closeChat();
-            controller!.setChatVisible(false);
+          case "chat.toggle": {
+            const visible =
+              action.type === "chat.open" ||
+              (action.type === "chat.toggle" &&
+                (!windows!.chat.isVisible() || windows!.chat.isMinimized()));
+            const messageId =
+              action.type === "chat.open" ? action.messageId : undefined;
+            if (visible) {
+              if (
+                event.sender.id === windows!.companion.webContents.id &&
+                !messageId
+              )
+                controller!.preview("happy");
+              windows!.openChat();
+            } else windows!.closeChat();
+            controller!.setChatVisible(visible, messageId);
             return;
+          }
           case "chat.send":
             if (typeof action.query !== "string")
               throw new UiError("textRequired");

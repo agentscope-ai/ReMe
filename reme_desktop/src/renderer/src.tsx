@@ -38,4 +38,10 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+const root =
+  import.meta.hot?.data.root ?? createRoot(document.getElementById("root")!);
+if (import.meta.hot) {
+  import.meta.hot.data.root = root;
+  import.meta.hot.accept();
+}
+root.render(<App />);

@@ -23,7 +23,11 @@ export function toneWave(seconds = 2) {
   return wave;
 }
 
-export async function mockReMe({ speech = false, workspace = false } = {}) {
+export async function mockReMe({
+  speech = false,
+  workspace = false,
+  ttsSeconds = 2,
+} = {}) {
   const documents = {
     "digest/wiki/agent-memory.md":
       "---\nname: Agent 记忆，从记录到连接\ndescription: 让零散的信息成为可以被再次理解、关联和使用的知识。\nmemory_tags:\n  - Agent\n  - memory\n---\n## 记忆的价值，在于再次连接\n\n一份好的记忆，不只保存发生过什么，也帮助我们理解下一步可以做什么。\n\n> 文件属于你，索引可以重建。\n\n### 一个持续生长的知识库\n\n- **记录**：保留值得记住的事实与想法。\n- **关联**：通过标签与链接发现共同主题。\n- **回顾**：在需要的时候，让过去的经验重新发挥作用。\n\n参见 [[daily/2026-11-08/research.md|今天的研究笔记]]。\n\n| 来源 | 作用 |\n| --- | --- |\n| 每日记忆 | 保留上下文 |\n| 知识库 | 沉淀可复用知识 |\n",
@@ -49,6 +53,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
   ];
   const asrRequests = [];
   let speechError = false;
+  let speechErrorText = "";
   let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
   let replyDelay = 300;
@@ -209,7 +214,11 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
     }
     if (speech && (job === "/tts_demo" || job === "/asr_demo")) {
       (job === "/tts_demo" ? ttsRequests : asrRequests).push(body);
-      const fail = speechError;
+      const fail =
+        speechError ||
+        (job === "/tts_demo" &&
+          speechErrorText &&
+          body.text.includes(speechErrorText));
       const finish = () => {
         if (response.destroyed) return;
         if (fail) {
@@ -225,7 +234,7 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
             job === "/asr_demo"
               ? asrText
               : {
-                  audio: toneWave().toString("base64"),
+                  audio: toneWave(ttsSeconds).toString("base64"),
                   format: "wav",
                   sample_rate: 16000,
                   is_last: true,
@@ -408,6 +417,9 @@ export async function mockReMe({ speech = false, workspace = false } = {}) {
     asrRequests,
     setSpeechError(value) {
       speechError = value;
+    },
+    setSpeechErrorText(value) {
+      speechErrorText = value;
     },
     setAsrText(value) {
       asrText = value;

@@ -119,7 +119,9 @@ export class PresentationController {
     );
     this.messageId = current?.id ?? "";
     this.held = Boolean(
-      current && state.speech.playback?.messageId === current.id,
+      current &&
+      state.speech.playback?.messageId === current.id &&
+      state.speech.playback.phase !== "error",
     );
     if (this.pausedAt && now - this.pausedAt > 120_000) this.dismissed = true;
     const reply = !this.dismissed && this.remaining > 0 ? current : undefined;

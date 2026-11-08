@@ -1,9 +1,13 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
+import type { Nodes } from "mdast";
+
 /** Bounded, portable audio and narration shared by the desktop processes. */
 export const SAMPLE_RATE = 16_000;
 export const MAX_RECORD_MS = 24_000;
 export const MIN_RECORD_MS = 300;
 export const MAX_AUDIO_BYTES = 768 * 1024;
-export const AUTO_SPEECH_CHARS = 600;
+export const NARRATION_PART_CHARS = 400;
+const TARGET_PART_CHARS = 300;
 
 /** Conservative energy gate: reject silence and isolated clicks, not quiet voices. This is not VAD. */
 export function hasAudibleSignal(pcm: Int16Array): boolean {
@@ -73,38 +77,90 @@ export function validRecording(bytes: Uint8Array): boolean {
   );
 }
 
-export function narrationText(text: string): string {
-  return text
-    .replace(/```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)/g, " ")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/https?:\/\/[^\s<>]+/g, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/gm, "")
-    .replace(/[`*_~|]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function narrationBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  const plain = (node: Nodes): string => {
+    if (
+      node.type === "code" ||
+      node.type === "html" ||
+      node.type === "definition"
+    )
+      return "";
+    if (node.type === "text" || node.type === "inlineCode") return node.value;
+    if (node.type === "image" || node.type === "imageReference")
+      return node.alt ?? "";
+    if (node.type === "break") return " ";
+    return "children" in node ? node.children.map(plain).join("") : "";
+  };
+  const visit = (node: Nodes): void => {
+    if (node.type === "paragraph" || node.type === "heading") {
+      const value = plain(node)
+        .replace(/https?:\/\/[^\s<>]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (value) blocks.push(value);
+    } else if (node.type !== "code" && "children" in node)
+      node.children.forEach(visit);
+  };
+  visit(fromMarkdown(text));
+  return blocks;
 }
 
-/** Sentence boundaries keep long narration sequential without oversized provider calls. */
-export function narrationParts(text: string, automatic = false): string[] {
-  const chars = [...narrationText(text)];
-  if (automatic && chars.length > AUTO_SPEECH_CHARS) {
-    chars.length = AUTO_SPEECH_CHARS;
-    chars.push("…");
-  }
+export function narrationText(text: string): string {
+  return narrationBlocks(text).join(" ");
+}
+
+/** Keep full text, prefer paragraphs and sentences, and bound each provider request. */
+export function narrationParts(text: string): string[] {
   const parts: string[] = [];
-  while (chars.length) {
-    let end = Math.min(400, chars.length);
-    if (end < chars.length) {
-      for (let i = end - 1; i >= end / 2; i--)
-        if (/[。！？.!?;；\n]/u.test(chars[i])) {
-          end = i + 1;
-          break;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: "sentence" });
+  let current = "";
+  const length = (value: string) => [...value].length;
+  const flush = () => {
+    if (current.trim()) parts.push(current.trim());
+    current = "";
+  };
+  const append = (value: string) => {
+    const size = length(current),
+      added = length(value);
+    if (
+      size + added > NARRATION_PART_CHARS ||
+      (size >= 200 && size + added > TARGET_PART_CHARS)
+    )
+      flush();
+    current += value;
+    if (length(current) >= TARGET_PART_CHARS) flush();
+  };
+  for (const block of narrationBlocks(text)) {
+    if (length(current) >= 200) flush();
+    if (current) current += " ";
+    for (const { segment } of segmenter.segment(block)) {
+      const chars = [...segment];
+      let offset = 0;
+      while (chars.length - offset > NARRATION_PART_CHARS) {
+        let end = offset + NARRATION_PART_CHARS;
+        for (let i = end - 1; i >= offset + 200; i--) {
+          if (
+            /[\s，,；;：:]/u.test(chars[i]) &&
+            !(/\d/u.test(chars[i - 1]) && /\d/u.test(chars[i + 1] ?? ""))
+          ) {
+            end = i + 1;
+            break;
+          }
         }
+        const token = /[A-Za-z0-9.,_%+-]/u;
+        if (token.test(chars[end - 1]) && token.test(chars[end] ?? "")) {
+          let boundary = end;
+          while (boundary > offset && token.test(chars[boundary - 1]))
+            boundary--;
+          if (boundary > offset) end = boundary;
+        }
+        append(chars.slice(offset, end).join(""));
+        offset = end;
+      }
+      append(chars.slice(offset).join(""));
     }
-    const part = chars.splice(0, end).join("").trim();
-    if (part) parts.push(part);
   }
+  flush();
   return parts;
 }

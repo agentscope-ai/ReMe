@@ -2,6 +2,7 @@ export function toneWave(seconds?: number): Buffer;
 export function mockReMe(options?: {
   speech?: boolean;
   workspace?: boolean;
+  ttsSeconds?: number;
 }): Promise<{
   url: string;
   push(id: string, content?: string, completed?: boolean): void;
@@ -18,6 +19,7 @@ export function mockReMe(options?: {
   ttsRequests: { text: string }[];
   asrRequests: { audio: string; audio_format: string; sample_rate: number }[];
   setSpeechError(value: boolean): void;
+  setSpeechErrorText(value: string): void;
   setAsrText(value: string): void;
   setTags(value: [string, number][]): void;
   setDocument(path: string, content: string): void;

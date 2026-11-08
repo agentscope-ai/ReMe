@@ -42,7 +42,7 @@ export default function Companion({
     void action(value).catch((error: unknown) => setError(error));
   };
 
-  const openChat = () => run({ type: "chat.open" });
+  const toggleChat = () => run({ type: "chat.toggle" });
   const cancelDrag = () => {
     if (gesture.current) window.desktop.drag("end");
     gesture.current = null;
@@ -172,15 +172,23 @@ export default function Companion({
               message.status?.tone !== "error" && (
                 <button
                   className="subtle"
+                  disabled={!state.speech.ready}
                   aria-label={t(
                     state.speech.playback?.messageId === message.id
-                      ? "stopSpeech"
+                      ? state.speech.playback.phase === "error"
+                        ? "speechRetry"
+                        : "stopSpeech"
                       : "readAloud",
                   )}
                   onClick={() =>
                     run(
                       state.speech.playback?.messageId === message.id
-                        ? { type: "speech.stop" }
+                        ? {
+                            type:
+                              state.speech.playback.phase === "error"
+                                ? "speech.retry"
+                                : "speech.stop",
+                          }
                         : {
                             type: "speech.speak",
                             sessionId: state.sessionId!,
@@ -189,7 +197,8 @@ export default function Companion({
                     )
                   }
                 >
-                  {state.speech.playback?.messageId === message.id ? (
+                  {state.speech.playback?.messageId === message.id &&
+                  state.speech.playback.phase !== "error" ? (
                     <Square size={13} />
                   ) : (
                     <Volume2 size={14} />
@@ -247,7 +256,7 @@ export default function Companion({
           transform: motion?.direction === -1 ? "scaleX(-1)" : undefined,
         }}
         onClick={(event) => {
-          if (event.detail === 0) openChat();
+          if (event.detail === 0) toggleChat();
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -288,7 +297,7 @@ export default function Companion({
           gesture.current = null;
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
-          if (!start.moved) openChat();
+          if (!start.moved) toggleChat();
         }}
         onPointerCancel={cancelDrag}
         onLostPointerCapture={cancelDrag}

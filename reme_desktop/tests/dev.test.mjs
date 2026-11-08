@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,9 +17,23 @@ test(
   { timeout: 30_000 },
   async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "reme-desktop-dev-"));
-    const backend = await mockReMe();
+    const backend = await mockReMe({ speech: true });
     const server = await createServer({
       ...config.renderer,
+      plugins: [
+        ...config.renderer.plugins,
+        {
+          name: "entry-load-counter",
+          enforce: "pre",
+          transform(code, id) {
+            if (id.split("?")[0] === path.join(project, "src/renderer/src.tsx"))
+              return (
+                code +
+                "\nglobalThis.__entryLoads = (globalThis.__entryLoads || 0) + 1;"
+              );
+          },
+        },
+      ],
       configFile: false,
       root: path.join(project, "src/renderer"),
       logLevel: "error",
@@ -60,6 +75,42 @@ test(
           ),
         )
         .toBe("connected");
+
+      const errors = [];
+      chat.on("console", (message) => {
+        if (message.type() === "error" && message.text().includes("createRoot"))
+          errors.push(message.text());
+      });
+      const ready = () =>
+        chat.evaluate(() =>
+          window.desktop.bootstrap().then(({ state }) => state.speech.ready),
+        );
+      await expect.poll(ready).toBe(true);
+      const marker = await chat.evaluate(
+        () => (window.hmrMarker = crypto.randomUUID()),
+      );
+      for (let index = 1; index <= 2; index++) {
+        server.moduleGraph.invalidateAll();
+        server.ws.send({
+          type: "update",
+          updates: [
+            {
+              type: "js-update",
+              path: "/src.tsx",
+              acceptedPath: "/src.tsx",
+              timestamp: Date.now() + index,
+            },
+          ],
+        });
+        await expect
+          .poll(() => chat.evaluate(() => globalThis.__entryLoads))
+          .toBe(index + 1);
+        await expect.poll(ready).toBe(true);
+        assert.equal(await chat.evaluate(() => window.hmrMarker), marker);
+      }
+      assert.deepEqual(errors, []);
+      await chat.reload();
+      await expect.poll(ready).toBe(true);
     } finally {
       await app?.close();
       await server.close();
