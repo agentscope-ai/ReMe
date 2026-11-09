@@ -465,7 +465,7 @@ export TUSHARE_TOKEN=your_token
 
 按任务复杂度选择：
 
-- 小结果：Markdown 摘要 + 简短表格
+- 小结果：摘要 + 简短表格
 - 中等数据表：CSV
 - 大规模 / 后续分析：Parquet
 - 需要可复用流程：附 Python 脚本

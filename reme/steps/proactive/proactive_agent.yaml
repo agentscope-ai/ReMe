@@ -112,13 +112,13 @@ query_history_zh: |
 
 query_research: |
   - Investigate up to three worthwhile leads relevant to Master's current interests; skip when none.
-  - Use web_search to find primary sources, then read them to verify facts, dates and conditions; keep supporting links and open questions.
+  - Use tools as needed, such as web_search, to consult primary sources and verify facts, dates and conditions; keep supporting links and open questions.
 
   Return verified findings, not reminder drafts; do not guess claims or links.
 
 query_research_zh: |
   - 围绕主人当前关注，调查最多三条有价值的线索，没有则跳过。
-  - 使用 web_search 搜索一手来源，阅读原文核实事实、日期和条件，保留支持链接与待确认问题。
+  - 按需使用工具（如 web_search）查阅一手资料，核实事实、日期和条件，保留支持链接与待确认问题。
 
   整理已核实的发现，不猜结论或链接，不预写提醒草稿。
 
