@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from reme.schema.pa_proactive import PaProactiveConfig
+from reme.schema import SessionMessage
 from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
 from reme.steps.proactive.tools import ReadConversationStep, ReadProactiveInboxStep, SendChatMessageStep
 
@@ -85,6 +86,63 @@ async def test_merged_inputs_then_message_and_persisted_todo(pa_workspace, monke
     assert not (env.runtime.component_metadata_path / "handoff.txt").exists()
     assert result.metadata["proactive_session_id"] == calls[-1][1]["resume"]
     assert env.runtime.proactive_context_path.read_text() == "" and env.runtime.current_round is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["en", "zh"])
+@pytest.mark.parametrize("prior_reminder", [False, True])
+async def test_empty_main_reaches_reminder_decision_without_forking(
+    pa_workspace,
+    monkeypatch,
+    language,
+    prior_reminder,
+):
+    env = pa_workspace
+    env.snapshot.last_turn_id = None
+    if prior_reminder:
+        env.snapshot.messages = [
+            SessionMessage(id="old-reminder", role="assistant", source="proactive", content="Earlier update."),
+        ]
+    calls = model(env, monkeypatch, decide=False)
+    original = env.agent.reply.side_effect
+
+    async def reply(query, **kwargs):
+        if kwargs.get("fork_session"):
+            raise RuntimeError("no rollout found for thread id")
+        current = env.runtime.current_round
+        if current.phase == "query_message":
+            await env.runtime.send_chat_message(
+                "A useful new update.",
+                kind="normal",
+                round_id=current.id,
+                session_id=current.session_id,
+            )
+        return await original(query, **kwargs)
+
+    env.agent.reply.side_effect = reply
+    selected = env.runtime.session_id
+    step = ProactiveAgentStep(app_context=env.context, language=language)
+
+    result = await step()
+
+    assert result.answer["status"] == "pending" and len(calls) == 7
+    assert calls[0][1]["resume"] is None and all(not options.get("fork_session") for _, options in calls)
+    assert step.get_prompt("no_main_context") in calls[0][1]["system_prompt"]
+    assert env.runtime.session_id == selected
+    assert env.runtime.reminders.read()[0].content == "A useful new update."
+    assert env.runtime.proactive_context_path.read_text() == ""
+
+
+@pytest.mark.asyncio
+async def test_unreadable_main_fails_before_model_calls_and_preserves_recovery(pa_workspace, monkeypatch):
+    env = pa_workspace
+    model(env, monkeypatch)
+    env.agent.read_session.side_effect = OSError("native history is unreadable")
+    with pytest.raises(OSError, match="native history is unreadable"):
+        await ProactiveAgentStep(app_context=env.context)()
+    env.agent.reply.assert_not_awaited()
+    assert '"query": "query_context"' in env.runtime.proactive_context_path.read_text()
+    assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
 
 
 @pytest.mark.asyncio
@@ -269,7 +327,7 @@ async def test_failed_main_handoff_does_not_consume_conversation(pa_workspace):
     env.agent.reply = AsyncMock(side_effect=RuntimeError("context failed"))
     with pytest.raises(RuntimeError, match="context failed"):
         await ProactiveAgentStep(app_context=env.context)()
-    env.agent.read_session.assert_not_awaited()
+    env.agent.read_session.assert_awaited_once_with(env.runtime.session_id)
     assert env.runtime.session_ids_path.read_bytes() == before
 
 

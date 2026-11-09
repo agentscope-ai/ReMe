@@ -310,12 +310,8 @@ else {
             openMenu();
             return;
           case "chat.open":
-          case "chat.close":
-          case "chat.toggle": {
-            const visible =
-              action.type === "chat.open" ||
-              (action.type === "chat.toggle" &&
-                (!windows!.chat.isVisible() || windows!.chat.isMinimized()));
+          case "chat.close": {
+            const visible = action.type === "chat.open";
             const messageId =
               action.type === "chat.open" ? action.messageId : undefined;
             if (visible) {

@@ -181,7 +181,7 @@ class TempProactiveStep(BasePaStep):
     async def _source_path(self, task):
         try:
             path = await self.agent_wrapper.app_server.get_session_path(task.source_session_id)
-            if path is not None:
+            if path is not None and await asyncio.to_thread(path.is_file):
                 return str(path)
         except Exception as exc:
             self.logger.warning(f"Source transcript is unavailable: {exc}")

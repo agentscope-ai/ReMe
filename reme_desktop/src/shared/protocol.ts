@@ -289,7 +289,6 @@ export type DesktopAction =
   | { type: "companion.menu" }
   | { type: "chat.open"; messageId?: string }
   | { type: "chat.close" }
-  | { type: "chat.toggle" }
   | { type: "chat.send"; query: string }
   | { type: "chat.stop" }
   | { type: "page.select"; page: DesktopPage }

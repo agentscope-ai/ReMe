@@ -206,7 +206,7 @@ test(
       );
 
       await t.test(
-        "clicking the embedded character hides the workspace and returns it to the desktop",
+        "clicking the embedded character keeps the workspace in front",
         async () => {
           const canvas = chat.locator(".embedded-companion canvas");
           await expect(canvas).toBeVisible();
@@ -215,25 +215,19 @@ test(
             rect.x + rect.width / 2,
             rect.y + rect.height * 0.35,
           );
-          await expect(companion.locator("canvas")).toHaveAttribute(
-            "data-animation",
-            "walking",
-          );
           await expect
             .poll(() =>
-              app.evaluate(({ BrowserWindow }) =>
-                BrowserWindow.getAllWindows()
-                  .find((win) => win.webContents.getURL().includes("view=chat"))
-                  .isVisible(),
-              ),
+              app.evaluate(({ BrowserWindow }) => {
+                const window = BrowserWindow.getAllWindows().find((win) =>
+                  win.webContents.getURL().includes("view=chat"),
+                );
+                return window.isVisible() && window.isFocused();
+              }),
             )
-            .toBe(false);
-          await expect
-            .poll(async () => (await presence()).host)
-            .toBe("desktop");
-          await expect(companion.locator("canvas")).toBeVisible();
-          await openWide();
+            .toBe(true);
           await expect.poll(async () => (await presence()).host).toBe("app");
+          await expect(canvas).toBeVisible();
+          await expect(companion.locator("canvas")).not.toBeVisible();
         },
       );
 

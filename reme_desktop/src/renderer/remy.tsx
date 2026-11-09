@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, RefreshCw } from "lucide-react";
 import type {
   DesktopState,
   DisplayMessage,
-  InboxStatus,
   ProactiveInboxDetail,
   ProactiveInboxItem,
   SessionSnapshot,
@@ -11,17 +10,11 @@ import type {
 import { errorText, translator } from "../shared/i18n.ts";
 import { displayMessages } from "../shared/messages.ts";
 import { action } from "./desktop.ts";
-import { inboxDate, inboxRequest, inboxStatus } from "./inbox.ts";
+import { inboxDate, inboxRequest } from "./inbox.ts";
 import Chat from "./chat/index.tsx";
 import MessageBody from "./message-body.tsx";
 import RemyInbox from "./remy-inbox.tsx";
 import SplitPane from "./split-pane.tsx";
-
-const RECEIPT_STATUSES: Record<string, InboxStatus> = {
-  staging: "pending",
-  queued: "pending",
-  consumed: "received",
-};
 
 export default function Remy({
   state,
@@ -224,9 +217,6 @@ export default function Remy({
       setError(error);
     }
   };
-  const receiptStatus =
-    RECEIPT_STATUSES[result?.receipt_status ?? ""] ?? "unknown";
-
   return (
     <SplitPane
       name="remy"
@@ -245,12 +235,13 @@ export default function Remy({
       <div className="remy-detail">
         {(selected || preview) && (
           <div className="result-toolbar">
-            <button onClick={returnToChat}>
+            <button className="subtle" onClick={returnToChat}>
               <ArrowLeft size={15} />
               {t("backToChat")}
             </button>
             {preview && (
               <button
+                className="secondary"
                 disabled={
                   Boolean(state.pending?.streaming) || state.status === "active"
                 }
@@ -260,8 +251,13 @@ export default function Remy({
               </button>
             )}
             {selected && (
-              <button onClick={() => setRevision((current) => current + 1)}>
-                {t("inboxRefresh")}
+              <button
+                className="icon-button"
+                aria-label={t("inboxRefresh")}
+                title={t("inboxRefresh")}
+                onClick={() => setRevision((current) => current + 1)}
+              >
+                <RefreshCw size={15} />
               </button>
             )}
           </div>
@@ -285,46 +281,19 @@ export default function Remy({
             {detail && (
               <article className="inbox-detail document-content">
                 <div className="eyebrow">
-                  PROACTIVE AGENT /{" "}
-                  {t(
-                    detail.item.kind === "task_result"
-                      ? "taskResults"
-                      : "inboxInstructions",
-                  )}
+                  {t("inbox")} / {t("taskResults")}
                 </div>
                 <h1 className="document-title">{detail.item.title}</h1>
                 <div className="inbox-detail-meta">
-                  <span className={`inbox-status ${detail.item.status}`}>
-                    {inboxStatus(detail.item.status, language)}
-                  </span>
                   <time>{inboxDate(detail.item.created_at, language)}</time>
-                  {detail.item.kind === "task_result" && (
-                    <span>
-                      {t(
-                        detail.item.user_read_at
-                          ? "inboxUserRead"
-                          : "inboxUserUnread",
-                      )}
-                    </span>
-                  )}
-                </div>
-                {detail.item.status === "received" && (
-                  <p className="inbox-detail-note">{t("inboxReceivedHint")}</p>
-                )}
-                {detail.item.source_modified && (
-                  <p className="inbox-detail-note">
+                  <span>
                     {t(
-                      detail.item.receipt_status
-                        ? "inboxEditedHint"
-                        : "inboxManualHint",
+                      detail.item.user_read_at
+                        ? "inboxUserRead"
+                        : "inboxUserUnread",
                     )}
-                    {detail.item.receipt_status &&
-                      ` ${t("inboxOriginalReceipt")}: ${inboxStatus(receiptStatus, language)}`}
-                  </p>
-                )}
-                {detail.item.source_present === false && (
-                  <p className="inbox-detail-note">{t("inboxSourceRemoved")}</p>
-                )}
+                  </span>
+                </div>
                 {detail.warnings.length > 0 && (
                   <div className="inbox-warning" role="status">
                     {detail.warnings.map((warning, index) => (
@@ -348,12 +317,6 @@ export default function Remy({
                       void action({ type: "link.open", url });
                   }}
                 />
-                {detail.received_at && (
-                  <p className="inbox-detail-note">
-                    {t("inboxOriginalReceived")}:{" "}
-                    {inboxDate(detail.received_at, language)}
-                  </p>
-                )}
               </article>
             )}
           </div>

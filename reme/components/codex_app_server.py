@@ -765,9 +765,18 @@ class CodexAppServer(BaseComponent):
                         mcp_tool_timeout,
                     )
                     if fork:
-                        state.token_usage = await self.token_usage(thread_id)
-                        thread = await codex.thread_fork(thread_id, **options)
-                        await finish_cleanup(self._fork_messages(thread_id, thread))
+                        # Native fork requires a rollout, which an unstarted live thread may not have yet.
+                        source_path = await self.get_session_path(thread_id) if source.pending is not None else None
+                        empty = source.pending is not None and (
+                            source_path is None or not await asyncio.to_thread(source_path.exists)
+                        )
+                        if empty:
+                            thread = await codex.thread_start(**options)
+                            state.token_usage = TokenUsage()
+                        else:
+                            state.token_usage = await self.token_usage(thread_id)
+                            thread = await codex.thread_fork(thread_id, **options)
+                            await finish_cleanup(self._fork_messages(thread_id, thread))
                     elif state.pending is not None:
                         thread = state.pending
                     elif thread_id:

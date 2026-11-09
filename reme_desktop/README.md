@@ -3,8 +3,8 @@
 Electron + React desktop client for ReMe's proactive agent. Remy stays on the desktop, opens a conversation when clicked,
 and mirrors replies and proactive messages in a small bubble. Memory and conversation history stay in the ReMe workspace.
 
-The wide workspace has two persistent tabs: **Remy** pairs an update inbox with the conversation; **Knowledge** pairs
-Studio's Workspace / Daily / Knowledge directory views with a document reader. The top-right **Settings** icon opens
+The wide workspace has two persistent tabs: **Remy** pairs reminders and a scheduled-task result inbox with the
+conversation; **Knowledge** pairs Studio's Workspace / Daily / Knowledge directory views with a document reader. The top-right **Settings** icon opens
 connection, appearance, character, notifications, voice, and project links; clicking it again returns to the previous
 page. Switching pages preserves the chat draft and reading position. Sidebars can be resized with a pointer or the
 arrow keys on their separator.
@@ -110,11 +110,12 @@ cd reme_desktop
 npm run dev
 ```
 
-Remy 出现在桌面后，单击角色可打开或隐藏主窗口，最小化时单击会恢复窗口；也可使用托盘菜单或 `Command/Ctrl + Shift + Space` 打开窗口。
+单击角色始终展示主窗口并置前，最小化时先恢复。
+也可使用托盘菜单或 `Command/Ctrl + Shift + Space` 打开窗口。
 默认连接 `http://127.0.0.1:2333`，右上角设置图标中可以修改服务地址、语言和主题。只有后端没有已选会话时，Desktop 才会创建会话。
 主动提醒卡片右下角的“详细解读”会带上该条提醒，在当前会话中继续解读，并保留输入框草稿。
 
-When Remy appears, click the character to show or hide the main window; clicking restores a minimized window.
+Clicking Remy always shows the main window and brings it to the front, restoring it first if minimized.
 You can also open the window from the tray menu or with `Command/Ctrl + Shift + Space`.
 The default endpoint is `http://127.0.0.1:2333`; the top-right Settings icon opens endpoint, language, and theme preferences.
 Desktop creates a PA session only if the backend has no selected session.

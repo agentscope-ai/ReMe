@@ -7,6 +7,7 @@ export function mockReMe(options?: {
   url: string;
   push(id: string, content?: string, completed?: boolean): void;
   upsert(message: import("../../src/shared/protocol.ts").SessionMessage): void;
+  setTaskIds(value: string[]): void;
   setReplyDelay(value: number): void;
   notificationWindow(value: {
     enabled: boolean;

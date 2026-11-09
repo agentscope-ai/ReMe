@@ -58,6 +58,9 @@ system_prompt_zh: |
   ## 上轮未完成 TODO
   {todo}
 
+no_main_context: "No Main conversation yet."
+no_main_context_zh: "暂无主对话内容。"
+
 query_context: |
   Summarize the main conversation background for the next proactive round.
   Use only inherited Main conversation, retaining reminder feedback and unfinished requests.

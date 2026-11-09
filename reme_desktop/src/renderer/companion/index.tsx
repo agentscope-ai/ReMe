@@ -42,7 +42,6 @@ export default function Companion({
     void action(value).catch((error: unknown) => setError(error));
   };
 
-  const toggleChat = () => run({ type: "chat.toggle" });
   const cancelDrag = () => {
     if (gesture.current) window.desktop.drag("end");
     gesture.current = null;
@@ -256,7 +255,7 @@ export default function Companion({
           transform: motion?.direction === -1 ? "scaleX(-1)" : undefined,
         }}
         onClick={(event) => {
-          if (event.detail === 0) toggleChat();
+          if (event.detail === 0) run({ type: "chat.open" });
         }}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -297,7 +296,7 @@ export default function Companion({
           gesture.current = null;
           if (event.currentTarget.hasPointerCapture(event.pointerId))
             event.currentTarget.releasePointerCapture(event.pointerId);
-          if (!start.moved) toggleChat();
+          if (!start.moved) run({ type: "chat.open" });
         }}
         onPointerCancel={cancelDrag}
         onLostPointerCapture={cancelDrag}

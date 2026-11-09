@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, nativeTheme } from "electron";
+import { app, BrowserWindow, screen, nativeTheme } from "electron";
 import {
   companionPlacement,
   workspacePlacement,
@@ -453,6 +453,7 @@ export class DesktopWindows {
       );
     }
     this.chat.show();
+    if (process.platform === "darwin") app.focus({ steal: true });
     this.chat.focus();
   }
 

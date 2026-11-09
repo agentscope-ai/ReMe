@@ -56,6 +56,7 @@ export async function mockReMe({
   let speechErrorText = "";
   let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
+  let taskIds = [];
   let replyDelay = 300;
   const sockets = new Set();
   const events = [];
@@ -169,7 +170,7 @@ export async function mockReMe({
         total: 0,
         offset: body.offset ?? 0,
         limit: body.limit ?? 5,
-        task_ids: [],
+        task_ids: taskIds,
         pending: 0,
         complete: true,
         warnings: [],
@@ -432,6 +433,9 @@ export async function mockReMe({
     url: `http://127.0.0.1:${server.address().port}`,
     push,
     upsert,
+    setTaskIds(value) {
+      taskIds = value;
+    },
     setReplyDelay(value) {
       replyDelay = value;
     },

@@ -150,6 +150,9 @@ on the next service start and apply to subsequent chats in the restored session.
 The `proactive` configuration forks the selected Main conversation to prepare a context summary, then starts a clean
 agent session for seven work queries: combined conversation, memory and inbox reading; unread task summaries; injected-message
 history; source research; message decisions; optional wake-configuration changes; and a closing TODO.
+When the selected Main has no native chat turns, Proactive skips the opening summary and runs the seven work queries
+with empty conversation context. Proactive messages alone do not count as chat history. Empty conversations do not block
+proactive work; errors reading an existing session still fail explicitly.
 Every wakeup prepares fresh Main context. The opening summary uses only the inherited Main conversation. The first work query
 calls the private `read_conversation(max_turns=10)` tool and reads personal memory, inbox feedback and previous TODOs together
 to understand newly completed Main rounds and maintain supported lasting memory. Tool bindings stay fixed.
@@ -178,6 +181,8 @@ The old `handoff.txt` is no longer created, read or updated; existing files are 
 
 Main context for Proactive and one-shot preparation fork their source session and append only a summary query,
 retaining its instructions, model, turn settings and tool definitions. Cron-task handoffs continue in the work session.
+Forking a known live empty thread without a persisted rollout starts an independent thread with its inherited settings
+and tools, without inserting placeholder messages into the source. Persisted history continues to use native forks.
 Scene-specific queries share a common requirement to preserve supported preferences,
 interests, requirements, recent projects and goals, distinguishing lasting preferences, recent focus and one-shot requests.
 Handoff prompts request a complete, clear context summary without prescribing a Markdown format.
@@ -274,7 +279,8 @@ quiet settings. Native history insertion waits for the source session to become 
 Results remain in Main's Chat inbox and become read after their bubble is actually shown; submission alone does not mark them read.
 Preparation failures retain an error and `retry_at`, retrying after 30 seconds. Prepared context and query results live in
 `{metadata_dir}/pa/temporary/{id}/`, with identity and revision metadata for recovery if progress-state publication was interrupted.
-At execution time, the agent receives its source transcript path for optional fresh context.
+At execution time, the agent receives an existing source transcript path for optional fresh context;
+when the empty source has not produced a transcript, it uses the prepared context instead.
 The immediate tool saves the result before delivery, so restart recovery delivers saved content without reexecuting the query.
 It is bound to the active temporary task and accepts at most 3980 characters.
 Use native file tools to read cron definitions in `cron.json`, execution records in `cron_runs.jsonl` under `{metadata_dir}/pa/`,

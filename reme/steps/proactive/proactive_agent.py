@@ -43,24 +43,28 @@ class ProactiveAgentStep(BasePaStep):
             if session_id is None:
                 self.context.response.answer = {"sent": False, "reason": "no_session"}
                 return self.context.response
-            context_reply = await self._reply(
-                self._handoff_prompt("query_context", now=self._now().isoformat()),
-                resume=session_id,
-                fork_session=True,
-                activity_source="proactive",
-                activity_session_id=session_id,
-                immediate=settings_only,
-            )
-            if context_reply is None:
-                self.context.response.answer = {"sent": False, "reason": "outside_active_hours"}
-                return self.context.response
-            if context_reply["status"] != "completed" or not context_reply["result"].strip():
-                raise RuntimeError(context_reply.get("error") or "Could not prepare proactive chat context")
-            await runtime.checkpoint_proactive(round_id, "chat_context", context_reply["result"])
+            source = await self.agent_wrapper.read_session(session_id)
+            chat_context = self.get_prompt("no_main_context")
+            if source.last_turn_id is not None:
+                context_reply = await self._reply(
+                    self._handoff_prompt("query_context", now=self._now().isoformat()),
+                    resume=session_id,
+                    fork_session=True,
+                    activity_source="proactive",
+                    activity_session_id=session_id,
+                    immediate=settings_only,
+                )
+                if context_reply is None:
+                    self.context.response.answer = {"sent": False, "reason": "outside_active_hours"}
+                    return self.context.response
+                if context_reply["status"] != "completed" or not context_reply["result"].strip():
+                    raise RuntimeError(context_reply.get("error") or "Could not prepare proactive chat context")
+                chat_context = context_reply["result"]
+            await runtime.checkpoint_proactive(round_id, "chat_context", chat_context)
             system_prompt = self._system_prompt(
                 now=self._now().isoformat(),
                 recovery_path=runtime.proactive_context_path,
-                chat_context=context_reply["result"],
+                chat_context=chat_context,
                 todo_path=runtime.proactive_todo_path,
                 todo=await runtime.read_proactive_todo(),
             )

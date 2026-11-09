@@ -39,7 +39,9 @@ from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
 from reme.steps.proactive.pa_chat import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.temp_proactive import TempProactiveStep
 from reme.utils import global_counter_get_all
+from .pa_helpers import bind_pa
 
 
 class _Job:
@@ -147,7 +149,7 @@ class _Thread:
         self.busy = True
         return _Turn(self, inputs)
 
-    async def read(self):
+    async def read(self, **_kwargs):
         return SimpleNamespace(
             thread=SimpleNamespace(
                 status=SimpleNamespace(root=SimpleNamespace(type="active" if self.busy else "idle")),
@@ -224,8 +226,8 @@ class _Codex:
         self.opened.append(("resume", thread_id, options))
         return self.threads[thread_id]
 
-    async def thread_read(self, thread_id):
-        return await self.threads[thread_id].read()
+    async def thread_read(self, thread_id, **kwargs):
+        return await self.threads[thread_id].read(**kwargs)
 
     async def thread_fork(self, thread_id, **options):
         forked = await self.thread_start(**options)
@@ -781,6 +783,66 @@ async def test_fork_inherits_source_instructions_tools_and_turn_settings(system,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("persisted", [False, True])
+async def test_fork_of_unstarted_session_preserves_source_options_and_tools(system, monkeypatch, persisted):
+    first, second, server, job = system
+    source_id = await first.create_session(
+        system_prompt="Source instructions.",
+        model="source-model",
+        job_tools=[job.name],
+        injected_job_kwargs={"_allowed_paths": ["source.md"]},
+    )
+    native = _Codex.instances[0]
+    source = native.threads[source_id]
+    source.path = str(server.session_path / "sessions" / "source.jsonl")
+    if persisted:
+        Path(source.path).parent.mkdir(parents=True, exist_ok=True)
+        Path(source.path).write_text("", encoding="utf-8")
+    fork = AsyncMock(
+        wraps=native.thread_fork,
+        side_effect=None if persisted else RuntimeError("no rollout found for thread id"),
+    )
+    monkeypatch.setattr(native, "thread_fork", fork)
+    second.kwargs.update(system_prompt="Unrelated instructions.", model="other-model", job_tools=[])
+
+    reply = await second.reply("Prepare context.", resume=source_id, fork_session=True)
+
+    assert reply["status"] == "completed" and reply["session_id"] != source_id
+    assert source.inputs == [] and server._threads[source_id].pending is source
+    assert source_id not in native.unsubscribed
+    assert native.opened[-1][0] == ("fork" if persisted else "start")
+    assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
+    assert native.opened[-1][2]["model"] == "source-model"
+    assert fork.await_count == int(persisted)
+    token = server._threads[reply["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="read")
+    assert job.calls[-1]["_allowed_paths"] == ["source.md"]
+
+
+@pytest.mark.asyncio
+async def test_temporary_preparation_uses_an_independent_empty_source_fork(system, monkeypatch):
+    first, _, server, job = system
+    runtime = bind_pa(first.app_context, first)
+    runtime._initialize_files()
+    source_id = await first.create_session(system_prompt="Source instructions.", job_tools=[job.name])
+    runtime.session_id = source_id
+    task = await runtime.temp_tasks.create("Prepare an isolated one-shot task.")
+    native = _Codex.instances[0]
+    fork = AsyncMock(side_effect=RuntimeError("no rollout found for thread id"))
+    monkeypatch.setattr(native, "thread_fork", fork)
+    step = TempProactiveStep(app_context=first.app_context)
+
+    async with asyncio.timeout(3):
+        prepared = await step._prepare(task)
+
+    assert prepared.status == "scheduled" and prepared.error is None and prepared.retry_at is None
+    assert task.query in (runtime.workspace_path / prepared.handoff_path).read_text()
+    assert runtime.session_id == source_id and native.threads[source_id].inputs == []
+    assert server._threads[source_id].pending is native.threads[source_id]
+    fork.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_fork_waits_for_source_and_cancellation_preserves_its_tools(system):
     first, second, server, _ = system
     source_id = (await first.reply("initial", job_tools=["search"]))["session_id"]
@@ -809,12 +871,13 @@ async def test_fork_waits_for_source_and_cancellation_preserves_its_tools(system
 
 
 @pytest.mark.asyncio
-async def test_failed_fork_revokes_only_its_new_tool_scope(system, monkeypatch):
+@pytest.mark.parametrize("error", ["fork failed", "no rollout found for thread id"])
+async def test_failed_fork_revokes_only_its_new_tool_scope(system, monkeypatch, error):
     first, _, server, _ = system
     source_id = (await first.reply("source", job_tools=["search"]))["session_id"]
     token = server._threads[source_id].token
-    monkeypatch.setattr(_Codex.instances[0], "thread_fork", AsyncMock(side_effect=RuntimeError("fork failed")))
-    with pytest.raises(RuntimeError, match="fork failed"):
+    monkeypatch.setattr(_Codex.instances[0], "thread_fork", AsyncMock(side_effect=RuntimeError(error)))
+    with pytest.raises(RuntimeError, match=error):
         await first.reply("handoff", resume=source_id, fork_session=True)
     assert set(server.jobs_mcp.scopes) == {token}
 

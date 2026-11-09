@@ -249,26 +249,26 @@ export default function Chat({
             <div className="welcome-orbit">
               <img src="reme-assets://remy/frames/idle/00.png" alt="Remy" />
             </div>
-            <span className="eyebrow">{t("privateMemory")}</span>
-            <h2>{t("welcomeTitle")}</h2>
+            <h2>Remy</h2>
             <p>{t("welcomeHint")}</p>
             <div className="conversation-prompts">
-              {(["promptRecall", "promptConnect"] as const).map((key) => (
+              {(
+                [
+                  "promptScheduledQuery",
+                  "promptTemporaryQuery",
+                  "promptProactiveQuery",
+                ] as const
+              ).map((query) => (
                 <button
-                  key={key}
+                  key={query}
+                  title={t(query)}
+                  disabled={readOnly}
                   onClick={() => {
-                    setQuery(
-                      t(
-                        key === "promptRecall"
-                          ? "promptRecallQuery"
-                          : "promptConnectQuery",
-                      ),
-                    );
+                    setQuery(t(query));
                     input.current?.focus();
                   }}
                 >
-                  {t(key)}
-                  <ArrowUpRight size={14} />
+                  <span>{t(query)}</span>
                 </button>
               ))}
             </div>
@@ -561,7 +561,10 @@ export default function Chat({
               ? t("memoryLocation")
               : t("waitingService")}
           </span>
-          <span className="keyboard-hint">{t("newlineHint")}</span>
+          <span className="keyboard-hint">
+            {state.speech.asr && <span>{t("voiceShortcutHint")}</span>}
+            <span>{t("newlineHint")}</span>
+          </span>
         </div>
       </footer>
     </main>

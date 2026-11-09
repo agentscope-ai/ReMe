@@ -38,19 +38,25 @@ system_prompt_zh: |
   {handoff}
 
 query_summary: |
-  Read the latest one or two completed snapshots, across dates if needed:
+  Read the latest one or two completed results, across dates if needed:
   {previous_paths}
-  Combine this run's findings with still-valid history into a concise, standalone summary.
-  Connect developments chronologically, retaining dates, necessary sources and open questions.
-  Without a valuable update, write no file and return exactly NO_UPDATE.
+  Lead with this run's new findings and changes: at most three points, each one or two short sentences.
+  Include only the background needed to understand them.
+  End with a brief accumulated timeline, one line per milestone. Merge repeated topics and continuous periods;
+  retain only key developments, rather than appending an entry for every execution.
+  Use plain, concise language, keep necessary times and source URLs, and state only what you have confirmed.
+  Do not copy old summaries, raw screen content, operation logs or internal paths into the result.
+  Without valuable new information, write no file and return exactly NO_UPDATE.
   Otherwise write the summary to {staging_path}, then confirm briefly. Leave previous results untouched.
   A failed write is an error; code validates and publishes the file.
   Current time: {now}
 query_summary_zh: |
   阅读最近1–2篇已完成结果，必要时跨日：
   {previous_paths}
-  将本次发现与仍有效的历史合为简洁、独立可读的摘要，按时间串联变化，保留时间、必要来源和待确认事项。
-  没有有价值的更新则不写文件，只返回 NO_UPDATE。
+  以本次定时任务的新增发现和变化为主，先用最多3点说明，每点1–2句；必要背景简短带过。
+  末尾附简短累计时间线，每条一行。合并重复主题和连续时段，只留关键变化，不按每次执行逐条追加。
+  整体说人话、简洁，保留必要时间、来源 URL，只说你确认的事情；不照抄旧摘要、截图原文、操作流水或内部路径。
+  没有有价值的新信息则不写文件，只返回 NO_UPDATE。
   有价值的更新就写入 {staging_path}，再简短确认，不修改旧结果。
   写入失败属于错误，由代码校验发布。当前时间：{now}
 

@@ -1,8 +1,4 @@
-import type {
-  InboxStatus,
-  JobResponse,
-  WorkspaceRequest,
-} from "../shared/protocol.ts";
+import type { JobResponse, WorkspaceRequest } from "../shared/protocol.ts";
 import { deserializeError, translator, type Language } from "../shared/i18n.ts";
 
 export async function inboxRequest<T>(value: WorkspaceRequest): Promise<T> {
@@ -25,15 +21,4 @@ export function inboxDate(
         minute: "2-digit",
       })
     : translator(language)("earlier");
-}
-
-export function inboxStatus(status: InboxStatus, language: Language): string {
-  const keys = {
-    pending: "inboxPending",
-    received: "inboxReceived",
-    superseded: "inboxSuperseded",
-    removed: "inboxRemoved",
-    unknown: "inboxUnknown",
-  } as const;
-  return translator(language)(keys[status]);
 }

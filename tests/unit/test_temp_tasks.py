@@ -194,6 +194,26 @@ async def test_temporary_result_announces_while_main_busy_then_inserts_without_t
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("source", ["none", "missing", "file", "directory"])
+async def test_temporary_context_only_exposes_an_existing_native_transcript(pa_workspace, monkeypatch, source):
+    env = pa_workspace
+    task = await env.runtime.temp_tasks.create("Read context only when it exists.")
+    path = env.runtime.workspace_path / "native-source.jsonl"
+    if source == "file":
+        path.write_text("{}\n", encoding="utf-8")
+    elif source == "directory":
+        path.mkdir()
+    lookup = AsyncMock(return_value=None if source == "none" else path)
+    monkeypatch.setattr(env.agent.app_server, "get_session_path", lookup)
+    step = TempProactiveStep(app_context=env.context)
+
+    result = await step._source_path(task)
+
+    assert result == (str(path) if source == "file" else step.get_prompt("source_unavailable"))
+    lookup.assert_awaited_once_with(task.source_session_id)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("delayed", [False, True])
 async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace, monkeypatch, language, delayed):

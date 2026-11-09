@@ -526,7 +526,7 @@ test(
       );
 
       await t.test(
-        "clicking the character toggles chat and restores a minimized window",
+        "clicking the character always raises chat, including activation during a press",
         async () => {
           const windowState = () =>
             app.evaluate(({ BrowserWindow }) => {
@@ -536,9 +536,10 @@ test(
               return {
                 visible: window.isVisible(),
                 minimized: window.isMinimized(),
+                focused: window.isFocused(),
               };
             });
-          const clickCharacter = async () => {
+          const clickCharacter = async (activateOnPress = false) => {
             await expect
               .poll(() =>
                 companion.evaluate(() =>
@@ -557,10 +558,14 @@ test(
             const canvas = page.locator(".character canvas");
             await expect(canvas).toBeVisible();
             const rect = await canvas.boundingBox();
-            await page.mouse.click(
+            await page.mouse.move(
               rect.x + rect.width / 2,
               rect.y + rect.height * 0.35,
             );
+            await page.mouse.down();
+            if (activateOnPress)
+              await app.evaluate(({ app }) => app.emit("activate"));
+            await page.mouse.up();
           };
           const expectVisible = async (visible) => {
             await expect
@@ -575,13 +580,46 @@ test(
                 ),
               )
               .toBe(visible);
+            if (visible)
+              await expect
+                .poll(async () => (await windowState()).focused)
+                .toBe(true);
           };
 
           await clickCharacter();
           await expectVisible(true);
           await clickCharacter();
-          await expectVisible(false);
+          await expectVisible(true);
           await clickCharacter();
+          await expectVisible(true);
+
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((window) =>
+                window.webContents.getURL().includes("view=chat"),
+              )
+              .blur(),
+          );
+          await expect
+            .poll(async () => (await windowState()).focused)
+            .toBe(false);
+          await companion
+            .locator(".character")
+            .evaluate((button) => button.click());
+          await expectVisible(true);
+
+          // OS activation may raise chat before the mouse-up reaches the character.
+          await app.evaluate(({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()
+              .find((window) =>
+                window.webContents.getURL().includes("view=chat"),
+              )
+              .blur(),
+          );
+          await expect
+            .poll(async () => (await windowState()).focused)
+            .toBe(false);
+          await clickCharacter(true);
           await expectVisible(true);
 
           await chat.evaluate(() =>
@@ -609,6 +647,10 @@ test(
           );
           await expectVisible(true);
           await clickCharacter();
+          await expectVisible(true);
+          await chat.evaluate(() =>
+            window.desktop.action({ type: "chat.close" }),
+          );
           await expectVisible(false);
         },
       );
@@ -912,7 +954,7 @@ test(
             )
             .toBe("session-2");
           await expect(
-            chat.getByRole("heading", { name: "想聊些什么？" }),
+            chat.locator(".empty-chat").getByRole("heading", { name: "Remy" }),
           ).toBeVisible();
           assert.deepEqual(errors, []);
           assert.deepEqual(logs, []);

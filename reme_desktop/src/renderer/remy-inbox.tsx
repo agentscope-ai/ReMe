@@ -2,22 +2,20 @@ import { useEffect, useState } from "react";
 import {
   ArrowUpRight,
   Bell,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
-  MessageSquare,
+  Inbox,
   Sparkles,
 } from "lucide-react";
 import type {
   DesktopState,
-  InboxKind,
   ProactiveInboxItem,
   ProactiveInboxPage,
 } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
-import { inboxDate, inboxRequest, inboxStatus } from "./inbox.ts";
+import { inboxDate, inboxRequest } from "./inbox.ts";
 
 const PAGE_SIZE = 5;
 
@@ -35,12 +33,8 @@ export default function RemyInbox({
   const language = state.settings.language;
   const t = translator(language);
   const scope = `${state.settings.endpoint}:${state.workspace}`;
-  const [chatOpen, setChatOpen] = useState(true);
-  const [proactiveOpen, setProactiveOpen] = useState(true);
-  const [chatFilter, setChatFilter] = useState("all");
+  const [view, setView] = useState<"reminders" | "results">("reminders");
   const [chatLimit, setChatLimit] = useState(PAGE_SIZE);
-  const [kind, setKind] = useState<InboxKind | "all">("all");
-  const [filter, setFilter] = useState<"all" | "pending" | "unread">("all");
   const [task, setTask] = useState("");
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<ProactiveInboxPage | null>(null);
@@ -48,14 +42,22 @@ export default function RemyInbox({
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(false);
   const read = new Set(state.readMessageIds);
-  const messages = state.inboxMessages
-    .filter((message) => chatFilter === "all" || !read.has(message.id))
-    .toReversed();
+  const messages = state.inboxMessages.toReversed();
+  const reminders = view === "reminders";
+  const locale = language === "zh" ? "zh-CN" : "en";
+  let previousDay = "";
+  const dayLabel = (timestamp: string | null | undefined) => {
+    const date = timestamp ? new Date(timestamp) : null;
+    return date && !Number.isNaN(date.getTime())
+      ? date.toDateString() === new Date().toDateString()
+        ? t("today")
+        : date.toLocaleDateString(locale, { month: "short", day: "numeric" })
+      : t("earlier");
+  };
 
   useEffect(() => {
     if (state.focusMessageId) {
-      setChatOpen(true);
-      setChatFilter("all");
+      setView("reminders");
       const index = state.inboxMessages
         .toReversed()
         .findIndex((item) => item.id === state.focusMessageId);
@@ -66,7 +68,12 @@ export default function RemyInbox({
   }, [state.focusRequest, state.focusMessageId]);
 
   useEffect(() => {
-    if (state.activePage !== "remy" || state.connection !== "connected") return;
+    if (
+      reminders ||
+      state.activePage !== "remy" ||
+      state.connection !== "connected"
+    )
+      return;
     let live = true;
     let pending = false;
     const refresh = async () => {
@@ -76,8 +83,8 @@ export default function RemyInbox({
       try {
         const value = await inboxRequest<ProactiveInboxPage>({
           type: "proactiveInbox",
-          kind,
-          filter,
+          kind: "task_result",
+          filter: "all",
           taskId: task || undefined,
           offset,
           limit: PAGE_SIZE,
@@ -106,8 +113,7 @@ export default function RemyInbox({
     };
   }, [
     scope,
-    kind,
-    filter,
+    reminders,
     task,
     offset,
     retry,
@@ -116,72 +122,70 @@ export default function RemyInbox({
     state.connection,
   ]);
 
-  const changeKind = (value: InboxKind | "all") => {
-    if (kind === value) return;
-    setKind(value);
-    setTask("");
-    setOffset(0);
-    setPage(null);
-    if (filter === "unread" && value !== "task_result") setFilter("all");
-  };
-
   return (
     <>
       <div className="sidebar-heading">
         <span className="eyebrow">REMY / INBOX</span>
-        <h1>{t("inbox")}</h1>
-        <p>{t("inboxCaption")}</p>
+        <h1>
+          {t("remyUpdates")}
+          {state.unread > 0 && (
+            <span className="count-pill">{state.unread}</span>
+          )}
+        </h1>
+        <p>{t(reminders ? "inboxCaption" : "taskInboxCaption")}</p>
       </div>
-      <div className="inbox-sections">
-        <section className="inbox-section" aria-labelledby="chat-inbox-heading">
+      <div className="source-tabs" role="group" aria-label={t("remyUpdates")}>
+        {(["reminders", "results"] as const).map((value) => (
           <button
-            id="chat-inbox-heading"
-            className="inbox-section-heading"
-            aria-expanded={chatOpen}
-            aria-controls="chat-inbox-content"
-            onClick={() => setChatOpen(!chatOpen)}
+            key={value}
+            className={view === value ? "active" : ""}
+            aria-pressed={view === value}
+            onClick={() => setView(value)}
           >
-            <MessageSquare size={15} />
-            <span>Chat Agent</span>
-            <span className="count-pill">
-              {state.unread} {t("unreadUpdates")}
-            </span>
-            <ChevronDown size={14} className={chatOpen ? "" : "collapsed"} />
+            {value === "reminders" ? <Bell size={13} /> : <Inbox size={13} />}
+            {t(value === "reminders" ? "reminders" : "inbox")}
           </button>
-          {chatOpen && (
-            <div id="chat-inbox-content">
-              <div
-                className="inbox-filters"
-                role="group"
-                aria-label={t("chatInboxFilter")}
-              >
-                {(["all", "unread"] as const).map((value) => (
-                  <button
-                    key={value}
-                    className={chatFilter === value ? "active" : ""}
-                    aria-pressed={chatFilter === value}
-                    onClick={() => {
-                      setChatFilter(value);
-                      setChatLimit(PAGE_SIZE);
-                    }}
-                  >
-                    {t(value === "all" ? "allUpdates" : "unreadUpdates")}
-                  </button>
-                ))}
+        ))}
+      </div>
+      {!reminders && Boolean(page?.task_ids.length || task) && (
+        <div className="task-filter">
+          <select
+            className="task-filter-trigger"
+            aria-label={t("filterTask")}
+            value={task}
+            onChange={(event) => {
+              setTask(event.target.value);
+              setOffset(0);
+            }}
+          >
+            {Array.from(new Set(["", task, ...(page?.task_ids ?? [])])).map(
+              (option) => (
+                <option key={option} value={option}>
+                  {option || t("allTasks")}
+                </option>
+              ),
+            )}
+          </select>
+        </div>
+      )}
+      <div className="inbox-list" aria-busy={!reminders && loading}>
+        {reminders ? (
+          <>
+            {!messages.length && (
+              <div className="sidebar-empty">
+                <Bell size={26} strokeWidth={1.2} />
+                <h3>{t("noUpdates")}</h3>
+                <p>{t("noUpdatesHint")}</p>
               </div>
-              <div className="inbox-list">
-                {!messages.length && (
-                  <div className="sidebar-empty">
-                    <Bell size={23} strokeWidth={1.2} />
-                    <h3>
-                      {t(chatFilter === "unread" ? "allCaughtUp" : "noUpdates")}
-                    </h3>
-                    <p>{t("noUpdatesHint")}</p>
-                  </div>
-                )}
-                {messages.slice(0, chatLimit).map((message) => (
+            )}
+            {messages.slice(0, chatLimit).map((message) => {
+              const day = dayLabel(message.createdAt);
+              const group = day !== previousDay;
+              previousDay = day;
+              return (
+                <div key={message.id}>
+                  {group && <div className="list-section-label">{day}</div>}
                   <button
-                    key={message.id}
                     className={`inbox-card ${!read.has(message.id) ? "unread" : ""} ${!selected && state.focusMessageId === message.id ? "selected" : ""}`}
                     onClick={() =>
                       void action({ type: "chat.open", messageId: message.id })
@@ -191,245 +195,141 @@ export default function RemyInbox({
                       <Sparkles size={14} />
                       <span>Remy</span>
                       <time>{inboxDate(message.createdAt, language)}</time>
-                      {!read.has(message.id) && <i className="unread-dot" />}
                     </div>
                     <p>{message.content}</p>
-                    <span className="inbox-card-link">
-                      {t("conversation")}
-                      <ArrowUpRight size={12} />
-                    </span>
+                    <div className="inbox-card-bottom">
+                      <span
+                        className="inbox-read-state"
+                        data-unread={!read.has(message.id)}
+                      >
+                        {t(
+                          read.has(message.id)
+                            ? "inboxUserRead"
+                            : "inboxUserUnread",
+                        )}
+                      </span>
+                      <span className="inbox-card-link">
+                        {t("conversation")}
+                        <ArrowUpRight size={12} />
+                      </span>
+                    </div>
                   </button>
-                ))}
-                {messages.length > PAGE_SIZE && (
-                  <button
-                    className="inbox-more"
-                    onClick={() =>
-                      setChatLimit(
-                        chatLimit < messages.length
-                          ? chatLimit + PAGE_SIZE
-                          : PAGE_SIZE,
-                      )
-                    }
-                  >
-                    {t(
-                      chatLimit < messages.length
-                        ? "inboxShowMore"
-                        : "inboxShowLess",
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </section>
-        <section
-          className="inbox-section"
-          aria-labelledby="proactive-inbox-heading"
-        >
-          <button
-            id="proactive-inbox-heading"
-            className="inbox-section-heading"
-            aria-expanded={proactiveOpen}
-            aria-controls="proactive-inbox-content"
-            onClick={() => setProactiveOpen(!proactiveOpen)}
-          >
-            <Sparkles size={15} />
-            <span>Proactive Agent</span>
-            <span className="count-pill" title={t("proactivePendingHint")}>
-              {page?.complete && !error ? page.pending : "—"}{" "}
-              {t("inboxPending")}
-            </span>
-            <ChevronDown
-              size={14}
-              className={proactiveOpen ? "" : "collapsed"}
-            />
-          </button>
-          {proactiveOpen && (
-            <div id="proactive-inbox-content">
-              <div
-                className="inbox-filters"
-                role="group"
-                aria-label={t("inboxKind")}
+                </div>
+              );
+            })}
+            {messages.length > PAGE_SIZE && (
+              <button
+                className="inbox-more"
+                onClick={() =>
+                  setChatLimit(
+                    chatLimit < messages.length
+                      ? chatLimit + PAGE_SIZE
+                      : PAGE_SIZE,
+                  )
+                }
               >
-                {(["all", "task_result", "instruction"] as const).map(
-                  (value) => (
-                    <button
-                      key={value}
-                      className={kind === value ? "active" : ""}
-                      aria-pressed={kind === value}
-                      onClick={() => changeKind(value)}
-                    >
-                      {t(
-                        value === "all"
-                          ? "allUpdates"
-                          : value === "task_result"
-                            ? "taskResults"
-                            : "inboxInstructions",
-                      )}
-                    </button>
-                  ),
+                {t(
+                  chatLimit < messages.length
+                    ? "inboxShowMore"
+                    : "inboxShowLess",
                 )}
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {error != null && (
+              <div className="inbox-warning" role="alert">
+                <p>{errorText(error, language)}</p>
+                <button onClick={() => setRetry(retry + 1)}>
+                  {t("inboxRetry")}
+                </button>
               </div>
-              <div
-                className="inbox-filters inbox-status-filters"
-                role="group"
-                aria-label={t("proactiveInboxFilter")}
-              >
-                {(
-                  [
-                    "all",
-                    "pending",
-                    ...(kind === "task_result" ? ["unread" as const] : []),
-                  ] as const
-                ).map((value) => (
-                  <button
-                    key={value}
-                    className={filter === value ? "active" : ""}
-                    aria-pressed={filter === value}
-                    onClick={() => {
-                      if (filter !== value) {
-                        setFilter(value);
-                        setOffset(0);
-                        setPage(null);
-                      }
-                    }}
-                  >
-                    {t(
-                      value === "all"
-                        ? "allUpdates"
-                        : value === "pending"
-                          ? "inboxPending"
-                          : "inboxUserUnread",
-                    )}
-                  </button>
-                ))}
-              </div>
-              {kind === "task_result" && (
-                <select
-                  className="task-filter"
-                  value={task}
-                  aria-label={t("filterTask")}
-                  onChange={(event) => {
-                    setTask(event.target.value);
-                    setOffset(0);
-                  }}
-                >
-                  <option value="">{t("allTasks")}</option>
-                  {page?.task_ids.map((id) => (
-                    <option key={id} value={id}>
-                      {id}
-                    </option>
+            )}
+            {Boolean(page?.warnings.length) && (
+              <div className="inbox-warning" role="status">
+                <strong>{t("inboxPartial")}</strong>
+                <details>
+                  <summary>{t("inboxDetails")}</summary>
+                  {page?.warnings.map((warning, index) => (
+                    <p key={index}>{warning}</p>
                   ))}
-                </select>
-              )}
-              <div className="inbox-list" aria-busy={loading}>
-                {error != null && (
-                  <div className="inbox-warning" role="alert">
-                    <p>{errorText(error, language)}</p>
-                    <button onClick={() => setRetry(retry + 1)}>
-                      {t("inboxRetry")}
-                    </button>
-                  </div>
+                </details>
+              </div>
+            )}
+            {!page && error == null && (
+              <p className="inbox-empty">
+                {t(
+                  state.connection === "connected"
+                    ? "documentLoading"
+                    : "reconnecting",
                 )}
-                {Boolean(page?.warnings.length) && (
-                  <div className="inbox-warning" role="status">
-                    <strong>{t("inboxPartial")}</strong>
-                    <details>
-                      <summary>{t("inboxDetails")}</summary>
-                      {page?.warnings.map((warning, index) => (
-                        <p key={index}>{warning}</p>
-                      ))}
-                    </details>
-                  </div>
-                )}
-                {!page && error == null && (
-                  <p className="inbox-empty">
-                    {t(
-                      state.connection === "connected"
-                        ? "documentLoading"
-                        : "reconnecting",
-                    )}
-                  </p>
-                )}
-                {page &&
-                  !page.items.length &&
-                  error == null &&
-                  page.complete && (
-                    <p className="inbox-empty">
-                      {t(
-                        filter === "pending"
-                          ? "inboxNoPending"
-                          : filter === "unread"
-                            ? "inboxNoUnreadResults"
-                            : "inboxNoInputs",
-                      )}
-                    </p>
-                  )}
-                {page?.items.map((item) => (
+              </p>
+            )}
+            {page && !page.items.length && error == null && page.complete && (
+              <div className="sidebar-empty">
+                <Inbox size={26} strokeWidth={1.2} />
+                <h3>{t("noTaskResults")}</h3>
+              </div>
+            )}
+            {page?.items.map((item) => {
+              const day = dayLabel(item.created_at);
+              const group = day !== previousDay;
+              previousDay = day;
+              return (
+                <div key={item.id}>
+                  {group && <div className="list-section-label">{day}</div>}
                   <button
-                    key={item.id}
-                    className={`inbox-card ${item.status === "pending" ? "awaiting" : ""} ${selected === item.id ? "selected" : ""}`}
+                    className={`inbox-card ${!item.user_read_at ? "unread" : ""} ${selected === item.id ? "selected" : ""}`}
                     onClick={() => onOpen(item)}
                   >
                     <div className="inbox-card-top">
-                      {item.kind === "task_result" ? (
-                        <FileText size={14} />
-                      ) : (
-                        <MessageSquare size={14} />
-                      )}
-                      <span>
-                        {t(
-                          item.kind === "task_result"
-                            ? "taskResults"
-                            : "inboxInstructions",
-                        )}
-                      </span>
-                      <span className={`inbox-status ${item.status}`}>
-                        {inboxStatus(item.status, language)}
-                      </span>
+                      <FileText size={14} />
+                      <span>{item.task_id}</span>
                     </div>
                     <h3 className="inbox-card-title">{item.title}</h3>
                     <p>{item.preview}</p>
                     <div className="inbox-card-bottom">
                       <time>{inboxDate(item.created_at, language)}</time>
-                      {item.kind === "task_result" && (
-                        <span>
-                          {t(
-                            item.user_read_at
-                              ? "inboxUserRead"
-                              : "inboxUserUnread",
-                          )}
-                        </span>
-                      )}
+                      <span
+                        className="inbox-read-state"
+                        data-unread={!item.user_read_at}
+                      >
+                        {t(
+                          item.user_read_at
+                            ? "inboxUserRead"
+                            : "inboxUserUnread",
+                        )}
+                      </span>
                     </div>
                   </button>
-                ))}
-                {page && page.total > PAGE_SIZE && (
-                  <div className="inbox-pagination">
-                    <button
-                      aria-label={t("inboxPrevious")}
-                      disabled={offset === 0 || loading}
-                      onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-                    >
-                      <ChevronLeft size={15} />
-                    </button>
-                    <span>
-                      {offset + 1}–{Math.min(offset + PAGE_SIZE, page.total)} /{" "}
-                      {page.total}
-                    </span>
-                    <button
-                      aria-label={t("inboxNext")}
-                      disabled={offset + PAGE_SIZE >= page.total || loading}
-                      onClick={() => setOffset(offset + PAGE_SIZE)}
-                    >
-                      <ChevronRight size={15} />
-                    </button>
-                  </div>
-                )}
+                </div>
+              );
+            })}
+            {page && page.total > PAGE_SIZE && (
+              <div className="inbox-pagination">
+                <button
+                  aria-label={t("inboxPrevious")}
+                  disabled={offset === 0 || loading}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                >
+                  <ChevronLeft size={15} />
+                </button>
+                <span>
+                  {offset + 1}–{Math.min(offset + PAGE_SIZE, page.total)} /{" "}
+                  {page.total}
+                </span>
+                <button
+                  aria-label={t("inboxNext")}
+                  disabled={offset + PAGE_SIZE >= page.total || loading}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}
+                >
+                  <ChevronRight size={15} />
+                </button>
               </div>
-            </div>
-          )}
-        </section>
+            )}
+          </>
+        )}
       </div>
       <div className="sidebar-footer">
         <span

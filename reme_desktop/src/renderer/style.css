@@ -186,7 +186,7 @@ button {
   display: flex;
   gap: 4px;
 }
-.unread,
+.companion-badges .unread,
 .offline-dot {
   border: 2px solid var(--surface);
   width: 24px;
@@ -198,7 +198,7 @@ button {
   font-size: 11px;
   box-shadow: 0 2px 8px #10241920;
 }
-.unread {
+.companion-badges .unread {
   background: var(--accent);
   color: var(--accent-ink);
 }
@@ -562,7 +562,15 @@ button {
   background: var(--accent);
 }
 .keyboard-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: 12px;
+  row-gap: 3px;
   margin-left: auto;
+}
+.keyboard-hint > span {
+  white-space: nowrap;
 }
 .loading {
   padding: 20px;
