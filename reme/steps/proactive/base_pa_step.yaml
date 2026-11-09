@@ -26,8 +26,6 @@ handoff_rules: |
   - Important background, constraints and authorization boundaries.
   - Unfinished work, blockers and clear next steps.
   - Critical data, examples, file paths and references needed to continue.
-  If previous summaries exist, begin with "Accumulated historical context", retaining their valid decisions,
-  outcomes and directions.
   Master's latest corrections, cancellations and forgetting take priority. Distinguish facts from uncertainty;
   do not invent interests or confuse lasting preferences with one-shot requests.
   Only summarize; do not call tools, edit files or send messages. Output only a complete, clear context summary.
@@ -38,6 +36,5 @@ handoff_rules_zh: |
   - 重要背景、约束和授权边界。
   - 待完成工作、阻塞问题和清晰的后续步骤。
   - 继续工作所需的关键数据、示例、文件路径和参考资料。
-  若有旧摘要，在顶部设置“累积历史上下文”，保留其中有效的决策、成果和方向。
   主人最新的纠正、取消和遗忘要求优先。区分事实与不确定性，不推测兴趣，不混淆长期偏好和一次性请求。
   只整理上下文，不调用工具、不修改文件、不发送消息，只输出完整、清晰的上下文摘要。

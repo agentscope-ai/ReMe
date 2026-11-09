@@ -153,12 +153,13 @@ query_config_zh: |
 query_todo: |
   You are about to sleep and wake about {interval_minutes:g} minutes after completion, subject to active hours and pauses.
 
-  Output a short list of what to do after waking; say no TODOs when none.
+  Briefly list unfinished tasks and their context for your next wakeup, summarizing them in one simple sentence.
+  If there are none, say no TODOs.
 
 query_todo_zh: |
   你即将沉睡，本轮结束约 {interval_minutes:g} 分钟后苏醒，实际遵守活动时段与暂停设置。
 
-  输出下次苏醒后还要做的简短待办清单；没有就写无待办。
+  简短列出下次苏醒后尚未完成的事项和背景，一句话简单总结。没有就写无待办。
 
 optional_hint: |
   Time: {now}. Optional direction: {hint}

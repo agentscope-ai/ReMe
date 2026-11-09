@@ -97,9 +97,7 @@ query_handoff: |
   When you next wake up, execute this same scheduled task:
   {query}
 
-  - Summarize only this task's context; do not call tools.
-  - Focus on changes since previous runs, applicable conditions and comparison baselines.
-  - Keep published result paths or why no update was published; do not turn transient state into lasting facts.
+  - Retain this task's unfinished work for the next run, with a comparison baseline only when needed to continue.
 
   Current time: {now}. Published result: {result_path}.
   Finally, output a task context summary for your next wakeup, even when no update was published.
@@ -109,9 +107,7 @@ query_handoff_zh: |
   下次调度苏醒时，你将继续执行同一个周期任务：
   {query}
 
-  - 只整理该任务的上下文，不调用工具。
-  - 重点保留相比此前的变化、适用条件和必要的对比基线。
-  - 保留已发布结果路径或未发布新结果的原因，不把临时状态写成长期事实。
+  - 整理该任务下轮尚需处理的事项，仅在继续处理需要时保留对比基线。
 
   当前时间：{now}；已发布结果：{result_path}。
   最后输出供下次苏醒使用的任务背景摘要；即使没有发布新结果也须交接。
