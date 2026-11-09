@@ -4,6 +4,7 @@
 
 from copy import deepcopy
 import base64
+from importlib.metadata import EntryPoint
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -118,8 +119,13 @@ async def test_real_image_memory_accepts_empty_legacy_result(benchmark, wrapper,
     assert len(blocks) == 1 and base64.b64decode(blocks[0].source.data) == image
 
 
-def test_only_benchmark_config_selects_local_wrappers(benchmark):
+def test_only_benchmark_config_selects_local_wrappers(benchmark, monkeypatch):
     name, wrapper_type, _ = benchmark
+    entry = EntryPoint(name=name, value=f"reme_{name}", group="reme.plugins")
+    monkeypatch.setattr(
+        "reme.plugin.find_entry_points",
+        lambda group, plugin: [entry] if (group, plugin) == (entry.group, entry.name) else [],
+    )
     preset = Path(__file__).resolve().parents[2] / f"plugins/{name}/src/reme_{name}/benchmark.yaml"
     runtime = resolve_plugin_runtime(resolve_app_config(config=str(preset), log_config=False))
     wrappers = runtime.config["components"]["agent_wrapper"]
