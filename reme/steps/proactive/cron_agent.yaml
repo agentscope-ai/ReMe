@@ -72,16 +72,15 @@ query_summary_zh: |
   没有有价值的新信息则不写文件，只返回 NO_UPDATE。
 query_message: |
   The current result is published at {result_path}. Current time: {now}.
-  - Decide whether a verified finding is urgent, such as an email requiring Master's confirmation or review.
+  - Decide whether a verified finding is urgent, such as an email requiring Master's prompt confirmation or review.
   - Only for an urgent candidate, call get_chat_messages, reviewing actual content and delivery states; paginate as needed.
     Avoid repeating sent or pending content unless there is a meaningful change or new action.
   - After confirming a reminder is needed, call send_chat_message_immediate once; otherwise finish quietly without sending.
     Keep core conclusions, necessary background and evidence; be concise but complete. Explain what happened, relevant deadlines and any decision needed.
     For external findings, include the verified source links in the reminder text, for example [Source name](URL).
-    Identify local files or screenshots by source and relevant time; never invent URLs. Omit workspace paths and internal source identifiers.
 query_message_zh: |
   本轮结果已发布到 {result_path}。当前时间：{now}。
-  - 判断已核实的消息是否紧急，例如需要主人确认或 review 的邮件。
+  - 判断已核实的消息是否紧急，例如需要主人尽快确认或 review 的邮件。
   - 有紧急候选才调用 get_chat_messages，结合内容和投递状态去重，必要时翻页；已发送或待发的内容只有实质变化或新的行动要求才更新。
   - 确认需要提醒后，调用一次 send_chat_message_immediate；否则安静结束，不调用发送工具。
     保留核心结论、必要背景和依据，简洁但完整，说清发生了什么、相关截止时间及需要主人决定的事项。
