@@ -108,6 +108,8 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
         for task in json.loads((tmp_path / META / "cron.json").read_text())
     )
     assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 7
+    for name in ("pa_chat", "pa_proactive", "cron_agent"):
+        assert cfg["jobs"][name]["steps"][0]["model"] == "fixture-model"
     assert set(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) <= cfg["jobs"].keys()
     assert "reminder_delivery" not in cfg["jobs"]
 
@@ -132,6 +134,23 @@ def test_incomplete_or_missing_protocol_cannot_score_for_inaction(tmp_path):
     record["completed"] = True
     record["jobs"] = []
     assert grade("proactive_known", record)["score"] == 0
+
+
+def test_temporary_grading_accepts_framework_delivery_and_rejects_redelegation():
+    from benchmark.proactive.reminder_quality import checks
+
+    content = "主人，记得浇水。"
+    case = {"role": "temporary", "expected_send": True, "required": ["浇水"]}
+    record = {
+        "completed": True,
+        "jobs": [{"name": "temp_agent", "args": {}, "response": {"success": True}}],
+        "turns": [{}],
+        "reminders": [{"id": "temp_one_0", "content": content, "status": "sent"}],
+        "delivered": [{"content": content}],
+    }
+    assert all(checks(case, record).values())
+    record["jobs"].append({"name": "manage_temp_proactive_agent", "args": {"action": "create"}})
+    assert not checks(case, record)["no_redelegation"]
 
 
 def test_only_configured_task_snapshot_paths_are_allowed_new_files(tmp_path):

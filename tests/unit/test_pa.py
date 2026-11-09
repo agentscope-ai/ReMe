@@ -36,10 +36,10 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
     server = config["components"]["codex_app_server"]["default"]
     model = server["model_catalog"]["models"][0]
     options = tomllib.loads("\n".join(server["config_overrides"]))
-    selected = override or "kimi-k3.1-pro"
+    selected = override or "qwen3.8-max-0902"
     background = "qwen3.8-max-0902"
     assert agent["model"] == background
-    assert {item["slug"] for item in server["model_catalog"]["models"]} == {"kimi-k3.1-pro", background}
+    assert {item["slug"] for item in server["model_catalog"]["models"]} == {background}
     for name, expected in (
         ("pa_chat", selected),
         ("pa_new_session", selected),
@@ -47,7 +47,7 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
         ("cron_agent", background),
     ):
         assert config["jobs"][name]["steps"][0]["model"] == expected
-    assert "model" not in config["jobs"]["temp_proactive"]["steps"][0]
+    assert "model" not in config["jobs"]["temp_agent"]["steps"][0]
     assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "xhigh"
     assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "xhigh"
     assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"]
@@ -134,7 +134,7 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("custom_prompt", [None, "", "配置的个人助手提示词。\n"])
-@pytest.mark.parametrize("selected_model", [None, "kimi-k3.1-pro"])
+@pytest.mark.parametrize("selected_model", [None, "qwen3.8-max-0902"])
 async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_prompt, selected_model):
     context, agent = runtime
     prompt_dict = {} if custom_prompt is None else {"system_prompt_zh": custom_prompt}

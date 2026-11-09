@@ -181,7 +181,8 @@ jobs:
     steps:
       - backend: proactive_agent_step
         agent_wrapper: default
-        model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
+        # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
+        model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
         max_turns: 10
         job_tools: [read_conversation, read_proactive_inbox, read_cron_results, screen_capture, get_chat_messages, send_chat_message, check_json]
 
@@ -340,7 +341,8 @@ jobs:
       - &pa_options
         backend: pa_chat_step
         agent_wrapper: default
-        model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
+        # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
+        model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
         job_tools: [screen_capture, check_json, write_proactive_inbox, manage_temp_proactive_agent]
 
   pa_events:
@@ -646,13 +648,13 @@ components:
         - 'memories.extract_model="qwen3.8-max-0902"'
         - 'memories.consolidation_model="qwen3.8-max-0902"'
 
-      # Main chat and intelligent proactive use Kimi; background work uses Qwen.
+      # All PA agents use Qwen; temporary workers inherit Main's selected model.
       # Switching CODEX_MODEL_NAME also requires reviewing the catalog capabilities.
       model_catalog:
         models:
           - &pa_model
-            slug: kimi-k3.1-pro
-            display_name: Kimi K3.1 Pro
+            slug: qwen3.8-max-0902
+            display_name: Qwen 3.8 Max 0902
             description: Work and life assistant with text and image input
             default_reasoning_level: xhigh
             multi_agent_reasoning_effort: xhigh
@@ -677,10 +679,10 @@ components:
             # PA instructions come from PromptHandler.
             model_messages:
               instructions_template: ""
-          - <<: *pa_model
-            slug: qwen3.8-max-0902
-            display_name: Qwen 3.8 Max 0902
-            priority: 1
+          # - <<: *pa_model
+          #   slug: kimi-k3.1-pro
+          #   display_name: Kimi K3.1 Pro
+          #   priority: 1
 
   agent_wrapper:
     default:

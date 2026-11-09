@@ -26,8 +26,8 @@ def digest(value) -> str:
 
 def sources() -> dict:
     """Fingerprint the source files that define this benchmark."""
-    paths = list((REPO / "reme/steps/proactive").rglob("*.py")) + list((REPO / "reme/steps/proactive").glob("*.yaml"))
-    paths += list((REPO / "reme/components").glob("*pa*.py"))
+    paths = list((REPO / "reme/steps/proactive").rglob("*.py")) + list((REPO / "reme/steps/proactive").rglob("*.yaml"))
+    paths += list((REPO / "reme/components/pa").glob("*.py"))
     paths += [REPO / "reme/config/proactive.yaml", REPO / "reme/components/agent_wrapper/codex_agent_wrapper.py"]
     paths += [REPO / "reme/components/codex_app_server.py", REPO / "reme/schema/reminder.py"]
     paths += list((REPO / "reme/schema").glob("pa*.py"))

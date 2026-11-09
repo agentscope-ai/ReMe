@@ -152,6 +152,22 @@ def scenarios(now: datetime) -> dict:
     return cases
 
 
+def reminder_messages(case: dict, record: dict) -> list[str]:
+    """Read temporary framework submissions or explicit cron/proactive tool decisions."""
+    if case["role"] == "temporary":
+        return [
+            row["content"]
+            for row in record.get("reminders", [])
+            if row["id"].startswith("temp_") and row["status"] != "discarded"
+        ]
+    return [
+        job["args"]["content"]
+        for job in record["jobs"]
+        if job["name"] in {"send_chat_message", "send_chat_message_immediate"}
+        and job["args"].get("content", "").strip()
+    ]
+
+
 def checks(case: dict, record: dict) -> dict[str, bool]:
     """Check protocol, facts and delivery; readability still requires reading actual messages."""
     sends = [
@@ -160,12 +176,12 @@ def checks(case: dict, record: dict) -> dict[str, bool]:
         if job["name"] in {"send_chat_message", "send_chat_message_immediate"}
         and job["args"].get("content", "").strip()
     ]
-    messages = [job["args"]["content"] for job in sends]
+    messages = reminder_messages(case, record)
     good_jobs = all("error" not in job and job.get("response", {}).get("success", True) for job in record["jobs"])
     verdict = {
         "completed": record.get("completed", False),
         "tool_calls_succeeded": good_jobs,
-        "expected_decision": len(sends) == int(case["expected_send"]),
+        "expected_decision": len(messages) == int(case["expected_send"]),
         "memory_preserved": record.get("after", {}).get(MEMORY) == record.get("before", {}).get(MEMORY),
         "required_facts": not case["expected_send"]
         or bool(messages)
@@ -179,6 +195,11 @@ def checks(case: dict, record: dict) -> dict[str, bool]:
         verdict["single_query_tools"] = all(job["turn_index"] == 0 for job in sends + history_jobs)
         verdict["history_before_send"] = (
             not sends or bool(history_jobs) and record["jobs"].index(history_jobs[0]) < record["jobs"].index(sends[0])
+        )
+    if case["role"] == "temporary":
+        verdict["single_model_query"] = len(record.get("turns", [])) == 1
+        verdict["no_redelegation"] = not any(
+            job["name"] in {"manage_temp_proactive_agent", "write_proactive_inbox"} for job in record["jobs"]
         )
     return verdict
 
@@ -242,12 +263,7 @@ async def run(root: Path, timeout: float, selected: str | None = None) -> None:
             print(f"Starting {name}", flush=True)
             record = await execute(cfg, model, bundle, case, root / name, timeout)
             save(root / name / "record.json", record)
-            messages = [
-                job["args"]["content"]
-                for job in record["jobs"]
-                if job["name"] in {"send_chat_message", "send_chat_message_immediate"}
-                and job["args"].get("content", "").strip()
-            ]
+            messages = reminder_messages(case, record)
             results[name] = {
                 "checks": checks(case, record),
                 "messages": messages,

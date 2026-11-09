@@ -66,7 +66,7 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
-@pytest.mark.parametrize("selected_model", [None, "kimi-k3.1-pro"])
+@pytest.mark.parametrize("selected_model", [None, "qwen3.8-max-0902"])
 async def test_fork_overrides_then_compacts_before_the_only_query(pa_workspace, monkeypatch, language, selected_model):
     env = pa_workspace
     calls = model(env, monkeypatch, adjust=True)

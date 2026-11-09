@@ -117,6 +117,8 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         ("cron_agent", "cron"),
         ("temp_agent", "temporary"),
     ):
+        if role != "temporary":
+            cfg["jobs"][name]["steps"][0]["model"] = model
         cfg["jobs"][name]["steps"][0]["prompt_dict"] = {
             **bundle["memory"],
             **bundle[role],
@@ -233,7 +235,15 @@ def instrument(app, folder: Path, record: dict) -> None:
     original = agent.reply_stream
 
     async def stream(inputs, **kwargs):
-        turn, started = {"input": plain(inputs)}, time.monotonic()
+        turn = {
+            "input": plain(inputs),
+            "options": {
+                key: plain(kwargs[key])
+                for key in ("model", "resume", "fork_session", "system_prompt", "job_tools", "injected_job_kwargs")
+                if key in kwargs
+            },
+        }
+        started = time.monotonic()
         record["turns"].append(turn)
         try:
             async for chunk in original(inputs, **kwargs):
@@ -303,12 +313,14 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
                     bind_owner(agent, case, record, await main._reply_kwargs())
                 instrument(app, folder, record)
                 if case["role"] == "pa":
+                    record["chat_snapshots"] = []
                     for query in case["queries"]:
                         reply = await collect_reply(app.run_stream_job("pa_chat", query=query))
                         if reply["status"] != "completed":
                             raise RuntimeError(reply.get("error") or reply["status"])
+                        record["chat_snapshots"].append(files(workspace))
                 elif case["role"] == "temporary":
-                    task = await runtime.temp_tasks.create(case["query"])
+                    task = await runtime.temp_tasks.create(case["query"], run_at=case.get("run_at"))
                     response = await app.run_job("temp_agent", task_id=task.id, revision=task.revision)
                     if not response.success:
                         raise RuntimeError(str(response.answer))
