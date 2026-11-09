@@ -56,6 +56,7 @@ query_summary: |
   Lead with this run's confirmed new findings and changes; merge details about the same event.
   Preserve core conclusions, necessary background, times and evidence; be concise but complete.
   End with an accumulated timeline of key developments, merging repeated topics and continuous periods rather than listing every run.
+  You may use tools such as web_search to verify facts and sources.
   Cite verified original URLs for external findings, optionally as [Source name](URL).
   Identify local files or screenshots by source and relevant time; never invent URLs.
   Finally, write the summary to the Markdown file {staging_path}.
@@ -65,6 +66,7 @@ query_summary_zh: |
   {previous_path}
   以本轮确认的新增发现和变化为主，合并相同事件，保留核心结论、必要背景、时间和依据，简洁但完整。
   末尾附累计时间线，合并重复主题和连续时段，不按每次执行追加。
+  可以使用工具（如 web_search）验证事实和来源。
   外部资料附已核实的原文 URL，可用 [来源名称](URL)；本地文件或截图注明来源和必要时间，不编造链接。
   最后将摘要写入 Markdown 文件 {staging_path}。
   没有有价值的新信息则不写文件，只返回 NO_UPDATE。
@@ -75,7 +77,7 @@ query_message: |
     Avoid repeating sent or pending content unless there is a meaningful change or new action.
   - After confirming a reminder is needed, call send_chat_message_immediate once; otherwise finish quietly without sending.
     Keep core conclusions, necessary background and evidence; be concise but complete. Explain what happened, relevant deadlines and any decision needed.
-    Cite verified original URLs for external findings, optionally as [Source name](URL).
+    For external findings, include the verified source links in the reminder text, for example [Source name](URL).
     Identify local files or screenshots by source and relevant time; never invent URLs. Omit workspace paths and internal source identifiers.
 query_message_zh: |
   本轮结果已发布到 {result_path}。当前时间：{now}。
@@ -83,7 +85,7 @@ query_message_zh: |
   - 有紧急候选才调用 get_chat_messages，结合内容和投递状态去重，必要时翻页；已发送或待发的内容只有实质变化或新的行动要求才更新。
   - 确认需要提醒后，调用一次 send_chat_message_immediate；否则安静结束，不调用发送工具。
     保留核心结论、必要背景和依据，简洁但完整，说清发生了什么、相关截止时间及需要主人决定的事项。
-    外部资料附已核实的原文 URL，可用 [来源名称](URL)；本地文件或截图注明来源和必要时间，不编造链接，不带工作区路径或内部资料编号。
+    提醒涉及外部资料时，带上已核实的来源链接，例如 [来源名称](URL)。
 query_handoff: |
   Only summarize the current context; do not call any tools.
   When you next wake up, execute this same scheduled task:
