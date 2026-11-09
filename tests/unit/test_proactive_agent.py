@@ -7,9 +7,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.schema import SessionMessage
+from reme.enumeration import ChunkEnum
+from reme.schema import SessionMessage, StreamChunk
 from reme.schema.pa_proactive import PaProactiveConfig
-from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
+from reme.steps.proactive import ProactiveAgentStep, CronAgentStep, PaChatStep
 from reme.steps.proactive.tools import ReadConversationStep, ReadProactiveInboxStep
 
 
@@ -91,6 +92,43 @@ async def test_fork_overrides_then_compacts_before_the_only_query(pa_workspace, 
     assert result.metadata["proactive_session_id"] == worker
     assert env.runtime.proactive_context_path.read_text() == "" and env.runtime.current_round is None
     assert env.runtime.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["chat", "proactive"])
+async def test_main_and_proactive_queries_can_progress_concurrently(pa_workspace, monkeypatch, first):
+    env = pa_workspace
+    entered = {name: asyncio.Event() for name in ("chat", "proactive")}
+    release = {name: asyncio.Event() for name in entered}
+    model(env, monkeypatch, pause=(entered["proactive"], release["proactive"]))
+
+    async def reply_stream(_query, **kwargs):
+        entered["chat"].set()
+        await release["chat"].wait()
+        yield StreamChunk(
+            chunk_type=ChunkEnum.REPLY_END,
+            status="completed",
+            session_id=kwargs["resume"],
+            chunk=env.agent._reply_result(session_id=kwargs["resume"], result="hello", raw={}),
+        )
+
+    env.agent.reply_stream = reply_stream
+    operations = {
+        "chat": lambda: PaChatStep(app_context=env.context)(query="hello", stream_queue=asyncio.Queue()),
+        "proactive": ProactiveAgentStep(app_context=env.context),
+    }
+    second = "proactive" if first == "chat" else "chat"
+    async with asyncio.TaskGroup() as group:
+        try:
+            first_task = group.create_task(operations[first]())
+            await asyncio.wait_for(entered[first].wait(), 1)
+            group.create_task(operations[second]())
+            await asyncio.wait_for(entered[second].wait(), 1)
+            assert not first_task.done()
+        finally:
+            for event in release.values():
+                event.set()
+    assert env.runtime.current_round is None and not env.runtime.session_lock.locked()
 
 
 @pytest.mark.asyncio
@@ -217,7 +255,7 @@ async def test_cancelled_query_revokes_send_permission_and_retains_inputs(pa_wor
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    assert not current.allow_message and not env.runtime.memory_lock.locked()
+    assert not current.allow_message and not env.runtime.session_lock.locked()
     assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
     assert "failure" in env.runtime.proactive_context_path.read_text()
     env.agent.release_session.assert_awaited_once()

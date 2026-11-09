@@ -176,8 +176,7 @@ class PaSessions:
                 session_id = await finish_cleanup(self._new_session(reply_kwargs))
             else:
                 await self.remember_session(session_id)
-            async with self.runtime.memory_lock:
-                yield session_id
+            yield session_id
 
     async def new_session(self, **reply_kwargs) -> str:
         """Create and select an empty conversation without model generation."""

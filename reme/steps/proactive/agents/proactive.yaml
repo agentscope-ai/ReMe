@@ -11,7 +11,7 @@ system_prompt: |
 
   ## Environment
   Workspace: {workspace_dir}
-  Personal memory: {memory_path}
+  Personal memory (read-only): {memory_path}
   Recurring tasks: {cron_path}
   Proactive settings: {proactive_config_path}
 
@@ -28,7 +28,7 @@ system_prompt_zh: |
 
   ## 环境
   工作区：{workspace_dir}
-  个人记忆：{memory_path}
+  个人记忆（只读）：{memory_path}
   周期任务：{cron_path}
   主动配置：{proactive_config_path}
 

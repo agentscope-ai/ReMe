@@ -78,18 +78,17 @@ class ProactiveAgentStep(BasePaAgentStep):
                 hint_period=current.hint_period or "normal",
             )
             operation = "query"
-            async with runtime.memory_lock:
-                current.allow_message = True
-                try:
-                    reply = await self.agent_wrapper.reply(
-                        query,
-                        resume=agent_session_id,
-                        **options,
-                        activity_source="proactive",
-                        activity_session_id=current.session_id,
-                    )
-                finally:
-                    current.allow_message = False
+            current.allow_message = True
+            try:
+                reply = await self.agent_wrapper.reply(
+                    query,
+                    resume=agent_session_id,
+                    **options,
+                    activity_source="proactive",
+                    activity_session_id=current.session_id,
+                )
+            finally:
+                current.allow_message = False
             if reply["status"] != "completed":
                 raise RuntimeError(reply.get("error") or f"Proactive agent {reply['status']}")
             if current.request is None:

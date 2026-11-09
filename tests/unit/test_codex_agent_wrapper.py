@@ -752,7 +752,8 @@ async def test_fork_model_override_preserves_source_and_wrapper_defaults(system)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("restore", ["loaded", "unloaded", "restart"])
-async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore):
+@pytest.mark.parametrize("caller", [None, "temporary"])
+async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore, caller):
     from openai_codex import Sandbox
     from openai_codex.types import ReasoningEffort
 
@@ -765,7 +766,7 @@ async def test_fork_inherits_source_instructions_tools_and_turn_settings(system,
         sandbox="read-only",
         personality="friendly",
         job_tools=[job.name],
-        injected_job_kwargs={"_allowed_paths": ["original.md"]},
+        injected_job_kwargs={"_allowed_paths": ["original.md"], "pa_caller": "chat"},
         config={"mcp_servers": {"external": {"url": "https://example.test/mcp"}}},
     )
     source_id = original["session_id"]
@@ -781,7 +782,8 @@ async def test_fork_inherits_source_instructions_tools_and_turn_settings(system,
         server.jobs_mcp.scopes.clear()
     second.kwargs.update(system_prompt="Other instructions.", model="other-model", effort="low", job_tools=[])
 
-    forked = await second.reply("Only summarize.", resume=source_id, fork_session=True)
+    overrides = {} if caller is None else {"injected_job_kwargs": {"pa_caller": caller}}
+    forked = await second.reply("Only summarize.", resume=source_id, fork_session=True, **overrides)
 
     assert forked["session_id"] != source_id and native.threads[source_id].inputs == ["source work"]
     assert native.threads[forked["session_id"]].inputs == ["Only summarize."]
@@ -799,6 +801,9 @@ async def test_fork_inherits_source_instructions_tools_and_turn_settings(system,
     ]
     await tools[0].fn(query="read")
     assert job.calls[-1]["_allowed_paths"] == ["original.md"]
+    assert job.calls[-1]["pa_caller"] == (caller or "chat")
+    await source_tools[0].fn(query="source")
+    assert job.calls[-1]["pa_caller"] == "chat"
     assert native.threads[forked["session_id"]].options[-1]["effort"] == ReasoningEffort.high
 
 

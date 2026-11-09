@@ -69,6 +69,7 @@ class TempAgentStep(BasePaAgentStep):
                     ),
                     resume=task.source_session_id,
                     fork_session=True,
+                    injected_job_kwargs={"pa_caller": "temporary"},
                     activity_source="task",
                     activity_started_at=started_at,
                     activity_task_id=f"temp_{task.id}",

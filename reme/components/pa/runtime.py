@@ -85,7 +85,6 @@ class PaRuntime(BaseComponent):
         self.session_id: str | None = None
         self.started_at: datetime | None = None
         self.session_lock = asyncio.Lock()
-        self.memory_lock = asyncio.Lock()
         self.current_round: ProactiveRound | None = None
         self.hints = ProactiveHints(self)
         self.tasks = TaskFiles(self)

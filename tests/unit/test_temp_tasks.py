@@ -315,7 +315,8 @@ async def test_temporary_worker_forks_main_and_publishes_final_result(pa_workspa
     env.agent.create_session.assert_not_awaited()
     execution = env.agent.reply.call_args.kwargs
     assert execution["resume"] == task.source_session_id and execution["fork_session"] is True
-    assert not {"model", "job_tools", "system_prompt", "injected_job_kwargs"} & execution.keys()
+    assert not {"model", "job_tools", "system_prompt"} & execution.keys()
+    assert execution["injected_job_kwargs"] == {"pa_caller": "temporary"}
     assert (
         task.query in env.agent.reply.call_args.args[0] and env.now[0].isoformat() in env.agent.reply.call_args.args[0]
     )
