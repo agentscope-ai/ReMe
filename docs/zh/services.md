@@ -270,8 +270,7 @@ python scripts/migrate_pa_reminder_kinds.py /path/to/workspace/reme_metadata/pa/
 会话状态查询归通用会话操作，不再放在主动工具目录。相关性、语义去重和提醒价值由 Agent 判断。
 长期个人记忆由 Main 和 Proactive 记忆阶段维护，近期关注和未完成工作保留在交接摘要；旧对话和摘要不能恢复已遗忘信息。
 
-Desktop 的 Remy 收件箱按接收方上下分为 Chat Agent 和 Proactive Agent，共用滚动容器、分别折叠。
-Chat 展示提醒并统计用户未读；Proactive 展示累计任务结果、Main 指令及请求回执，统计后台待处理输入。
+Desktop 的 Remy 侧栏可切换提醒列表和定时任务结果收件箱。每张卡片标注已读／未读；收件箱支持任务筛选与分页。
 `proactive_inbox_view(action="list", kind="all", filter="all", offset=0, limit=20)` 只读查询，支持任务筛选、
 分页和全局待处理数量。`kind` 可选 `all`、`task_result`、`instruction`，`filter` 可选 `all`、`pending`、`unread`；
 `unread` 与 `task_id` 只适用于 `task_result` 类型，其中 `unread` 表示用户未查看。
@@ -308,7 +307,8 @@ Main 维护 `{metadata_dir}/pa/cron.json`：JSON 列表，每项有稳定 `id`�
 晚间收尾只停止主动交流，独立任务仍遵循所配置的活动时间。
 
 每次执行创建新 Agent 会话，system 直接注入最新个人记忆正文和该任务上次 handoff。q1 原样使用配置中的 query；
-q2 在同一会话中读取最近1–2篇已完成记录（允许跨日期），整合本次发现为简洁、独立可读的摘要，按时间串联变化。
+q2 在同一会话中读取最近1–2篇已完成记录（允许跨日期），以本轮确认的发现为主，最多3点，保留必要时间和来源 URL。
+末尾附简短累计时间线，每条一行，合并重复主题和连续时段，只留关键变化，不按每次执行追加。
 无有价值新增时不写文件，回复固定标记 `NO_UPDATE`；缺文件却没有明确标记仍属于失败。
 q3 直接延续工作会话返回内部交接，代码原子保存为 `{metadata_dir}/pa/cron/{task_id}/handoff.md`。
 发现和累计结果保持简洁，保留必要背景与来源，不采用固定400字模板；内部 handoff 共用进展、决策、约束、偏好、兴趣、近期项目与目标、未完成工作、下一步和来源要求，

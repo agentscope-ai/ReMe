@@ -34,19 +34,22 @@ test(
         name: "按任务筛选",
         exact: true,
       });
-      await filter.selectOption("stocks");
+      await filter.click();
+      await chat.getByRole("option", { name: "stocks", exact: true }).click();
       backend.setTaskIds([]);
-      await expect(filter.locator("option")).toHaveCount(2, {
+      await filter.click();
+      await expect(chat.getByRole("option")).toHaveCount(2, {
         timeout: 10_000,
       });
       await expect(filter).toBeVisible();
-      await expect(filter).toHaveValue("stocks");
-      await filter.selectOption("");
+      await expect(filter).toHaveText("stocks");
+      await chat.getByRole("option", { name: "全部任务", exact: true }).click();
       await expect(filter).toHaveCount(0);
       backend.setTaskIds(["gold"]);
       await expect(filter).toBeVisible({ timeout: 10_000 });
-      await filter.selectOption("gold");
-      await expect(filter).toHaveValue("gold");
+      await filter.click();
+      await chat.getByRole("option", { name: "gold", exact: true }).click();
+      await expect(filter).toHaveText("gold");
     } finally {
       if (app) await app.close().catch(() => {});
       await backend.close();

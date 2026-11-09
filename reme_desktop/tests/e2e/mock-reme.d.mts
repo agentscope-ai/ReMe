@@ -3,6 +3,7 @@ export function mockReMe(options?: {
   speech?: boolean;
   workspace?: boolean;
   ttsSeconds?: number;
+  taskResults?: import("../../src/shared/protocol.ts").ProactiveInboxItem[];
 }): Promise<{
   url: string;
   push(id: string, content?: string, completed?: boolean): void;

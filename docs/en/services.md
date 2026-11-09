@@ -322,9 +322,8 @@ and JSON-validation Job tools. Session status is a common session operation, not
 agent decisions. Long-term memory is maintained by Main and the Proactive memory phase; recent concerns and unfinished work belong in the handoff.
 Forgotten facts must not be restored through old conversations or summaries.
 
-Desktop's Remy inbox has stacked, collapsible Chat Agent and Proactive Agent sections sharing one scroll container.
-Chat shows reminders and counts user-unread messages. Proactive shows cumulative task results, Main's instructions and
-request receipts, with a separate agent-pending count. `proactive_inbox_view(action="list", ...)` is read-only,
+Desktop's Remy sidebar switches between reminders and a scheduled-task result inbox. Read/unread badges appear on each
+card; the result inbox supports task filtering and pagination. `proactive_inbox_view(action="list", ...)` is read-only,
 with `kind` set to `all`, `task_result` or `instruction`, `filter` set to `all`, `pending` or `unread`, and pagination.
 The `unread` and `task_id` filters require `task_result`; `unread` means not yet viewed by the user.
 `action="read", entry_id=...` returns current source text and receipt
@@ -368,8 +367,9 @@ without restarting. Evening closure stops proactive communication; independent t
 
 Each execution creates a fresh session with current personal-memory contents and the task's previous handoff injected
 into the system prompt. Query 1 uses the configured query verbatim. Query 2 reads the latest one or two completed results
-across dates and writes a concise standalone summary connecting developments chronologically. With no valuable
-update it writes no file and returns exactly `NO_UPDATE`; a missing file without this decision is an error. Query 3 returns
+across dates. It leads with this run's confirmed findings in at most three short points, retaining necessary times and source URLs,
+and ends with a brief accumulated timeline that merges repeated themes and continuous periods. It does not append each execution.
+With no valuable update it writes no file and returns exactly `NO_UPDATE`; a missing file without this decision is an error. Query 3 returns
 an internal handoff in the same work session, atomically saved as `{metadata_dir}/pa/cron/{task_id}/handoff.md`.
 Findings and cumulative results stay concise while retaining essential context and sources, without a fixed 400-character template.
 Internal handoffs share the requirements for progress, decisions, constraints, preferences, interests, recent projects,

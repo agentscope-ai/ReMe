@@ -27,7 +27,9 @@ export async function mockReMe({
   speech = false,
   workspace = false,
   ttsSeconds = 2,
+  taskResults = [],
 } = {}) {
+  let taskIds = [...new Set(taskResults.map((item) => item.task_id))];
   const documents = {
     "digest/wiki/agent-memory.md":
       "---\nname: Agent 记忆，从记录到连接\ndescription: 让零散的信息成为可以被再次理解、关联和使用的知识。\nmemory_tags:\n  - Agent\n  - memory\n---\n## 记忆的价值，在于再次连接\n\n一份好的记忆，不只保存发生过什么，也帮助我们理解下一步可以做什么。\n\n> 文件属于你，索引可以重建。\n\n### 一个持续生长的知识库\n\n- **记录**：保留值得记住的事实与想法。\n- **关联**：通过标签与链接发现共同主题。\n- **回顾**：在需要的时候，让过去的经验重新发挥作用。\n\n参见 [[daily/2026-11-08/research.md|今天的研究笔记]]。\n\n| 来源 | 作用 |\n| --- | --- |\n| 每日记忆 | 保留上下文 |\n| 知识库 | 沉淀可复用知识 |\n",
@@ -56,7 +58,6 @@ export async function mockReMe({
   let speechErrorText = "";
   let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
-  let taskIds = [];
   let replyDelay = 300;
   const sockets = new Set();
   const events = [];
@@ -149,6 +150,7 @@ export async function mockReMe({
             "pa_new_session",
             "session_read",
             "proactive_inbox_view",
+            "task_results",
             ...(speech ? ["tts_demo", "asr_demo"] : []),
             ...(workspace
               ? ["list", "load", "list_tags", "list_tag_files", "search"]
@@ -164,17 +166,37 @@ export async function mockReMe({
           ]),
         ),
       });
-    if (job === "/proactive_inbox_view")
+    if (job === "/task_results") {
+      const item = taskResults.find((item) => item.path === body.path);
+      if (body.mark_read) item.user_read_at = new Date().toISOString();
+      return json({ user_read_at: item.user_read_at });
+    }
+    if (job === "/proactive_inbox_view") {
+      if (body.action === "read") {
+        const item = taskResults.find((item) => item.id === body.entry_id);
+        return json({
+          item,
+          content: item.preview,
+          received_at: null,
+          warnings: [],
+        });
+      }
+      const items = taskResults.filter(
+        (item) => !body.task_id || item.task_id === body.task_id,
+      );
+      const offset = body.offset ?? 0;
+      const limit = body.limit ?? 5;
       return json({
-        items: [],
-        total: 0,
-        offset: body.offset ?? 0,
-        limit: body.limit ?? 5,
+        items: items.slice(offset, offset + limit),
+        total: items.length,
+        offset,
+        limit,
         task_ids: taskIds,
         pending: 0,
         complete: true,
         warnings: [],
       });
+    }
     if (workspace && job === "/list")
       return json("Files", {
         items: Object.keys(documents).filter(

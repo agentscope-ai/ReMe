@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Bell,
+  Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -18,6 +20,121 @@ import { action } from "./desktop.ts";
 import { inboxDate, inboxRequest } from "./inbox.ts";
 
 const PAGE_SIZE = 5;
+
+function TaskFilter({
+  label,
+  allTasks,
+  taskIds,
+  value,
+  onChange,
+}: {
+  label: string;
+  allTasks: string;
+  taskIds: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const options = Array.from(new Set(["", value, ...taskIds]));
+  const selected = Math.max(0, options.indexOf(value));
+  const activeOption = Math.min(active, options.length - 1);
+  const choose = (index: number) => {
+    setOpen(false);
+    onChange(options[index]);
+  };
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  useEffect(() => {
+    if (open)
+      root.current
+        ?.querySelector('[data-active="true"]')
+        ?.scrollIntoView({ block: "nearest" });
+  }, [open, activeOption, taskIds]);
+  return (
+    <div
+      className="task-filter"
+      ref={root}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}
+    >
+      <button
+        className="task-filter-trigger"
+        role="combobox"
+        aria-label={label}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        aria-controls={id}
+        aria-activedescendant={open ? `${id}-${activeOption}` : undefined}
+        onClick={() => {
+          setActive(selected);
+          setOpen(!open);
+        }}
+        onKeyDown={(event) => {
+          if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+            event.preventDefault();
+            setOpen(true);
+            setActive(
+              event.key === "Home"
+                ? 0
+                : event.key === "End"
+                  ? options.length - 1
+                  : !open
+                    ? selected
+                    : (activeOption +
+                        (event.key === "ArrowDown" ? 1 : -1) +
+                        options.length) %
+                      options.length,
+            );
+          } else if (open && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault();
+            choose(activeOption);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            setOpen(false);
+          } else if (event.key === "Tab") setOpen(false);
+        }}
+      >
+        <span>{value || allTasks}</span>
+        <ChevronDown size={13} aria-hidden />
+      </button>
+      {open && (
+        <div
+          className="task-filter-menu"
+          id={id}
+          role="listbox"
+          aria-label={label}
+        >
+          {options.map((option, index) => (
+            <div
+              key={option}
+              id={`${id}-${index}`}
+              className="task-filter-option"
+              role="option"
+              aria-selected={option === value}
+              data-active={index === activeOption}
+              onPointerMove={() => setActive(index)}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => choose(index)}
+            >
+              <span>{option || allTasks}</span>
+              {option === value && <Check size={13} aria-hidden />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function RemyInbox({
   state,
@@ -148,25 +265,16 @@ export default function RemyInbox({
         ))}
       </div>
       {!reminders && Boolean(page?.task_ids.length || task) && (
-        <div className="task-filter">
-          <select
-            className="task-filter-trigger"
-            aria-label={t("filterTask")}
-            value={task}
-            onChange={(event) => {
-              setTask(event.target.value);
-              setOffset(0);
-            }}
-          >
-            {Array.from(new Set(["", task, ...(page?.task_ids ?? [])])).map(
-              (option) => (
-                <option key={option} value={option}>
-                  {option || t("allTasks")}
-                </option>
-              ),
-            )}
-          </select>
-        </div>
+        <TaskFilter
+          label={t("filterTask")}
+          allTasks={t("allTasks")}
+          taskIds={page?.task_ids ?? []}
+          value={task}
+          onChange={(value) => {
+            setTask(value);
+            setOffset(0);
+          }}
+        />
       )}
       <div className="inbox-list" aria-busy={!reminders && loading}>
         {reminders ? (
