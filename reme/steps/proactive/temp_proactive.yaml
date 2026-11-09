@@ -86,7 +86,7 @@ query_execute: |
   {query}
 
   - Complete the task using the prepared context; read the source conversation, files or images as needed.
-  - Use tools as needed, such as web_search, to look up information and verify facts and sources.
+  - Use tools as needed, such as web_search, to look up information and verify facts and sources; make at most 5 search API calls.
   - Organize results ready to share with Master, keeping core conclusions, necessary background and evidence, along with relevant times and source URLs, for example [Source](URL).
 
   Finally, call send_chat_message_immediate once with the organized results, then confirm briefly without repeating them.
@@ -94,7 +94,7 @@ query_execute_zh: |
   {query}
 
   - 结合任务准备摘要完成任务，按需阅读来源对话、文件或图片。
-  - 按需使用工具（如 web_search）查阅资料，验证事实和来源。
+  - 按需使用工具（如 web_search）查阅资料，验证事实和来源，最多调用搜索接口 5 次。
   - 整理可直接给主人看的任务结果，保留核心结论、必要背景和依据，以及相关时间和来源 URL，例如 [传送门](URL)。
 
   最后调用一次 send_chat_message_immediate 发送整理好的结果，再简短确认，不重复结果。

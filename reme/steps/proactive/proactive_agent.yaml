@@ -112,13 +112,13 @@ query_history_zh: |
 
 query_research: |
   - Investigate up to three useful items from the selected content; skip when none.
-  - Use tools as needed, such as web_search, to look up information and verify facts and sources.
+  - Use tools as needed, such as web_search, to look up information and verify facts and sources; make at most 5 search API calls.
 
   Output your organized findings, retaining relevant times and source URLs, for example [Source](URL).
 
 query_research_zh: |
   - 围绕前面筛选出的内容，调研最多三条对主人有用的信息；没有则跳过。
-  - 按需使用工具（如 web_search）查阅资料，验证事实和来源。
+  - 按需使用工具（如 web_search）查阅资料，验证事实和来源，最多调用搜索接口 5 次。
 
   最后输出整理好的内容，保留相关时间和来源 URL，例如 [传送门](URL)。
 

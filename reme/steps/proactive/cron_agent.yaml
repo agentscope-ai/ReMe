@@ -45,14 +45,14 @@ query_execute: |
   {query}
 
   - Use personal memory and the previous handoff to complete this run's task. Personal memory is read-only.
-  - Use tools as needed, such as web_search, to look up information and verify facts and sources.
+  - Use tools as needed, such as web_search, to look up information and verify facts and sources; make at most 5 search API calls.
 
   Output your organized task results, retaining relevant times and source URLs, for example [Source](URL).
 query_execute_zh: |
   {query}
 
   - 结合个人记忆和上次交接，完成本轮任务；个人记忆只读。
-  - 按需使用工具（如 web_search）查阅资料，验证事实和来源。
+  - 按需使用工具（如 web_search）查阅资料，验证事实和来源，最多调用搜索接口 5 次。
 
   最后输出整理好的任务结果，保留相关时间和来源 URL，例如 [传送门](URL)。
 
