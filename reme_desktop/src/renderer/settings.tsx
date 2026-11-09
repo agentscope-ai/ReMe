@@ -14,6 +14,7 @@ import {
   Check,
 } from "lucide-react";
 import type { DesktopState, DesktopAction } from "../shared/protocol.ts";
+import { sleepDurations } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
 import { Switch } from "./ui.tsx";
@@ -277,6 +278,53 @@ export default function Settings({
                       }
                     />
                   </label>
+                  <div className="setting-row">
+                    <div>
+                      <h3>{t("activityLevel")}</h3>
+                      <p>{t("activityLevelHint")}</p>
+                    </div>
+                    <select
+                      aria-label={t("activityLevel")}
+                      value={state.settings.activityLevel}
+                      disabled={saving}
+                      onChange={(event) =>
+                        void run({
+                          type: "settings.update",
+                          activityLevel: event.target.value as
+                            "calm" | "normal" | "lively",
+                        })
+                      }
+                    >
+                      <option value="calm">{t("activityCalm")}</option>
+                      <option value="normal">{t("activityNormal")}</option>
+                      <option value="lively">{t("activityLively")}</option>
+                    </select>
+                  </div>
+                  <div className="setting-row">
+                    <div>
+                      <h3>{t("sleepAfter")}</h3>
+                      <p>{t("sleepAfterHint")}</p>
+                    </div>
+                    <select
+                      aria-label={t("sleepAfter")}
+                      value={state.settings.sleepMinutes}
+                      disabled={saving}
+                      onChange={(event) =>
+                        void run({
+                          type: "settings.update",
+                          sleepMinutes: Number(event.target.value),
+                        })
+                      }
+                    >
+                      {sleepDurations.map((minutes) => (
+                        <option key={minutes} value={minutes}>
+                          {minutes
+                            ? t("sleepAfterMinutes", { minutes })
+                            : t("sleepNever")}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="setting-row">
                     <button
                       className="secondary"

@@ -7,6 +7,7 @@ import type {
   AnimationManifest,
   PlaybackStatus,
 } from "../../shared/protocol.ts";
+import { frameTimeline, timelineFrame } from "./timing.ts";
 
 const cache = new Map<string, Promise<HTMLImageElement[]>>();
 
@@ -27,8 +28,19 @@ export function Character({
 }) {
   const t = translator(language);
   const [failed, setFailed] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
   const report = useRef(onPlayback);
+  const previousClip = useRef("");
   report.current = onPlayback;
+  useEffect(() => {
+    const query = matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    query.addEventListener("change", update);
+    update();
+    return () => query.removeEventListener("change", update);
+  }, []);
   useEffect(() => {
     setFailed(false);
     const clip = manifest.animations.find(
@@ -37,6 +49,27 @@ export function Character({
     const frames = animation.segment
       ? clip.segments![animation.segment]
       : clip.ticks.map((_, index) => index);
+    const still =
+      animation.segment || animation.mode === "hold"
+        ? frames.length - 1
+        : clip.id === "idle"
+          ? 0
+          : Math.floor(frames.length / 2);
+    const canvas = canvasRef.current;
+    let outgoing: HTMLCanvasElement | null = null;
+    if (
+      active &&
+      !reducedMotion &&
+      previousClip.current &&
+      previousClip.current !== clip.id &&
+      canvas
+    ) {
+      outgoing = document.createElement("canvas");
+      outgoing.width = canvas.width;
+      outgoing.height = canvas.height;
+      outgoing.getContext("2d")?.drawImage(canvas, 0, 0);
+    }
+    previousClip.current = clip.id;
     let live = true;
     let timer: ReturnType<typeof setTimeout>;
     if (!cache.has(clip.id))
@@ -64,37 +97,62 @@ export function Character({
           willReadFrequently: true,
         });
         if (!context) return;
-        const holds = frames.map(
-          (index) => (clip.ticks[index] / manifest.output_fps) * 1000,
-        );
-        const duration = holds.reduce((a, b) => a + b, 0);
         const start = animation.startedAt ?? Date.now();
+        const timeline = frameTimeline(
+          frames.map((index) => clip.ticks[index]),
+          manifest.output_fps,
+          clip.id === "idle" && animation.mode === "loop",
+          start,
+        );
+        const transitionStart = Date.now();
         let last = -1;
         const paint = () => {
           if (!live) return;
           const elapsed = Math.max(0, Date.now() - start);
-          const ended = animation.mode === "once" && elapsed >= duration;
-          let position = ended ? duration - 0.001 : elapsed % duration;
-          let index = 0;
-          while (index < holds.length - 1 && position >= holds[index])
-            position -= holds[index++];
-          if (index !== last) {
+          const frame = timelineFrame(timeline, elapsed, animation.mode);
+          const index = reducedMotion ? still : frame.index;
+          if (index !== last || outgoing) {
             context.clearRect(0, 0, manifest.canvas[0], manifest.canvas[1]);
+            const blend = outgoing
+              ? Math.min(1, (Date.now() - transitionStart) / 120)
+              : 1;
+            if (outgoing) {
+              context.globalAlpha = 1 - blend;
+              context.drawImage(outgoing, 0, 0);
+              context.globalCompositeOperation = "lighter";
+            }
+            context.globalAlpha = blend;
             context.drawImage(
-              images[
-                frames[animation.mode === "hold" ? frames.length - 1 : index]
-              ],
+              images[frames[index]],
               0,
               0,
               manifest.canvas[0],
               manifest.canvas[1],
             );
+            context.globalAlpha = 1;
+            context.globalCompositeOperation = "source-over";
+            if (blend === 1) outgoing = null;
             if (last === -1 && active) report.current(animation.id, "started");
             last = index;
           }
-          if (ended && active) report.current(animation.id, "ended");
-          else if (active && animation.mode !== "hold")
-            timer = setTimeout(paint, Math.max(10, holds[index] - position));
+          if (frame.ended && active) report.current(animation.id, "ended");
+          else if (
+            active &&
+            (outgoing ||
+              (animation.mode !== "hold" &&
+                (!reducedMotion || animation.mode === "once")))
+          )
+            timer = setTimeout(
+              paint,
+              Math.max(
+                10,
+                reducedMotion
+                  ? timeline.duration - elapsed
+                  : outgoing
+                    ? Math.min(16, frame.delay)
+                    : frame.delay,
+              ),
+            );
         };
         paint();
       })
@@ -110,7 +168,7 @@ export function Character({
       live = false;
       clearTimeout(timer);
     };
-  }, [manifest, animation.id, canvasRef, active]);
+  }, [manifest, animation.id, canvasRef, active, reducedMotion]);
   return (
     <canvas
       ref={canvasRef}

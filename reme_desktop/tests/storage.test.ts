@@ -11,6 +11,10 @@ test("settings and scoped receipts survive serialized atomic writes without pers
     const storage = new Storage(directory);
     await storage.load();
     assert.equal(storage.settings.language, "zh");
+    assert.equal(storage.settings.activityLevel, "normal");
+    assert.equal(storage.settings.sleepMinutes, 15);
+    storage.settings.activityLevel = "lively";
+    storage.settings.sleepMinutes = 0;
     storage.settings.language = "en";
     storage.settings.scale = 1.2;
     assert.equal(storage.settings.voiceAutoSend, true);
@@ -34,6 +38,8 @@ test("settings and scoped receipts survive serialized atomic writes without pers
     await restored.load();
     assert.equal(restored.settings.scale, 1.4);
     assert.equal(restored.settings.language, "en");
+    assert.equal(restored.settings.activityLevel, "lively");
+    assert.equal(restored.settings.sleepMinutes, 0);
     assert.equal(restored.settings.voiceEnabled, true);
     assert.equal(restored.settings.voiceAutoSend, false);
     assert.equal(restored.settings.voiceReminders, true);
@@ -52,6 +58,30 @@ test("settings and scoped receipts survive serialized atomic writes without pers
       ).includes("content"),
       false,
     );
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("old or invalid animation preferences use natural activity and fifteen-minute sleep", async () => {
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "reme-animation-settings-"),
+  );
+  try {
+    for (const values of [
+      {},
+      { activityLevel: "invalid", sleepMinutes: -1 },
+      { activityLevel: null, sleepMinutes: true },
+    ]) {
+      await writeFile(
+        path.join(directory, "settings.json"),
+        JSON.stringify(values),
+      );
+      const storage = new Storage(directory);
+      await storage.load();
+      assert.equal(storage.settings.activityLevel, "normal");
+      assert.equal(storage.settings.sleepMinutes, 15);
+    }
   } finally {
     await rm(directory, { recursive: true });
   }

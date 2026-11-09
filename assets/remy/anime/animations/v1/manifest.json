@@ -4,12 +4,14 @@
   "ambient": [
     "petting_fish",
     "listening",
-    "idle"
+    "remembering",
+    "thinking"
   ],
   "ambient_weights": {
-    "petting_fish": 65,
-    "listening": 20,
-    "idle": 15
+    "petting_fish": 40,
+    "listening": 25,
+    "remembering": 25,
+    "thinking": 10
   },
   "canvas": [
     512,

@@ -2,12 +2,15 @@ import { defaultLanguage, UiError } from "../shared/i18n.ts";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Presentation, Settings } from "../shared/protocol.ts";
+import { activityLevels, sleepDurations } from "../shared/protocol.ts";
 
 export const defaultSettings: Settings = {
   language: defaultLanguage,
   theme: "system",
   endpoint: "http://127.0.0.1:2333",
   scale: 1,
+  activityLevel: "normal",
+  sleepMinutes: 15,
   quietUntil: 0,
   notifications: false,
   voiceAutoSend: true,
@@ -79,6 +82,14 @@ export class Storage {
       quietUntil: Number.isFinite(settings.quietUntil)
         ? settings.quietUntil!
         : 0,
+      activityLevel:
+        settings.activityLevel &&
+        activityLevels.includes(settings.activityLevel)
+          ? settings.activityLevel
+          : defaultSettings.activityLevel,
+      sleepMinutes: sleepDurations.includes(settings.sleepMinutes!)
+        ? settings.sleepMinutes!
+        : defaultSettings.sleepMinutes,
       notifications: settings.notifications === true,
       voiceAutoSend: settings.voiceAutoSend !== false,
       voiceEnabled: settings.voiceEnabled !== false,

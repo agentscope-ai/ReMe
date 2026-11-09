@@ -225,14 +225,18 @@ tool, and the working phase remains until the last tool completes. Terminal outc
 manual previews, attentive listening, background work, then ambient gestures or sleep. Working uses the existing thinking
 clip; foreground answering uses speaking, while background answering uses remembering. Foreground work interrupts
 previews, and dragging restores the latest activity when released. Active tasks take priority over proactive work.
-Repeated text deltas do not restart an animation. Short thinking/recall transitions are smoothed over 350 ms.
+Repeated text deltas and phase changes using the same looping clip preserve its playback clock. Short thinking/recall
+transitions are smoothed over 350 ms. Clip changes blend briefly; idle blinks have varied pauses. The system's reduced
+motion preference uses static poses while preserving playback completion and status updates.
 
 Reminders raise the note, hold it while their bubble is visible, and lower it when the bubble closes. A playback ID rejects
 stale completion callbacks. The renderer only plays the chosen clip or segment in `once`, `loop`, or `hold` mode.
-Semantic actions such as thinking and reminding are event-driven.
-Idle gestures wait 12–25 seconds after completion and use the asset manifest's relative weights. Petting fish has a
-weight of 65, listening 20, and idle 15; fish may repeat twice, while other gestures do not repeat consecutively.
-After fifteen minutes without interaction and with no agent work Remy sleeps. Quiet mode suppresses ambient/background
+Reminding and completion/error feedback remain event-driven. Idle gestures include petting a fish, looking around,
+reading a note, and briefly daydreaming. They use the asset manifest's relative weights, avoid consecutive repeats, and
+have individual cooldowns. Settings → Remy offers calm (40–80 seconds), natural (18–40 seconds, default), and lively
+(8–18 seconds) rests between gestures; after two minutes without interaction, these rests become 50% longer.
+Remy sleeps after fifteen minutes without interaction and with no agent work by default. Settings also offers five or
+thirty minutes, or no automatic sleep. Quiet mode suppresses ambient/background
 gestures and reminder bubbles while foreground interaction remains available. No model calls are made to choose ambient actions.
 
 `src/main/presentation.ts` chooses one surface: the current reply or its status, a reminder, speech status, or background

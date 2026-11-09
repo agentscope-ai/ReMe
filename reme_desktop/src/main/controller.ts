@@ -28,6 +28,7 @@ import type {
   DesktopPage,
   WorkspaceRequest,
 } from "../shared/protocol.ts";
+import { activityLevels, sleepDurations } from "../shared/protocol.ts";
 
 export class DesktopController {
   readonly model = new SessionModel();
@@ -887,6 +888,13 @@ export class DesktopController {
     )
       throw new UiError("invalidQuiet");
     const changedEndpoint = endpoint !== settings.endpoint;
+    if (
+      (update.activityLevel !== undefined &&
+        !activityLevels.includes(update.activityLevel)) ||
+      (update.sleepMinutes !== undefined &&
+        !sleepDurations.includes(update.sleepMinutes))
+    )
+      throw new UiError("invalidAnimationSettings");
     if (
       update.theme !== undefined &&
       !["system", "light", "dark"].includes(update.theme)

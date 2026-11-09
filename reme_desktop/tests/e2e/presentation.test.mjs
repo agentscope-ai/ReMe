@@ -158,10 +158,15 @@ test(
         .toBe("visible-reminder");
       await app.evaluate(({ app, BrowserWindow }) => {
         app.focus({ steal: true });
-        BrowserWindow.getAllWindows()
-          .find((window) => window.webContents.getURL().includes("view=chat"))
-          .focus();
+        const chat = BrowserWindow.getAllWindows().find((window) =>
+          window.webContents.getURL().includes("view=chat"),
+        );
+        chat.focus();
+        chat.webContents.focus();
       });
+      await expect
+        .poll(() => chat.evaluate(() => document.hasFocus()))
+        .toBe(true);
       await expect.poll(async () => (await state()).chatFocused).toBe(true);
       await expect.poll(async () => (await state()).unread).toBe(0);
       assert.ok(await app.evaluate(() => globalThis.readAttempts >= 2));

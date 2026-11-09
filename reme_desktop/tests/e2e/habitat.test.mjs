@@ -76,9 +76,28 @@ test(
       };
 
       await t.test(
-        "walks into a natural slot and renders inside the workspace",
+        "an empty conversation admits a walking companion without covering its welcome or composer",
         async () => {
+          const error = await companion.evaluate(() =>
+            window.desktop.action({ type: "session.new" }),
+          );
+          assert.equal(error, null);
+          await expect
+            .poll(() =>
+              chat.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => state.messages.length),
+              ),
+            )
+            .toBe(0);
           await openWide();
+          await expect(chat.locator(".empty-chat")).toBeVisible();
+          await expect(chat.locator(".message")).toHaveCount(0);
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "walking",
+          );
           await expect.poll(async () => (await presence()).host).toBe("app");
           await expect(
             chat.locator(".embedded-companion canvas"),
@@ -113,13 +132,60 @@ test(
           assert.equal(safe, true);
           await mkdir(path.join(project, "reports"), { recursive: true });
           await chat.screenshot({
-            path: path.join(project, "reports/companion-inside-app.png"),
+            path: path.join(project, "reports/companion-empty-chat.png"),
           });
           backend.activity("remembering", "chat", "habitat-active");
           await expect(
             chat.locator(".embedded-companion canvas"),
           ).toHaveAttribute("data-animation", "remembering");
           backend.activity("interrupted", "chat", "habitat-active");
+        },
+      );
+
+      await t.test(
+        "sending a message and starting a new empty conversation keeps one companion in the app",
+        async () => {
+          await chat
+            .getByRole("textbox", { name: "消息", exact: true })
+            .fill("验证萌宠在新建空对话中的位置");
+          await chat
+            .getByRole("textbox", { name: "消息", exact: true })
+            .press("Enter");
+          await expect(chat.locator(".message.assistant")).toContainText(
+            "我记住了",
+          );
+          await expect
+            .poll(() =>
+              chat.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => Boolean(state.pending?.streaming)),
+              ),
+            )
+            .toBe(false);
+          await expect.poll(async () => (await presence()).host).toBe("app");
+          await chat
+            .getByRole("button", { name: "新建对话", exact: true })
+            .click();
+          await expect(chat.locator(".empty-chat")).toBeVisible();
+          await expect(chat.locator(".message")).toHaveCount(0);
+          await expect.poll(async () => (await presence()).host).toBe("app");
+          await expect(
+            chat.locator(".embedded-companion canvas"),
+          ).toBeVisible();
+          assert.equal(
+            await app.evaluate(({ BrowserWindow }) =>
+              BrowserWindow.getAllWindows()
+                .find((win) =>
+                  win.webContents.getURL().includes("view=companion"),
+                )
+                .isVisible(),
+            ),
+            false,
+          );
+          await chat.screenshot({
+            path: path.join(project, "reports/companion-new-empty-chat.png"),
+          });
         },
       );
 
@@ -148,6 +214,10 @@ test(
           await chat.mouse.click(
             rect.x + rect.width / 2,
             rect.y + rect.height * 0.35,
+          );
+          await expect(companion.locator("canvas")).toHaveAttribute(
+            "data-animation",
+            "walking",
           );
           await expect
             .poll(() =>

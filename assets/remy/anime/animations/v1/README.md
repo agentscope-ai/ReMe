@@ -26,8 +26,9 @@ preview the clips; no separate preview site, APNG, video, or archive is needed.
 The version-2 manifest declares neutral ambient clips and optional `enter` / `hold` / `exit` frame indices. Reminding uses
 frames 0–5 to raise the note, holds frame 5 while its bubble is visible, and uses frames 6–7 to lower it. Desktop behavior
 owns playback mode; clips contain only timing and frame data. Optional `ambient_weights` control relative selection
-weights within the ambient pool. Petting fish has the highest weight; playback allows at most two consecutive fish
-gestures before selecting another ambient action. Walking is a one-second right-facing loop, mirrored for leftward
+weights within the ambient pool. Petting fish has the highest weight; listening, remembering, and thinking provide
+looking-around, reading, and daydreaming gestures. Desktop behavior adds rests, individual cooldowns, and repeat avoidance.
+Walking is a one-second right-facing loop, mirrored for leftward
 travel. Its source was generated with the built-in image tool using the idle sheet as the character reference;
 `prompts/walking.txt` records the prompt. The runtime uses 96 PNGs.
 Menu labels are translated in the desktop's shared language catalog; source timeline labels are for artwork authoring.

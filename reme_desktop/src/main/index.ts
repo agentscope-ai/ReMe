@@ -400,6 +400,12 @@ else {
                 ? { endpoint: action.endpoint }
                 : {}),
               ...(action.scale !== undefined ? { scale: action.scale } : {}),
+              ...(action.activityLevel !== undefined
+                ? { activityLevel: action.activityLevel }
+                : {}),
+              ...(action.sleepMinutes !== undefined
+                ? { sleepMinutes: action.sleepMinutes }
+                : {}),
               ...(action.quietUntil !== undefined
                 ? { quietUntil: action.quietUntil }
                 : {}),

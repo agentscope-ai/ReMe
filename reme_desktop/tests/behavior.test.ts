@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { BehaviorController } from "../src/main/behavior.ts";
 import { emptySpeech } from "../src/main/speech.ts";
+import { defaultSettings } from "../src/main/storage.ts";
 import type {
   AgentActivity,
   AnimationManifest,
@@ -25,10 +26,7 @@ const input = () =>
     pending: null,
     reminderId: null,
     settings: {
-      language: "zh",
-      endpoint: "http://localhost",
-      quietUntil: 0,
-      scale: 1,
+      ...defaultSettings,
     },
   }) as DesktopState & { reminderId: string | null };
 const activity = (
@@ -136,50 +134,66 @@ test("terminal feedback is live once per turn, never from historical snapshots",
 });
 
 test("ambient gestures are neutral and interruptible, and quiet mode is independent of sleep", () => {
-  const behavior = new BehaviorController(
-    { ...manifest, ambient: ["idle", "listening"] },
-    0,
-    () => 0,
-  );
+  const behavior = new BehaviorController(manifest, 0, () => 0);
   const state = input();
-  const first = behavior.resolve(state, true, 15001).animation;
+  const first = behavior.resolve(state, true, 18001).animation;
   assert.equal(first.mode, "once");
   assert.ok(manifest.ambient.includes(first.clip));
-  behavior.report(first.id, "ended", 18000);
-  const next = behavior.resolve(state, true, 34000).animation;
+  behavior.report(first.id, "ended", 21000);
+  const next = behavior.resolve(state, true, 40000).animation;
   assert.notEqual(next.clip, first.clip);
   state.settings.quietUntil = 100000;
-  assert.equal(behavior.resolve(state, true, 35000).animation.clip, "idle");
+  assert.equal(behavior.resolve(state, true, 41000).animation.clip, "idle");
   state.chatFocused = true;
-  behavior.touch(36000);
+  behavior.touch(42000);
   assert.equal(
-    behavior.resolve(state, true, 36000).animation.clip,
+    behavior.resolve(state, true, 42000).animation.clip,
     "listening",
   );
   state.chatFocused = false;
   assert.equal(
-    behavior.resolve(state, true, 937000).animation.clip,
+    behavior.resolve(state, true, 943000).animation.clip,
     "sleeping",
   );
 });
 
-test("weighted fish gestures can repeat twice, yield to work, and never celebrate at random", () => {
-  const fishManifest = {
-    ...manifest,
-    ambient: ["petting_fish", "listening", "idle"],
-    ambient_weights: { petting_fish: 65, listening: 20, idle: 15 },
-  };
-  const behavior = new BehaviorController(fishManifest, 0, () => 0);
+test("varied ambient gestures rest, avoid immediate repeats and respect individual cooldowns", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
   const state = input();
-  let now = 12001;
-  for (const expected of ["petting_fish", "petting_fish", "listening"]) {
+  let now = 18001;
+  const seen = new Set<string>();
+  const cooldowns = {
+    petting_fish: 60_000,
+    listening: 30_000,
+    remembering: 75_000,
+    thinking: 90_000,
+  };
+  const lastPlayed = new Map<string, number>();
+  let previous = "";
+  for (let count = 0; count < 20; count++) {
     const animation = behavior.resolve(state, true, now).animation;
-    assert.equal(animation.clip, expected);
+    if (animation.mode !== "once") {
+      now += 18_001;
+      continue;
+    }
+    assert.ok(manifest.ambient.includes(animation.clip));
+    assert.notEqual(animation.clip, previous);
+    assert.ok(
+      now - (lastPlayed.get(animation.clip) ?? -Infinity) >=
+        cooldowns[animation.clip as keyof typeof cooldowns],
+    );
+    previous = animation.clip;
+    lastPlayed.set(animation.clip, now);
+    seen.add(animation.clip);
     assert.equal(animation.mode, "once");
     behavior.report(animation.id, "ended", now + 4000);
-    behavior.resolve(state, true, now + 4000);
-    now += 16001;
+    assert.equal(
+      behavior.resolve(state, true, now + 4000).animation.clip,
+      "idle",
+    );
+    now += now < 120_000 ? 22_001 : 31_001;
   }
+  assert.deepEqual([...seen].sort(), [...manifest.ambient].sort());
   behavior.observe({ chat: activity("working") }, true, now);
   const working = behavior.resolve(state, true, now).animation;
   assert.equal(working.clip, "thinking");
@@ -188,11 +202,95 @@ test("weighted fish gestures can repeat twice, yield to work, and never celebrat
     behavior.resolve(state, true, now + 1_000_000).animation.clip,
     "thinking",
   );
-  const weighted = new BehaviorController(fishManifest, 0, () => 0.5);
+  const weighted = new BehaviorController(manifest, 0, () => 0.25);
   assert.equal(
-    weighted.resolve(state, true, 18501).animation.clip,
+    weighted.resolve(state, true, 23501).animation.clip,
     "petting_fish",
   );
+});
+
+test("thinking and tool work update captions without resetting the same animation", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  behavior.observe({ chat: activity("thinking") }, true, 0);
+  const initial = behavior.resolve(state, true, 0).animation;
+  behavior.report(initial.id, "started", 0);
+  behavior.observe({ chat: activity("working") }, true, 1000);
+  const working = behavior.resolve(state, true, 1000);
+  assert.deepEqual(working.animation, initial);
+  assert.equal(working.label, "正在查找和处理…");
+  behavior.observe({ chat: activity("thinking") }, true, 2000);
+  assert.deepEqual(behavior.resolve(state, true, 2000).animation, initial);
+});
+
+test("hidden playback never times out as broken artwork and resumes the latest activity", () => {
+  for (const working of [false, true]) {
+    const behavior = new BehaviorController(manifest, 0, () => 0);
+    const state = input();
+    if (working) behavior.observe({ chat: activity("thinking") }, true, 0);
+    const before = behavior.resolve(state, true, 0).animation;
+    const hidden = behavior.resolve(state, false, 6000);
+    assert.equal(hidden.error, "");
+    assert.equal(hidden.animation.mode, "hold");
+    assert.equal(behavior.resolve(state, false, 60_000).error, "");
+    behavior.report(before.id, "failed", 60_001);
+    const shown = behavior.resolve(state, true, 60_002);
+    assert.equal(shown.error, "");
+    assert.equal(shown.animation.clip, working ? "thinking" : "idle");
+    assert.equal(shown.animation.mode, "loop");
+  }
+});
+
+test("activity levels control spacing and inactivity slows gestures without extending the sleep deadline", () => {
+  for (const [level, delay] of [
+    ["calm", 40_000],
+    ["normal", 18_000],
+    ["lively", 8_000],
+  ] as const) {
+    const behavior = new BehaviorController(manifest, 0, () => 0);
+    const state = input();
+    state.settings.activityLevel = level;
+    behavior.resolve(state, true, 0);
+    assert.equal(
+      behavior.resolve(state, true, delay - 1).animation.clip,
+      "idle",
+    );
+    const gesture = behavior.resolve(state, true, delay).animation;
+    assert.equal(gesture.mode, "once");
+    behavior.report(gesture.id, "ended", 120_000);
+    behavior.resolve(state, true, 120_000);
+    assert.equal(
+      behavior.resolve(state, true, 120_000 + delay).animation.clip,
+      "idle",
+    );
+    assert.equal(
+      behavior.resolve(state, true, 120_000 + delay * 1.5).animation.mode,
+      "once",
+    );
+    state.settings.sleepMinutes = 5;
+    assert.equal(
+      behavior.resolve(state, true, 300_000).animation.clip,
+      "sleeping",
+    );
+    state.settings.sleepMinutes = 0;
+    assert.notEqual(
+      behavior.resolve(state, true, 301_000).animation.clip,
+      "sleeping",
+    );
+  }
+});
+
+test("leaving focused chat or quiet mode gets a fresh rest before ambient playback", () => {
+  const behavior = new BehaviorController(manifest, 0, () => 0);
+  const state = input();
+  state.chatFocused = true;
+  behavior.resolve(state, true, 90_000);
+  state.chatFocused = false;
+  assert.equal(behavior.resolve(state, true, 90_001).animation.clip, "idle");
+  assert.equal(behavior.resolve(state, true, 108_000).animation.mode, "once");
+  state.settings.quietUntil = 200_000;
+  behavior.resolve(state, true, 190_000);
+  assert.equal(behavior.resolve(state, true, 200_001).animation.clip, "idle");
 });
 
 test("background tasks survive long inactivity, yield to chat, and return to remaining work", () => {

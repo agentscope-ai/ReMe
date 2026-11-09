@@ -142,11 +142,16 @@ export interface Presentation {
   receipts: Record<string, Receipt>;
 }
 
+export const activityLevels = ["calm", "normal", "lively"] as const;
+export const sleepDurations: readonly number[] = [5, 15, 30, 0];
+
 export interface Settings {
   language: Language;
   theme: "system" | "light" | "dark";
   endpoint: string;
   scale: number;
+  activityLevel: (typeof activityLevels)[number];
+  sleepMinutes: number;
   quietUntil: number;
   notifications: boolean;
   voiceAutoSend: boolean;

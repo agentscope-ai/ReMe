@@ -13,6 +13,7 @@ import type {
   Behavior,
   DesktopState,
   PlaybackStatus,
+  Settings,
   TaskActivities,
 } from "../shared/protocol.ts";
 
@@ -26,6 +27,17 @@ const clips = {
   completed: "happy",
   failed: "confused",
   interrupted: "idle",
+};
+const ambientIntervals = {
+  calm: [40_000, 80_000],
+  normal: [18_000, 40_000],
+  lively: [8_000, 18_000],
+};
+const ambientCooldowns: Record<string, number> = {
+  petting_fish: 60_000,
+  listening: 30_000,
+  remembering: 75_000,
+  thinking: 90_000,
 };
 type Owner =
   | "base"
@@ -62,8 +74,9 @@ export class BehaviorController {
   private touched: number;
   private nextAmbient: number;
   private ambient: string | null = null;
-  private lastAmbient = "";
-  private ambientRepeats = 0;
+  private recentAmbient: string[] = [];
+  private readonly ambientPlayed = new Map<string, number>();
+  private activityLevel: Settings["activityLevel"] = "normal";
   private preview: string | null = null;
   private cue: {
     key: string;
@@ -82,10 +95,13 @@ export class BehaviorController {
   ) {
     this.touched = now;
     this.nextAmbient = this.nextIdle(now);
+    this.value.animation.startedAt = now;
   }
 
   private nextIdle(now: number): number {
-    return now + 12_000 + this.random() * 13_000;
+    const [min, max] = ambientIntervals[this.activityLevel];
+    const slower = now - this.touched >= 120_000 ? 1.5 : 1;
+    return now + (min + this.random() * (max - min)) * slower;
   }
 
   get foregroundActive(): boolean {
@@ -108,8 +124,8 @@ export class BehaviorController {
     this.reminder = null;
     this.seenTerminal = "";
     this.dragging = false;
-    this.lastAmbient = "";
-    this.ambientRepeats = 0;
+    this.recentAmbient = [];
+    this.ambientPlayed.clear();
     this.touch(now);
   }
 
@@ -135,6 +151,8 @@ export class BehaviorController {
     this.seenTerminal = key;
     if (live && activity.phase !== "interrupted") {
       const clip = clips[activity.phase];
+      this.ambient = null;
+      this.nextAmbient = this.nextIdle(now);
       this.cue = {
         key,
         clip,
@@ -224,6 +242,18 @@ export class BehaviorController {
       segment = undefined;
     }
     if (key !== this.key) {
+      // A phase or owner change can keep the same pose and playback clock.
+      if (
+        clip === this.value.animation.clip &&
+        mode === "loop" &&
+        this.value.animation.mode === "loop" &&
+        segment === this.value.animation.segment
+      ) {
+        this.key = key;
+        this.owner = owner;
+        this.value = { ...this.value, label, error };
+        return this.value;
+      }
       const smooth =
         owner === "chat" &&
         this.owner === "chat" &&
@@ -231,7 +261,10 @@ export class BehaviorController {
         this.value.animation.mode === "loop" &&
         ["thinking", "remembering"].includes(clip) &&
         ["thinking", "remembering"].includes(this.value.animation.clip);
-      if (smooth && now - this.since < 350) return this.value;
+      if (smooth && now - this.since < 350) {
+        this.value = { ...this.value, label, error };
+        return this.value;
+      }
       this.key = key;
       this.owner = owner;
       this.since = now;
@@ -255,7 +288,28 @@ export class BehaviorController {
 
   resolve(input: Input, visible: boolean, now = Date.now()): Behavior {
     this.language = input.settings.language;
+    const level = input.settings.activityLevel;
+    if (level !== this.activityLevel) {
+      this.activityLevel = level;
+      this.ambient = null;
+      this.nextAmbient = this.nextIdle(now);
+    }
     const t = translator(this.language);
+    if (!visible) {
+      this.reminder = null;
+      this.ambient = null;
+      this.nextAmbient = this.nextIdle(now);
+      const behavior = this.choose(
+        "base",
+        "offline",
+        "idle",
+        "hold",
+        t("waitingConnection"),
+        now,
+      );
+      this.deadline = Infinity;
+      return behavior;
+    }
     if (now >= this.deadline) {
       if (this.started) this.ended(this.value.animation.id, now);
       else this.report(this.value.animation.id, "failed", now);
@@ -271,7 +325,7 @@ export class BehaviorController {
     ) => this.choose(owner, key, clip, mode, label, now, segment);
     if (this.dragging)
       return select("base", "dragging", "dragged", "loop", t("dragging"));
-    if (!visible || input.connection !== "connected") {
+    if (input.connection !== "connected") {
       this.reminder = null;
       return select("base", "offline", "idle", "hold", t("waitingConnection"));
     }
@@ -332,6 +386,7 @@ export class BehaviorController {
       this.reminder.stage = "exit";
     if (this.reminder) {
       this.touched = now;
+      this.ambient = null;
       this.nextAmbient = this.nextIdle(now);
       if (this.unavailable.has("reminding")) {
         this.reminder = null;
@@ -378,7 +433,10 @@ export class BehaviorController {
     const background =
       task ?? (proactive && !terminal(proactive.phase) ? proactive : undefined);
     const quiet = input.settings.quietUntil > now;
-    if (input.chatFocused || quiet) this.ambient = null;
+    if (input.chatFocused || quiet) {
+      this.ambient = null;
+      this.nextAmbient = this.nextIdle(now);
+    }
     if (background) {
       this.touched = now;
       this.ambient = null;
@@ -398,7 +456,8 @@ export class BehaviorController {
         label,
       );
     }
-    if (now - this.touched >= 900_000)
+    const sleepMinutes = input.settings.sleepMinutes;
+    if (sleepMinutes > 0 && now - this.touched >= sleepMinutes * 60_000)
       return select("base", "sleeping", "sleeping", "loop", t("sleeping"));
     if (
       !input.chatFocused &&
@@ -408,13 +467,15 @@ export class BehaviorController {
     ) {
       const pool = this.manifest.ambient.filter(
         (clip) =>
-          (clip !== this.lastAmbient ||
-            (clip === "petting_fish" && this.ambientRepeats < 2)) &&
+          clip !== this.recentAmbient.at(-1) &&
+          now - (this.ambientPlayed.get(clip) ?? -Infinity) >=
+            (ambientCooldowns[clip] ?? 30_000) &&
           !this.unavailable.has(clip),
       );
       if (pool.length) {
         const weight = (clip: string) =>
-          this.manifest.ambient_weights?.[clip] ?? 1;
+          (this.manifest.ambient_weights?.[clip] ?? 1) *
+          (this.recentAmbient.includes(clip) ? 0.35 : 1);
         let choice =
           this.random() * pool.reduce((sum, clip) => sum + weight(clip), 0);
         this.ambient = pool[pool.length - 1];
@@ -425,10 +486,9 @@ export class BehaviorController {
             break;
           }
         }
-        this.ambientRepeats =
-          this.ambient === this.lastAmbient ? this.ambientRepeats + 1 : 1;
-        this.lastAmbient = this.ambient;
-      }
+        this.ambientPlayed.set(this.ambient, now);
+        this.recentAmbient = [...this.recentAmbient.slice(-1), this.ambient];
+      } else this.nextAmbient = this.nextIdle(now);
     }
     if (this.ambient && !input.chatFocused && !quiet)
       return select(
