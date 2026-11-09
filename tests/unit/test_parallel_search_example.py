@@ -2,9 +2,9 @@
 
 import argparse
 import asyncio
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from integrations.parallel_search import example
@@ -37,26 +37,20 @@ class FakeClient:
 def test_create_client_uses_current_parallel_endpoint(monkeypatch):
     """The custom transport targets Parallel's current public MCP endpoint."""
     transport = object()
-    client = object()
     transport_calls = []
-    client_calls = []
 
     def transport_factory(**kwargs):
         transport_calls.append(kwargs)
         return transport
 
-    def client_factory(**kwargs):
-        client_calls.append(kwargs)
-        return client
-
     monkeypatch.setattr(example, "StreamableHttpTransport", transport_factory)
-    monkeypatch.setattr(example, "MCPClient", client_factory)
 
     result = example.create_client()
 
-    assert transport_calls == [{"url": "https://mcp.parallel.ai/mcp"}]
-    assert client_calls == [{"transport": transport, "timeout": 60}]
-    assert result is client
+    assert transport_calls[0]["url"] == "https://mcp.parallel.ai/mcp"
+    assert callable(transport_calls[0]["httpx_client_factory"])
+    assert result.transport is transport
+    assert result.timeout == 60
 
 
 def test_validate_url_requires_public_http_url():
@@ -111,23 +105,15 @@ def test_run_example_fails_before_calling_when_tools_are_missing():
     assert not client.calls
 
 
-class RateLimitError(Exception):
-    """Fake HTTP error carrying the provider's 429 status."""
+def test_main_reports_rate_limit_from_real_mcp_transport(monkeypatch, capsys):
+    """A mocked HTTP 429 survives MCP transport error normalization."""
 
-    def __init__(self):
-        super().__init__("too many requests")
-        self.response = SimpleNamespace(status_code=429)
+    def respond(_request):
+        return httpx.Response(429, json={"error": "rate limit exceeded"})
 
-
-def test_main_reports_provider_rate_limit(monkeypatch, capsys):
-    """A provider 429 gives the user actionable rate-limit guidance."""
-    client = FakeClient(actions=[{"name": "web_search"}, {"name": "web_fetch"}])
-
-    async def fail(*_args, **_kwargs):
-        raise RateLimitError()
-
+    client = example.create_client(httpx_transport=httpx.MockTransport(respond))
     monkeypatch.setattr(example, "create_client", lambda: client)
-    monkeypatch.setattr(example, "run_example", fail)
 
     assert example.main(["topic", "https://example.com"]) == 1
     assert "rate limit" in capsys.readouterr().err.lower()
+    assert client.rate_limited is True

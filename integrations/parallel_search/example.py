@@ -5,6 +5,7 @@ import asyncio
 import sys
 from urllib.parse import urlparse
 
+import httpx
 from fastmcp.client import StreamableHttpTransport
 
 from reme.components.client import MCPClient
@@ -13,10 +14,32 @@ SERVER_URL = "https://mcp.parallel.ai/mcp"
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-def create_client() -> MCPClient:
+class _ParallelMCPClient(MCPClient):
+    """Retain provider HTTP status before MCP normalizes transport failures."""
+
+    def __init__(self, httpx_transport=None):
+        self.rate_limited = False
+
+        async def record_response(response: httpx.Response) -> None:
+            if response.status_code == 429:
+                self.rate_limited = True
+
+        def create_httpx_client(**kwargs):
+            kwargs["event_hooks"] = {"response": [record_response]}
+            if httpx_transport is not None:
+                kwargs["transport"] = httpx_transport
+            return httpx.AsyncClient(**kwargs)
+
+        transport = StreamableHttpTransport(
+            url=SERVER_URL,
+            httpx_client_factory=create_httpx_client,
+        )
+        super().__init__(transport=transport, timeout=REQUEST_TIMEOUT_SECONDS)
+
+
+def create_client(httpx_transport: httpx.AsyncBaseTransport | None = None) -> _ParallelMCPClient:
     """Create a ReMe client for Parallel's anonymous streamable-HTTP endpoint."""
-    transport = StreamableHttpTransport(url=SERVER_URL)
-    return MCPClient(transport=transport, timeout=REQUEST_TIMEOUT_SECONDS)
+    return _ParallelMCPClient(httpx_transport=httpx_transport)
 
 
 def validate_url(value: str) -> str:
@@ -58,12 +81,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("topic", help="what to search for on the public web")
     parser.add_argument("url", type=validate_url, help="HTTP(S) URL to fetch after searching")
     args = parser.parse_args(argv)
+    client = create_client()
 
     try:
-        asyncio.run(run_example(args.topic, args.url, create_client()))
+        asyncio.run(run_example(args.topic, args.url, client))
     except Exception as exc:  # Report provider and transport failures to the caller.
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
-        if status_code == 429:
+        if getattr(client, "rate_limited", False):
             print(
                 "Parallel Search rate limit reached. Wait before retrying or see provider docs "
                 "for authenticated access.",

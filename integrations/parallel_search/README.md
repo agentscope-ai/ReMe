@@ -23,7 +23,7 @@ rate-limit responses separately.
 
 ## Tests
 
-The unit tests mock the MCP client and transport, so they do not contact Parallel:
+The unit tests use mocked HTTP responses through ReMe's real MCP client, so they do not contact Parallel:
 
 ```bash
 python -m pytest tests/unit/test_parallel_search_example.py -q
