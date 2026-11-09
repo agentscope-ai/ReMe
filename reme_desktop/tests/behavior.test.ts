@@ -298,16 +298,16 @@ test("background tasks survive long inactivity, yield to chat, and return to rem
   const state = input();
   const first = {
     ...activity("answering", "task-turn", "task"),
-    run_id: "one",
+    started_at: "2026-11-08T12:00:00+08:00",
     task_id: "research",
   };
   const second = {
     ...first,
-    run_id: "two",
+    started_at: "2026-11-08T12:00:01+08:00",
     task_id: "watch",
     phase: "remembering" as const,
   };
-  const tasks = { one: first, two: second };
+  const tasks = { research: first, watch: second };
   behavior.observe({}, true, 0, tasks);
   let resolved = behavior.resolve(state, true, 1_000_000);
   assert.equal(
@@ -321,7 +321,7 @@ test("background tasks survive long inactivity, yield to chat, and return to rem
   resolved = behavior.resolve(state, true, 1_000_010);
   assert.equal(resolved.animation.clip, "speaking");
   behavior.report(resolved.animation.id, "started", 1_000_010);
-  behavior.observe({}, true, 1_000_020, { two: second });
+  behavior.observe({}, true, 1_000_020, { watch: second });
   resolved = behavior.resolve(state, true, 1_000_020);
   assert.match(resolved.label, /watch/);
   assert.equal(resolved.animation.clip, "remembering");

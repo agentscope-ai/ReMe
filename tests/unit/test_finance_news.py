@@ -42,7 +42,7 @@ def _clock(monkeypatch):
         def now(cls, tz=None):
             return state.now.astimezone(tz)
 
-    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", Clock)
+    monkeypatch.setattr("reme.steps.proactive.data_connectors.base.datetime", Clock)
     return state
 
 
@@ -108,7 +108,7 @@ async def test_finance_news_covers_full_window_and_saves_only_reading_instructio
     assert set(result) == {"context", "paths"}
     assert result["paths"] == ["assets/finance_news/2026-11-06_21-30-00-123456.jsonl"]
     assert "3 new CLS" in result["context"]
-    assert "Read the JSONL file" in result["context"]
+    assert "Read every record in all returned JSONL paths" in result["context"]
     assert "甲&乙" not in result["context"]
     assert "2026-11-06T15:30:00+08:00 to 2026-11-07T15:30:00+08:00" in result["context"]
     rows = _read(tmp_path / result["paths"][0])

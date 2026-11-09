@@ -37,7 +37,7 @@ jobs:
     backend: base
     enable_serve: false
     track_execution: true
-    description: "Execute a task, optionally publish cumulative findings, and prepare an internal handoff in the same session."
+    description: "Execute, summarize and assess a scheduled task in one query in its persistent native session."
     parameters:
       type: object
       additionalProperties: false
@@ -95,7 +95,10 @@ jobs:
 
   screen_capture:
     backend: base
-    description: "Compare displays by stable identity; return context and changed original-size PNG paths, or paths=[] when unchanged."
+    description: >-
+      Compare displays by stable identity; always report current display count and IDs in context, even when unchanged
+      images return paths=[]. Return only changed original-size PNG paths; read all returned images before analyzing them
+      together.
     parameters:
       type: object
       properties: {}
@@ -106,7 +109,10 @@ jobs:
 
   finance_news:
     backend: base
-    description: "Fetch the last 24 hours of CLS news; save only new IDs in JSONL. Read the returned paths for news content."
+    description: >-
+      Fetch the last 24 hours of CLS news; save only new IDs in JSONL, or return paths=[] when there are no new IDs.
+      Read every record in all returned paths before analyzing them together; compare with prior findings and merge
+      developments of the same event.
     parameters:
       type: object
       properties: {}
@@ -151,10 +157,22 @@ jobs:
   temp_proactive:
     backend: background
     steps:
-      - backend: temp_proactive_step
+      - backend: temp_task_loop_step
+
+  temp_agent:
+    backend: base
+    enable_serve: false
+    track_execution: true
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        task_id: {type: string, minLength: 1}
+        revision: {type: integer, minimum: 0}
+      required: [task_id, revision]
+    steps:
+      - backend: temp_agent_step
         agent_wrapper: default
-        model: qwen3.8-max-0902
-        job_tools: [screen_capture, finance_news, send_chat_message_immediate]
 
   pa_proactive:
     backend: base
@@ -209,7 +227,7 @@ jobs:
   read_proactive_inbox:
     backend: base
     enable_serve: false
-    description: "Checkpoint new or edited Main feedback, then return input_path/round_id and receipt_path for complete native reading; retain source Markdown."
+    description: "Return new or edited Main feedback as timestamp-and-content text, or an empty string when unchanged. Checkpoint before advancing the cursor; retain source Markdown."
     parameters:
       type: object
       properties: {}
@@ -225,7 +243,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        content: {type: string, maxLength: 4000, description: "Concise but complete findings with necessary context and evidence; empty withdraws pending content."}
+        content: {type: string, description: "Concise but complete findings with necessary context and evidence; empty withdraws pending content."}
         kind: {type: string, enum: [normal, morning, midday, evening], default: normal, description: "Greeting kinds require this round's matching hint"}
       required: [content]
     steps:
@@ -234,12 +252,12 @@ jobs:
   send_chat_message_immediate:
     backend: base
     enable_serve: false
-    description: "Send a published cron finding or temporary task result immediately; bypass ordinary notification windows and quiet settings."
+    description: "Send a temporary task result or an urgent cron finding immediately; publish its result before delivery."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        content: {type: string, minLength: 1, maxLength: 3980, description: "The answer Master requested. State conclusions and necessary reasons once, with sources and limitations where they matter; keep execution details internal."}
+        content: {type: string, minLength: 1, description: "The answer Master requested. State conclusions and necessary reasons once, with sources and limitations where they matter; keep execution details internal."}
       required: [content]
     steps:
       - backend: send_chat_message_immediate_step
@@ -260,14 +278,14 @@ jobs:
   manage_temp_proactive_agent:
     backend: base
     enable_serve: false
-    description: "List, create, update, pause, resume or cancel one-shot Main tasks. List returns items and total, including task IDs and states. Create requires query; update/pause/resume/cancel require task_id. Preparation forks Main after the current turn."
+    description: "List, create, update, pause, resume or cancel one-shot Main tasks. List returns items and total, including task IDs and states. Create requires query; update/pause/resume/cancel require task_id. The worker runs once in a fork of Main when due, inheriting its context, model and tools."
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [list, create, update, pause, resume, cancel]}
         task_id: {type: string, minLength: 1, description: "Required for update/pause/resume/cancel; use an ID returned by list or create"}
-        query: {type: string, minLength: 1, description: "Required for create; optional for update"}
+        query: {type: string, minLength: 1, description: "Clear task with its goal, inputs and requirements; Main context is inherited. Required for create; optional for update."}
         run_at: {type: string, format: date-time, description: "Create/update only; timezone-aware, mutually exclusive with delay_minutes"}
         delay_minutes: {type: number, minimum: 0, description: "Delay in minutes, including fractions (0.5 = 30 seconds); create/update only; create omitting time starts immediately"}
         request_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "Create only; optional stable idempotency key"}
@@ -336,7 +354,6 @@ jobs:
         cursor: {type: string, maxLength: 128, description: "Opaque cursor from the last applied PA event"}
     steps:
       - backend: pa_events_step
-        agent_wrapper: default
 
   pa_session:
     backend: base
@@ -347,7 +364,6 @@ jobs:
       additionalProperties: false
     steps:
       - backend: pa_session_step
-        agent_wrapper: default
 
   pa_new_session:
     backend: base
@@ -371,7 +387,6 @@ jobs:
       required: [session_id]
     steps:
       - backend: pa_select_session_step
-        agent_wrapper: default
 
   session_read:
     backend: base

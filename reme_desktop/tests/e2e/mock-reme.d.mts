@@ -17,7 +17,7 @@ export function mockReMe(options?: {
     closing_message_id?: string | null;
   }): void;
   activity(phase: string, source?: "chat" | "proactive", turnId?: string): void;
-  taskActivity(phase: string, taskId?: string, runId?: string): void;
+  taskActivity(phase: string, taskId?: string, startedAt?: string): void;
   cursors: (string | undefined)[];
   ttsRequests: { text: string }[];
   asrRequests: { audio: string; audio_format: string; sample_rate: number }[];

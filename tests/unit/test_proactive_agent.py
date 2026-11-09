@@ -1,4 +1,4 @@
-"""One Main-context fork, seven work queries and durable interrupted-input recovery."""
+"""One fork, awaited native compaction and one query with durable recovery."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -7,50 +7,58 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from reme.schema.pa_proactive import PaProactiveConfig
 from reme.schema import SessionMessage
+from reme.schema.pa_proactive import PaProactiveConfig
 from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
-from reme.steps.proactive.tools import ReadConversationStep, ReadProactiveInboxStep, SendChatMessageStep
-
-from .pa_helpers import bind_pa
+from reme.steps.proactive.tools import ReadConversationStep, ReadProactiveInboxStep
 
 
 def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=None, todo="# TODO\n\n无待办。"):
     calls = []
+    env.operations = []
     monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _step: env.now[0])
+
+    async def create(**kwargs):
+        env.operations.append(("create", kwargs))
+        if fail_at == "prepare":
+            raise RuntimeError("preparation failed")
+        return f"worker-{env.runtime.current_round.id}"
+
+    async def compact(session_id):
+        env.operations.append(("compact", session_id))
+        assert not env.runtime.current_round.allow_message
+        if fail_at == "compact":
+            raise RuntimeError("compaction failed")
 
     async def reply(query, **kwargs):
         calls.append((query, kwargs))
-        if kwargs.get("fork_session") and kwargs.get("resume") == env.runtime.session_id:
-            return {"session_id": "context-fork", "status": "completed", "result": "Main context"}
+        env.operations.append(("query", kwargs["resume"]))
         bound = kwargs["injected_job_kwargs"]
-        phase = env.runtime.current_round.phase
-        if phase == "query_memory":
-            await ReadConversationStep(app_context=env.context)(**bound)
-            await env.runtime.read_proactive_inbox(round_id=bound["pa_round_id"])
-            if pause is not None:
-                pause[0].set()
-                await pause[1].wait()
-        if phase == fail_at:
+        await ReadConversationStep(app_context=env.context)(**bound)
+        await env.runtime.read_proactive_inbox(round_id=bound["pa_round_id"])
+        if pause is not None:
+            pause[0].set()
+            await pause[1].wait()
+        if fail_at == "query":
             raise RuntimeError("query failed")
-        if phase == "query_message" and decide:
+        if env.runtime.current_round.allow_message and decide:
             await env.runtime.send_chat_message(
                 "",
                 kind="normal",
                 round_id=bound["pa_round_id"],
                 session_id=bound["session_id"],
             )
-        if phase == "query_config" and adjust:
-            env.runtime._write_json(
+        if adjust:
+            env.runtime.files.write_json(
                 env.runtime.proactive_config_path,
                 {"start_time": "0900", "end_time": "2300", "interval_minutes": 15},
             )
-        return {
-            "session_id": kwargs.get("resume") or f"agent-{bound['pa_round_id']}",
-            "status": "completed",
-            "result": todo if phase == "query_todo" else f"completed {phase}",
-        }
+        if fail_at == "after_decision":
+            raise RuntimeError("query failed")
+        return {"session_id": kwargs["resume"], "status": "completed", "result": todo}
 
+    env.agent.create_session = AsyncMock(side_effect=create)
+    env.agent.compact_session = AsyncMock(side_effect=compact)
     env.agent.reply = AsyncMock(side_effect=reply)
     return calls
 
@@ -58,196 +66,165 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("selected_model", [None, "kimi-k3.1-pro"])
-async def test_merged_inputs_then_message_and_persisted_todo(pa_workspace, monkeypatch, language, selected_model):
+async def test_fork_overrides_then_compacts_before_the_only_query(pa_workspace, monkeypatch, language, selected_model):
     env = pa_workspace
     calls = model(env, monkeypatch, adjust=True)
     job_tools = ["read_conversation", "send_chat_message", "check_json"]
     step = ProactiveAgentStep(app_context=env.context, language=language, job_tools=job_tools, model=selected_model)
     result = await step()
-    assert len(calls) == 8 and calls[0][1]["resume"] == env.runtime.session_id
-    assert all(kwargs.get("model") == selected_model for _, kwargs in calls)
+    assert len(calls) == 1
+    assert [name for name, _ in env.operations] == ["create", "compact", "query"]
+    created = env.agent.create_session.await_args.kwargs
+    assert created["resume"] == env.runtime.session_id and created["fork_session"] is True
+    assert created["job_tools"] == calls[0][1]["job_tools"] == job_tools
+    assert created["system_prompt"] == calls[0][1]["system_prompt"]
+    assert "chat_context" not in created["system_prompt"]
+    assert created["injected_job_kwargs"] == calls[0][1]["injected_job_kwargs"]
+    assert created.get("model") == calls[0][1].get("model") == selected_model
     assert "model" not in env.agent.kwargs
-    assert sum(bool(options.get("fork_session")) for _, options in calls) == 1
-    assert not {"system_prompt", "job_tools", "injected_job_kwargs"} & calls[0][1].keys()
-    assert "read_conversation" not in calls[0][0]
-    assert calls[1][1]["resume"] is None
-    assert "Main context" in calls[1][1]["system_prompt"]
-    assert calls[1][0] == step.prompt_format("query_memory", memory_path=step._memory_path(), max_turns=10)
-    assert calls[4][0] == step.get_prompt("query_research")
-    assert len({kwargs["resume"] for _, kwargs in calls[2:]}) == 1
-    assert len({str(kwargs["injected_job_kwargs"]) for _, kwargs in calls[1:]}) == 1
-    assert all(kwargs["job_tools"] == job_tools for _, kwargs in calls[1:])
-    assert calls[-2][0] == step.prompt_format("query_config", proactive_config_path=env.runtime.proactive_config_path)
-    assert calls[-1][0] == step.prompt_format(
-        "query_todo",
-        interval_minutes=15,
-        todo_path=env.runtime.proactive_todo_path,
-    )
-    assert env.runtime.proactive_todo_path.read_text() == "# TODO\n\n无待办。\n"
+    worker = calls[0][1]["resume"]
+    assert worker != env.runtime.session_id and "fork_session" not in calls[0][1]
+    env.agent.compact_session.assert_awaited_once_with(worker)
+    env.agent.release_session.assert_awaited_once_with(worker)
+    assert "read_conversation(max_turns=10)" in calls[0][0]
     assert (await env.runtime.get_proactive_config()).interval_minutes == 15
-    assert "handoff" not in result.answer
-    assert not (env.runtime.component_metadata_path / "handoff.txt").exists()
-    assert result.metadata["proactive_session_id"] == calls[-1][1]["resume"]
+    assert result.metadata["proactive_session_id"] == worker
     assert env.runtime.proactive_context_path.read_text() == "" and env.runtime.current_round is None
+    assert env.runtime.session_id == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_compaction_is_awaited_before_any_work_query(pa_workspace, monkeypatch):
+    env = pa_workspace
+    model(env, monkeypatch)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def compact(_session_id):
+        entered.set()
+        await release.wait()
+
+    env.agent.compact_session.side_effect = compact
+    task = asyncio.create_task(ProactiveAgentStep(app_context=env.context)())
+    await entered.wait()
+    env.agent.reply.assert_not_awaited()
+    release.set()
+    await task
+    env.agent.reply.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("prior_reminder", [False, True])
-async def test_empty_main_reaches_reminder_decision_without_forking(
-    pa_workspace,
-    monkeypatch,
-    language,
-    prior_reminder,
-):
+async def test_empty_main_starts_one_query_without_fork_or_compact(pa_workspace, monkeypatch, language, prior_reminder):
     env = pa_workspace
     env.snapshot.last_turn_id = None
     if prior_reminder:
         env.snapshot.messages = [
-            SessionMessage(id="old-reminder", role="assistant", source="proactive", content="Earlier update."),
+            SessionMessage(id="old", role="assistant", source="proactive", content="Earlier update."),
         ]
     calls = model(env, monkeypatch, decide=False)
     original = env.agent.reply.side_effect
 
     async def reply(query, **kwargs):
-        if kwargs.get("fork_session"):
-            raise RuntimeError("no rollout found for thread id")
         current = env.runtime.current_round
-        if current.phase == "query_message":
-            await env.runtime.get_chat_messages(round_id=current.id)
-            await env.runtime.send_chat_message(
-                "A useful new update.",
-                kind="normal",
-                round_id=current.id,
-                session_id=current.session_id,
-            )
+        await env.runtime.get_chat_messages(round_id=current.id)
+        await env.runtime.send_chat_message(
+            "A useful new update.",
+            kind="normal",
+            round_id=current.id,
+            session_id=current.session_id,
+        )
         return await original(query, **kwargs)
 
     env.agent.reply.side_effect = reply
-    selected = env.runtime.session_id
-    step = ProactiveAgentStep(app_context=env.context, language=language)
-
-    result = await step()
-
-    assert result.answer["status"] == "pending" and len(calls) == 7
-    assert calls[0][1]["resume"] is None and all(not options.get("fork_session") for _, options in calls)
-    assert step.get_prompt("no_main_context") in calls[0][1]["system_prompt"]
-    assert env.runtime.session_id == selected
+    result = await ProactiveAgentStep(app_context=env.context, language=language)()
+    assert result.answer["status"] == "pending" and len(calls) == 1
+    assert "fork_session" not in env.agent.create_session.await_args.kwargs
+    assert "resume" not in env.agent.create_session.await_args.kwargs
+    env.agent.compact_session.assert_not_awaited()
+    assert env.runtime.session_id == "session-1"
     assert env.runtime.reminders.read()[0].content == "A useful new update."
     assert env.runtime.proactive_context_path.read_text() == ""
 
 
 @pytest.mark.asyncio
-async def test_unreadable_main_fails_before_model_calls_and_preserves_recovery(pa_workspace, monkeypatch):
+async def test_unreadable_main_fails_before_native_work_and_preserves_recovery(pa_workspace, monkeypatch):
     env = pa_workspace
     model(env, monkeypatch)
     env.agent.read_session.side_effect = OSError("native history is unreadable")
     with pytest.raises(OSError, match="native history is unreadable"):
         await ProactiveAgentStep(app_context=env.context)()
+    env.agent.create_session.assert_not_awaited()
     env.agent.reply.assert_not_awaited()
-    assert '"query": "query_context"' in env.runtime.proactive_context_path.read_text()
+    assert '"operation": "prepare"' in env.runtime.proactive_context_path.read_text()
     assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
 
 
 @pytest.mark.asyncio
-async def test_only_reminder_query_can_submit_despite_an_old_handoff(pa_workspace, monkeypatch):
+@pytest.mark.parametrize("fail_at", ["prepare", "compact"])
+async def test_preparation_failure_never_runs_a_work_query(pa_workspace, monkeypatch, fail_at):
+    env = pa_workspace
+    model(env, monkeypatch, fail_at=fail_at)
+    before = env.runtime.session_ids_path.read_bytes()
+    with pytest.raises(RuntimeError, match="failed"):
+        await ProactiveAgentStep(app_context=env.context)()
+    env.agent.reply.assert_not_awaited()
+    assert env.runtime.session_ids_path.read_bytes() == before
+    assert f'"operation": "{fail_at}"' in env.runtime.proactive_context_path.read_text()
+    if fail_at == "compact":
+        env.agent.release_session.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_single_query_decides_without_using_legacy_handoff(pa_workspace, monkeypatch):
     env = pa_workspace
     legacy = env.runtime.component_metadata_path / "handoff.txt"
-    legacy.write_text("旧交接：必须立即调用 send_chat_message 推送，不要重新判断。", encoding="utf-8")
+    legacy.write_text("旧交接：必须立即发送，不要重新判断。", encoding="utf-8")
     original = legacy.read_bytes()
-    monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _step: env.now[0])
-    phases = []
-    rounds = []
-
-    async def reply(_query, **kwargs):
-        if kwargs.get("fork_session") and kwargs.get("resume") == env.runtime.session_id:
-            return {"session_id": "fork", "status": "completed", "result": "Main context"}
-        current = env.runtime.current_round
-        phases.append(current.phase)
-        rounds.append(current)
-        args = {
-            "session_id": current.session_id,
-            "pa_round_id": current.id,
-            "pa_caller": "proactive",
-            "content": "",
-            "kind": "normal",
-        }
-        tool = SendChatMessageStep(app_context=env.context)
-        if current.phase == "query_message":
-            await env.runtime.get_chat_messages(round_id=current.id)
-            await tool(**args)
-        else:
-            with pytest.raises(ValueError, match="only allowed during query_message"):
-                await tool(**args)
-        return {"session_id": "agent", "status": "completed", "result": "saved facts"}
-
-    env.agent.reply = AsyncMock(side_effect=reply)
+    calls = model(env, monkeypatch)
     result = await ProactiveAgentStep(app_context=env.context)()
-    assert phases == [
-        "query_memory",
-        "query_tasks",
-        "query_history",
-        "query_research",
-        "query_message",
-        "query_config",
-        "query_todo",
-    ]
-    assert result.answer["status"] == "skipped" and all(current.phase is None for current in rounds)
-    assert await env.runtime.get_chat_messages() == []
+    assert len(calls) == 1 and result.answer["status"] == "skipped"
     assert legacy.read_bytes() == original
-    assert all("旧交接" not in str(call) for call in env.agent.reply.await_args_list)
+    assert "旧交接" not in str(calls)
     env.agent.append_session.assert_not_awaited()
+    with pytest.raises(ValueError, match="live, server-bound"):
+        await env.runtime.send_chat_message("", "normal", round_id="stale", session_id="session-1")
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fail_at", ["query_tasks", "query_config", "query_todo"])
-async def test_failure_keeps_consumed_feedback_and_recovery(pa_workspace, monkeypatch, fail_at):
+@pytest.mark.parametrize("fail_at", ["query", "after_decision"])
+async def test_failed_query_keeps_consumed_feedback(pa_workspace, monkeypatch, fail_at):
     env = pa_workspace
     await env.runtime.write_proactive_inbox("只跟踪主人关注的新结果")
-    await env.runtime.save_proactive_todo("- [ ] 复查尚未发布的原文")
-    model(env, monkeypatch, fail_at=fail_at)
+    calls = model(env, monkeypatch, fail_at=fail_at)
     with pytest.raises(RuntimeError, match="query failed"):
         await ProactiveAgentStep(app_context=env.context)()
-    assert "只跟踪主人关注的新结果" in env.runtime.proactive_inbox_path.read_text()
+    assert len(calls) == 1
     recovery = env.runtime.proactive_context_path.read_text()
-    assert "只跟踪主人关注的新结果" in recovery and "failure" in recovery
-    assert env.runtime.proactive_todo_path.read_text() == "- [ ] 复查尚未发布的原文\n"
+    assert "只跟踪主人关注的新结果" in recovery and '"operation": "query"' in recovery
     assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
 
 
 @pytest.mark.asyncio
-async def test_failed_research_preserves_recovery_without_submitting_a_reminder(pa_workspace, monkeypatch):
-    env = pa_workspace
-    calls = model(env, monkeypatch, fail_at="query_research")
-    send = AsyncMock(wraps=env.runtime.send_chat_message)
-    monkeypatch.setattr(env.runtime, "send_chat_message", send)
-    with pytest.raises(RuntimeError, match="query failed"):
-        await ProactiveAgentStep(app_context=env.context)()
-    assert len(calls) == 5
-    send.assert_not_awaited()
-    assert '"query": "query_research"' in env.runtime.proactive_context_path.read_text()
-    assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
-
-
-@pytest.mark.asyncio
-async def test_cancelled_round_is_released_after_failure_checkpoint(pa_workspace, monkeypatch):
+async def test_cancelled_query_revokes_send_permission_and_retains_inputs(pa_workspace, monkeypatch):
     env = pa_workspace
     entered, release = asyncio.Event(), asyncio.Event()
     model(env, monkeypatch, pause=(entered, release))
     task = asyncio.create_task(ProactiveAgentStep(app_context=env.context)())
     await entered.wait()
     current = env.runtime.current_round
-    assert current.phase == "query_memory"
+    assert current.allow_message
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    assert not current.allow_message and not env.runtime.memory_lock.locked()
     assert env.runtime.current_round is None and not env.runtime._proactive_lock.locked()
-    assert current.phase is None
     assert "failure" in env.runtime.proactive_context_path.read_text()
+    env.agent.release_session.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_concurrent_wakeups_are_serial_and_use_distinct_rounds(pa_workspace, monkeypatch):
+async def test_concurrent_wakeups_run_one_query_each_in_distinct_rounds(pa_workspace, monkeypatch):
     env = pa_workspace
     entered, release = asyncio.Event(), asyncio.Event()
     calls = model(env, monkeypatch, pause=(entered, release))
@@ -255,78 +232,16 @@ async def test_concurrent_wakeups_are_serial_and_use_distinct_rounds(pa_workspac
     await entered.wait()
     second = asyncio.create_task(ProactiveAgentStep(app_context=env.context)())
     await asyncio.sleep(0)
-    assert len(calls) == 2
+    assert len(calls) == 1
     release.set()
     await asyncio.gather(first, second)
-    assert len(calls) == 16
-    assert calls[1][1]["injected_job_kwargs"]["pa_round_id"] != calls[9][1]["injected_job_kwargs"]["pa_round_id"]
+    assert len(calls) == 2
+    assert calls[0][1]["injected_job_kwargs"]["pa_round_id"] != calls[1][1]["injected_job_kwargs"]["pa_round_id"]
+    assert calls[0][1]["resume"] != calls[1][1]["resume"]
 
 
 @pytest.mark.asyncio
-async def test_todo_is_reinjected_after_restart_and_replaced_when_finished(pa_workspace, monkeypatch):
-    env = pa_workspace
-    todo = "# TODO\n\n- [ ] 核对发布说明 resource/release.md，原文更新后再判断是否分享。"
-    model(env, monkeypatch, todo=todo)
-    await ProactiveAgentStep(app_context=env.context)()
-    assert await env.runtime.read_proactive_todo() == todo + "\n"
-
-    env.runtime = bind_pa(env.context, env.agent)
-    env.runtime._now = lambda: env.now[0]
-    env.runtime._initialize_files()
-    env.runtime.session_id = "session-1"
-    calls = model(env, monkeypatch)
-    await ProactiveAgentStep(app_context=env.context)()
-    assert todo in calls[1][1]["system_prompt"]
-    assert await env.runtime.read_proactive_todo() == "# TODO\n\n无待办。\n"
-
-    calls = model(env, monkeypatch)
-    await ProactiveAgentStep(app_context=env.context)()
-    assert todo not in calls[1][1]["system_prompt"]
-
-
-@pytest.mark.asyncio
-async def test_todo_publication_failure_retains_previous_todo_and_recovery(pa_workspace, monkeypatch):
-    env = pa_workspace
-    await env.runtime.save_proactive_todo("- [ ] 保留尚未完成的工作")
-    model(env, monkeypatch)
-    monkeypatch.setattr(env.runtime, "save_proactive_todo", AsyncMock(side_effect=OSError("disk full")))
-    with pytest.raises(OSError, match="disk full"):
-        await ProactiveAgentStep(app_context=env.context)()
-    assert env.runtime.proactive_todo_path.read_text() == "- [ ] 保留尚未完成的工作\n"
-    assert '"query": "query_todo"' in env.runtime.proactive_context_path.read_text()
-    assert env.runtime.current_round is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("content", ["", "  ", None])
-async def test_empty_todo_does_not_replace_previous_work(pa_workspace, content):
-    env = pa_workspace
-    await env.runtime.save_proactive_todo("- [ ] 继续核实来源")
-    with pytest.raises(ValueError, match="TODO list must not be empty"):
-        await env.runtime.save_proactive_todo(content)
-    assert await env.runtime.read_proactive_todo() == "- [ ] 继续核实来源\n"
-
-
-@pytest.mark.asyncio
-async def test_todo_rejects_workspace_escape_and_oversized_content(pa_workspace, tmp_path):
-    from reme.constants import DEFAULT_MAX_FILE_BYTES
-
-    env = pa_workspace
-    with pytest.raises(ValueError, match="read limit"):
-        await env.runtime.save_proactive_todo("中" * (DEFAULT_MAX_FILE_BYTES // 3 + 1))
-    outside = tmp_path.parent / f"{tmp_path.name}-outside.md"
-    outside.write_text("keep", encoding="utf-8")
-    env.runtime.proactive_todo_path.unlink()
-    (env.runtime.component_metadata_path / "proactive_todo.md").symlink_to(outside)
-    with pytest.raises(ValueError, match="inside the workspace"):
-        await env.runtime.read_proactive_todo()
-    with pytest.raises(ValueError, match="inside the workspace"):
-        await env.runtime.save_proactive_todo("- [ ] 不应写入")
-    assert outside.read_text() == "keep"
-
-
-@pytest.mark.asyncio
-async def test_failed_main_handoff_does_not_consume_conversation(pa_workspace):
+async def test_failed_work_query_does_not_change_conversation_selection(pa_workspace):
     env = pa_workspace
     before = env.runtime.session_ids_path.read_bytes()
     env.agent.reply = AsyncMock(side_effect=RuntimeError("context failed"))

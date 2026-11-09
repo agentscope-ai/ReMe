@@ -4,7 +4,6 @@
 
 import argparse
 from datetime import date
-from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -15,7 +14,7 @@ import frontmatter
 from reme.components import ApplicationContext, PaRuntime
 from reme.constants import DEFAULT_MAX_FILE_BYTES
 from reme.schema.pa_hint import PaHintState
-from reme.schema.pa_task import PaTaskRecovery, PaTaskRun
+from reme.schema.pa_task import PaTaskState, PaTaskRun
 from reme.schema.pa_temp_task import PaTempTask
 from reme.schema.reminder import ReminderRecord
 
@@ -25,7 +24,8 @@ class _Migration:
 
     def __init__(self, runtime):
         self.runtime = runtime
-        self.files = runtime.tasks
+        self.tasks = runtime.tasks
+        self.files = runtime.files
         self.sources = {}
         self.plans = {}
         self.renamed = {
@@ -60,13 +60,13 @@ class _Migration:
         tail = parts[len(daily) :] if parts[: len(daily)] == daily else ()
         if parts and parts[0] == "reme_cron":
             temporary = parts[1:2] == ("temporary",)
-            target = self.runtime._metadata_file("temporary" if temporary else "cron")
+            target = self.runtime.files.metadata_path("temporary" if temporary else "cron")
             target = target.joinpath(*(parts[2:] if temporary else parts[1:]))
         elif len(tail) >= 4 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", tail[0]) and tail[1] == "cron":
-            target = self.files.task_path(tail[2]) / tail[0] / Path(*tail[3:])
+            target = self.tasks.task_path(tail[2]) / tail[0] / Path(*tail[3:])
         else:
             for old, new in self.renamed.items():
-                if path == self.runtime._metadata_file(old).relative_to(self.runtime.workspace_path):
+                if path == self.runtime.files.metadata_path(old).relative_to(self.runtime.workspace_path):
                     target = new
                     break
             else:
@@ -98,7 +98,7 @@ class _Migration:
         if path.suffix == ".jsonl" and any(not isinstance(row, dict) for row in updated):
             raise ValueError(f"Expected JSON objects in {path}")
         if name in {"reminders.jsonl", "chat_inbox.jsonl"}:
-            hint_path = self.runtime._metadata_file("hint_state.json")
+            hint_path = self.runtime.files.metadata_path("hint_state.json")
             hints = PaHintState.model_validate_json(self.read(hint_path)) if hint_path.exists() else PaHintState()
             periods = {draw.round_id: period for period, draw in hints.draws.items() if draw.hint_index is not None}
             for row in updated:
@@ -106,6 +106,8 @@ class _Migration:
                 ReminderRecord.model_validate(row)
         elif name in {"task_runs.jsonl", "cron_runs.jsonl"}:
             for row in updated:
+                row.pop("run_id", None)
+                row.pop("phase", None)
                 if name == "task_runs.jsonl":
                     inline = row.pop("result", None)
                     row.pop("cron", None)
@@ -113,14 +115,11 @@ class _Migration:
                     if inline:
                         run = PaTaskRun.model_validate(row)
                         timestamp = run.finished_at or run.started_at
-                        suffix = sha256(run.run_id.encode()).hexdigest()[:32]
-                        target = (
-                            self.files.task_path(run.task_id) / f"{timestamp:%Y-%m-%d}/{timestamp:%H%M%S}-{suffix}.md"
-                        )
+                        target = self.tasks.result_path(run.task_id, run.started_at)
                         post = frontmatter.Post(
                             inline,
                             task_id=run.task_id,
-                            run_id=run.run_id,
+                            started_at=run.started_at.isoformat(),
                             created_at=timestamp.isoformat(),
                             status="read",
                             user_read_at=None,
@@ -128,8 +127,45 @@ class _Migration:
                         self.stage(None, target, (frontmatter.dumps(post) + "\n").encode())
                         row["result_path"] = target.relative_to(self.runtime.workspace_path).as_posix()
                 PaTaskRun.model_validate(row)
-        elif name == "recovery.json":
-            PaTaskRecovery.model_validate(updated)
+        elif name == "state.json":
+            updated.pop("execution_summary", None)
+            run = updated.get("run")
+            if run:
+                run.pop("phase", None)
+            legacy_identity = run.pop("run_id", None) if run else None
+            if legacy_identity and updated.get("completion"):
+                candidates = (
+                    [self.runtime.workspace_path / run["result_path"]]
+                    if run.get("result_path")
+                    else sorted(path.parent.glob("????-??-??/*.md"))
+                )
+                for source in candidates:
+                    if not source.exists():
+                        continue
+                    post = frontmatter.loads(self.read(source).decode())
+                    if post.get("run_id") != legacy_identity:
+                        continue
+                    post.metadata.pop("run_id", None)
+                    post["started_at"] = run["started_at"]
+                    target = self.runtime.workspace_path / self.relocate(str(source))
+                    self.stage(source, target, (frontmatter.dumps(post) + "\n").encode())
+                    run["result_path"] = target.relative_to(self.runtime.workspace_path).as_posix()
+                    break
+            PaTaskState.model_validate(updated)
+        elif name == "proactive_context.jsonl":
+            updated = [
+                (
+                    {
+                        "round_id": row.get("round_id"),
+                        "time": row.get("time"),
+                        "kind": row["phase"],
+                        "value": row.get("documents", row.get("value")),
+                    }
+                    if "phase" in row
+                    else row
+                )
+                for row in updated
+            ]
         elif name == "temp_tasks.json":
             if not isinstance(updated, list):
                 raise ValueError("temp_tasks.json must contain a list")
@@ -137,14 +173,12 @@ class _Migration:
             if len({record.id for record in records}) != len(records):
                 raise ValueError("Duplicate temporary task IDs")
             for record in records:
-                for field, document in (("handoff_path", "handoff.md"), ("result_path", "result.md")):
-                    reference = getattr(record, field)
-                    if (
-                        reference is not None
-                        and self.runtime.workspace_path / reference
-                        != self.runtime.temp_tasks.document_path(record.id, document)
-                    ):
-                        raise ValueError("Temporary document path does not match its task")
+                if (
+                    record.result_path is not None
+                    and self.runtime.workspace_path / record.result_path
+                    != self.runtime.temp_tasks.document_path(record.id)
+                ):
+                    raise ValueError("Temporary document path does not match its task")
         elif name in {"proactive_requests.jsonl", "proactive_inbox_receipts.jsonl"}:
             for row in updated:
                 if not isinstance(row.get("id"), str) or not row["id"] or not isinstance(row.get("status"), str):
@@ -181,7 +215,7 @@ class _Migration:
             if source != target:
                 if target.suffix == ".md":
                     old, new = frontmatter.loads(content.decode()), frontmatter.loads(current.decode())
-                    same_run = old.get("run_id") and old.get("run_id") == new.get("run_id")
+                    same_run = old.get("started_at") and old.get("started_at") == new.get("started_at")
                     if old.get("task_id") == new.get("task_id") and (same_run or old.content == new.content):
                         return
                 elif target.suffix == ".jsonl":
@@ -202,14 +236,14 @@ class _Migration:
         self.verify()
         if check:
             return len(self.plans)
-        self.files.root_path.mkdir(parents=True, exist_ok=True)
+        self.tasks.root_path.mkdir(parents=True, exist_ok=True)
         self.runtime.temp_tasks.root_path.mkdir(parents=True, exist_ok=True)
         for target in sorted(self.plans, key=lambda path: path == self.runtime.chat_inbox_path):
             self.verify()
             if target in self.sources:
                 backup = target.with_name(f"{target.name}.before-pa-layout-{uuid4().hex}.bak")
-                self.runtime._write_text(backup, self.sources[target].decode(), create_only=True)
-            self.runtime._write_text(target, self.plans[target].decode(), create_only=target not in self.sources)
+                self.runtime.files.write_text(backup, self.sources[target].decode(), create_only=True)
+            self.runtime.files.write_text(target, self.plans[target].decode(), create_only=target not in self.sources)
             if self.files.checked(target).read_bytes() != self.plans[target]:
                 raise FileExistsError(f"PA destination changed during migration: {target}")
             self.sources[target] = self.plans[target]
@@ -228,31 +262,31 @@ def migrate(
     runtime = PaRuntime(app_context=context)
     migration = _Migration(runtime)
     files = runtime.tasks
-    legacy_config = files.checked(runtime.cron_path.with_name("tasks.json"))
+    legacy_config = runtime.files.checked(runtime.cron_path.with_name("tasks.json"))
     config_source = runtime.cron_path if runtime.cron_path.exists() else legacy_config
     files.parse(migration.read(config_source).decode())
     migration.plan(config_source, runtime.cron_path)
-    old_inbox = runtime._metadata_file("proactive_inbox.txt")
+    old_inbox = runtime.files.metadata_path("proactive_inbox.txt")
     if old_inbox.exists() and not runtime.proactive_inbox_path.exists():
         migration.plan(old_inbox, runtime.proactive_inbox_path)
     for old, new in migration.renamed.items():
-        source = runtime._metadata_file(old)
+        source = runtime.files.metadata_path(old)
         if source.exists():
             migration.plan(source, new)
-    legacy_root = files.checked(runtime.workspace_path / "reme_cron")
+    legacy_root = runtime.files.checked(runtime.workspace_path / "reme_cron")
     if legacy_root.exists():
         for source in sorted(legacy_root.rglob("*")):
-            files.checked(source)
+            runtime.files.checked(source)
             if source.is_file():
                 relative = source.relative_to(runtime.workspace_path).as_posix()
                 migration.plan(source, runtime.workspace_path / migration.relocate(relative))
-    daily_root = files.checked(runtime.workspace_path / context.app_config.daily_dir)
+    daily_root = runtime.files.checked(runtime.workspace_path / context.app_config.daily_dir)
     for directory in sorted(daily_root.glob("????-??-??")):
         try:
             date.fromisoformat(directory.name)
         except ValueError:
             continue
-        for source in sorted(files.checked(directory / "cron").glob("*/*.md")):
+        for source in sorted(runtime.files.checked(directory / "cron").glob("*/*.md")):
             if not re.fullmatch(r"(?:[01][0-9]|2[0-3])[0-5][0-9][0-5][0-9]", source.stem):
                 continue
             post = frontmatter.loads(migration.read(source).decode())
@@ -260,8 +294,13 @@ def migrate(
                 raise ValueError(f"Invalid legacy cron result: {source}")
             target = runtime.workspace_path / migration.relocate(source.relative_to(runtime.workspace_path).as_posix())
             migration.plan(source, target)
-    for source in (runtime.temp_tasks.path, runtime.proactive_context_path):
-        if source.exists():
+    for source in (
+        *sorted(files.root_path.glob("*/state.json")),
+        runtime.cron_runs_path,
+        runtime.temp_tasks.path,
+        runtime.proactive_context_path,
+    ):
+        if source.exists() and source not in migration.plans:
             migration.plan(source, source)
     # Publication of the canonical journal follows every copied result and rewritten reference.
     if not runtime.chat_inbox_path.exists() and runtime.chat_inbox_path not in migration.plans:

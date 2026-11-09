@@ -1,4 +1,4 @@
-"""Run current chat and seven-query proactive jobs with controlled clock and evidence."""
+"""Run current chat and single-query proactive jobs with controlled clock and evidence."""
 
 # pylint: disable=protected-access
 
@@ -14,7 +14,7 @@ from reme.application import Application
 from reme.components.codex_app_server import SessionChangedError
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, collect_reply
 from reme.steps.base_step import BaseStep
-from reme.steps.proactive import TempProactiveStep
+from reme.steps.proactive.agents.main import PaChatStep
 
 from benchmark.proactive.cases import SESSION_ID, frozen_now, seed
 
@@ -69,6 +69,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         "pa_new_session",
         "pa_proactive",
         "cron_agent",
+        "temp_agent",
         "screen_capture",
         "finance_news",
         "read_conversation",
@@ -114,6 +115,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         ("pa_new_session", "pa"),
         ("pa_proactive", "proactive"),
         ("cron_agent", "cron"),
+        ("temp_agent", "temporary"),
     ):
         cfg["jobs"][name]["steps"][0]["prompt_dict"] = {
             **bundle["memory"],
@@ -132,7 +134,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
     return cfg
 
 
-def bind_owner(agent, case: dict, record: dict) -> None:
+def bind_owner(agent, case: dict, record: dict, source_options: dict) -> None:
     """Replace fixture-session I/O while preserving other native sessions."""
     snapshot = SessionSnapshot(
         session_id=SESSION_ID,
@@ -147,16 +149,43 @@ def bind_owner(agent, case: dict, record: dict) -> None:
         agent.reply,
     )
 
-    async def reply_with_fixture(inputs, **kwargs):
+    create, compact = agent.create_session, agent.compact_session
+    prepared = {}
+
+    def source_context():
+        record["synthetic_context_preparation"] = True
+        return "\n".join(f"[{row.role}] {row.content}" for row in snapshot.messages if row.source == "chat")
+
+    async def create_session(**kwargs):
         if kwargs.get("fork_session") and kwargs.get("resume") == SESSION_ID:
-            # The synthetic owner is not a native thread. This harness exercises summary preparation,
-            # but native fork behavior belongs to provider integration validation.
             kwargs.pop("resume")
             kwargs.pop("fork_session")
-            dialogue = "\n".join(f"[{row.role}] {row.content}" for row in snapshot.messages if row.source == "chat")
-            inputs = f"Synthetic source conversation:\n{dialogue}\n\n{inputs}"
-            record["synthetic_context_preparation"] = True
+            session_id = await create(**{**source_options, **kwargs})
+            prepared[session_id] = source_context()
+            return session_id
+        return await create(**kwargs)
+
+    async def compact_session(session_id):
+        if session_id in prepared:
+            # Synthetic Main has no native history. Real native compaction
+            # requires separate provider integration validation.
+            record["synthetic_compaction"] = True
+            return
+        await compact(session_id)
+
+    async def reply_with_fixture(inputs, **kwargs):
+        if kwargs.get("fork_session") and kwargs.get("resume") == SESSION_ID:
+            kwargs.pop("resume")
+            kwargs.pop("fork_session")
+            kwargs = {**source_options, **kwargs}
+            dialogue = source_context()
+        else:
+            dialogue = prepared.pop(kwargs.get("resume"), None)
+        if dialogue is not None:
+            inputs = f"Synthetic source conversation (background only):\n{dialogue}\n\n{inputs}"
         return await reply(inputs, **kwargs)
+
+    agent.create_session, agent.compact_session = create_session, compact_session
 
     async def read_session(session_id):
         return snapshot.model_copy(deep=True) if session_id == SESSION_ID else await read(session_id)
@@ -266,12 +295,13 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
             app = Application(**cfg)
             app.context.registry.add("benchmark_connector", FixtureConnector, owner="benchmark.proactive")
             runtime = app.context.components["pa"]["default"]
-            runtime._now = lambda: (datetime.fromisoformat(case["now"]) if "now" in case else frozen_now())
+            runtime.now = lambda: (datetime.fromisoformat(case["now"]) if "now" in case else frozen_now())
             agent = app.context.components["agent_wrapper"]["default"]
-            if case["role"] != "pa":
-                bind_owner(agent, case, record)
-            instrument(app, folder, record)
             async with app:
+                if case["role"] != "pa":
+                    main = PaChatStep(app_context=app.context, **cfg["jobs"]["pa_chat"]["steps"][0])
+                    bind_owner(agent, case, record, await main._reply_kwargs())
+                instrument(app, folder, record)
                 if case["role"] == "pa":
                     for query in case["queries"]:
                         reply = await collect_reply(app.run_stream_job("pa_chat", query=query))
@@ -279,14 +309,9 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
                             raise RuntimeError(reply.get("error") or reply["status"])
                 elif case["role"] == "temporary":
                     task = await runtime.temp_tasks.create(case["query"])
-                    worker = TempProactiveStep(
-                        app_context=app.context,
-                        agent_wrapper="default",
-                        language="zh",
-                        job_tools=["send_chat_message_immediate"],
-                        prompt_dict={**bundle["memory"], **bundle["temporary"]},
-                    )
-                    await worker._run(task)
+                    response = await app.run_job("temp_agent", task_id=task.id, revision=task.revision)
+                    if not response.success:
+                        raise RuntimeError(str(response.answer))
                     task = runtime.temp_tasks.get(task.id)
                     if task.status != "completed":
                         raise RuntimeError(task.error or task.status)

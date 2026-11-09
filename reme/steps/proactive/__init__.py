@@ -1,29 +1,29 @@
-"""Steps for the application-owned proactive agent."""
+"""Proactive agents, tools, data collection, background jobs and client APIs."""
 
-from . import data_connectors, tools
-from .cleanup_resources import CleanupResourcesStep
-from .pa_chat import PaChatStep, PaNewSessionStep, PaSessionStep, PaSelectSessionStep
-from .events import PaEventsStep
-from .loop import PaLoopStep
-from .proactive_agent import ProactiveAgentStep
-from .reminder_delivery import ReminderDeliveryStep
-from .cron_agent import CronAgentStep
-from .cron_schedule import CronScheduleStep
-from .temp_proactive import TempProactiveStep
+from . import agents, api, background, data_connectors, tools
+from .agents import PaChatStep, PaNewSessionStep, ProactiveAgentStep, CronAgentStep, TempAgentStep
+from .api import PaSessionStep, PaSelectSessionStep, PaEventsStep, ProactiveInboxViewStep, TaskResultsStep
+from .background import PaLoopStep, CronScheduleStep, TempTaskLoopStep, ReminderDeliveryStep, CleanupResourcesStep
 
 __all__ = [
-    "CleanupResourcesStep",
-    "PaChatStep",
-    "PaEventsStep",
-    "PaLoopStep",
-    "PaNewSessionStep",
-    "PaSessionStep",
-    "PaSelectSessionStep",
-    "ProactiveAgentStep",
-    "ReminderDeliveryStep",
-    "CronAgentStep",
-    "CronScheduleStep",
-    "TempProactiveStep",
+    "agents",
+    "api",
+    "background",
     "data_connectors",
     "tools",
+    "PaChatStep",
+    "PaNewSessionStep",
+    "ProactiveAgentStep",
+    "CronAgentStep",
+    "TempAgentStep",
+    "PaSessionStep",
+    "PaSelectSessionStep",
+    "PaEventsStep",
+    "ProactiveInboxViewStep",
+    "TaskResultsStep",
+    "PaLoopStep",
+    "CronScheduleStep",
+    "TempTaskLoopStep",
+    "ReminderDeliveryStep",
+    "CleanupResourcesStep",
 ]

@@ -17,7 +17,7 @@ NOW = 1800000000.0
 
 @pytest.fixture(autouse=True)
 def fixed_clock(monkeypatch):
-    monkeypatch.setattr("reme.steps.proactive.cleanup_resources.time.time", lambda: NOW)
+    monkeypatch.setattr("reme.steps.proactive.background.resource_cleanup.time.time", lambda: NOW)
 
 
 def write(workspace, name, age=8):

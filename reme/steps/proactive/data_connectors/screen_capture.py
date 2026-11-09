@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from .base_connector import BaseConnectorStep
+from .base import BaseConnectorStep
 from ...base_step import Ref
 from ....components import R, ScreenCapture
 from ....enumeration import ComponentEnum
@@ -135,13 +135,16 @@ class ScreenCaptureStep(BaseConnectorStep):
             paths.append(filename)
             changed.append(current.display_id)
             self._next_baseline.append(current)
-        if not paths:
-            context = "所有显示器均与上次处理的截图基本一致，没有明显内容变化。"
-        else:
-            context = (
-                f"Captured {len(self._raw_frames)} displays at {created_at.isoformat()}; "
-                f"{len(paths)} changed displays: {', '.join(changed)}. "
-                "Only changed original-size PNGs are listed. Displays were captured sequentially, without the pointer. "
-                "Read these images for the current query; they are snapshots, not the live desktop."
-            )
-        return ConnectorResult(context=context, paths=paths)
+        return ConnectorResult(
+            context=self.prompt_format(
+                "capture_context",
+                display_count=len(self._raw_frames),
+                captured_at=created_at.isoformat(),
+                display_ids=", ".join(sorted(identities)),
+                changed=bool(paths),
+                unchanged=not paths,
+                changed_count=len(paths),
+                changed_ids=", ".join(changed),
+            ),
+            paths=paths,
+        )

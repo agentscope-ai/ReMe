@@ -10,9 +10,10 @@ import pytest
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.steps.proactive import CronAgentStep
-from reme.steps.proactive.tools import ProactiveInboxViewStep, ReadCronResultsStep, TaskResultsStep
+from reme.steps.proactive.api import ProactiveInboxViewStep, TaskResultsStep
+from reme.steps.proactive.tools import ReadCronResultsStep
 
-from .test_pa_cron import configure, snapshot, stub_model, task
+from .pa_helpers import configure, snapshot, stub_model, task
 
 
 @pytest.fixture(
@@ -152,14 +153,14 @@ async def test_unreadable_file_does_not_hide_readable_results(pa_workspace, monk
     valid = snapshot(env, time="110000")
     unreadable = snapshot(env, time="120000")
     original = unreadable.read_bytes()
-    read = env.runtime.tasks.read
+    read = env.runtime.files.read
 
     def checked_read(path):
         if path == unreadable:
             raise OSError("Cannot read this file")
         return read(path)
 
-    monkeypatch.setattr(env.runtime.tasks, "read", checked_read)
+    monkeypatch.setattr(env.runtime.files, "read", checked_read)
     response = await TaskResultsStep(app_context=env.context)(action="list")
     assert response.success and response.answer["total"] == 1
     assert response.answer["items"][0]["path"] == env.runtime.to_workspace_relative(valid)

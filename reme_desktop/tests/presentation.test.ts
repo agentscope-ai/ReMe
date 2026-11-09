@@ -182,11 +182,11 @@ test("background status updates cannot replay a terminal reply restored from a s
   h.observe("completed", 0, false);
   assert.equal(h.resolve(0), null);
   h.tasks({
-    run: {
+    research: {
       ...activity("working"),
       source: "task",
       task_id: "research",
-      run_id: "run",
+      started_at: "2026-11-08T12:00:00+08:00",
     },
   });
   h.observe("completed", 10);
@@ -259,11 +259,11 @@ test("open chat can mirror a reminder without changing its receipt or using repl
 test("background tasks and speech cannot overwrite the foreground conversation", () => {
   const h = setup();
   h.tasks({
-    run: {
+    research: {
       ...activity("working"),
       source: "task",
       task_id: "research",
-      run_id: "run",
+      started_at: "2026-11-08T12:00:00+08:00",
     },
   });
   const background = h.resolve(0);

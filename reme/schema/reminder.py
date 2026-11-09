@@ -14,7 +14,7 @@ class ReminderRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(default_factory=lambda: uuid4().hex)
-    content: str = Field(min_length=1, max_length=4000)
+    content: str = Field(min_length=1)
     kind: ReminderKind
     delivery: Literal["idle", "immediate"] = "idle"
     task_id: str | None = None

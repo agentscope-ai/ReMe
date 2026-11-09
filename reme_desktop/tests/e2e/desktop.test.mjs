@@ -882,13 +882,21 @@ test(
       await t.test(
         "concurrent task animations yield to foreground work and resume the remaining task",
         async () => {
-          backend.taskActivity("remembering", "research", "one");
+          backend.taskActivity(
+            "remembering",
+            "research",
+            "2026-11-08T12:00:00+08:00",
+          );
           await expect(companion.locator("canvas")).toHaveAttribute(
             "data-animation",
             "remembering",
           );
-          backend.taskActivity("working", "watch", "two");
-          backend.taskActivity("completed", "research", "one");
+          backend.taskActivity("working", "watch", "2026-11-08T12:00:01+08:00");
+          backend.taskActivity(
+            "completed",
+            "research",
+            "2026-11-08T12:00:00+08:00",
+          );
           await expect(companion.locator("canvas")).toHaveAttribute(
             "data-animation",
             "thinking",
@@ -912,7 +920,11 @@ test(
             "data-animation",
             "thinking",
           );
-          backend.taskActivity("completed", "watch", "two");
+          backend.taskActivity(
+            "completed",
+            "watch",
+            "2026-11-08T12:00:01+08:00",
+          );
           await expect(companion.locator("canvas")).toHaveAttribute(
             "data-animation",
             "idle",

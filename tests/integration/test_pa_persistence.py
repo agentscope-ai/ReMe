@@ -41,14 +41,14 @@ async def test_live_empty_session_chat_and_proactive_history_survive_restarting_
         selected = (await app.run_job("pa_new_session")).answer
         runtime = app.context.components["pa"]["default"]
         assert json.loads(runtime.session_ids_path.read_text())[-1]["session_id"] == selected
-        old_cursor = runtime.cursor
+        old_cursor = runtime.event_stream.cursor
         agent = app.context.components["agent_wrapper"]["default"]
         assert not (await agent.read_session(selected)).messages
 
     async with Application(**deepcopy(config)) as app:
         assert (await app.run_job("pa_session")).answer == {"session_id": selected, "status": "not_loaded"}
         runtime = app.context.components["pa"]["default"]
-        async with aclosing(runtime.events(old_cursor)) as events:
+        async with aclosing(runtime.event_stream.events(old_cursor)) as events:
             assert (await anext(events)).type == "reset"
             assert (await anext(events)).snapshot.session_id == selected
         async with asyncio.timeout(180):

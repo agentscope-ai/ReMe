@@ -1,4 +1,4 @@
-"""Published cron decisions, history races and durable immediate delivery."""
+"""Single-query cron submissions retain fresh-history and retry-safe delivery guards."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -11,62 +11,64 @@ import pytest
 
 from reme.steps.proactive import CronAgentStep
 from reme.steps.proactive.tools import GetChatMessagesStep, SendChatMessageImmediateStep
-
-from .test_pa_cron import configure, stub_model, task
-
-
-async def history(env, binding):
-    return await GetChatMessagesStep(app_context=env.context)(**binding)
+from .pa_helpers import configure, stub_model, task
 
 
-async def send(env, binding, content="主人，邮件中的确认期限马上到了。"):
-    return await SendChatMessageImmediateStep(app_context=env.context)(**binding, content=content)
+async def history(env, binding, **kwargs):
+    return await GetChatMessagesStep(app_context=env.context)(**binding, **kwargs)
+
+
+async def submit(env, binding, reminder="主人，邮件中的确认期限马上到了。"):
+    return await SendChatMessageImmediateStep(app_context=env.context)(**binding, content=reminder)
+
+
+async def other_message(env):
+    temporary = await env.runtime.temp_tasks.create("明确约定的提醒")
+    await env.runtime.temp_tasks.patch(temporary.id, temporary.revision, status="running")
+    await env.runtime.temp_tasks.send(temporary.id, temporary.revision, "另一个 Agent 的新提醒")
 
 
 @pytest.mark.asyncio
-async def test_cron_sends_only_after_publication_and_current_history(pa_workspace, monkeypatch):
+@pytest.mark.parametrize("content", ["主人，确认期限马上到了。", "完整发现和依据。" * 2000], ids=["short", "long"])
+async def test_submission_requires_history_publishes_before_send_and_retries_once(pa_workspace, monkeypatch, content):
     env = pa_workspace
-    configure(env, [task()])
-    bindings, receipts = [], []
+    bindings = []
 
     async def message(binding):
         bindings.append(binding)
-        published = env.runtime.tasks.paths("one")
-        assert len(published) == 1 and "本次发现" in frontmatter.load(published[0]).content
         with pytest.raises(ValueError, match="get_chat_messages"):
-            await send(env, binding)
-        assert env.runtime.reminders.read() == []
+            await submit(env, binding, reminder=content)
+        assert env.runtime.tasks.paths("one") == [] and env.runtime.reminders.read() == []
         await history(env, binding)
-        receipts.append((await send(env, binding)).answer)
-        receipts.append((await send(env, binding)).answer)
+        first, second = await submit(env, binding, reminder=content), await submit(env, binding, reminder=content)
+        assert first.answer == second.answer
 
     stub_model(env, monkeypatch, message=message)
     result = await CronAgentStep(app_context=env.context)(task=task())
-    assert receipts[0]["id"] == receipts[1]["id"]
     record = env.runtime.reminders.read()[0]
+    assert record.content == content
     assert record.result_path == result.answer["path"] and record.session_id == "session-1"
     assert record.expires_at == env.now[0] + timedelta(minutes=15)
-    assert len(env.runtime.reminders.read()) == 1 and env.runtime.tasks.messages == {}
-    with pytest.raises(ValueError, match="live message query"):
-        await send(env, bindings[0])
+    assert len(env.runtime.reminders.read()) == 1 and env.runtime.tasks.executions == {}
+    assert (
+        frontmatter.load(env.runtime.workspace_path / record.result_path)["started_at"] == result.answer["started_at"]
+    )
+    with pytest.raises(ValueError, match="current execution"):
+        await submit(env, bindings[0])
 
 
 @pytest.mark.asyncio
-async def test_history_race_requires_reconsideration_before_cron_send(pa_workspace, monkeypatch):
+async def test_history_race_requires_reconsideration(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
 
     async def message(binding):
         await history(env, binding)
-        temporary = await env.runtime.temp_tasks.create("明确约定的提醒")
-        await env.runtime.temp_tasks.patch(temporary.id, temporary.revision, status="running")
-        await env.runtime.temp_tasks.send(temporary.id, temporary.revision, "另一个 Agent 的新提醒")
+        await other_message(env)
         with pytest.raises(ValueError, match="history changed"):
-            await send(env, binding)
+            await submit(env, binding)
         assert len(env.runtime.reminders.read()) == 1
-        refreshed = await history(env, binding)
-        assert refreshed.answer[0]["content"] == "另一个 Agent 的新提醒"
-        await send(env, binding)
+        assert (await history(env, binding)).answer[0]["content"] == "另一个 Agent 的新提醒"
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
     await CronAgentStep(app_context=env.context)(task=task())
@@ -74,75 +76,100 @@ async def test_history_race_requires_reconsideration_before_cron_send(pa_workspa
 
 
 @pytest.mark.asyncio
-async def test_cancelled_task_cannot_send_and_message_lease_is_revoked(pa_workspace, monkeypatch):
+async def test_cancelled_definition_cannot_publish_or_send(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
 
     async def message(binding):
         await history(env, binding)
         configure(env, [])
-        with pytest.raises(ValueError, match="changed or was cancelled"):
-            await send(env, binding)
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
-    await CronAgentStep(app_context=env.context)(task=task())
-    assert env.runtime.reminders.read() == [] and env.runtime.tasks.messages == {}
+    with pytest.raises(ValueError, match="changed or was cancelled"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    assert env.runtime.reminders.read() == [] and env.runtime.tasks.paths("one") == []
+    assert env.runtime.tasks.executions == {}
 
 
 @pytest.mark.asyncio
-async def test_recovery_after_receipt_does_not_repeat_message_query(pa_workspace, monkeypatch):
+async def test_cold_recovery_after_receipt_does_not_repeat_model_or_message(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
 
     async def message(binding):
         await history(env, binding)
-        await send(env, binding)
-        raise RuntimeError("model connection lost after accepted send")
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
-    with pytest.raises(RuntimeError, match="after accepted"):
+    original = env.runtime.reminders.submit_immediate
+
+    async def crash(*args, **kwargs):
+        await original(*args, **kwargs)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(env.runtime.reminders, "submit_immediate", crash)
+    with pytest.raises(asyncio.CancelledError):
         await CronAgentStep(app_context=env.context)(task=task())
-    identifier = env.runtime.reminders.read()[0].id
-    stub_model(
-        env,
-        monkeypatch,
-        message=AsyncMock(side_effect=AssertionError("must not resend")),
-    )
-    await CronAgentStep(app_context=env.context)(task=task())
-    env.agent.reply.assert_awaited_once()
-    assert [record.id for record in env.runtime.reminders.read()] == [identifier]
+    record = env.runtime.reminders.read()[0]
+    path = env.runtime.tasks.paths("one")[0]
+    monkeypatch.setattr(env.runtime.reminders, "submit_immediate", original)
+    env.agent.reply = AsyncMock(side_effect=AssertionError("Already submitted"))
+    result = await CronAgentStep(app_context=env.context)(task=task())
+    assert result.answer["status"] == "succeeded" and result.answer["message_id"] == record.id
+    assert env.runtime.tasks.paths("one") == [path]
+    assert [r.id for r in env.runtime.reminders.read()] == [record.id]
+    env.agent.reply.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_cron_immediate_bypasses_pause_hours_and_keeps_original_session(pa_workspace, monkeypatch):
+async def test_stale_recovered_candidate_is_dropped_without_another_query(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
+
+    async def message(binding):
+        await history(env, binding)
+        await submit(env, binding)
+
+    stub_model(env, monkeypatch, message=message)
+    publish = env.runtime.tasks._publish
+    monkeypatch.setattr(env.runtime.tasks, "_publish", lambda *_: (_ for _ in ()).throw(OSError("disk")))
+    with pytest.raises(OSError):
+        await CronAgentStep(app_context=env.context)(task=task())
+    await other_message(env)
+    monkeypatch.setattr(env.runtime.tasks, "_publish", publish)
+    env.agent.reply = AsyncMock(side_effect=AssertionError("At most one query per run"))
+    result = await CronAgentStep(app_context=env.context)(task=task())
+    assert result.answer["status"] == "succeeded" and result.answer["reason"] == "stale_reminder"
+    assert len(env.runtime.tasks.paths("one")) == 1 and len(env.runtime.reminders.read()) == 1
+    env.agent.reply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_urgent_submission_bypasses_pause_hours_and_keeps_original_main(pa_workspace, monkeypatch):
+    env = pa_workspace
 
     async def message(binding):
         env.now[0] = env.now[0].replace(hour=23, minute=30)
         config = await env.runtime.get_proactive_config()
-        env.runtime._write_json(
+        env.runtime.files.write_json(
             env.runtime.proactive_config_path,
             {**config.model_dump(mode="json"), "enabled": False},
         )
         env.runtime.session_id = "session-2"
         await history(env, binding)
-        result = await send(env, binding)
-        assert result.answer["delivery"] == "immediate" and result.answer["announced_at"]
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
     await CronAgentStep(app_context=env.context)(task=task())
-    assert env.runtime.reminders.read()[0].session_id == "session-1"
+    record = env.runtime.reminders.read()[0]
+    assert record.delivery == "immediate" and record.announced_at is not None and record.session_id == "session-1"
 
 
 @pytest.mark.asyncio
-async def test_expired_cron_urgency_is_not_delivered_later(pa_workspace, monkeypatch):
+async def test_expired_urgency_is_not_delivered_later(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
 
     async def message(binding):
         await history(env, binding)
-        await send(env, binding)
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
     await CronAgentStep(app_context=env.context)(task=task())
@@ -151,170 +178,91 @@ async def test_expired_cron_urgency_is_not_delivered_later(pa_workspace, monkeyp
     record = env.runtime.reminders.read()[0]
     assert (record.status, record.reason) == ("discarded", "expired")
     env.agent.append_session.assert_not_awaited()
-    assert env.runtime.tasks.paths("one")
 
 
 @pytest.mark.asyncio
-async def test_no_main_still_publishes_without_notification_query(pa_workspace, monkeypatch):
+async def test_no_main_still_publishes_without_reminder(pa_workspace, monkeypatch):
     env = pa_workspace
     env.runtime.session_id = None
     stub_model(env, monkeypatch)
     result = await CronAgentStep(app_context=env.context)(task=task())
     assert result.answer["status"] == "succeeded" and env.runtime.tasks.paths("one")
-    assert env.agent.reply.await_count == 3 and env.runtime.reminders.read() == []
+    env.agent.reply.assert_awaited_once()
+    assert env.runtime.reminders.read() == []
 
 
 @pytest.mark.asyncio
-async def test_history_pages_cannot_mix_different_snapshots(pa_workspace):
+async def test_history_pagination_does_not_mix_snapshots(pa_workspace, monkeypatch):
     env = pa_workspace
-    async with env.runtime.proactive_round() as current:
-        await env.runtime.get_chat_messages(round_id=current.id)
-        temporary = await env.runtime.temp_tasks.create("约定提醒")
-        await env.runtime.temp_tasks.patch(temporary.id, temporary.revision, status="running")
-        await env.runtime.temp_tasks.send(temporary.id, temporary.revision, "分页期间的新消息")
+
+    async def message(binding):
+        await history(env, binding)
+        await other_message(env)
         with pytest.raises(ValueError, match="offset=0"):
-            await env.runtime.get_chat_messages(offset=1, round_id=current.id)
-        refreshed = await env.runtime.get_chat_messages(round_id=current.id)
-        assert refreshed[0]["content"] == "分页期间的新消息"
-
-
-@pytest.mark.asyncio
-async def test_cron_send_cannot_escape_file_permissions(pa_workspace, monkeypatch):
-    env = pa_workspace
-    configure(env, [task()])
-
-    async def message(binding):
+            await history(env, binding, offset=1)
         await history(env, binding)
-        with pytest.raises(PermissionError):
-            await SendChatMessageImmediateStep(app_context=env.context)(
-                **{**binding, "_allowed_paths": []},
-                content="紧急信息",
-            )
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
     await CronAgentStep(app_context=env.context)(task=task())
-    assert env.runtime.reminders.read() == []
 
 
 @pytest.mark.asyncio
-async def test_message_tools_inherit_the_cron_invocations_file_scope(pa_workspace, monkeypatch):
+async def test_submission_and_history_preserve_permission_scope(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
-    allowed = [str(env.runtime.tasks.task_path("one")), str(env.runtime.cron_runs_path)]
 
     async def message(binding):
-        assert binding["_allowed_paths"] == allowed
         with pytest.raises(PermissionError):
-            await history(env, binding)
+            await submit(env, {**binding, "_allowed_paths": []})
         with pytest.raises(PermissionError):
-            await send(env, binding)
-
-    stub_model(env, monkeypatch, message=message)
-    await CronAgentStep(app_context=env.context)(task=task(), _allowed_paths=allowed)
-    assert env.runtime.reminders.read() == []
-
-
-@pytest.mark.asyncio
-async def test_published_message_phase_recovers_outside_active_hours(pa_workspace, monkeypatch):
-    env = pa_workspace
-    configure(env, [task()])
-    stub_model(env, monkeypatch, fail_at=3)
-    with pytest.raises(RuntimeError, match="provider failed"):
-        await CronAgentStep(app_context=env.context)(task=task())
-    original = env.runtime.tasks.paths("one")[0].read_bytes()
-    env.now[0] = env.now[0].replace(hour=23, minute=30)
-
-    async def message(binding):
+            await history(env, {**binding, "_allowed_paths": []})
         await history(env, binding)
-        await send(env, binding)
+        await submit(env, binding)
 
     stub_model(env, monkeypatch, message=message)
     await CronAgentStep(app_context=env.context)(task=task())
-    assert env.agent.reply.await_count == 2
-    assert env.runtime.tasks.paths("one")[0].read_bytes() == original
-    assert len(env.runtime.reminders.read()) == 1
 
 
 @pytest.mark.asyncio
-async def test_revoked_message_query_cannot_commit_a_queued_send(pa_workspace, monkeypatch):
+async def test_wrong_task_cannot_submit_in_reused_session(pa_workspace, monkeypatch):
     env = pa_workspace
-    configure(env, [task()])
-    submit = env.runtime.reminders.submit_immediate
-    entered = asyncio.Event()
 
-    async def queued(*args, **kwargs):
-        entered.set()
-        return await submit(*args, **kwargs)
+    async def message(binding):
+        with pytest.raises(ValueError, match="current execution"):
+            await submit(env, {**binding, "cron_task_id": "different"})
+        await history(env, binding)
+        await submit(env, binding)
 
-    monkeypatch.setattr(env.runtime.reminders, "submit_immediate", queued)
+    stub_model(env, monkeypatch, message=message)
+    await CronAgentStep(app_context=env.context)(task=task())
+    await CronAgentStep(app_context=env.context)(task=task())
+    env.agent.create_session.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_revoked_run_cannot_commit_queued_reminder(pa_workspace, monkeypatch):
+    env = pa_workspace
 
     async def message(binding):
         await history(env, binding)
         async with env.runtime.reminders.lock:
-            pending = asyncio.create_task(send(env, binding))
-            await asyncio.wait_for(entered.wait(), timeout=3)
-            env.runtime.tasks.messages.pop(binding["cron_run_id"])
-        with pytest.raises(ValueError, match="live message query"):
-            await pending
+            queued = asyncio.create_task(submit(env, binding))
+            async with asyncio.timeout(3):
+                while not env.runtime.tasks.paths("one"):
+                    await asyncio.sleep(0.005)
+            env.runtime.tasks.executions.pop(binding["cron_task_id"])
+        with pytest.raises(ValueError, match="current execution"):
+            await queued
+        raise RuntimeError("revoked")
 
     stub_model(env, monkeypatch, message=message)
-    await CronAgentStep(app_context=env.context)(task=task())
+    with pytest.raises(RuntimeError, match="revoked"):
+        await CronAgentStep(app_context=env.context)(task=task())
     assert env.runtime.reminders.read() == []
 
 
 @pytest.mark.asyncio
-async def test_stable_native_tools_allow_history_but_guard_send_outside_message_phase(pa_workspace, monkeypatch):
-    env = pa_workspace
-    configure(env, [task()])
-    temporary = await env.runtime.temp_tasks.create("已约定的提醒")
-    await env.runtime.temp_tasks.patch(temporary.id, temporary.revision, status="running")
-    await env.runtime.temp_tasks.send(temporary.id, temporary.revision, "已有消息")
-    journal = env.runtime.chat_inbox_path.read_bytes()
-    stub_model(env, monkeypatch)
-    reply = env.agent.reply.side_effect
-    bindings = []
-
-    async def check(query, **kwargs):
-        binding = kwargs["injected_job_kwargs"]
-        if binding["cron_run_id"] not in env.runtime.tasks.messages:
-            bindings.append(binding)
-            assert (await history(env, binding)).answer[0]["content"] == "已有消息"
-            assert env.runtime.chat_inbox_path.read_bytes() == journal
-            assert env.runtime.tasks.messages == {}
-            with pytest.raises(ValueError, match="live message query"):
-                await send(env, binding)
-        return await reply(query, **kwargs)
-
-    env.agent.reply = AsyncMock(side_effect=check)
-    await CronAgentStep(app_context=env.context)(task=task())
-    assert env.agent.reply.await_count == 4 and len(bindings) == 3
-    assert (await history(env, bindings[-1])).answer[0]["content"] == "已有消息"
-    assert env.runtime.chat_inbox_path.read_bytes() == journal
-
-
-@pytest.mark.asyncio
-async def test_earlier_cron_history_does_not_authorize_a_message_decision(pa_workspace, monkeypatch):
-    env = pa_workspace
-    configure(env, [task()])
-    reads = []
-
-    async def message(binding):
-        assert len(reads) == 2
-        assert env.runtime.tasks.message_context(binding["cron_run_id"]).history_version is None
-        with pytest.raises(ValueError, match="get_chat_messages"):
-            await send(env, binding)
-        await history(env, binding)
-        await send(env, binding)
-
-    stub_model(env, monkeypatch, message=message)
-    reply = env.agent.reply.side_effect
-
-    async def check(query, **kwargs):
-        binding = kwargs["injected_job_kwargs"]
-        if binding["cron_run_id"] not in env.runtime.tasks.messages:
-            reads.append(await history(env, binding))
-        return await reply(query, **kwargs)
-
-    env.agent.reply = AsyncMock(side_effect=check)
-    await CronAgentStep(app_context=env.context)(task=task())
-    assert len(reads) == 3 and len(env.runtime.reminders.read()) == 1
+@pytest.mark.parametrize("caller", [None, "chat", "proactive"])
+async def test_immediate_tool_rejects_unbound_callers(pa_workspace, caller):
+    with pytest.raises(ValueError, match="server-bound"):
+        await SendChatMessageImmediateStep(app_context=pa_workspace.context)(pa_caller=caller, content="x")

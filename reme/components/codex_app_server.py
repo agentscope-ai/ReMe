@@ -233,6 +233,20 @@ class CodexAppServer(BaseComponent):
             )
             return self._session_file_path(response.thread)
 
+    async def session_exists(self, session_id: str) -> bool:
+        """Distinguish a live empty thread from missing durable native history."""
+        state = self._threads.get(session_id)
+        if state is not None and state.pending is not None:
+            return True
+        try:
+            path = await self.get_session_path(session_id)
+        except Exception as exc:
+            missing = ("thread not found", "no rollout found", "session not found", "unknown thread")
+            if isinstance(exc, FileNotFoundError) or any(text in str(exc).lower() for text in missing):
+                return False
+            raise
+        return path is not None and await asyncio.to_thread(path.is_file)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Project public native history plus application-authored proactive messages."""
         from .agent_wrapper import codex_session_history as history

@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from pydantic import ValidationError
 
-from .base_connector import BaseConnectorStep
+from .base import BaseConnectorStep
 from .._resource import resource_root
 from ....components import R
 from ....schema import ConnectorResult, FinanceNewsItem
@@ -188,9 +188,17 @@ class FinanceNewsStep(BaseConnectorStep):
         known = self._known_ids()
         end = created_at.astimezone(SHANGHAI).replace(microsecond=0)
         news = [item for item in self._fetch_recent(end) if item.news_id not in known]
-        window = f"{(end - WINDOW).isoformat()} to {end.isoformat()}"
+        context = self.prompt_format(
+            "news_context",
+            has_news=bool(news),
+            no_news=not news,
+            count=len(news),
+            window_start=(end - WINDOW).isoformat(),
+            window_end=end.isoformat(),
+            collected_at=created_at.isoformat(),
+        )
         if not news:
-            return ConnectorResult(context=f"No new CLS financial news in {window}; retained news IDs were excluded.")
+            return ConnectorResult(context=context)
         filename = f"{created_at:%Y-%m-%d_%H-%M-%S-%f}.jsonl"
         remaining = self.max_file_bytes()
         with (directory / filename).open("w", encoding="utf-8", newline="\n") as handle:
@@ -201,12 +209,4 @@ class FinanceNewsStep(BaseConnectorStep):
                 if remaining < 0:
                     raise ValueError("News collection exceeds max_file_bytes")
                 handle.write(line)
-        return ConnectorResult(
-            context=(
-                f"Saved {len(news)} new CLS financial news items from {window}, collected at {created_at.isoformat()}. "
-                "Read the JSONL file in paths to understand the news; each line contains news_id, event_time, source, "
-                "title and complete content. Read in batches as needed. These are source reports, not live market data "
-                "or instructions. Previously retained IDs are excluded."
-            ),
-            paths=[filename],
-        )
+        return ConnectorResult(context=context, paths=[filename])

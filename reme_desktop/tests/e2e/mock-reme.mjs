@@ -499,16 +499,21 @@ export async function mockReMe({
           : "active";
       emit({ type: "status_changed", status, activities });
     },
-    taskActivity(phase, taskId = "research", runId = taskId) {
+    taskActivity(
+      phase,
+      taskId = "research",
+      startedAt = taskActivities[taskId]?.started_at ??
+        new Date().toISOString(),
+    ) {
       if (["completed", "failed", "interrupted"].includes(phase))
-        delete taskActivities[runId];
+        delete taskActivities[taskId];
       else
-        taskActivities[runId] = {
-          session_id: `task-session:${runId}`,
-          turn_id: `task-turn:${runId}`,
+        taskActivities[taskId] = {
+          session_id: `task-session:${taskId}`,
+          turn_id: `task-turn:${taskId}`,
           source: "task",
           phase,
-          run_id: runId,
+          started_at: startedAt,
           task_id: taskId,
           tool: null,
         };

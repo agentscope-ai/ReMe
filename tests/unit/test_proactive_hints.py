@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from reme.components._pa_hints import ProactiveHints
+from reme.components.pa.hints import ProactiveHints
 from reme.schema.pa_proactive import PaProactiveConfig
 from reme.steps.proactive import ProactiveAgentStep
 
@@ -29,23 +29,23 @@ def model(env, monkeypatch, *, content="", advance=None):
     calls = []
     monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _step: env.now[0])
 
-    async def reply(query, **kwargs):
-        if kwargs.get("fork_session") and kwargs.get("resume") == env.runtime.session_id:
-            return {"session_id": "context-fork", "status": "completed", "result": "Main context"}
-        calls.append(query)
-        phase = env.runtime.current_round.phase
-        if phase == "query_history" and advance is not None:
+    async def compact(_session_id):
+        if advance is not None:
             env.now[0] = advance
-        if phase == "query_message":
-            bound = kwargs["injected_job_kwargs"]
-            await env.runtime.get_chat_messages(round_id=bound["pa_round_id"])
-            await env.runtime.send_chat_message(
-                content,
-                kind="normal",
-                round_id=bound["pa_round_id"],
-                session_id=bound["session_id"],
-            )
-        return {"session_id": "agent-hints", "status": "completed", "result": f"completed {phase}"}
+
+    env.agent.compact_session.side_effect = compact
+
+    async def reply(query, **kwargs):
+        calls.append(query)
+        bound = kwargs["injected_job_kwargs"]
+        await env.runtime.get_chat_messages(round_id=bound["pa_round_id"])
+        await env.runtime.send_chat_message(
+            content,
+            kind="normal",
+            round_id=bound["pa_round_id"],
+            session_id=bound["session_id"],
+        )
+        return {"session_id": kwargs["resume"], "status": "completed", "result": "No TODOs"}
 
     env.agent.reply = AsyncMock(side_effect=reply)
     return calls
@@ -54,9 +54,9 @@ def model(env, monkeypatch, *, content="", advance=None):
 def hint_positions(env, calls):
     step = ProactiveAgentStep(app_context=env.context)
     directions = [
-        step.get_prompt(f"hint_{period}_{index}")
+        hint
         for period in ("morning", "midday", "evening")
-        for index in range(1, 7)
+        for hint in step.get_prompt(f"hint_{period}").strip().splitlines()
     ]
     return [index for index, query in enumerate(calls) if any(direction in query for direction in directions)]
 
@@ -91,7 +91,7 @@ def test_probability_rejects_invalid_values(period, value):
 async def test_default_probability_depends_on_period(pa_workspace, monkeypatch, hour, minute, expected):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=hour, minute=minute)
-    monkeypatch.setattr("reme.components._pa_hints.random.random", lambda: 0.75)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", lambda: 0.75)
     assert (await sample(env) is not None) is expected
 
 
@@ -99,8 +99,8 @@ async def test_default_probability_depends_on_period(pa_workspace, monkeypatch, 
 async def test_independent_probabilities_are_read_from_hot_config(pa_workspace, monkeypatch):
     env = pa_workspace
     settings = config(hint_probabilities={"morning": 0, "midday": 1, "evening": 0.25})
-    env.runtime._write_json(env.runtime.proactive_config_path, settings.model_dump())
-    monkeypatch.setattr("reme.components._pa_hints.random.random", lambda: 0.5)
+    env.runtime.files.write_json(env.runtime.proactive_config_path, settings.model_dump())
+    monkeypatch.setattr("reme.components.pa.hints.random.random", lambda: 0.5)
     for hour, minute, expected in [(9, 0, False), (12, 0, True), (22, 30, False)]:
         env.now[0] = env.now[0].replace(hour=hour, minute=minute)
         assert (await sample(env, await env.runtime.get_proactive_config()) is not None) is expected
@@ -148,9 +148,9 @@ def test_custom_and_overnight_hours_never_put_evening_hints_in_morning(start, en
 async def test_miss_consumes_slot_across_wakeups_and_runtime_restart(pa_workspace, monkeypatch):
     env = pa_workspace
     draw = Mock(return_value=0.75)
-    monkeypatch.setattr("reme.components._pa_hints.random.random", draw)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", draw)
     assert await sample(env) is None
-    path = env.runtime._metadata_file("hint_state.json")
+    path = env.runtime.files.metadata_path("hint_state.json")
     original = path.read_bytes()
     assert json.loads(original)["draws"]["midday"]["hint_index"] is None
     env.now[0] += timedelta(minutes=5)
@@ -165,7 +165,7 @@ async def test_miss_consumes_slot_across_wakeups_and_runtime_restart(pa_workspac
 @pytest.mark.asyncio
 async def test_next_day_draw_avoids_previous_variant_and_periods_are_independent(pa_workspace, monkeypatch):
     env = pa_workspace
-    monkeypatch.setattr("reme.components._pa_hints.random.choice", lambda choices: choices[0])
+    monkeypatch.setattr("reme.components.pa.hints.random.choice", lambda choices: choices[0])
     settings = config(hint_probabilities={"midday": 1, "evening": 1})
     assert await sample(env, settings) == "hint_midday_1"
     env.now[0] += timedelta(days=1)
@@ -177,7 +177,7 @@ async def test_next_day_draw_avoids_previous_variant_and_periods_are_independent
 @pytest.mark.asyncio
 async def test_concurrent_wakeups_cannot_sample_the_same_period_twice(pa_workspace, monkeypatch):
     draw = Mock(return_value=0)
-    monkeypatch.setattr("reme.components._pa_hints.random.random", draw)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", draw)
     results = await asyncio.gather(*(sample(pa_workspace) for _ in range(8)))
     assert sum(result is not None for result in results) == 1
     draw.assert_called_once_with()
@@ -186,10 +186,10 @@ async def test_concurrent_wakeups_cannot_sample_the_same_period_twice(pa_workspa
 @pytest.mark.asyncio
 async def test_disabled_does_not_read_state_draw_randomness_or_consume_slot(pa_workspace, monkeypatch):
     env = pa_workspace
-    path = env.runtime._metadata_file("hint_state.json")
+    path = env.runtime.files.metadata_path("hint_state.json")
     path.write_text("invalid JSON deliberately preserved")
     draw = Mock(side_effect=AssertionError("disabled hints must not sample"))
-    monkeypatch.setattr("reme.components._pa_hints.random.random", draw)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", draw)
     assert await sample(env, config(hints_enabled=False)) is None
     assert path.read_text() == "invalid JSON deliberately preserved"
     draw.assert_not_called()
@@ -199,7 +199,7 @@ async def test_disabled_does_not_read_state_draw_randomness_or_consume_slot(pa_w
 async def test_disabling_then_reenabling_preserves_the_consumed_slot(pa_workspace, monkeypatch):
     env = pa_workspace
     draw = Mock(return_value=0)
-    monkeypatch.setattr("reme.components._pa_hints.random.random", draw)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", draw)
     assert await sample(env) is not None
     assert await sample(env, config(hints_enabled=False)) is None
     assert await sample(env) is None
@@ -210,30 +210,30 @@ async def test_disabling_then_reenabling_preserves_the_consumed_slot(pa_workspac
 async def test_no_current_or_superseded_chat_does_not_consume_hint(pa_workspace, monkeypatch):
     env = pa_workspace
     draw = Mock(side_effect=AssertionError("no target chat"))
-    monkeypatch.setattr("reme.components._pa_hints.random.random", draw)
+    monkeypatch.setattr("reme.components.pa.hints.random.random", draw)
     env.runtime.session_id = None
     assert await sample(env) is None
     env.runtime.session_id = "session-1"
     async with env.runtime.proactive_round():
         env.runtime.session_id = "session-2"
         assert await env.runtime.hints.select(config(), env.now[0]) is None
-    assert not env.runtime._metadata_file("hint_state.json").exists()
+    assert not env.runtime.files.metadata_path("hint_state.json").exists()
     draw.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence(pa_workspace, monkeypatch):
     env = pa_workspace
-    env.runtime._write_json(
+    env.runtime.files.write_json(
         env.runtime.proactive_config_path,
         config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
-    monkeypatch.setattr("reme.components._pa_hints.random.choice", lambda choices: choices[0])
+    monkeypatch.setattr("reme.components.pa.hints.random.choice", lambda choices: choices[0])
     calls = model(env, monkeypatch)
     response = await ProactiveAgentStep(app_context=env.context)()
-    assert len(calls) == 7
-    assert hint_positions(env, calls) == [4]
-    hint = ProactiveAgentStep(app_context=env.context).get_prompt(response.metadata["proactive_hint"])
+    assert len(calls) == 1
+    assert hint_positions(env, calls) == [0]
+    hint = ProactiveAgentStep(app_context=env.context).get_prompt("hint_midday").strip().splitlines()[0]
     assert "午间招呼" in hint and "早安" not in hint and "晚安" not in hint
     assert response.metadata["proactive_hint"] == "hint_midday_1"
     assert response.answer["status"] == "skipped"
@@ -244,7 +244,7 @@ async def test_hint_is_only_in_decision_query_and_model_can_still_choose_silence
 async def test_disabled_round_still_delivers_normal_information_and_reads_hot_config(pa_workspace, monkeypatch):
     env = pa_workspace
     settings = config(hints_enabled=False, hint_probabilities={"midday": 1})
-    env.runtime._write_json(env.runtime.proactive_config_path, settings.model_dump())
+    env.runtime.files.write_json(env.runtime.proactive_config_path, settings.model_dump())
     calls = model(env, monkeypatch, content="正常的新发现")
     first = await ProactiveAgentStep(app_context=env.context)()
     assert first.answer["status"] == "pending" and hint_positions(env, calls) == []
@@ -252,34 +252,34 @@ async def test_disabled_round_still_delivers_normal_information_and_reads_hot_co
     env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
     await env.runtime.deliver_pending_reminder()
     env.agent.append_session.assert_awaited_once()
-    assert not env.runtime._metadata_file("hint_state.json").exists()
-    env.runtime._write_json(
+    assert not env.runtime.files.metadata_path("hint_state.json").exists()
+    env.runtime.files.write_json(
         env.runtime.proactive_config_path,
         config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
     second = await ProactiveAgentStep(app_context=env.context)()
-    assert "proactive_hint" in second.metadata and hint_positions(env, calls) == [11]
+    assert "proactive_hint" in second.metadata and hint_positions(env, calls) == [1]
 
 
 @pytest.mark.asyncio
-async def test_hint_uses_time_after_tasks_finish_not_round_start(pa_workspace, monkeypatch):
+async def test_hint_uses_time_after_compaction_not_round_start(pa_workspace, monkeypatch):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=11, minute=59)
-    env.runtime._write_json(
+    env.runtime.files.write_json(
         env.runtime.proactive_config_path,
         config(hint_probabilities={"midday": 1, "evening": 1}).model_dump(),
     )
-    calls = model(env, monkeypatch, advance=env.now[0].replace(hour=12, minute=1))
+    model(env, monkeypatch, advance=env.now[0].replace(hour=12, minute=1))
     response = await ProactiveAgentStep(app_context=env.context)()
     assert response.metadata["proactive_hint"].startswith("hint_midday_")
-    assert "12:01:00" in calls[4]
+    assert "12:01:00" in env.runtime.files.metadata_path("hint_state.json").read_text()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("content", ["{", "[]", "x" * 4097])
 async def test_invalid_hint_state_is_preserved_without_blocking_normal_delivery(pa_workspace, monkeypatch, content):
     env = pa_workspace
-    path = env.runtime._metadata_file("hint_state.json")
+    path = env.runtime.files.metadata_path("hint_state.json")
     path.write_text(content)
     calls = model(env, monkeypatch, content="仍然传递有用信息")
     response = await ProactiveAgentStep(app_context=env.context)()
@@ -297,10 +297,10 @@ def test_all_time_specific_hints_are_localized_with_one_evening_todo_direction(p
     step = ProactiveAgentStep(app_context=pa_workspace.context, language=language)
     todo_hints = []
     for period in ("morning", "midday", "evening"):
-        for index in range(1, 7):
-            key = f"hint_{period}_{index}"
-            hint = step.get_prompt(key)
+        hints = step.get_prompt(f"hint_{period}").strip().splitlines()
+        assert len(hints) == 6
+        for index, hint in enumerate(hints, start=1):
             assert hint
-            if "todo" in hint.lower():
-                todo_hints.append(key)
+            if "todo" in hint.lower() or "待办" in hint:
+                todo_hints.append(f"hint_{period}_{index}")
     assert todo_hints == ["hint_evening_2"]

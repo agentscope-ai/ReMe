@@ -292,6 +292,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
         await self.start()
         return await self.app_server.get_session_path(session_id)
 
+    async def session_exists(self, session_id: str) -> bool:
+        """Check resumability without loading or generating conversation content."""
+        await self.start()
+        return await self.app_server.session_exists(session_id)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
         async with self._session_request():
@@ -515,20 +520,23 @@ class CodexAgentWrapper(BaseAgentWrapper):
         emitted_usage = None
         source = kwargs.pop("activity_source", "chat")
         target_session = kwargs.pop("activity_session_id", None)
-        run_id = kwargs.pop("activity_run_id", None)
+        started_at = kwargs.pop("activity_started_at", None)
         task_id = kwargs.pop("activity_task_id", None)
+        presentation = AgentActivity(
+            session_id=target_session or "",
+            turn_id="",
+            source=source,
+            phase="thinking",
+            started_at=started_at,
+            task_id=task_id,
+        )
         activity = None
         try:
             async with self._session(kwargs) as thread:
                 usage = _TurnUsage(await self.app_server.token_usage(thread.id))
                 turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
-                activity = AgentActivity(
-                    session_id=target_session or thread.id,
-                    turn_id=turn.id,
-                    source=source,
-                    phase="thinking",
-                    run_id=run_id,
-                    task_id=task_id,
+                activity = presentation.model_copy(
+                    update={"session_id": target_session or thread.id, "turn_id": turn.id},
                 )
                 self.app_server.publish_activity(activity)
                 tracker = ActivityTracker(activity)

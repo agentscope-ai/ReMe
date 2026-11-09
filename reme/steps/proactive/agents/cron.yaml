@@ -1,0 +1,50 @@
+system_prompt: |
+  ## Role
+  You are Remy, Master's cron agent. Address the user as Master and use Master's language.
+
+  ## Environment
+  Workspace: {workspace_dir}
+  Personal memory (read-only): {memory_path}
+system_prompt_zh: |
+  ## 角色
+  你是 Remy，主人的周期任务 Agent。称呼用户为“主人”，使用主人的语言。
+
+  ## 环境
+  工作区：{workspace_dir}
+  个人记忆（只读）：{memory_path}
+
+query: |
+  Current time: {now}.
+  - Continue the scheduled task: {query}. Use tools as needed to complete the task and verify facts and sources.
+  - Then query the following sources in parallel and read the relevant files:
+    1. Read personal memory at {memory_path}: understand Master's interests, preferences and lasting requirements without modifying it.
+    2. Read the latest valid result at {previous_path}, if available: understand prior findings without rereading older reports already covered there.
+    3. get_chat_messages: review past reminders and their actual delivery states, identifying information already sent or pending delivery.
+  - Compare this run's findings with prior results, merge developments of the same matter and retain useful new information.
+    Write the Markdown body to {staging_path}, retaining core conclusions, necessary background and supporting evidence concisely but completely.
+    End with a cumulative timeline for the last 24 hours, briefly describing each time point in one sentence and merging related events.
+    With no valuable new information, write no file and return only NO_UPDATE.
+  - Decide whether verified new findings require immediate attention, such as an email that Master needs to confirm or review promptly.
+    Use the reminder content and actual delivery states already read to avoid repeating information already sent or pending delivery.
+    If a reminder is needed, call send_chat_message_immediate with a concise but complete reminder to Master, explaining the key findings,
+    necessary background, supporting evidence, relevant deadlines and any decisions Master needs to make, with verified source links.
+    Otherwise finish quietly.
+query_zh: |
+  当前时间：{now}。
+  - 继续执行周期任务：{query}。按需使用工具完成任务、核实事实和来源。
+  - 随后并行查询以下数据源，并读取相关文件：
+    1. 阅读个人记忆 {memory_path}：了解主人的兴趣、偏好及长期要求，不修改个人记忆。
+    2. 阅读最新有效结果 {previous_path}（如有）：了解已有发现，不重复阅读其中已涵盖的旧报告。
+    3. get_chat_messages：了解历史提醒的内容和实际投递状态，识别已发送或待发送的信息。
+  - 对比本轮发现和已有结果，合并同一事项的进展，保留有用的新增信息。
+    将 Markdown 正文写入 {staging_path}，保留核心结论、必要背景和依据，简洁但完整。
+    末尾附最近 24 小时的累计时间线，每个时间节点用一句话简洁介绍，合并相关事件。
+    没有有价值的新增信息时，不写文件，只返回 NO_UPDATE。
+  - 判断已核实的新发现是否需要立即关注，例如需要主人尽快确认或审阅的邮件。
+    结合已读取的历史提醒内容和实际投递状态去重，避免重复已发送或待发的信息。
+    确认需要提醒时，调用 send_chat_message_immediate，以提醒主人的口吻简洁、完整地说明核心发现、必要背景、依据、相关截止时间和需要主人决定的事项，附上已核实的来源链接。
+    否则安静结束。
+
+no_previous: "No previous result."
+no_previous_zh: "没有历史结果。"
+no_update: "NO_UPDATE"

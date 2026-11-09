@@ -22,14 +22,14 @@ const message = (
   chunks: [],
 });
 
-test("task activity is independent of chat selection and rejects malformed run identities atomically", () => {
+test("task activity is independent of chat selection and rejects malformed task identities atomically", () => {
   const model = new SessionModel();
   const task = {
     session_id: "native-task-session",
     turn_id: "native-task-turn",
     source: "task",
     phase: "working",
-    run_id: "run",
+    started_at: "2026-11-08T12:00:00+08:00",
     task_id: "research",
   };
   model.apply({
@@ -37,17 +37,19 @@ test("task activity is independent of chat selection and rejects malformed run i
     activities: {},
     session_id: "s",
     snapshot: snapshot("s"),
-    task_activities: { run: task },
+    task_activities: { research: task },
     cursor: "e:1",
   });
-  assert.equal(model.taskActivities.run.task_id, "research");
+  assert.equal(model.taskActivities.research.task_id, "research");
   for (const task_activities of [
     null,
     [],
     { other: task },
-    { run: { ...task, source: "chat" } },
-    { run: { ...task, phase: "unknown" } },
-    { run: { ...task, task_id: null } },
+    { research: { ...task, source: "chat" } },
+    { research: { ...task, phase: "unknown" } },
+    { research: { ...task, task_id: null } },
+    { research: { ...task, started_at: null } },
+    { research: { ...task, started_at: "invalid" } },
   ]) {
     assert.throws(() =>
       model.apply({
@@ -59,10 +61,10 @@ test("task activity is independent of chat selection and rejects malformed run i
       }),
     );
     assert.equal(model.cursor, "e:1");
-    assert.equal(model.taskActivities.run.task_id, "research");
+    assert.equal(model.taskActivities.research.task_id, "research");
   }
   model.apply({ type: "session_changed", session_id: "new", cursor: "e:2" });
-  assert.equal(model.taskActivities.run.task_id, "research");
+  assert.equal(model.taskActivities.research.task_id, "research");
   model.apply({
     type: "status_changed",
     activities: {},

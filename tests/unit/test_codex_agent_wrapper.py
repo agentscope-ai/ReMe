@@ -38,8 +38,8 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.steps.proactive.pa_chat import PaChatStep, PaNewSessionStep
-from reme.steps.proactive.temp_proactive import TempProactiveStep
+from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.agents.temporary import TempAgentStep
 from reme.utils import global_counter_get_all
 from .pa_helpers import bind_pa
 
@@ -370,7 +370,7 @@ async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system
     from datetime import datetime
 
     monkeypatch.setattr(
-        "reme.steps.proactive.base_pa_step.BasePaStep._now",
+        "reme.steps.proactive.agents.base.BasePaAgentStep._now",
         lambda _self: datetime.fromisoformat("2026-11-08T12:00:00+08:00"),
     )
     agent, _, _, _ = system
@@ -388,9 +388,9 @@ async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system
     prompt = client.opened[-1][2]["developer_instructions"]
     assert str(memory) in prompt and str(agent.workspace_path) in prompt
     assert "Use Chinese." not in prompt
-    assert ("读最新完整记忆" if language == "zh" else "Read the complete latest file") in prompt
-    assert ("要求遗忘时立即删除" if language == "zh" else "Remove requested memories immediately") in prompt
-    assert ("不转存，也不从旧对话或摘要恢复" if language == "zh" else "restoring them from old history") in prompt
+    assert ("完整读取最新记忆" if language == "zh" else "read the latest memory in full") in prompt
+    assert ("删除主人要求遗忘的内容" if language == "zh" else "delete anything Master asks to forget") in prompt
+    assert ("不转存" if language == "zh" else "without copying it elsewhere") in prompt
     assert not client.threads[session_id].inputs
     memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
     for _ in range(2):
@@ -840,25 +840,27 @@ async def test_fork_of_unstarted_session_preserves_source_options_and_tools(syst
 
 
 @pytest.mark.asyncio
-async def test_temporary_preparation_uses_an_independent_empty_source_fork(system, monkeypatch):
+async def test_temporary_query_inherits_an_empty_main_without_starting_it(system, monkeypatch):
     first, _, server, job = system
     runtime = bind_pa(first.app_context, first)
     runtime._initialize_files()
     source_id = await first.create_session(system_prompt="Source instructions.", job_tools=[job.name])
     runtime.session_id = source_id
-    task = await runtime.temp_tasks.create("Prepare an isolated one-shot task.")
+    task = await runtime.temp_tasks.create("Complete this task using Main context.")
     native = _Codex.instances[0]
-    fork = AsyncMock(side_effect=RuntimeError("no rollout found for thread id"))
+    fork = AsyncMock(side_effect=AssertionError("Do not fork Main"))
     monkeypatch.setattr(native, "thread_fork", fork)
-    step = TempProactiveStep(app_context=first.app_context)
 
     async with asyncio.timeout(3):
-        prepared = await step._prepare(task)
+        await TempAgentStep(app_context=first.app_context)._run(task)
 
-    assert prepared.status == "scheduled" and prepared.error is None and prepared.retry_at is None
-    assert task.query in (runtime.workspace_path / prepared.handoff_path).read_text()
+    saved = runtime.temp_tasks.get(task.id)
+    assert saved.status == "completed" and saved.agent_session_id != source_id
+    assert len(native.threads[saved.agent_session_id].inputs) == 1
     assert runtime.session_id == source_id and native.threads[source_id].inputs == []
     assert server._threads[source_id].pending is native.threads[source_id]
+    assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
+    assert runtime.reminders.read()[0].content == native.threads[saved.agent_session_id].inputs[0]
     fork.assert_not_awaited()
 
 
@@ -1884,6 +1886,9 @@ async def test_activity_closes_when_the_consumer_stops_or_the_provider_fails(sys
 
 @pytest.mark.asyncio
 async def test_task_activity_publishes_to_application_observers_without_a_selected_session(system):
+    from datetime import datetime
+
+    started = datetime.fromisoformat("2026-11-09T12:00:00+08:00")
     first, _second, server, _job = system
     observed = []
     unsubscribe = server.watch_activity(observed.append)
@@ -1892,11 +1897,91 @@ async def test_task_activity_publishes_to_application_observers_without_a_select
             "task result",
             job_tools=[],
             activity_source="task",
-            activity_run_id="run",
+            activity_started_at=started,
             activity_task_id="research",
         )
         assert observed[0].phase == "thinking" and observed[-1].phase == "completed"
-        assert all(item.source == "task" and item.run_id == "run" and item.task_id == "research" for item in observed)
+        assert all(
+            item.source == "task" and item.started_at == started and item.task_id == "research" for item in observed
+        )
         assert len({item.session_id for item in observed}) == 1
     finally:
         unsubscribe()
+
+
+@pytest.mark.asyncio
+async def test_native_session_liveness_handles_empty_and_missing_history(system, monkeypatch, tmp_path):
+    first, _, server, _ = system
+    identifier = await first.create_session()
+    assert await first.session_exists(identifier)
+    server._threads.clear()  # A cold process has no live empty-thread handle.
+    monkeypatch.setattr(server, "get_session_path", AsyncMock(return_value=None))
+    assert not await first.session_exists(identifier)
+    path = tmp_path / "native.jsonl"
+    path.write_text("{}\n")
+    server.get_session_path.return_value = path
+    assert await first.session_exists(identifier)
+    path.unlink()
+    assert not await first.session_exists(identifier)
+    server.get_session_path.side_effect = RuntimeError("no rollout found for thread id")
+    assert not await first.session_exists(identifier)
+    server.get_session_path.side_effect = ConnectionError("offline")
+    with pytest.raises(ConnectionError, match="offline"):
+        await first.session_exists(identifier)
+
+
+@pytest.mark.asyncio
+async def test_recurring_queries_reuse_native_session_with_stable_tool_binding(system, monkeypatch):
+    from datetime import datetime
+    from reme.steps.proactive import CronAgentStep
+
+    first, _, server, _ = system
+    await first.create_session()
+    native = _Codex.instances[0]
+    runtime = bind_pa(first.app_context, first)
+    runtime.now = lambda: datetime.fromisoformat("2026-11-09T12:00:00+08:00")
+    runtime._initialize_files()
+    definition = {"id": "one", "query": "Observe activity", "cron": "*/5 * * * *", "enabled": True}
+    runtime.files.write_json(runtime.cron_path, [definition])
+    history = _Job()
+    history.name = "get_chat_messages"
+    first.app_context.jobs[history.name] = history
+    monkeypatch.setattr(server, "session_exists", AsyncMock(side_effect=lambda sid: sid in native.threads))
+    bindings = []
+
+    async def complete(thread, _query):
+        state = runtime.tasks.execution("one").state
+        runtime.tasks.staging_path(state.run).write_text("Current core findings.")
+        binding = server._threads[thread.id]
+        bindings.append(binding.binding)
+        await server.jobs_mcp.scopes[binding.token][0].fn(query="verify")
+
+    native.run_hook = complete
+    step = CronAgentStep(app_context=first.app_context, job_tools=[history.name])
+    first_run = await step(task=definition)
+    first_session = runtime.tasks.state(runtime.tasks.load()[0]).session_id
+    second_run = await step(task=definition)
+    assert first_run.answer["status"] == second_run.answer["status"] == "succeeded"
+    assert first_run.answer["started_at"] != second_run.answer["started_at"]
+    assert bindings[0] == bindings[1]
+    assert runtime.tasks.state(runtime.tasks.load()[0]).session_id == first_session
+    assert len(native.threads[first_session].inputs) == 2
+    assert len(runtime.tasks.paths("one")) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"activity_source": "task"},
+        {"activity_source": "task", "activity_task_id": "research"},
+        {"activity_source": "unknown"},
+    ],
+)
+async def test_invalid_activity_never_starts_a_native_turn(system, monkeypatch, options):
+    first, _, server, _ = system
+    turn = AsyncMock(side_effect=AssertionError("Do not start native work"))
+    monkeypatch.setattr(server, "turn", turn)
+    with pytest.raises(ValueError):
+        await first.reply("must not run", **options)
+    turn.assert_not_awaited()

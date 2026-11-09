@@ -4,6 +4,7 @@
 
 from datetime import timedelta
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import frontmatter
@@ -12,12 +13,8 @@ import pytest
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.steps.proactive import ProactiveAgentStep, PaLoopStep
-from reme.steps.proactive.tools import (
-    ReadProactiveInboxStep,
-    WriteProactiveInboxStep,
-    ProactiveInboxViewStep,
-    TaskResultsStep,
-)
+from reme.steps.proactive.tools import ReadProactiveInboxStep, WriteProactiveInboxStep
+from reme.steps.proactive.api import ProactiveInboxViewStep, TaskResultsStep
 
 
 @pytest.mark.asyncio
@@ -26,8 +23,8 @@ async def test_user_read_receipt_preserves_a_document_at_the_read_limit(pa_works
     path = env.runtime.tasks.task_path("one") / "2026-11-08" / "120000.md"
     post = frontmatter.Post("A useful result", task_id="one", status="unread")
     original = frontmatter.dumps(post) + "\n"
-    env.runtime._write_text(path, original)
-    monkeypatch.setattr("reme.components._pa_tasks.DEFAULT_MAX_FILE_BYTES", len(original.encode()))
+    env.runtime.files.write_text(path, original)
+    monkeypatch.setattr("reme.components.pa.files.DEFAULT_MAX_FILE_BYTES", len(original.encode()))
     with pytest.raises(ValueError, match="read limit"):
         await TaskResultsStep(app_context=env.context)(
             action="read",
@@ -35,7 +32,7 @@ async def test_user_read_receipt_preserves_a_document_at_the_read_limit(pa_works
             mark_read=True,
         )
     assert path.read_text() == original
-    assert env.runtime.tasks.read(path) == original
+    assert env.runtime.files.read(path) == original
 
 
 @pytest.mark.asyncio
@@ -103,10 +100,11 @@ async def test_consumption_preserves_source_and_desktop_reading_does_not_consume
     assert not env.runtime.inbox.cursor_path.exists()
     async with env.runtime.proactive_round() as current:
         result = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
-        checkpoint = env.runtime.workspace_path / result.answer["input_path"]
-        assert message["message"] in checkpoint.read_text()
+        assert result.answer == f"{message['created_at']} {message['message']}"
+        entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
+        assert entries[-1]["kind"] == "feedback" and entries[-1]["value"] == source.decode("utf-8")
         again = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
-        assert again.answer["input_path"] is None
+        assert again.answer == ""
     received = await view(action="list", kind="instruction")
     assert received.answer["pending"] == 0 and received.answer["items"][0]["status"] == "received"
     assert env.runtime.proactive_inbox_path.read_bytes() == source
@@ -114,9 +112,101 @@ async def test_consumption_preserves_source_and_desktop_reading_does_not_consume
 
 
 @pytest.mark.asyncio
+async def test_inbox_formats_messages_as_timestamp_and_content_without_changing_the_source(pa_workspace):
+    env = pa_workspace
+    first = await env.runtime.write_proactive_inbox(
+        "关注黄金价格，只提醒重要变化。\n保留正文里的 Main Agent 和 ## 标题。",
+    )
+    env.now[0] += timedelta(minutes=5)
+    second = await env.runtime.write_proactive_inbox("把唤醒间隔改成10分钟。")
+    source = env.runtime.proactive_inbox_path.read_bytes()
+    async with env.runtime.proactive_round() as current:
+        response = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
+        assert response.answer == "\n\n".join(f"{item['created_at']} {item['message']}" for item in (first, second))
+        assert first["id"] not in response.answer and second["id"] not in response.answer
+        assert "· Main Agent" not in response.answer
+        assert env.runtime.proactive_inbox_path.read_bytes() == source
+        assert all(record["status"] == "consumed" for record in env.runtime.inbox.receipts().values())
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == ""
+        third = await env.runtime.write_proactive_inbox("新增关注原油。")
+        assert (
+            await env.runtime.read_proactive_inbox(round_id=current.id) == f"{third['created_at']} {third['message']}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_inbox_formats_an_edited_message_without_losing_its_new_body(pa_workspace):
+    env = pa_workspace
+    message = await env.runtime.write_proactive_inbox("原始反馈")
+    path = env.runtime.proactive_inbox_path
+    async with env.runtime.proactive_round() as current:
+        await env.runtime.read_proactive_inbox(round_id=current.id)
+        path.write_text(path.read_text(encoding="utf-8").replace("原始反馈", "修改后的反馈\n下一行"), encoding="utf-8")
+        source = path.read_bytes()
+        assert (
+            await env.runtime.read_proactive_inbox(round_id=current.id)
+            == f"{message['created_at']} 修改后的反馈\n下一行"
+        )
+    assert path.read_bytes() == source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["", "完整反馈🙂\n" * 5000], ids=["empty", "long_unicode"])
+async def test_registered_inbox_tool_returns_complete_text_directly(pa_workspace, content):
+    env = pa_workspace
+    env.runtime.proactive_inbox_path.write_text(content, encoding="utf-8")
+    definition = resolve_app_config(config="proactive", log_config=False)["jobs"]["read_proactive_inbox"]
+    job = BaseJob(name="read_proactive_inbox", app_context=env.context, **definition)
+    async with job, env.runtime.proactive_round() as current:
+        response = await job(pa_caller="proactive", pa_round_id=current.id)
+    assert response.success and response.answer == content
+    assert env.runtime.proactive_inbox_path.read_text(encoding="utf-8") == content
+
+
+@pytest.mark.asyncio
+async def test_inbox_returns_only_new_text_and_rereads_edited_source(pa_workspace):
+    env = pa_workspace
+    path = env.runtime.proactive_inbox_path
+    original, appended, edited = "原始反馈🙂\n", "新增要求\n", "修改后的要求\n"
+    path.write_text(original, encoding="utf-8")
+    async with env.runtime.proactive_round() as current:
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == original
+        env.runtime.files.append_text(path, appended)
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == appended
+        path.write_text(edited, encoding="utf-8")
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == edited
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == ""
+    assert path.read_text(encoding="utf-8") == edited
+    entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
+    assert [entry["value"] for entry in entries] == [original, appended, edited]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["read_limit", "checkpoint"])
+async def test_inbox_read_failure_preserves_unread_content_and_receipts(pa_workspace, monkeypatch, failure):
+    env = pa_workspace
+    message = await env.runtime.write_proactive_inbox("完整保留这条反馈🙂")
+    source = env.runtime.proactive_inbox_path.read_bytes()
+    async with env.runtime.proactive_round() as current:
+        with monkeypatch.context() as patch:
+            kwargs = {"round_id": current.id}
+            if failure == "read_limit":
+                kwargs["max_bytes"] = len(source) - 1
+            else:
+                patch.setattr(env.runtime, "checkpoint_proactive", AsyncMock(side_effect=OSError("disk full")))
+            with pytest.raises((ValueError, OSError), match="read limit|disk full"):
+                await env.runtime.read_proactive_inbox(**kwargs)
+        assert not env.runtime.inbox.cursor_path.exists()
+        assert env.runtime.inbox.receipts()[message["id"]]["status"] == "queued"
+        assert env.runtime.proactive_inbox_path.read_bytes() == source
+        expected = f"{message['created_at']} {message['message']}"
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == expected
+
+
+@pytest.mark.asyncio
 async def test_interrupted_publication_recovers_once_without_changing_settings(pa_workspace, monkeypatch):
     env = pa_workspace
-    append = env.runtime._append_text
+    append = env.runtime.files.append_text
     before = env.runtime.proactive_config_path.read_bytes()
 
     def fail_source(path, content):
@@ -124,12 +214,12 @@ async def test_interrupted_publication_recovers_once_without_changing_settings(p
             raise OSError("disk full")
         append(path, content)
 
-    monkeypatch.setattr(env.runtime, "_append_text", fail_source)
+    monkeypatch.setattr(env.runtime.files, "append_text", fail_source)
     with pytest.raises(OSError, match="disk full"):
         await env.runtime.write_proactive_inbox("把唤醒间隔改成10分钟")
     assert len(env.runtime.inbox.receipts()) == 1
     assert next(iter(env.runtime.inbox.receipts().values()))["status"] == "staging"
-    monkeypatch.setattr(env.runtime, "_append_text", append)
+    monkeypatch.setattr(env.runtime.files, "append_text", append)
     env.runtime.inbox.initialize()
     recovered = env.runtime.proactive_inbox_path.read_bytes()
     env.runtime.inbox.initialize()
@@ -146,7 +236,7 @@ async def test_proactive_agent_handles_message_then_changes_its_own_settings(pa_
     env = pa_workspace
     settings = (await env.runtime.get_proactive_config()).model_dump(mode="json")
     if mode == "disabled":
-        env.runtime._write_json(env.runtime.proactive_config_path, {**settings, "enabled": False})
+        env.runtime.files.write_json(env.runtime.proactive_config_path, {**settings, "enabled": False})
     elif mode == "outside_hours":
         env.now[0] = env.now[0].replace(hour=23)
     elif mode == "invalid":
@@ -154,55 +244,57 @@ async def test_proactive_agent_handles_message_then_changes_its_own_settings(pa_
     message = "恢复主动提醒，关注黄金价格，有波动提醒我；把唤醒间隔改成10分钟"
     await env.runtime.write_proactive_inbox(message)
     before = env.runtime.proactive_config_path.read_bytes()
-    phases = []
-    todos = []
+    if mode != "active":
+        env.agent.reply = AsyncMock()
+        step = ProactiveAgentStep(app_context=env.context, language=language)
+        if mode == "invalid":
+            with pytest.raises(ValueError):
+                await step()
+        else:
+            result = await step()
+            assert result.answer["reason"] == {"disabled": "disabled", "outside_hours": "outside_active_hours"}[mode]
+        env.agent.create_session.assert_not_awaited()
+        env.agent.compact_session.assert_not_awaited()
+        env.agent.reply.assert_not_awaited()
+        assert env.runtime.proactive_config_path.read_bytes() == before
+        return
+    queries = []
 
-    async def reply(query, **kwargs):
-        if kwargs.get("fork_session"):
-            return {"session_id": "context", "status": "completed", "result": "Main context"}
+    async def reply(query, **_kwargs):
+        queries.append(query)
         current = env.runtime.current_round
-        phases.append(current.phase)
-        if current.phase == "query_memory":
-            result = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
-            checkpoint = env.runtime.workspace_path / result.answer["input_path"]
-            assert message in checkpoint.read_text()
-            assert env.runtime.proactive_config_path.read_bytes() == before
-        elif current.phase == "query_message":
-            await env.runtime.send_chat_message(
-                "",
-                kind="normal",
-                round_id=current.id,
-                session_id=current.session_id,
-            )
-        elif current.phase == "query_config":
-            assert env.runtime.proactive_config_path.read_bytes() == before
-            values = {**settings, "enabled": True, "interval_minutes": 10}
-            env.runtime._write_json(env.runtime.proactive_config_path, values)
-        elif current.phase == "query_todo":
-            todos.append(query)
+        result = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
+        assert message in result.answer
+        assert env.runtime.proactive_config_path.read_bytes() == before
+        await env.runtime.send_chat_message(
+            "",
+            kind="normal",
+            round_id=current.id,
+            session_id=current.session_id,
+        )
+        env.runtime.files.write_json(
+            env.runtime.proactive_config_path,
+            {**settings, "enabled": True, "interval_minutes": 10},
+        )
         return {"session_id": "proactive", "status": "completed", "result": "No pending TODOs"}
 
     env.agent.reply = AsyncMock(side_effect=reply)
-    step = ProactiveAgentStep(app_context=env.context, language=language)
+    tools = ["read_proactive_inbox", "check_json", "send_chat_message", "screen_capture", "read_cron_results"]
+    step = ProactiveAgentStep(app_context=env.context, language=language, job_tools=tools)
     result = await step()
-    assert result.success and phases.index("query_memory") < phases.index("query_config")
+    assert result.success and len(queries) == 1
     config = await env.runtime.get_proactive_config()
     assert config.interval_minutes == 10
-    if mode == "active":
-        assert config.next_wakeup(env.now[0]) == env.now[0] + timedelta(minutes=10)
-    else:
-        assert phases == ["query_memory", "query_config", "query_todo"]
-    assert todos == [step.prompt_format("query_todo", interval_minutes=10, todo_path=env.runtime.proactive_todo_path)]
-    assert env.runtime.reminders.read() == [] and not env.runtime.inbox.pending()
+    assert config.next_wakeup(env.now[0]) == env.now[0] + timedelta(minutes=10)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["disabled", "outside_hours", "invalid"])
-async def test_loop_processes_explicit_feedback_while_notifications_are_stopped(pa_workspace, monkeypatch, mode):
+async def test_loop_leaves_explicit_feedback_queued_while_notifications_are_stopped(pa_workspace, monkeypatch, mode):
     env = pa_workspace
     settings = (await env.runtime.get_proactive_config()).model_dump(mode="json")
     if mode == "disabled":
-        env.runtime._write_json(env.runtime.proactive_config_path, {**settings, "enabled": False})
+        env.runtime.files.write_json(env.runtime.proactive_config_path, {**settings, "enabled": False})
     elif mode == "outside_hours":
         env.now[0] = env.now[0].replace(hour=23)
     else:
@@ -210,39 +302,43 @@ async def test_loop_processes_explicit_feedback_while_notifications_are_stopped(
     await env.runtime.write_proactive_inbox("恢复提醒并修复配置")
     stop = asyncio.Event()
 
-    async def run(_step, name, **kwargs):
-        assert name == "pa_proactive" and kwargs["stop_event"] is stop
-        stop.set()
-
+    run = AsyncMock()
     monkeypatch.setattr(PaLoopStep, "run_job", run)
+
+    async def wait_for_stop(awaitable, timeout):
+        assert timeout == 30
+        stop.set()
+        return await awaitable
+
+    monkeypatch.setattr("reme.steps.proactive.background._lifecycle.asyncio.wait_for", wait_for_stop)
     await PaLoopStep(app_context=env.context)(stop_event=stop)
-    assert stop.is_set()
+    run.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_failed_settings_request_is_retried_after_its_message_was_consumed(pa_workspace):
     env = pa_workspace
     settings = (await env.runtime.get_proactive_config()).model_dump(mode="json")
-    env.runtime._write_json(env.runtime.proactive_config_path, {**settings, "enabled": False})
-    await env.runtime.write_proactive_inbox("恢复主动提醒")
+    await env.runtime.write_proactive_inbox("调整主动提醒要求")
     fail = [True]
 
-    async def reply(_query, **kwargs):
-        if not kwargs.get("fork_session"):
-            current = env.runtime.current_round
-            if current.phase == "query_memory":
-                await env.runtime.read_proactive_inbox(round_id=current.id)
-            elif current.phase == "query_config":
-                if fail[0]:
-                    raise RuntimeError("model unavailable")
-                env.runtime._write_json(env.runtime.proactive_config_path, {**settings, "enabled": True})
+    async def reply(_query, **_kwargs):
+        current = env.runtime.current_round
+        await env.runtime.read_proactive_inbox(round_id=current.id)
+        if fail[0]:
+            raise RuntimeError("model unavailable")
+        env.runtime.files.write_json(env.runtime.proactive_config_path, {**settings, "enabled": True})
+        await env.runtime.send_chat_message(
+            "",
+            kind="normal",
+            round_id=current.id,
+            session_id=current.session_id,
+        )
         return {"session_id": "agent", "status": "completed", "result": "Processed feedback"}
 
     env.agent.reply = AsyncMock(side_effect=reply)
     with pytest.raises(RuntimeError, match="model unavailable"):
         await ProactiveAgentStep(app_context=env.context)()
-    assert env.runtime.inbox.pending()
     assert next(iter(env.runtime.inbox.receipts().values()))["status"] == "consumed"
     fail[0] = False
     await ProactiveAgentStep(app_context=env.context)()
-    assert (await env.runtime.get_proactive_config()).enabled and not env.runtime.inbox.pending()

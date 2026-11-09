@@ -52,7 +52,7 @@ def test_current_bundle_freezes_all_three_roles_and_shared_memory():
     bundle = freeze(repo)
     assert set(bundle) == {"current"}
     assert set(bundle["current"]) == {"pa", "proactive", "cron", "temporary", "memory"}
-    prompts = yaml.safe_load((repo / "reme/steps/proactive/proactive_agent.yaml").read_text())
+    prompts = yaml.safe_load((repo / "reme/steps/proactive/agents/proactive.yaml").read_text())
     assert bundle["current"]["proactive"] == prompts
 
 
@@ -138,7 +138,7 @@ def test_only_configured_task_snapshot_paths_are_allowed_new_files(tmp_path):
     from benchmark.proactive.cases import frozen_now
 
     record = record_for(tmp_path, "proactive_evidence")
-    snapshot = f"{META}/cron/fixture-0/{frozen_now():%Y-%m-%d}/{frozen_now():%H%M%S}.md"
+    snapshot = f"{META}/cron/fixture-0/{frozen_now():%Y-%m-%d}/{frozen_now():%H%M%S%f}.md"
     record["after"][snapshot] = "completed cumulative result"
     assert grade("proactive_evidence", record)["checks"]["no_unexpected_files"]
     record["after"][snapshot.replace("fixture-0", "unknown")] = "unexpected"
@@ -205,7 +205,8 @@ def test_quality_fixtures_use_current_clock_and_discoverable_results(tmp_path):
     from datetime import datetime
     from benchmark.proactive.reminder_quality import scenarios
     from reme.schema.pa_proactive import PaProactiveConfig
-    from reme.components._pa_tasks import TaskFiles
+    from reme.components.pa.tasks import TaskFiles
+    from reme.components.pa.files import PaFiles
     from types import SimpleNamespace
 
     now = datetime.fromisoformat("2026-11-09T14:00:00+08:00")
@@ -217,9 +218,10 @@ def test_quality_fixtures_use_current_clock_and_discoverable_results(tmp_path):
     assert not PaProactiveConfig.model_validate(config).hints_enabled
     runtime = SimpleNamespace(
         workspace_path=tmp_path,
-        _now=lambda: now,
-        _metadata_file=lambda name: tmp_path / META / name,
+        now=lambda: now,
+        component_metadata_path=tmp_path / META,
     )
+    runtime.files = PaFiles(runtime)
     paths = TaskFiles(runtime).paths("fixture-0")
     assert len(paths) == 1 and "37项本地测试" in paths[0].read_text()
     assert all(row["created_at"] == now.isoformat() for case in cases.values() for row in case["messages"])
@@ -227,17 +229,16 @@ def test_quality_fixtures_use_current_clock_and_discoverable_results(tmp_path):
     assert notes[0]["last_active_at"] == now.isoformat()
 
 
-def test_quality_checks_reject_incomplete_silence_and_out_of_phase_attempts():
+def test_quality_checks_reject_incomplete_silence_and_extra_query_attempts():
     from benchmark.proactive.reminder_quality import checks
 
-    case = {"role": "cron", "expected_send": False, "required": [], "max_chars": 240, "reminders": []}
+    case = {"role": "cron", "expected_send": False, "required": [], "reminders": []}
     record = {"jobs": [], "completed": False, "before": {MEMORY: "x"}, "after": {MEMORY: "x"}}
     assert not checks(case, record)["completed"]
     record.update(completed=True)
-    record["jobs"] = [{"name": "get_chat_messages", "args": {}, "turn_index": 0, "error": "wrong phase"}]
+    record["jobs"] = [{"name": "get_chat_messages", "args": {}, "turn_index": 1, "error": "extra query"}]
     verdict = checks(case, record)
-    assert not verdict["tool_calls_succeeded"] and not verdict["message_phase_only"]
-    assert not verdict["no_unneeded_history"]
+    assert not verdict["tool_calls_succeeded"] and not verdict["single_query_tools"]
     record["jobs"] = [
         {"name": "send_chat_message_immediate", "args": {"content": "new"}, "turn_index": 2},
         {"name": "get_chat_messages", "args": {}, "turn_index": 2},
@@ -255,13 +256,15 @@ async def test_fixture_owner_preserves_empty_chat_and_native_append_contract():
     from reme.components.codex_app_server import SessionChangedError
 
     agent = SimpleNamespace(
+        create_session=AsyncMock(),
+        compact_session=AsyncMock(),
         read_session=AsyncMock(),
         get_session_status=AsyncMock(),
         append_session=AsyncMock(),
         reply=AsyncMock(),
     )
     record = {"delivered": []}
-    bind_owner(agent, {"messages": [], "session_status": "not_loaded"}, record)
+    bind_owner(agent, {"messages": [], "session_status": "not_loaded"}, record, {})
     assert (await agent.read_session(SESSION_ID)).last_turn_id is None
     with pytest.raises(SessionChangedError, match="changed"):
         await agent.append_session(SESSION_ID, "结果", message_id="one", expected_turn_id="stale")
@@ -283,11 +286,154 @@ async def test_busy_fixture_owner_is_retryable_instead_of_a_permanent_failure():
     from reme.components.codex_app_server import SessionChangedError
 
     agent = SimpleNamespace(
+        create_session=AsyncMock(),
+        compact_session=AsyncMock(),
         read_session=AsyncMock(),
         get_session_status=AsyncMock(),
         append_session=AsyncMock(),
         reply=AsyncMock(),
     )
-    bind_owner(agent, {"messages": [], "session_status": "active"}, {"delivered": []})
+    bind_owner(agent, {"messages": [], "session_status": "active"}, {"delivered": []}, {})
     with pytest.raises(SessionChangedError, match="busy"):
         await agent.append_session(SESSION_ID, "结果", message_id="one")
+
+
+@pytest.mark.parametrize("role", ["proactive", "cron"])
+def test_quality_grading_accepts_long_messages_in_the_current_query(role):
+    from benchmark.proactive.reminder_quality import checks
+
+    content = "发现：37项本地测试通过，只覆盖本地验证。" * 2000
+    case = {"role": role, "expected_send": True, "required": ["发现"], "reminders": []}
+    names = ["get_chat_messages", "send_chat_message_immediate"]
+    if role == "proactive":
+        names = [
+            "read_conversation",
+            "read_proactive_inbox",
+            "read_cron_results",
+            "get_chat_messages",
+            "send_chat_message",
+        ]
+    jobs = [
+        {
+            "name": name,
+            "args": {"content": content} if name.startswith("send_chat_message") else {},
+            "turn_index": 0,
+            "response": {"success": True},
+        }
+        for name in names
+    ]
+    verdict = checks(
+        case,
+        {
+            "jobs": jobs,
+            "completed": True,
+            "before": {MEMORY: "same"},
+            "after": {MEMORY: "same"},
+            "delivered": [{"content": content}],
+        },
+    )
+    assert "message_size" not in verdict and "no_oversize_attempt" not in verdict
+    assert all(verdict.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prepare_first", [False, True])
+async def test_synthetic_forks_preserve_main_options_and_context_without_native_source(prepare_first):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from benchmark.proactive.runtime import bind_owner
+    from benchmark.proactive.cases import SESSION_ID
+
+    create, reply, compact = AsyncMock(return_value="fork"), AsyncMock(return_value="done"), AsyncMock()
+    agent = SimpleNamespace(
+        create_session=create,
+        compact_session=compact,
+        read_session=AsyncMock(),
+        get_session_status=AsyncMock(),
+        append_session=AsyncMock(),
+        reply=reply,
+    )
+    options = {"model": "main-model", "job_tools": ["screen_capture"], "system_prompt": "Main persona"}
+    record = {"delivered": []}
+    bind_owner(
+        agent,
+        {
+            "messages": [
+                {"id": "chat", "role": "user", "source": "chat", "content": "Main context"},
+                {"id": "background", "role": "assistant", "source": "proactive", "content": "Old reminder"},
+            ],
+        },
+        record,
+        options,
+    )
+    if prepare_first:
+        identifier = await agent.create_session(resume=SESSION_ID, fork_session=True, system_prompt="Proactive persona")
+        await agent.compact_session(identifier)
+        assert create.call_args.kwargs == {**options, "system_prompt": "Proactive persona"}
+        assert record["synthetic_compaction"]
+        result = await agent.reply("Work", resume=identifier)
+    else:
+        result = await agent.reply("Work", resume=SESSION_ID, fork_session=True)
+        assert reply.call_args.kwargs == options
+        create.assert_not_awaited()
+    assert result == "done" and record["synthetic_context_preparation"]
+    assert "Main context" in reply.call_args.args[0] and "Old reminder" not in reply.call_args.args[0]
+    assert reply.call_args.args[0].endswith("Work")
+    compact.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_quality_grader_uses_the_first_recorded_model_query(tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from benchmark.proactive.runtime import instrument
+    from benchmark.proactive.reminder_quality import checks
+    from reme.schema import Response
+
+    job = SimpleNamespace(_run_steps=AsyncMock(return_value=Response(answer=[])))
+
+    async def stream(*_args, **_kwargs):
+        await job._run_steps(SimpleNamespace(data={}))
+        yield {"chunk_type": "data", "chunk": "result"}
+
+    agent = SimpleNamespace(reply_stream=stream)
+    app = SimpleNamespace(
+        context=SimpleNamespace(
+            components={"agent_wrapper": {"default": agent}},
+            jobs={"get_chat_messages": job},
+        ),
+    )
+    record = {"turns": [], "jobs": [], "tool_events": [], "completed": True}
+    instrument(app, tmp_path, record)
+    assert [chunk async for chunk in agent.reply_stream("Work")]
+    assert checks({"role": "cron", "expected_send": False}, record)["single_query_tools"]
+    record["jobs"][0]["turn_index"] += 1
+    assert not checks({"role": "cron", "expected_send": False}, record)["single_query_tools"]
+
+
+@pytest.mark.asyncio
+async def test_grader_accepts_current_cron_publications_and_rejects_extra_files(pa_workspace):
+    from reme.steps.proactive import CronAgentStep
+    from .pa_helpers import configure, task
+
+    env = pa_workspace
+    configure(env, [task()])
+    await CronAgentStep(app_context=env.context)._ensure_memory()
+    before = files(env.runtime.workspace_path)
+
+    async def reply(_query, **kwargs):
+        state = env.runtime.tasks.execution(kwargs["injected_job_kwargs"]["cron_task_id"]).state
+        env.runtime.tasks.staging_path(state.run).write_text("New finding", encoding="utf-8")
+        return {"status": "completed", "session_id": kwargs["resume"], "result": "done"}
+
+    env.agent.reply = reply
+    response = await CronAgentStep(app_context=env.context)(task=task())
+    assert response.success
+    record = {
+        "fixture": {"role": "proactive", "now": env.now[0].isoformat(), "tasks": [task()]},
+        "before": before,
+        "after": files(env.runtime.workspace_path),
+    }
+    assert grade("current_cron_files", record)["checks"]["no_unexpected_files"]
+    record["after"][f"{META}/cron/one/unrequested.md"] = "unexpected"
+    assert not grade("current_cron_files", record)["checks"]["no_unexpected_files"]

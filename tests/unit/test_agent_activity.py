@@ -1,5 +1,7 @@
 """Execution phases are presentation facts, never transcript content."""
 
+from datetime import datetime
+
 import pytest
 
 from reme.schema import AgentActivity, StreamChunk
@@ -7,20 +9,21 @@ from reme.utils.agent_activity import ActivityTracker
 
 
 def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_changes():
-    """A native turn is not the identity of a three-query task run."""
-    for fields in ({}, {"run_id": "run"}, {"task_id": "research"}):
-        with pytest.raises(ValueError, match="requires run_id and task_id"):
+    """Task identity and start time survive native phase updates."""
+    started = datetime.fromisoformat("2026-11-09T12:00:00+08:00")
+    for fields in ({}, {"started_at": started}, {"task_id": "research"}):
+        with pytest.raises(ValueError, match="requires task_id and started_at"):
             AgentActivity(session_id="s", turn_id="t", source="task", phase="thinking", **fields)
     activity = AgentActivity(
         session_id="s",
         turn_id="t",
         source="task",
         phase="thinking",
-        run_id="run",
+        started_at=started,
         task_id="research",
     )
     updated = ActivityTracker(activity).update(StreamChunk(chunk_type="tool_call", tool_call_name="read_memory"))
-    assert updated.phase == "remembering" and updated.run_id == "run" and updated.task_id == "research"
+    assert updated.phase == "remembering" and updated.started_at == started and updated.task_id == "research"
 
 
 @pytest.mark.parametrize(

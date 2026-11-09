@@ -14,8 +14,8 @@ export interface AgentActivity {
     | "failed"
     | "interrupted";
   tool?: string | null;
-  run_id?: string | null;
   task_id?: string | null;
+  started_at?: string | null;
 }
 
 export type Activities = Partial<Record<"chat" | "proactive", AgentActivity>>;

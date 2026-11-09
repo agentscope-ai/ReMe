@@ -14,20 +14,20 @@ from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
 from scripts.migrate_pa_reminder_kinds import migrate
 
 from .pa_helpers import PA_CONFIG, bind_pa
-from .test_pa_cron import stub_model, task
+from .pa_helpers import stub_model, task
 
 
 def settings(env, **overrides):
     config = PaProactiveConfig(
         **{**PA_CONFIG, "hint_probabilities": {"morning": 1, "midday": 1, "evening": 1}, **overrides},
     )
-    env.runtime._write_json(env.runtime.proactive_config_path, config.model_dump())
+    env.runtime.files.write_json(env.runtime.proactive_config_path, config.model_dump())
     return config
 
 
 async def send(env, content="新发现。", kind="normal", sample=False):
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         if sample:
             await env.runtime.hints.select(await env.runtime.get_proactive_config(), env.now[0])
@@ -50,7 +50,7 @@ async def test_special_messages_are_limited_across_rounds_and_restart(pa_workspa
     await env.runtime.deliver_pending_reminder()
     assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
     env.runtime = bind_pa(env.context, env.agent)
-    env.runtime._now = lambda: env.now[0]
+    env.runtime.now = lambda: env.now[0]
     env.runtime._initialize_files()
     env.runtime.session_id = "session-2"
     second = await send(env, text, kind)
@@ -134,7 +134,7 @@ async def test_concurrent_special_decisions_use_one_daily_slot(pa_workspace):
 
 
 @pytest.mark.asyncio
-async def test_evening_round_stops_after_decision_without_more_model_queries(pa_workspace, monkeypatch):
+async def test_evening_round_finishes_its_only_query_then_closes_the_day(pa_workspace, monkeypatch):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=22, minute=30)
     settings(env)
@@ -143,7 +143,7 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
 
     async def reply(query, **kwargs):
         calls.append(query)
-        if env.runtime.current_round.phase == "query_message":
+        if env.runtime.current_round.allow_message:
             bound = kwargs["injected_job_kwargs"]
             await env.runtime.get_chat_messages(round_id=bound["pa_round_id"])
             await env.runtime.send_chat_message(
@@ -156,30 +156,30 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
 
     env.agent.reply = AsyncMock(side_effect=reply)
     result = await ProactiveAgentStep(app_context=env.context)()
-    assert result.answer["status"] == "pending" and result.answer["reason"] == "day_closed"
-    assert len(calls) == 6 and env.runtime.proactive_context_path.read_text()
+    assert result.answer["status"] == "pending"
+    assert len(calls) == 1 and not env.runtime.proactive_context_path.read_text()
     assert (await ProactiveAgentStep(app_context=env.context)()).answer["reason"] == "day_closed"
-    assert len(calls) == 6
+    assert len(calls) == 1
     env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
     await env.runtime.deliver_pending_reminder()
     assert (await env.runtime.get_chat_messages())[0]["status"] == "sent"
 
 
 @pytest.mark.asyncio
-async def test_round_does_not_start_another_query_after_deadline(pa_workspace, monkeypatch):
+async def test_compaction_crossing_deadline_never_starts_work_query(pa_workspace, monkeypatch):
     env = pa_workspace
     env.now[0] = env.now[0].replace(hour=22, minute=59)
     monkeypatch.setattr(ProactiveAgentStep, "_now", lambda _self: env.now[0])
 
-    async def reply(*_args, **_kwargs):
+    async def compact(_session_id):
         env.now[0] = env.now[0].replace(hour=23)
-        return {"session_id": "proactive", "status": "completed", "result": "retained"}
 
-    env.agent.reply = AsyncMock(side_effect=reply)
+    env.agent.compact_session.side_effect = compact
+    env.agent.reply = AsyncMock()
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["reason"] == "outside_active_hours"
-    env.agent.reply.assert_awaited_once()
-    assert "retained" in env.runtime.proactive_context_path.read_text()
+    env.agent.reply.assert_not_awaited()
+    assert "worker-session" in env.runtime.proactive_context_path.read_text()
 
 
 @pytest.mark.asyncio
@@ -197,15 +197,15 @@ async def test_slow_hint_sampling_cannot_start_a_query_after_deadline(pa_workspa
     monkeypatch.setattr(env.runtime.hints, "select", sample)
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["reason"] == "outside_active_hours"
-    assert env.agent.reply.await_count == 5
+    env.agent.reply.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["proactive", "task"])
+@pytest.mark.parametrize("role", ["proactive", "task", "compact"])
 async def test_active_query_is_cancelled_at_the_window_deadline(pa_workspace, monkeypatch, role):
     env = pa_workspace
-    env.now[0] = env.now[0].replace(hour=22, minute=59, second=59, microsecond=980000)
-    step = ProactiveAgentStep if role == "proactive" else CronAgentStep
+    env.now[0] = env.now[0].replace(hour=22, minute=59, second=59, microsecond=800000)
+    step = CronAgentStep if role == "task" else ProactiveAgentStep
     monkeypatch.setattr(step, "_now", lambda _self: env.now[0])
     stopped = asyncio.Event()
 
@@ -215,10 +215,17 @@ async def test_active_query_is_cancelled_at_the_window_deadline(pa_workspace, mo
         finally:
             stopped.set()
 
-    env.agent.reply = AsyncMock(side_effect=reply)
+    native_call = AsyncMock(side_effect=reply)
+    if role == "compact":
+        env.agent.compact_session = native_call
+        env.agent.reply = AsyncMock()
+    else:
+        env.agent.reply = native_call
     result = await step(app_context=env.context)(**({"task": task()} if role == "task" else {}))
     assert result.answer["reason"] == "outside_active_hours" and stopped.is_set()
-    env.agent.reply.assert_awaited_once()
+    native_call.assert_awaited_once()
+    if role == "compact":
+        env.agent.reply.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
@@ -237,7 +244,7 @@ def test_window_deadlines_follow_local_openings(clock, start, end, expected):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "hour,minute,follow,expected",
-    [(8, 59, True, 0), (9, 0, True, 4), (22, 59, True, 4), (23, 0, True, 0), (23, 0, False, 4)],
+    [(8, 59, True, 0), (9, 0, True, 1), (22, 59, True, 1), (23, 0, True, 0), (23, 0, False, 1)],
 )
 async def test_tasks_follow_hours_by_default_with_explicit_opt_out(
     pa_workspace,
@@ -259,20 +266,18 @@ async def test_tasks_follow_hours_by_default_with_explicit_opt_out(
 
 
 @pytest.mark.asyncio
-async def test_task_rechecks_hot_config_before_summary_query(pa_workspace, monkeypatch):
+async def test_task_rechecks_hot_config_before_starting_native_query(pa_workspace, monkeypatch):
     env = pa_workspace
     stub_model(env, monkeypatch)
-    original = env.agent.reply.side_effect
 
-    async def reply(*args, **kwargs):
-        result = await original(*args, **kwargs)
+    async def create(**_kwargs):
         settings(env, end_time="1200")
-        return result
+        return "new-session"
 
-    env.agent.reply.side_effect = reply
+    env.agent.create_session = AsyncMock(side_effect=create)
     result = await CronAgentStep(app_context=env.context)(task=task())
-    assert result.answer["status"] == "interrupted"
-    env.agent.reply.assert_awaited_once()
+    assert result.answer["status"] == "interrupted" and result.answer["reason"] == "outside_active_hours"
+    env.agent.reply.assert_not_awaited()
     assert not env.runtime.tasks.paths("one")
 
 
@@ -290,7 +295,7 @@ def test_task_hours_switch_defaults_on():
 @pytest.mark.parametrize("role", ["proactive", "task"])
 async def test_provider_timeout_is_not_mistaken_for_closing_time(pa_workspace, monkeypatch, role):
     env = pa_workspace
-    step = ProactiveAgentStep if role == "proactive" else CronAgentStep
+    step = CronAgentStep if role == "task" else ProactiveAgentStep
     monkeypatch.setattr(step, "_now", lambda _self: env.now[0])
     env.agent.reply = AsyncMock(side_effect=TimeoutError("provider timeout"))
     with pytest.raises(TimeoutError, match="provider timeout"):

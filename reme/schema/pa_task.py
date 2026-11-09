@@ -1,11 +1,9 @@
 """File-native scheduled tasks and append-only execution events."""
 
 from typing import Literal
-from uuid import uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 
-from .connector_result import ConnectorResult
 from .token_usage import TokenUsage
 
 
@@ -39,11 +37,10 @@ class PaTask(BaseModel):
 
 
 class PaTaskRun(BaseModel):
-    """Start and finish events share a run_id; Markdown owns successful results."""
+    """Task identity and start time associate events; Markdown owns successful results."""
 
     model_config = ConfigDict(extra="forbid")
 
-    run_id: str = Field(default_factory=lambda: uuid4().hex)
     task_id: str
     query: str
     started_at: AwareDatetime
@@ -53,34 +50,37 @@ class PaTaskRun(BaseModel):
     result_path: str | None = None
     error: str | None = None
     agent_session_id: str | None = None
-    phase: Literal["query", "summary", "message", "handoff"] = "query"
     target_session_id: str | None = None
-    handoff_path: str | None = None
     message_id: str | None = None
+    queried: bool = False
 
 
-class PaTaskRecovery(BaseModel):
-    """Durable progress for resuming one task without repeating a publication."""
+class PaTaskCompletion(BaseModel):
+    """A durable submission intent, published before a run becomes complete."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str = ""
+    reminder: str = ""
+    history_version: tuple[int, int, int] | None = None
+
+
+class PaTaskState(BaseModel):
+    """Native sessions own query context; checkpoints retain progress and publication state."""
 
     model_config = ConfigDict(extra="forbid")
 
     task: PaTask
-    run: PaTaskRun
-    target_path: str
+    session_id: str | None = None
+    run: PaTaskRun | None = None
+    completion: PaTaskCompletion | None = None
     usage: TokenUsage = Field(default_factory=TokenUsage)
 
     @model_validator(mode="after")
     def validate_run(self):
-        """Only a completed query can be resumed into summary or handoff."""
-        if self.run.task_id != self.task.id or self.run.query != self.task.query:
+        """A checkpoint always belongs to its task and submitted execution."""
+        if self.run is not None and (self.run.task_id != self.task.id or self.run.query != self.task.query):
             raise ValueError("Task recovery identity does not match its definition")
-        if self.run.phase == "query" or not self.run.agent_session_id:
-            raise ValueError("Task recovery requires a completed query and native session")
+        if self.completion is not None and self.run is None:
+            raise ValueError("Task completion requires an execution")
         return self
-
-    @field_validator("target_path")
-    @classmethod
-    def validate_target(cls, value):
-        """Keep stored output references workspace-relative."""
-        ConnectorResult(context="", paths=[value])
-        return value

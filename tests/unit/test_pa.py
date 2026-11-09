@@ -20,7 +20,8 @@ from reme.config import resolve_app_config
 from reme.constants import DEFAULT_MAX_BYTES
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionStatus, StreamChunk
-from reme.steps.proactive.pa_chat import PaChatStep, PaNewSessionStep, PaSessionStep
+from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.api.sessions import PaSessionStep
 from .pa_helpers import bind_pa
 
 
@@ -44,9 +45,9 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
         ("pa_new_session", selected),
         ("pa_proactive", selected),
         ("cron_agent", background),
-        ("temp_proactive", background),
     ):
         assert config["jobs"][name]["steps"][0]["model"] == expected
+    assert "model" not in config["jobs"]["temp_proactive"]["steps"][0]
     assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "xhigh"
     assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "xhigh"
     assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"]
@@ -155,6 +156,13 @@ async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_
         assert prompt == custom_prompt.strip()
     assert [kwargs["resume"] for _, kwargs in agent.calls] == ["session-1", "session-1"]
     assert agent.created[0] == {key: value for key, value in agent.calls[0][1].items() if key != "resume"}
+
+
+@pytest.mark.asyncio
+async def test_session_api_uses_runtime_without_binding_an_agent_wrapper(runtime):
+    context, _agent = runtime
+    response = await PaSessionStep(app_context=context, agent_wrapper="missing")()
+    assert response.answer == {"session_id": None, "status": None}
 
 
 @pytest.mark.asyncio
@@ -303,7 +311,7 @@ async def test_status_does_not_publish_a_session_superseded_during_the_native_re
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("step", [PaChatStep, PaNewSessionStep, PaSessionStep])
+@pytest.mark.parametrize("step", [PaChatStep, PaNewSessionStep])
 @pytest.mark.parametrize("wrapper", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
 async def test_pa_rejects_non_codex_wrappers_before_accessing_state(tmp_path, step, wrapper):
     context = ApplicationContext(workspace_dir=str(tmp_path))
@@ -334,8 +342,8 @@ async def test_session_uses_memory_path_without_injecting_or_modifying_existing_
     prompt = agent.created[0]["system_prompt"]
     assert str(memory) in prompt
     assert str(agent.cwd) not in prompt
-    assert "修改前先读最新完整记忆" in prompt
-    assert "主人要求遗忘时立即删除" in prompt
+    assert "完整读取最新记忆" in prompt
+    assert "删除主人要求遗忘的内容" in prompt
     assert "保留其他有效事实" in prompt
     if content.strip():
         assert content.strip() not in prompt
@@ -402,7 +410,7 @@ async def test_memory_initialization_errors_preserve_the_current_session(runtime
         error, message = ValueError, "inside the workspace"
     else:
         monkeypatch.setattr(
-            "reme.steps.proactive.base_pa_step.write_file_safe",
+            "reme.steps.proactive.agents.base.write_file_safe",
             AsyncMock(side_effect=PermissionError("write denied")),
         )
         error, message = PermissionError, "write denied"
@@ -465,7 +473,7 @@ async def test_pa_prompt_and_default_memory_overrides_only_seed_missing_files(ru
 @pytest.mark.parametrize("config_name", ["default", "proactive"])
 async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, config_name, monkeypatch):
     monkeypatch.setattr(
-        "reme.steps.proactive.base_pa_step.BasePaStep._now",
+        "reme.steps.proactive.agents.base.BasePaAgentStep._now",
         lambda _self: datetime.fromisoformat("2026-11-08T12:00:00+08:00"),
     )
     config = resolve_app_config(config=config_name, log_config=False)
@@ -527,7 +535,7 @@ async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, confi
 
 @pytest.mark.parametrize(
     "module,memory_field",
-    [("pa_chat", "memory_path"), ("proactive_agent", "memory_path"), ("cron_agent", "memory")],
+    [("agents/main", "memory_path"), ("agents/proactive", "memory_path"), ("agents/cron", "memory_path")],
 )
 def test_role_prompts_have_matching_localized_placeholders(module, memory_field):
     from string import Formatter

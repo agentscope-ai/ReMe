@@ -1,24 +1,17 @@
-"""ReMe tools available to proactive agents."""
+"""PA tools registration."""
 
-from .check_json import CheckJsonStep
-from .proactive_inbox import ReadProactiveInboxStep, WriteProactiveInboxStep
-from .chat_messages import GetChatMessagesStep, SendChatMessageStep, SendChatMessageImmediateStep
-from .read_cron_results import ReadCronResultsStep
-from .read_conversation import ReadConversationStep
-from .temp_tasks import ManageTempProactiveAgentStep
-from .task_results import TaskResultsStep
-from .proactive_inbox_view import ProactiveInboxViewStep
+from .conversation import ReadConversationStep
+from .inbox import ReadProactiveInboxStep, WriteProactiveInboxStep
+from .messages import GetChatMessagesStep, SendChatMessageStep, SendChatMessageImmediateStep
+from .tasks import ManageTempProactiveAgentStep, ReadCronResultsStep
 
 __all__ = [
-    "ManageTempProactiveAgentStep",
-    "TaskResultsStep",
-    "ProactiveInboxViewStep",
-    "CheckJsonStep",
-    "ReadProactiveInboxStep",
-    "GetChatMessagesStep",
-    "ReadCronResultsStep",
     "ReadConversationStep",
+    "ReadProactiveInboxStep",
     "WriteProactiveInboxStep",
+    "GetChatMessagesStep",
     "SendChatMessageStep",
     "SendChatMessageImmediateStep",
+    "ManageTempProactiveAgentStep",
+    "ReadCronResultsStep",
 ]

@@ -1,0 +1,12 @@
+capture_context: |
+  Captured {display_count} displays at {captured_at}; current display IDs: {display_ids}.
+  [unchanged] The current displays match their own prior screenshots, with no significant content changes; paths=[].
+  [changed] {changed_count} changed displays: {changed_ids}. Only changed original-size PNGs are listed.
+  [changed] Displays were captured sequentially, without the pointer. Read all returned images first, using parallel view_image calls when possible, then analyze them together for the current query. They are snapshots, not the live desktop.
+  Compare display count and IDs with prior captures even when paths=[]; a change may suggest leaving a desk, arriving home or going to a meeting. Combine it with screen content, time and conversation; preserve uncertainty.
+capture_context_zh: |
+  截图时间：{captured_at}；当前共 {display_count} 个显示器，标识：{display_ids}。
+  [unchanged] 当前显示器的画面均与各自的历史截图基本一致，没有明显内容变化；paths=[]。
+  [changed] 共 {changed_count} 个显示器画面发生变化：{changed_ids}。仅返回发生变化的原尺寸 PNG 图片。
+  [changed] 显示器依次采集，不含鼠标指针。先读完返回的全部图片，能并行时并行调用 view_image，再结合当前问题统一分析。图片是采集时的快照，不代表实时桌面。
+  即使 paths=[]，也需将显示器数量和标识与历史截图返回的信息对照；变化可能意味着离开工位、回家或去开会，需结合画面、时间和对话判断，保留不确定性。

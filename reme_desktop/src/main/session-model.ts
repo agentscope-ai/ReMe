@@ -206,14 +206,16 @@ export class SessionModel {
           Array.isArray(event.task_activities)
         )
           throw new UiError("invalidActivity");
-        for (const [runId, activity] of Object.entries(event.task_activities)) {
+        for (const [taskId, activity] of Object.entries(
+          event.task_activities,
+        )) {
           if (
             !validActivity(activity) ||
             activity.source !== "task" ||
-            activity.run_id !== runId ||
-            !runId ||
-            typeof activity.task_id !== "string" ||
-            !activity.task_id
+            activity.task_id !== taskId ||
+            !taskId ||
+            typeof activity.started_at !== "string" ||
+            !Number.isFinite(Date.parse(activity.started_at))
           )
             throw new UiError("invalidActivity");
         }

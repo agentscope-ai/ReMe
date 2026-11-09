@@ -13,7 +13,7 @@ from reme.steps.proactive.tools import GetChatMessagesStep, SendChatMessageStep
 
 async def submit(env, content):
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         return await env.runtime.send_chat_message(
             content,
@@ -39,44 +39,31 @@ async def test_reminder_preserves_context_and_sources_beyond_the_previous_brief_
 
 
 @pytest.mark.asyncio
-async def test_reminder_size_boundary_matches_the_tool_schema_without_consuming_a_rejected_decision(pa_workspace):
+async def test_message_validation_preserves_long_content_and_does_not_consume_invalid_decisions(pa_workspace):
     from reme.config import resolve_app_config
 
     env = pa_workspace
     jobs = resolve_app_config(config="proactive", log_config=False)["jobs"]
-    limit = jobs["send_chat_message"]["parameters"]["properties"]["content"]["maxLength"]
+    for name in ["send_chat_message", "send_chat_message_immediate"]:
+        assert "maxLength" not in jobs[name]["parameters"]["properties"]["content"]
+    content = "完整结论及依据。" * 2000 + "[来源](https://example.test/report)"
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         options = {"kind": "normal", "round_id": current.id, "session_id": current.session_id}
-        with pytest.raises(ValueError, match="at most"):
-            await env.runtime.send_chat_message("文" * (limit + 1), **options)
+        with pytest.raises(ValueError, match="must be a string"):
+            await env.runtime.send_chat_message(None, **options)
         assert current.request is None and env.runtime.reminders.read() == []
-        result = await env.runtime.send_chat_message("文" * limit, **options)
-        assert result["status"] == "pending" and env.runtime.reminders.read()[0].content == "文" * limit
+        result = await env.runtime.send_chat_message(content, **options)
+        assert result["status"] == "pending" and env.runtime.reminders.read()[0].content == content
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "phase",
-    [
-        None,
-        "query_memory",
-        "query_history",
-        "query_tasks",
-        "query_research",
-        "query_config",
-        "query_todo",
-        "query_reminder",
-        "unknown_phase",
-    ],
-)
 @pytest.mark.parametrize("content", ["", "不应提前发送。"])
-async def test_other_phases_cannot_submit_or_consume_the_reminder_decision(pa_workspace, phase, content):
+async def test_inactive_query_cannot_submit_or_consume_the_reminder_decision(pa_workspace, content):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
-        current.phase = phase
-        with pytest.raises(ValueError, match="only allowed during query_message"):
+        with pytest.raises(ValueError, match="active proactive query"):
             await SendChatMessageStep(app_context=env.context)(
                 content=content,
                 pa_caller="proactive",
@@ -86,7 +73,7 @@ async def test_other_phases_cannot_submit_or_consume_the_reminder_decision(pa_wo
             )
         assert current.request is None and await env.runtime.get_chat_messages() == []
         env.agent.append_session.assert_not_awaited()
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         result = await env.runtime.send_chat_message(
             "有用的新结果。",
@@ -117,7 +104,7 @@ async def test_requires_current_bound_round_and_rejects_stale_tokens(pa_workspac
 async def test_concurrent_retries_in_one_round_inject_only_once(pa_workspace):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
 
         async def send():
@@ -269,7 +256,7 @@ async def test_cancelled_submission_finishes_idle_check_and_status_publication(p
 
     env.agent.read_session = AsyncMock(side_effect=read)
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         task = asyncio.create_task(
             env.runtime.send_chat_message(
@@ -342,7 +329,7 @@ async def test_transport_failure_survives_restart_and_retries_same_message(pa_wo
 async def test_history_change_rejects_stale_proactive_decision(pa_workspace):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
         await env.runtime.get_chat_messages(round_id=current.id)
         task = await env.runtime.temp_tasks.create("约定提醒")
         await env.runtime.temp_tasks.patch(task.id, task.revision, status="running")
@@ -370,7 +357,7 @@ async def test_history_change_rejects_stale_proactive_decision(pa_workspace):
 async def test_every_sending_entry_point_requires_history_without_consuming_the_decision(pa_workspace, caller):
     env = pa_workspace
     async with env.runtime.proactive_round() as current:
-        current.phase = "query_message"
+        current.allow_message = True
 
         async def send():
             if caller == "tool":
@@ -414,7 +401,7 @@ async def test_external_journal_edit_during_history_read_requires_a_fresh_snapsh
 
     def changed():
         records = read()
-        env.runtime._append_jsonl(env.runtime.chat_inbox_path, record.model_dump(mode="json"))
+        env.runtime.files.append_jsonl(env.runtime.chat_inbox_path, record.model_dump(mode="json"))
         return records
 
     async with env.runtime.proactive_round() as current:

@@ -9,7 +9,7 @@ import frontmatter
 import pytest
 
 from reme.components import ApplicationContext, PaRuntime
-from reme.schema.pa_task import PaTask, PaTaskRecovery, PaTaskRun
+from reme.schema.pa_task import PaTask, PaTaskState, PaTaskRun
 from reme.schema.pa_temp_task import PaTempTask
 from scripts.migrate_pa_tasks import _Migration, migrate
 
@@ -26,18 +26,18 @@ def legacy(tmp_path):
     (root / "proactive_inbox.txt").write_text("请关注机器人。", encoding="utf-8")
     (root / "proactive_requests.jsonl").write_text('{"id":"request-one","status":"queued"}\n')
     now = datetime.fromisoformat("2026-11-08T12:00:00+08:00")
-    run = PaTaskRun(task_id="one", query="work", started_at=now, agent_session_id="cron-session", phase="summary")
+    run = PaTaskRun(task_id="one", query="work", started_at=now, agent_session_id="cron-session")
     result = "reme_cron/one/2026-11-08/120000.md"
-    saved = PaTaskRecovery(
+    saved = PaTaskState(
         task=PaTask(id="one", cron="*/5 * * * *", query="work", enabled=True),
         run=run,
-        target_path=result,
+        session_id="cron-session",
     )
     files = {
         result: frontmatter.dumps(
-            frontmatter.Post("发现。", task_id="one", run_id=run.run_id, status="unread", user_read_at=None),
+            frontmatter.Post("发现。", task_id="one", run_id="legacy-run", status="unread", user_read_at=None),
         ),
-        "reme_cron/one/recovery.json": saved.model_dump_json(),
+        "reme_cron/one/state.json": saved.model_dump_json(),
         "reme_cron/one/handoff.md": "保留交接。",
         "reme_cron/temporary/oneshot/handoff.md": "临时任务背景。",
         "reme_cron/temporary/oneshot/result.md": "临时结果。",
@@ -53,7 +53,6 @@ def legacy(tmp_path):
         run_at=now,
         created_at=now,
         updated_at=now,
-        handoff_path="reme_cron/temporary/oneshot/handoff.md",
         result_path="reme_cron/temporary/oneshot/result.md",
         status="sending",
     )
@@ -104,17 +103,18 @@ def test_layout_migration_preserves_sources_and_reloads_recovery_and_temporary_t
             assert (workspace / path).read_bytes() == text
     assert list(runtime.temp_tasks.path.parent.glob("temp_tasks.json.before-pa-layout-*.bak"))
     task = runtime.tasks.load()[0]
-    recovered = runtime.tasks.recovery(task)
-    assert recovered.target_path == "state/pa/cron/one/2026-11-08/120000.md"
+    recovered = runtime.tasks.state(task)
+    assert recovered.session_id == "cron-session"
+    result_path = "state/pa/cron/one/2026-11-08/120000.md"
     temporary = runtime.temp_tasks.load()[0]
     assert temporary.source_session_id == "main-session" and temporary.revision == 0
     assert temporary.result_path == "state/pa/temporary/oneshot/result.md"
-    assert runtime.temp_tasks.document_path(temporary.id, "result.md").read_text() == "临时结果。"
+    assert runtime.temp_tasks.document_path(temporary.id).read_text() == "临时结果。"
     record = json.loads(runtime.cron_runs_path.read_text())
-    assert record["result_path"] == recovered.target_path
+    assert record["result_path"] == result_path
     checkpoint = json.loads(runtime.proactive_context_path.read_text())
-    assert checkpoint["documents"][0]["path"] == recovered.target_path
-    assert checkpoint["documents"][0]["content"] == "原文 reme_cron 不修改。"
+    assert checkpoint["value"][0]["path"] == result_path
+    assert checkpoint["value"][0]["content"] == "原文 reme_cron 不修改。"
     runtime._initialize_files()
     assert runtime.reminders.read()[0].content == "消息正文。"
     assert migrate(workspace, metadata_dir="state", daily_dir="notes/daily") == 0
@@ -214,7 +214,7 @@ def test_legacy_inline_run_results_become_archived_documents_without_new_proacti
     migrate(legacy.workspace_path, metadata_dir="state", daily_dir="notes/daily")
     run = PaTaskRun.model_validate_json(legacy.cron_runs_path.read_text())
     post = frontmatter.load(legacy.workspace_path / run.result_path)
-    assert post.content == "完整历史结果。" and post["run_id"] == record["run_id"]
+    assert post.content == "完整历史结果。" and post["started_at"] == record["started_at"]
     assert post["status"] == "read" and post["user_read_at"] is None
     assert source.read_bytes() == original
     assert migrate(legacy.workspace_path, metadata_dir="state", daily_dir="notes/daily") == 0

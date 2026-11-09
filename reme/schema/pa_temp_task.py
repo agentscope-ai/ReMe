@@ -7,7 +7,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool, fi
 
 
 class PaTempTask(BaseModel):
-    """Keep preparation, execution and publication recoverable across restarts."""
+    """Persist an independent delegation and its single execution attempt."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -22,8 +22,6 @@ class PaTempTask(BaseModel):
     enabled: StrictBool = True
     revision: int = Field(default=0, ge=0, le=2147483647)
     status: Literal[
-        "pending",
-        "preparing",
         "scheduled",
         "running",
         "sending",
@@ -31,16 +29,20 @@ class PaTempTask(BaseModel):
         "completed",
         "failed",
         "cancelled",
-    ] = "pending"
-    handoff_path: str | None = None
+    ] = "scheduled"
     agent_session_id: str | None = None
+    queried: bool = False
     result_path: str | None = None
     message_id: str | None = None
     started_at: AwareDatetime | None = None
     finished_at: AwareDatetime | None = None
     delayed: bool = False
     error: str | None = None
-    retry_at: AwareDatetime | None = None
+
+    @property
+    def runnable(self) -> bool:
+        """Resume only enabled tasks with unfinished work."""
+        return self.enabled and self.status in {"scheduled", "running", "sending"}
 
     @field_validator("query")
     @classmethod

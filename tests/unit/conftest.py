@@ -22,10 +22,10 @@ def pa_workspace(tmp_path):
     agent = CodexAgentWrapper(app_context=context, app_server="")
     runtime = bind_pa(context, agent)
     now = [datetime.fromisoformat("2026-11-08T12:00:00+08:00")]
-    runtime._now = lambda: now[0]
+    runtime.now = lambda: now[0]
     runtime._initialize_files()
     runtime.session_id = "session-1"
-    runtime._write_json(
+    runtime.files.write_json(
         runtime.session_ids_path,
         [
             {
@@ -43,4 +43,8 @@ def pa_workspace(tmp_path):
     agent.read_session = AsyncMock(return_value=snapshot)
     agent.get_session_status = AsyncMock(return_value=snapshot.state)
     agent.append_session = AsyncMock()
+    agent.create_session = AsyncMock(return_value="worker-session")
+    agent.session_exists = AsyncMock(return_value=True)
+    agent.compact_session = AsyncMock()
+    agent.release_session = AsyncMock()
     return SimpleNamespace(context=context, agent=agent, runtime=runtime, snapshot=snapshot, now=now)

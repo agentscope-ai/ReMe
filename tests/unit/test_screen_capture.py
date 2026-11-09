@@ -62,7 +62,7 @@ async def test_display_reordering_is_unchanged_and_only_changed_screen_is_publis
     context, capture = setup(tmp_path)
     first = await ScreenCaptureStep(app_context=context)()
     capture.frames.reverse()
-    same = await ScreenCaptureStep(app_context=context)()
+    same = await ScreenCaptureStep(app_context=context, language="zh")()
     assert same.answer["paths"] == [] and "一致" in same.answer["context"]
     assert len(list((tmp_path / "resource/screen_capture").glob("*.png"))) == 2
     capture.frames[0][1][20:35, 30:45] = 255

@@ -10,7 +10,7 @@ from reme.components.application_context import ApplicationContext
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.steps.proactive.data_connectors import FinanceNewsStep
-from reme.steps.proactive.tools import CheckJsonStep
+from reme.steps.file_io import CheckJsonStep
 
 
 @pytest.fixture

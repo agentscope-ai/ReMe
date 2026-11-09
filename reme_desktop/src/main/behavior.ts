@@ -448,7 +448,7 @@ export class BehaviorController {
         : t("background");
       return select(
         "background",
-        `background:${background.run_id ?? background.turn_id}:${background.phase}`,
+        `background:${background.task_id ?? background.session_id}:${background.started_at ?? background.turn_id}:${background.phase}`,
         background.phase === "answering"
           ? "remembering"
           : clips[background.phase],

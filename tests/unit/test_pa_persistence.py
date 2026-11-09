@@ -12,7 +12,8 @@ import pytest
 from reme.components import ApplicationContext, CodexAppServer, PaRuntime
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.steps.proactive.pa_chat import PaChatStep, PaNewSessionStep, PaSessionStep
+from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.api.sessions import PaSessionStep
 from .pa_helpers import PA_CONFIG
 
 
@@ -76,11 +77,11 @@ async def test_new_runtime_restores_selection_snapshot_and_chat_without_creating
         selected = (await PaNewSessionStep(app_context=context)()).answer
         assert json.loads(runtime.session_ids_path.read_text())[-1]["session_id"] == selected
         assert (await PaChatStep(app_context=context)(query="before restart", stream_queue=asyncio.Queue())).success
-        cursor = runtime.cursor
+        cursor = runtime.event_stream.cursor
     context, agent, restored = factory()
     async with restored:
         assert (await PaSessionStep(app_context=context)()).answer == {"session_id": selected, "status": "not_loaded"}
-        async with aclosing(restored.events(cursor)) as events:
+        async with aclosing(restored.event_stream.events(cursor)) as events:
             assert (await anext(events)).type == "reset"
             snapshot = await anext(events)
             assert snapshot.session_id == selected and snapshot.snapshot.messages[0].content == "before restart"
@@ -103,7 +104,7 @@ async def test_failed_atomic_replace_preserves_selection_file_listener_and_relea
         def fail(*_args):
             raise PermissionError("replace denied")
 
-        monkeypatch.setattr("reme.components.pa_runtime.os.replace", fail)
+        monkeypatch.setattr("reme.components.pa.files.os.replace", fail)
         with pytest.raises(PermissionError, match="replace denied"):
             await PaNewSessionStep(app_context=context)()
         assert runtime.session_id == first
@@ -115,11 +116,11 @@ async def test_failed_atomic_replace_preserves_selection_file_listener_and_relea
 
 @pytest.mark.asyncio
 async def test_cancelled_rotation_commits_disk_and_memory_before_unlocking_or_publishing(factory, monkeypatch):
-    from reme.components import pa_runtime
+    from reme.components.pa import sessions as pa_sessions
 
     context, agent, runtime = factory()
     entered, release = asyncio.Event(), asyncio.Event()
-    write = pa_runtime.complete_in_thread
+    write = pa_sessions.complete_in_thread
 
     async def hold(*args):
         entered.set()
@@ -128,8 +129,8 @@ async def test_cancelled_rotation_commits_disk_and_memory_before_unlocking_or_pu
 
     async with runtime:
         first = (await PaNewSessionStep(app_context=context)()).answer
-        monkeypatch.setattr(pa_runtime, "complete_in_thread", hold)
-        cursor = runtime.cursor
+        monkeypatch.setattr(pa_sessions, "complete_in_thread", hold)
+        cursor = runtime.event_stream.cursor
         task = asyncio.create_task(PaNewSessionStep(app_context=context)())
         await entered.wait()
         assert runtime.session_id == first
@@ -143,7 +144,7 @@ async def test_cancelled_rotation_commits_disk_and_memory_before_unlocking_or_pu
         assert runtime.session_id == "session-2"
         assert json.loads(runtime.session_ids_path.read_text())[-1]["session_id"] == "session-2"
         assert not runtime.session_lock.locked()
-        async with aclosing(runtime.events(cursor)) as events:
+        async with aclosing(runtime.event_stream.events(cursor)) as events:
             changes = [await anext(events), await anext(events)]
             assert any(event.type == "session_changed" and event.session_id == "session-2" for event in changes)
         agent.release_session.assert_awaited_once_with(first)
@@ -222,7 +223,7 @@ async def test_empty_registry_and_missing_native_history_never_create_a_replacem
         assert runtime.session_id is None and json.loads(runtime.session_ids_path.read_text()) == []
         agent.read_session.assert_not_awaited()
         agent.create_session.assert_not_awaited()
-    runtime._write_json(
+    runtime.files.write_json(
         runtime.session_ids_path,
         [{"session_id": "missing-session", "last_active_at": "2026-11-08T12:00:00+08:00"}],
     )

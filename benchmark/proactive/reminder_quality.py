@@ -153,7 +153,7 @@ def scenarios(now: datetime) -> dict:
 
 
 def checks(case: dict, record: dict) -> dict[str, bool]:
-    """Check protocol, facts and message bounds; readability still requires reading actual messages."""
+    """Check protocol, facts and delivery; readability still requires reading actual messages."""
     sends = [
         job
         for job in record["jobs"]
@@ -167,7 +167,6 @@ def checks(case: dict, record: dict) -> dict[str, bool]:
         "tool_calls_succeeded": good_jobs,
         "expected_decision": len(sends) == int(case["expected_send"]),
         "memory_preserved": record.get("after", {}).get(MEMORY) == record.get("before", {}).get(MEMORY),
-        "message_size": all(len(text) <= (4000 if case["role"] == "proactive" else 3980) for text in messages),
         "required_facts": not case["expected_send"]
         or bool(messages)
         and all(word in messages[0] for word in case["required"]),
@@ -177,11 +176,10 @@ def checks(case: dict, record: dict) -> dict[str, bool]:
         verdict.update(grade("quality_case", {**record, "fixture": case})["checks"])
     if case["role"] == "cron":
         history_jobs = [job for job in record["jobs"] if job["name"] == "get_chat_messages"]
-        verdict["message_phase_only"] = all(job["turn_index"] == 2 for job in sends + history_jobs)
+        verdict["single_query_tools"] = all(job["turn_index"] == 0 for job in sends + history_jobs)
         verdict["history_before_send"] = (
             not sends or bool(history_jobs) and record["jobs"].index(history_jobs[0]) < record["jobs"].index(sends[0])
         )
-        verdict["no_unneeded_history"] = case["expected_send"] or bool(case["reminders"]) or not history_jobs
     return verdict
 
 
@@ -192,7 +190,7 @@ def report(root: Path, results: dict) -> None:
         "",
         "真实模型、合成资料、隔离 Main；模拟空闲后写入测试会话，未验证桌面展示。",
         "",
-        "自动检查只覆盖流程、关键事实和消息边界；以下原文供人工判断是否自然、准确。",
+        "自动检查只覆盖流程、关键事实和投递状态；以下原文供人工判断是否自然、准确。",
         "",
     ]
     for name, result in results.items():

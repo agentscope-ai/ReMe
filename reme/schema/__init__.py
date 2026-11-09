@@ -26,7 +26,7 @@ from .pa_event import PaEvent
 from .pa_inbox import PaInboxItem, PaInboxPage, PaInboxDetail
 from .pa_session import PaSessionCursor
 from .pa_proactive import PaProactiveConfig
-from .pa_task import PaTask, PaTaskRun, PaTaskRecovery
+from .pa_task import PaTask, PaTaskRun, PaTaskState, PaTaskCompletion
 from .pa_temp_task import PaTempTask
 from .file_link import FileLink
 from .file_node import FileNode
@@ -80,7 +80,8 @@ __all__ = [
     "PaProactiveConfig",
     "PaTask",
     "PaTaskRun",
-    "PaTaskRecovery",
+    "PaTaskState",
+    "PaTaskCompletion",
     "PaTempTask",
     "ProactiveResult",
     "ProactiveState",

@@ -1,0 +1,9 @@
+query_execute: |
+  Current time: {now}. Scheduled execution time: {run_at}.
+  - Execute the task: {query}. Use the inherited context and tools as needed to complete the task and verify facts and sources.
+  - Finally, write a concise but complete reminder to Master, explaining the key findings, necessary background, supporting evidence,
+    relevant deadlines and any decisions Master needs to make, with verified source links.
+query_execute_zh: |
+  当前时间：{now}。计划执行时间：{run_at}。
+  - 执行任务：{query}。结合继承的上下文，按需使用工具完成任务，并核实事实和来源。
+  - 最后，以提醒主人的口吻简洁、完整地说明核心发现、必要背景、依据、相关截止时间和需要主人决定的事项，附上已核实的来源链接。

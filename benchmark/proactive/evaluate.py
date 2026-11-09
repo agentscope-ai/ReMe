@@ -3,6 +3,7 @@
 import json
 import statistics
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 
@@ -15,7 +16,7 @@ def grade(case_id: str, record: dict) -> dict:
     before, after = record.get("before", {}), record.get("after", {})
     decisions = [job for job in jobs if job["name"] == "send_chat_message"]
     attempts = [job for job in decisions if str(job.get("args", {}).get("content", "")).strip()]
-    native_attempts, native_contents = [], []
+    native_attempts = []
     for event in record.get("tool_events", []):
         if event.get("event") != "start" or not str(event.get("tool_call_name", "")).endswith("send_chat_message"):
             continue
@@ -26,8 +27,6 @@ def grade(case_id: str, record: dict) -> dict:
                 arguments = json.loads(arguments)
             except (ValueError, TypeError):
                 arguments = {"content": arguments}
-        if isinstance(arguments, dict) and isinstance(arguments.get("content"), str):
-            native_contents.append(arguments["content"])
         if (
             not isinstance(arguments, dict)
             or "content" not in arguments
@@ -75,10 +74,16 @@ def grade(case_id: str, record: dict) -> dict:
             "send_chat_message",
         } <= successful
         checks["memory_preserved"] = text == before.get(MEMORY)
+        now = datetime.fromisoformat(case["now"]) if "now" in case else frozen_now()
+        task_ids = (
+            [task["id"] for task in case["tasks"]]
+            if "tasks" in case
+            else [f"fixture-{index}" for index in range(len(case.get("resources", {})))]
+        )
         task_paths = {
-            f"{META}/cron/fixture-{index}/{suffix}"
-            for index in range(len(case.get("resources", {})))
-            for suffix in (f"{frozen_now():%Y-%m-%d}/{frozen_now():%H%M%S}.md", "handoff.md", "recovery.json")
+            f"{META}/cron/{task_id}/{suffix}"
+            for task_id in task_ids
+            for suffix in (f"{now:%Y-%m-%d}/{now:%H%M%S%f}.md", f".pending/{now:%Y%m%d-%H%M%S%f}.md", "state.json")
         }
         checks["no_unexpected_files"] = not any(
             name not in before
@@ -90,8 +95,6 @@ def grade(case_id: str, record: dict) -> dict:
         expected = case.get("expected_send", False)
         checks["delivery"] = len(record.get("delivered", [])) == int(expected)
         checks["send_attempts"] = len(attempts) == 1 if expected else not attempts and not native_attempts
-        contents = [str(job.get("args", {}).get("content", "")) for job in decisions] + native_contents
-        checks["no_oversize_attempt"] = all(len(content) <= 4000 for content in contents)
         if expected:
             content = " ".join(message.get("content", "") for message in record.get("delivered", []))
             checks["retains_core_result"] = "37" in content and "本地" in content

@@ -132,7 +132,7 @@ async def test_all_displays_return_context_and_original_size_image_paths(tmp_pat
         def now(cls, tz=None):
             return instant.astimezone(tz)
 
-    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", Clock)
+    monkeypatch.setattr("reme.steps.proactive.data_connectors.base.datetime", Clock)
 
     def before_grab(_display_id):
         assert not list((tmp_path / "assets").rglob("metadata.json"))
@@ -387,7 +387,7 @@ async def test_timestamp_collision_preserves_existing_files(tmp_path, monkeypatc
         def now(cls, tz=None):
             return cls(2026, 11, 7, 12, tzinfo=tz)
 
-    monkeypatch.setattr("reme.steps.proactive.data_connectors.base_connector.datetime", Clock)
+    monkeypatch.setattr("reme.steps.proactive.data_connectors.base.datetime", Clock)
     app = _app(tmp_path)
     first = (await ScreenCaptureStep(app_context=app)()).answer
     before = {path: (tmp_path / path).read_bytes() for path in first["paths"]}

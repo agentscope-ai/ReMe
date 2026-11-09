@@ -66,15 +66,15 @@ def test_proactive_analysis_preserves_long_term_memory():
     assert not checks(scenarios(frozen_now())["proactive_seen_reply"], result)["memory_preserved"]
 
 
-def test_unrequested_new_files_and_rejected_oversize_attempts_are_observable():
+def test_unrequested_files_and_unwanted_send_attempts_are_observable():
     result = record()
     result["after"]["daily/unrequested.md"] = "unrequested observation"
     result["tool_events"] = [
         {
             "event": "start",
             "tool_call_name": "send_chat_message",
-            "chunk": {"arguments": {"content": "x" * 4001}},
+            "chunk": {"arguments": {"content": "未经请求的提醒"}},
         },
     ]
     verdict = checks(scenarios(frozen_now())["proactive_seen_page"], result)
-    assert not verdict["no_unexpected_files"] and not verdict["no_oversize_attempt"]
+    assert not verdict["no_unexpected_files"] and not verdict["send_attempts"]
