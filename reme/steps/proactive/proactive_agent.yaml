@@ -74,41 +74,43 @@ query_context_zh: |
 
 query_memory: |
   - Combine previous TODOs and nonempty recovery records with personal memory at {memory_path}.
-  - Call read_conversation and read_proactive_inbox; fully read this round's inbox from the returned input_path.
+  - Call read_conversation and read_proactive_inbox once each; fully read this round's inbox from the returned input_path.
   - Understand Master's context, including preferences, current situation, interests and recent progress.
 
-  This step is only for understanding. Do not modify memory or settings; output your understanding of Master's context.
+  Only understand this context; do not research or modify files. Output your understanding of Master's context.
 
 query_memory_zh: |
   - 结合上轮 TODO 和非空恢复记录，阅读个人记忆 {memory_path}。
-  - 调用 read_conversation 和 read_proactive_inbox，从返回的 input_path 完整阅读本轮 inbox。
+  - 各调用一次 read_conversation 和 read_proactive_inbox，从返回的 input_path 完整阅读本轮 inbox。
   - 综合理解主人的上下文，包括偏好、现状、关注的事情和近期进展。
 
-  本步只做理解，不修改记忆或配置；最后输出对主人上下文的理解。
+  本步只理解这些上下文，不调研、不修改文件；最后输出对主人上下文的理解。
 
 query_tasks: |
-  - Call read_cron_results and fully read the cron results at the returned paths.
+  - Call read_cron_results once and fully read the cron results at the returned paths.
   - Relate the results to Master's interests and progress to find useful new findings and changes.
 
-  This step is only for content selection; output the selected content.
+  Only select from these results; do not research or fetch new results. Output the selected content.
 
 query_tasks_zh: |
-  - 调用 read_cron_results，展开阅读返回路径中的周期任务结果。
+  - 调用一次 read_cron_results，展开阅读返回路径中的周期任务结果。
   - 结合主人的关注和进度，找出对主人有用的新发现与变化。
 
-  本步只做内容筛选，最后输出筛选后的内容。
+  本步只筛选这些结果，不调研、不追加读取新结果；最后输出筛选后的内容。
 
 query_history: |
   - Call get_chat_messages to review previous content and actual delivery states.
   - Understand what was shared and what is pending, and filter the selected content to avoid repetition; keep useful new developments on previously shared topics.
+  - Generated or agent-consumed results do not mean Master has read them or a reminder was delivered.
 
-  Output the content remaining after this second selection.
+  Only deduplicate the content already read; do not research or read new task results. Output the remaining content.
 
 query_history_zh: |
   - 调用 get_chat_messages，查看历史内容与实际投递状态。
   - 弄清已分享什么、还有什么待发，对前面筛选的内容再次筛选，避免重复；同一件事的新进展若对主人有用，也可保留。
+  - 后台生成或 Agent 已消费不等于主人已读或提醒已送达。
 
-  最后输出二次筛选后的内容。
+  本步只对已读内容去重，不调研、不读取新任务结果；最后输出二次筛选后的内容。
 
 query_research: |
   - Investigate up to three useful items from the selected content; skip when none.
@@ -124,6 +126,7 @@ query_research_zh: |
 
 query_message: |
   Every send interrupts Master. Decide whether it is worthwhile before choosing what to say; silence is welcome.
+  Only compose and decide from the existing findings; do not start new research.
 
   - Use the message history and delivery states already read, together with recent conversation, to weigh value, novelty, timing, message frequency and Master's responses.
   - Write a reminder for Master with core findings, necessary background and evidence; be concise but complete, retaining URLs and relevant dates.
@@ -134,6 +137,7 @@ query_message: |
 
 query_message_zh: |
   发送就是打扰主人，先认真想是否值得开口，再想发送什么；选择安静也很好。
+  本步只根据已有结果组织内容并决定是否发送，不新增调研。
 
   - 结合前面读到的消息历史、投递状态和近期对话，权衡价值、新意、时机、发送频率与主人的回应。
   - 从提醒主人的角度组织内容，讲清核心发现、必要背景和依据，简洁但完整，保留 URL 和相关时间等线索。

@@ -155,9 +155,11 @@ with empty conversation context. Proactive messages alone do not count as chat h
 proactive work; errors reading an existing session still fail explicitly.
 Every wakeup prepares fresh Main context. The opening summary uses only the inherited Main conversation. The first work query
 calls the private `read_conversation(max_turns=10)` tool and reads personal memory, inbox feedback and previous TODOs together
-to understand newly completed Main rounds and maintain supported lasting memory. Tool bindings stay fixed.
-Research checks reminder history first, selects at most three useful leads and searches and reads primary sources;
-without a useful lead, it skips searching. All four agents preserve core conclusions, necessary background and evidence,
+to understand newly completed Main rounds without modifying memory or settings. Tool bindings stay fixed.
+Understanding, selection and deduplication use only the current inputs, without research or fetching new results.
+Research belongs in its own query, with at most three leads and five search API calls. These boundaries and the search limit
+are prompt instructions; tool bindings remain unchanged. Without a useful lead, research is skipped.
+All four agents preserve core conclusions, necessary background and evidence,
 remaining concise but complete without fixed word, sentence or bullet counts.
 External findings cite verified original URLs, optionally as `[Source name](URL)`; local files or screenshots use source names
 and relevant times, without invented links. Unverified external claims are withheld.
@@ -292,6 +294,8 @@ currently running. Read result bodies without changing consumption or user-read 
 
 Proactive uses `get_chat_messages(limit=10, offset=0)` to read each reminder's latest state, newest creation
 first, without consuming history. Results include complete message content and delivery states; use `limit` and `offset` to paginate.
+Generating a background result or consuming it as an agent does not mean Master has read it or a reminder was delivered;
+neither state alone establishes that the content was shared.
 JSONL appends share an ID for successive `pending`, `sent`, `discarded` or `failed`
 states, with creation/update/expiry/sent times and the target session. This replaces the former `is_draft` contract.
 Main handles reminder follow-ups from the current conversation and explicit user context, without querying this history.
@@ -324,7 +328,8 @@ as `normal` before atomic replacement.
 
 The proactive agent has inbox-reading, task-result, screen-capture, message-history, message-submission
 and JSON-validation Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
-agent decisions. Long-term memory is maintained by Main and the Proactive memory phase; recent concerns and unfinished work belong in the handoff.
+agent decisions. Main maintains long-term memory; Proactive's memory query only reads and understands it.
+Recent concerns and unfinished work belong in the handoff.
 Forgotten facts must not be restored through old conversations or summaries.
 
 Desktop's Remy sidebar switches between reminders and a scheduled-task result inbox. Read/unread badges appear on each
@@ -372,8 +377,9 @@ With no valuable update it writes no file and returns exactly `NO_UPDATE`; a mis
 After publication, query 3 considers urgency. Only an urgent candidate requires `get_chat_messages`, including content,
 delivery state and pagination when needed. If still urgent and new, it calls `send_chat_message_immediate`; otherwise it
 finishes quietly. Changed history requires a fresh read and decision before submission. Stable message IDs make retries safe.
-Native tool definitions and injected arguments stay constant across all four queries; the server accepts this run's history
-and immediate-send calls only during query 3, revoking that authority when the query ends.
+Native tool definitions and injected arguments stay constant across all four queries. History is readable in any phase;
+only reads during query 3 bind a history version to this message decision. Immediate sends remain limited to query 3,
+with that authority revoked when the query ends. Earlier history reads do not replace a fresh read during query 3.
 No result or no Main conversation skips query 3. Query 4 returns an internal handoff in the same work session, atomically saved as `{metadata_dir}/pa/cron/{task_id}/handoff.md`.
 Findings and cumulative results stay concise while retaining essential context and sources, without a fixed 400-character template.
 Internal handoffs share the requirements for progress, decisions, constraints, preferences, interests, recent projects,

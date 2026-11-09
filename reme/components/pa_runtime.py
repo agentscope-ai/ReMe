@@ -320,7 +320,7 @@ class PaRuntime(BaseComponent):
         round_id: str | None = None,
         cron_run_id: str | None = None,
     ) -> list[dict]:
-        """Read history and bind its version to the caller's current decision."""
+        """Read history in any cron phase; bind its version only to a live decision."""
         records, version = await self.reminders.history(limit, offset)
         current = None
         if round_id is not None:
@@ -328,7 +328,7 @@ class PaRuntime(BaseComponent):
             if current is None or current.id != round_id:
                 raise ValueError("History requires a live proactive round")
         elif cron_run_id is not None:
-            current = self.tasks.message_context(cron_run_id)
+            current = self.tasks.messages.get(cron_run_id)
         if current is not None:
             if offset and current.history_version != version:
                 raise ValueError("Reminder history changed; call get_chat_messages from offset=0 again")

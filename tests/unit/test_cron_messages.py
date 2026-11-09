@@ -263,21 +263,58 @@ async def test_revoked_message_query_cannot_commit_a_queued_send(pa_workspace, m
 
 
 @pytest.mark.asyncio
-async def test_stable_native_tools_remain_guarded_outside_message_phase(pa_workspace, monkeypatch):
+async def test_stable_native_tools_allow_history_but_guard_send_outside_message_phase(pa_workspace, monkeypatch):
     env = pa_workspace
     configure(env, [task()])
+    temporary = await env.runtime.temp_tasks.create("已约定的提醒")
+    await env.runtime.temp_tasks.patch(temporary.id, temporary.revision, status="running")
+    await env.runtime.temp_tasks.send(temporary.id, temporary.revision, "已有消息")
+    journal = env.runtime.chat_inbox_path.read_bytes()
     stub_model(env, monkeypatch)
     reply = env.agent.reply.side_effect
+    bindings = []
 
     async def check(query, **kwargs):
         binding = kwargs["injected_job_kwargs"]
         if binding["cron_run_id"] not in env.runtime.tasks.messages:
-            with pytest.raises(ValueError, match="live message query"):
-                await history(env, binding)
+            bindings.append(binding)
+            assert (await history(env, binding)).answer[0]["content"] == "已有消息"
+            assert env.runtime.chat_inbox_path.read_bytes() == journal
+            assert env.runtime.tasks.messages == {}
             with pytest.raises(ValueError, match="live message query"):
                 await send(env, binding)
         return await reply(query, **kwargs)
 
     env.agent.reply = AsyncMock(side_effect=check)
     await CronAgentStep(app_context=env.context)(task=task())
-    assert env.agent.reply.await_count == 4 and env.runtime.reminders.read() == []
+    assert env.agent.reply.await_count == 4 and len(bindings) == 3
+    assert (await history(env, bindings[-1])).answer[0]["content"] == "已有消息"
+    assert env.runtime.chat_inbox_path.read_bytes() == journal
+
+
+@pytest.mark.asyncio
+async def test_earlier_cron_history_does_not_authorize_a_message_decision(pa_workspace, monkeypatch):
+    env = pa_workspace
+    configure(env, [task()])
+    reads = []
+
+    async def message(binding):
+        assert len(reads) == 2
+        assert env.runtime.tasks.message_context(binding["cron_run_id"]).history_version is None
+        with pytest.raises(ValueError, match="get_chat_messages"):
+            await send(env, binding)
+        await history(env, binding)
+        await send(env, binding)
+
+    stub_model(env, monkeypatch, message=message)
+    reply = env.agent.reply.side_effect
+
+    async def check(query, **kwargs):
+        binding = kwargs["injected_job_kwargs"]
+        if binding["cron_run_id"] not in env.runtime.tasks.messages:
+            reads.append(await history(env, binding))
+        return await reply(query, **kwargs)
+
+    env.agent.reply = AsyncMock(side_effect=check)
+    await CronAgentStep(app_context=env.context)(task=task())
+    assert len(reads) == 3 and len(env.runtime.reminders.read()) == 1
