@@ -141,6 +141,65 @@ class LegacyKeywordIndex:
 
 
 @pytest.mark.asyncio
+async def test_resubmitting_mutated_chunk_updates_keyword_text(tmp_path, monkeypatch):
+    """The indexed-text snapshot must not alias the caller's mutable chunk."""
+    monkeypatch.chdir(tmp_path)
+    store = LocalFileStore(name="mutable", embedding_store="")
+    await store.start()
+    try:
+        original = chunk("same", "a.md", "original memory")
+        await store.upsert([(node("a.md"), [original])])
+        original.text = "replacement memory"
+        await store.upsert([(node("a.md"), [original])])
+        assert [result.id for result in await store.keyword_search("replacement", 10, {})] == ["same"]
+        assert await store.keyword_search("original", 10, {}) == []
+        with patch.object(store.keyword_index, "add_docs", wraps=store.keyword_index.add_docs) as add_docs:
+            await store.upsert([(node("a.md"), [original])])
+            add_docs.assert_not_called()
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("checkpoint", ["close", "dump", "failed_repair"])
+async def test_failed_keyword_delete_recovers_across_restart(tmp_path, monkeypatch, checkpoint):
+    """A same-ID stale posting must not be trusted after saving staged chunks."""
+    monkeypatch.chdir(tmp_path)
+    store = LocalFileStore(name="restart", embedding_store="")
+    await store.start()
+    updated = [(node("a.md"), [chunk("same", "a.md", "replacement memory")])]
+    try:
+        await store.upsert([(node("a.md"), [chunk("same", "a.md", "original memory")])])
+        await store.dump()
+        with patch.object(store.keyword_index, "delete_docs", side_effect=RuntimeError("delete failed")):
+            with pytest.raises(RuntimeError, match="delete failed"):
+                await store.upsert(updated)
+        if checkpoint == "dump":
+            await store.dump()
+    finally:
+        await store.close()
+
+    assert store._keyword_repair_path.exists()
+    if checkpoint == "failed_repair":
+        broken = LocalFileStore(name="restart", embedding_store="")
+        with patch.object(broken, "_rebuild_keyword_index", side_effect=RuntimeError("repair failed")):
+            with pytest.raises(RuntimeError, match="repair failed"):
+                await broken.start()
+        assert store._keyword_repair_path.exists()
+
+    restored = LocalFileStore(name="restart", embedding_store="")
+    await restored.start()
+    try:
+        assert not restored._keyword_repair_path.exists()
+        assert [result.id for result in await restored.keyword_search("replacement", 10, {})] == ["same"]
+        await restored.upsert(updated)
+        assert [result.id for result in await restored.keyword_search("replacement", 10, {})] == ["same"]
+        assert await restored.keyword_search("original", 10, {}) == []
+    finally:
+        await restored.close()
+
+
+@pytest.mark.asyncio
 async def test_backend_without_live_ids_keeps_full_replacement(tmp_path, monkeypatch):
     """Preserve the contract for keyword backends that cannot report live IDs."""
     monkeypatch.chdir(tmp_path)

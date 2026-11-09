@@ -122,6 +122,8 @@ class LocalFileStore(BaseFileStore):
         self.store_version = store_version
         self.file_chunks: dict[str, FileChunk] = {}
         self.chunks_path = self.component_metadata_path / f"file_chunks_{self.name}_{self.store_version}.jsonl.zst"
+        self._keyword_repair_path = self.component_metadata_path / f"keyword_repair_{self.name}_{self.store_version}"
+        self._keyword_indexed_text: dict[str, str] = {}
         self._embedding_backfill_task: asyncio.Task | None = None
         self._embedding_backfill_pending = False
         self._embedding_rebuild_pending = bool(embedding_rebuild_required)
@@ -195,6 +197,7 @@ class LocalFileStore(BaseFileStore):
             else:
                 await self.dump()
         self.file_chunks.clear()
+        self._keyword_indexed_text.clear()
         await super()._close()
 
     def _mark_embedding_unhealthy(self, reason: str) -> None:
@@ -329,6 +332,7 @@ class LocalFileStore(BaseFileStore):
 
         keyword_sync_started_at = time.monotonic()
         await self._sync_keyword_index_from_chunks()
+        self._keyword_pending_paths.clear()
         keyword_backend = type(self.keyword_index).__name__ if self.keyword_index is not None else "disabled"
         keyword_docs = getattr(self.keyword_index, "n_docs", 0) if self.keyword_index is not None else 0
         self.logger.info(
@@ -672,7 +676,9 @@ class LocalFileStore(BaseFileStore):
             unindexable_ids = {cid for cid in expected_ids - live_ids if not self.keyword_index.is_indexable(docs[cid])}
             expected_ids -= unindexable_ids
 
-        if live_ids == expected_ids:
+        repair_required = self._keyword_repair_path.exists()
+        if live_ids == expected_ids and not repair_required:
+            self._keyword_indexed_text = docs
             return
 
         missing_count = len(expected_ids - live_ids) if live_ids is not None else len(expected_ids)
@@ -680,9 +686,10 @@ class LocalFileStore(BaseFileStore):
         indexed_count = len(live_ids) if live_ids is not None else getattr(self.keyword_index, "n_docs", -1)
         self.logger.warning(
             f"{self.name}: keyword index mismatch: indexed={indexed_count}, expected={len(expected_ids)}, "
-            f"missing={missing_count}, extra={extra_count}; rebuilding",
+            f"missing={missing_count}, extra={extra_count}, repair_required={repair_required}; rebuilding",
         )
         await self._rebuild_keyword_index(docs)
+        self._keyword_repair_path.unlink(missing_ok=True)
 
     async def _rebuild_keyword_index(self, docs: dict[str, str]) -> None:
         """Synchronously rebuild keyword search in batches with progress logs."""
@@ -712,6 +719,7 @@ class LocalFileStore(BaseFileStore):
             elapsed = time.monotonic() - started_at
             self.logger.exception(f"{self.name}: keyword index rebuild failed after {elapsed:.2f}s")
             raise
+        self._keyword_indexed_text = docs.copy()
         elapsed = time.monotonic() - started_at
         self.logger.info(f"{self.name}: keyword index rebuild complete: total={total}, elapsed={elapsed:.2f}s")
 
@@ -788,9 +796,14 @@ class LocalFileStore(BaseFileStore):
             self.logger.exception(f"{self.name}: incremental tag index delete failed; rebuilding from graph")
             await self._rebuild_tag_index("incremental delete recovery")
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist state owned by this store, excluding dependency snapshots."""
         try:
+            # The chunk snapshot may contain staged text whose postings are still
+            # old. Keep a rebuild marker until startup repairs and persists them.
+            if self.keyword_index and self._keyword_pending_paths:
+                await complete_in_thread(self._keyword_repair_path.touch)
             # Keep snapshotting synchronous so concurrent mutation cannot produce a
             # mixed-generation checkpoint. Move it off-loop only if profiling shows
             # this copy, rather than serialization/compression, is a material stall.
@@ -840,14 +853,14 @@ class LocalFileStore(BaseFileStore):
 
         old_map = {n.path: n for n in await self.file_graph.get_nodes([node.path for node, _ in files])}
         old_chunk_ids = {cid for n in old_map.values() for cid in n.chunk_ids}
-        # A failed update may have staged new text without replacing its index
-        # entry. Retry those files in full instead of trusting staged text.
+        # Keep indexed text independent of caller-owned mutable chunks. Retry
+        # files with incomplete updates in full, including stale live postings.
         old_keyword_docs = {
-            cid: self.file_chunks[cid].text
+            cid: self._keyword_indexed_text[cid]
             for path, old_node in old_map.items()
             if path not in self._keyword_pending_paths
             for cid in old_node.chunk_ids
-            if cid in self.file_chunks
+            if cid in self._keyword_indexed_text
         }
         self._keyword_pending_paths.update(node.path for node, _ in files)
         new_nodes, needs_embed, keyword_docs = self._stage_upsert(files, old_map)
@@ -875,6 +888,10 @@ class LocalFileStore(BaseFileStore):
             await self.keyword_index.delete_docs(list(deleted_ids))
         if self.keyword_index and keyword_docs:
             await self.keyword_index.add_docs(keyword_docs)
+        for cid in deleted_ids:
+            self._keyword_indexed_text.pop(cid, None)
+        if self.keyword_index:
+            self._keyword_indexed_text.update(keyword_docs)
         self._keyword_pending_paths.difference_update(node.path for node, _ in files)
         self._mutation_generation += 1
 
@@ -986,6 +1003,8 @@ class LocalFileStore(BaseFileStore):
         await self._delete_tag_paths([str(n.path) for n in nodes])
         if self.keyword_index and deleted_chunk_ids:
             await self.keyword_index.delete_docs(deleted_chunk_ids)
+        for cid in deleted_chunk_ids:
+            self._keyword_indexed_text.pop(cid, None)
         self._keyword_pending_paths.difference_update(n.path for n in nodes)
 
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
@@ -1015,6 +1034,8 @@ class LocalFileStore(BaseFileStore):
         self.chunks_path.unlink(missing_ok=True)
         if self.keyword_index:
             await self.keyword_index.clear()
+        self._keyword_indexed_text.clear()
+        self._keyword_repair_path.unlink(missing_ok=True)
         self._keyword_pending_paths.clear()
         await self.file_graph.clear()
         if self.tag_index_enabled:
