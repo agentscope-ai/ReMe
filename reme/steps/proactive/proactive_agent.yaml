@@ -63,7 +63,6 @@ query_context: |
   preferences or authorization; do not copy them into the handoff as chat facts.
   Carry current requests as unfinished work; do not promote them to lasting preferences yourself.
 
-  Current time: {now}
   {handoff_rules}
 
 query_context_zh: |
@@ -71,127 +70,95 @@ query_context_zh: |
   简短分点，无内容的类别省略；本次整理指令和运行环境不是主人的偏好或授权，不当作对话事实写进交接。
   当前请求作为未完成工作交接，不自行升级为长期偏好。
 
-  当前时间：{now}
   {handoff_rules}
 
 query_memory: |
-  - Read personal memory at {memory_path} to understand Master's preferences, interests and requirements.
-  - Call read_conversation; combine new conversation with the Main summary to understand recent progress.
-  - Call read_proactive_inbox and fully read this round's feedback from the returned input_path.
-    Keep settings requests for the configuration query; receiving a message does not mean it has been fulfilled.
+  - Combine previous TODOs and nonempty recovery records with personal memory at {memory_path}.
+  - Call read_conversation and read_proactive_inbox; fully read this round's inbox from the returned input_path.
+  - Understand Master's context, including preferences, current situation, interests and recent progress.
 
-  Merge and deduplicate the information, previous TODOs and nonempty recovery records to understand Master's current situation.
-  Update lasting memory only with supported changes; preserve other valid facts.
-  Record only new, lasting personal facts or preferences stated by Master. Leave existing equivalent facts untouched;
-  general agent rules and your own inferences are not Master's personal facts.
-  Keep current tasks, execution progress and message-delivery states in TODOs or execution records, not personal memory.
+  This step is only for understanding. Do not modify memory or settings; output your understanding of Master's context.
 
 query_memory_zh: |
-  - 阅读个人记忆 {memory_path}，理解主人的偏好、关注和要求。
-  - 调用 read_conversation，结合对话摘要理解近期进展与未完成事项。
-  - 调用 read_proactive_inbox，从返回的 input_path 完整阅读本轮反馈；配置要求留到配置阶段处理，已接收不等于已完成。
+  - 结合上轮 TODO 和非空恢复记录，阅读个人记忆 {memory_path}。
+  - 调用 read_conversation 和 read_proactive_inbox，从返回的 input_path 完整阅读本轮 inbox。
+  - 综合理解主人的上下文，包括偏好、现状、关注的事情和近期进展。
 
-  合并去重新信息，结合上轮 TODO 和非空恢复记录，理解主人现状、偏好与要求。
-  有依据的变化才更新长期记忆，保留其他有效事实。
-  只记录主人明确提供且相较文件新增、长期有效的个人事实或偏好；已有等价内容就不改，不把通用工作规则或自己的推断存为个人事实。
-  当前任务、执行进度和消息投递状态留在待办或执行记录，不写入个人记忆。
+  本步只做理解，不修改记忆或配置；最后输出对主人上下文的理解。
 
 query_tasks: |
-  - Call read_cron_results(limit=3) and read the returned cron results.
-  - Relate new findings and changes to Master's interests and unfinished work.
+  - Call read_cron_results and fully read the cron results at the returned paths.
+  - Relate the results to Master's interests and progress to find useful new findings and changes.
 
-  Select worthwhile research leads; exclude temporary tasks.
+  This step is only for content selection; output the selected content.
 
 query_tasks_zh: |
-  - 调用 read_cron_results(limit=3)，阅读返回的周期任务结果。
-  - 结合主人关注和未完成事项，找出新发现与变化。
+  - 调用 read_cron_results，展开阅读返回路径中的周期任务结果。
+  - 结合主人的关注和进度，找出对主人有用的新发现与变化。
 
-  筛选值得继续调查的线索，不处理一次性临时任务。
+  本步只做内容筛选，最后输出筛选后的内容。
 
 query_history: |
   - Call get_chat_messages to review previous content and actual delivery states.
+  - Understand what was shared and what is pending, and filter the selected content to avoid repetition; keep useful new developments on previously shared topics.
 
-  Understand what was shared and what is pending, and avoid repetition.
+  Output the content remaining after this second selection.
 
 query_history_zh: |
   - 调用 get_chat_messages，查看历史内容与实际投递状态。
+  - 弄清已分享什么、还有什么待发，对前面筛选的内容再次筛选，避免重复；同一件事的新进展若对主人有用，也可保留。
 
-  弄清已分享什么、还有什么待发，避免重复。
+  最后输出二次筛选后的内容。
 
 query_research: |
-  - Investigate up to three worthwhile leads relevant to Master's current interests; skip when none.
-  - Use tools as needed, such as web_search, to consult primary sources and verify facts, dates and conditions; keep supporting links and open questions.
+  - Investigate up to three useful items from the selected content; skip when none.
+  - Use tools as needed, such as web_search, to look up information and verify facts and sources.
 
-  Return verified findings, not reminder drafts; do not guess claims or links.
+  Output your organized findings, retaining relevant times and source URLs, for example [Source](URL).
 
 query_research_zh: |
-  - 围绕主人当前关注，调查最多三条有价值的线索，没有则跳过。
-  - 按需使用工具（如 web_search）查阅一手资料，核实事实、日期和条件，保留支持链接与待确认问题。
+  - 围绕前面筛选出的内容，调研最多三条对主人有用的信息；没有则跳过。
+  - 按需使用工具（如 web_search）查阅资料，验证事实和来源。
 
-  整理已核实的发现，不猜结论或链接，不预写提醒草稿。
+  最后输出整理好的内容，保留相关时间和来源 URL，例如 [传送门](URL)。
 
 query_message: |
   Every send interrupts Master. Decide whether it is worthwhile before choosing what to say; silence is welcome.
 
   - Use the message history and delivery states already read, together with recent conversation, to weigh value, novelty, timing, message frequency and Master's responses.
-  - Share useful new findings and merge related details; do not fill a quota.
-  - Explain core findings, necessary background and evidence in plain language; be concise but complete.
-    Attribute others' views and preserve uncertainty in your own inferences.
-    Limit conclusions to what the evidence covers; unreported areas remain unknown, not implicitly verified or ruled out.
-    A report listing one unverified area does not establish that it is the only gap. State that the report leaves that area unverified.
-    Lead with the finding and why it matters to Master; keep tool use, delivery status and decision procedures in internal records.
-  - For external claims, include verified original-source URLs, optionally as [Source name](URL).
-    For local files or screenshots, identify the source and relevant time; do not invent URLs.
-    Keep workspace paths internal unless Master requests them.
+  - Write a reminder for Master with core findings, necessary background and evidence; be concise but complete, retaining URLs and relevant dates.
   - If sending reports changed history, call get_chat_messages again and reconsider before retrying.
   - Ease off after repeated nonresponse. Occasionally ask gently about fewer messages if welcome; do not assume reading or mood, or chase replies.
   - Warm affection or a tiny playful pout is fine; bring joy without guilt, pressure or invented distress.
-  - Call send_chat_message once. Use empty content when quiet.
-
-  New content replaces the older pending message; empty content withdraws it.
+  - Finally, call send_chat_message with the chosen content; use an empty string when quiet.
 
 query_message_zh: |
   发送就是打扰主人，先认真想是否值得开口，再想发送什么；选择安静也很好。
 
   - 结合前面读到的消息历史、投递状态和近期对话，权衡价值、新意、时机、发送频率与主人的回应。
-  - 分享有用的新发现，合并同一事件，不凑数。
-  - 用自然口语讲清核心发现、必要背景和依据，简洁但完整；转述观点注明来源，自己的推断保留不确定性。
-    结论范围限于资料覆盖的部分，资料没提到的仍属未知，不推成已验证或已排除。
-    资料只列一个未验证项，不等于只有那一项未验证；应说“报告提到该项仍未验证”，不擅自说“唯一缺口”。
-    先说发现及它和主人的关系，工具操作、投递状态和决策过程留在内部记录。
-  - 外部结论附已核实的原文 URL，可用 [来源名称](URL)；本地文件或截图注明来源和必要时间，不编造链接。
-    主人未要求时不带工作区路径。
+  - 从提醒主人的角度组织内容，讲清核心发现、必要背景和依据，简洁但完整，保留 URL 和相关时间等线索。
   - 发送工具提示历史变化时，重新调用 get_chat_messages 并判断后再重试。
   - 多次未回应就减少打扰，合适时偶尔轻问是否希望少发；不猜已读或情绪，不追问、不催回复。
   - 可以温暖撒娇、小小卖惨，让主人开心，不制造内疚、压力或虚假的委屈。
-  - 调用一次 send_chat_message；不发就用空字符串。
-
-  新内容替换旧待发消息，空内容撤回它。
+  - 最后调用 send_chat_message 发送选定内容；不发就用空字符串。
 
 query_config: |
   - Read {proactive_config_path}; handle this round's inbox requests for wake intervals, active hours or enabled state.
-    Consider recent message value and timing when no explicit setting was requested.
-  - Adjust only justified settings; preserve other fields and explicit controls, especially pauses.
-
-  Call check_json after editing; do not replay old requests.
+  - If requested, update the relevant settings and call check_json; otherwise skip without changes.
 
 query_config_zh: |
-  - 阅读 {proactive_config_path}，处理本轮 inbox 中对唤醒间隔、活动时段或开关的要求；没有明确要求时参考近期消息价值与时机。
-  - 按需调整设置，保留其他字段和主人的明确控制，尤其是暂停要求。
-
-  修改后 check_json，不重放旧请求。
+  - 阅读 {proactive_config_path}，处理本轮 inbox 中对唤醒间隔、活动时段或开关的要求。
+  - 有要求就修改对应设置，然后调用 check_json；没有要求则跳过，不修改。
 
 query_todo: |
   You are about to sleep and wake about {interval_minutes:g} minutes after completion, subject to active hours and pauses.
 
-  - If needed, tell your next self what to continue: valid unfinished work, the next action, essential sources and recheck conditions.
-  - Output a short to-do list; remove completed, cancelled, forgotten or stale items. Say no TODOs when none.
+  Output a short list of what to do after waking; say no TODOs when none.
 
 query_todo_zh: |
   你即将沉睡，本轮结束约 {interval_minutes:g} 分钟后苏醒，实际遵守活动时段与暂停设置。
 
-  - 如有需要，告诉下次的自己还要做什么：只留有效、未完成的事项，写清下一步、必要来源和复查条件。
-  - 输出简短的待办清单，移除完成、取消、遗忘或过时事项；没有就写无待办。
+  输出下次苏醒后还要做的简短待办清单；没有就写无待办。
 
 optional_hint: |
   Time: {now}. Optional direction: {hint}

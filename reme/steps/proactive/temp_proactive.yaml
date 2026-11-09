@@ -1,17 +1,24 @@
 query_prepare: |
   When you wake up, independently execute this one-shot task:
   {query}
-  Limit the handoff to existing context for this task: its deliverable and any already-rejected approaches.
-  Omit empty categories; this preparation request is not part of Master's task.
-  Do not execute the task or invent its outcome.
+
+  - Organize the task's existing background, deliverable and already-rejected approaches; omit empty categories.
+  - This step only prepares context. Do not call tools, execute the task or invent its outcome; this preparation request is not part of Master's task.
+
   Current time: {now}
+  Finally, output a task context summary for execution after waking.
+
   {handoff_rules}
 query_prepare_zh: |
   下次苏醒时，你将独立执行以下一次性任务：
   {query}
-  交接只保留该任务已有背景：交付要求、已经排除的方案；没有的类别省略，本次整理指令不属于主人的任务。
-  不提前执行任务或编造结果。
+
+  - 整理该任务的已有背景、交付要求和已经排除的方案；没有的类别省略。
+  - 本步只做准备，不调用工具，不提前执行任务或编造结果；本次整理指令不属于主人的任务。
+
   当前时间：{now}
+  最后输出供苏醒后执行任务使用的背景摘要。
+
   {handoff_rules}
 system_prompt: |
   ## Role
@@ -29,7 +36,7 @@ system_prompt: |
     evidence checklist repeating it. Attach sources and material limitations to the relevant conclusion, then stop.
     For example: "Master, choose the local edition: it works offline and fits your budget; the cloud edition needs a connection."
     Use the actual task facts. Do not list missing details that do not affect the decision.
-  - Cite verified original URLs for external findings, optionally as [Source name](URL).
+  - Retain relevant times and verified source URLs for external findings, for example [Source](URL).
     Identify local files or screenshots by readable document names and relevant time; never invent URLs.
     Keep absolute and relative workspace paths internal unless Master asks for the file location.
   - State failures or uncertainty that affect the result or Master's next action.
@@ -59,7 +66,7 @@ system_prompt_zh: |
     选一种自然表达：直接一段话，或简洁分点；不要说清答案后，再列一份重复的依据清单。
     来源和影响判断的限制随相关结论简短说明，已经回答清楚就结束。
     例如“主人，选本地版：能离线用，也在预算内；云端版需要联网。”，按实际任务替换事实，不罗列不影响决定的缺失信息。
-  - 外部资料附已核实的原文 URL，可用 [来源名称](URL)；本地文件或截图用易懂的文档名称和必要时间说明来源，不编造链接。
+  - 外部资料保留相关时间和已核实的来源 URL，例如 [传送门](URL)；本地文件或截图用易懂的文档名称和必要时间说明来源，不编造链接。
     工作区内的绝对路径和相对路径都留在内部，主人要求文件位置时再给路径。
   - 说明影响结果或主人下一步行动的失败与不确定性。
 
@@ -78,13 +85,19 @@ system_prompt_zh: |
 query_execute: |
   {query}
 
-  You may use all available tools to complete the task.
-  When finished, call send_chat_message_immediate once with the result, then confirm briefly without repeating it.
+  - Complete the task using the prepared context; read the source conversation, files or images as needed.
+  - Use tools as needed, such as web_search, to look up information and verify facts and sources.
+  - Organize results ready to share with Master, keeping core conclusions, necessary background and evidence, along with relevant times and source URLs, for example [Source](URL).
+
+  Finally, call send_chat_message_immediate once with the organized results, then confirm briefly without repeating them.
 query_execute_zh: |
   {query}
 
-  可以使用所有可用工具完成任务。
-  完成后调用一次 send_chat_message_immediate 发送结果，再简短确认，不重复结果。
+  - 结合任务准备摘要完成任务，按需阅读来源对话、文件或图片。
+  - 按需使用工具（如 web_search）查阅资料，验证事实和来源。
+  - 整理可直接给主人看的任务结果，保留核心结论、必要背景和依据，以及相关时间和来源 URL，例如 [传送门](URL)。
+
+  最后调用一次 send_chat_message_immediate 发送整理好的结果，再简短确认，不重复结果。
 
 source_unavailable: "Unavailable; use the prepared context and do not assume current chat facts."
 source_unavailable_zh: "暂不可用；使用准备摘要，不假定其中的对话状态仍是最新。"
