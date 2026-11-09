@@ -216,7 +216,14 @@ async def test_temporary_context_only_exposes_an_existing_native_transcript(pa_w
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("delayed", [False, True])
-async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace, monkeypatch, language, delayed):
+@pytest.mark.parametrize("selected_model", [None, "qwen3.8-max-0902"])
+async def test_temporary_worker_prepares_executes_and_sends_result(
+    pa_workspace,
+    monkeypatch,
+    language,
+    delayed,
+    selected_model,
+):
     env = pa_workspace
     run_at = env.now[0] - timedelta(seconds=10 if delayed else 0)
     task = await env.runtime.temp_tasks.create("调查新进展", run_at=run_at)
@@ -236,7 +243,12 @@ async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace,
         }
 
     env.agent.reply = AsyncMock(side_effect=reply)
-    step = TempProactiveStep(app_context=env.context, language=language, job_tools=["send_chat_message_immediate"])
+    step = TempProactiveStep(
+        app_context=env.context,
+        language=language,
+        job_tools=["send_chat_message_immediate"],
+        model=selected_model,
+    )
     monkeypatch.setattr(step, "_source_path", AsyncMock(return_value="source.jsonl"))
 
     await step._run(task)
@@ -244,6 +256,8 @@ async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace,
     saved = env.runtime.temp_tasks.get(task.id)
     assert saved.status == "completed" and saved.error is None and saved.delayed is delayed
     assert len(calls) == 2
+    assert all(kwargs.get("model") == selected_model for _, kwargs in calls)
+    assert "model" not in env.agent.kwargs
     assert calls[0][1]["resume"] == task.source_session_id and calls[0][1]["fork_session"]
     assert not {"system_prompt", "job_tools", "injected_job_kwargs"} & calls[0][1].keys()
     assert calls[1][0] == step.prompt_format("query_execute", query=task.query) and "resume" not in calls[1][1]

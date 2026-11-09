@@ -340,6 +340,8 @@ The `unread` and `task_id` filters require `task_result`; `unread` means not yet
 without advancing consumption. Partial reads show a warning and suppress a definitive pending count.
 `task_results(action="read", path=..., mark_read=true)` independently records user reading while retaining Proactive's
 consumption state. Received does not mean work completed; edited instructions are processed again.
+Result lists skip invalid documents and report `complete=false` with `warnings`; originals remain untouched.
+History selection and Proactive consumption also skip invalid results; consumption reports warnings in response metadata.
 Reading creates no chat message.
 Reminders include results from other source sessions. They open a read-only conversation preview while Main continues;
 `pa_select_session(session_id)` selects that source for further discussion when Main is idle.

@@ -18,5 +18,12 @@ class ReadCronResultsStep(BaseStep):
         for path in (self.pa.cron_path, self.pa.tasks.root_path, self.pa.proactive_context_path):
             if not _check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
                 raise PermissionError("no permission to consume task results")
-        self.context.response.answer = await self.pa.tasks.consume(self.context.get("limit", 3), round_id)
+        warnings = []
+        self.context.response.answer = await self.pa.tasks.consume(
+            self.context.get("limit", 3),
+            round_id,
+            warnings=warnings,
+        )
+        if warnings:
+            self.context.response.metadata.update(complete=False, warnings=warnings[:20])
         return self.context.response

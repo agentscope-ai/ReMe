@@ -78,8 +78,9 @@ class TempProactiveStep(BasePaStep):
                 started_at=task.started_at or self._now(),
             )
             summary = await asyncio.to_thread(self.pa.tasks.read, self.workspace_path / task.handoff_path)
-            reply = await self.agent_wrapper.reply(
+            reply = await self._reply(
                 self.prompt_format("query_execute", query=task.query),
+                immediate=True,
                 system_prompt=self._system_prompt(
                     now=self._now().isoformat(),
                     handoff=summary,
@@ -145,8 +146,9 @@ class TempProactiveStep(BasePaStep):
             self._start_activity(task)
             task = await tasks.patch(task.id, task.revision, status="preparing", error=None, retry_at=None)
             try:
-                reply = await self.agent_wrapper.reply(
+                reply = await self._reply(
                     self._handoff_prompt("query_prepare", query=task.query, now=self._now().isoformat()),
+                    immediate=True,
                     resume=task.source_session_id,
                     fork_session=True,
                     activity_source="task",

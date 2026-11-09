@@ -22,6 +22,8 @@ class BasePaStep(BaseStep):
 
     async def _reply(self, query: str, *, task: bool = False, immediate: bool = False, **kwargs):
         """Return None when active hours end; cancel native work at the deadline."""
+        if model := self.kwargs.get("model"):
+            kwargs.setdefault("model", model)
         if immediate:
             return await self.agent_wrapper.reply(query, **kwargs)
         config = await self.pa.get_proactive_config()

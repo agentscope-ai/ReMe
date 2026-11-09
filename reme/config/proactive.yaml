@@ -47,6 +47,7 @@ jobs:
     steps:
       - backend: cron_agent_step
         agent_wrapper: default
+        model: qwen3.8-max-0902
         job_tools: [screen_capture, finance_news, get_chat_messages, send_chat_message_immediate]
 
   speech_demo:
@@ -152,6 +153,7 @@ jobs:
     steps:
       - backend: temp_proactive_step
         agent_wrapper: default
+        model: qwen3.8-max-0902
         job_tools: [screen_capture, finance_news, send_chat_message_immediate]
 
   pa_proactive:
@@ -161,6 +163,7 @@ jobs:
     steps:
       - backend: proactive_agent_step
         agent_wrapper: default
+        model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
         max_turns: 10
         job_tools: [read_conversation, read_proactive_inbox, read_cron_results, screen_capture, get_chat_messages, send_chat_message, check_json]
 
@@ -319,6 +322,7 @@ jobs:
       - &pa_options
         backend: pa_chat_step
         agent_wrapper: default
+        model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
         job_tools: [screen_capture, check_json, write_proactive_inbox, manage_temp_proactive_agent]
 
   pa_events:
@@ -614,25 +618,26 @@ components:
         - tool_output_token_limit=2500
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
-        # Keep review, subagents and native memory on the selected model.
+        # Keep review, subagents and native memory on Qwen.
         - 'model_reasoning_effort="xhigh"'
-        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
-        - 'agents.default_subagent_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
+        - 'review_model="qwen3.8-max-0902"'
+        - 'agents.default_subagent_model="qwen3.8-max-0902"'
         - 'agents.default_subagent_reasoning_effort="xhigh"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
         - memories.generate_memories=true
         - memories.use_memories=true
-        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
-        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max-0902}"'
+        - 'memories.extract_model="qwen3.8-max-0902"'
+        - 'memories.consolidation_model="qwen3.8-max-0902"'
 
-      # Qwen 3.8 Max with the requested xhigh profile and text/image input.
+      # Main chat and intelligent proactive use Kimi; background work uses Qwen.
       # Switching CODEX_MODEL_NAME also requires reviewing the catalog capabilities.
       model_catalog:
         models:
-          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
-            display_name: Qwen 3.8 Max 0902
+          - &pa_model
+            slug: kimi-k3.1-pro
+            display_name: Kimi K3.1 Pro
             description: Work and life assistant with text and image input
             default_reasoning_level: xhigh
             multi_agent_reasoning_effort: xhigh
@@ -657,13 +662,16 @@ components:
             # PA instructions come from PromptHandler.
             model_messages:
               instructions_template: ""
+          - <<: *pa_model
+            slug: qwen3.8-max-0902
+            display_name: Qwen 3.8 Max 0902
+            priority: 1
 
   agent_wrapper:
     default:
       backend: codex
       app_server: default
-      # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
-      model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
+      model: qwen3.8-max-0902
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
       sandbox: full-access

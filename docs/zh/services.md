@@ -282,6 +282,8 @@ Desktop 的 Remy 侧栏可切换提醒列表和定时任务结果收件箱。每
 `action="read", entry_id=...` 返回当前全文与回执，不推进消费游标；部分读取失败会提示且不显示确定的总待处理数。
 `task_results(action="read", path=..., mark_read=true)` 独立记录用户已读时间，保留 Proactive 消费状态。
 “已接收”不代表工作完成，编辑后的指令会重新处理。
+结果列表跳过异常文档，通过 `complete=false` 和 `warnings` 报告问题，保留原文件。
+历史摘要选择和 Proactive 消费也跳过异常结果；消费告警放在响应 metadata 中。
 查看结果不创建聊天消息。提醒可以来自其他会话，先只读打开来源对话，Main 继续工作，
 空闲后通过 `pa_select_session(session_id)` 选择该来源继续讨论。快照和即时事件携带从投递流水重建的有界 `inbox_messages`。
 桌面展示、阅读及语音回执和原生会话 `sent` 状态独立。

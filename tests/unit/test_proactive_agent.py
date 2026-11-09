@@ -57,13 +57,16 @@ def model(env, monkeypatch, *, fail_at=None, decide=True, adjust=False, pause=No
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
-async def test_merged_inputs_then_message_and_persisted_todo(pa_workspace, monkeypatch, language):
+@pytest.mark.parametrize("selected_model", [None, "kimi-k3.1-pro"])
+async def test_merged_inputs_then_message_and_persisted_todo(pa_workspace, monkeypatch, language, selected_model):
     env = pa_workspace
     calls = model(env, monkeypatch, adjust=True)
     job_tools = ["read_conversation", "send_chat_message", "check_json"]
-    step = ProactiveAgentStep(app_context=env.context, language=language, job_tools=job_tools)
+    step = ProactiveAgentStep(app_context=env.context, language=language, job_tools=job_tools, model=selected_model)
     result = await step()
     assert len(calls) == 8 and calls[0][1]["resume"] == env.runtime.session_id
+    assert all(kwargs.get("model") == selected_model for _, kwargs in calls)
+    assert "model" not in env.agent.kwargs
     assert sum(bool(options.get("fork_session")) for _, options in calls) == 1
     assert not {"system_prompt", "job_tools", "injected_job_kwargs"} & calls[0][1].keys()
     assert "read_conversation" not in calls[0][0]

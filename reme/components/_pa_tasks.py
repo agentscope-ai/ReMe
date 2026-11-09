@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -16,6 +17,7 @@ from stat import S_ISREG
 from typing import TYPE_CHECKING
 
 import frontmatter
+import yaml
 
 from ..constants import DEFAULT_MAX_FILE_BYTES
 from ..schema.pa_task import PaTask, PaTaskRun, PaTaskRecovery
@@ -130,8 +132,24 @@ class TaskFiles:
         if run.status == "running":
             self.runtime.start_task_activity(run)
 
+    def result(self, path: Path, content: str | None = None) -> frontmatter.Post:
+        """Validate a result without repairing or rewriting the source document."""
+        try:
+            post = frontmatter.loads(self.read(path) if content is None else content)
+        except (yaml.YAMLError, TypeError) as exc:
+            raise ValueError("Invalid task result frontmatter") from exc
+        if post.get("task_id") != path.parent.parent.name or not post.content.strip():
+            raise ValueError("Invalid task result identity or body")
+        return post
+
+    def _result_warning(self, path: Path, error: Exception, warnings: list[str] | None) -> None:
+        message = f"Task result {self.runtime.to_workspace_relative(path)}: {error}"
+        self.runtime.logger.warning(message)
+        if warnings is not None:
+            warnings.append(message)
+
     def paths(self, task_id: str) -> list[Path]:
-        """Find published snapshots, newest first, across local calendar dates."""
+        """Find candidate paths, newest first; results() validates their contents."""
         today = self.runtime._now().date()
         paths = []
         for directory in self.task_path(task_id).glob("????-??-??"):
@@ -146,6 +164,22 @@ class TaskFiles:
                 if re.fullmatch(r"(?:[01][0-9]|2[0-3])[0-5][0-9][0-5][0-9](?:-[0-9a-f]{32})?", path.stem):
                     paths.append(self.checked(path))
         return sorted(paths, key=lambda path: (path.parent.name, path.stem), reverse=True)
+
+    def results(
+        self,
+        task_id: str,
+        *,
+        warnings: list[str] | None = None,
+    ) -> Iterator[tuple[Path, str, frontmatter.Post]]:
+        """Read each valid result once, retaining exact source text for checkpoints."""
+        for path in self.paths(task_id):
+            try:
+                content = self.read(path)
+                post = self.result(path, content)
+            except (OSError, ValueError) as exc:
+                self._result_warning(path, exc, warnings)
+                continue
+            yield path, content, post
 
     def handoff(self, task_id: str):
         """Read the latest bounded internal handoff if one exists."""
@@ -220,7 +254,7 @@ class TaskFiles:
             raise ValueError("Cron task changed or was cancelled")
         if not run.target_session_id or not run.result_path:
             raise ValueError("Cron message requires a published result and a target session")
-        post = frontmatter.loads(await asyncio.to_thread(self.read, self.runtime.workspace_path / run.result_path))
+        post = await asyncio.to_thread(self.result, self.runtime.workspace_path / run.result_path)
         if post.get("run_id") != run.run_id or post.get("task_id") != run.task_id or not post.content.strip():
             raise ValueError("Cron result does not belong to this run")
         result = await self.runtime.reminders.submit_immediate(
@@ -268,7 +302,7 @@ class TaskFiles:
             async with await get_path_lock(target):
                 await complete_in_thread(publish)
 
-    async def consume(self, limit: int, round_id: str) -> list[dict]:
+    async def consume(self, limit: int, round_id: str, *, warnings: list[str] | None = None) -> list[dict]:
         """Checkpoint full inputs before acknowledging read or superseded snapshots."""
         if type(limit) is not int or not 1 <= limit <= 3:
             raise ValueError("limit must be an integer from 1 to 3")
@@ -277,15 +311,9 @@ class TaskFiles:
             documents, updates = [], []
             for task in self.load():
                 count = 0
-                for path in self.paths(task.id):
-                    text = self.read(path)
-                    post = frontmatter.loads(text)
+                for path, text, post in self.results(task.id, warnings=warnings):
                     if post.get("status") != "unread":
                         continue
-                    if post.get("task_id") != task.id:
-                        raise ValueError(f"Task result identity does not match its directory: {path}")
-                    if not post.content.strip():
-                        raise ValueError(f"Empty task result: {path}")
                     status = "read" if count < limit else "superseded"
                     if status == "read":
                         documents.append(

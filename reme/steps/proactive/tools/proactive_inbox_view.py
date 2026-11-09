@@ -37,8 +37,7 @@ class ProactiveInboxViewStep(TaskResultsStep):
             warnings.append(f"Task definitions: {exc}")
             return None
 
-    def _task_detail(self, path, tasks):
-        post = self._post(path)
+    def _task_detail(self, path, tasks, post):
         task = (tasks or {}).get(post["task_id"])
         raw_status = post.get("status")
         status = (
@@ -63,28 +62,26 @@ class ProactiveInboxViewStep(TaskResultsStep):
 
     def _task_documents(self, tasks, warnings):
         files = self.pa.tasks
-        items, task_ids = [], []
+        items, task_ids = [], set()
         if not files.root_path.exists():
-            return items, task_ids
+            return items, []
         for root in sorted(files.root_path.iterdir()):
             if not root.is_dir():
                 continue
             try:
-                paths = files.paths(root.name)
+                for path, _, post in files.results(root.name, warnings=warnings):
+                    task_ids.add(root.name)
+                    try:
+                        item = self._task_detail(path, tasks, post).item
+                        items.append(item)
+                        if item.status == "unknown":
+                            warnings.append(f"Unknown task consumption state: {item.path}")
+                    except (OSError, ValueError) as exc:
+                        warnings.append(f"Task result {self.to_workspace_relative(path)}: {exc}")
             except (OSError, ValueError) as exc:
                 warnings.append(f"Task {root.name}: {exc}")
                 continue
-            if paths:
-                task_ids.append(root.name)
-            for path in paths:
-                try:
-                    item = self._task_detail(path, tasks).item
-                    items.append(item)
-                    if item.status == "unknown":
-                        warnings.append(f"Unknown task consumption state: {item.path}")
-                except (OSError, ValueError) as exc:
-                    warnings.append(f"Task result {self.to_workspace_relative(path)}: {exc}")
-        return items, task_ids
+        return items, sorted(task_ids)
 
     @staticmethod
     def _body(section, record):
@@ -254,7 +251,9 @@ class ProactiveInboxViewStep(TaskResultsStep):
                 if identifier.startswith("task:"):
                     path = self._result_path(identifier[5:])
                     warnings = []
-                    result = await asyncio.to_thread(lambda: self._task_detail(path, self._tasks(warnings)))
+                    result = await asyncio.to_thread(
+                        lambda: self._task_detail(path, self._tasks(warnings), self._post(path)),
+                    )
                     result.warnings = warnings
                 else:
                     warnings = []

@@ -20,10 +20,7 @@ class TaskResultsStep(BaseStep):
     pa: PaRuntime = Ref(PaRuntime, "pa")
 
     def _post(self, path):
-        post = frontmatter.loads(self.pa.tasks.read(path))
-        if post.get("task_id") != path.parent.parent.name or not post.content.strip():
-            raise ValueError("Invalid task result identity or body")
-        return post
+        return self.pa.tasks.result(path)
 
     def _result_path(self, raw):
         if not isinstance(raw, str) or not raw:
@@ -38,33 +35,42 @@ class TaskResultsStep(BaseStep):
     def _list(self, task_id, unread, offset, limit):
         files = self.pa.tasks
         roots = list(files.root_path.iterdir()) if files.root_path.exists() else []
-        task_ids = sorted(root.name for root in roots if root.is_dir() and files.paths(root.name))
-        roots = [files.task_path(task_id)] if task_id else roots
-        results = []
+        if task_id:
+            files.task_path(task_id)
+        results, warnings = [], []
+        task_ids = set()
         for root in roots:
             if not root.is_dir():
                 continue
-            for path in files.paths(root.name):
-                post = self._post(path)
-                if unread and post.get("user_read_at") is not None:
-                    continue
-                results.append(
-                    {
-                        "path": self.to_workspace_relative(path),
-                        "task_id": post["task_id"],
-                        "created_at": post.get("created_at"),
-                        "user_read_at": post.get("user_read_at"),
-                        "status": post.get("status"),
-                        "preview": post.content[:240],
-                    },
-                )
+            try:
+                for path, _, post in files.results(root.name, warnings=warnings):
+                    task_ids.add(root.name)
+                    if task_id and root.name != task_id:
+                        continue
+                    if unread and post.get("user_read_at") is not None:
+                        continue
+                    results.append(
+                        {
+                            "path": self.to_workspace_relative(path),
+                            "task_id": post["task_id"],
+                            "created_at": post.get("created_at"),
+                            "user_read_at": post.get("user_read_at"),
+                            "status": post.get("status"),
+                            "preview": post.content[:240],
+                        },
+                    )
+            except (OSError, ValueError) as exc:
+                warnings.append(f"Task {root.name}: {exc}")
+                continue
         results.sort(key=lambda item: (str(item["created_at"] or ""), item["path"]), reverse=True)
         return {
             "items": results[offset : offset + limit],
             "total": len(results),
             "offset": offset,
             "limit": limit,
-            "task_ids": task_ids,
+            "task_ids": sorted(task_ids),
+            "complete": not warnings,
+            "warnings": warnings[:20],
         }
 
     async def execute(self):

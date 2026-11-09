@@ -12,7 +12,7 @@ class PaChatStep(BasePaStep):
 
     async def _reply_kwargs(self) -> dict:
         await self._ensure_memory()
-        return {
+        kwargs = {
             "system_prompt": self._system_prompt(
                 now=self._now().isoformat(),
                 cron_runs_path=self.pa.cron_runs_path,
@@ -22,6 +22,9 @@ class PaChatStep(BasePaStep):
             "job_tools": list(self.kwargs.get("job_tools") or []),
             "injected_job_kwargs": {"pa_caller": "chat"},
         }
+        if model := self.kwargs.get("model"):
+            kwargs["model"] = model
+        return kwargs
 
     async def execute(self):
         self._validate("query")

@@ -731,6 +731,26 @@ async def test_loaded_thread_constraints_cannot_be_changed_by_another_wrapper(sy
 
 
 @pytest.mark.asyncio
+async def test_fork_model_override_preserves_source_and_wrapper_defaults(system):
+    first, second, server, _ = system
+    source = await first.reply("Main work.", model="main-model")
+    second.kwargs["model"] = "wrapper-default"
+
+    forked = await second.reply(
+        "Prepare a background task.",
+        resume=source["session_id"],
+        fork_session=True,
+        model="task-model",
+    )
+
+    native = _Codex.instances[0]
+    assert native.opened[-1][2]["model"] == "task-model"
+    assert native.threads[forked["session_id"]].options[-1]["model"] == "task-model"
+    assert server._threads[source["session_id"]].options["model"] == "main-model"
+    assert second.kwargs["model"] == "wrapper-default"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("restore", ["loaded", "unloaded", "restart"])
 async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore):
     from openai_codex import Sandbox

@@ -35,16 +35,26 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
     server = config["components"]["codex_app_server"]["default"]
     model = server["model_catalog"]["models"][0]
     options = tomllib.loads("\n".join(server["config_overrides"]))
-    selected = override or "qwen3.8-max-0902"
-    assert agent["model"] == model["slug"] == selected
+    selected = override or "kimi-k3.1-pro"
+    background = "qwen3.8-max-0902"
+    assert agent["model"] == background
+    assert {item["slug"] for item in server["model_catalog"]["models"]} == {"kimi-k3.1-pro", background}
+    for name, expected in (
+        ("pa_chat", selected),
+        ("pa_new_session", selected),
+        ("pa_proactive", selected),
+        ("cron_agent", background),
+        ("temp_proactive", background),
+    ):
+        assert config["jobs"][name]["steps"][0]["model"] == expected
     assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "xhigh"
     assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "xhigh"
     assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"]
     assert model["input_modalities"] == ["text", "image"]
     assert model["context_window"] == options["model_context_window"] == 65536
     assert options["model_auto_compact_token_limit"] == 56000
-    assert options["review_model"] == options["agents"]["default_subagent_model"] == selected
-    assert options["memories"]["extract_model"] == options["memories"]["consolidation_model"] == selected
+    assert options["review_model"] == options["agents"]["default_subagent_model"] == background
+    assert options["memories"]["extract_model"] == options["memories"]["consolidation_model"] == background
     assert options["features"]["memories"]
     assert options["memories"]["generate_memories"] and options["memories"]["use_memories"]
     if override is None:
@@ -123,15 +133,20 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("custom_prompt", [None, "", "配置的个人助手提示词。\n"])
-async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_prompt):
+@pytest.mark.parametrize("selected_model", [None, "kimi-k3.1-pro"])
+async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_prompt, selected_model):
     context, agent = runtime
     prompt_dict = {} if custom_prompt is None else {"system_prompt_zh": custom_prompt}
     for query in ("first", "second"):
         queue = asyncio.Queue()
-        response = await PaChatStep(app_context=context, prompt_dict=prompt_dict)(query=query, stream_queue=queue)
+        step = PaChatStep(app_context=context, prompt_dict=prompt_dict, model=selected_model)
+        response = await step(query=query, stream_queue=queue)
         assert response.success and response.answer == "hello"
         assert all(queue.get_nowait().session_id == "session-1" for _ in range(queue.qsize()))
     assert len(agent.created) == 1
+    assert agent.created[0].get("model") == selected_model
+    assert all(kwargs.get("model") == selected_model for _, kwargs in agent.calls)
+    assert "model" not in agent.kwargs
     prompt = agent.created[0]["system_prompt"]
     if custom_prompt is None:
         assert prompt.startswith("## 角色")

@@ -4,8 +4,6 @@ import asyncio
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-import frontmatter
-
 from .base_pa_step import BasePaStep
 from ..file_io._path import _check_path_permission
 from ...components import R
@@ -161,14 +159,17 @@ class CronAgentStep(BasePaStep):
         target = files.checked(self.workspace_path / saved.target_path)
         if target.exists():
             # Recover a crash after exclusive publication but before the phase checkpoint.
-            post = frontmatter.loads(files.read(target))
+            post = files.result(target)
             if post.get("run_id") != run.run_id or post.get("task_id") != saved.task.id or not post.content.strip():
                 raise FileExistsError(f"Task snapshot already exists: {target}")
             run.result_path = saved.target_path
         else:
             with TemporaryDirectory(prefix=".reme-task-", dir=self.workspace_path) as temporary:
                 staging = Path(temporary) / "summary.md"
-                previous = await asyncio.to_thread(files.paths, saved.task.id)
+                warnings = []
+                previous = await asyncio.to_thread(lambda: next(files.results(saved.task.id, warnings=warnings), None))
+                if warnings:
+                    self.context.response.metadata["task_result_warnings"] = warnings[:20]
                 reply = await self._call(
                     self.prompt_format(
                         "query_summary",
