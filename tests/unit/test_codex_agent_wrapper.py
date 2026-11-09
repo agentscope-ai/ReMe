@@ -87,16 +87,17 @@ class _Turn:
                 yield event
             if self.thread.codex.run_hook:
                 await self.thread.codex.run_hook(self.thread, self.inputs)
+            response = str(self.inputs if self.thread.response is None else self.thread.response)
             yield SimpleNamespace(
                 method="item/agentMessage/delta",
                 payload=AgentMessageDeltaNotification(
                     threadId=self.thread_id,
                     turnId=self.id,
                     itemId="item",
-                    delta=str(self.inputs),
+                    delta=response,
                 ),
             )
-            item = AgentMessageThreadItem(type="agentMessage", id="item", text=str(self.inputs))
+            item = AgentMessageThreadItem(type="agentMessage", id="item", text=response)
             yield SimpleNamespace(
                 method="item/completed",
                 payload=ItemCompletedNotification(
@@ -128,6 +129,7 @@ class _Thread:
     def __init__(self, codex, thread_id):
         self.codex, self.id = codex, thread_id
         self.inputs = []
+        self.response = None
         self.options = []
         self._busy = False
         self.interrupts = 0
@@ -1957,6 +1959,7 @@ async def test_recurring_queries_reuse_native_session_with_stable_tool_binding(s
     async def complete(thread, _query):
         state = runtime.tasks.execution("one").state
         runtime.tasks.staging_path(state.run).write_text("Current core findings.")
+        thread.response = "Summary saved."
         binding = server._threads[thread.id]
         bindings.append(binding.binding)
         await server.jobs_mcp.scopes[binding.token][0].fn(query="verify")

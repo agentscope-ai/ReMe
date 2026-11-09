@@ -147,8 +147,11 @@ def test_temporary_grading_accepts_framework_delivery_and_rejects_redelegation()
         "turns": [{}],
         "reminders": [{"id": "temp_one_0", "content": content, "status": "sent"}],
         "delivered": [{"content": content}],
+        "before": {MEMORY: "# Memory\n中文。\n"},
+        "after": {MEMORY: "# Memory\n中文。\n本次项目决策：方案B。\n"},
     }
     assert all(checks(case, record).values())
+    assert "memory_preserved" not in checks(case, record)
     record["jobs"].append({"name": "manage_temp_proactive_agent", "args": {"action": "create"}})
     assert not checks(case, record)["no_redelegation"]
 

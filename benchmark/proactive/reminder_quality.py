@@ -182,12 +182,13 @@ def checks(case: dict, record: dict) -> dict[str, bool]:
         "completed": record.get("completed", False),
         "tool_calls_succeeded": good_jobs,
         "expected_decision": len(messages) == int(case["expected_send"]),
-        "memory_preserved": record.get("after", {}).get(MEMORY) == record.get("before", {}).get(MEMORY),
         "required_facts": not case["expected_send"]
         or bool(messages)
         and all(word in messages[0] for word in case["required"]),
         "fixture_delivery": len(record.get("delivered", [])) == int(case["expected_send"]),
     }
+    if case["role"] != "temporary":
+        verdict["memory_preserved"] = record.get("after", {}).get(MEMORY) == record.get("before", {}).get(MEMORY)
     if case["role"] == "proactive":
         verdict.update(grade("quality_case", {**record, "fixture": case})["checks"])
     if case["role"] == "cron":

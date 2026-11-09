@@ -87,13 +87,45 @@ async def test_session_transport_errors_do_not_discard_history(pa_workspace, mon
 
 
 @pytest.mark.asyncio
-async def test_no_update_completes_without_publication_or_handoff(pa_workspace, monkeypatch):
+@pytest.mark.parametrize(
+    "answer",
+    ["NO_UPDATE", "NO_UPDATE\n无新发现。", "无新发现。\nNO_UPDATE", "本轮返回 `NO_UPDATE`，保持安静。"],
+)
+async def test_no_update_completes_without_publication_or_handoff(pa_workspace, answer):
     env = pa_workspace
-    stub_model(env, monkeypatch, no_update=True)
+    configure(env, [task()])
+    env.agent.reply = AsyncMock(return_value={"status": "completed", "result": answer})
     result = await CronAgentStep(app_context=env.context)(task=task())
     assert result.answer["reason"] == "no_new_information" and result.answer["path"] is None
     env.agent.reply.assert_awaited_once()
     assert env.runtime.tasks.paths("one") == [] and env.runtime.reminders.read() == []
+
+
+@pytest.mark.asyncio
+async def test_no_update_with_a_summary_rejects_the_conflict_without_deleting_it(pa_workspace):
+    env = pa_workspace
+    configure(env, [task()])
+
+    async def reply(_query, **kwargs):
+        state = env.runtime.tasks.execution(kwargs["injected_job_kwargs"]["cron_task_id"]).state
+        env.runtime.tasks.staging_path(state.run).write_text("A saved finding", encoding="utf-8")
+        return {"status": "completed", "result": "NO_UPDATE\nNothing new."}
+
+    env.agent.reply = reply
+    with pytest.raises(ValueError, match="must not accompany"):
+        await CronAgentStep(app_context=env.context)(task=task())
+    state = env.runtime.tasks.state(PaTask.model_validate(task()))
+    assert env.runtime.tasks.staging_path(state.run).read_text() == "A saved finding"
+    assert env.runtime.tasks.paths("one") == [] and env.runtime.reminders.read() == []
+
+
+@pytest.mark.asyncio
+async def test_incomplete_reply_cannot_be_accepted_as_no_update(pa_workspace):
+    env = pa_workspace
+    configure(env, [task()])
+    env.agent.reply = AsyncMock(return_value={"status": "failed", "result": "NO_UPDATE", "error": "Model failed"})
+    with pytest.raises(RuntimeError, match="Model failed"):
+        await CronAgentStep(app_context=env.context)(task=task())
 
 
 @pytest.mark.asyncio

@@ -142,7 +142,7 @@ class CronAgentStep(BasePaAgentStep):
             return True
         if reply.get("status") != "completed":
             raise RuntimeError(reply.get("error") or f"Cron task {reply.get('status')}")
-        if reply["result"].strip() == self.get_prompt("no_update"):
+        if self.get_prompt("no_update") in reply["result"]:
             if staging.exists():
                 raise ValueError("NO_UPDATE must not accompany a summary document")
         elif not staging.exists():
