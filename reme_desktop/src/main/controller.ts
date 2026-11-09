@@ -769,7 +769,6 @@ export class DesktopController {
           message.delivery === "immediate" &&
           settings.voiceEnabled &&
           settings.voiceReminders &&
-          settings.quietUntil <= Date.now() &&
           settings.voiceVolume > 0 &&
           !this.state.speech.capture
         )

@@ -4,6 +4,7 @@
 
 from copy import deepcopy
 from pathlib import Path
+import json
 
 import pytest
 import yaml
@@ -49,7 +50,8 @@ def record_for(root, case_id):
 def test_current_bundle_freezes_all_three_roles_and_shared_memory():
     repo = Path(__file__).resolve().parents[2]
     bundle = freeze(repo)
-    assert set(bundle) == {"current"} and set(bundle["current"]) == {"pa", "proactive", "cron", "memory"}
+    assert set(bundle) == {"current"}
+    assert set(bundle["current"]) == {"pa", "proactive", "cron", "temporary", "memory"}
     prompts = yaml.safe_load((repo / "reme/steps/proactive/proactive_agent.yaml").read_text())
     assert bundle["current"]["proactive"] == prompts
 
@@ -94,7 +96,17 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
         freeze(repo)["current"],
         CASES["proactive_evidence"],
     )
-    assert cfg["jobs"]["cron_agent"]["steps"][0]["job_tools"] == ["screen_capture", "finance_news"]
+    assert cfg["jobs"]["cron_agent"]["steps"][0]["job_tools"] == [
+        "screen_capture",
+        "finance_news",
+        "get_chat_messages",
+        "send_chat_message_immediate",
+    ]
+    assert set(cfg["jobs"]["cron_agent"]["steps"][0]["job_tools"]) <= cfg["jobs"].keys()
+    assert all(
+        set(task) == {"id", "cron", "query", "enabled"}
+        for task in json.loads((tmp_path / META / "cron.json").read_text())
+    )
     assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 7
     assert set(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) <= cfg["jobs"].keys()
     assert "reminder_delivery" not in cfg["jobs"]
@@ -187,3 +199,95 @@ def test_report_deltas_native_cache_and_reasoning_counters(tmp_path, portable):
 
 def test_quantiles_include_singletons():
     assert percentile([3], 0.9) == 3 and percentile([0, 10], 0.9) == 9
+
+
+def test_quality_fixtures_use_current_clock_and_discoverable_results(tmp_path):
+    from datetime import datetime
+    from benchmark.proactive.reminder_quality import scenarios
+    from reme.schema.pa_proactive import PaProactiveConfig
+    from reme.components._pa_tasks import TaskFiles
+    from types import SimpleNamespace
+
+    now = datetime.fromisoformat("2026-11-09T14:00:00+08:00")
+    cases = scenarios(now)
+    assert len(cases) == 11
+    case = cases["proactive_new"]
+    seed(tmp_path, case)
+    config = json.loads((tmp_path / META / "proactive.json").read_text())
+    assert not PaProactiveConfig.model_validate(config).hints_enabled
+    runtime = SimpleNamespace(
+        workspace_path=tmp_path,
+        _now=lambda: now,
+        _metadata_file=lambda name: tmp_path / META / name,
+    )
+    paths = TaskFiles(runtime).paths("fixture-0")
+    assert len(paths) == 1 and "37项本地测试" in paths[0].read_text()
+    assert all(row["created_at"] == now.isoformat() for case in cases.values() for row in case["messages"])
+    notes = json.loads((tmp_path / META / "session_ids.json").read_text())
+    assert notes[0]["last_active_at"] == now.isoformat()
+
+
+def test_quality_checks_reject_incomplete_silence_and_out_of_phase_attempts():
+    from benchmark.proactive.reminder_quality import checks
+
+    case = {"role": "cron", "expected_send": False, "required": [], "max_chars": 240, "reminders": []}
+    record = {"jobs": [], "completed": False, "before": {MEMORY: "x"}, "after": {MEMORY: "x"}}
+    assert not checks(case, record)["completed"]
+    record.update(completed=True)
+    record["jobs"] = [{"name": "get_chat_messages", "args": {}, "turn_index": 0, "error": "wrong phase"}]
+    verdict = checks(case, record)
+    assert not verdict["tool_calls_succeeded"] and not verdict["message_phase_only"]
+    assert not verdict["no_unneeded_history"]
+    record["jobs"] = [
+        {"name": "send_chat_message_immediate", "args": {"content": "new"}, "turn_index": 2},
+        {"name": "get_chat_messages", "args": {}, "turn_index": 2},
+    ]
+    assert not checks(case, record)["history_before_send"]
+    assert not checks(case, record)["expected_decision"]
+
+
+@pytest.mark.asyncio
+async def test_fixture_owner_preserves_empty_chat_and_native_append_contract():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from benchmark.proactive.runtime import bind_owner
+    from benchmark.proactive.cases import SESSION_ID
+    from reme.components.codex_app_server import SessionChangedError
+
+    agent = SimpleNamespace(
+        read_session=AsyncMock(),
+        get_session_status=AsyncMock(),
+        append_session=AsyncMock(),
+        reply=AsyncMock(),
+    )
+    record = {"delivered": []}
+    bind_owner(agent, {"messages": [], "session_status": "not_loaded"}, record)
+    assert (await agent.read_session(SESSION_ID)).last_turn_id is None
+    with pytest.raises(SessionChangedError, match="changed"):
+        await agent.append_session(SESSION_ID, "结果", message_id="one", expected_turn_id="stale")
+    first = await agent.append_session(SESSION_ID, "结果", message_id="one", expected_turn_id="")
+    assert first.id == "reme-proactive-one"
+    assert (await agent.read_session(SESSION_ID)).last_turn_id is None
+    assert await agent.append_session(SESSION_ID, "结果", message_id="one") == first
+    with pytest.raises(ValueError, match="different content"):
+        await agent.append_session(SESSION_ID, "不同结果", message_id="one")
+    assert len(record["delivered"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_busy_fixture_owner_is_retryable_instead_of_a_permanent_failure():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from benchmark.proactive.runtime import bind_owner
+    from benchmark.proactive.cases import SESSION_ID
+    from reme.components.codex_app_server import SessionChangedError
+
+    agent = SimpleNamespace(
+        read_session=AsyncMock(),
+        get_session_status=AsyncMock(),
+        append_session=AsyncMock(),
+        reply=AsyncMock(),
+    )
+    bind_owner(agent, {"messages": [], "session_status": "active"}, {"delivered": []})
+    with pytest.raises(SessionChangedError, match="busy"):
+        await agent.append_session(SESSION_ID, "结果", message_id="one")

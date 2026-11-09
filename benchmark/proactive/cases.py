@@ -714,7 +714,7 @@ CASES = {
                 "source": "chat",
             },
         ],
-        "gold": "重新评估未发送提醒，仅发送一次本地37项测试结果，保留范围，最多200字符。",
+        "gold": "重新评估未发送提醒，仅发送一次本地37项测试结果，保留核心结论和验证范围，简洁但完整。",
         "role": "proactive",
         "expected_send": True,
         "resources": {},
@@ -1143,7 +1143,8 @@ def write_text(root: Path, relative: str, content: str) -> None:
 
 def seed(root: Path, case: dict) -> list[str]:
     """Use native metadata contracts and flat resource paths in an isolated workspace."""
-    write_text(root, MEMORY, MEMORY_TEXT)
+    now = datetime.fromisoformat(case.get("now", NOW))
+    write_text(root, MEMORY, case.get("memory", MEMORY_TEXT))
     resources = case.get("resources", {})
     for name, content in resources.items():
         write_text(root, name, content)
@@ -1153,15 +1154,14 @@ def seed(root: Path, case: dict) -> list[str]:
             "cron": "*/5 * * * *",
             "enabled": True,
             "query": f"阅读 {name}，根据主人偏好解读本地报告，保留来源、时间与验证范围。只使用给定资料，不联网。",
-            "created_at": (frozen_now() - timedelta(hours=1)).isoformat(),
         }
         for index, name in enumerate(resources)
     ]
-    write_text(root, f"{META}/cron.json", json.dumps(tasks, ensure_ascii=False))
+    write_text(root, f"{META}/cron.json", json.dumps(case.get("tasks", tasks), ensure_ascii=False))
     rows = (
         []
         if case["role"] == "pa"
-        else [{"session_id": SESSION_ID, "last_active_at": NOW, "last_read_message_id": None}]
+        else [{"session_id": SESSION_ID, "last_active_at": now.isoformat(), "last_read_message_id": None}]
     )
     write_text(root, f"{META}/session_ids.json", json.dumps(rows))
     reminders = []
@@ -1169,13 +1169,13 @@ def seed(root: Path, case: dict) -> list[str]:
         reminders.append(
             {
                 "id": f"earlier-{index}",
-                "content": note["content"][:200],
+                "content": note["content"],
                 "kind": "normal",
                 "status": note["status"],
-                "created_at": (frozen_now() - timedelta(minutes=index + 1)).isoformat(),
-                "updated_at": NOW,
-                "expires_at": (frozen_now() + timedelta(minutes=5)).isoformat(),
-                "sent_at": NOW if note["status"] == "sent" else None,
+                "created_at": (now - timedelta(minutes=index + 1)).isoformat(),
+                "updated_at": now.isoformat(),
+                "expires_at": (now + timedelta(minutes=5)).isoformat(),
+                "sent_at": now.isoformat() if note["status"] == "sent" else None,
                 "session_id": SESSION_ID,
             },
         )
@@ -1184,4 +1184,6 @@ def seed(root: Path, case: dict) -> list[str]:
         f"{META}/chat_inbox.jsonl",
         "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in reminders),
     )
+    for name, content in case.get("initial_files", {}).items():
+        write_text(root, name, content)
     return list(resources)

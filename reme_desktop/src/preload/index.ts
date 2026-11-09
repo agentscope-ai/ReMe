@@ -19,7 +19,6 @@ const api: DesktopApi = {
   onCommand: (callback) => subscribe(channels.command, callback),
   pointer: (interactive) => ipcRenderer.send(channels.pointer, interactive),
   measureSurface: (size) => ipcRenderer.send(channels.surfaceSize, size),
-  measureHabitat: (value) => ipcRenderer.send(channels.habitat, value),
   drag: (phase) => ipcRenderer.send(channels.drag, phase),
 };
 

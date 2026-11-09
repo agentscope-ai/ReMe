@@ -16,12 +16,9 @@ import { useSpeechPlayback } from "./speech/playback.ts";
 import Remy from "./remy.tsx";
 import Settings from "./settings.tsx";
 import Knowledge from "./knowledge/index.tsx";
-import Companion from "./companion/index.tsx";
-import { useHabitat } from "./companion/use-habitat.ts";
 
 export default function Workspace(bootstrap: Bootstrap) {
   const { state, platform, version } = bootstrap;
-  useHabitat(state);
   const t = translator(state.settings.language);
   const [collapsed, setCollapsed] = useState<
     Partial<Record<DesktopPage, boolean>>
@@ -173,7 +170,6 @@ export default function Workspace(bootstrap: Bootstrap) {
           collapsed={collapsed.settings}
         />
       </div>
-      <Companion {...bootstrap} embedded />
     </Tabs.Root>
   );
 }

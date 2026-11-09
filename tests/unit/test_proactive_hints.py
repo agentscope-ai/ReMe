@@ -38,6 +38,7 @@ def model(env, monkeypatch, *, content="", advance=None):
             env.now[0] = advance
         if phase == "query_message":
             bound = kwargs["injected_job_kwargs"]
+            await env.runtime.get_chat_messages(round_id=bound["pa_round_id"])
             await env.runtime.send_chat_message(
                 content,
                 kind="normal",

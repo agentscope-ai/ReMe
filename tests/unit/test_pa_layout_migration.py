@@ -22,13 +22,17 @@ def legacy(tmp_path):
     runtime = PaRuntime(app_context=context, default_proactive=PA_CONFIG)
     root = runtime.component_metadata_path
     root.mkdir(parents=True, exist_ok=True)
-    (root / "tasks.json").write_text('[{"id":"one","cron":"*/5 * * * *","query":"work"}]')
+    (root / "tasks.json").write_text('[{"id":"one","cron":"*/5 * * * *","query":"work","enabled":true}]')
     (root / "proactive_inbox.txt").write_text("请关注机器人。", encoding="utf-8")
     (root / "proactive_requests.jsonl").write_text('{"id":"request-one","status":"queued"}\n')
     now = datetime.fromisoformat("2026-11-08T12:00:00+08:00")
     run = PaTaskRun(task_id="one", query="work", started_at=now, agent_session_id="cron-session", phase="summary")
     result = "reme_cron/one/2026-11-08/120000.md"
-    saved = PaTaskRecovery(task=PaTask(id="one", cron="*/5 * * * *", query="work"), run=run, target_path=result)
+    saved = PaTaskRecovery(
+        task=PaTask(id="one", cron="*/5 * * * *", query="work", enabled=True),
+        run=run,
+        target_path=result,
+    )
     files = {
         result: frontmatter.dumps(
             frontmatter.Post("发现。", task_id="one", run_id=run.run_id, status="unread", user_read_at=None),

@@ -1,4 +1,4 @@
-"""Independent schedules, three-query tasks and recoverable file-native results."""
+"""Independent schedules, four-query tasks and recoverable file-native results."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
@@ -13,21 +13,32 @@ import pytest
 from reme.components.job import BaseJob, CronJob
 from reme.components.runtime_context import RuntimeContext
 from reme.schema.pa_task import PaTask
-from reme.schema import Response
-from reme.schema.screen_capture import CapturedDisplay
 from reme.steps.proactive import CronAgentStep, CronScheduleStep
 from reme.steps.proactive.tools import ReadCronResultsStep
 
 
 def task(identifier="one", **overrides):
-    return {"id": identifier, "cron": "*/5 * * * *", "query": "观察屏幕", "enabled": True, **overrides}
+    return {
+        "id": identifier,
+        "cron": "*/5 * * * *",
+        "query": "观察屏幕",
+        "enabled": True,
+        **overrides,
+    }
 
 
 def configure(env, definitions):
     env.runtime._write_json(env.runtime.cron_path, definitions)
 
 
-def snapshot(env, identifier="one", time="120000", day="2026-11-08", status="unread", content="累计发现"):
+def snapshot(
+    env,
+    identifier="one",
+    time="120000",
+    day="2026-11-08",
+    status="unread",
+    content="累计发现",
+):
     path = env.runtime.tasks.task_path(identifier) / day / f"{time}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(frontmatter.dumps(frontmatter.Post(content, task_id=identifier, status=status)))
@@ -42,6 +53,7 @@ def stub_model(
     fail_at=None,
     no_update=False,
     handoff="进展与来源。\n下一步调查。",
+    message=None,
 ):
     captured = {}
     summaries = {}
@@ -53,6 +65,8 @@ def stub_model(
         if name == "query_summary":
             captured.update(kwargs)
             summaries[rendered] = kwargs
+        elif name == "query_message":
+            summaries[rendered] = {"message": True}
         elif name == "query_handoff":
             summaries[rendered] = {"handoff": True}
         return rendered
@@ -61,16 +75,19 @@ def stub_model(
 
     async def reply(_query, **_kwargs):
         handoff_query = any(_query.startswith(text) and details.get("handoff") for text, details in summaries.items())
-        stage = 3 if handoff_query else 2 if _query in summaries else 1
+        message_query = any(_query == text and details.get("message") for text, details in summaries.items())
+        stage = 4 if handoff_query else 3 if message_query else 2 if _query in summaries else 1
         if stage == fail_at:
             raise RuntimeError("provider failed")
         if stage == 2 and content is not None and not no_update:
             path = Path(summaries[_query]["staging_path"])
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
-        result = handoff if stage == 3 else "NO_UPDATE" if stage == 2 and no_update else "finished"
+        if stage == 3 and message is not None:
+            await message(_kwargs["injected_job_kwargs"])
+        result = handoff if stage == 4 else "NO_UPDATE" if stage == 2 and no_update else "finished"
         return {
-            "session_id": "handoff-fork" if _kwargs.get("fork_session") else "task-session",
+            "session_id": ("handoff-fork" if _kwargs.get("fork_session") else "task-session"),
             "status": "completed",
             "result": result,
         }
@@ -85,7 +102,10 @@ async def wait_until(predicate):
             await asyncio.sleep(0.005)
 
 
-@pytest.mark.parametrize("overrides", [{"id": "../escape"}, {"cron": "* * * * * *"}, {"query": " "}, {"enabled": 1}])
+@pytest.mark.parametrize(
+    "overrides",
+    [{"id": "../escape"}, {"cron": "* * * * * *"}, {"query": " "}, {"enabled": 1}],
+)
 def test_task_definition_rejects_invalid_fields(overrides):
     with pytest.raises(ValueError):
         PaTask.model_validate(task(**overrides))
@@ -106,24 +126,40 @@ def test_definition_loading_preserves_user_files_and_rejects_duplicates(pa_works
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
-async def test_task_summary_and_handoff_share_session_with_loaded_memory(pa_workspace, monkeypatch, language):
+@pytest.mark.parametrize("previous_day", ["2026-11-07", "2026-11-08"])
+async def test_task_summary_and_handoff_share_session_with_loaded_memory(
+    pa_workspace,
+    monkeypatch,
+    language,
+    previous_day,
+):
     env = pa_workspace
     env.context.app_config.daily_dir = "notes"
     memory_path = env.runtime.workspace_path / "notes/personal/MEMORY.md"
     memory_path.parent.mkdir(parents=True)
     memory = "# 当前偏好\n只关注有来源的新信息，保留 {原始内容}。\n"
     memory_path.write_text(memory, encoding="utf-8")
-    old = snapshot(env, day="2026-11-07", time="235900", status="read")
-    newer = snapshot(env, time="110000")
+    old = snapshot(env, day="2026-11-06", time="235900", status="read")
+    newer = snapshot(env, day=previous_day, time="110000")
     env.runtime.tasks.handoff_path("one").write_text("上次查到的来源和待确认事项。", encoding="utf-8")
     captured = stub_model(env, monkeypatch)
-    result = await CronAgentStep(app_context=env.context, language=language, job_tools=["screen_capture"])(task=task())
+    step = CronAgentStep(app_context=env.context, language=language, job_tools=["screen_capture"])
+    result = await step(task=task())
     calls = env.agent.reply.await_args_list
-    assert len(calls) == 3 and calls[0].args[0] == task()["query"]
+    assert len(calls) == 4 and calls[0].args[0] == step.prompt_format("query_execute", query=task()["query"])
     assert "resume" not in calls[0].kwargs and calls[1].kwargs["resume"] == "task-session"
     assert all(call.kwargs["resume"] == "task-session" for call in calls[1:])
     assert all(not call.kwargs.get("fork_session") for call in calls)
-    assert all(call.kwargs["job_tools"] == ["screen_capture"] for call in calls)
+    assert all(
+        call.kwargs["job_tools"]
+        == [
+            "screen_capture",
+            "get_chat_messages",
+            "send_chat_message_immediate",
+        ]
+        for call in calls
+    )
+    assert all(call.kwargs["injected_job_kwargs"] == calls[0].kwargs["injected_job_kwargs"] for call in calls)
     prompt = calls[0].kwargs["system_prompt"]
     assert memory in prompt and "上次查到的来源和待确认事项。" in prompt
     assert str(env.runtime.tasks.recovery_path("one")) not in prompt
@@ -132,7 +168,8 @@ async def test_task_summary_and_handoff_share_session_with_loaded_memory(pa_work
     assert all(call.kwargs["activity_source"] == "task" for call in calls)
     assert calls[0].kwargs["activity_run_id"] == calls[1].kwargs["activity_run_id"]
     assert all(call.kwargs["activity_task_id"] == "one" for call in calls)
-    assert captured["previous_paths"].splitlines() == [str(newer), str(old)]
+    assert captured["previous_path"] == str(newer)
+    assert str(old) not in calls[1].args[0]
     path = env.runtime.workspace_path / result.answer["path"]
     assert path == env.runtime.tasks.task_path("one") / "2026-11-08/120000.md"
     post = frontmatter.load(path)
@@ -153,7 +190,13 @@ async def test_task_summary_and_handoff_share_session_with_loaded_memory(pa_work
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "content,fail_at",
-    [(None, None), (" ", None), ("---\nstatus: read\n---\n", None), (None, 1), (None, 2)],
+    [
+        (None, None),
+        (" ", None),
+        ("---\nstatus: read\n---\n", None),
+        (None, 1),
+        (None, 2),
+    ],
 )
 async def test_failed_tasks_never_publish_unread_documents(pa_workspace, monkeypatch, content, fail_at):
     env = pa_workspace
@@ -173,7 +216,7 @@ async def test_existing_snapshot_is_never_overwritten(pa_workspace, monkeypatch)
     original = path.read_bytes()
     stub_model(env, monkeypatch)
     result = await CronAgentStep(app_context=env.context)(task=task())
-    assert path.read_bytes() == original and env.agent.reply.await_count == 3
+    assert path.read_bytes() == original and env.agent.reply.await_count == 4
     assert result.answer["path"] != env.runtime.to_workspace_relative(path)
     assert len(env.runtime.tasks.paths("one")) == 2
 
@@ -219,7 +262,9 @@ async def test_task_cancellation_records_interruption(pa_workspace):
 
 
 @pytest.mark.asyncio
-async def test_consume_latest_three_per_task_checkpoints_then_marks_older_superseded(pa_workspace):
+async def test_consume_latest_three_per_task_checkpoints_then_marks_older_superseded(
+    pa_workspace,
+):
     env = pa_workspace
     configure(env, [task(), task("two", enabled=False)])
     old = snapshot(env, day="2026-11-07", time="235900")
@@ -289,9 +334,17 @@ def test_result_symlinks_fail_closed(pa_workspace, tmp_path, kind):
     external = tmp_path / "external"
     external.mkdir()
     path = env.runtime.tasks.task_path("one") / "2026-11-08/120000.md"
-    part = {"root": env.runtime.tasks.root_path, "date": path.parent, "task": path.parent.parent, "file": path}[kind]
+    part = {
+        "root": env.runtime.tasks.root_path,
+        "date": path.parent,
+        "task": path.parent.parent,
+        "file": path,
+    }[kind]
     part.parent.mkdir(parents=True, exist_ok=True)
-    part.symlink_to(external if kind != "file" else external / "note.md", target_is_directory=kind != "file")
+    part.symlink_to(
+        external if kind != "file" else external / "note.md",
+        target_is_directory=kind != "file",
+    )
     if kind == "file":
         (external / "note.md").write_text("private")
     with pytest.raises(ValueError, match="without symlinks"):
@@ -367,7 +420,7 @@ async def test_real_cron_can_opt_out_of_active_hours_and_closes_on_cancellation(
     )
     try:
         await wait_until(lambda: len(list(env.runtime.tasks.root_path.glob("*/*/*.md"))) == 2)
-        await wait_until(lambda: env.agent.reply.await_count == 6)
+        await wait_until(lambda: env.agent.reply.await_count == 8)
         assert len(jobs) == 2 and all(job.is_started for job in jobs)
     finally:
         pending.cancel()
@@ -447,117 +500,48 @@ async def test_stopped_task_does_not_start_a_model_turn(pa_workspace):
     assert rows[-1]["status"] == "interrupted"
 
 
-def captured_frame(env, name="new.png"):
-    from PIL import Image
-
-    path = env.runtime.workspace_path / "resource/screen_capture" / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGB", (64, 64), "white").save(path)
-    return CapturedDisplay(
-        display_id="stable-display",
-        stable_id=True,
-        bounds=(0, 0, 64, 64),
-        pixel_size=(64, 64),
-        path=env.runtime.to_workspace_relative(path),
-        scope="task:one",
-        captured_at=env.now[0],
-    ).model_dump(mode="json")
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("message", "fixed"),
+        ("delivery", "immediate"),
+        ("source_session_id", "main"),
+        ("created_at", "2026-11-09T12:00:00+08:00"),
+        ("preflight", "screen_capture"),
+    ],
+)
+def test_removed_task_fields_are_rejected(field, value):
+    with pytest.raises(ValueError, match="Extra inputs"):
+        PaTask.model_validate(task(**{field: value}))
 
 
-@pytest.mark.asyncio
-async def test_unchanged_screen_preflight_skips_both_model_queries_and_unread_summary(pa_workspace):
-    env = pa_workspace
-    env.agent.reply = AsyncMock()
-    capture = AsyncMock(return_value=Response(answer={"context": "与上次一致", "paths": []}))
-    env.context.jobs["screen_capture"] = capture
-    result = await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
-    assert result.answer == {"task_id": "one", "status": "skipped", "reason": "screen_unchanged"}
-    env.agent.reply.assert_not_awaited()
-    assert not env.runtime.tasks.paths("one")
-    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
-    assert [row["status"] for row in rows] == ["running", "skipped"]
-    assert rows[-1]["reason"] == "screen_unchanged"
+@pytest.mark.parametrize("field", ["id", "cron", "query", "enabled"])
+def test_all_four_task_fields_are_required(field):
+    definition = task()
+    del definition[field]
+    with pytest.raises(ValueError, match="Field required"):
+        PaTask.model_validate(definition)
 
 
 @pytest.mark.asyncio
-async def test_changed_preflight_keeps_original_query_and_reuses_normal_tool_result(pa_workspace, monkeypatch):
+async def test_no_update_skips_message_query_but_preserves_handoff(pa_workspace, monkeypatch):
     env = pa_workspace
-    frame = captured_frame(env)
-    payload = {"context": "changed", "paths": [frame["path"]]}
-    capture = AsyncMock(return_value=Response(answer=payload, metadata={"screen_capture": [frame]}))
-    env.context.jobs["screen_capture"] = capture
-    stub_model(env, monkeypatch)
-    result = await CronAgentStep(app_context=env.context, job_tools=["screen_capture"])(
-        task=task(preflight="screen_capture"),
-    )
-    calls = env.agent.reply.await_args_list
-    assert calls[0].args[0] == task()["query"]
-    assert calls[0].kwargs["job_tools"] == ["screen_capture"]
-    assert calls[0].kwargs["injected_job_kwargs"]["_screen_preflight"] == {"result": payload, "frames": [frame]}
-    assert calls[0].kwargs["injected_job_kwargs"] == calls[1].kwargs["injected_job_kwargs"]
-    assert capture.await_args.kwargs["_screen_baseline"] == []
-    post = frontmatter.load(env.runtime.workspace_path / result.answer["path"])
-    assert post["screen_capture"] == [frame]
-    assert env.runtime.tasks.screen_baseline("one") == [frame]
-
-
-@pytest.mark.asyncio
-async def test_model_failure_keeps_previous_successful_screen_baseline(pa_workspace, monkeypatch):
-    env = pa_workspace
-    old, new = captured_frame(env, "old.png"), captured_frame(env)
-    previous = snapshot(env, time="110000")
-    previous.write_text(frontmatter.dumps(frontmatter.Post("previous", task_id="one", screen_capture=[old])))
-    before = previous.read_bytes()
-    env.context.jobs["screen_capture"] = AsyncMock(
-        return_value=Response(
-            answer={"context": "changed", "paths": [new["path"]]},
-            metadata={"screen_capture": [new]},
-        ),
-    )
-    stub_model(env, monkeypatch, fail_at=1)
-    with pytest.raises(RuntimeError, match="provider failed"):
-        await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
-    assert previous.read_bytes() == before
-    assert env.runtime.tasks.screen_baseline("one") == [old]
-    assert env.context.jobs["screen_capture"].await_args.kwargs["_screen_baseline"] == [old]
-
-
-@pytest.mark.asyncio
-async def test_screen_capture_failure_is_not_misreported_as_unchanged(pa_workspace):
-    env = pa_workspace
-    env.agent.reply = AsyncMock()
-    env.context.jobs["screen_capture"] = AsyncMock(return_value=Response(success=False, answer="capture timed out"))
-    with pytest.raises(RuntimeError, match="timed out"):
-        await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
-    env.agent.reply.assert_not_awaited()
-    rows = [json.loads(line) for line in env.runtime.cron_runs_path.read_text().splitlines()]
-    assert rows[-1]["status"] == "failed" and rows[-1]["reason"] is None
-
-
-@pytest.mark.asyncio
-async def test_no_update_keeps_handoff_and_advances_successful_screen_baseline(pa_workspace, monkeypatch):
-    env = pa_workspace
-    frame = captured_frame(env)
-    env.context.jobs["screen_capture"] = AsyncMock(
-        return_value=Response(
-            answer={"context": "changed", "paths": [frame["path"]]},
-            metadata={"screen_capture": [frame]},
-        ),
-    )
-    stub_model(env, monkeypatch, no_update=True)
-    result = await CronAgentStep(app_context=env.context)(task=task(preflight="screen_capture"))
+    captured = stub_model(env, monkeypatch, no_update=True)
+    step = CronAgentStep(app_context=env.context)
+    result = await step(task=task())
+    assert captured["previous_path"] == step.get_prompt("no_previous")
     assert result.answer["status"] == "succeeded" and result.answer["path"] is None
     assert result.answer["reason"] == "no_new_information"
     assert env.agent.reply.await_count == 3 and not env.runtime.tasks.paths("one")
-    assert env.runtime.tasks.screen_baseline("one") == [frame]
     assert env.runtime.tasks.handoff("one").content and not env.runtime.tasks.recovery_path("one").exists()
+    assert env.runtime.reminders.read() == []
 
 
 @pytest.mark.asyncio
 async def test_handoff_failure_recovers_without_republishing_or_consumption_reset(pa_workspace, monkeypatch):
     env = pa_workspace
     configure(env, [task()])
-    stub_model(env, monkeypatch, fail_at=3)
+    stub_model(env, monkeypatch, fail_at=4)
     with pytest.raises(RuntimeError, match="provider failed"):
         await CronAgentStep(app_context=env.context)(task=task())
     path = env.runtime.tasks.paths("one")[0]
@@ -585,8 +569,9 @@ async def test_summary_failure_recovers_original_query_context(pa_workspace, mon
     (env.runtime.workspace_path / "daily/personal/MEMORY.md").write_text(memory, encoding="utf-8")
     stub_model(env, monkeypatch)
     await CronAgentStep(app_context=env.context)(task=task())
-    assert first.await_count == 2 and env.agent.reply.await_count == 2
-    assert all(call.args[0] != task()["query"] for call in env.agent.reply.await_args_list)
+    assert first.await_count == 2 and env.agent.reply.await_count == 3
+    execution_query = CronAgentStep(app_context=env.context).prompt_format("query_execute", query=task()["query"])
+    assert all(call.args[0] != execution_query for call in env.agent.reply.await_args_list)
     assert all(call.kwargs["resume"] == "task-session" for call in env.agent.reply.await_args_list)
     assert all(not call.kwargs.get("fork_session") for call in env.agent.reply.await_args_list)
     assert all(memory in call.kwargs["system_prompt"] for call in env.agent.reply.await_args_list)
@@ -603,7 +588,7 @@ async def test_recovery_handles_crash_between_publication_and_phase_checkpoint(p
     checkpoint = env.runtime.tasks.checkpoint
 
     async def fail_handoff(saved):
-        if saved.run.phase == "handoff":
+        if saved.run.phase == "message":
             raise OSError("checkpoint failed")
         await checkpoint(saved)
 
@@ -615,7 +600,7 @@ async def test_recovery_handles_crash_between_publication_and_phase_checkpoint(p
     monkeypatch.setattr(env.runtime.tasks, "checkpoint", checkpoint)
     stub_model(env, monkeypatch)
     await CronAgentStep(app_context=env.context)(task=task())
-    env.agent.reply.assert_awaited_once()
+    assert env.agent.reply.await_count == 2
     assert path.read_bytes() == original and len(env.runtime.tasks.paths("one")) == 1
 
 
@@ -624,7 +609,11 @@ async def test_saved_handoff_recovers_without_another_model_call(pa_workspace, m
     env = pa_workspace
     stub_model(env, monkeypatch)
     clear = env.runtime.tasks.clear_recovery
-    monkeypatch.setattr(env.runtime.tasks, "clear_recovery", AsyncMock(side_effect=OSError("cleanup failed")))
+    monkeypatch.setattr(
+        env.runtime.tasks,
+        "clear_recovery",
+        AsyncMock(side_effect=OSError("cleanup failed")),
+    )
     with pytest.raises(OSError, match="cleanup failed"):
         await CronAgentStep(app_context=env.context)(task=task())
     previous = env.runtime.tasks.handoff_path("one").read_bytes()
@@ -643,8 +632,9 @@ async def test_new_task_definition_does_not_resume_old_failed_query(pa_workspace
     with pytest.raises(RuntimeError):
         await CronAgentStep(app_context=env.context)(task=task())
     stub_model(env, monkeypatch)
-    await CronAgentStep(app_context=env.context)(task=task(query="主人修改后的任务"))
-    assert env.agent.reply.await_args_list[0].args[0] == "主人修改后的任务"
+    step = CronAgentStep(app_context=env.context)
+    await step(task=task(query="主人修改后的任务"))
+    assert env.agent.reply.await_args_list[0].args[0] == step.prompt_format("query_execute", query="主人修改后的任务")
     assert "resume" not in env.agent.reply.await_args_list[0].kwargs
 
 

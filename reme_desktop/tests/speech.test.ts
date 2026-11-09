@@ -588,3 +588,23 @@ test("oversized speech responses are cancelled before JSON decoding", async (t) 
   );
   assert.equal(cancelled, true);
 });
+
+test("immediate reminder narration bypasses quiet mode but preserves explicit voice controls", async () => {
+  const { speech, context } = harness();
+  context.settings.quietUntil = Date.now() + 60_000;
+  context.settings.voiceReminders = true;
+  const immediate = {
+    ...message("urgent"),
+    source: "proactive" as const,
+    delivery: "immediate" as const,
+  };
+  speech.speak(immediate, "reminder");
+  await flush();
+  assert.equal(speech.state.playback?.messageId, "urgent");
+  speech.tick();
+  assert.equal(speech.state.playback?.messageId, "urgent");
+  context.settings.voiceReminders = false;
+  speech.tick();
+  assert.equal(speech.state.playback, null);
+  await speech.close();
+});

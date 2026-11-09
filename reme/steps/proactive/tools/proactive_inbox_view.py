@@ -52,7 +52,7 @@ class ProactiveInboxViewStep(TaskResultsStep):
         return _detail(
             id=f"task:{relative}",
             kind="task_result",
-            title=(task.query or task.message)[:160] if task else post["task_id"],
+            title=task.query[:160] if task else post["task_id"],
             content=post.content,
             status=status,
             task_id=post["task_id"],

@@ -23,6 +23,7 @@ class SessionMessage(BaseModel):
     content: str
     source: Literal["chat", "proactive"] = "chat"
     created_at: str | None = None
+    expires_at: str | None = None
     turn_id: str | None = None
     completed: bool = True
     delivery: Literal["idle", "immediate"] = "idle"

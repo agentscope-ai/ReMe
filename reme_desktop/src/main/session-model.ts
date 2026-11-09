@@ -59,6 +59,7 @@ function message(value: SessionMessage): SessionMessage {
     content: value.content,
     source: value.source,
     created_at: value.created_at,
+    expires_at: value.expires_at,
     turn_id: value.turn_id,
     completed: value.completed,
     delivery: value.delivery,
@@ -81,12 +82,17 @@ export class SessionModel {
   inboxMessages: SessionMessage[] = [];
 
   canNotify(message: SessionMessage, now: number): boolean {
+    const inbox = this.inboxMessages.find((item) => item.id === message.id);
     if (
       !message.notification_eligible ||
-      this.inboxMessages.find((item) => item.id === message.id)
-        ?.notification_eligible === false
+      inbox?.notification_eligible === false
     )
       return false;
+    const expires = message.expires_at ?? inbox?.expires_at;
+    if (expires != null) {
+      const deadline = Date.parse(expires);
+      if (!Number.isFinite(deadline) || now >= deadline) return false;
+    }
     if (message.delivery === "immediate") return true;
     const window = this.notifications;
     if (!window || !window.enabled) return false;
@@ -245,10 +251,13 @@ export class SessionModel {
       if (event.type === "message_upsert") {
         const replacement = message(event.message!);
         if (replacement.source === "proactive") {
+          const inbox = inboxMessages.find(
+            (item) => item.id === replacement.id,
+          );
           replacement.origin_session_id ??= event.session_id;
+          replacement.expires_at ??= inbox?.expires_at;
           replacement.notification_eligible =
-            inboxMessages.find((item) => item.id === replacement.id)
-              ?.notification_eligible ?? replacement.notification_eligible;
+            inbox?.notification_eligible ?? replacement.notification_eligible;
           inboxMessages = [
             ...inboxMessages.filter((item) => item.id !== replacement.id),
             replacement,

@@ -88,6 +88,7 @@ export interface SessionMessage {
   content: string;
   source: "chat" | "proactive";
   created_at?: string | null;
+  expires_at?: string | null;
   turn_id?: string | null;
   completed: boolean;
   delivery: "idle" | "immediate";
@@ -244,6 +245,7 @@ export interface AnimationManifest {
 }
 
 export interface WindowLayout {
+  visible: boolean;
   body: { left: number; top: number; size: number };
   bubble: {
     left: number;
@@ -251,12 +253,6 @@ export interface WindowLayout {
     width: number;
     maxWidth: number;
     height: number;
-  };
-  presence?: {
-    host: "desktop" | "app";
-    visible: boolean;
-    opacity: number;
-    motion?: { id: number; startedAt: number; direction: 1 | -1 };
   };
 }
 
@@ -327,10 +323,6 @@ export interface DesktopApi {
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   pointer(interactive: boolean): void;
   measureSurface(size: import("./surface.ts").SurfaceSize): void;
-  measureHabitat(value: {
-    slot: { x: number; y: number; width: number; height: number } | null;
-    reducedMotion: boolean;
-  }): void;
   drag(phase: "start" | "move" | "end"): void;
 }
 
@@ -341,7 +333,6 @@ export const channels = {
   layout: "reme:layout",
   pointer: "reme:pointer",
   surfaceSize: "reme:surface-size",
-  habitat: "reme:habitat",
   drag: "reme:drag",
   command: "reme:command",
   transcribe: "reme:transcribe",

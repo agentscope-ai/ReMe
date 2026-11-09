@@ -7,8 +7,7 @@ default_memory: |
   - Follows advances in AI, especially new techniques with practical applications.
 
   ## Proactive reminders
-  - Share only useful new information: at most three items by importance, without filling a quota;
-    each keeps one short conclusion and necessary evidence.
+  - Share useful new information, preserving core conclusions, necessary background and evidence; be concise but complete.
 
 default_memory_zh: |
   # 个人记忆
@@ -18,7 +17,7 @@ default_memory_zh: |
   - 关注 AI 的前沿进展，尤其是有实际应用价值的新技术。
 
   ## 主动提醒要求
-  - 只提醒有用的新信息，按重要性选最多三件，不凑数；每件只保留一句结论和必要依据。
+  - 只提醒有用的新信息，保留核心结论、必要背景和依据，简洁但完整。
 
 handoff_rules: |
   You are about to sleep. Prepare complete, concise, structured context for yourself when you next wake up:

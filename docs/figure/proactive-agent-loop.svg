@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1070" viewBox="0 0 1700 1070"
+     role="img" aria-labelledby="title desc">
+    <title id="title">Proactive Agent Loop: agents, inboxes, workspace and tools</title>
+    <desc id="desc">Three layers. Chat, intelligent proactive, scheduled and one-shot agents occupy the first layer.
+        The second layer contains only three inboxes, aligned beneath their receiving agent or task owner.
+        Chat creates and manages scheduled and one-shot work. Feedback for the scheduled agent revises the existing
+        task requirements, preserving its identity and schedule. The next run uses the updated requirements.
+        Feedback and preferences for the intelligent proactive agent go to the proactive inbox for its next wakeup.
+        The proactive agent wakes periodically, prepares context from the main conversation, and combines memory,
+        recent dialogue, inbox instructions, scheduled findings, message history and previous TODOs.
+        It gathers context and investigates worthwhile leads, then weighs value, novelty and timing before choosing
+        whether to queue a message or stay quiet. Both choices lead to saving progress and planning the next wakeup.
+        Its ordinary messages wait for ten continuous idle seconds and follow active hours, pauses and evening closure.
+        Scheduled agents run, archive useful findings, assess urgency and save a handoff. Only urgent candidates need
+        history checks; urgent new findings may be sent immediately after publication. These alerts expire after 15 minutes.
+        One-shot agents prepare context from the source conversation, execute now or when due, then deliver their result.
+        One-shot results are explicitly requested deliverables and need not be urgent. They share the chat inbox.
+        Immediate delivery bypasses quiet settings and ordinary notification windows. Expired alerts stop notifying;
+        archived findings remain available. Delivery displays messages and appends conversation history without starting a new chat turn.
+        Users can inspect the chat inbox and scheduled results. The third layer holds shared tools and a user-owned workspace
+        with personal memory, conversations, inbox records, task requirements, findings, TODOs, handoffs and recovery progress.
+    </desc>
+    <defs>
+        <style>
+            text { font-family: "Comic Sans MS", "Bradley Hand", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; fill: #1f2430; }
+            .title { font-size: 32px; font-weight: 700; text-anchor: middle; }
+            .subtitle { font-size: 15px; fill: #556276; text-anchor: middle; }
+            .layer { fill: #fafbfc; stroke: #e0e5eb; stroke-width: 1.2; }
+            .layer-number { font-size: 25px; font-weight: 700; fill: #7f8b9d; }
+            .layer-label { font-size: 19px; font-weight: 700; }
+            .panel { stroke: #1f2430; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+            .label { font-size: 20px; font-weight: 700; text-anchor: middle; }
+            .small { font-size: 15px; fill: #556276; text-anchor: middle; }
+            .edge-label { font-size: 15px; fill: #556276; }
+            .arrow { fill: none; stroke: #7f8b9d; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; marker-end: url(#arrow); }
+            .wire-casing { fill: none; stroke: #ffffff; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+            .two-way { marker-start: url(#arrow); }
+            .shared-arrow { fill: none; stroke: #a3adbd; stroke-width: 1.6; stroke-dasharray: 6 6; stroke-linecap: round; marker-start: url(#arrow-soft); marker-end: url(#arrow-soft); }
+            .loop-arrow { fill: none; stroke: #45785d; stroke-width: 1.7; stroke-linecap: round; marker-end: url(#arrow-loop); }
+            .step { fill: #ffffff; stroke: #1f2430; stroke-width: 1.5; }
+            .step-label { font-size: 15px; font-weight: 700; text-anchor: middle; }
+            .step-note { font-size: 11px; fill: #556276; text-anchor: middle; }
+            .branch-label { font-size: 11px; fill: #45785d; }
+            .chip { fill: #ffffff; stroke: #1f2430; stroke-width: 1.7; stroke-dasharray: 6 5; stroke-linecap: round; }
+            .tiny { font-size: 13px; fill: #556276; text-anchor: middle; }
+            .document { fill: #ffffff; stroke: #a3adbd; stroke-width: 1.3; stroke-linejoin: round; }
+            .file-line { fill: none; stroke: #a3adbd; stroke-width: 1.3; stroke-linecap: round; }
+        </style>
+        <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+            <path d="M0 0 L6 3 L0 6 Z" fill="#7f8b9d"/>
+        </marker>
+        <marker id="arrow-soft" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto-start-reverse" markerUnits="strokeWidth">
+            <path d="M0 0 L6 3 L0 6 Z" fill="#a3adbd"/>
+        </marker>
+        <marker id="arrow-loop" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0 0 L6 3 L0 6 Z" fill="#45785d"/>
+        </marker>
+        <g id="document-icon">
+            <path class="document" d="M0 0 H23 L33 10 V43 H0 Z M23 0 V10 H33"/>
+            <path class="file-line" d="M7 20 H25 M7 28 H25 M7 36 H19"/>
+        </g>
+    </defs>
+
+    <rect width="1700" height="1070" fill="#ffffff"/>
+    <text class="title" x="900" y="46">Proactive Agent Loop</text>
+    <path d="M746 58 Q896 63 1054 57" fill="none" stroke="#ccebd9" stroke-width="6" stroke-linecap="round"/>
+    <text class="subtitle" x="900" y="86">Agents decide and act. Inboxes coordinate. Shared tools and local files sustain the loop.</text>
+
+    <!-- Three horizontal layers keep roles, capabilities and durable documents distinct. -->
+    <rect class="layer" x="175" y="155" width="1450" height="290" rx="20"/>
+    <rect class="layer" x="175" y="575" width="1450" height="155" rx="20"/>
+    <rect class="layer" x="175" y="845" width="1450" height="150" rx="20"/>
+    <text class="layer-number" x="47" y="268">01</text>
+    <text class="layer-label" x="35" y="302">Agents</text>
+    <text class="layer-number" x="47" y="628">02</text>
+    <text class="layer-label" x="35" y="662">Inboxes</text>
+    <text class="layer-number" x="47" y="906">03</text>
+    <text class="layer-label" x="25" y="936">Workspace</text>
+    <text class="layer-label" x="35" y="962">&amp; tools</text>
+
+    <!-- Chat delegates tasks; scheduled feedback updates the existing task's requirements. -->
+    <path d="M320 208 L321 130 Q898 127 1480 130" fill="none" stroke="#7f8b9d" stroke-width="1.7" stroke-linecap="round"/>
+    <path class="arrow" d="M1160 130 V208"/>
+    <path class="arrow" d="M1480 130 V208"/>
+    <text class="edge-label" x="1130" y="116" text-anchor="middle">Create / manage tasks</text>
+    <text class="edge-label" x="1178" y="168" style="font-size: 13px">Task feedback:</text>
+    <text class="edge-label" x="1178" y="190" style="font-size: 13px">Update requirements</text>
+
+    <!-- Inboxes align with their receiving agent; cross-column arrows identify their writers. -->
+    <path class="arrow" d="M320 598 Q318 480 320 362"/>
+    <text class="edge-label" x="211" y="492">Show to user</text>
+    <text class="edge-label" x="211" y="518">Save in chat</text>
+    <path class="arrow" d="M400 362 L400 480 Q498 478 600 480 L600 650 H638"/>
+    <text class="edge-label" x="430" y="466">Feedback &amp; preferences</text>
+    <path class="arrow" d="M760 598 Q758 510 760 422"/>
+    <text class="edge-label" x="778" y="519">Read on wake</text>
+
+    <path class="arrow" d="M1160 362 Q1158 479 1160 598"/>
+    <text class="edge-label" x="1180" y="519">Archive findings</text>
+    <path class="arrow" d="M1038 650 L1000 651 Q998 465 1000 280 L962 280"/>
+    <text class="edge-label" x="1013" y="538">Read results</text>
+
+    <!-- Agents call the third-layer tools directly, bypassing the mailbox layer. -->
+    <path class="shared-arrow" d="M900 447 Q898 620 900 790 L360 790 V858"/>
+    <text class="edge-label" x="802" y="550">Use tools</text>
+
+    <!-- Inbox state remains durable regardless of which agent produced a message. -->
+    <path class="shared-arrow" d="M950 732 Q948 795 950 858"/>
+    <text class="edge-label" x="972" y="823">Persist inbox state</text>
+
+    <!-- Proactive writes deferred messages and reads the same inbox's history and states. -->
+    <path class="wire-casing" d="M620 422 L620 520 H500 V650 H442"/>
+    <path class="arrow two-way" d="M620 422 L620 520 H500 V650 H442"/>
+    <text class="edge-label" x="510" y="565">Deferred</text>
+    <text class="edge-label" x="510" y="591">History</text>
+
+    <!-- Immediate results share the chat inbox; cron also reads that inbox before sending. -->
+    <path class="wire-casing" d="M1282 300 L1320 301 V750 H380 V707"/>
+    <path class="arrow two-way" d="M1282 300 L1320 301 V750 H380 V707"/>
+    <path class="arrow" d="M1480 362 Q1478 555 1480 750 H1322"/>
+    <circle cx="1320" cy="750" r="3" fill="#7f8b9d"/>
+    <text class="edge-label" x="1336" y="487">Check history</text>
+    <text class="edge-label" x="1336" y="514">Urgent? Send now</text>
+    <text class="edge-label" x="1336" y="540" style="font-size: 13px">Expires in 15 min</text>
+    <text class="edge-label" x="1500" y="519">Deliver now</text>
+    <text class="edge-label" x="1140" y="773" text-anchor="middle">Immediate results to Chat Inbox</text>
+
+    <!-- Layer 1: four agent roles, with the proactive loop kept inside its owner. -->
+    <path class="panel" fill="#eef7ff" d="M215 210 Q321 208 425 211 Q441 210 440 227 L439 345 Q441 362 425 360
+        Q320 362 215 359 Q199 361 200 345 L201 226 Q199 211 215 210 Z"/>
+    <text class="label" x="320" y="259">Chat Agent</text>
+    <text class="small" x="320" y="295">Talk with the user</text>
+    <text class="small" x="320" y="325">Understand • Reply • Delegate</text>
+    <text class="tiny" x="320" y="346">Relay feedback • Refine tasks</text>
+
+    <path class="panel" fill="#f0fbf5" d="M578 170 Q761 167 942 171 Q961 170 960 189 L959 402 Q961 422 942 420
+        Q759 423 579 419 Q559 421 560 402 L561 189 Q559 171 578 170 Z"/>
+    <text class="label" x="760" y="203">Intelligent Proactive Agent</text>
+    <text class="tiny" x="760" y="228">Wake periodically • Discover • Decide</text>
+    <path class="loop-arrow" d="M732 266 Q760 264 788 266"/>
+    <path class="loop-arrow" d="M860 289 V296"/>
+    <path class="loop-arrow" d="M783 330 H732"/>
+    <path class="loop-arrow" d="M660 355 V380"/>
+    <path class="loop-arrow" d="M860 364 V380"/>
+    <path class="loop-arrow" d="M598 396 H578 V266 H588"/>
+    <rect class="step" x="590" y="245" width="140" height="42" rx="9"/>
+    <text class="step-label" x="660" y="263" style="font-size: 14px">Gather context</text>
+    <text class="step-note" x="660" y="279">Memory • Inbox • History</text>
+    <rect class="step" x="790" y="245" width="140" height="42" rx="9"/>
+    <text class="step-label" x="860" y="263" style="font-size: 14px">Explore &amp; verify</text>
+    <text class="step-note" x="860" y="279">Follow useful leads</text>
+    <path class="step" d="M860 298 L935 330 L860 362 L785 330 Z" style="fill: #fff7e5"/>
+    <text class="step-label" x="860" y="335" style="font-size: 13px">Worth sharing?</text>
+    <text class="branch-label" x="757" y="322" text-anchor="middle">Yes</text>
+    <text class="branch-label" x="871" y="375">No: stay quiet</text>
+    <rect class="step" x="590" y="311" width="140" height="42" rx="9"/>
+    <text class="step-label" x="660" y="337" style="font-size: 14px">Queue a message</text>
+    <rect class="step" x="600" y="382" width="320" height="28" rx="9"/>
+    <text class="tiny" x="760" y="401">Save progress • Plan next wake</text>
+
+    <path class="panel" fill="#fff7e5" d="M1055 210 Q1161 208 1265 211 Q1281 210 1280 227 L1279 345 Q1281 362 1265 360
+        Q1160 362 1055 359 Q1039 361 1040 345 L1041 226 Q1039 211 1055 210 Z"/>
+    <text class="label" x="1160" y="259">Scheduled Agent</text>
+    <text class="small" x="1160" y="292">Run → Archive findings</text>
+    <text class="small" x="1160" y="319">Urgent? Notify • Handoff</text>
+    <text class="tiny" x="1160" y="344">Use updated task requirements</text>
+
+    <path class="panel" fill="#f6f1ff" d="M1375 210 Q1481 208 1585 211 Q1601 210 1600 227 L1599 345 Q1601 362 1585 360
+        Q1480 362 1375 359 Q1359 361 1360 345 L1361 226 Q1359 211 1375 210 Z"/>
+    <text class="label" x="1480" y="259">One-shot Agent</text>
+    <text class="small" x="1480" y="295">Now or at a chosen time</text>
+    <text class="tiny" x="1480" y="325">Prepare → Run once → Deliver</text>
+
+    <!-- Layer 2 contains only the three logical inboxes. -->
+    <rect class="chip" x="200" y="600" width="240" height="105" rx="12"/>
+    <text class="label" x="320" y="636">Chat Inbox</text>
+    <text class="small" x="320" y="667">Deferred + immediate messages</text>
+    <text class="tiny" x="320" y="690">User view • Delivery history</text>
+
+    <rect class="chip" x="640" y="600" width="240" height="105" rx="12"/>
+    <text class="label" x="760" y="636">Proactive Inbox</text>
+    <text class="small" x="760" y="667">Topics • Instructions • Feedback</text>
+    <text class="tiny" x="760" y="690">Read at the next wakeup</text>
+
+    <rect class="chip" x="1040" y="600" width="240" height="105" rx="12"/>
+    <text class="label" x="1160" y="636">Scheduled Inbox</text>
+    <text class="small" x="1160" y="667">Archived findings</text>
+    <text class="tiny" x="1160" y="690">User view • Proactive review</text>
+
+
+    <!-- Layer 3 places shared tools beside the durable workspace documents. -->
+    <rect class="chip" x="200" y="860" width="320" height="115" rx="12" style="fill: #f8fbff"/>
+    <text class="label" x="360" y="897">Shared Tools</text>
+    <text class="small" x="360" y="927">Observe • Search • Collect</text>
+    <text class="tiny" x="360" y="952">Read/write files • Deliver messages</text>
+    <path class="shared-arrow" d="M522 920 H558"/>
+    <text class="tiny" x="540" y="908">files</text>
+
+    <rect class="panel" x="560" y="860" width="1040" height="115" rx="14" fill="#ffffff"/>
+    <text class="label" x="690" y="905">Workspace</text>
+    <text class="small" x="690" y="936">Local, readable, editable</text>
+    <use href="#document-icon" x="884" y="875"/>
+    <text class="small" x="900" y="940">Personal memory</text>
+    <text class="tiny" x="900" y="963">Interests &amp; preferences</text>
+    <use href="#document-icon" x="1084" y="875"/>
+    <text class="small" x="1100" y="940">Recent conversations</text>
+    <text class="tiny" x="1100" y="963">Context &amp; dialogue</text>
+    <use href="#document-icon" x="1284" y="875"/>
+    <text class="small" x="1300" y="940">Inboxes &amp; findings</text>
+    <text class="tiny" x="1300" y="963">Messages &amp; delivery states</text>
+    <use href="#document-icon" x="1484" y="875"/>
+    <text class="small" x="1500" y="940">Tasks &amp; handoffs</text>
+    <text class="tiny" x="1500" y="963">Requirements • TODOs</text>
+
+    <text class="tiny" x="900" y="1020">Solid: tasks, messages and reads. Dashed: shared tools and workspace access.</text>
+    <text class="tiny" x="900" y="1048">Ordinary messages wait for idle chat. Immediate delivery bypasses quiet settings and ordinary windows. Alert expiry preserves archived findings.</text>
+</svg>

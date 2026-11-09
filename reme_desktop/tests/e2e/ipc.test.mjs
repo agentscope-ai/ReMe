@@ -34,6 +34,9 @@ test(
           const pet = BrowserWindow.getAllWindows().find((win) =>
             win.webContents.getURL().includes("view=companion"),
           );
+          const chat = BrowserWindow.getAllWindows().find((win) =>
+            win.webContents.getURL().includes("view=chat"),
+          );
           const other = new BrowserWindow({
             show: false,
             webPreferences: { sandbox: true },
@@ -43,6 +46,10 @@ test(
             { sender: pet.webContents, senderFrame: null },
             { sender: pet.webContents, senderFrame: { detached: true } },
             { sender: foreign, senderFrame: foreign.mainFrame },
+            {
+              sender: chat.webContents,
+              senderFrame: chat.webContents.mainFrame,
+            },
           ];
           const before = pet.getBounds();
           const send = (event) => {

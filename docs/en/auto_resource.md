@@ -134,13 +134,11 @@ a failed or cancelled collection removes its own published files without overwri
 resource-package layout, publication of multiple flat files is not a single atomic directory operation.
 
 Scheduled screenshot interpretation is a query in `{metadata_dir}/pa/cron.json`, independently dispatched by a ReMe
-CronJob through `cron_agent` every five minutes. Its `preflight: screen_capture` captures before starting the agent;
-unchanged screens return `status=skipped, reason=screen_unchanged`, without a new unread summary. Changed captures are
-reused by the ordinary screenshot tool, and the configured query is unchanged. Only successfully published summaries
-advance that task's baseline through their code-owned `screen_capture` frontmatter. Failed runs cannot advance it.
-Existing screenshot tasks must explicitly add this preflight field; other tasks keep running independently.
-Disable the task by setting `enabled` to false; file edits reload automatically.
-Cumulative summaries live under `{daily_dir}/YYYY-MM-DD/cron/screen_activity/` for proactive consumption. Install `reme-ai[core]` and grant screen-recording permission to the process
+CronJob through `cron_agent` every five minutes. The agent calls the screenshot tool as needed and may omit a new
+summary when nothing useful has changed. Execution and summary queries still run; no task configuration skips the whole
+model round through preflight. Disable the task with `enabled: false`; file edits reload automatically.
+Cumulative summaries live under `{metadata_dir}/pa/cron/screen_activity/YYYY-MM-DD/` for proactive consumption.
+Install `reme-ai[core]` and grant screen-recording permission to the process
 running ReMe. Availability depends on the local MSS backend.
 
 `finance_news` fetches the last 24 hours of CLS telegraph news, deduplicates against `news_id` values in retained JSONL

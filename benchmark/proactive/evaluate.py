@@ -83,6 +83,7 @@ def grade(case_id: str, record: dict) -> dict:
         checks["no_unexpected_files"] = not any(
             name not in before
             and name not in task_paths
+            and not name.startswith("session/")
             and (not name.startswith(f"{META}/") or name.startswith((f"{META}/cron/", f"{META}/temporary/")))
             for name in after
         )
@@ -90,7 +91,7 @@ def grade(case_id: str, record: dict) -> dict:
         checks["delivery"] = len(record.get("delivered", [])) == int(expected)
         checks["send_attempts"] = len(attempts) == 1 if expected else not attempts and not native_attempts
         contents = [str(job.get("args", {}).get("content", "")) for job in decisions] + native_contents
-        checks["no_oversize_attempt"] = all(len(content) <= 200 for content in contents)
+        checks["no_oversize_attempt"] = all(len(content) <= 4000 for content in contents)
         if expected:
             content = " ".join(message.get("content", "") for message in record.get("delivered", []))
             checks["retains_core_result"] = "37" in content and "本地" in content

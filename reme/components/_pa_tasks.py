@@ -5,7 +5,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import date, timedelta
 import json
 import os
 from pathlib import Path
@@ -17,12 +19,19 @@ import frontmatter
 
 from ..constants import DEFAULT_MAX_FILE_BYTES
 from ..schema.pa_task import PaTask, PaTaskRun, PaTaskRecovery
-from ..schema.screen_capture import CapturedDisplay
 from ..utils.async_utils import complete_in_thread
 from ..utils.file_utils import get_path_lock
 
 if TYPE_CHECKING:
     from .pa_runtime import PaRuntime
+
+
+@dataclass
+class TaskMessage:
+    """A server-bound decision that exists only while the message query is running."""
+
+    saved: PaTaskRecovery
+    history_version: tuple[int, int, int] | None = None
 
 
 class TaskFiles:
@@ -34,6 +43,7 @@ class TaskFiles:
         self.run_locks: dict[str, asyncio.Lock] = {}
         self.scheduled: dict[str, dict] = {}
         self.schedule_error: str | None = None
+        self.messages: dict[str, TaskMessage] = {}
 
     def checked(self, path: Path) -> Path:
         """Reject workspace escapes and symlink aliases before any file operation."""
@@ -165,12 +175,10 @@ class TaskFiles:
             await complete_in_thread(self.runtime._write_text, path, content)
 
     async def save_handoff(self, saved: PaTaskRecovery, content: str) -> None:
-        """Atomically save a completed handoff and its successful screenshot baseline."""
+        """Atomically save a completed task handoff."""
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Task handoff must contain a nonempty summary")
         post = frontmatter.Post(content.strip(), task_id=saved.task.id, run_id=saved.run.run_id)
-        if saved.prefetched is not None:
-            post["screen_capture"] = saved.prefetched["frames"]
         payload = self.markdown(post)
         path = self.handoff_path(saved.task.id)
         async with await get_path_lock(path):
@@ -187,21 +195,48 @@ class TaskFiles:
         async with await get_path_lock(path):
             await complete_in_thread(clear)
 
-    def screen_baseline(self, task_id: str) -> list[dict]:
-        """Recover processed screenshots even when no user-facing result was published."""
-        handoff = self.handoff(task_id)
-        paths = self.paths(task_id)
-        if "screen_capture" not in handoff and not paths:
-            return []
+    @contextmanager
+    def message_round(self, saved: PaTaskRecovery):
+        """Bind the published result to one message query and revoke it on exit."""
+        identifier = saved.run.run_id
+        self.messages[identifier] = TaskMessage(saved)
         try:
-            values = handoff.get("screen_capture")
-            if values is None:
-                values = frontmatter.loads(self.read(paths[0])).get("screen_capture", [])
-            if not isinstance(values, list) or len(values) > 32:
-                return []
-            return [CapturedDisplay.model_validate(value).model_dump(mode="json") for value in values]
-        except (OSError, ValueError):
-            return []
+            yield
+        finally:
+            self.messages.pop(identifier, None)
+
+    def message_context(self, run_id: str) -> TaskMessage:
+        """Reject tools outside their owning message query."""
+        current = self.messages.get(run_id)
+        if current is None or current.saved.run.phase != "message":
+            raise ValueError("Immediate cron messages require a live message query")
+        return current
+
+    async def send(self, run_id: str, content: str):
+        """Send once, after publication and a current history check."""
+        current = self.message_context(run_id)
+        saved, run = current.saved, current.saved.run
+        if saved.task not in await asyncio.to_thread(self.load):
+            raise ValueError("Cron task changed or was cancelled")
+        if not run.target_session_id or not run.result_path:
+            raise ValueError("Cron message requires a published result and a target session")
+        post = frontmatter.loads(await asyncio.to_thread(self.read, self.runtime.workspace_path / run.result_path))
+        if post.get("run_id") != run.run_id or post.get("task_id") != run.task_id or not post.content.strip():
+            raise ValueError("Cron result does not belong to this run")
+        result = await self.runtime.reminders.submit_immediate(
+            f"cron_{run.run_id}",
+            content,
+            session_id=run.target_session_id,
+            task_id=run.task_id,
+            task_definition=saved.task.model_dump(mode="json"),
+            cron_run_id=run_id,
+            result_path=run.result_path,
+            history_version=current.history_version,
+            expires_at=self.runtime._now() + timedelta(minutes=15),
+        )
+        run.message_id = result["id"]
+        await self.checkpoint(saved)
+        return result
 
     async def publish(
         self,
@@ -209,8 +244,6 @@ class TaskFiles:
         target: Path,
         task_id: str,
         run_id: str,
-        *,
-        screen_capture: list[dict] | None = None,
     ) -> None:
         """Publish only a completed, nonempty snapshot, exclusively at its final name."""
 
@@ -226,11 +259,6 @@ class TaskFiles:
                 status="unread",
                 user_read_at=None,
             )
-            post.metadata.pop("screen_capture", None)
-            if screen_capture is not None:
-                post.metadata["screen_capture"] = [
-                    CapturedDisplay.model_validate(value).model_dump(mode="json") for value in screen_capture
-                ]
             content = self.markdown(post)
             self.runtime._write_text(staging, content)
             target.parent.mkdir(parents=True, exist_ok=True)

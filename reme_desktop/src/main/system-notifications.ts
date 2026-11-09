@@ -65,8 +65,7 @@ export class SystemNotifications {
     if (
       this.session !== session ||
       state.chatFocused ||
-      !state.settings.notifications ||
-      state.settings.quietUntil > Date.now()
+      !state.settings.notifications
     )
       this.close();
     this.session = session;

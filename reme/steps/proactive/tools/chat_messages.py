@@ -27,13 +27,26 @@ class SendChatMessageStep(BaseStep):
 
 @R.register("send_chat_message_immediate_step")
 class SendChatMessageImmediateStep(BaseStep):
-    """Publish one result bound to an active temporary task."""
+    """Submit an immediate result bound to a cron decision or temporary task."""
 
     pa: PaRuntime = Ref(PaRuntime, "pa")
 
     async def execute(self):
-        if self.context.get("pa_caller") != "temporary":
-            raise ValueError("Immediate chat messages require a server-bound temporary task")
+        caller = self.context.get("pa_caller")
+        if caller == "cron":
+            run_id = self.context.get("cron_run_id")
+            current = self.pa.tasks.message_context(run_id)
+            for path in (
+                self.pa.chat_inbox_path,
+                self.pa.tasks.recovery_path(current.saved.task.id),
+                self.workspace_path / current.saved.run.result_path,
+            ):
+                if not _check_path_permission(self.workspace_path, path, self.context.get("_allowed_paths")):
+                    raise PermissionError("no permission to publish cron messages")
+            self.context.response.answer = await self.pa.tasks.send(run_id, self.context.get("content"))
+            return self.context.response
+        if caller != "temporary":
+            raise ValueError("Immediate chat messages require a server-bound task")
         task_id = self.context.get("temp_task_id")
         for path in (
             self.pa.chat_inbox_path,
@@ -62,5 +75,7 @@ class GetChatMessagesStep(BaseStep):
         self.context.response.answer = await self.pa.get_chat_messages(
             limit=self.context.get("limit", 10),
             offset=self.context.get("offset", 0),
+            round_id=self.context.get("pa_round_id") if self.context.get("pa_caller") == "proactive" else None,
+            cron_run_id=self.context.get("cron_run_id") if self.context.get("pa_caller") == "cron" else None,
         )
         return self.context.response

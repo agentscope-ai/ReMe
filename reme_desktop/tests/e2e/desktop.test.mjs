@@ -540,32 +540,17 @@ test(
               };
             });
           const clickCharacter = async (activateOnPress = false) => {
-            await expect
-              .poll(() =>
-                companion.evaluate(() =>
-                  window.desktop
-                    .bootstrap()
-                    .then(({ layout }) => Boolean(layout.presence?.motion)),
-                ),
-              )
-              .toBe(false);
-            const host = await companion.evaluate(() =>
-              window.desktop
-                .bootstrap()
-                .then(({ layout }) => layout.presence?.host),
-            );
-            const page = host === "app" ? chat : companion;
-            const canvas = page.locator(".character canvas");
+            const canvas = companion.locator(".character canvas");
             await expect(canvas).toBeVisible();
             const rect = await canvas.boundingBox();
-            await page.mouse.move(
+            await companion.mouse.move(
               rect.x + rect.width / 2,
               rect.y + rect.height * 0.35,
             );
-            await page.mouse.down();
+            await companion.mouse.down();
             if (activateOnPress)
               await app.evaluate(({ app }) => app.emit("activate"));
-            await page.mouse.up();
+            await companion.mouse.up();
           };
           const expectVisible = async (visible) => {
             await expect

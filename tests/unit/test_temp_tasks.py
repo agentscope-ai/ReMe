@@ -246,8 +246,9 @@ async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace,
     assert len(calls) == 2
     assert calls[0][1]["resume"] == task.source_session_id and calls[0][1]["fork_session"]
     assert not {"system_prompt", "job_tools", "injected_job_kwargs"} & calls[0][1].keys()
-    assert calls[1][0] == task.query and "resume" not in calls[1][1]
-    assert "send_chat_message_immediate" in calls[1][1]["system_prompt"]
+    assert calls[1][0] == step.prompt_format("query_execute", query=task.query) and "resume" not in calls[1][1]
+    assert "send_chat_message_immediate" in calls[1][0]
+    assert "send_chat_message_immediate" not in calls[1][1]["system_prompt"]
     assert ("## 任务准备摘要" if language == "zh" else "## Prepared task context") in calls[1][1]["system_prompt"]
     assert "Task context" in calls[1][1]["system_prompt"]
     assert frontmatter.load(env.runtime.workspace_path / saved.result_path).content == "调查结果。"
@@ -259,7 +260,7 @@ async def test_temporary_worker_prepares_executes_and_sends_result(pa_workspace,
 @pytest.mark.parametrize("caller", [None, "chat", "proactive"])
 async def test_immediate_tool_requires_temporary_binding(pa_workspace, caller):
     env = pa_workspace
-    with pytest.raises(ValueError, match="server-bound temporary"):
+    with pytest.raises(ValueError, match="server-bound task"):
         await SendChatMessageImmediateStep(app_context=env.context)(pa_caller=caller, content="result")
     assert env.runtime.reminders.read() == []
 

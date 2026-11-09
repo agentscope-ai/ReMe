@@ -152,7 +152,7 @@ export class SpeechController {
     }
   }
 
-  private automaticAllowed(): boolean {
+  private automaticAllowed(immediate = false): boolean {
     const context = this.context();
     return (
       !this.closed &&
@@ -160,7 +160,7 @@ export class SpeechController {
       context.connected &&
       context.visible &&
       context.settings.voiceEnabled &&
-      context.settings.quietUntil <= Date.now() &&
+      (immediate || context.settings.quietUntil <= Date.now()) &&
       context.settings.voiceVolume > 0
     );
   }
@@ -171,7 +171,11 @@ export class SpeechController {
   ): void {
     if (
       kind !== "manual" &&
-      (!this.automaticAllowed() || this.state.capture || this.state.playback)
+      (!this.automaticAllowed(
+        kind === "reminder" && message.delivery === "immediate",
+      ) ||
+        this.state.capture ||
+        this.state.playback)
     )
       return;
     if (kind === "reminder" && !this.context().settings.voiceReminders) return;
@@ -517,7 +521,7 @@ export class SpeechController {
     if (
       !this.context().connected ||
       (this.state.playback?.kind !== "manual" &&
-        (!this.automaticAllowed() ||
+        (!this.automaticAllowed(this.playback.immediate) ||
           (this.state.playback?.kind === "reply" &&
             !this.context().settings.voiceReplies) ||
           (this.state.playback?.kind === "reminder" &&

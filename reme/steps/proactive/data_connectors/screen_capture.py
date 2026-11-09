@@ -30,19 +30,7 @@ class ScreenCaptureStep(BaseConnectorStep):
     _next_baseline: list[CapturedDisplay]
 
     async def execute(self):
-        target = self.resource_target()  # Fail closed before starting native collection or returning cached paths.
-        cached = self.context.get("_screen_preflight")
-        if cached is not None:
-            result = ConnectorResult.model_validate(cached["result"])
-            for name in result.paths:
-                path = self.workspace_path / name
-                if path.resolve() != path.absolute() or not path.resolve().is_relative_to(target) or not path.is_file():
-                    raise ValueError("Invalid prefetched screenshot path")
-            self.context.response.answer = result.model_dump()
-            self.context.response.metadata["screen_capture"] = [
-                CapturedDisplay.model_validate(value).model_dump(mode="json") for value in cached["frames"]
-            ]
-            return self.context.response
+        self.resource_target()  # Validate containment before native collection.
         async with AsyncExitStack() as stack:
             service = self.screen_capture
             if service is None:

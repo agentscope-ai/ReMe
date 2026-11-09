@@ -94,6 +94,35 @@ class ReminderDelivery:
         """Expose persisted state together with its delivery outcome."""
         return {"sent": record.status == "sent", **record.model_dump(mode="json")}
 
+    def history_version(self) -> tuple[int, int, int]:
+        """Identify a journal snapshot while the caller holds the delivery lock."""
+        try:
+            stat = self.runtime.chat_inbox_path.stat()
+            return stat.st_ino, stat.st_size, stat.st_mtime_ns
+        except FileNotFoundError:
+            return 0, 0, 0
+
+    def check_history(self, version) -> None:
+        """Reject stale or missing history before making a new decision durable."""
+        if version is None or version != self.history_version():
+            raise ValueError("Reminder history changed or was not read; call get_chat_messages again")
+
+    async def _retry(self, record: ReminderRecord, error: OSError) -> None:
+        record = record.model_copy(
+            update={
+                "retry_at": self.runtime._now() + timedelta(seconds=5),
+                "updated_at": self.runtime._now(),
+                "error": str(error)[:1000],
+            },
+        )
+        await complete_in_thread(
+            self.runtime._append_jsonl,
+            self.runtime.chat_inbox_path,
+            record.model_dump(mode="json"),
+        )
+        if self.pending is not None and self.pending.id == record.id:
+            self.pending = record
+
     async def _finish(self, status: str, reason: str | None = None, error: str | None = None) -> ReminderRecord:
         record = self.pending
         now = self.runtime._now()
@@ -104,6 +133,7 @@ class ReminderDelivery:
                 "error": error,
                 "updated_at": now,
                 "sent_at": now if status == "sent" else None,
+                "retry_at": None,
             },
         )
         await complete_in_thread(
@@ -195,7 +225,11 @@ class ReminderDelivery:
         async with self.lock:
             records = await asyncio.to_thread(self.read)
             for record in reversed(records):
-                if record.delivery == "immediate" and record.status == "pending":
+                if (
+                    record.delivery == "immediate"
+                    and record.status == "pending"
+                    and (record.retry_at is None or record.retry_at <= self.runtime._now())
+                ):
                     try:
                         await self._deliver_immediate(record)
                     except (OSError, ValueError) as exc:
@@ -214,6 +248,7 @@ class ReminderDelivery:
             source="proactive",
             content=record.content,
             created_at=record.created_at.isoformat(),
+            expires_at=record.expires_at.isoformat() if record.expires_at else None,
             delivery=record.delivery,
             origin_session_id=record.session_id,
         )
@@ -258,6 +293,7 @@ class ReminderDelivery:
                 if record.delivery == "immediate"
                 else (version is not None and record.feedback_version == version)
             )
+            eligible = eligible and (record.expires_at is None or self.runtime._now() < record.expires_at)
             messages.append(self.message(record).model_copy(update={"notification_eligible": eligible}))
         return messages
 
@@ -270,6 +306,10 @@ class ReminderDelivery:
         task_id,
         task_revision=None,
         task_definition=None,
+        cron_run_id=None,
+        result_path=None,
+        history_version=None,
+        expires_at=None,
     ):
         """Persist a retry-safe result; presentation precedes native insertion."""
         if not isinstance(content, str) or not content.strip() or len(content.strip()) > 4000:
@@ -280,6 +320,9 @@ class ReminderDelivery:
                 if existing.content != content.strip() or existing.session_id != session_id:
                     raise ValueError("This task already submitted different chat content")
                 return self.answer(existing)
+            if task_definition is not None:
+                self.runtime.tasks.message_context(cron_run_id)
+                self.check_history(history_version)
             now = self.runtime._now()
             record = ReminderRecord(
                 id=identifier,
@@ -289,6 +332,8 @@ class ReminderDelivery:
                 task_id=task_id,
                 task_revision=task_revision,
                 task_definition=task_definition,
+                result_path=result_path,
+                expires_at=expires_at,
                 created_at=now,
                 updated_at=now,
                 session_id=session_id,
@@ -326,6 +371,17 @@ class ReminderDelivery:
         return record
 
     async def _deliver_immediate(self, record):
+        if record.expires_at is not None and self.runtime._now() >= record.expires_at:
+            expired = record.model_copy(
+                update={"status": "discarded", "reason": "expired", "updated_at": self.runtime._now()},
+            )
+            await complete_in_thread(
+                self.runtime._append_jsonl,
+                self.runtime.chat_inbox_path,
+                expired.model_dump(mode="json"),
+            )
+            await self.runtime.announce_messages()
+            return
         if record.announced_at is None or not await self._immediate_active(record):
             record = await self._announce_immediate(record)
             if record.status == "discarded":
@@ -342,12 +398,23 @@ class ReminderDelivery:
             )
         except (SessionChangedError, TimeoutError):
             return
+        except OSError as exc:
+            await self._retry(record, exc)
+            return
         except Exception as exc:
             record = record.model_copy(
                 update={"status": "failed", "reason": "session_write_failed", "error": str(exc)[:1000]},
             )
         else:
-            record = record.model_copy(update={"status": "sent", "sent_at": self.runtime._now(), "reason": None})
+            record = record.model_copy(
+                update={
+                    "status": "sent",
+                    "sent_at": self.runtime._now(),
+                    "reason": None,
+                    "retry_at": None,
+                    "error": None,
+                },
+            )
         record = record.model_copy(update={"updated_at": self.runtime._now()})
         await complete_in_thread(
             self.runtime._append_jsonl,
@@ -374,6 +441,8 @@ class ReminderDelivery:
             return await self._finish("discarded", "expired")
         if record.feedback_version != await asyncio.to_thread(self.runtime.inbox.version):
             return await self._finish("discarded", "feedback_changed")
+        if record.retry_at is not None and record.retry_at > self.runtime._now():
+            return None
         lock = self.runtime.session_lock
         if lock.locked():
             self.idle = None
@@ -417,18 +486,23 @@ class ReminderDelivery:
                 except (SessionChangedError, TimeoutError):
                     self.idle = None
                     return None
+                except OSError as exc:
+                    await self._retry(record, exc)
+                    return None
                 except Exception as exc:
                     return await self._finish("failed", "delivery_failed", str(exc)[:1000])
                 return await self._finish("sent")
         finally:
             self.runtime.publish_status()
 
-    async def history(self, limit: int = 10, offset: int = 0) -> list[dict]:
+    async def history(self, limit: int = 10, offset: int = 0) -> tuple[list[dict], tuple[int, int, int]]:
         """Read current reminder states, newest creation first; never consume history."""
         if type(limit) is not int or not 1 <= limit <= 100:
             raise ValueError("limit must be an integer from 1 to 100")
         if type(offset) is not int or offset < 0:
             raise ValueError("offset must be a non-negative integer")
         async with self.lock:
+            version = self.history_version()
             records = await asyncio.to_thread(self.read)
-            return [self.answer(record) for record in records[offset : offset + limit]]
+            self.check_history(version)
+            return [self.answer(record) for record in records[offset : offset + limit]], version

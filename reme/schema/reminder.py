@@ -30,6 +30,8 @@ class ReminderRecord(BaseModel):
     session_id: str | None = None
     reason: str | None = None
     error: str | None = None
+    retry_at: AwareDatetime | None = None
+    result_path: str | None = None
 
     @model_validator(mode="after")
     def validate_expiration(self):

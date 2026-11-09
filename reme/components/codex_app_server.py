@@ -283,7 +283,7 @@ class CodexAppServer(BaseComponent):
             async with self.thread(session_id) as loaded:
                 thread = (await loaded.read(include_turns=self._threads[session_id].pending is None)).thread
                 if history.session_status(thread).status != "idle":
-                    raise RuntimeError("Session must be idle before appending")
+                    raise SessionChangedError("Session must be idle before appending")
                 accepted = await asyncio.to_thread(history.injected_ids, thread, self.session_path)
                 records = await asyncio.to_thread(history.read_records, path)
                 native_id = f"reme-proactive-{message_id}"

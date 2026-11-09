@@ -111,6 +111,7 @@ async def test_empty_main_reaches_reminder_decision_without_forking(
             raise RuntimeError("no rollout found for thread id")
         current = env.runtime.current_round
         if current.phase == "query_message":
+            await env.runtime.get_chat_messages(round_id=current.id)
             await env.runtime.send_chat_message(
                 "A useful new update.",
                 kind="normal",
@@ -170,6 +171,7 @@ async def test_only_reminder_query_can_submit_despite_an_old_handoff(pa_workspac
         }
         tool = SendChatMessageStep(app_context=env.context)
         if current.phase == "query_message":
+            await env.runtime.get_chat_messages(round_id=current.id)
             await tool(**args)
         else:
             with pytest.raises(ValueError, match="only allowed during query_message"):

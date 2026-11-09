@@ -239,6 +239,9 @@ the workspace. To add Studio to a base installation, use `pip install "reme-ai[w
 [ReMe Desktop](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop) is an Electron + React companion for the proactive agent. Click Remy to chat,
 drag to move, or receive proactive messages in desktop bubbles. It uses the existing ReMe service and workspace.
 
+The [Proactive Agent Loop diagram](docs/figure/proactive-agent-loop.svg) shows how chat, proactive, scheduled, and one-shot
+agents coordinate through inboxes, shared tools, and local workspace documents.
+
 ## 🤝 Use ReMe with Your Agent
 
 ReMe can run as a local memory service accessed through the CLI, HTTP API, or MCP server, or it can be embedded in the

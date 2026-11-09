@@ -294,13 +294,26 @@ class CodexAgentWrapper(BaseAgentWrapper):
 
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
-        await self.start()
-        return await self.app_server.read_session(session_id)
+        async with self._session_request():
+            return await self.app_server.read_session(session_id)
 
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Report native thread activity, including approval/input waits."""
-        await self.start()
-        return await self.app_server.get_session_status(session_id)
+        async with self._session_request():
+            return await self.app_server.get_session_status(session_id)
+
+    @asynccontextmanager
+    async def _session_request(self):
+        """Normalize recoverable SDK failures at the session-owner boundary."""
+        from openai_codex.errors import TransportClosedError, is_retryable_error
+
+        try:
+            await self.start()
+            yield
+        except Exception as exc:
+            if isinstance(exc, TransportClosedError) or is_retryable_error(exc):
+                raise ConnectionError(str(exc)) from exc
+            raise
 
     async def append_session(
         self,
@@ -313,15 +326,15 @@ class CodexAgentWrapper(BaseAgentWrapper):
         delivery: str = "idle",
     ) -> SessionMessage:
         """Append a proactive message through the shared session owner."""
-        await self.start()
-        return await self.app_server.append_session(
-            session_id,
-            content,
-            message_id=message_id,
-            timeout=timeout,
-            expected_turn_id=expected_turn_id,
-            delivery=delivery,
-        )
+        async with self._session_request():
+            return await self.app_server.append_session(
+                session_id,
+                content,
+                message_id=message_id,
+                timeout=timeout,
+                expected_turn_id=expected_turn_id,
+                delivery=delivery,
+            )
 
     def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         from openai_codex import ApprovalMode, Sandbox

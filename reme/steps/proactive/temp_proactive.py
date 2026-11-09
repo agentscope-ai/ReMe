@@ -79,7 +79,7 @@ class TempProactiveStep(BasePaStep):
             )
             summary = await asyncio.to_thread(self.pa.tasks.read, self.workspace_path / task.handoff_path)
             reply = await self.agent_wrapper.reply(
-                task.query,
+                self.prompt_format("query_execute", query=task.query),
                 system_prompt=self._system_prompt(
                     now=self._now().isoformat(),
                     handoff=summary,

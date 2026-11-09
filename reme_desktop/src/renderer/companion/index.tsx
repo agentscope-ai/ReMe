@@ -7,33 +7,17 @@ import { ArrowUpRight, Sparkles, X, Volume2, Square } from "lucide-react";
 import MessageBody from "../message-body.tsx";
 import { surfaceKey } from "../../shared/surface.ts";
 
-export default function Companion({
-  state,
-  manifest,
-  layout,
-  embedded = false,
-}: Bootstrap & { embedded?: boolean }) {
-  const active = layout.presence
-    ? layout.presence.visible &&
-      layout.presence.host === (embedded ? "app" : "desktop")
-    : !embedded;
+export default function Companion({ state, manifest, layout }: Bootstrap) {
+  const active = layout.visible;
   const language = state.settings.language;
   const t = translator(language);
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const bubbleElement = useRef<HTMLElement | null>(null);
   const gesture = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const [error, setError] = useState<unknown>(null);
-  const motion = active ? layout.presence?.motion : undefined;
-  const animation = motion
-    ? {
-        id: -motion.id,
-        clip: "walking",
-        mode: "loop" as const,
-        startedAt: motion.startedAt,
-      }
-    : state.behavior.animation;
+  const animation = state.behavior.animation;
   const dragging = animation.clip === "dragged";
-  const surface = active && !motion ? state.surface : null;
+  const surface = active ? state.surface : null;
   const bubble = surface?.kind === "message" ? surface : null;
   const message = bubble?.message;
   const reminder = message?.source === "proactive";
@@ -86,7 +70,7 @@ export default function Companion({
   }, [reminder, bubble?.presentationId, state.sessionId]);
 
   useEffect(() => {
-    if (!active || embedded) return;
+    if (!active) return;
     let last = false;
     const move = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
@@ -112,16 +96,14 @@ export default function Companion({
       document.removeEventListener("pointermove", move);
       document.removeEventListener("pointerout", leave);
     };
-  }, [active, embedded]);
+  }, [active]);
 
   return (
     <main
-      className={`companion ${embedded ? "embedded-companion" : ""}`}
+      className="companion"
       aria-label={t("companion")}
-      data-host={embedded ? "app" : "desktop"}
       style={{
         display: active ? undefined : "none",
-        opacity: layout.presence?.opacity ?? 1,
       }}
     >
       {bubble && message && (
@@ -252,7 +234,6 @@ export default function Companion({
           top: layout.body.top,
           width: layout.body.size,
           height: layout.body.size,
-          transform: motion?.direction === -1 ? "scaleX(-1)" : undefined,
         }}
         onClick={(event) => {
           if (event.detail === 0) run({ type: "chat.open" });
@@ -308,7 +289,7 @@ export default function Companion({
           active={active}
           canvasRef={canvas}
           onPlayback={(id, status) =>
-            !motion && run({ type: "playback.report", id, status })
+            run({ type: "playback.report", id, status })
           }
         />
       </button>

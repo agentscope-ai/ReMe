@@ -6,13 +6,15 @@ import asyncio
 import json
 import time
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
 from reme.application import Application
+from reme.components.codex_app_server import SessionChangedError
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, collect_reply
 from reme.steps.base_step import BaseStep
-from reme.steps.proactive import ProactiveAgentStep, CronAgentStep
+from reme.steps.proactive import TempProactiveStep
 
 from benchmark.proactive.cases import SESSION_ID, frozen_now, seed
 
@@ -49,20 +51,6 @@ def files(root: Path) -> dict[str, str]:
     return result
 
 
-class FrozenProactive(ProactiveAgentStep):
-    """Use the fixture clock for proactive queries."""
-
-    def _now(self):
-        return frozen_now()
-
-
-class FrozenCron(CronAgentStep):
-    """Use the fixture clock for task queries."""
-
-    def _now(self):
-        return frozen_now()
-
-
 class FixtureConnector(BaseStep):
     """Return synthetic evidence without accessing external data."""
 
@@ -88,6 +76,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         "get_chat_messages",
         "read_cron_results",
         "send_chat_message",
+        "send_chat_message_immediate",
         "write_proactive_inbox",
         "manage_temp_proactive_agent",
         "check_json",
@@ -120,16 +109,16 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
     catalog.update(slug=model, display_name=model, input_modalities=["text"])
     server["model_catalog"] = {"models": [catalog]}
     cfg["components"]["agent_wrapper"]["default"].update(model=model, effort=EFFORT)
-    for name in ("pa_chat", "pa_new_session"):
-        cfg["jobs"][name]["steps"][0]["prompt_dict"] = {**bundle["memory"], **bundle["pa"]}
-    cfg["jobs"]["pa_proactive"]["steps"][0].update(
-        backend="benchmark_proactive",
-        prompt_dict={**bundle["memory"], **bundle["proactive"]},
-    )
-    cfg["jobs"]["cron_agent"]["steps"][0].update(
-        backend="benchmark_cron",
-        prompt_dict={**bundle["memory"], **bundle["cron"]},
-    )
+    for name, role in (
+        ("pa_chat", "pa"),
+        ("pa_new_session", "pa"),
+        ("pa_proactive", "proactive"),
+        ("cron_agent", "cron"),
+    ):
+        cfg["jobs"][name]["steps"][0]["prompt_dict"] = {
+            **bundle["memory"],
+            **bundle[role],
+        }
     for name in ("screen_capture", "finance_news"):
         cfg["jobs"][name]["steps"] = [
             {
@@ -149,9 +138,14 @@ def bind_owner(agent, case: dict, record: dict) -> None:
         session_id=SESSION_ID,
         state=SessionStatus(session_id=SESSION_ID, status=case.get("session_status", "idle")),
         messages=[SessionMessage.model_validate(row) for row in case.get("messages", [])],
-        last_turn_id="fixture-turn",
+        last_turn_id="fixture-turn" if any(row.get("source") == "chat" for row in case.get("messages", [])) else None,
     )
-    read, status, append, reply = agent.read_session, agent.get_session_status, agent.append_session, agent.reply
+    read, status, append, reply = (
+        agent.read_session,
+        agent.get_session_status,
+        agent.append_session,
+        agent.reply,
+    )
 
     async def reply_with_fixture(inputs, **kwargs):
         if kwargs.get("fork_session") and kwargs.get("resume") == SESSION_ID:
@@ -173,13 +167,19 @@ def bind_owner(agent, case: dict, record: dict) -> None:
     async def append_session(session_id, content, *, message_id, **kwargs):
         if session_id != SESSION_ID:
             return await append(session_id, content, message_id=message_id, **kwargs)
-        existing = next((row for row in snapshot.messages if row.id == message_id), None)
+        native_id = f"reme-proactive-{message_id}"
+        existing = next((row for row in snapshot.messages if row.id == native_id), None)
         if existing:
+            if existing.content != content:
+                raise ValueError("message_id already belongs to different content")
             return existing
-        if snapshot.state.status != "idle":
-            raise RuntimeError("Fixture chat is busy")
+        if snapshot.state.status not in {"idle", "not_loaded"}:
+            raise SessionChangedError("Fixture chat is busy")
+        expected = kwargs.get("expected_turn_id")
+        if expected is not None and expected != (snapshot.last_turn_id or ""):
+            raise SessionChangedError("Fixture chat changed")
         message = SessionMessage(
-            id=message_id,
+            id=native_id,
             role="assistant",
             source="proactive",
             content=content,
@@ -190,7 +190,11 @@ def bind_owner(agent, case: dict, record: dict) -> None:
         record["delivered"].append(message.model_dump(mode="json"))
         return message
 
-    agent.read_session, agent.get_session_status, agent.append_session = read_session, get_status, append_session
+    agent.read_session, agent.get_session_status, agent.append_session = (
+        read_session,
+        get_status,
+        append_session,
+    )
     agent.reply = reply_with_fixture
 
 
@@ -225,7 +229,11 @@ def instrument(app, folder: Path, record: dict) -> None:
         original_steps = job._run_steps
 
         async def traced(context, job_name=name, run_steps=original_steps):
-            event = {"name": job_name, "args": plain(context.data)}
+            event = {
+                "name": job_name,
+                "args": plain(context.data),
+                "turn_index": len(record["turns"]) - 1,
+            }
             record["jobs"].append(event)
             try:
                 response = await run_steps(context)
@@ -243,20 +251,22 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
     workspace = folder / "workspace"
     workspace.mkdir(parents=True)
     seed(workspace, case)
-    record = {"fixture": case, "turns": [], "jobs": [], "tool_events": [], "delivered": [], "before": files(workspace)}
+    record = {
+        "fixture": case,
+        "turns": [],
+        "jobs": [],
+        "tool_events": [],
+        "delivered": [],
+        "before": files(workspace),
+    }
     cfg = configuration(base, model, workspace, bundle, case)
     started = time.monotonic()
     try:
         async with asyncio.timeout(timeout):
             app = Application(**cfg)
-            for name, cls in (
-                ("benchmark_proactive", FrozenProactive),
-                ("benchmark_cron", FrozenCron),
-                ("benchmark_connector", FixtureConnector),
-            ):
-                app.context.registry.add(name, cls, owner="benchmark.proactive")
+            app.context.registry.add("benchmark_connector", FixtureConnector, owner="benchmark.proactive")
             runtime = app.context.components["pa"]["default"]
-            runtime._now = frozen_now
+            runtime._now = lambda: (datetime.fromisoformat(case["now"]) if "now" in case else frozen_now())
             agent = app.context.components["agent_wrapper"]["default"]
             if case["role"] != "pa":
                 bind_owner(agent, case, record)
@@ -267,17 +277,38 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
                         reply = await collect_reply(app.run_stream_job("pa_chat", query=query))
                         if reply["status"] != "completed":
                             raise RuntimeError(reply.get("error") or reply["status"])
+                elif case["role"] == "temporary":
+                    task = await runtime.temp_tasks.create(case["query"])
+                    worker = TempProactiveStep(
+                        app_context=app.context,
+                        agent_wrapper="default",
+                        language="zh",
+                        job_tools=["send_chat_message_immediate"],
+                        prompt_dict={**bundle["memory"], **bundle["temporary"]},
+                    )
+                    await worker._run(task)
+                    task = runtime.temp_tasks.get(task.id)
+                    if task.status != "completed":
+                        raise RuntimeError(task.error or task.status)
                 else:
-                    # Simulate cron triggers before proactive wakes, using the real three-query task Job.
+                    # Simulate triggers; isolated proactive cases can instead seed published results.
                     for task in await asyncio.to_thread(runtime.tasks.load):
-                        if task.enabled:
+                        if task.enabled and not case.get("results_only"):
                             response = await app.run_job("cron_agent", task=task.model_dump(mode="json"))
                             if not response.success:
                                 raise RuntimeError(str(response.answer))
-                    response = await app.run_job("pa_proactive")
-                    record["response"] = plain(response)
-                    if not response.success:
-                        raise RuntimeError(str(response.answer))
+                    if case["role"] != "cron":
+                        response = await app.run_job("pa_proactive")
+                        record["response"] = plain(response)
+                        if not response.success:
+                            raise RuntimeError(str(response.answer))
+                if case.get("simulate_idle"):
+                    snapshot = await agent.read_session(SESSION_ID)
+                    runtime.reminders.idle = (
+                        snapshot.last_turn_id or "",
+                        asyncio.get_running_loop().time() - 11,
+                    )
+                    await runtime.reminders.deliver_pending()
                 record["reminders"] = await runtime.get_chat_messages()
                 record["completed"] = True
     except Exception as exc:

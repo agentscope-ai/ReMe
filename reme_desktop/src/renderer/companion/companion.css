@@ -1,14 +1,4 @@
 /* Local glass styling keeps the artwork's surroundings fully transparent. */
-.embedded-companion {
-  position: fixed;
-  inset: 0;
-  z-index: 5;
-  pointer-events: none;
-}
-.embedded-companion button,
-.embedded-companion [data-interactive] {
-  pointer-events: auto;
-}
 .companion .status-notice,
 .companion .message-bubble {
   width: max-content;

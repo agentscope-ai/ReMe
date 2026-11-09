@@ -28,6 +28,7 @@ def settings(env, **overrides):
 async def send(env, content="新发现。", kind="normal", sample=False):
     async with env.runtime.proactive_round() as current:
         current.phase = "query_message"
+        await env.runtime.get_chat_messages(round_id=current.id)
         if sample:
             await env.runtime.hints.select(await env.runtime.get_proactive_config(), env.now[0])
         return await env.runtime.send_chat_message(content, kind, round_id=current.id, session_id=current.session_id)
@@ -144,6 +145,7 @@ async def test_evening_round_stops_after_decision_without_more_model_queries(pa_
         calls.append(query)
         if env.runtime.current_round.phase == "query_message":
             bound = kwargs["injected_job_kwargs"]
+            await env.runtime.get_chat_messages(round_id=bound["pa_round_id"])
             await env.runtime.send_chat_message(
                 "晚安。",
                 "evening",
@@ -235,7 +237,7 @@ def test_window_deadlines_follow_local_openings(clock, start, end, expected):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "hour,minute,follow,expected",
-    [(8, 59, True, 0), (9, 0, True, 3), (22, 59, True, 3), (23, 0, True, 0), (23, 0, False, 3)],
+    [(8, 59, True, 0), (9, 0, True, 4), (22, 59, True, 4), (23, 0, True, 0), (23, 0, False, 4)],
 )
 async def test_tasks_follow_hours_by_default_with_explicit_opt_out(
     pa_workspace,
@@ -341,3 +343,13 @@ async def test_migration_recovers_saved_hint_kind_without_changing_content(pa_wo
 async def test_empty_decisions_require_the_new_normal_kind(pa_workspace, kind):
     with pytest.raises(ValueError):
         await send(pa_workspace, "", kind)
+
+
+@pytest.mark.asyncio
+async def test_pausing_without_pending_message_publishes_closed_display_window(pa_workspace):
+    env = pa_workspace
+    await env.runtime.proactive_skip_reason()
+    assert env.runtime.notifications.enabled is True and env.runtime.reminders.pending is None
+    settings(env, enabled=False)
+    assert await env.runtime.proactive_skip_reason() == "disabled"
+    assert env.runtime.notifications.enabled is False

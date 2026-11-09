@@ -121,11 +121,10 @@ macOS 比较时排除标题为 `Remy · ReMe` 的悬浮窗口和已知时钟区�
 文件先暂存再发布；失败或取消时清理本次已发布文件，不覆盖已有截图。多个平铺文件的发布不再是单次原子目录操作。
 
 定时截图解读是 `{metadata_dir}/pa/cron.json` 中的 query，由 ReMe CronJob 独立调度 `cron_agent`，默认每五分钟
-执行一次。该任务设置 `preflight: screen_capture`，在 Agent 执行前先采集比较；无变化时返回
-`status=skipped, reason=screen_unchanged`，不生成新的未读摘要。有变化时，普通截图工具复用本轮已采集结果，query 保持原样。
-只有成功发布的摘要才通过代码写入的 `screen_capture` frontmatter 更新该任务的基准，失败不会前移基准。
-已有截图任务需明确添加此字段，其他任务独立运行。将 enabled 改为 false 可关闭，文件修改后自动重新加载。累计摘要保存在
-`{daily_dir}/YYYY-MM-DD/cron/screen_activity/`，供 proactive 消费。需要安装 `reme-ai[core]`，
+执行一次，由 Agent 按需调用截图工具。画面没有明显变化时，Agent 可以不发布新的摘要；
+执行和摘要阶段仍正常运行，不再由配置中的预检查字段跳过整轮调用。
+将 enabled 改为 false 可关闭，文件修改后自动重新加载。累计摘要保存在
+`{metadata_dir}/pa/cron/screen_activity/YYYY-MM-DD/`，供 proactive 消费。需要安装 `reme-ai[core]`，
 并为实际运行 ReMe 的进程授予录屏权限；可用性取决于本机 MSS 后端。
 
 `finance_news` 查询最近 24 小时的财联社电报，按保留的 JSONL 文件中的 `news_id` 去重，只将本次新增保存为一个文件：

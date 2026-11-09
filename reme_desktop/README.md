@@ -18,12 +18,8 @@ The initial window follows the display's aspect ratio; subsequent opens restore 
 Companion status and reminder bubbles share the selected theme and glass styling, fit their content, and wrap long text
 within a bounded width. Resizing a bubble keeps the desktop character anchored in place.
 
-When the Remy page has enough space beside the conversation and composer, the companion walks into the workspace.
-It returns to the desktop when that space disappears or the window is closed or minimized. Same-display moves walk;
-cross-display moves fade to the destination display before walking into place. Display IDs and logical coordinates
-handle mixed scaling and negative screen origins. Dragging the character out keeps it on the desktop until the next
-window opening. The workspace and desktop share one behavior state; only the visible host handles playback and input.
-Reduced-motion mode changes locations directly.
+Remy stays in its own desktop window. Opening, resizing, focusing, or hiding the workspace does not move or resize the
+character. Drag it to reposition it; the selected size and position are saved.
 
 Knowledge uses read-only `app_config`, `list`, `load`, `list_tags`, `list_tag_files`, and `search` jobs through main-process
 IPC. File and directory paths come from the connected service; Markdown supports workspace wikilinks and YAML memory

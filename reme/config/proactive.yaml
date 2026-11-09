@@ -42,12 +42,12 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        task: {type: object, description: "Complete PaTask definition from cron.json: id, cron, query or fixed message, delivery and enabled"}
+        task: {type: object, description: "Complete cron.json task: id, cron, query and enabled"}
       required: [task]
     steps:
       - backend: cron_agent_step
         agent_wrapper: default
-        job_tools: [screen_capture, finance_news]
+        job_tools: [screen_capture, finance_news, get_chat_messages, send_chat_message_immediate]
 
   speech_demo:
     backend: base
@@ -222,7 +222,7 @@ jobs:
       type: object
       additionalProperties: false
       properties:
-        content: {type: string, maxLength: 200, description: "At most 200 characters; empty withdraws pending content."}
+        content: {type: string, maxLength: 4000, description: "Concise but complete findings with necessary context and evidence; empty withdraws pending content."}
         kind: {type: string, enum: [normal, morning, midday, evening], default: normal, description: "Greeting kinds require this round's matching hint"}
       required: [content]
     steps:
@@ -231,12 +231,12 @@ jobs:
   send_chat_message_immediate:
     backend: base
     enable_serve: false
-    description: "Publish a temporary task's result to Main chat immediately. Saves the result before delivery; quiet settings govern voice."
+    description: "Send a published cron finding or temporary task result immediately; bypass ordinary notification windows and quiet settings."
     parameters:
       type: object
       additionalProperties: false
       properties:
-        content: {type: string, minLength: 1, maxLength: 3980, description: "Concise task result with necessary links and actual limitations."}
+        content: {type: string, minLength: 1, maxLength: 3980, description: "The answer Master requested. State conclusions and necessary reasons once, with sources and limitations where they matter; keep execution details internal."}
       required: [content]
     steps:
       - backend: send_chat_message_immediate_step
@@ -583,7 +583,6 @@ components:
           cron: "*/5 * * * *"
           query: "通过截屏看看主人在干啥"
           enabled: true
-          preflight: screen_capture
         - id: finance_news
           cron: "0 * * * *"
           query: "看看有什么主人喜欢的财经新闻"

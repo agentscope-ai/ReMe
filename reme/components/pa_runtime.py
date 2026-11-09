@@ -51,6 +51,7 @@ class ProactiveRound:
     request: tuple[str, ReminderKind] | None = None
     result: dict = field(default_factory=lambda: {"sent": False, "status": "skipped"})
     feedback_version: str | None = None
+    history_version: tuple[int, int, int] | None = None
 
 
 @R.register("local")
@@ -164,9 +165,9 @@ class PaRuntime(BaseComponent):
     async def proactive_skip_reason(self, config: PaProactiveConfig | None = None) -> str | None:
         """Apply local scheduling rules before spending any model tokens."""
         config = config or await self.get_proactive_config()
+        window = await self.reminders.window(config)
         if not config.enabled:
             return "disabled"
-        window = await self.reminders.window(config)
         if not config.is_active(self._now()):
             return "outside_active_hours"
         return "day_closed" if window.closing_message_id is not None else None
@@ -288,8 +289,8 @@ class PaRuntime(BaseComponent):
                 raise ValueError("send_chat_message requires a live, server-bound proactive round")
             if current.phase != "query_message":
                 raise ValueError("send_chat_message is only allowed during query_message")
-            if not isinstance(content, str) or len(content.strip()) > 200:
-                raise ValueError("content must be a string of at most 200 characters")
+            if not isinstance(content, str) or len(content.strip()) > 4000:
+                raise ValueError("content must be a string of at most 4000 characters")
             content = content.strip()
             if kind not in ("normal", "morning", "midday", "evening"):
                 raise ValueError("kind must be normal, morning, midday or evening")
@@ -300,6 +301,8 @@ class PaRuntime(BaseComponent):
                     raise ValueError("Only one reminder decision may be submitted per round")
                 if not content:
                     return current.result
+            if content and current.request is None:
+                self.reminders.check_history(current.history_version)
             result = await self.reminders.submit(content, kind, session_id=session_id, message_id=current.id)
             current.request = (content, kind)
             current.result = result
@@ -309,9 +312,28 @@ class PaRuntime(BaseComponent):
         """Check deferred delivery without starting a model turn."""
         await self.reminders.deliver_pending()
 
-    async def get_chat_messages(self, limit: int = 10, offset: int = 0) -> list[dict]:
-        """Return the latest reminder states with pagination."""
-        return await self.reminders.history(limit, offset)
+    async def get_chat_messages(
+        self,
+        limit: int = 10,
+        offset: int = 0,
+        *,
+        round_id: str | None = None,
+        cron_run_id: str | None = None,
+    ) -> list[dict]:
+        """Read history and bind its version to the caller's current decision."""
+        records, version = await self.reminders.history(limit, offset)
+        current = None
+        if round_id is not None:
+            current = self.current_round
+            if current is None or current.id != round_id:
+                raise ValueError("History requires a live proactive round")
+        elif cron_run_id is not None:
+            current = self.tasks.message_context(cron_run_id)
+        if current is not None:
+            if offset and current.history_version != version:
+                raise ValueError("Reminder history changed; call get_chat_messages from offset=0 again")
+            current.history_version = version
+        return records
 
     @staticmethod
     def _reverse_jsonl_lines(handle):

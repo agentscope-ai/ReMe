@@ -350,3 +350,19 @@ test("activity updates are scoped to the selected session and require the new co
   model.apply({ type: "session_changed", session_id: "new", cursor: "e:3" });
   assert.deepEqual(model.activities, {});
 });
+
+test("an immediate message bypasses ordinary windows only until its own expiry", () => {
+  const model = new SessionModel();
+  const now = Date.now();
+  const urgent = {
+    ...message("urgent"),
+    delivery: "immediate" as const,
+    expires_at: new Date(now + 1000).toISOString(),
+  };
+  assert.equal(model.canNotify(urgent, now), true);
+  assert.equal(model.canNotify(urgent, now + 1000), false);
+  assert.equal(model.canNotify({ ...urgent, expires_at: null }, now), true);
+  for (const expires_at of ["invalid", ""]) {
+    assert.equal(model.canNotify({ ...urgent, expires_at }, now), false);
+  }
+});

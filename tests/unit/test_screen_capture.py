@@ -119,7 +119,7 @@ async def test_unknown_or_unusable_baselines_never_silently_skip(tmp_path, condi
 
 
 @pytest.mark.asyncio
-async def test_task_preflight_does_not_advance_manual_or_failed_task_baselines(tmp_path):
+async def test_explicit_comparison_baseline_does_not_advance_manual_baseline(tmp_path):
     context, capture = setup(tmp_path)
     first = await ScreenCaptureStep(app_context=context)()
     capture.frames[0][1][20:40, 20:40] = 255
@@ -136,15 +136,14 @@ async def test_task_preflight_does_not_advance_manual_or_failed_task_baselines(t
 
 
 @pytest.mark.asyncio
-async def test_cached_tool_result_reuses_preflight_and_validates_paths(tmp_path):
+async def test_each_tool_call_captures_and_compares_current_frames(tmp_path):
     context, capture = setup(tmp_path)
     first = await ScreenCaptureStep(app_context=context)()
-    payload = {"result": first.answer, "frames": first.metadata["screen_capture"]}
-    reused = await ScreenCaptureStep(app_context=context)(_screen_preflight=payload)
-    assert reused.answer == first.answer and capture.calls == 1
+    second = await ScreenCaptureStep(app_context=context)()
+    assert capture.calls == 2 and second.answer["paths"] == []
     (tmp_path / first.answer["paths"][0]).unlink()
-    with pytest.raises(ValueError, match="prefetched"):
-        await ScreenCaptureStep(app_context=context)(_screen_preflight=payload)
+    refreshed = await ScreenCaptureStep(app_context=context)()
+    assert capture.calls == 3 and refreshed.answer["paths"]
 
 
 def test_overlapping_tiles_detect_small_changes_without_global_dilution():

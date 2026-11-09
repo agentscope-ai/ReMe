@@ -213,7 +213,7 @@ else {
             event.sender.id === windows!.companion.webContents.id,
           ),
           manifest: assets.manifest,
-          layout: windows!.layoutFor(event.sender.id),
+          layout: windows!.layout,
           platform: process.platform,
           version: app.getVersion(),
         };
@@ -289,8 +289,6 @@ else {
           case "bubble.shown":
             if (
               windows!.isCompanionSender(event.sender.id) &&
-              (event.sender.id === windows!.companion.webContents.id ||
-                windows!.chat.isFocused()) &&
               typeof action.sessionId === "string" &&
               typeof action.id === "string" &&
               Number.isSafeInteger(action.presentationId)
@@ -485,13 +483,6 @@ else {
         if (windows!.isCompanionSender(event.sender.id))
           windows!.measureSurface(size);
       });
-      ipcMain.on(channels.habitat, (event, value) => {
-        if (
-          validSender(event) &&
-          event.sender.id === windows!.chat.webContents.id
-        )
-          windows!.measureHabitat(value);
-      });
       ipcMain.on(channels.drag, (event, phase) => {
         if (!validSender(event)) return;
         if (
@@ -548,10 +539,7 @@ else {
       };
       openMenu = () =>
         menu().popup({
-          window:
-            windows!.layout.presence?.host === "app"
-              ? windows!.chat
-              : windows!.companion,
+          window: windows!.companion,
         });
       refreshTray();
       tray.on("click", () => windows!.openChat());
