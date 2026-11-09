@@ -62,7 +62,7 @@ query_summary: |
     Summarize only these results; do not start new research.
   - Keep core conclusions, necessary background and evidence; be concise but complete. Retain relevant times and verified source URLs, for example [Source](URL).
     Identify local files or screenshots by source and relevant time; never invent URLs.
-  - End with a cumulative timeline: briefly describe each time point in one sentence, merging related time points wherever possible.
+  - End with a cumulative timeline limited to the last 24 hours: briefly describe each time point in one sentence, merging related time points wherever possible.
 
   Finally, write the organized summary to the Markdown file {staging_path}.
   Without valuable new information, write no file and return exactly NO_UPDATE.
@@ -72,7 +72,7 @@ query_summary_zh: |
     只整理这些结果，不新增调研。
   - 保留核心结论、必要背景和依据，简洁但完整，保留相关时间和已核实的来源 URL，例如 [传送门](URL)。
     本地文件或截图注明来源和必要时间，不编造链接。
-  - 末尾附累计时间线，每个时间节点用一句话简洁介绍，尽可能合并相关时间点。
+  - 末尾附累计时间线，最多保留最近24小时；每个时间节点用一句话简洁介绍，尽可能合并相关时间点。
 
   最后将整理好的摘要写入 Markdown 文件 {staging_path}。
   没有有价值的新信息则不写文件，只返回 NO_UPDATE。

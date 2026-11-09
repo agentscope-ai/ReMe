@@ -372,7 +372,8 @@ into the system prompt. Query 1 executes the configured task with all available 
 Code supplies the latest completed result path across dates as `previous_path` for query 2.
 It leads with this run's confirmed findings, preserving core conclusions, necessary background, times and evidence.
 External material keeps original URLs; local files or screenshots use source names and relevant times. Results stay concise but
-complete and end with an accumulated timeline that merges repeated themes and continuous periods, without appending each execution.
+complete and end with an accumulated timeline limited to the last 24 hours, merging repeated
+themes and continuous periods without appending each execution.
 With no valuable update it writes no file and returns exactly `NO_UPDATE`; a missing file without this decision is an error.
 After publication, query 3 considers urgency. Only an urgent candidate requires `get_chat_messages`, including content,
 delivery state and pagination when needed. If still urgent and new, it calls `send_chat_message_immediate`; otherwise it
