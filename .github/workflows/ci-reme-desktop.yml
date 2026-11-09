@@ -52,7 +52,7 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run test:e2e
-        timeout-minutes: 3
+        timeout-minutes: 5
         env:
           DEBUG: pw:browser*
       - run: npm run test:dev

@@ -28,6 +28,12 @@ test(
         },
       });
       const { companion, chat } = await desktopWindows(app);
+      const { manifest } = await companion.evaluate(() =>
+        window.desktop.bootstrap(),
+      );
+      const thinking = manifest.animations.find(
+        (clip) => clip.id === "thinking",
+      );
       const errors = [];
       companion.on("pageerror", (error) => errors.push(String(error)));
       chat.on("pageerror", (error) => errors.push(String(error)));
@@ -86,8 +92,11 @@ test(
         window.animationDraws = 0;
         const draw = CanvasRenderingContext2D.prototype.drawImage;
         CanvasRenderingContext2D.prototype.drawImage = function (...args) {
-          if (this.canvas === document.querySelector("canvas"))
+          if (this.canvas === document.querySelector("canvas")) {
             window.animationDraws++;
+            window.animationFrame =
+              args[0] instanceof HTMLImageElement ? args[0].src : "";
+          }
           return draw.apply(this, args);
         };
       });
@@ -99,6 +108,11 @@ test(
       await expect
         .poll(() => companion.evaluate(() => window.animationDraws))
         .toBeGreaterThan(0);
+      await expect
+        .poll(() => companion.evaluate(() => window.animationFrame))
+        .toBe(
+          `reme-assets://remy/${thinking.frame_files[Math.floor(thinking.frame_files.length / 2)]}`,
+        );
       const animation = (await state()).behavior.animation;
       const draws = await companion.evaluate(() => window.animationDraws);
       await companion.waitForTimeout(700);
