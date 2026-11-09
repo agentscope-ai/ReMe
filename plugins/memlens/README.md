@@ -1,5 +1,19 @@
 # MemLens plugin
 
+The benchmark configuration uses a local AgentScope wrapper that preserves the
+pre-AgentReply evaluation protocol: an exact `exceed_max_iters` termination with
+native `error=None` is accepted for memory and answers, including an empty result.
+The original message stays in `raw.message`; the native failed status/error are saved
+in `raw.benchmark_compat`.
+Other termination reasons and native errors retain the core behavior. This exception
+does not apply to calls with `output_schema`, which these benchmark paths do not use.
+It adds no iterations or model calls and leaves the generic AgentScope backend unchanged.
+The configuration selects a plugin-specific backend alias; its instance retains the
+native `agentscope` backend identity required by Auto Memory's image capability check.
+Candidate metadata forwards the compatibility marker. Auto Memory's session Response
+does not forward the complete AgentReply; its native Agent state and successful session
+receipts must be archived with the source revision to audit memory compatibility.
+
 Install with `pip install -e plugins/memlens` and load the `memlens-benchmark` configuration
 with the `memlens` plugin. The executable ReMe Image evaluation lives
 in [`benchmark/memlens`](../../benchmark/memlens).
