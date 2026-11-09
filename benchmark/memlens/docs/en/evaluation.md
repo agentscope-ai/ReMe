@@ -54,7 +54,7 @@ On the evaluation server, the **OpenViking 0.4.17.2.dev1** main package was inst
 | Full Context, OpenViking and Mem0 answer | — | 16,384 | On / 0 |
 | MemLens Judge | — | 256 | Off / 0 |
 
-Each ReMe question uses an independent answer Agent with at most 30 iterations and context compression. Its `read_image` adapter accesses saved attachments with a 50 MiB read limit and a 4,096-image retention limit.
+Each ReMe question uses an independent answer Agent with at most 30 iterations and context compression. Its `read_image` adapter accesses saved attachments with a 50 MiB read limit and a 4,096-image retention limit. Some API calls were retried after potentially transient failures to obtain valid results.
 
 Mem0's memory-extraction output budget is **2,000 tokens for Qwen and 10,000 for Kimi/DeepSeek**. Qwen and DeepSeek inherit Mem0 2.0.4's [OpenAI adapter defaults](https://github.com/mem0ai/mem0/blob/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d/mem0/configs/llms/openai.py): `temperature=0.1` and `top_p=0.1`. These values come from Mem0's configuration. The service used for Kimi does not accept these parameters, so they are omitted from its requests; the provider's actual defaults are unknown. Memory-extraction requests do not explicitly set a thinking switch and use the model service's default behavior; answering explicitly enables thinking as shown above.
 
@@ -77,15 +77,26 @@ In the table, A3B denotes Qwen3.6-35B-A3B and Max denotes Qwen3.8-Max.
 
 ## Independent Reproduction Results {#independent-reproduction}
 
-We organized and integrated the MemLens benchmark code into ReMe, then independently reran ReMe Image using the same data inputs and scoring settings. See the [run instructions](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/benchmark/memlens/README.md), [method configuration](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens/src/reme_memlens/benchmark.yaml), [Judge configuration](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens-judge/src/judge_memlens/plugin.yaml) and [Judge scoring rules](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens-judge/src/judge_memlens/protocol.py) for the implementation and settings.
+The reproduction is based on the main branch at [b784468](https://github.com/agentscope-ai/ReMe/commit/b784468a10d98af1688b7c4ba38492dc1f9bda6f) and uses the repository's [benchmark entry point](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/benchmark/memlens/README.md). The [method configuration](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens/src/reme_memlens/benchmark.yaml), [Judge configuration](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens-judge/src/judge_memlens/plugin.yaml) and [Judge scoring rules](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens-judge/src/judge_memlens/protocol.py) specify context and output budgets, the 30-iteration limit and scoring protocol. Original-image handling and BM25 retrieval follow that revision's benchmark implementation.
 
-The corresponding public evaluation code is available in [PR #640](https://github.com/agentscope-ai/ReMe/pull/640) at commit [962d5cd](https://github.com/agentscope-ai/ReMe/commit/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8).
+[PR #713](https://github.com/agentscope-ai/ReMe/pull/713) introduced `AgentReply` handling that classifies native `exceed_max_iters` returns as failures even when the native `error` is `None`. This can stop memory ingestion or keep an answer from being scored. The fix proposed in [PR #735](https://github.com/agentscope-ai/ReMe/pull/735) ([681a1383](https://github.com/agentscope-ai/ReMe/commit/681a13831426c1a8d4f7227ef835c38d0257003a)) overrides result handling only in the benchmark plugins: it accepts exactly `exceed_max_iters` with native `error=None` and no requested `output_schema`, preserving the original text, usage and diagnostics without adding iterations or model calls.
 
-After applying the same six-question filter, one A3B question and two Max questions remain incomplete because conversation-history processing failed. The table compares the 188 and 187 questions completed in both experiments, respectively.
+All 195 questions are supplied as input; the main set excludes the same six questions listed above. Scores below average **scored questions only**, with no zero fill for unscored questions. Five DeepSeek questions remained unscored because input images triggered content moderation during memory ingestion.
 
-| Model | Paired questions | Original ReMe Image correct | Independent reproduction correct | Original → reproduction LLM-Judge (%) |
+| Model | Scored / expected | Judge correct | LLM-Judge (%) | SubEM (%) | F1 (%) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen3.6-35B-A3B | 189 / 189 | 104 | 55.03 | 54.50 | 48.01 |
+| Qwen3.8-Max | 189 / 189 | 133 | 70.37 | 61.38 | 55.52 |
+| Kimi-K3 | 189 / 189 | 123 | 65.08 | 65.61 | 55.81 |
+| DeepSeek-V4.1-Flash | 184 / 189 | 119 | 64.67 | 59.24 | 56.23 |
+
+Comparisons with the main experiment use questions completed in both runs with matching IDs, questions and references. Both score columns below are recalculated on each row's common set. Differences use unrounded values and are in percentage points.
+
+| Model | Common questions | Main experiment LLM-Judge (%) | Reproduction LLM-Judge (%) | Difference (pp) |
 | --- | ---: | ---: | ---: | ---: |
-| Qwen3.6-35B-A3B | 188 | 100 | 96 | 53.19 → 51.06 |
-| Qwen3.8-Max | 187 | 135 | 134 | 72.19 → 71.66 |
+| Qwen3.6-35B-A3B | 189 | 53.44 | 55.03 | +1.59 |
+| Qwen3.8-Max | 189 | 72.49 | 70.37 | −2.12 |
+| Kimi-K3 | 184 | 64.67 | 65.22 | +0.54 |
+| DeepSeek-V4.1-Flash | 181 | 64.09 | 64.64 | +0.55 |
 
-On these matched questions, the reproduced LLM-Judge scores for Qwen3.6-35B-A3B and Qwen3.8-Max are 2.13 and 0.53 percentage points lower than the original results, respectively. Overall, performance remains broadly consistent with the original experiment.
+ReMe Image's model rankings by LLM-Judge are unchanged. On this measure, the reproduction results are consistent with the trends and conclusions of the main experiment.

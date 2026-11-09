@@ -17,7 +17,7 @@ const models = [
   { name: "DeepSeek-V4.1-Flash", correct: [114, 78, 117, 93, 93] },
 ];
 const excluded = ["q_028cb832", "q_1d99a36c", "q_3b01c02a", "q_564a657b", "q_600a79aa", "q_c9f8e24d"];
-const publicRevision = "962d5cd8401c1d2be17f3bb95f8ac9c185672cd8";
+const publicRevision = "b784468a10d98af1688b7c4ba38492dc1f9bda6f";
 const reproductionLinks = [
   ...[
     "benchmark/memlens/README.md",
@@ -25,8 +25,10 @@ const reproductionLinks = [
     "plugins/memlens-judge/src/judge_memlens/plugin.yaml",
     "plugins/memlens-judge/src/judge_memlens/protocol.py",
   ].map((file) => `https://github.com/agentscope-ai/ReMe/blob/${publicRevision}/${file}`),
-  "https://github.com/agentscope-ai/ReMe/pull/640",
   `https://github.com/agentscope-ai/ReMe/commit/${publicRevision}`,
+  "https://github.com/agentscope-ai/ReMe/pull/713",
+  "https://github.com/agentscope-ai/ReMe/pull/735",
+  "https://github.com/agentscope-ai/ReMe/commit/681a13831426c1a8d4f7227ef835c38d0257003a",
 ];
 
 test("four-model chart displays every published MemLens score", async () => {
@@ -56,7 +58,8 @@ test("MemLens bilingual notes and blogs match the published scores", async () =>
   for (const language of ["en", "zh"]) {
     const blog = await readFile(path.join(generatedDir, language, "blog_20261009.md"), "utf8");
     const notes = await readFile(path.join(generatedDir, language, "benchmarks/memlens.md"), "utf8");
-    const rows = tableRows(notes).filter((row) => /^\d+ \/ 189$/.test(row[5]));
+    const results = notes.split("{#results}")[1].split("{#evaluation-settings}")[0];
+    const rows = tableRows(results).filter((row) => /^\d+ \/ 189$/.test(row[5]));
     assert.equal(rows.length, 20);
     for (const model of models) {
       for (const [index, method] of methods.entries()) {
@@ -74,7 +77,7 @@ test("MemLens bilingual notes and blogs match the published scores", async () =>
   }
 });
 
-test("MemLens notes disclose moderation filters, paired results and Judge settings", async () => {
+test("MemLens notes disclose moderation filters, reproduction results and Judge settings", async () => {
   const triggers = {
     zh: [
       ["OpenViking / Max", "记忆构建"],
@@ -103,8 +106,14 @@ test("MemLens notes disclose moderation filters, paired results and Judge settin
       return `| \`${id}\` | ${method} | ${stage} |`;
     }));
     assert.match(notes, /189\/195/);
-    assert.ok(notes.includes("| Qwen3.6-35B-A3B | 188 | 100 | 96 | 53.19 → 51.06 |"));
-    assert.ok(notes.includes("| Qwen3.8-Max | 187 | 135 | 134 | 72.19 → 71.66 |"));
+    const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
+    const reproducedRows = tableRows(reproduction).filter((row) => /^\d+ \/ 189$/.test(row[1]));
+    assert.deepEqual(reproducedRows.map((row) => row.slice(0, 4)), [
+      ["Qwen3.6-35B-A3B", "189 / 189", "104", "55.03"],
+      ["Qwen3.8-Max", "189 / 189", "133", "70.37"],
+      ["Kimi-K3", "189 / 189", "123", "65.08"],
+      ["DeepSeek-V4.1-Flash", "184 / 189", "119", "64.67"],
+    ]);
     const judge = notes.split("\n\n").find((paragraph) => /(?:as|作为) Judge/.test(paragraph));
     assert.ok(judge, `${language}: Judge settings must be documented`);
     assert.match(judge, /\*\*Qwen3\.8-Max\*\*/);
@@ -145,7 +154,8 @@ test("MobileMem publishes seven results over 1,333 questions in both languages",
   ];
   for (const language of ["en", "zh"]) {
     const notes = await readFile(path.join(generatedDir, language, "benchmarks/mobilemem.md"), "utf8");
-    const rows = tableRows(notes).filter((row) => /^\d+ \/ 1,333$/.test(row[3]));
+    const resultSection = notes.split("{#results}")[1].split("{#evaluation-settings}")[0];
+    const rows = tableRows(resultSection).filter((row) => /^\d+ \/ 1,333$/.test(row[3]));
     assert.equal(rows.length, results.length);
     for (const [model, method, valid, correct] of results) {
       const row = rows.find((entry) => entry[0] === model && entry[1].startsWith(method));
@@ -154,6 +164,13 @@ test("MobileMem publishes seven results over 1,333 questions in both languages",
       assert.equal(row[3], `${correct} / 1,333`);
       assert.equal(row[4], (100 * correct / 1333).toFixed(2));
     }
+    const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
+    const reproducedRows = tableRows(reproduction).filter((row) => /^[\d,]+ \/ 1,333$/.test(row[1]));
+    assert.deepEqual(reproducedRows.map((row) => row.slice(0, 4)), [
+      ["Qwen3.8-Max", "1,329 / 1,333", "803", "60.42"],
+      ["Kimi-K3", "1,278 / 1,333", "669", "52.35"],
+      ["DeepSeek-V4.1-Flash", "1,328 / 1,333", "712", "53.61"],
+    ]);
     assert.match(notes, /8_69/);
     assert.match(notes, /14_74_2/);
     assert.match(notes, /1,203/);

@@ -54,7 +54,7 @@ ReMe Image 在每个候选模型的五方法比较中均取得最高 LLM-Judge �
 | Full Context、OpenViking、Mem0 回答 | — | 16,384 | 开启 / 0 |
 | MemLens Judge | — | 256 | 关闭 / 0 |
 
-ReMe 每题使用独立回答 Agent，最多运行 30 轮，并采用上下文压缩。`read_image` 的附件读取上限为 50 MiB，图片保留上限为 4,096 张。
+ReMe 每题使用独立回答 Agent，最多运行 30 轮，并采用上下文压缩。`read_image` 的附件读取上限为 50 MiB，图片保留上限为 4,096 张。针对部分可能存在的偶发失败的 API 调用，实验中对其重试调用以获得有效结果。
 
 Mem0 记忆提取阶段的输出预算，**Qwen 为 2,000 tokens，Kimi、DeepSeek 为 10,000 tokens**。Qwen、DeepSeek 沿用 Mem0 2.0.4 的 [OpenAI 适配器默认配置](https://github.com/mem0ai/mem0/blob/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d/mem0/configs/llms/openai.py)：`temperature=0.1`、`top_p=0.1`，这两个值来自 Mem0 的配置。Kimi 所用服务不接受这两个参数，因此请求中不发送它们，服务端实际采用的默认值未知。记忆提取请求也不显式设置 thinking 开关，沿用模型服务的默认行为；回答阶段则按上表显式开启 thinking。
 
@@ -77,15 +77,26 @@ Mem0 记忆提取阶段的输出预算，**Qwen 为 2,000 tokens，Kimi、DeepSe
 
 ## 独立复现结果 {#independent-reproduction}
 
-我们将 MemLens benchmark 代码整理并集成到 ReMe 项目中，在相同的数据输入和评分设置下，对 ReMe Image 进行了独立复现。运行方式见[评测说明](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/benchmark/memlens/README.md)，具体参数见[方法配置](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens/src/reme_memlens/benchmark.yaml)、[Judge 配置](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens-judge/src/judge_memlens/plugin.yaml)和[Judge 评分规则](https://github.com/agentscope-ai/ReMe/blob/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8/plugins/memlens-judge/src/judge_memlens/protocol.py)。
+我们使用 main 分支（提交 [b784468](https://github.com/agentscope-ai/ReMe/commit/b784468a10d98af1688b7c4ba38492dc1f9bda6f)）中的[评测入口](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/benchmark/memlens/README.md)复现 ReMe Image。[方法配置](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens/src/reme_memlens/benchmark.yaml)、[Judge 配置](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens-judge/src/judge_memlens/plugin.yaml)和[Judge 评分规则](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/plugins/memlens-judge/src/judge_memlens/protocol.py)给出了上下文与输出预算、30 轮上限和评分协议。原图处理与 BM25 检索沿用该版本的 benchmark 实现。
 
-独立复现对应的公开评测代码见 [PR #640](https://github.com/agentscope-ai/ReMe/pull/640)，commit 为 [962d5cd](https://github.com/agentscope-ai/ReMe/commit/962d5cd8401c1d2be17f3bb95f8ac9c185672cd8)。
+由于 [PR #713](https://github.com/agentscope-ai/ReMe/pull/713) 更新了 Agent 返回值的处理方式，达到轮次上限但未发生实际错误的结果也会被标记为失败，导致记忆摄入中止或回答无法进行评分。因此，我们在 [PR #735](https://github.com/agentscope-ai/ReMe/pull/735)（修复提交 [681a1383](https://github.com/agentscope-ai/ReMe/commit/681a13831426c1a8d4f7227ef835c38d0257003a)）中，仅针对 benchmark 插件重载结果处理，接纳达到 30 轮上限、无原生错误且无结构化输出约束的旧返回值（`exceed_max_iters`）；轮数上限和模型调用保持不变。
 
-应用相同的六题过滤后，复现实验中 A3B 有 1 题、Max 有 2 题因会话历史处理失败未得到完整结果。下表分别在两次实验均完成的 188 题和 187 题上进行配对比较。
+完整输入为 195 题，主表仍排除上文相同六题。下表仅对**已评分题**求平均，未评分题不补 0。DeepSeek 有 5 题在记忆摄入时触发输入图像内容审核，未取得评分。
 
-| 模型 | 配对题数 | 原实验正确数 | 独立复现正确数 | 原实验 → 独立复现 LLM-Judge (%) |
+| 模型 | 已评分 / 应测 | Judge 正确数 | LLM-Judge (%) | SubEM (%) | F1 (%) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Qwen3.6-35B-A3B | 189 / 189 | 104 | 55.03 | 54.50 | 48.01 |
+| Qwen3.8-Max | 189 / 189 | 133 | 70.37 | 61.38 | 55.52 |
+| Kimi-K3 | 189 / 189 | 123 | 65.08 | 65.61 | 55.81 |
+| DeepSeek-V4.1-Flash | 184 / 189 | 119 | 64.67 | 59.24 | 56.23 |
+
+与正式实验比较时，仅取双方均完成且问题 ID、问题及参考答案一致的题目。下表两列分数均在各行的共同题上重新统计；差值由未舍入的分数计算，单位为百分点。
+
+| 模型 | 共同题数 | 正式实验 LLM-Judge (%) | 独立复现 LLM-Judge (%) | 差值（百分点） |
 | --- | ---: | ---: | ---: | ---: |
-| Qwen3.6-35B-A3B | 188 | 100 | 96 | 53.19 → 51.06 |
-| Qwen3.8-Max | 187 | 135 | 134 | 72.19 → 71.66 |
+| Qwen3.6-35B-A3B | 189 | 53.44 | 55.03 | +1.59 |
+| Qwen3.8-Max | 189 | 72.49 | 70.37 | −2.12 |
+| Kimi-K3 | 184 | 64.67 | 65.22 | +0.54 |
+| DeepSeek-V4.1-Flash | 181 | 64.09 | 64.64 | +0.55 |
 
-在上述配对题目上，Qwen3.6-35B-A3B 和 Qwen3.8-Max 的独立复现 LLM-Judge 得分分别比原实验低 2.13 和 0.53 个百分点，整体性能与原实验基本保持一致。
+就 ReMe Image 的 LLM-Judge 表现而言，复现结果与正式实验结果的趋势和结论保持一致。
