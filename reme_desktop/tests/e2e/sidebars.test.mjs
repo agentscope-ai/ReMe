@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
+import { desktopWindows } from "./windows.mjs";
 import { mockReMe } from "./mock-reme.mjs";
 
 const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
@@ -28,11 +29,7 @@ test(
           REME_DESKTOP_API_URL: backend.url,
         },
       });
-      if (app.windows().length < 2)
-        await app.waitForEvent("window", {
-          predicate: () => app.windows().length >= 2,
-        });
-      page = app.windows().find((entry) => entry.url().includes("view=chat"));
+      ({ chat: page } = await desktopWindows(app));
       page.on("pageerror", (error) => errors.push(String(error)));
       await app.evaluate(({ BrowserWindow }) => {
         const win = BrowserWindow.getAllWindows().find((entry) =>

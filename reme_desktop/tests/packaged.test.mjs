@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
+import { desktopWindows } from "./e2e/windows.mjs";
 import { mockReMe } from "./e2e/mock-reme.mjs";
 
 const project = fileURLToPath(new URL("../", import.meta.url));
@@ -60,16 +61,7 @@ test(
           REME_DESKTOP_API_URL: backend.url,
         },
       });
-      if (app.windows().length < 2)
-        await app.waitForEvent("window", {
-          predicate: () => app.windows().length >= 2,
-        });
-      const companion = app
-        .windows()
-        .find((page) => page.url().includes("view=companion"));
-      const chat = app
-        .windows()
-        .find((page) => page.url().includes("view=chat"));
+      const { companion, chat } = await desktopWindows(app);
       await expect
         .poll(() =>
           companion.evaluate(() =>

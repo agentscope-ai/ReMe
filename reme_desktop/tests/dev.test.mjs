@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { createServer } from "vite";
+import { createServer, normalizePath } from "vite";
 import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
 import config from "../electron.vite.config.ts";
+import { desktopWindows } from "./e2e/windows.mjs";
 import { mockReMe } from "./e2e/mock-reme.mjs";
 
 const project = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -26,7 +27,10 @@ test(
           name: "entry-load-counter",
           enforce: "pre",
           transform(code, id) {
-            if (id.split("?")[0] === path.join(project, "src/renderer/src.tsx"))
+            if (
+              normalizePath(id.split("?")[0]) ===
+              normalizePath(path.join(project, "src/renderer/src.tsx"))
+            )
               return (
                 code +
                 "\nglobalThis.__entryLoads = (globalThis.__entryLoads || 0) + 1;"
@@ -51,16 +55,7 @@ test(
           ELECTRON_RENDERER_URL: server.resolvedUrls.local[0],
         },
       });
-      if (app.windows().length < 2)
-        await app.waitForEvent("window", {
-          predicate: () => app.windows().length >= 2,
-        });
-      const companion = app
-        .windows()
-        .find((page) => page.url().includes("view=companion"));
-      const chat = app
-        .windows()
-        .find((page) => page.url().includes("view=chat"));
+      const { companion, chat } = await desktopWindows(app);
       await companion.waitForSelector("canvas", { timeout: 8_000 });
       await companion.evaluate(() =>
         window.desktop.action({ type: "chat.open" }),

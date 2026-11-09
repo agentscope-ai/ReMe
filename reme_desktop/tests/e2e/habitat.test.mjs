@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
+import { desktopWindows } from "./windows.mjs";
 import { mockReMe } from "./mock-reme.mjs";
 
 const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
@@ -25,16 +26,7 @@ test(
       },
     });
     try {
-      if (app.windows().length < 2)
-        await app.waitForEvent("window", {
-          predicate: () => app.windows().length >= 2,
-        });
-      const companion = app
-        .windows()
-        .find((page) => page.url().includes("view=companion"));
-      const chat = app
-        .windows()
-        .find((page) => page.url().includes("view=chat"));
+      const { companion, chat } = await desktopWindows(app);
       const errors = [];
       for (const page of [companion, chat])
         page.on("pageerror", (error) => errors.push(String(error)));
