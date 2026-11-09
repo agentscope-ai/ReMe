@@ -48,6 +48,8 @@ Each ReMe question starts a fresh Agent with at most **30 iterations**. The Agen
 
 All rows use the default **MemBase Judge** prompt and parsing rules, with the Qwen3.8-Max scoring settings above. The protocol is named `membase_default`; see the [MobileMem Judge](../../../../plugins/mobilemem-judge/README.md) for its implementation. Only the Judge receives reference answers and evidence annotations.
 
+<a name="independent-reproduction"></a>
+
 ## Independent Reproduction Results {#independent-reproduction}
 
 The reproduction is based on the main branch at [b784468](https://github.com/agentscope-ai/ReMe/commit/b784468a10d98af1688b7c4ba38492dc1f9bda6f) and uses the repository's [benchmark entry point](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/benchmark/mobilemem/README.md). Original-image handling, BM25 retrieval, memory and answer budgets, the 30-iteration limit and MemBase Judge settings follow the configuration above.

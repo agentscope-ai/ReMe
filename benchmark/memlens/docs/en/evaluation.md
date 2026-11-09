@@ -45,7 +45,7 @@ ReMe Image has the highest LLM-Judge accuracy among the five methods for each ca
 
 The baselines retain their own memory construction and retrieval workflows. OpenViking and Mem0 use retrieve → answer; ReMe uses its multi-round `agentic_answer` workflow. Each row uses the named candidate model for answering, and memory construction uses the same model where applicable. ReMe Image and Mem0 receive original images rather than supplied benchmark captions; OpenViking produces its own image descriptions.
 
-On the evaluation server, the **OpenViking 0.4.17.2.dev1** main package was installed in editable mode from source, based on [this upstream revision](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152), with Python SDK 0.1.9. It formats retrieved text with MemLens's flat QA template. **Mem0 2.0.4** was also installed in editable mode from its [pinned source revision](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d), following the [MemLens reproduction instructions](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0) and its dedicated [QA message builder](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py).
+On the evaluation server, the **OpenViking 0.4.17.2.dev1** main package was installed in editable mode from source, based on [this upstream revision](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152), with Python SDK 0.1.9. It formats retrieved text with MemLens's flat QA template. The evaluation adapter includes a JSON parsing correction and explicit error reporting for image-processing failures. **Mem0 2.0.4** was also installed in editable mode from its [pinned source revision](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d), following the [MemLens reproduction instructions](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0) and its dedicated [QA message builder](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py).
 
 | Stage | Context limit | Output budget | Thinking / temperature |
 | --- | ---: | ---: | --- |
@@ -74,6 +74,8 @@ In the table, A3B denotes Qwen3.6-35B-A3B and Max denotes Qwen3.8-Max.
 | `q_564a657b` | ReMe Image / Max | Answering |
 | `q_600a79aa` | ReMe Image / Max | Memory construction |
 | `q_c9f8e24d` | ReMe Text / Max | Answering |
+
+<a name="independent-reproduction"></a>
 
 ## Independent Reproduction Results {#independent-reproduction}
 

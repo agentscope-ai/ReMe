@@ -48,6 +48,8 @@ ReMe 每题新建回答 Agent，最多 **30 轮**，可以通过 `search`、`rea
 
 全部结果统一使用 **MemBase 默认 Judge** 提示词及解析规则，模型和参数见上表。协议名为 `membase_default`，实现见 [MobileMem Judge](../../../../plugins/mobilemem-judge/README.md)。参考答案和证据标注只提供给 Judge。
 
+<a name="independent-reproduction"></a>
+
 ## 独立复现结果 {#independent-reproduction}
 
 我们使用 main 分支（提交 [b784468](https://github.com/agentscope-ai/ReMe/commit/b784468a10d98af1688b7c4ba38492dc1f9bda6f)）中的[评测入口](https://github.com/agentscope-ai/ReMe/blob/b784468a10d98af1688b7c4ba38492dc1f9bda6f/benchmark/mobilemem/README.md)复现 ReMe Image。原图处理、BM25 检索、记忆与回答预算、30 轮上限和 MemBase Judge 设置沿用上文。

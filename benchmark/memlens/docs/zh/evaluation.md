@@ -45,7 +45,7 @@ ReMe Image 在每个候选模型的五方法比较中均取得最高 LLM-Judge �
 
 基线保留各自的记忆构建与检索流程。OpenViking、Mem0 采用 retrieve → answer，ReMe 则使用多轮 `agentic_answer`。各行使用对应候选模型回答，需要构建记忆的方法也使用同一模型。ReMe Image 与 Mem0 接收原图，不使用 benchmark 附带的 caption；OpenViking 通过自己的图像描述流程处理图片。
 
-评测服务器上的 OpenViking 主包版本为 **0.4.17.2.dev1**，从源码以 editable 方式安装，基于[该上游版本](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152)，配套 Python SDK 为 0.1.9；检索正文按 MemLens 的普通 QA 模板组织。**Mem0 2.0.4** 同样从[锁定版本的源码](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d)以 editable 方式安装，沿用 [MemLens 复现说明](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0)中的流程和对应的 [QA 消息模板](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py)。
+评测服务器上的 OpenViking 主包版本为 **0.4.17.2.dev1**，从源码以 editable 方式安装，基于[该上游版本](https://github.com/volcengine/OpenViking/tree/420d4074f74070bc6fe7151aa54527cf1ff15152)，配套 Python SDK 为 0.1.9；检索正文按 MemLens 的普通 QA 模板组织。评测适配包含 JSON 解析修正，以及图片处理失败时的显式报错。**Mem0 2.0.4** 同样从[锁定版本的源码](https://github.com/mem0ai/mem0/tree/75a37ec93db7278e3bd9aaf2aa3d6e5139e6789d)以 editable 方式安装，沿用 [MemLens 复现说明](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/README.md#mem0)中的流程和对应的 [QA 消息模板](https://github.com/xrenaf/MEMLENS/blob/77f3ab9a52fa2d6a17978e2dffe80438a4ecced2/memory-agent/prompt_builders.py)。
 
 | 阶段 | 上下文上限 | 输出预算 | Thinking / temperature |
 | --- | ---: | ---: | --- |
@@ -74,6 +74,8 @@ Mem0 记忆提取阶段的输出预算，**Qwen 为 2,000 tokens，Kimi、DeepSe
 | `q_564a657b` | ReMe Image / Max | 回答 |
 | `q_600a79aa` | ReMe Image / Max | 记忆构建 |
 | `q_c9f8e24d` | ReMe Text / Max | 回答 |
+
+<a name="independent-reproduction"></a>
 
 ## 独立复现结果 {#independent-reproduction}
 
