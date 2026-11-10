@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -304,8 +305,9 @@ class TaskFiles:
             run.reason = "no_new_information"
         await self.save(state)
         if completion.reminder:
+            identifier = sha256(f"{run.task_id}:{run.started_at.isoformat()}".encode()).hexdigest()
             result = await self.runtime.reminders.submit_immediate(
-                f"cron_{run.task_id}_{run.started_at.isoformat()}",
+                f"cron_{identifier}",
                 completion.reminder,
                 session_id=run.target_session_id,
                 task_id=run.task_id,

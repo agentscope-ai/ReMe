@@ -58,7 +58,7 @@ query: |
   [has_hint] Optional conversational direction for this round: {optional_hint}
   [has_hint] You may improvise as the situation allows or remain quiet. Do not invent Master's situation or treat background tasks as Master's personal todos.
     If the latest settings pause reminders, skip selection and research and call send_chat_message with an empty string.
-  - For each candidate, use tools such as web_search as needed to consult original sources, verify key facts and add relevant background; cross-check multiple sources when necessary.
+  - Use tools as needed (e.g., web_search to consult original sources and fetch_url to read known web pages).
     Skip research if there are no candidates; make at most five search API calls across the entire round. Discard content that is outdated, insufficiently supported or adds no new value.
     Retain relevant time information and source URLs, for example [Source](URL).
   - Consider value, novelty, timing, message frequency and Master's responses; first decide whether an interruption is worthwhile, then decide what to say.
@@ -88,7 +88,7 @@ query_zh: |
   [has_hint] 本轮可选交流方向：{optional_hint}
   [has_hint] 可结合实际情况自然发挥，也可保持安静。不编造主人的状态，不把后台任务当作主人的待办事项。
     若最新配置要求暂停提醒，跳过筛选和调研，调用 send_chat_message 提交空字符串。
-  - 针对每条候选信息，按需使用工具（如 web_search）查阅原始来源，核实关键事实并补充相关背景，必要时交叉核对多个来源。
+  - 按需使用工具（如 web_search 查阅原始来源、fetch_url 读取已知网页）。
     没有候选信息时跳过调研；整轮最多调用五次搜索接口。剔除过时、依据不足或缺乏新增价值的内容。
     保留相关时间信息和来源 URL，例如 [传送门](URL)。
   - 综合考虑价值、新意、时机、发送频率和主人的回应，先判断是否值得打扰，再决定说什么。

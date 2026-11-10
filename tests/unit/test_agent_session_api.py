@@ -19,7 +19,10 @@ from reme.components.agent_wrapper import codex_session_history as history
 from reme.components.application_context import ApplicationContext
 from reme.components.codex_app_server import CodexAppServer
 from reme.config import resolve_app_config
+from reme.steps.proactive import CronAgentStep
+from reme.steps.proactive.tools import GetChatMessagesStep, SendChatMessageImmediateStep
 from reme.utils import AsStateHandler
+from .pa_helpers import configure, stub_model, task
 
 
 @pytest.mark.asyncio
@@ -270,6 +273,52 @@ async def test_multiple_appends_are_ordered_durable_and_idempotent(runtime):
     assert all(record["injected"] for record in history.read_records(server._message_path("session-1")))
     with pytest.raises(ValueError, match="different content"):
         await server.append_session("session-1", "changed", message_id="topic-1")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_id", ["finance_news", "x" * 128], ids=["ordinary-id", "maximum-id"])
+async def test_cron_reminder_recovers_and_passes_native_injection(runtime, pa_workspace, monkeypatch, task_id):
+    server, native = runtime
+    env = pa_workspace
+    env.agent.app_server = server
+    env.agent.append_session = server.append_session
+    definition = task(task_id)
+    configure(env, [definition])
+
+    async def message(binding):
+        await GetChatMessagesStep(app_context=env.context)(**binding)
+        await SendChatMessageImmediateStep(app_context=env.context)(**binding, content="本轮有新的财经信息。")
+
+    stub_model(env, monkeypatch, message=message)
+    original = env.runtime.reminders.submit_immediate
+
+    async def crash(*args, **kwargs):
+        await original(*args, **kwargs)
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(env.runtime.reminders, "submit_immediate", crash)
+    with pytest.raises(asyncio.CancelledError):
+        await CronAgentStep(app_context=env.context)(task=definition)
+    record = env.runtime.reminders.read()[0]
+    monkeypatch.setattr(env.runtime.reminders, "submit_immediate", original)
+    reply = env.agent.reply
+    env.agent.reply = AsyncMock(side_effect=AssertionError("Recover without another query"))
+    result = await CronAgentStep(app_context=env.context)(task=definition)
+    assert result.answer["message_id"] == record.id
+    env.agent.reply.assert_not_awaited()
+    assert len(env.runtime.tasks.paths(task_id)) == 1
+    await env.runtime.deliver_pending_reminder()
+    assert env.runtime.reminders.read()[0].status == "sent"
+    assert [item["id"] for item in native.injected] == [f"reme-proactive-{record.id}"]
+    await env.runtime.deliver_pending_reminder()
+    assert len(native.injected) == 1
+
+    env.agent.reply = reply
+    next_result = await CronAgentStep(app_context=env.context)(task=definition)
+    assert next_result.answer["message_id"] != record.id
+    await env.runtime.deliver_pending_reminder()
+    assert len(native.injected) == 2
+    assert all(item.status == "sent" for item in env.runtime.reminders.read())
 
 
 @pytest.mark.asyncio

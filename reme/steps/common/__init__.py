@@ -6,6 +6,7 @@ from .chat import ChatStep
 from .dashscope_search import DashScopeSearchStep
 from .decision_demo import DecisionDemoStep
 from .demo import DemoEchoStep1, DemoEchoStep2
+from .fetch_url import FetchUrlStep
 from .health_check import HealthCheckStep
 from .help import HelpStep
 from .job_status import JobStatusStep
@@ -29,6 +30,7 @@ __all__ = [
     "DecisionDemoStep",
     "DemoEchoStep1",
     "DemoEchoStep2",
+    "FetchUrlStep",
     "HealthCheckStep",
     "HelpStep",
     "JobStatusStep",

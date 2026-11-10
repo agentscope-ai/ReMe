@@ -21,7 +21,7 @@ query: |
     1. Read personal memory at {memory_path}: understand Master's interests, preferences and lasting requirements without modifying it.
     2. Read the latest valid result at {previous_path}, if available: understand prior findings without rereading older reports already covered there.
     3. get_chat_messages: review past reminders and their actual delivery states, identifying information already sent or pending delivery.
-  - Continue the scheduled task: {query}. Use tools as needed to complete the task and verify facts and sources.
+  - Continue the scheduled task: {query}. Use tools as needed (e.g., web_search to consult original sources and fetch_url to read known web pages).
   - Compare this run's findings with prior results, merge developments of the same matter and retain useful new information.
     Write the Markdown body to {staging_path}, retaining core conclusions, necessary background and supporting evidence concisely but completely.
     End with a cumulative timeline for the last 24 hours, briefly describing each time point in one sentence and merging related events.
@@ -37,7 +37,7 @@ query_zh: |
     1. 阅读个人记忆 {memory_path}：了解主人的兴趣、偏好及长期要求，不修改个人记忆。
     2. 阅读最新有效结果 {previous_path}（如有）：了解已有发现，不重复阅读其中已涵盖的旧报告。
     3. get_chat_messages：了解历史提醒的内容和实际投递状态，识别已发送或待发送的信息。
-  - 继续执行周期任务：{query}。按需使用工具完成任务、核实事实和来源。
+  - 继续执行周期任务：{query}。按需使用工具（如 web_search 查阅原始来源、fetch_url 读取已知网页）。
   - 对比本轮发现和已有结果，合并同一事项的进展，保留有用的新增信息。
     将 Markdown 正文写入 {staging_path}，保留核心结论、必要背景和依据，简洁但完整。
     末尾附最近 24 小时的累计时间线，每个时间节点用一句话简洁介绍，合并相关事件。

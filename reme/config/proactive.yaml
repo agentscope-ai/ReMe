@@ -48,7 +48,7 @@ jobs:
       - backend: cron_agent_step
         agent_wrapper: default
         model: qwen3.8-max-0902
-        job_tools: [screen_capture, finance_news, get_chat_messages, send_chat_message_immediate]
+        job_tools: [screen_capture, finance_news, fetch_url, get_chat_messages, send_chat_message_immediate]
 
   speech_demo:
     backend: base
@@ -120,6 +120,27 @@ jobs:
     steps:
       - backend: finance_news_step
 
+  fetch_url:
+    backend: base
+    description: >-
+      Fetch a known HTTP(S) URL (text or PDF, up to 20 MiB by default). Save complete files under resource_dir;
+      return paths, source metadata and a bounded text preview. Read returned files for the full content.
+      HTML source preserves embedded data but JavaScript is not executed. PDFs are downloaded without text extraction.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        url: {type: string, minLength: 1, maxLength: 4096, description: "HTTP or HTTPS URL to read"}
+        max_chars:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 3000
+          description: "Preview character limit; also capped by the tool output budget"
+      required: [url]
+    steps:
+      - backend: fetch_url_step
+
   check_json:
     backend: base
     description: "Parse a complete JSON file; return its value or a path, line, column and error. Does not modify files."
@@ -184,7 +205,7 @@ jobs:
         # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
         model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
         max_turns: 10
-        job_tools: [read_conversation, read_proactive_inbox, read_cron_results, screen_capture, get_chat_messages, send_chat_message, check_json]
+        job_tools: [read_conversation, read_proactive_inbox, read_cron_results, screen_capture, fetch_url, get_chat_messages, send_chat_message, check_json]
 
   read_conversation:
     backend: base
@@ -343,7 +364,7 @@ jobs:
         agent_wrapper: default
         # model: ${CODEX_MODEL_NAME:-kimi-k3.1-pro}
         model: ${CODEX_MODEL_NAME:-qwen3.8-max-0902}
-        job_tools: [screen_capture, check_json, write_proactive_inbox, manage_temp_proactive_agent]
+        job_tools: [screen_capture, fetch_url, check_json, write_proactive_inbox, manage_temp_proactive_agent]
 
   pa_events:
     backend: stream
