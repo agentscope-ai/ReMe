@@ -175,6 +175,20 @@ test("an unpainted bubble consumes no cooldown or hourly quota; old acknowledgem
   assert.equal(queue.presented(retry.id, retry.presentationId, 35_002), true);
 });
 
+test("an unpainted bubble superseded during confirmation retires before the latest candidate retries", () => {
+  const superseded: string[] = [];
+  const queue = new BubbleQueue(600_000, (id) => superseded.push(id));
+  queue.offer({ id: "old", text: "Old reminder" });
+  const old = queue.tick(0, false)!;
+  queue.offer({ id: "latest", text: "Latest reminder" });
+  assert.equal(queue.tick(5001, false), null);
+  assert.deepEqual(superseded, ["old"]);
+  const latest = queue.tick(35_002, false)!;
+  assert.equal(latest.id, "latest");
+  assert.equal(queue.presented(old.id, old.presentationId, 35_002), false);
+  assert.equal(queue.presented(latest.id, latest.presentationId, 35_002), true);
+});
+
 test("confirmed reminders share a three-per-hour budget", () => {
   const queue = new BubbleQueue(0);
   for (let index = 0; index < 3; index++) {

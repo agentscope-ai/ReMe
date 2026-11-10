@@ -480,7 +480,11 @@ export class DesktopController {
         continue;
       const receipt =
         this.notificationPresentation(message)?.receipts[message.id];
-      if (!receipt || receipt.read || receipt.suppressed || !message.completed)
+      if (
+        !receipt ||
+        receipt.suppressed ||
+        (receipt.read && !receipt.snoozeUntil)
+      )
         continue;
       if (!this.model.canNotify(message, now)) {
         receipt.suppressed = true;
@@ -580,7 +584,7 @@ export class DesktopController {
             )
           )
             return;
-          this.bubbles.dismiss(bubble.id);
+          (immediate ? this.instantBubbles : this.bubbles).dismiss(bubble.id);
           this.tick();
         },
       );

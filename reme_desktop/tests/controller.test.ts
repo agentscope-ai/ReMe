@@ -472,6 +472,110 @@ test("hidden reminders use native show acknowledgements and share the bubble coo
   }
 });
 
+for (const delivery of ["idle", "immediate"] as const)
+  test(`an explicitly snoozed read ${delivery} reminder reappears without becoming unread`, async (t) => {
+    const directory = await mkdtemp(path.join(tmpdir(), "reme-read-snooze-"));
+    const backend = await mockReMe();
+    const storage = new Storage(directory);
+    storage.settings.endpoint = backend.url;
+    const controller = new DesktopController(storage, () => {}, manifest);
+    const surface = () => controller.state.surface;
+    controller.setCompanionReady(true);
+    controller.start();
+    try {
+      await until(() => controller.state.connection === "connected", "connect");
+      backend.upsert({
+        id: "snoozed",
+        role: "assistant",
+        source: "proactive",
+        content: "Remind me again.",
+        delivery,
+        origin_session_id: "session-1",
+        created_at: new Date().toISOString(),
+        completed: true,
+        notification_eligible: true,
+        chunks: [],
+      });
+      await until(() => controller.state.surface?.kind === "message", "bubble");
+      const first = surface();
+      assert.ok(first?.kind === "message");
+      controller.bubbleShown("session-1", "snoozed", first.presentationId);
+      controller.setChatVisible(true);
+      controller.setChatFocused(true);
+      controller.markRead("session-1", ["snoozed"]);
+      controller.setChatVisible(false);
+      assert.equal(controller.state.unread, 0);
+      controller.bubbleAction("snoozed", "snooze");
+      assert.equal(surface(), null);
+      const receipt = Object.values(storage.presentations).find(
+        (entry) => entry.receipts.snoozed,
+      )!.receipts.snoozed;
+      assert.ok(receipt.snoozeUntil);
+      let now = receipt.snoozeUntil - 1;
+      t.mock.method(Date, "now", () => now);
+      controller.interact();
+      assert.equal(surface(), null);
+      now += 2;
+      controller.interact();
+      const next = surface();
+      assert.ok(next?.kind === "message");
+      assert.equal(next.message.id, "snoozed");
+      assert.notEqual(next.presentationId, first.presentationId);
+      controller.bubbleShown("session-1", "snoozed", next.presentationId);
+      assert.equal(receipt.snoozeUntil, undefined);
+      assert.equal(controller.state.unread, 0);
+    } finally {
+      t.mock.restoreAll();
+      await controller.close();
+      await backend.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+test("an immediate native show acknowledgement retires its bubble before the companion returns", async () => {
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "reme-native-immediate-"),
+  );
+  const backend = await mockReMe();
+  const storage = new Storage(directory);
+  storage.settings.endpoint = backend.url;
+  storage.settings.notifications = true;
+  const notices: { shown: () => void }[] = [];
+  const controller = new DesktopController(
+    storage,
+    () => {},
+    manifest,
+    (_notice, shown) => notices.push({ shown }),
+  );
+  controller.setCompanionVisible(false);
+  controller.start();
+  try {
+    await until(() => controller.state.connection === "connected", "connect");
+    backend.upsert({
+      id: "native-immediate",
+      role: "assistant",
+      source: "proactive",
+      content: "Immediate native result.",
+      delivery: "immediate",
+      origin_session_id: "session-1",
+      created_at: new Date().toISOString(),
+      completed: true,
+      notification_eligible: true,
+      chunks: [],
+    });
+    await until(() => notices.length === 1, "native result");
+    notices[0].shown();
+    controller.setCompanionReady(true);
+    controller.setCompanionVisible(true);
+    assert.equal(controller.state.surface, null);
+    assert.equal(controller.state.unread, 1);
+  } finally {
+    await controller.close();
+    await backend.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("language is published only after persistence succeeds; failure preserves the active preference", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "reme-language-save-"));
   const storage = new Storage(directory);

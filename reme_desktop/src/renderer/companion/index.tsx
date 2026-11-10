@@ -67,7 +67,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
       cancelAnimationFrame(first);
       cancelAnimationFrame(second);
     };
-  }, [reminder, bubble?.presentationId, state.sessionId]);
+  }, [reminder, message?.id, bubble?.presentationId, state.sessionId]);
 
   useEffect(() => {
     if (!active) return;

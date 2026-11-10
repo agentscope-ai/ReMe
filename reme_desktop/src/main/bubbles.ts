@@ -110,6 +110,7 @@ export class BubbleQueue {
     if (this.active && !this.confirmed && this.confirmation <= 0) {
       if (!this.coalesce || !this.waiting.length)
         this.waiting.unshift({ id: this.active.id, text: this.active.text });
+      else this.onSuperseded(this.active.id);
       this.active = null;
       this.retryAt = now + 30_000;
     }
