@@ -25,6 +25,7 @@ export function mockReMe(options?: {
   asrRequests: { audio: string; audio_format: string; sample_rate: number }[];
   taskReads: string[];
   setTaskReadError(value: string): void;
+  setInboxReadDelay(value: number): void;
   setSpeechError(value: boolean): void;
   setSpeechErrorText(value: string): void;
   setAsrText(value: string): void;

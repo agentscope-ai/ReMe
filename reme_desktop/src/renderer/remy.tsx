@@ -13,6 +13,7 @@ import Chat from "./chat/index.tsx";
 import MessageBody from "./message-body.tsx";
 import RemyInbox from "./remy-inbox.tsx";
 import SplitPane from "./split-pane.tsx";
+import { watchReadReceipt } from "./read-receipt.ts";
 
 export default function Remy({
   state,
@@ -50,7 +51,7 @@ export default function Remy({
     const sessionId = reminder?.originSessionId;
     if (
       !reminder?.completed ||
-      !reminder.content ||
+      !reminder.content.trim() ||
       !sessionId ||
       reminderRead ||
       state.activePage !== "remy" ||
@@ -58,33 +59,15 @@ export default function Remy({
       !state.chatFocused
     )
       return;
-    let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const acknowledge = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (!document.hasFocus() || document.visibilityState !== "visible")
-          return;
-        void action({
-          type: "messages.read",
-          sessionId,
-          ids: [reminder.id],
-        })
-          .catch((error) => {
-            if (live) setError(error);
-          })
-          .finally(() => {
-            if (live) acknowledge();
-          });
-      }, 600);
-    };
-    acknowledge();
-    window.addEventListener("focus", acknowledge);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-      window.removeEventListener("focus", acknowledge);
-    };
+    const receipt = watchReadReceipt(async () => {
+      await action({
+        type: "messages.read",
+        sessionId,
+        ids: [reminder.id],
+      });
+      return true;
+    }, setError);
+    return receipt.close;
   }, [
     scope,
     reminder?.id,
@@ -144,6 +127,7 @@ export default function Remy({
   useEffect(() => {
     if (
       !result?.path ||
+      !detail?.content.trim() ||
       result.kind !== "task_result" ||
       result.id !== selected ||
       result.user_read_at ||
@@ -153,42 +137,34 @@ export default function Remy({
       state.connection !== "connected"
     )
       return;
-    let live = true;
     const path = result.path;
-    const timer = setTimeout(() => {
-      if (!document.hasFocus() || document.visibilityState !== "visible")
-        return;
-      void inboxRequest<{ user_read_at: string }>({
+    const receipt = watchReadReceipt(async (signal) => {
+      const value = await inboxRequest<{ user_read_at: string }>({
         type: "taskResult",
         path,
         markRead: true,
-      })
-        .then((value) => {
-          if (!live) return;
-          setDetail((current) =>
-            current?.item.id === selected
-              ? {
-                  ...current,
-                  item: { ...current.item, user_read_at: value.user_read_at },
-                }
-              : current,
-          );
-        })
-        .catch((error) => {
-          if (live) setError(error);
-        });
-    }, 400);
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
+      });
+      if (!signal.aborted) {
+        setError(null);
+        setDetail((current) =>
+          current?.item.id === selected
+            ? {
+                ...current,
+                item: { ...current.item, user_read_at: value.user_read_at },
+              }
+            : current,
+        );
+      }
+      return !value.user_read_at;
+    }, setError);
+    return receipt.close;
   }, [
     scope,
     result?.id,
     result?.path,
     result?.user_read_at,
+    detail?.content,
     selected,
-    state.inboxRevision,
     state.activePage,
     state.chatVisible,
     state.chatFocused,

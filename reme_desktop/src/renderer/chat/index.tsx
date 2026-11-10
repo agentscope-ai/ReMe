@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
 import { action } from "../desktop.ts";
+import { watchReadReceipt } from "../read-receipt.ts";
 import MessageBody from "../message-body.tsx";
 import type { DesktopState, DisplayMessage } from "../../shared/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
@@ -60,9 +61,14 @@ export default function Chat({
       : state.surface?.kind === "message"
         ? state.surface.message.status
         : null;
-  const proactiveSignature = state.messages
-    .filter((message) => message.source === "proactive")
-    .map((message) => `${message.id}:${message.streaming}`)
+  const readableReminders = state.messages.filter(
+    (message) =>
+      message.source === "proactive" &&
+      message.completed &&
+      message.content.trim(),
+  );
+  const proactiveSignature = readableReminders
+    .map((message) => message.id)
     .join("\n");
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
@@ -120,34 +126,18 @@ export default function Chat({
       !state.chatFocused
     )
       return;
+    const readable = new Set(readableReminders.map((message) => message.id));
     const visible = new Set<string>();
-    let live = true;
-    let pending = false;
-    let timer: ReturnType<typeof setTimeout>;
-    const acknowledge = () => {
-      clearTimeout(timer);
-      if (!live) return;
-      timer = setTimeout(async () => {
-        if (!document.hasFocus() || document.visibilityState !== "visible")
-          return;
-        const ids = [...visible].filter((id) => !readIds.current.has(id));
-        if (ids.length && !pending) {
-          pending = true;
-          try {
-            await action({
-              type: "messages.read",
-              sessionId: state.sessionId!,
-              ids,
-            });
-          } catch {
-            // Retry visible headings until the main process confirms their receipt.
-          } finally {
-            pending = false;
-            acknowledge();
-          }
-        }
-      }, 600);
-    };
+    const receipt = watchReadReceipt(async () => {
+      const ids = [...visible].filter((id) => !readIds.current.has(id));
+      if (!ids.length) return false;
+      await action({
+        type: "messages.read",
+        sessionId: state.sessionId!,
+        ids,
+      });
+      return true;
+    });
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -155,19 +145,18 @@ export default function Chat({
           if (entry.isIntersecting) visible.add(id);
           else visible.delete(id);
         }
-        acknowledge();
+        receipt.schedule();
       },
       { root, threshold: 0.3 },
     );
     root
       .querySelectorAll<HTMLElement>("[data-proactive=true] .proactive-label")
-      .forEach((element) => observer.observe(element));
-    window.addEventListener("focus", acknowledge);
+      .forEach((element) => {
+        if (readable.has(element.dataset.messageId!)) observer.observe(element);
+      });
     return () => {
-      live = false;
-      clearTimeout(timer);
+      receipt.close();
       observer.disconnect();
-      window.removeEventListener("focus", acknowledge);
     };
   }, [
     state.sessionId,

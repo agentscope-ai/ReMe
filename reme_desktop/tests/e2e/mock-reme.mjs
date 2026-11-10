@@ -60,6 +60,7 @@ export async function mockReMe({
   let speechDelay = 0;
   let replyDelay = 300;
   let taskReadError = "";
+  let inboxReadDelay = 0;
   const taskReads = [];
   const sockets = new Set();
   const events = [];
@@ -186,6 +187,8 @@ export async function mockReMe({
     }
     if (job === "/proactive_inbox_view") {
       if (body.action === "read") {
+        if (inboxReadDelay)
+          await new Promise((resolve) => setTimeout(resolve, inboxReadDelay));
         const item = taskResults.find((item) => item.id === body.entry_id);
         return json({
           item,
@@ -482,6 +485,9 @@ export async function mockReMe({
     taskReads,
     setTaskReadError(value) {
       taskReadError = value;
+    },
+    setInboxReadDelay(value) {
+      inboxReadDelay = value;
     },
     setSpeechError(value) {
       speechError = value;
