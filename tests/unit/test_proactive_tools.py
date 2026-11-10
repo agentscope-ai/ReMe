@@ -117,6 +117,7 @@ async def test_new_tools_run_through_registered_native_jobs(app, tmp_path, monke
     jobs = resolve_app_config(config="proactive", log_config=False)["jobs"]
     assert jobs["pa_chat"]["steps"][0]["job_tools"] == [
         "screen_capture",
+        "fetch_url",
         "check_json",
         "write_proactive_inbox",
         "manage_temp_proactive_agent",

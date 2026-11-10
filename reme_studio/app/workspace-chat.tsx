@@ -231,7 +231,9 @@ export default function Chat({
 
   const send = async () => {
     const query = input.trim();
-    if (!query || tab.streaming) return;
+    if (!query || tab.streaming || controller.current) return;
+    const requestController = new AbortController();
+    controller.current = requestController;
     setInput("");
     const user: ChatMessage = {
       id: crypto.randomUUID(),
@@ -246,8 +248,6 @@ export default function Chat({
       blocks: [],
     };
     addChatTurn(tab.id, user, assistant);
-    const requestController = new AbortController();
-    controller.current = requestController;
     const error = await chatStreamError(
       () =>
         streamChat(query, tab.sessionId, requestController.signal, (chunk) =>
@@ -292,7 +292,7 @@ export default function Chat({
             <div className="bubble">
               {message.source === "proactive" && (
                 <span className="proactive-label">
-                  prome · {t("proactiveMessage")}
+                  ReMe · {t("proactiveMessage")}
                 </span>
               )}
               {message.role === "user" && <p>{message.content}</p>}
@@ -361,7 +361,11 @@ export default function Chat({
             placeholder={t("askWorkspace")}
             rows={1}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
                 event.preventDefault();
                 void send();
               }

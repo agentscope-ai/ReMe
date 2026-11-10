@@ -6,6 +6,7 @@ import asyncio
 from hashlib import sha256
 import json
 import os
+import re
 from stat import S_ISREG
 from uuid import uuid4
 
@@ -72,7 +73,7 @@ class ProactiveInbox:
     @staticmethod
     def entry(record):
         """Render the receipt-owned Markdown section shared by consumers and views."""
-        return f"\n## {record['id']}\n\n{record['created_at']} · Main Agent\n\n{record['message']}\n"
+        return f"\n## {record['id']}\n\n{record['created_at']} · Chat Agent\n\n{record['message']}\n"
 
     @staticmethod
     def _display_text(text, receipts):
@@ -80,8 +81,8 @@ class ProactiveInbox:
         result = text
         for identifier, record in receipts.items():
             timestamp = record["created_at"]
-            prefix = f"\n## {identifier}\n\n{timestamp} · Main Agent\n\n"
-            result = result.replace(prefix, f"\n{timestamp} ", 1)
+            prefix = rf"\n## {re.escape(identifier)}\n\n{re.escape(timestamp)} · [^\n]+\n\n"
+            result = re.sub(prefix, lambda _, value=timestamp: f"\n{value} ", result, count=1)
         return result.strip("\n") if result != text else text
 
     def _publish(self, record):
@@ -100,7 +101,7 @@ class ProactiveInbox:
         return record
 
     async def write(self, message: str):
-        """Queue Main's message for the proactive agent to interpret on its next wakeup."""
+        """Queue Chat Agent's message for the proactive agent to interpret on its next wakeup."""
         if not isinstance(message, str) or not message.strip():
             raise ValueError("message must be a non-empty string")
 

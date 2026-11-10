@@ -8,22 +8,11 @@ import type {
   WindowLayout,
 } from "../shared/protocol.ts";
 import type { Storage } from "./storage.ts";
-import { surfaceKey, type SurfaceSize } from "../shared/surface.ts";
 
 export class DesktopWindows {
   readonly companion: BrowserWindow;
   readonly chat: BrowserWindow;
-  layout: WindowLayout = {
-    visible: true,
-    body: { left: 12, top: 12, size: 180 },
-    bubble: {
-      left: 0,
-      top: 0,
-      width: 320,
-      maxWidth: 320,
-      height: 180,
-    },
-  };
+  layout: WindowLayout;
   private anchor: { x: number; y: number };
   private visible = true;
   private dragging: {
@@ -37,7 +26,6 @@ export class DesktopWindows {
   private readonly chatUpdates = new StateUpdates(false);
   private companionBounds = "";
   private menuFocused = false;
-  private surfaceSize: SurfaceSize | undefined;
 
   constructor(
     readonly storage: Storage,
@@ -50,6 +38,16 @@ export class DesktopWindows {
     this.anchor = storage.settings.anchor ?? {
       x: area.x + area.width - 110,
       y: area.y + area.height - 24,
+    };
+    const display = screen.getDisplayNearestPoint(this.anchor);
+    this.layout = {
+      ...companionPlacement(
+        this.anchor,
+        storage.settings.scale,
+        null,
+        display.workArea,
+      ).layout,
+      visible: true,
     };
     const webPreferences = {
       preload: paths.preload,
@@ -75,7 +73,6 @@ export class DesktopWindows {
       type: process.platform === "darwin" ? "panel" : undefined,
       webPreferences,
     });
-    const display = screen.getDisplayNearestPoint(this.anchor);
     this.chat = new BrowserWindow({
       ...workspacePlacement(
         display.workArea,
@@ -228,9 +225,6 @@ export class DesktopWindows {
       this.storage.settings.scale,
       this.state?.surface?.kind ?? null,
       area,
-      this.surfaceSize?.key === surfaceKey(this.state?.surface ?? null)
-        ? this.surfaceSize
-        : undefined,
     );
     this.anchor = placement.anchor;
     const encoded = JSON.stringify(placement.bounds);
@@ -247,35 +241,6 @@ export class DesktopWindows {
       this.companion.showInactive();
     else if (!this.visible && this.companion.isVisible()) this.companion.hide();
   };
-
-  measureSurface(size: SurfaceSize): void {
-    if (
-      this.disposed ||
-      !this.state?.surface ||
-      !size ||
-      size.key !== surfaceKey(this.state.surface) ||
-      !Number.isFinite(size.width) ||
-      !Number.isFinite(size.height) ||
-      size.width < 40 ||
-      size.width > 640 ||
-      size.height < 24 ||
-      size.height > 480
-    )
-      return;
-    const next = {
-      key: size.key,
-      width: Math.ceil(size.width),
-      height: Math.ceil(size.height),
-    };
-    if (
-      this.surfaceSize?.key === next.key &&
-      this.surfaceSize.width === next.width &&
-      this.surfaceSize.height === next.height
-    )
-      return;
-    this.surfaceSize = next;
-    this.reposition();
-  }
 
   openChat(): void {
     if (this.chat.isMinimized()) this.chat.restore();

@@ -584,7 +584,7 @@ test("oversized speech responses are cancelled before JSON decoding", async (t) 
     client.call("tts_demo", {}, new AbortController().signal, {
       maxBytes: 100,
     }),
-    /语音结果过大/,
+    /服务响应过大/,
   );
   assert.equal(cancelled, true);
 });

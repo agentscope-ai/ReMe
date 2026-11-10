@@ -1,4 +1,4 @@
-"""Consume recent Main chat rounds within a server-bound proactive round."""
+"""Consume recent chat rounds within a server-bound proactive round."""
 
 from ..base import BasePaStep
 from ....components import R

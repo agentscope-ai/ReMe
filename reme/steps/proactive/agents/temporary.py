@@ -1,4 +1,4 @@
-"""Execute one due delegation in a fork of its source Main conversation."""
+"""Execute one due delegation in a fork of its source chat session."""
 
 import asyncio
 

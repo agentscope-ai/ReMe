@@ -1,4 +1,4 @@
-"""Main-only temporary task creation and explicit action dispatch."""
+"""Chat-only temporary task creation and explicit action dispatch."""
 
 import asyncio
 
@@ -8,12 +8,12 @@ from ....components import R
 
 @R.register("manage_temp_proactive_agent_step")
 class ManageTempProactiveAgentStep(BasePaStep):
-    """Create or manage one-shot tasks through one Main-bound tool."""
+    """Create or manage one-shot tasks through one chat-bound tool."""
 
     def validate_access(self):
-        """Require Main's binding and access to the paths needed by the action."""
+        """Require Chat Agent's binding and access to the paths needed by the action."""
         if self.context.get("pa_caller") != "chat":
-            raise ValueError("Temporary task management is bound to Main")
+            raise ValueError("Temporary task management is bound to Chat Agent")
         paths = [self.pa.temp_tasks.path]
         if self.context.get("action") != "list":
             paths.append(self.pa.temp_tasks.root_path)

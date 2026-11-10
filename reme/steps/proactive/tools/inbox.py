@@ -10,7 +10,7 @@ class WriteProactiveInboxStep(BasePaStep):
 
     async def execute(self):
         if self.context.get("pa_caller") != "chat":
-            raise ValueError("write_proactive_inbox is bound to Main")
+            raise ValueError("write_proactive_inbox is bound to Chat Agent")
         self.require_paths(self.pa.proactive_inbox_path, self.pa.inbox.receipts_path)
         self.context.response.answer = await self.pa.write_proactive_inbox(self.context.get("message"))
         return self.context.response

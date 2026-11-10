@@ -14,7 +14,7 @@ from reme.application import Application
 from reme.components.codex_app_server import SessionChangedError
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, collect_reply
 from reme.steps.base_step import BaseStep
-from reme.steps.proactive.agents.main import PaChatStep
+from reme.steps.proactive.agents.chat import PaChatStep
 
 from benchmark.proactive.cases import SESSION_ID, frozen_now, seed
 
@@ -170,7 +170,7 @@ def bind_owner(agent, case: dict, record: dict, source_options: dict) -> None:
 
     async def compact_session(session_id):
         if session_id in prepared:
-            # Synthetic Main has no native history. Real native compaction
+            # Synthetic Chat Agent has no native history. Real native compaction
             # requires separate provider integration validation.
             record["synthetic_compaction"] = True
             return
@@ -310,8 +310,8 @@ async def execute(base: dict, model: str, bundle: dict, case: dict, folder: Path
             agent = app.context.components["agent_wrapper"]["default"]
             async with app:
                 if case["role"] != "pa":
-                    main = PaChatStep(app_context=app.context, **cfg["jobs"]["pa_chat"]["steps"][0])
-                    bind_owner(agent, case, record, await main._reply_kwargs())
+                    chat = PaChatStep(app_context=app.context, **cfg["jobs"]["pa_chat"]["steps"][0])
+                    bind_owner(agent, case, record, await chat._reply_kwargs())
                 instrument(app, folder, record)
                 if case["role"] == "pa":
                     record["chat_snapshots"] = []

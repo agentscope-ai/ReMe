@@ -113,6 +113,23 @@ test(
         "focused and quiet outcomes stay quiet; waiting can return to its own conversation",
         async () => {
           await action({ type: "companion.visibility", visible: true });
+          await app.evaluate(({ app, BrowserWindow }) => {
+            app.focus({ steal: true });
+            const window = BrowserWindow.getAllWindows().find((win) =>
+              win.webContents.getURL().includes("view=chat"),
+            );
+            window.focus();
+            window.webContents.focus();
+          });
+          await expect
+            .poll(() =>
+              chat.evaluate(() =>
+                window.desktop
+                  .bootstrap()
+                  .then(({ state }) => state.chatFocused),
+              ),
+            )
+            .toBe(true);
           backend.activity("thinking", "chat", "focused");
           backend.activity("waiting", "chat", "focused");
           await status("等你确认…");
@@ -172,7 +189,7 @@ test(
       );
 
       await t.test(
-        "phase text resizes the surface, while repeated phases do not resize or rebroadcast history",
+        "phase text updates within a stable surface without resizing or rebroadcasting history",
         async () => {
           backend.activity("thinking", "chat", "work");
           await status("正在认真想…");
@@ -201,7 +218,7 @@ test(
             bounds: globalThis.boundsCalls,
             patches: globalThis.statePatches,
           }));
-          assert.ok(updates.bounds > 0);
+          assert.equal(updates.bounds, 0);
           assert.ok(updates.patches.length >= 2);
           assert.ok(
             updates.patches.every(

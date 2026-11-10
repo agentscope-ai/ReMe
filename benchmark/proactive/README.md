@@ -37,5 +37,5 @@ python -m benchmark.proactive.analyze /tmp/remy-eval
 
 `reminder_quality` 单独测试定时任务的紧急、普通、重复和期限变更，一次性提醒及结果交付，以及智能主动的新结果与重复结果。
 使用执行当天的统一时钟，保存 Prompt、源码哈希、实际消息与工具顺序；`--cases cron_urgent,temporary_due` 可选场景。
-它在隔离 Main 中模拟已空闲后补投递，不访问真实邮件、屏幕或用户会话，不验证桌面展示。
+它在隔离 Chat Agent 中模拟已空闲后补投递，不访问真实邮件、屏幕或用户会话，不验证桌面展示。
 `report.md` 展示实际文案供人工检查；自动检查流程、关键事实和长度，不把它等同于自然度评分。

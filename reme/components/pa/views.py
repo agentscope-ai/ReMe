@@ -121,10 +121,8 @@ class PaViews:
     @staticmethod
     def _body(section, record):
         body = section.partition("\n")[2].strip()
-        header = f"{record['created_at']} · Main Agent"
-        if body.startswith(header + "\n"):
-            body = body[len(header) :].strip()
-        return body
+        header, separator, content = body.partition("\n")
+        return content.strip() if separator and header.startswith(f"{record['created_at']} · ") else body
 
     def _instructions(self, warnings, entry_id=None):
         inbox = self.runtime.inbox
@@ -171,7 +169,8 @@ class PaViews:
                 continue
             section, end = sections.get(identifier, (None, 0))
             original = inbox.entry(record).strip()
-            modified = section is not None and section != original
+            body = self._body(section or original, record)
+            modified = section is not None and body != self._body(original, record)
             receipt_status = record["status"]
             status = {
                 "staging": "pending",
@@ -186,11 +185,10 @@ class PaViews:
                 status = "removed"
             elif section is not None:
                 status = "received" if end <= consumed else "pending"
-            body = self._body(section or original, record)
             yield _detail(
                 id=f"instruction:{identifier}",
                 kind="instruction",
-                title=body.splitlines()[0][:160] if body else "Main Agent",
+                title=body.splitlines()[0][:160] if body else "Chat Agent",
                 content=body,
                 status=status,
                 created_at=_timestamp(record.get("created_at")),

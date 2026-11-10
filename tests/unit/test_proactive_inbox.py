@@ -80,9 +80,9 @@ async def test_write_requires_access_to_source_and_receipts(pa_workspace, scope)
 
 
 @pytest.mark.asyncio
-async def test_only_main_can_write_feedback(pa_workspace):
+async def test_only_chat_can_write_feedback(pa_workspace):
     env = pa_workspace
-    with pytest.raises(ValueError, match="bound to Main"):
+    with pytest.raises(ValueError, match="bound to Chat Agent"):
         await WriteProactiveInboxStep(app_context=env.context)(pa_caller="proactive", message="修改间隔")
     assert env.runtime.inbox.receipts() == {}
 
@@ -113,7 +113,7 @@ async def test_consumption_preserves_source_and_desktop_reading_does_not_consume
 async def test_inbox_formats_messages_as_timestamp_and_content_without_changing_the_source(pa_workspace):
     env = pa_workspace
     first = await env.runtime.write_proactive_inbox(
-        "关注黄金价格，只提醒重要变化。\n保留正文里的 Main Agent 和 ## 标题。",
+        "关注黄金价格，只提醒重要变化。\n保留正文里的 Chat Agent 和 ## 标题。",
     )
     env.now[0] += timedelta(minutes=5)
     second = await env.runtime.write_proactive_inbox("把唤醒间隔改成10分钟。")
@@ -122,7 +122,7 @@ async def test_inbox_formats_messages_as_timestamp_and_content_without_changing_
         response = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
         assert response.answer == "\n\n".join(f"{item['created_at']} {item['message']}" for item in (first, second))
         assert first["id"] not in response.answer and second["id"] not in response.answer
-        assert "· Main Agent" not in response.answer
+        assert "· Chat Agent" not in response.answer
         assert env.runtime.proactive_inbox_path.read_bytes() == source
         assert all(record["status"] == "consumed" for record in env.runtime.inbox.receipts().values())
         assert await env.runtime.read_proactive_inbox(round_id=current.id) == ""
@@ -146,6 +146,36 @@ async def test_inbox_formats_an_edited_message_without_losing_its_new_body(pa_wo
             == f"{message['created_at']} 修改后的反馈\n下一行"
         )
     assert path.read_bytes() == source
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("label", ["Chat Agent", "Archived Agent"])
+@pytest.mark.parametrize("edited", [False, True])
+async def test_inbox_receipts_preserve_content_independently_of_display_labels(pa_workspace, label, edited):
+    env = pa_workspace
+    message = await env.runtime.write_proactive_inbox("原始反馈\n正文保留 · Chat Agent 和 ## 标题。")
+    path = env.runtime.proactive_inbox_path
+    source = path.read_text(encoding="utf-8")
+    assert f"{message['created_at']} · Chat Agent\n\n" in source
+    source = source.replace(f"{message['created_at']} · Chat Agent\n\n", f"{message['created_at']} · {label}\n\n")
+    content = message["message"]
+    if edited:
+        content = content.replace("原始反馈", "修改后的反馈")
+        source = source.replace(message["message"], content)
+    path.write_text(source, encoding="utf-8")
+    original = path.read_bytes()
+
+    view = ProactiveInboxViewStep(app_context=env.context)
+    pending = await view(action="list", kind="instruction")
+    item = pending.answer["items"][0]
+    assert item["preview"] == content and item["source_modified"] is edited
+    assert item["status"] == "pending" and pending.answer["complete"]
+    async with env.runtime.proactive_round() as current:
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == f"{message['created_at']} {content}"
+        assert await env.runtime.read_proactive_inbox(round_id=current.id) == ""
+    received = await view(action="list", kind="instruction")
+    assert received.answer["items"][0]["status"] == "received"
+    assert path.read_bytes() == original
 
 
 @pytest.mark.asyncio

@@ -537,7 +537,7 @@ async def test_stopped_task_does_not_start_a_model_turn(pa_workspace):
     [
         ("message", "fixed"),
         ("delivery", "immediate"),
-        ("source_session_id", "main"),
+        ("source_session_id", "chat"),
         ("created_at", "2026-11-09T12:00:00+08:00"),
         ("preflight", "screen_capture"),
     ],

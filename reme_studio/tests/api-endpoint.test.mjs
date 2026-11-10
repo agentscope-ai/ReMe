@@ -25,3 +25,11 @@ test("configured API endpoint is preferred over the browser origin", () => {
     "http://localhost:8181",
   );
 });
+
+test("pasted endpoints normalize whitespace and repeated trailing slashes", () => {
+  assert.equal(
+    normalizeReMeApiUrl("  http://localhost:8181/api///  "),
+    "http://localhost:8181/api",
+  );
+  assert.equal(normalizeReMeApiUrl(" /// "), "");
+});

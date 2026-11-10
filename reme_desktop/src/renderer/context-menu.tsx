@@ -15,13 +15,16 @@ export interface MenuItem {
 export default function ContextMenu({
   items,
   position,
+  size,
   onClose,
 }: {
   items: MenuItem[];
   position: { x: number; y: number };
+  size?: { width: number; height: number };
   onClose: () => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef(document.activeElement as HTMLElement | null);
   const close = useRef(onClose);
   close.current = onClose;
   const [path, setPath] = useState<string[]>([]);
@@ -43,7 +46,7 @@ export default function ContextMenu({
     element
       .querySelector<HTMLButtonElement>("button:not(:disabled)")
       ?.focus({ preventScroll: true });
-  }, [position.x, position.y, path, viewport]);
+  }, [position.x, position.y, size?.width, size?.height, path, viewport]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
       if (!root.current?.contains(event.target as Node)) close.current();
@@ -57,12 +60,20 @@ export default function ContextMenu({
       document.removeEventListener("pointerdown", outside);
       window.removeEventListener("blur", dismiss);
       window.removeEventListener("resize", resize);
+      if (
+        document.hasFocus() &&
+        trigger.current?.isConnected &&
+        (document.activeElement === document.body ||
+          root.current?.contains(document.activeElement))
+      )
+        trigger.current.focus({ preventScroll: true });
     };
   }, []);
   return createPortal(
     <div
       ref={root}
       className="context-menu"
+      style={size ? { width: size.width, maxHeight: size.height } : undefined}
       role="menu"
       data-interactive
       onContextMenu={(event) => event.preventDefault()}
@@ -71,6 +82,15 @@ export default function ContextMenu({
           event.preventDefault();
           if (path.length) setPath(path.slice(0, -1));
           else onClose();
+        } else if (event.key === "ArrowRight") {
+          const button = document.activeElement;
+          if (
+            button instanceof HTMLButtonElement &&
+            button.getAttribute("aria-haspopup") === "menu"
+          ) {
+            event.preventDefault();
+            button.click();
+          }
         } else if (
           ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
         ) {

@@ -1,4 +1,4 @@
-"""Selected Main conversation and durable consumption cursors."""
+"""Selected chat session and durable consumption cursors."""
 
 from __future__ import annotations
 
@@ -181,7 +181,7 @@ class PaSessions:
             return await finish_cleanup(self._new_session(reply_kwargs))
 
     async def select_existing_session(self, session_id: str) -> str:
-        """Select a readable source conversation without overlapping Main work."""
+        """Select a readable source conversation without overlapping chat work."""
         async with self.session_operation():
             await self.runtime.agent_wrapper.read_session(session_id)
 

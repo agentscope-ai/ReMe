@@ -71,6 +71,7 @@ export default function Tabs() {
                 });
               }}
               role="tab"
+              aria-selected={tab.id === activeTabId}
             >
               {tab.type === "agent" ? (
                 <Bot size={14} />

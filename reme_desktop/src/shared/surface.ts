@@ -1,15 +1,9 @@
 import type { CompanionSurface } from "./protocol.ts";
 
-export interface SurfaceSize {
-  key: string;
-  width: number;
-  height: number;
-}
-
 export const previewContent = (content: string): string =>
   content.length > 400 ? `${content.slice(0, 400)}…` : content;
 
-/** Identify the visible content so late measurements cannot resize a replacement. */
+/** Identify visible content changes independently of the window's geometry. */
 export function surfaceKey(surface: CompanionSurface | null): string {
   if (!surface) return "";
   return JSON.stringify([

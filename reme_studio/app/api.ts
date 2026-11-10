@@ -29,16 +29,23 @@ const message = (key: TranslationKey, status: number) =>
     status: String(status),
   });
 
-async function parseResponse<T>(response: Response): Promise<ReMeResponse<T>> {
+async function readPayload<T>(response: Response): Promise<ReMeResponse<T>> {
   let payload: ReMeResponse<T>;
   try {
     payload = (await response.json()) as ReMeResponse<T>;
   } catch {
     throw new Error(message("invalidResponse", response.status));
   }
-  if (!response.ok || !payload.success) {
+  if (typeof payload?.success !== "boolean")
+    throw new Error(message("invalidResponse", response.status));
+  return payload;
+}
+
+async function parseResponse<T>(response: Response): Promise<ReMeResponse<T>> {
+  const payload = await readPayload<T>(response);
+  if (!response.ok || payload?.success !== true) {
     const detail =
-      typeof payload.answer === "string"
+      typeof payload?.answer === "string"
         ? payload.answer
         : message("requestFailed", response.status);
     throw new Error(detail);
@@ -77,11 +84,11 @@ export async function readChatSession(
     signal,
   });
   if (response.status === 404) return undefined;
-  const payload = (await response.json()) as ReMeResponse<SessionSnapshot>;
-  if (payload.metadata?.code === "session_not_supported") return undefined;
-  if (!response.ok || !payload.success) {
+  const payload = await readPayload<SessionSnapshot>(response);
+  if (payload?.metadata?.code === "session_not_supported") return undefined;
+  if (!response.ok || payload?.success !== true) {
     throw new Error(
-      typeof payload.answer === "string"
+      typeof payload?.answer === "string"
         ? payload.answer
         : message("requestFailed", response.status),
     );

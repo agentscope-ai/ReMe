@@ -1,5 +1,5 @@
 export function normalizeReMeApiUrl(value: string): string {
-  return value.replace(/\/$/, "");
+  return value.trim().replace(/\/+$/, "");
 }
 
 export function displayReMeApiEndpoint(

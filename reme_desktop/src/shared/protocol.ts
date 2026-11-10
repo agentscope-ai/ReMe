@@ -262,8 +262,9 @@ export interface WindowLayout {
     left: number;
     top: number;
     width: number;
-    maxWidth: number;
     height: number;
+    side: "top" | "bottom" | "left" | "right";
+    tip: number;
   };
 }
 
@@ -338,7 +339,6 @@ export interface DesktopApi {
   onLayout(callback: (layout: WindowLayout) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   pointer(interactive: boolean): void;
-  measureSurface(size: import("./surface.ts").SurfaceSize): void;
   drag(phase: "start" | "move" | "end"): void;
 }
 
@@ -348,7 +348,6 @@ export const channels = {
   state: "reme:state",
   layout: "reme:layout",
   pointer: "reme:pointer",
-  surfaceSize: "reme:surface-size",
   drag: "reme:drag",
   command: "reme:command",
   transcribe: "reme:transcribe",

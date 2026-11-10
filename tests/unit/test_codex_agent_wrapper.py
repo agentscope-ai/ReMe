@@ -38,7 +38,7 @@ from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.agents.chat import PaChatStep, PaNewSessionStep
 from reme.steps.proactive.agents.temporary import TempAgentStep
 from reme.utils import global_counter_get_all
 from .pa_helpers import bind_pa
@@ -735,7 +735,7 @@ async def test_loaded_thread_constraints_cannot_be_changed_by_another_wrapper(sy
 @pytest.mark.asyncio
 async def test_fork_model_override_preserves_source_and_wrapper_defaults(system):
     first, second, server, _ = system
-    source = await first.reply("Main work.", model="main-model")
+    source = await first.reply("Chat work.", model="chat-model")
     second.kwargs["model"] = "wrapper-default"
 
     forked = await second.reply(
@@ -748,7 +748,7 @@ async def test_fork_model_override_preserves_source_and_wrapper_defaults(system)
     native = _Codex.instances[0]
     assert native.opened[-1][2]["model"] == "task-model"
     assert native.threads[forked["session_id"]].options[-1]["model"] == "task-model"
-    assert server._threads[source["session_id"]].options["model"] == "main-model"
+    assert server._threads[source["session_id"]].options["model"] == "chat-model"
     assert second.kwargs["model"] == "wrapper-default"
 
 
@@ -847,15 +847,15 @@ async def test_fork_of_unstarted_session_preserves_source_options_and_tools(syst
 
 
 @pytest.mark.asyncio
-async def test_temporary_query_inherits_an_empty_main_without_starting_it(system, monkeypatch):
+async def test_temporary_query_inherits_an_empty_chat_without_starting_it(system, monkeypatch):
     first, _, server, job = system
     runtime = bind_pa(first.app_context, first)
     runtime._initialize_files()
     source_id = await first.create_session(system_prompt="Source instructions.", job_tools=[job.name])
     runtime.session_id = source_id
-    task = await runtime.temp_tasks.create("Complete this task using Main context.")
+    task = await runtime.temp_tasks.create("Complete this task using Chat context.")
     native = _Codex.instances[0]
-    fork = AsyncMock(side_effect=AssertionError("Do not fork Main"))
+    fork = AsyncMock(side_effect=AssertionError("Do not fork the chat session"))
     monkeypatch.setattr(native, "thread_fork", fork)
 
     async with asyncio.timeout(3):

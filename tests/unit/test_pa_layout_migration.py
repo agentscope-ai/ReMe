@@ -49,7 +49,7 @@ def legacy(tmp_path):
     temporary = PaTempTask(
         id="oneshot",
         query="work",
-        source_session_id="main-session",
+        source_session_id="chat-session",
         run_at=now,
         created_at=now,
         updated_at=now,
@@ -67,7 +67,7 @@ def legacy(tmp_path):
                 "created_at": now.isoformat(),
                 "updated_at": now.isoformat(),
                 "expires_at": "2026-11-08T12:05:00+08:00",
-                "session_id": "main-session",
+                "session_id": "chat-session",
             },
             ensure_ascii=False,
         )
@@ -107,7 +107,7 @@ def test_layout_migration_preserves_sources_and_reloads_temporary_tasks(legacy):
     assert recovered.session_id == "cron-session"
     result_path = "state/pa/cron/one/2026-11-08/120000.md"
     temporary = runtime.temp_tasks.load()[0]
-    assert temporary.source_session_id == "main-session" and temporary.revision == 0
+    assert temporary.source_session_id == "chat-session" and temporary.revision == 0
     assert temporary.result_path == "state/pa/temporary/oneshot/result.md"
     assert runtime.temp_tasks.document_path(temporary.id).read_text() == "临时结果。"
     record = json.loads(runtime.cron_runs_path.read_text())

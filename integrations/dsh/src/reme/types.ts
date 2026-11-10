@@ -17,6 +17,7 @@ export interface ReMeResult {
   answer?: unknown;
   metadata?: Record<string, unknown>;
   error?: string;
+  errorCode?: "invalid-response";
 }
 
 /** Component health facts returned by ReMe's health-check job. */

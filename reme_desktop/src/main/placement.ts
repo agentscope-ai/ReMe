@@ -1,3 +1,5 @@
+import type { WindowLayout } from "../shared/protocol.ts";
+
 export interface Rect {
   x: number;
   y: number;
@@ -35,63 +37,123 @@ export function workspacePlacement(
   };
 }
 
-/** Anchor is the canvas's bottom centre; bubble expansion never moves the character. */
+/** Geometry depends on the character and work area, never on streaming text. */
 export function companionPlacement(
   anchor: { x: number; y: number },
   scale: number,
   surface: "status" | "message" | "menu" | null,
   area: Rect,
-  measured?: { width: number; height: number },
 ) {
-  const size = Math.round(180 * scale);
-  const x = clamp(
-    anchor.x,
-    area.x + size / 2 + 16,
-    area.x + area.width - size / 2 - 16,
+  const margin = 16;
+  const gap = 12;
+  const padding = 10;
+  const size = Math.max(
+    1,
+    Math.min(
+      Math.round(180 * scale),
+      area.width - margin * 2,
+      area.height - margin * 2,
+    ),
   );
-  const y = clamp(anchor.y, area.y + size + 16, area.y + area.height - 16);
+  const x = Math.round(
+    clamp(
+      anchor.x,
+      area.x + size / 2 + margin,
+      area.x + area.width - size / 2 - margin,
+    ),
+  );
+  const y = Math.round(
+    clamp(anchor.y, area.y + size + margin, area.y + area.height - margin),
+  );
   const body = {
     x: Math.round(x - size / 2),
     y: Math.round(y - size),
     width: size,
     height: size,
   };
+  const inner = {
+    x: area.x + margin,
+    y: area.y + margin,
+    width: area.width - margin * 2,
+    height: area.height - margin * 2,
+  };
+  const status = surface === "status";
+  const menu = surface === "menu";
+  const preferredWidth = Math.round(
+    menu
+      ? 236
+      : status
+        ? clamp(size + 30, 180, 220)
+        : clamp(size * 1.65, 260, 320),
+  );
+  const preferredHeight = menu
+    ? 380
+    : status
+      ? 38
+      : Math.round(clamp(size * 1.1, 180, 212));
+  const spaces: (Rect & { side: WindowLayout["bubble"]["side"] })[] = [
+    { ...inner, side: "top", height: Math.max(0, body.y - gap - inner.y) },
+    {
+      ...inner,
+      side: "bottom",
+      y: y + gap,
+      height: Math.max(0, inner.y + inner.height - y - gap),
+    },
+    {
+      ...inner,
+      side: "right",
+      x: body.x + size + gap,
+      width: Math.max(0, inner.x + inner.width - body.x - size - gap),
+    },
+    { ...inner, side: "left", width: Math.max(0, body.x - gap - inner.x) },
+  ];
+  const fits = (width: number, height: number) => {
+    const available = spaces.filter(
+      (space) => space.width >= width && space.height >= height,
+    );
+    return (
+      available.find(({ side }) => side === "top" || side === "bottom") ??
+      available.sort((a, b) => b.width - a.width)[0]
+    );
+  };
+  const space =
+    fits(preferredWidth, preferredHeight) ??
+    fits(status ? 140 : 240, status ? 38 : 160) ??
+    spaces.reduce((best, next) =>
+      next.width * next.height > best.width * best.height ? next : best,
+    );
+  const width = Math.max(1, Math.min(preferredWidth, space.width));
+  const height = Math.max(1, Math.min(preferredHeight, space.height));
+  const vertical = space.side === "top" || space.side === "bottom";
+  const headY = body.y + size * 0.35;
+  const bubbleX = vertical
+    ? clamp(x - width / 2, space.x, space.x + space.width - width)
+    : space.side === "left"
+      ? body.x - gap - width
+      : space.x;
+  const bubbleY = vertical
+    ? space.side === "top"
+      ? body.y - gap - height
+      : space.y
+    : clamp(headY - height / 2, space.y, space.y + space.height - height);
+  const tip = clamp(
+    vertical ? x - bubbleX : headY - bubbleY,
+    20,
+    (vertical ? width : height) - 20,
+  );
   const bubble = surface !== null;
-  const maxWidth = Math.max(
-    1,
-    Math.min(
-      surface === "menu" ? 236 : surface === "status" ? 280 : 320,
-      area.width - 24,
-    ),
-  );
-  const width = Math.min(measured?.width ?? maxWidth, maxWidth);
-  const height = Math.min(
-    measured?.height ??
-      (surface === "menu" ? 380 : surface === "status" ? 36 : 180),
-    Math.max(1, area.height - 24),
-  );
-  const gap = 6;
-  let bubbleY = body.y - height - gap;
-  const below = bubbleY < area.y + 8;
-  if (below) bubbleY = y + gap;
-  bubbleY = clamp(bubbleY, area.y + 8, area.y + area.height - height - 8);
-  const bubbleX = clamp(
-    x - width / 2,
-    area.x + 12,
-    area.x + area.width - width - 12,
-  );
   const left = Math.floor(
-    Math.min(body.x - 12, bubble ? bubbleX - 8 : body.x - 12),
+    Math.min(body.x, bubble ? bubbleX : body.x) - padding,
   );
-  const top = Math.floor(
-    Math.min(body.y - 12, bubble ? bubbleY - 8 : body.y - 12),
-  );
+  const top = Math.floor(Math.min(body.y, bubble ? bubbleY : body.y) - padding);
   const right = Math.ceil(
-    Math.max(body.x + size + 12, bubble ? bubbleX + width + 8 : 0),
+    Math.max(body.x + size, bubble ? bubbleX + width : body.x + size) + padding,
   );
-  const bottom = Math.ceil(Math.max(y + 12, bubble ? bubbleY + height + 8 : 0));
+  const bottom = Math.ceil(
+    Math.max(y, bubble ? bubbleY + height : y) + padding,
+  );
   return {
-    anchor: { x: Math.round(x), y: Math.round(y) },
+    anchor: { x, y },
     bounds: { x: left, y: top, width: right - left, height: bottom - top },
     layout: {
       body: { left: body.x - left, top: body.y - top, size },
@@ -99,8 +161,9 @@ export function companionPlacement(
         left: bubbleX - left,
         top: bubbleY - top,
         width,
-        maxWidth,
         height,
+        side: space.side,
+        tip,
       },
     },
   };

@@ -210,7 +210,7 @@ def report(root: Path, results: dict) -> None:
     lines = [
         "# 提醒 Prompt 实测",
         "",
-        "真实模型、合成资料、隔离 Main；模拟空闲后写入测试会话，未验证桌面展示。",
+        "真实模型、合成资料、隔离 Chat Agent；模拟空闲后写入测试会话，未验证桌面展示。",
         "",
         "自动检查只覆盖流程、关键事实和投递状态；以下原文供人工判断是否自然、准确。",
         "",
@@ -254,7 +254,7 @@ async def run(root: Path, timeout: float, selected: str | None = None) -> None:
             "fingerprint": digest(inputs),
             "model": model,
             "effort": EFFORT,
-            "delivery": "synthetic Main; simulated idle; no desktop",
+            "delivery": "synthetic Chat Agent; simulated idle; no desktop",
         },
     )
     results, semaphore = {}, asyncio.Semaphore(2)

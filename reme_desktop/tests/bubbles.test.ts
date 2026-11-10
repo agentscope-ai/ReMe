@@ -14,7 +14,6 @@ test("narration holds the remaining visible time without changing hover state or
   assert.equal(queue.tick(61_000, false)?.id, "voice");
   assert.equal(queue.tick(80_000, false), null);
 });
-import { companionPlacement } from "../src/main/placement.ts";
 
 test("bubble expiry pauses on hover, and stale actions cannot close a newer bubble", () => {
   const queue = new BubbleQueue(0);
@@ -51,95 +50,6 @@ test("blocked reminders wait, backlog coalesces, snooze bypasses ordinary cooldo
   assert.equal(queue.tick(200, false), null);
   queue.offer({ id: "snooze", text: "用户要求稍后提醒", snoozed: true });
   assert.equal(queue.tick(300, false)?.id, "snooze");
-});
-
-test("bubble expansion keeps the canvas anchor fixed on negative-coordinate displays", () => {
-  const area = { x: -1920, y: -200, width: 1920, height: 1080 };
-  const anchor = { x: -1870, y: -150 };
-  const small = companionPlacement(anchor, 1, null, area);
-  const expanded = companionPlacement(small.anchor, 1, "message", area);
-  assert.deepEqual(expanded.anchor, small.anchor);
-  assert.equal(
-    expanded.bounds.x + expanded.layout.body.left,
-    small.bounds.x + small.layout.body.left,
-  );
-  assert.equal(
-    expanded.bounds.y + expanded.layout.body.top,
-    small.bounds.y + small.layout.body.top,
-  );
-  assert.ok(expanded.bounds.x >= area.x);
-  assert.ok(expanded.bounds.y >= area.y);
-  assert.ok(expanded.bounds.x + expanded.bounds.width <= area.x + area.width);
-});
-
-test("measured surfaces shrink around short text and grow without moving the pet", () => {
-  const area = { x: -1440, y: 0, width: 1440, height: 900 };
-  const anchor = { x: -300, y: 820 };
-  const short = companionPlacement(anchor, 1, "status", area, {
-    width: 116,
-    height: 34,
-  });
-  const wrapped = companionPlacement(anchor, 1, "status", area, {
-    width: 280,
-    height: 70,
-  });
-  assert.equal(short.layout.bubble.width, 116);
-  assert.equal(wrapped.layout.bubble.width, 280);
-  assert.equal(wrapped.layout.bubble.height, 70);
-  for (const placement of [short, wrapped]) {
-    assert.equal(
-      placement.bounds.x +
-        placement.layout.body.left +
-        placement.layout.body.size / 2,
-      anchor.x,
-    );
-    assert.equal(
-      placement.bounds.y +
-        placement.layout.body.top +
-        placement.layout.body.size,
-      anchor.y,
-    );
-    assert.equal(
-      placement.layout.bubble.top + placement.layout.bubble.height + 6,
-      placement.layout.body.top,
-    );
-    assert.ok(placement.bounds.x >= area.x);
-    assert.ok(placement.bounds.y >= area.y);
-  }
-});
-
-test("short labels and message previews share the head centre at every character size", () => {
-  const area = { x: -1920, y: -200, width: 1920, height: 1080 };
-  for (const scale of [0.7, 1, 1.5]) {
-    for (const kind of ["status", "message"] as const) {
-      const placed = companionPlacement(
-        { x: -960, y: 800 },
-        scale,
-        kind,
-        area,
-        { width: 140, height: 60 },
-      );
-      const { body, bubble } = placed.layout;
-      assert.ok(
-        Math.abs(bubble.left + bubble.width / 2 - body.left - body.size / 2) <=
-          0.5,
-      );
-      assert.equal(body.top - bubble.top - bubble.height, 6);
-    }
-    for (const point of [
-      { x: -1920, y: -200 },
-      { x: 0, y: -200 },
-      { x: 0, y: 880 },
-    ]) {
-      const placed = companionPlacement(point, scale, "message", area, {
-        width: 320,
-        height: 240,
-      });
-      assert.ok(placed.bounds.x >= area.x && placed.bounds.y >= area.y);
-      assert.ok(placed.bounds.x + placed.bounds.width <= area.x + area.width);
-      assert.ok(placed.bounds.y + placed.bounds.height <= area.y + area.height);
-    }
-  }
 });
 
 test("interrupted reminders preserve their visible time without consuming another appearance", () => {

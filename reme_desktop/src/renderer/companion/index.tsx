@@ -1,13 +1,19 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import type { Bootstrap } from "../../shared/protocol.ts";
 import { Character, hitCharacter } from "../animation/player.tsx";
 import { action } from "../desktop.ts";
 import { translator } from "../../shared/i18n.ts";
-import { ArrowUpRight, Sparkles, X, Volume2, Square } from "lucide-react";
+import {
+  ArrowUpRight,
+  Clock3,
+  Sparkles,
+  X,
+  Volume2,
+  Square,
+} from "lucide-react";
 import MessageBody from "../message-body.tsx";
 import ContextMenu from "../context-menu.tsx";
 import { companionMenu } from "./menu.ts";
-import { surfaceKey } from "../../shared/surface.ts";
 
 export default function Companion({ state, manifest, layout }: Bootstrap) {
   const active = layout.visible;
@@ -23,7 +29,13 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
   const bubble = surface?.kind === "message" ? surface : null;
   const message = bubble?.message;
   const reminder = message?.source === "proactive";
-  const measurementKey = surfaceKey(surface);
+  const bubbleStyle = {
+    left: layout.bubble.left + layout.bubble.width / 2,
+    top: layout.bubble.top,
+    width: layout.bubble.width,
+    height: layout.bubble.height,
+    "--bubble-tip": `${layout.bubble.tip}px`,
+  } as CSSProperties;
   const run = (value: Parameters<typeof action>[0]) => {
     void action(value).catch((error: unknown) => setError(error));
   };
@@ -32,20 +44,6 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
     if (gesture.current) window.desktop.drag("end");
     gesture.current = null;
   };
-
-  useLayoutEffect(() => {
-    const element = bubbleElement.current;
-    if (!element || !measurementKey) return;
-    const measure = () => {
-      const { width, height } = element.getBoundingClientRect();
-      if (width && height)
-        window.desktop.measureSurface({ key: measurementKey, width, height });
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(element);
-    measure();
-    return () => observer.disconnect();
-  }, [measurementKey]);
 
   useEffect(() => {
     if (!reminder || !bubble || !state.sessionId) return;
@@ -112,6 +110,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         <ContextMenu
           key={surface.id}
           position={{ x: layout.bubble.left, y: layout.bubble.top }}
+          size={layout.bubble}
           items={companionMenu(state, manifest, run)}
           onClose={() => run({ type: "companion.menu.close" })}
         />
@@ -122,12 +121,9 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           className="message-bubble"
           data-message-id={message.id}
           data-source={message.source}
+          data-side={layout.bubble.side}
           data-interactive
-          style={{
-            left: layout.bubble.left + layout.bubble.width / 2,
-            top: layout.bubble.top,
-            maxWidth: layout.bubble.maxWidth,
-          }}
+          style={bubbleStyle}
           aria-label={t(reminder ? "reminder" : "reply")}
           onPointerEnter={() =>
             run({ type: "bubble.pause", id: message.id, paused: true })
@@ -211,9 +207,11 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
             {bubble.canSnooze && (
               <button
                 className="subtle"
+                aria-label={t("snoozeReminder")}
+                title={t("snoozeReminder")}
                 onClick={() => run({ type: "bubble.snooze", id: message.id })}
               >
-                {t("snoozeReminder")}
+                <Clock3 size={14} aria-hidden />
               </button>
             )}
           </footer>
@@ -223,6 +221,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         <button
           ref={bubbleElement as React.RefObject<HTMLButtonElement | null>}
           className={`status-notice ${surface.tone}`}
+          data-side={layout.bubble.side}
           data-interactive
           aria-label={t("statusOpen", { text: surface.text })}
           onClick={() =>
@@ -233,11 +232,7 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
                 : undefined,
             })
           }
-          style={{
-            left: layout.bubble.left + layout.bubble.width / 2,
-            top: layout.bubble.top,
-            maxWidth: layout.bubble.maxWidth,
-          }}
+          style={bubbleStyle}
         >
           <span className="status-light" aria-hidden />
           <span className="status-text" role="status" aria-live="polite">

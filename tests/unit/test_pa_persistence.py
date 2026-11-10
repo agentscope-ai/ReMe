@@ -12,7 +12,7 @@ import pytest
 from reme.components import ApplicationContext, CodexAppServer, PaRuntime
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
-from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.agents.chat import PaChatStep, PaNewSessionStep
 from reme.steps.proactive.api.sessions import PaSessionStep
 from .pa_helpers import PA_CONFIG
 

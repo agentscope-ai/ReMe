@@ -361,7 +361,7 @@ def test_quality_grading_accepts_long_messages_in_the_current_query(role):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("prepare_first", [False, True])
-async def test_synthetic_forks_preserve_main_options_and_context_without_native_source(prepare_first):
+async def test_synthetic_forks_preserve_chat_options_and_context_without_native_source(prepare_first):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
     from benchmark.proactive.runtime import bind_owner
@@ -376,13 +376,13 @@ async def test_synthetic_forks_preserve_main_options_and_context_without_native_
         append_session=AsyncMock(),
         reply=reply,
     )
-    options = {"model": "main-model", "job_tools": ["screen_capture"], "system_prompt": "Main persona"}
+    options = {"model": "chat-model", "job_tools": ["screen_capture"], "system_prompt": "Chat persona"}
     record = {"delivered": []}
     bind_owner(
         agent,
         {
             "messages": [
-                {"id": "chat", "role": "user", "source": "chat", "content": "Main context"},
+                {"id": "chat", "role": "user", "source": "chat", "content": "Chat context"},
                 {"id": "background", "role": "assistant", "source": "proactive", "content": "Old reminder"},
             ],
         },
@@ -400,7 +400,7 @@ async def test_synthetic_forks_preserve_main_options_and_context_without_native_
         assert reply.call_args.kwargs == options
         create.assert_not_awaited()
     assert result == "done" and record["synthetic_context_preparation"]
-    assert "Main context" in reply.call_args.args[0] and "Old reminder" not in reply.call_args.args[0]
+    assert "Chat context" in reply.call_args.args[0] and "Old reminder" not in reply.call_args.args[0]
     assert reply.call_args.args[0].endswith("Work")
     compact.assert_not_awaited()
 

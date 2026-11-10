@@ -124,8 +124,8 @@ PA 的 Prompt 提供实际配置的工作区和该记忆路径；对话 Prompt �
 非重要或重复信息不要打扰主人；已有文件（包括空文件）保持原样，
 不再进行首次信息询问或根据空正文跳过任务。
 
-`agents/main.py` 提供对话和新建会话 Step，`api/sessions.py` 提供会话查询和选择；Remy 的人设、记忆维护与遗忘说明由
-`PromptHandler` 从 `agents/main.yaml` 加载，提供英文默认版本和中文版本。对外 Job 仍为 `pa_chat`、`pa_session`、`pa_new_session`。
+`agents/chat.py` 提供对话和新建会话 Step，`api/sessions.py` 提供会话查询和选择；Remy 的人设、记忆维护与遗忘说明由
+`PromptHandler` 从 `agents/chat.yaml` 加载，提供英文默认版本和中文版本。对外 Job 仍为 `pa_chat`、`pa_session`、`pa_new_session`。
 proactive 默认 `language=zh`，可用 `language=en` 切换英文；Step 的 `language` 优先于 Application。
 各角色使用简洁的中英文提示词与少量通用例子；默认模型与推理强度以 `reme/config/proactive.yaml` 为准。
 
@@ -141,15 +141,15 @@ Codex 客户端采用 65536 token 的上下文预算和 56000 token 的自动压
 缓存这些参数；wrapper 记录每次实际生效的配置，仅供后续 fork 继承，记忆路径始终指向最新文件。
 路径无效或初始化失败时，新建失败并保留原来的当前会话。
 
-智能主动 Agent 每轮从选定的 Main 对话 fork，创建分支时就覆盖为主动 Agent 的 system prompt 和工具，
-等待分支原生 compact 完成后，在同一分支最多执行一次工作 query。主对话保持不变。
-Main 尚无原生聊天轮次时创建新工作会话，跳过 fork 和 compact；读取已有会话失败仍明确报错。
+智能主动 Agent 每轮从对话 Agent 当前选定的会话 fork，创建分支时就覆盖为主动 Agent 的 system prompt 和工具，
+等待分支原生 compact 完成后，在同一分支最多执行一次工作 query。来源对话保持不变。
+对话 Agent 尚无原生聊天轮次时创建新工作会话，跳过 fork 和 compact；读取已有会话失败仍明确报错。
 这条 query 依次理解最新记忆、已完成对话和 inbox，处理明确配置要求，阅读周期结果和实际投递历史，筛选、去重、
 按需调研并决定是否发送。实现和双语 Prompt 见
 `reme/steps/proactive/agents/proactive.py` 及同名 YAML；不再逐步注入 query 或要求中间汇报。
 调研预算仍由 Prompt 约定为最多三条线索、五次搜索；较新的明确反馈优先于继承背景和恢复输入。
 暂停、非活动时段、晚间收尾或配置无效时，均不启动主动模型，包括 compact；inbox 留待下次允许运行时处理。
-关注事项、反馈和配置要求统一由主对话通过 `write_proactive_inbox` 排队，不触发额外模型调用。
+关注事项、反馈和配置要求统一由对话 Agent 通过 `write_proactive_inbox` 排队，不触发额外模型调用。
 `enabled=false` 或配置无效时，须先从外部重新启用或修复配置，排队消息才会继续处理。
 
 提醒保留核心发现、必要背景、相关时间和已核实的原文链接，简洁完整；结合价值、新意、时机、频率及主人的回应判断
@@ -157,7 +157,7 @@ Main 尚无原生聊天轮次时创建新工作会话，跳过 fork 和 compact�
 非空发送还须依据最新消息历史。已接受提醒继续独立后台投递，保留替换、去重、每日问候限制和晚间收尾规则。
 
 输入消费前保存恢复记录，失败或重启后重放已消费但尚未处理完的输入；工作 query 成功后才清理对应记录。
-准备、compact 和执行共用活动窗口截止时间。临时任务到期后 fork 来源 Main，继承其上下文、模型和工具；
+准备、compact 和执行共用活动窗口截止时间。临时任务到期后 fork 来源对话，继承其上下文、模型和工具；
 周期任务复用各自会话。Runtime 负责协调，文件操作、会话消费和事件回放分别由专门对象管理。
 
 PA 对话、会话和事件 Step 明确依赖配置中的 `PaRuntime`，不再兜底到 metadata 字典。
@@ -179,9 +179,9 @@ PA 组件在 Job 启动前创建 `{metadata_dir}/pa/` 下缺失的文件：
 | `chat_inbox.jsonl` | 空文件 |
 | `cron_runs.jsonl` | 空文件 |
 
-Inbox 按接收方命名：`proactive_inbox.md` 接收 Main 发给 Proactive 的指令，消费游标保存在
+Inbox 按接收方命名：`proactive_inbox.md` 接收对话 Agent 发给 Proactive 的指令，消费游标保存在
 `proactive_inbox_cursor.json`，请求回执保存在 `proactive_inbox_receipts.jsonl`。
-`chat_inbox.jsonl` 保存后台发给 Main 的消息及投递状态。周期任务文档放在本 PA 目录的 `cron/{task_id}/`，
+`chat_inbox.jsonl` 保存后台发给对话 Agent 的消息及投递状态。周期任务文档放在本 PA 目录的 `cron/{task_id}/`，
 一次性任务文档放在 `temporary/{id}/`。
 
 默认值在 `reme/config/proactive.yaml` 中配置：start_time 为字符串 "0700"、end_time 为字符串 "2330"、
@@ -217,12 +217,13 @@ interval_minutes 为 5。已有内容保留，包括空文本和空任务列表�
 `read_proactive_inbox()` 在推进内容哈希
 游标前保存新增或修改的输入，保留源文件；直接返回完整的未读 Markdown 正文，没有变化时返回空字符串，
 排队消息显示为“时间 内容”，省略请求 ID 和来源标签，手写 Markdown 保留原文。
+回执按请求 ID 和时间识别，不依赖展示的 Agent 名称，已有条目仍可正常读取。
 无需再读取文件。这取代了原先返回路径的结构。
-Main 与 Proactive 记忆阶段共享写入锁。
+对话 Agent 与 Proactive 记忆阶段共享写入锁。
 
 `manage_temp_proactive_agent` 支持列出、创建、修改、暂停、恢复和取消一次性任务。创建需提供明确的 `query`；
 `run_at` 与 `delay_minutes` 二选一，延迟支持小数。后续操作使用稳定的 `task_id`，版本变更使旧 worker 失效。
-后台 `temp_proactive` Job 负责等待和取消，到期后调用服务私有的 `temp_agent` Job；后者 fork 来源 Main，只执行一次 query。完整最终结果先保存到
+后台 `temp_proactive` Job 负责等待和取消，到期后调用服务私有的 `temp_agent` Job；后者 fork 来源对话，只执行一次 query。完整最终结果先保存到
 `{metadata_dir}/pa/temporary/{id}/result.md`，再立即投递，不增加发送 query，也不设展示字符上限。
 重启后直接补投递已保存结果，不重复模型工作；query 中断且没有保存结果时明确失败，由 resume 创建新版本重试。
 停机期间到期的任务补执行一次并标注延迟。提交、原生历史写入、桌面展示和用户已读是独立状态。
@@ -232,11 +233,11 @@ Proactive 使用 `get_chat_messages(limit=10, offset=0)` 按创建时间从新�
 后台结果已生成或 Agent 已消费，不代表主人已读或提醒已送达，不能据此判定已经分享。
 JSONL 用相同 ID 追加 `pending`、`sent`、`discarded`、`failed` 状态，包含创建、更新、过期、发送时间和目标会话，
 替代原来的 `is_draft` 字段。
-Main 的提醒相关追问以当前对话和主人明确提供的上下文为准，不查询该历史。
+对话 Agent 的提醒相关追问以当前对话和主人明确提供的上下文为准，不查询该历史。
 
 `send_chat_message(content, kind="normal")` 按后端绑定的发送者执行投递，模型不能改模式。普通 Proactive 每轮接受一次决策，不设展示字符上限。`kind` 取值为 `normal`、`morning`、`midday`、`evening`。空内容使用 `normal`。空内容撤销绑定会话的待发送提醒并返回 `skipped`；
-新内容成功落盘后替换旧待发送提醒并返回 `pending`，即使 Main 已经空闲也不会直接注入。
-原生 `reminder_delivery` 后台 Job 从提交后等待 Main 连续空闲10秒再投递，期间再次对话或轮次变化则重新计时。
+新内容成功落盘后替换旧待发送提醒并返回 `pending`，即使对话 Agent 已经空闲也不会直接注入。
+原生 `reminder_delivery` 后台 Job 从提交后等待对话 Agent 连续空闲10秒再投递，期间再次对话或轮次变化则重新计时。
 投递前检查当前会话、最新原生轮次、活动时间和有效期；有效期不超过一个唤醒间隔或当前活动结束时间。
 无会话、会话切换、离开活动时间或过期时废弃。重启从 JSONL 重建待发送状态，并重新检查和等待。
 重试复用原生消息 ID；`sent` 表示已注入，不代表主人已读。注入与 JSONL 状态落盘仍是两个操作。
@@ -253,7 +254,7 @@ python scripts/migrate_pa_reminder_kinds.py /path/to/workspace/reme_metadata/pa/
 
 主动 Agent 装备指令读取、任务结果读取、截图、消息历史、消息提交和 JSON 校验六个 Job 工具。
 会话状态查询归通用会话操作，不再放在主动工具目录。相关性、语义去重和提醒价值由 Agent 判断。
-长期个人记忆由 Main 维护，旧对话和恢复输入不能恢复主人已要求遗忘的信息。
+长期个人记忆由对话 Agent 维护，旧对话和恢复输入不能恢复主人已要求遗忘的信息。
 
 Desktop 的 Remy 侧栏可切换提醒列表和定时任务结果收件箱。每张卡片标注已读／未读；收件箱支持任务筛选与分页。
 `proactive_inbox_view(action="list", kind="all", filter="all", offset=0, limit=20)` 只读查询，支持任务筛选、
@@ -264,13 +265,13 @@ Desktop 的 Remy 侧栏可切换提醒列表和定时任务结果收件箱。每
 “已接收”不代表工作完成，编辑后的指令会重新处理。
 结果列表跳过异常文档，通过 `complete=false` 和 `warnings` 报告问题，保留原文件。
 历史摘要选择和 Proactive 消费也跳过异常结果；消费告警放在响应 metadata 中。
-查看结果不创建聊天消息。提醒可以来自其他会话，先只读打开来源对话，Main 继续工作，
+查看结果不创建聊天消息。提醒可以来自其他会话，先只读打开来源对话，对话 Agent 继续工作，
 空闲后通过 `pa_select_session(session_id)` 选择该来源继续讨论。快照和即时事件携带从投递流水重建的有界 `inbox_messages`。
 桌面展示、阅读及语音回执和原生会话 `sent` 状态独立。
 
 ### 定时任务 query
 
-Main 维护 `{metadata_dir}/pa/cron.json`：JSON 列表，每项只允许四个必填字段：稳定 `id`、五段 `cron`、
+对话 Agent 维护 `{metadata_dir}/pa/cron.json`：JSON 列表，每项只允许四个必填字段：稳定 `id`、五段 `cron`、
 非空 `query` 和布尔 `enabled`。任务每次执行后根据结果决定是否立即提醒，无需配置投递类型。
 修改前重读最新文件，保留其他任务和身份并原子保存，写后读回并调用 `check_json`。
 调度器校验任务字段并自动加载有效修改；JSON 解析通过不等于已加载。旧配置中的额外字段须显式移除，运行时不兼容转换。
@@ -294,7 +295,7 @@ Main 维护 `{metadata_dir}/pa/cron.json`：JSON 列表，每项只允许四个�
 结果发布到 `{metadata_dir}/pa/cron/{task_id}/YYYY-MM-DD/HHMMSSffffff.md`，任务身份和开始时间标识一次执行。
 `state.json` 保存原生会话、当前执行和持久化完成意图；恢复时继续发布和投递，不重复调用模型或发布结果。
 过时提醒候选被丢弃，报告仍保留。任务修改使未完成工作失效，但保留该任务的会话；原生会话缺失时重建，
-传输失败不丢弃历史。紧急提醒保留原目标 Main 会话，15 分钟后过期。Proactive 消费与 Desktop 用户已读互相独立。
+传输失败不丢弃历史。紧急提醒保留原目标对话，15 分钟后过期。Proactive 消费与 Desktop 用户已读互相独立。
 运行时只读取当前格式，旧工作区须停机后通过离线工具显式迁移，保留原文件。
 
 升级旧工作区前停止服务，执行离线迁移，再启动服务：

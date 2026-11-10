@@ -598,7 +598,7 @@ With an API key and a custom `base_url`, the shared server configures a dedicate
 HTTP/SSE by default. Set `supports_websockets: true` on `codex_app_server` only for endpoints supporting the Responses
 WebSocket transport. Explicit `config_overrides` retain precedence over generated provider defaults.
 
-API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
+API-key defaults use `qwen3.8-max` for chat, code reviews, subagents and native memory consolidation,
 and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
 default subagents select `max` reasoning. The catalog exposes only `max`, so native approval reviews also use
 that level rather than the SDK's internal `low` default. Main-model overrides use `model`

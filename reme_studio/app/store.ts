@@ -23,6 +23,7 @@ import { markMarkdownContentSaved } from "./markdown-save";
 import { mergeSessionTab } from "./session-sync";
 import type { SessionSnapshot } from "./types";
 import { unsavedTabsClosedBy } from "./tab-close";
+import { browserStorage } from "./browser-storage";
 
 interface WorkspaceState {
   tabs: WorkspaceTab[];
@@ -106,7 +107,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             set({ activeTabId: existing.id });
             return existing.id;
           }
-          const id = `file:${path}`;
+          const id = `file:${crypto.randomUUID()}`;
           set((state) => ({
             tabs: [
               ...state.tabs,
@@ -254,7 +255,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     {
       name: WORKSPACE_STORAGE_KEY,
       version: 1,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => browserStorage),
       skipHydration: true,
       partialize: (state): PersistedWorkspaceState =>
         prepareWorkspaceSnapshot(state.tabs, state.activeTabId),

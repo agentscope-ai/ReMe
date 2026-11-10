@@ -532,11 +532,6 @@ else {
         if (event.sender.id === windows!.companion.webContents.id)
           windows!.pointer(interactive === true);
       });
-      ipcMain.on(channels.surfaceSize, (event, size) => {
-        if (!validSender(event)) return;
-        if (windows!.isCompanionSender(event.sender.id))
-          windows!.measureSurface(size);
-      });
       ipcMain.on(channels.drag, (event, phase) => {
         if (!validSender(event)) return;
         if (

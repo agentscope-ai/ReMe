@@ -114,10 +114,10 @@ class TempTasks:
         return self.runtime.now() + timedelta(minutes=float(delay))
 
     async def create(self, query, *, run_at=None, delay_minutes: float | None = None, request_id=None):
-        """Register one Main-bound task with retry-safe request identity."""
+        """Register one chat-bound task with retry-safe request identity."""
         source = self.runtime.session_id
         if not source:
-            raise ValueError("Create a temporary task from an existing Main conversation")
+            raise ValueError("Create a temporary task from an existing chat session")
         now = self.runtime.now()
         deadline = self.deadline(run_at, delay_minutes)
         delay_minutes = float(delay_minutes) if delay_minutes is not None else None

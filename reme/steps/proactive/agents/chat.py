@@ -1,4 +1,4 @@
-"""Remy's PA conversation; the runtime owns session selection and lifecycle."""
+"""Remy's chat agent; the runtime owns session selection and lifecycle."""
 
 from .base import BasePaAgentStep
 from ....components import R

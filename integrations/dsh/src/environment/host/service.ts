@@ -800,7 +800,7 @@ function healthFromResult(result: ReMeHealthResult): ServiceHealth {
       error: result.error || "The endpoint could not be reached",
       code: "unreachable",
     };
-  if (!result.ok) {
+  if (!result.ok && result.errorCode !== "invalid-response") {
     // The client reports an HTTP failure and a ReMe-reported error the same
     // way; only the status tells them apart.
     const code = status >= 200 && status < 300 ? "reme-error" : "http-status";
@@ -812,8 +812,7 @@ function healthFromResult(result: ReMeHealthResult): ServiceHealth {
       code,
     };
   }
-  // A 200 response is not a healthy ReMe: the health report has to parse.
-  if (!result.health)
+  if (!result.ok || !result.health)
     return {
       ok: false,
       version: "",

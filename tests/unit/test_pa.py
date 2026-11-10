@@ -20,7 +20,7 @@ from reme.config import resolve_app_config
 from reme.constants import DEFAULT_MAX_BYTES
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionStatus, StreamChunk
-from reme.steps.proactive.agents.main import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.agents.chat import PaChatStep, PaNewSessionStep
 from reme.steps.proactive.api.sessions import PaSessionStep
 from .pa_helpers import bind_pa
 
@@ -438,7 +438,7 @@ async def test_pa_templates_follow_language_and_preserve_memory(tmp_path, app_la
     prompt = agent.created[0]["system_prompt"]
     chinese = (step_language or app_language) == "zh"
     assert prompt.startswith("## 角色" if chinese else "## Role")
-    assert ("对话 Agent" if chinese else "chat agent") in prompt
+    assert ("对话 Agent" if chinese else "Chat Agent") in prompt
     assert f"{'工作区：' if chinese else 'Workspace: '}{tmp_path}" in prompt
     assert "【工作流】" not in prompt and "[Workflow]" not in prompt
     assert "会话创建时间" not in prompt and "Session created at" not in prompt
@@ -537,7 +537,7 @@ async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, confi
 
 @pytest.mark.parametrize(
     "module,memory_field",
-    [("agents/main", "memory_path"), ("agents/proactive", "memory_path"), ("agents/cron", "memory_path")],
+    [("agents/chat", "memory_path"), ("agents/proactive", "memory_path"), ("agents/cron", "memory_path")],
 )
 def test_role_prompts_have_matching_localized_placeholders(module, memory_field):
     from string import Formatter

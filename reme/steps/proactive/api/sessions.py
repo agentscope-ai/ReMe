@@ -1,4 +1,4 @@
-"""Inspect or select Main without depending on agent prompt preparation."""
+"""Inspect or select Chat Agent without depending on agent prompt preparation."""
 
 from ..base import BasePaStep
 from ....components import R
@@ -18,7 +18,7 @@ class PaSessionStep(BasePaStep):
 
 @R.register("pa_select_session_step")
 class PaSelectSessionStep(BasePaStep):
-    """Select a source conversation while no Main operation is running."""
+    """Select a source conversation while no Chat Agent operation is running."""
 
     async def execute(self):
         self._validate("session_id")

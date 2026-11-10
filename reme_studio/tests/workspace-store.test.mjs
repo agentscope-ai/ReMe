@@ -118,3 +118,38 @@ test("ordinary tabs bind independent sessions and keep their own messages", () =
   assert.equal(firstTab.messages[0].turnId, `turn:${first}`);
   assert.equal(secondTab.messages[0].turnId, `turn:${second}`);
 });
+
+test("reopening a file retires pending reads and saves from its previous tab", () => {
+  const old = store.getState().openMarkdown("notes/note.md");
+  store.getState().closeTab(old);
+  const current = store.getState().openMarkdown("notes/note.md");
+  assert.notEqual(old, current);
+  assert.equal(store.getState().openMarkdown("notes/note.md"), current);
+  store.getState().hydrateMarkdown(current, "current file", "current-time");
+  store.getState().updateMarkdown(current, "new unsaved draft");
+  store.getState().hydrateMarkdown(old, "late old read", "old-time");
+  store.getState().failMarkdown(old, "late old failure");
+  store.getState().markSaved(old, "late old save", "old-time");
+  const tab = store.getState().tabs[0];
+  assert.equal(tab.content, "new unsaved draft");
+  assert.equal(tab.savedContent, "current file");
+  assert.equal(tab.mtime, "current-time");
+  assert.equal(tab.error, undefined);
+});
+
+test("unavailable browser storage cannot interrupt editing or saving a file", () => {
+  const write = globalThis.localStorage.setItem;
+  globalThis.localStorage.setItem = () => {
+    throw new Error("Quota exceeded");
+  };
+  try {
+    const id = store.getState().openMarkdown("draft.md");
+    store.getState().hydrateMarkdown(id, "saved", "before");
+    store.getState().updateMarkdown(id, "pending edits");
+    store.getState().markSaved(id, "pending edits", "after");
+    assert.equal(store.getState().tabs[0].content, "pending edits");
+    assert.equal(store.getState().tabs[0].savedContent, "pending edits");
+  } finally {
+    globalThis.localStorage.setItem = write;
+  }
+});

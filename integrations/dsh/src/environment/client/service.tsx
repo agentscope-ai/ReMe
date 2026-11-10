@@ -165,6 +165,7 @@ export function useService(
     logPath: "",
   });
   const startController = useRef<AbortController | undefined>(undefined);
+  const logRequest = useRef<AbortController | undefined>(undefined);
   /** True only while a start this tab requested is being polled. */
   const startInFlight = useRef(false);
   /** The endpoint the callbacks below belong to; stale answers are dropped. */
@@ -199,6 +200,11 @@ export function useService(
   }, [endpoint]);
 
   useEffect(() => () => startController.current?.abort(), []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Logs belong to the selected workspace.
+    setLog({ open: false, lines: "", logPath: "" });
+    return () => logRequest.current?.abort();
+  }, [rpc, workspaceDir]);
 
   useEffect(() => {
     if (!local || !endpoint) return;
@@ -482,20 +488,26 @@ export function useService(
   }, [applyState, endpoint, forgetTarget, forgetting, refresh, rpc, t]);
 
   const viewLog = useCallback(async () => {
+    logRequest.current?.abort();
+    const controller = new AbortController();
+    logRequest.current = controller;
     try {
       const value = parseServiceLog(
-        await envCall(rpc, "serviceLog", { workspaceDir }),
+        await envCall(rpc, "serviceLog", { workspaceDir }, controller.signal),
       );
+      if (controller.signal.aborted) return;
       setLog({ open: true, lines: value.lines, logPath: value.logPath });
     } catch {
       // Log viewing is diagnostic only.
+    } finally {
+      if (logRequest.current === controller) logRequest.current = undefined;
     }
   }, [rpc, workspaceDir]);
 
-  const dismissLog = useCallback(
-    () => setLog({ open: false, lines: "", logPath: "" }),
-    [],
-  );
+  const dismissLog = useCallback(() => {
+    logRequest.current?.abort();
+    setLog({ open: false, lines: "", logPath: "" });
+  }, []);
 
   return {
     state,

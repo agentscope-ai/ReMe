@@ -97,7 +97,7 @@ async def test_fork_overrides_then_compacts_before_the_only_query(pa_workspace, 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("first", ["chat", "proactive"])
-async def test_main_and_proactive_queries_can_progress_concurrently(pa_workspace, monkeypatch, first):
+async def test_chat_and_proactive_queries_can_progress_concurrently(pa_workspace, monkeypatch, first):
     env = pa_workspace
     entered = {name: asyncio.Event() for name in ("chat", "proactive")}
     release = {name: asyncio.Event() for name in entered}
@@ -259,7 +259,7 @@ async def test_compaction_is_awaited_before_any_work_query(pa_workspace, monkeyp
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("prior_reminder", [False, True])
-async def test_empty_main_starts_one_query_without_fork_or_compact(pa_workspace, monkeypatch, language, prior_reminder):
+async def test_empty_chat_starts_one_query_without_fork_or_compact(pa_workspace, monkeypatch, language, prior_reminder):
     env = pa_workspace
     env.snapshot.last_turn_id = None
     if prior_reminder:
@@ -292,7 +292,7 @@ async def test_empty_main_starts_one_query_without_fork_or_compact(pa_workspace,
 
 
 @pytest.mark.asyncio
-async def test_unreadable_main_fails_before_native_work_and_preserves_handoff(pa_workspace, monkeypatch):
+async def test_unreadable_chat_fails_before_native_work_and_preserves_handoff(pa_workspace, monkeypatch):
     env = pa_workspace
     model(env, monkeypatch)
     await env.runtime.save_proactive_handoff("Previous unfinished work")

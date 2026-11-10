@@ -246,7 +246,7 @@ async def test_existing_task_actions_reject_unrelated_fields(pa_workspace):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("caller,scope", [("proactive", None), ("temporary", None), ("chat", [])])
 @pytest.mark.parametrize("action", ["create", "list"])
-async def test_unified_tool_preserves_main_and_path_permissions(pa_workspace, caller, scope, action):
+async def test_unified_tool_preserves_chat_and_path_permissions(pa_workspace, caller, scope, action):
     options = {"query": "work"} if action == "create" else {}
     with pytest.raises((ValueError, PermissionError)):
         await ManageTempProactiveAgentStep(app_context=pa_workspace.context)(
@@ -259,7 +259,7 @@ async def test_unified_tool_preserves_main_and_path_permissions(pa_workspace, ca
 
 
 @pytest.mark.asyncio
-async def test_temporary_result_announces_while_main_busy_then_inserts_without_ten_second_delay(pa_workspace):
+async def test_temporary_result_announces_while_chat_busy_then_inserts_without_ten_second_delay(pa_workspace):
     env = pa_workspace
     task = await env.runtime.temp_tasks.create("调查新进展")
     task = await env.runtime.temp_tasks.patch(task.id, task.revision, status="running")
@@ -295,7 +295,7 @@ async def test_temporary_result_announces_while_main_busy_then_inserts_without_t
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language", ["en", "zh"])
 @pytest.mark.parametrize("delayed", [False, True])
-async def test_temporary_worker_forks_main_and_publishes_final_result(pa_workspace, language, delayed):
+async def test_temporary_worker_forks_chat_and_publishes_final_result(pa_workspace, language, delayed):
     env = pa_workspace
     task = await env.runtime.temp_tasks.create(
         "主人关注本地 Agent。调研其长期记忆能力，简短分点并保留来源。",

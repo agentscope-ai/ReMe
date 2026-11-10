@@ -133,7 +133,7 @@ external collection under `data_connectors/`, scheduling and delivery under `bac
 `api/`. Request checks live in `base.py`; application-owned state, files and sessions live in `reme/components/pa/`.
 Generic JSON validation lives in `reme/steps/file_io/`.
 
-`agents/main.py` supplies the chat (`pa_chat_step`) and new-session Steps; `api/sessions.py` supplies session APIs; `agents/main.yaml` supplies Remy's persona
+`agents/chat.py` supplies the chat (`pa_chat_step`) and new-session Steps; `api/sessions.py` supplies session APIs; `agents/chat.yaml` supplies Remy's persona
 and memory maintenance/forgetting instructions through `PromptHandler`, with English defaults and Chinese variants.
 The public jobs remain `pa_chat`, `pa_session`, and `pa_new_session`.
 The proactive config defaults to `language=zh`; use `language=en` for English
@@ -152,15 +152,15 @@ these are client settings, not the provider's maximum context claim. Native long
 `CODEX_MODEL_NAME` can override the model; review the model catalog capabilities when changing it. File changes load
 on the next service start and apply to subsequent chats in the restored session.
 
-Each proactive round forks the selected Main conversation with the proactive system prompt and Job tools already
-configured, waits for native compaction to finish, then sends at most one work query in that same branch. Main is unchanged.
-An empty Main starts a fresh worker without fork or compaction; unreadable source sessions still fail explicitly.
+Each proactive round forks the selected chat session with the proactive system prompt and Job tools already
+configured, waits for native compaction to finish, then sends at most one work query in that same branch. The source chat is unchanged.
+An empty chat session starts a fresh worker without fork or compaction; unreadable source sessions still fail explicitly.
 The query reads current memory, completed conversations, inbox feedback, task results and message delivery history;
 handles explicit configuration requests; selects and verifies useful findings; and submits one message decision. See `reme/steps/proactive/agents/proactive.py` and its bilingual YAML prompts.
 Research is optional, with a prompt budget of three leads and five search API calls. There are no per-stage queries or
 intermediate model reports. Latest explicit feedback takes precedence over inherited background and recovery inputs.
 Paused, inactive, evening-closed or invalid configurations never start a proactive model call, including compaction.
-Main queues topics, feedback and settings requests through `write_proactive_inbox`; they wait for the next permitted
+Chat Agent queues topics, feedback and settings requests through `write_proactive_inbox`; they wait for the next permitted
 wakeup and never trigger an extra model call. A disabled agent or invalid configuration requires external re-enabling
 or repair before queued requests can be processed.
 
@@ -172,7 +172,8 @@ Accepted reminders retain independent background delivery, supersession, daily g
 
 Consumed inputs are checkpointed before cursor advancement and replayed after failures or restart. A successful work query
 clears handled recovery records; an interrupted query retains them. Preparation, compaction and work share the active-window
-deadline. Temporary tasks fork Main only when due, inheriting its context, model and tools; cron tasks retain their own sessions.
+deadline. Temporary tasks fork the chat session only when due, inheriting its context, model and tools;
+cron tasks retain their own sessions.
 The runtime coordinates shared file operations, session consumption and event replay through their dedicated owners.
 
 PA chat, selection and event Steps require the configured `PaRuntime`; there is no metadata-state fallback.
@@ -196,9 +197,9 @@ Before Jobs start, the PA component creates missing files under `{metadata_dir}/
 | `chat_inbox.jsonl` | Empty |
 | `cron_runs.jsonl` | Empty |
 
-Inbox names identify their recipient: `proactive_inbox.md` carries Main's instructions to Proactive, with
+Inbox names identify their recipient: `proactive_inbox.md` carries Chat Agent's instructions to Proactive, with
 `proactive_inbox_cursor.json` consumption state and `proactive_inbox_receipts.jsonl` request receipts.
-`chat_inbox.jsonl` carries background messages addressed to Main and their delivery states.
+`chat_inbox.jsonl` carries background messages addressed to Chat Agent and their delivery states.
 Cron documents live under `cron/{task_id}/`; one-shot documents live under `temporary/{id}/`, both inside this PA directory.
 
 Defaults are configured in `reme/config/proactive.yaml`. The proactive defaults are `start_time: "0700"`,
@@ -246,13 +247,14 @@ a settings-only round. It can repair or resume settings without researching or s
 `read_proactive_inbox()` checkpoints appended or edited content before advancing a content-hash
 cursor, retaining the source file. It returns the complete unread Markdown text directly, or an empty string when unchanged;
 queued messages appear as `timestamp content`, without request IDs or source labels; handwritten Markdown is preserved.
+Receipt matching uses request IDs and timestamps rather than the displayed agent label, so existing entries remain readable.
 No follow-up file read is needed. This replaces the previous path-based response.
-Main chat and Proactive work share the personal-memory lock.
+Chat Agent and Proactive work share the personal-memory lock.
 
 `manage_temp_proactive_agent` lists, creates, updates, pauses, resumes or cancels one-shot tasks. Creation requires a clear
 `query`; `run_at` and `delay_minutes` are mutually exclusive, and fractional delays are supported. Existing tasks use their
 stable `task_id`; revisions invalidate stale workers. The `temp_proactive` background Job owns waiting and cancellation. When due, it invokes the service-private
-`temp_agent` Job, which forks the source Main conversation and executes one query. Its complete final result is saved to
+`temp_agent` Job, which forks the source chat session and executes one query. Its complete final result is saved to
 `{metadata_dir}/pa/temporary/{id}/result.md` before immediate delivery, with no separate sending query or character cap.
 Restart recovery delivers saved results without repeating model work. An interrupted query without a saved result fails
 explicitly; resume creates a new revision for a deliberate retry. Overdue tasks execute once and label delayed results.
@@ -267,13 +269,13 @@ Generating a background result or consuming it as an agent does not mean Master 
 neither state alone establishes that the content was shared.
 JSONL appends share an ID for successive `pending`, `sent`, `discarded` or `failed`
 states, with creation/update/expiry/sent times and the target session. This replaces the former `is_draft` contract.
-Main handles reminder follow-ups from the current conversation and explicit user context, without querying this history.
+Chat Agent handles reminder follow-ups from the current conversation and explicit user context, without querying this history.
 
 `send_chat_message(content, kind="normal")` uses a backend-bound sender policy; the model cannot override delivery.
 For ordinary Proactive it accepts one decision per round, without a presentation-size character cap. `kind` is one of
 `normal`, `morning`, `midday`, `evening`; empty content uses `normal`. Empty content withdraws pending content
 for the bound chat and returns `skipped`. A newly accepted nonempty reminder supersedes the old pending reminder and returns
-`pending`, including when Main is already idle. The native `reminder_delivery` background Job waits for ten continuous
+`pending`, including when Chat Agent is already idle. The native `reminder_delivery` background Job waits for ten continuous
 idle seconds after submission, resetting when chat
 starts again. Delivery rechecks the current session, native turn, active hours and expiry. The ordinary pending lifetime ends after one
 wake interval or at the current window deadline, whichever comes first. Missing or changed sessions, closed active hours and expiry discard the reminder.
@@ -297,7 +299,7 @@ as `normal` before atomic replacement.
 
 The proactive agent has inbox-reading, task-result, screen-capture, message-history, message-submission
 and JSON-validation Job tools. Session status is a common session operation, not a proactive tool. Relevance and semantic deduplication remain
-agent decisions. Main maintains long-term memory; Proactive's memory query only reads and understands it.
+agent decisions. Chat Agent maintains long-term memory; Proactive's memory query only reads and understands it.
 Recent concerns and unfinished work belong in the handoff.
 Forgotten facts must not be restored through old conversations or summaries.
 
@@ -312,8 +314,8 @@ consumption state. Received does not mean work completed; edited instructions ar
 Result lists skip invalid documents and report `complete=false` with `warnings`; originals remain untouched.
 History selection and Proactive consumption also skip invalid results; consumption reports warnings in response metadata.
 Reading creates no chat message.
-Reminders include results from other source sessions. They open a read-only conversation preview while Main continues;
-`pa_select_session(session_id)` selects that source for further discussion when Main is idle.
+Reminders include results from other source sessions. They open a read-only conversation preview while Chat Agent continues;
+`pa_select_session(session_id)` selects that source for further discussion when Chat Agent is idle.
 Snapshots and immediate-message events carry a bounded `inbox_messages` projection rebuilt from the delivery journal.
 Desktop presentation/read and speech receipts remain separate from native `sent` state.
 
@@ -349,7 +351,7 @@ the execution. `state.json` stores the native session, current run and durable c
 publication and delivery without another model query or duplicate result; obsolete reminder candidates are dropped while
 retaining the report. Changed definitions supersede unfinished work while retaining the task's conversation. Missing native
 sessions are recreated; transport failures do not discard history. Urgent reminders expire after 15 minutes and retain their
-original target Main session. Proactive consumption and Desktop's `user_read_at` remain independent.
+original target chat session. Proactive consumption and Desktop's `user_read_at` remain independent.
 
 This replaces the four-query workflow, `recovery.json` and cron handoffs. Runtime loading does not convert old workflow
 state or temporary-task records; recreate or migrate those records offline before upgrading, retaining source files.

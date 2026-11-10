@@ -1,106 +1,174 @@
-/* Local glass styling keeps the artwork's surroundings fully transparent. */
+/* A quiet reading surface, with geometry owned by the main process. */
 .companion .status-notice,
 .companion .message-bubble {
-  width: max-content;
-  border: 1px solid light-dark(#ffffffd9, #ffffff26);
-  background:
-    linear-gradient(145deg, light-dark(#ffffffa8, #ffffff12), transparent 65%),
-    light-dark(#edf3eddb, #22322ae6);
+  --bubble-fill: light-dark(#f5f6f5f5, #292d2bf5);
+  border: 1px solid light-dark(#ffffffc9, #ffffff24);
+  background: var(--bubble-fill);
   color: var(--ink);
   box-shadow:
-    inset 0 1px 0 light-dark(#ffffffd9, #ffffff16),
-    0 3px 7px light-dark(#243b2810, #00000024);
-  backdrop-filter: blur(20px) saturate(145%);
-  -webkit-backdrop-filter: blur(20px) saturate(145%);
+    0 2px 5px light-dark(#17251d0b, #00000020),
+    0 5px 10px light-dark(#17251d14, #00000030);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: bubble-appear 120ms ease-out;
+}
+.companion .status-notice::before,
+.companion .message-bubble::before {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--bubble-fill);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.companion [data-side="top"]::before {
+  left: calc(var(--bubble-tip) - 5px);
+  bottom: -5px;
+  border-right: inherit;
+  border-bottom: inherit;
+}
+.companion [data-side="bottom"]::before {
+  left: calc(var(--bubble-tip) - 5px);
+  top: -5px;
+  border-left: inherit;
+  border-top: inherit;
+}
+.companion [data-side="left"]::before {
+  top: calc(var(--bubble-tip) - 5px);
+  right: -5px;
+  border-right: inherit;
+  border-top: inherit;
+}
+.companion [data-side="right"]::before {
+  top: calc(var(--bubble-tip) - 5px);
+  left: -5px;
+  border-left: inherit;
+  border-bottom: inherit;
 }
 .companion .status-notice {
-  min-height: 34px;
-  padding: 7px 11px;
-  gap: 8px;
+  padding: 8px 12px;
+  gap: 9px;
   border-radius: 12px;
   font-size: 12px;
   line-height: 18px;
 }
 .status-text {
+  flex: 1;
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .companion .status-light {
   width: 5px;
   height: 5px;
-  box-shadow: 0 0 0 3px light-dark(#36775f0a, #9aceb00b);
 }
 .companion .status-arrow {
-  margin-left: 1px;
   flex-shrink: 0;
   color: var(--muted);
-  opacity: 0.65;
-}
-.companion .status-notice:hover {
-  border-color: light-dark(#9ab9a080, #b5d6bf50);
-}
-.companion .status-notice:hover .status-arrow {
-  color: var(--accent);
-  opacity: 1;
 }
 .companion .message-bubble {
-  padding: 11px 13px 12px;
+  display: grid;
+  grid-template-rows: 24px minmax(0, 1fr) 28px;
+  gap: 8px;
+  padding: 12px;
   border-radius: 16px;
 }
 .companion .message-bubble header {
-  margin-bottom: 6px;
+  min-width: 0;
 }
 .bubble-heading {
   display: flex;
   align-items: center;
   gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.bubble-heading svg {
   color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 0.2px;
 }
 .companion .message-bubble .icon-button {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   border-radius: 7px;
 }
-.companion .message-bubble p {
-  font-size: 12px;
-  line-height: 1.8;
-}
 .companion .message-bubble .message-body {
+  min-height: 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .companion .message-bubble .message-content {
-  max-height: 160px;
+  max-height: 100%;
   overflow: hidden;
 }
+.companion .message-bubble p {
+  display: block;
+  margin: 0 0 6px;
+  font-size: inherit;
+  line-height: inherit;
+}
+.companion .message-bubble ul,
+.companion .message-bubble ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
 .companion .message-bubble footer {
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+  min-width: 0;
+  gap: 5px;
+  align-items: center;
 }
 .companion .message-bubble footer button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   gap: 5px;
-  padding: 5px 9px;
+  height: 28px;
+  padding: 4px 8px;
   border-radius: 8px;
-  font-size: 10px;
-  line-height: 17px;
-}
-.companion .message-bubble footer .subtle {
-  background: light-dark(#ffffff58, #ffffff08);
-  border: 1px solid var(--line);
+  font-size: 11px;
+  line-height: 18px;
 }
 .companion .message-bubble footer .primary {
-  border: 1px solid transparent;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  background: light-dark(#36775f13, #9aceb01c);
+  color: var(--accent);
+}
+.companion .message-bubble footer .primary:hover {
+  background: light-dark(#36775f20, #9aceb02b);
+}
+.companion .message-bubble footer .subtle {
+  width: 28px;
+  padding: 0;
+}
+html[data-platform="win32"] .companion .status-notice,
+html[data-platform="win32"] .companion .message-bubble {
+  --bubble-fill: light-dark(#f5f6f5, #292d2b);
+}
+@keyframes bubble-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .companion .status-notice,
+  .companion .message-bubble {
+    animation: none;
+  }
 }
 @media (prefers-reduced-transparency: reduce) {
   .companion .status-notice,
   .companion .message-bubble {
-    background: light-dark(#f5f8f4, #25352c);
+    --bubble-fill: light-dark(#f5f6f5, #292d2b);
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }

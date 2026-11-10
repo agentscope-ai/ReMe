@@ -1,5 +1,7 @@
 "use client";
 
+import { browserStorage } from "./browser-storage.ts";
+
 import { create } from "zustand";
 import { IS_DEMO } from "./studio-mode.ts";
 
@@ -355,12 +357,7 @@ function initialLanguage(): Language {
   const requested = IS_DEMO
     ? new URLSearchParams(window.location.search).get("lang")
     : null;
-  let saved: string | null = null;
-  try {
-    saved = localStorage.getItem("reme-language");
-  } catch {
-    /* Use the browser language. */
-  }
+  const saved = browserStorage.getItem("reme-language");
   const preferred = requested || saved;
   return preferred === "zh" || preferred === "en"
     ? preferred
@@ -377,11 +374,7 @@ export const useLanguageStore = create<LanguageState>((set) => ({
     set({ language });
   },
   setLanguage: (language) => {
-    try {
-      localStorage.setItem("reme-language", language);
-    } catch {
-      /* Keep the preference in memory. */
-    }
+    browserStorage.setItem("reme-language", language);
     if (IS_DEMO) {
       const url = new URL(window.location.href);
       url.searchParams.set("lang", language);

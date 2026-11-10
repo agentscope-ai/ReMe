@@ -1,4 +1,4 @@
-"""Fork Main with proactive instructions, compact, then run at most one query."""
+"""Fork the chat session with proactive instructions, compact, then run at most one query."""
 
 import asyncio
 
@@ -9,7 +9,7 @@ from ....utils.async_utils import finish_cleanup
 
 @R.register("proactive_agent_step")
 class ProactiveAgentStep(BasePaAgentStep):
-    """Carry Main context and unfinished work through one proactive turn."""
+    """Carry chat context and unfinished work through one proactive turn."""
 
     async def execute(self):
         self._validate()

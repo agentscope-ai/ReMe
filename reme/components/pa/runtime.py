@@ -178,7 +178,7 @@ class PaRuntime(BaseComponent):
 
     @property
     def chat_inbox_path(self) -> Path:
-        """Append-only background messages and delivery states addressed to Main."""
+        """Append-only background messages and delivery states addressed to Chat Agent."""
         return self.files.metadata_path("chat_inbox.jsonl")
 
     @asynccontextmanager

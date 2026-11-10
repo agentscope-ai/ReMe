@@ -41,7 +41,7 @@ export class ReMeClient {
           const { value, done } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > options.maxBytes) throw new UiError("speechAudioTooLarge");
+          if (size > options.maxBytes) throw new UiError("responseTooLarge");
           chunks.push(value);
         }
         payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -50,8 +50,8 @@ export class ReMeClient {
         reader.releaseLock();
       }
     } else payload = await response.json();
-    if (payload.success !== true)
-      throw typeof payload.answer === "string"
+    if (payload?.success !== true)
+      throw typeof payload?.answer === "string"
         ? new Error(payload.answer)
         : new UiError("jobFailed", { job });
     return { ...payload, metadata: payload.metadata ?? {} };

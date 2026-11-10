@@ -267,6 +267,10 @@ export const messages = {
     "语音结果过大，请尝试较短的内容",
     "The audio response is too large. Try shorter text",
   ],
+  responseTooLarge: [
+    "服务响应过大，无法读取。",
+    "The service response is too large to read.",
+  ],
   speechPlaybackFailed: [
     "语音播放失败，可以重新点击喇叭重试",
     "Narration could not play. Select the speaker to retry",

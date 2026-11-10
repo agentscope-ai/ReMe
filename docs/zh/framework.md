@@ -574,7 +574,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 仅当端点支持 Responses WebSocket 传输时，才在 `codex_app_server` 上设置 `supports_websockets: true`。
 显式 `config_overrides` 优先于自动生成的 provider 默认值。
 
-API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
+API key 模式默认使用 `qwen3.8-max` 处理对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
 处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `max`。
 模型目录仅开放 `max` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。
 实际档位由模型决定；[百炼 Responses API](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)

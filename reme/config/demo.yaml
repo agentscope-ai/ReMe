@@ -159,7 +159,7 @@ components:
           - <<: *codex_model_defaults
             slug: &codex_complex_model qwen3.8-max
             display_name: Qwen3.8 Max
-            description: Main conversations and complex tasks
+            description: Chat and complex tasks
             default_reasoning_level: max
             priority: 0
 

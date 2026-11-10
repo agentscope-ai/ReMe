@@ -68,15 +68,20 @@ export default function SplitPane({
           }
         }}
         onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
+          if (event.button === 0)
+            event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMove={(event) => {
           if (event.currentTarget.hasPointerCapture(event.pointerId))
-            resize(event.clientX);
+            resize(
+              event.clientX -
+                event.currentTarget.parentElement!.getBoundingClientRect().left,
+            );
         }}
-        onPointerUp={(event) =>
-          event.currentTarget.releasePointerCapture(event.pointerId)
-        }
+        onPointerUp={(event) => {
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
       />
       <div className="workspace-main">{children}</div>
     </div>

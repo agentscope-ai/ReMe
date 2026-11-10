@@ -211,7 +211,7 @@ jobs:
     backend: base
     enable_serve: false
     track_execution: true
-    description: "Consume newly completed Main chat rounds, newest ten by default. Checkpoint text before advancing session cursors; excludes tools and proactive messages."
+    description: "Consume newly completed chat rounds, newest ten by default. Checkpoint text before advancing session cursors; excludes tools and proactive messages."
     parameters:
       type: object
       additionalProperties: false
@@ -249,7 +249,7 @@ jobs:
   read_proactive_inbox:
     backend: base
     enable_serve: false
-    description: "Return new or edited Main feedback as timestamp-and-content text, or an empty string when unchanged. Checkpoint before advancing the cursor; retain source Markdown."
+    description: "Return new or edited Chat Agent feedback as timestamp-and-content text, or an empty string when unchanged. Checkpoint before advancing the cursor; retain source Markdown."
     parameters:
       type: object
       properties: {}
@@ -260,7 +260,7 @@ jobs:
   send_chat_message:
     backend: base
     enable_serve: false
-    description: "Submit one Proactive decision for Main chat after ten continuous idle seconds. New content supersedes the older pending message; empty content withdraws it."
+    description: "Submit one Proactive decision for Chat Agent after ten continuous idle seconds. New content supersedes the older pending message; empty content withdraws it."
     parameters:
       type: object
       additionalProperties: false
@@ -300,14 +300,14 @@ jobs:
   manage_temp_proactive_agent:
     backend: base
     enable_serve: false
-    description: "List, create, update, pause, resume or cancel one-shot Main tasks. List returns items and total, including task IDs and states. Create requires query; update/pause/resume/cancel require task_id. The worker runs once in a fork of Main when due, inheriting its context, model and tools."
+    description: "List, create, update, pause, resume or cancel one-shot Chat Agent tasks. List returns items and total, including task IDs and states. Create requires query; update/pause/resume/cancel require task_id. The worker runs once in a fork of the source chat session when due, inheriting its context, model and tools."
     parameters:
       type: object
       additionalProperties: false
       properties:
         action: {type: string, enum: [list, create, update, pause, resume, cancel]}
         task_id: {type: string, minLength: 1, description: "Required for update/pause/resume/cancel; use an ID returned by list or create"}
-        query: {type: string, minLength: 1, description: "Clear task with its goal, inputs and requirements; Main context is inherited. Required for create; optional for update."}
+        query: {type: string, minLength: 1, description: "Clear task with its goal, inputs and requirements; chat context is inherited. Required for create; optional for update."}
         run_at: {type: string, format: date-time, description: "Create/update only; timezone-aware, mutually exclusive with delay_minutes"}
         delay_minutes: {type: number, minimum: 0, description: "Delay in minutes, including fractions (0.5 = 30 seconds); create/update only; create omitting time starts immediately"}
         request_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "Create only; optional stable idempotency key"}
@@ -401,7 +401,7 @@ jobs:
 
   pa_select_session:
     backend: base
-    description: "Select an existing source Main conversation while chat is idle."
+    description: "Select an existing source chat session while chat is idle."
     parameters:
       type: object
       additionalProperties: false
@@ -670,7 +670,7 @@ components:
         - 'memories.extract_model="qwen3.8-max-0902"'
         - 'memories.consolidation_model="qwen3.8-max-0902"'
 
-      # All PA agents use Qwen; temporary workers inherit Main's selected model.
+      # All PA agents use Qwen; temporary workers inherit Chat Agent's selected model.
       # Switching CODEX_MODEL_NAME also requires reviewing the catalog capabilities.
       model_catalog:
         models:

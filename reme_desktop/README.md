@@ -192,6 +192,9 @@ to allow desktop apps.
 - Chat and the character share the same message text and execution status. Reply bubbles stream the current answer,
   then remain for twelve visible seconds after completion. Hover and narration pause expiry. Expand locates the same
   message in chat; dismissing a reply does not cancel generation. Reply previews do not use the reminder budget.
+- Bubble frames are sized from the character and its display's work area. Placement prefers above or below, then the
+  roomier side. Streaming text, hover, and completion update inside the same frame; dragging or display changes recalculate
+  its geometry without moving the character to make room. Light and dark reading surfaces work on macOS and Windows.
 - A completed proactive message shows a bubble. Expand opens the original conversation; close preserves its unread state;
   **10 minutes later** snoozes the same message. Hover pauses expiry. Ordinary bubbles have a ten-minute cooldown and a
   maximum of three appearances per hour; explicit snoozes bypass that cooldown. Backlogs coalesce to the latest candidate.
