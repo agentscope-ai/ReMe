@@ -165,15 +165,17 @@ async def refresh_day_index(file_store, date: str, daily_dir: str) -> dict:
         try:
             existing_text = index_abs.read_text(encoding="utf-8")
             post = frontmatter.loads(existing_text)
-        except (UnicodeError, ValueError, TypeError, yaml.YAMLError) as exc:
-            # This is a derived index: preserve its original bytes on errors.
+        except (UnicodeError, ValueError, TypeError, yaml.YAMLError, OSError) as exc:
+            # Never replace a derived index we could not read. Avoid exposing
+            # filesystem paths or other host details from OSError messages.
+            reason = type(exc).__name__ if isinstance(exc, OSError) else str(exc)
             return {
                 "date": date,
                 "path": index_rel,
                 "notes": notes_payload,
                 "created": False,
                 "changed": False,
-                "error": f"daily index is unreadable: {exc}",
+                "error": f"daily index is unreadable: {reason}",
             }
         new_body = _rebuild_body(post.content, notes_block)
         merged = dict(post.metadata or {})

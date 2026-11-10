@@ -79,6 +79,7 @@ class _FakeAgentWrapper(BaseAgentWrapper):
         self.on_reply = None
 
     async def reply(self, inputs, **kwargs) -> dict:
+        """Return a synthetic reply while recording the supplied inputs."""
         self.inputs = inputs
         self.kwargs = kwargs
         if self.on_reply is not None:
@@ -2187,11 +2188,18 @@ async def test_auto_memory_reports_unreadable_index_after_durable_note_write():
         note_path = f"daily/{today}/memory.md"
         note = cwd / note_path
         note.parent.mkdir(parents=True)
-        note.write_text(
-            "---\nname: memory\nsession_id: s1\n"
-            "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nold body\n",
-            encoding="utf-8",
+        old_note_text = "\n".join(
+            (
+                "---",
+                "name: memory",
+                "session_id: s1",
+                "source_conversation: '[[session/dialog/s1.jsonl]]'",
+                "---",
+                "old body",
+                "",
+            ),
         )
+        note.write_text(old_note_text, encoding="utf-8")
         index = cwd / "daily" / f"{today}.md"
         damaged = b"---\ntags: [\n---\nold index\n"
         index.write_bytes(damaged)
@@ -2208,11 +2216,18 @@ async def test_auto_memory_reports_unreadable_index_after_durable_note_write():
         async def rename_note(path, _day):
             return path
 
-        wrapper.on_reply = lambda *_: note.write_text(
-            "---\nname: memory\nsession_id: s1\n"
-            "source_conversation: '[[session/dialog/s1.jsonl]]'\n---\nnew body\n",
-            encoding="utf-8",
+        new_note_text = "\n".join(
+            (
+                "---",
+                "name: memory",
+                "session_id: s1",
+                "source_conversation: '[[session/dialog/s1.jsonl]]'",
+                "---",
+                "new body",
+                "",
+            ),
         )
+        wrapper.on_reply = lambda *_: note.write_text(new_note_text, encoding="utf-8")
         step = AutoMemoryStep(app_context=app_ctx, agent_wrapper=wrapper)
         step.file_store = SimpleNamespace(workspace_path=cwd)
         step._save_session_messages = save_session

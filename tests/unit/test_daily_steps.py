@@ -709,3 +709,25 @@ async def test_daily_reindex_created_flag_flips_on_rerun():
         assert payload_second["created"] is False
         assert payload_second["notes_count"] == 1
         await store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("read_error", [PermissionError(13, "private path"), FileNotFoundError(2, "raced away")])
+async def test_day_index_filesystem_read_failure_preserves_original_bytes(read_error, tmp_path):
+    """Unreadable or concurrently removed index reads fail closed without rewriting the index."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    before = b"---\nname: 2026-05-18\n---\nuser-authored details\n"
+    index.write_bytes(before)
+
+    with patch("reme.steps.file_io._daily_index.Path.read_text", side_effect=read_error):
+        result = await daily_reindex_step.refresh_day_index(
+            SimpleNamespace(workspace_path=tmp_path),
+            "2026-05-18",
+            "daily",
+        )
+
+    assert result["error"] == f"daily index is unreadable: {type(read_error).__name__}"
+    assert result["created"] is False
+    assert result["changed"] is False
+    assert index.read_bytes() == before

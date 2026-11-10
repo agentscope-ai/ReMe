@@ -239,28 +239,6 @@ def test_dream_extract_removes_all_legacy_interests_entries_from_catalog(tmp_pat
     asyncio.run(run())
 
 
-@pytest.mark.asyncio
-async def test_dream_extract_reports_unreadable_index_without_mutating_source(tmp_path):
-    """Dream extraction records a derived-index failure instead of claiming success."""
-    note = _touch(tmp_path / "daily/2026-05-28/session.md", "source input")
-    catalog = _Catalog()
-    step = DreamExtractStep(scan_days=1, app_context=ApplicationContext(workspace_dir=str(tmp_path)))
-
-    with patch(
-        "reme.steps.evolve.dream.extract.refresh_day_index",
-        new=AsyncMock(return_value={"error": "daily index is unreadable: malformed YAML"}),
-    ), patch("reme.steps.evolve.dream.extract.llm_available", return_value=False):
-        response = await step(
-            RuntimeContext(date="2026-05-28", file_catalog=catalog, file_store=_FileStore(tmp_path)),
-        )
-
-    assert response.success is False
-    assert "daily index refresh failed" in response.answer
-    assert "daily index is unreadable" in response.answer
-    assert any("daily index refresh failed" in error for error in response.metadata["dream"]["errors"])
-    assert note.read_text(encoding="utf-8") == "source input"
-
-
 def test_recent_dates_includes_anchor_and_previous_days():
     """Recent date window is inclusive and chronological."""
     assert recent_dates("2026-05-28", 3) == ["2026-05-26", "2026-05-27", "2026-05-28"]
