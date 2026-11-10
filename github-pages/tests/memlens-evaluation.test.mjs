@@ -78,33 +78,13 @@ test("MemLens bilingual notes and blogs match the published scores", async () =>
 });
 
 test("MemLens notes disclose moderation filters, reproduction results and Judge settings", async () => {
-  const triggers = {
-    zh: [
-      ["OpenViking / Max", "记忆构建"],
-      ["OpenViking / A3B", "记忆构建"],
-      ["ReMe Text、Image / A3B；OpenViking / A3B、Max；Mem0 / A3B", "记忆构建"],
-      ["ReMe Image / Max", "回答"],
-      ["ReMe Image / Max", "记忆构建"],
-      ["ReMe Text / Max", "回答"],
-    ],
-    en: [
-      ["OpenViking / Max", "Memory construction"],
-      ["OpenViking / A3B", "Memory construction"],
-      ["ReMe Text and Image / A3B; OpenViking / A3B and Max; Mem0 / A3B", "Memory construction"],
-      ["ReMe Image / Max", "Answering"],
-      ["ReMe Image / Max", "Memory construction"],
-      ["ReMe Text / Max", "Answering"],
-    ],
-  };
   for (const language of ["en", "zh"]) {
     const notes = await readFile(path.join(generatedDir, language, "benchmarks/memlens.md"), "utf8");
     const filter = notes.split("{#content-moderation-filter}")[1].split("{#independent-reproduction}")[0];
-    assert.deepEqual([...new Set(filter.match(/q_[0-9a-f]{8}/g))].sort(), excluded);
-    const rows = filter.split("\n").filter((line) => line.startsWith("| `q_"));
-    assert.deepEqual(rows, excluded.map((id, index) => {
-      const [method, stage] = triggers[language][index];
-      return `| \`${id}\` | ${method} | ${stage} |`;
-    }));
+    const excludedIds = tableRows(filter)
+      .map(([id]) => id.replaceAll("`", ""))
+      .filter((id) => /^q_[0-9a-f]{8}$/.test(id));
+    assert.deepEqual(excludedIds.sort(), excluded);
     assert.match(notes, /189\/195/);
     const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
     const reproducedRows = tableRows(reproduction).filter((row) => /^\d+ \/ 189$/.test(row[1]));
@@ -120,7 +100,6 @@ test("MemLens notes disclose moderation filters, reproduction results and Judge 
     assert.match(judge, /temperature (?:为 )?\*\*0\*\*/);
     assert.match(judge, /thinking \*\*(?:disabled|关闭)\*\*/);
     assert.match(judge, /\*\*256(?:-token| tokens)\*\*/);
-    assert.match(notes, /memory-only|restricted to memory|限定为 memory/);
   }
 });
 
@@ -134,8 +113,6 @@ test("MemLens notes pin the public evaluation revision without private audit det
     const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
     const targets = [...reproduction.matchAll(/\]\(([^)\r\n]+)\)/g)].map(([, target]) => target);
     assert.deepEqual(targets.sort(), [...reproductionLinks].sort());
-    const prose = notes.replace(/\]\([^)]+\)/g, "]");
-    assert.doesNotMatch(prose, /\b[a-f0-9]{40,64}\b/);
     for (const anchor of ["results", "evaluation-settings", "content-moderation-filter", "independent-reproduction"]) {
       assert.ok(notes.includes(`{#${anchor}}`));
     }

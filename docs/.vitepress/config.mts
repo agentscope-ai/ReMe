@@ -19,7 +19,11 @@ function readSourceMap(): Record<string, string> {
 }
 
 const sourceMap = readSourceMap();
-const mirroredPaths = Object.fromEntries(Object.entries(sourceMap).map(([destination, source]) => [source, destination]));
+const mirroredPaths = Object.fromEntries(
+  Object.entries(sourceMap)
+    .filter(([destination, source]) => source.endsWith(".md") && destination.endsWith(".md"))
+    .map(([destination, source]) => [source, destination]),
+);
 
 function collectMarkdown(directory: string, root = directory): string[] {
   const files: string[] = [];
@@ -279,13 +283,16 @@ function configureRepositoryLinks(md: any) {
           const mirroredPath = mirroredPaths[originalTarget]
             || (originalTarget.startsWith("docs/") ? originalTarget.slice("docs/".length) : undefined);
           const figurePrefix = "benchmark/memlens/docs/figure/";
-          const url = mirroredPath && fs.existsSync(path.join(sourceRoot, mirroredPath))
-            ? `/${mirroredPath.replace(/\.md$/, "")}${suffix}`
-            : originalTarget.startsWith(figurePrefix)
-            ? `/figures/benchmarks/memlens/${originalTarget.slice(figurePrefix.length)}${suffix}`
-            : ruleName === "image"
-            ? `https://raw.githubusercontent.com/agentscope-ai/ReMe/main/${originalTarget}${suffix}`
-            : `${repository}/blob/main/${originalTarget}${suffix}`;
+          let url: string;
+          if (mirroredPath && fs.existsSync(path.join(sourceRoot, mirroredPath))) {
+            url = `/${mirroredPath.replace(/\.md$/, "")}${suffix}`;
+          } else if (originalTarget.startsWith(figurePrefix)) {
+            url = `/figures/benchmarks/memlens/${originalTarget.slice(figurePrefix.length)}${suffix}`;
+          } else if (ruleName === "image") {
+            url = `https://raw.githubusercontent.com/agentscope-ai/ReMe/main/${originalTarget}${suffix}`;
+          } else {
+            url = `${repository}/blob/main/${originalTarget}${suffix}`;
+          }
           token.attrs[attributeIndex][1] = url;
         }
       }

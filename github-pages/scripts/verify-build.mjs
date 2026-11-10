@@ -149,6 +149,12 @@ assert.doesNotMatch(EnglishBlog, /full article is currently available in Chinese
 for (const language of ["zh", "en"]) {
   const multimodalBlog = await readFile(path.join(outputDir, language, "blog_20261009.html"), "utf8");
   const overview = await readFile(path.join(outputDir, language, "overview.html"), "utf8");
+  const configLink = overview.match(/<a\b[^>]*href="([^"]+)"[^>]*>\s*<code>reme\/config\/default\.yaml<\/code>\s*<\/a>/);
+  assert.equal(
+    configLink?.[1],
+    "https://github.com/agentscope-ai/ReMe/blob/main/reme/config/default.yaml",
+    `${language} overview must link to the default configuration source`,
+  );
   for (const benchmark of ["memlens", "mobilemem"]) {
     const route = `/${language}/benchmarks/${benchmark}`;
     assert.ok(multimodalBlog.includes(`href="${route}"`), `multimodal blog must link to ${route}`);
