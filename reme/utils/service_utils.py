@@ -25,11 +25,10 @@ async def find_reme(host: str, port: int) -> str:
     except Exception:
         pass
     family = socket.AF_INET6 if ":" in host else socket.AF_INET
-    probe_host = normalize_connect_host(host)
     with socket.socket(family, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            s.bind((probe_host, port))
+            s.bind((host, port))
             return "free"
         except OSError:
             return "occupied"

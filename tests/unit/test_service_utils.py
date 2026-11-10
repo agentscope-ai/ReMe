@@ -213,7 +213,7 @@ async def test_find_reme_uses_ipv6_for_wildcard_listener_probe(monkeypatch):
             return None
 
         def bind(self, address):
-            assert address == ("::1", 8123)
+            assert address == ("::", 8123)
 
     monkeypatch.setattr("reme.components.client.http_client.HttpClient", FailedProbeClient)
     monkeypatch.setattr(su.socket, "socket", FakeSocket)
@@ -221,6 +221,49 @@ async def test_find_reme_uses_ipv6_for_wildcard_listener_probe(monkeypatch):
     assert await su.find_reme("::", 8123) == "free"
     assert probed_hosts == ["::1"]
     assert socket_families == [socket.AF_INET6]
+
+
+@pytest.mark.asyncio
+async def test_find_reme_detects_wildcard_conflict_on_another_local_address(monkeypatch):
+    """Bind probing must preserve wildcard semantics when another local address owns the port."""
+    probed_hosts = []
+
+    class FailedProbeClient:
+        """Client probe that simulates no running service."""
+
+        def __init__(self, *, host, **_kwargs):
+            probed_hosts.append(host)
+
+        async def __aenter__(self):
+            raise OSError("no running service")
+
+        async def __aexit__(self, *_args):
+            return None
+
+    class ConflictingWildcardSocket:
+        """Model Linux bind semantics when another local address owns the port."""
+
+        def __init__(self, family, _kind):
+            assert family == socket.AF_INET
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def setsockopt(self, *_args):
+            return None
+
+        def bind(self, address):
+            assert address == ("0.0.0.0", 8123)
+            raise OSError("address already in use by a listener on another local address")
+
+    monkeypatch.setattr("reme.components.client.http_client.HttpClient", FailedProbeClient)
+    monkeypatch.setattr(su.socket, "socket", ConflictingWildcardSocket)
+
+    assert await su.find_reme("0.0.0.0", 8123) == "occupied"
+    assert probed_hosts == ["127.0.0.1"]
 
 
 def test_running_app_config_preserves_plugins(monkeypatch):
