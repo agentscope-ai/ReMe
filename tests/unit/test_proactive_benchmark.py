@@ -99,6 +99,7 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
     assert cfg["jobs"]["cron_agent"]["steps"][0]["job_tools"] == [
         "screen_capture",
         "finance_news",
+        "fetch_url",
         "get_chat_messages",
         "send_chat_message_immediate",
     ]
@@ -107,7 +108,7 @@ def test_native_fixture_paths_and_toolsets_match_production(tmp_path):
         set(task) == {"id", "cron", "query", "enabled"}
         for task in json.loads((tmp_path / META / "cron.json").read_text())
     )
-    assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 7
+    assert len(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) == 8
     for name in ("pa_chat", "pa_proactive", "cron_agent"):
         assert cfg["jobs"][name]["steps"][0]["model"] == "fixture-model"
     assert set(cfg["jobs"]["pa_proactive"]["steps"][0]["job_tools"]) <= cfg["jobs"].keys()

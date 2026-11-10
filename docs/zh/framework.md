@@ -575,8 +575,11 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 显式 `config_overrides` 优先于自动生成的 provider 默认值。
 
 API key 模式默认使用 `qwen3.8-max` 处理主对话、代码审查、子任务和原生记忆整合，使用 `qwen3.8-flash`
-处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `xhigh`。
-模型目录仅开放 `xhigh` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。
+处理自动审批和原生记忆提取。模型目录、主请求和默认子任务的 reasoning 均设为 `max`。
+模型目录仅开放 `max` 档位，使原生自动审批也使用该档位，避免继续采用 SDK 内部的 `low` 默认值。
+实际档位由模型决定；[百炼 Responses API](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses)
+会将 Qwen3.8 的 `max` 映射为 `xhigh`。
+Codex 原生记忆任务使用其内部指定的推理档位。
 主模型由 wrapper 的 `model` 配置，其余原生配置显式写在
 `codex_app_server.default.config_overrides` 和 `model_catalog` 中；ReMe 将原生 Codex 模型目录写为共享组件私有目录内的
 可重建元数据。`auto_review_model_override` 单独选择审批模型，仅修改主模型不会改变审批模型。原生会话压缩沿用

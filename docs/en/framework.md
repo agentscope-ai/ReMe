@@ -600,9 +600,12 @@ WebSocket transport. Explicit `config_overrides` retain precedence over generate
 
 API-key defaults use `qwen3.8-max` for main conversations, code reviews, subagents and native memory consolidation,
 and `qwen3.8-flash` for automatic approval review and native memory extraction. The model catalog, main requests and
-default subagents select `xhigh` reasoning. The catalog exposes only `xhigh`, so native approval reviews also use
+default subagents select `max` reasoning. The catalog exposes only `max`, so native approval reviews also use
 that level rather than the SDK's internal `low` default. Main-model overrides use `model`
-on the wrapper; the remaining native settings are explicit in `codex_app_server.default.config_overrides` and
+on the wrapper. Effective effort is model-dependent;
+[Bailian Responses](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-responses) maps Qwen3.8 `max` to `xhigh`.
+Native Codex memory tasks use their internally assigned reasoning levels.
+The remaining native settings are explicit in `codex_app_server.default.config_overrides` and
 `model_catalog`. ReMe writes this native Codex catalog as rebuildable metadata in the server's private home.
 `auto_review_model_override` selects the approval model separately from the main model; changing only `model` does
 not change that reviewer. Native conversation compaction uses the thread's model. OAuth uses account-supported

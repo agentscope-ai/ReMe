@@ -18,7 +18,7 @@ from reme.steps.proactive.agents.main import PaChatStep
 
 from benchmark.proactive.cases import SESSION_ID, frozen_now, seed
 
-EFFORT = "xhigh"
+EFFORT = "max"
 
 
 def plain(value):
@@ -72,6 +72,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
         "temp_agent",
         "screen_capture",
         "finance_news",
+        "fetch_url",
         "read_conversation",
         "read_proactive_inbox",
         "get_chat_messages",
@@ -123,7 +124,7 @@ def configuration(base: dict, model: str, workspace: Path, bundle: dict, case: d
             **bundle["memory"],
             **bundle[role],
         }
-    for name in ("screen_capture", "finance_news"):
+    for name in ("screen_capture", "finance_news", "fetch_url"):
         cfg["jobs"][name]["steps"] = [
             {
                 "backend": "benchmark_connector",

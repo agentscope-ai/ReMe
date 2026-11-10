@@ -1261,18 +1261,18 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
         assert servers["default"]["supports_websockets"] is False
         assert wrappers["codex"]["model"] == "qwen3.8-max"
         assert wrappers["codex"]["approval_mode"] == "deny_all"
-        assert wrappers["codex"]["effort"] == "xhigh"
+        assert wrappers["codex"]["effort"] == "max"
         models = servers["default"]["model_catalog"]["models"]
         assert {model["slug"] for model in models} == {"qwen3.8-max", "qwen3.8-flash"}
         assert all(model["auto_review_model_override"] == "qwen3.8-flash" for model in models)
-        assert all(model["default_reasoning_level"] == "xhigh" for model in models)
-        assert all(model["multi_agent_reasoning_effort"] == "xhigh" for model in models)
-        assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"] for model in models)
+        assert all(model["default_reasoning_level"] == "max" for model in models)
+        assert all(model["multi_agent_reasoning_effort"] == "max" for model in models)
+        assert all([level["effort"] for level in model["supported_reasoning_levels"]] == ["max"] for model in models)
         assert set(servers["default"]["config_overrides"]) == {
-            'model_reasoning_effort="xhigh"',
+            'model_reasoning_effort="max"',
             'review_model="qwen3.8-max"',
             'agents.default_subagent_model="qwen3.8-max"',
-            'agents.default_subagent_reasoning_effort="xhigh"',
+            'agents.default_subagent_reasoning_effort="max"',
             'memories.extract_model="qwen3.8-flash"',
             'memories.consolidation_model="qwen3.8-max"',
         }
@@ -1281,10 +1281,10 @@ def test_default_and_demo_configuration_use_named_shared_servers(monkeypatch):
             assert servers["default"]["base_url"] == "https://demo.invalid/v1"
         else:
             assert servers["oauth"]["codex_home"] == "~/.codex"
-            assert wrappers["codex_oauth"]["effort"] == "xhigh"
+            assert wrappers["codex_oauth"]["effort"] == "max"
             assert set(servers["oauth"]["config_overrides"]) == {
-                'model_reasoning_effort="xhigh"',
-                'agents.default_subagent_reasoning_effort="xhigh"',
+                'model_reasoning_effort="max"',
+                'agents.default_subagent_reasoning_effort="max"',
             }
 
 

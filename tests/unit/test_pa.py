@@ -48,9 +48,9 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
     ):
         assert config["jobs"][name]["steps"][0]["model"] == expected
     assert "model" not in config["jobs"]["temp_agent"]["steps"][0]
-    assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "xhigh"
-    assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "xhigh"
-    assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"]
+    assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "max"
+    assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "max"
+    assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["max"]
     assert model["input_modalities"] == ["text", "image"]
     assert model["context_window"] == model["max_context_window"] == options["model_context_window"] == 1000000
     assert model["effective_context_window_percent"] == 80

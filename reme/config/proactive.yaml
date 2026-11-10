@@ -658,10 +658,10 @@ components:
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
         # Keep review, subagents and native memory on Qwen.
-        - 'model_reasoning_effort="xhigh"'
+        - 'model_reasoning_effort="max"'
         - 'review_model="qwen3.8-max-0902"'
         - 'agents.default_subagent_model="qwen3.8-max-0902"'
-        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'agents.default_subagent_reasoning_effort="max"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
@@ -678,10 +678,10 @@ components:
             slug: qwen3.8-max-0902
             display_name: Qwen 3.8 Max 0902
             description: Work and life assistant with text and image input
-            default_reasoning_level: xhigh
-            multi_agent_reasoning_effort: xhigh
+            default_reasoning_level: max
+            multi_agent_reasoning_effort: max
             supported_reasoning_levels:
-              - effort: xhigh
+              - effort: max
                 description: Maximum reasoning
             context_window: 1000000
             max_context_window: 1000000
@@ -711,7 +711,7 @@ components:
       backend: codex
       app_server: default
       model: qwen3.8-max-0902
-      effort: xhigh
+      effort: max
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
       sandbox: full-access
 
