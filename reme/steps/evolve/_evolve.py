@@ -3,6 +3,7 @@
 import datetime
 import zoneinfo
 
+import yaml
 from agentscope.message import Msg
 
 from ...schema import AgentReply, Response
@@ -56,3 +57,31 @@ def passthrough_response(step, skip_key: str) -> Response:
     response.answer = f"Skipped: {reason}"
     step.logger.info(f"[{step.name}] short-circuit via {skip_key!r} reason={reason}")
     return response
+
+
+def strip_frontmatter(text: str) -> tuple[dict, str]:
+    """Split leading ``---`` YAML frontmatter blocks from the body.
+
+    Handles files with several consecutive frontmatter blocks; returns
+    ``(merged_meta, body)``. Parse failures degrade to empty meta.
+    """
+    meta: dict = {}
+    body = text or ""
+    while True:
+        stripped = body.lstrip()
+        if not stripped.startswith("---"):
+            break
+        rest = stripped[3:]
+        end = rest.find("\n---")
+        if end < 0:
+            break
+        block = rest[:end]
+        body = rest[end + 4 :]
+        try:
+            data = yaml.safe_load(block)
+        except yaml.YAMLError:
+            data = None
+        if isinstance(data, dict):
+            for key, value in data.items():
+                meta.setdefault(str(key), value)
+    return meta, body.strip()
