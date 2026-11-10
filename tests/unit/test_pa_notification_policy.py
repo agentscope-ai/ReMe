@@ -157,7 +157,7 @@ async def test_evening_round_finishes_its_only_query_then_closes_the_day(pa_work
     env.agent.reply = AsyncMock(side_effect=reply)
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["status"] == "pending"
-    assert len(calls) == 1 and not env.runtime.proactive_context_path.read_text()
+    assert len(calls) == 1 and env.runtime.proactive_handoff_path.read_text() == "checkpoint\n"
     assert (await ProactiveAgentStep(app_context=env.context)()).answer["reason"] == "day_closed"
     assert len(calls) == 1
     env.runtime.reminders.idle = ("turn-1", asyncio.get_running_loop().time() - 11)
@@ -179,7 +179,8 @@ async def test_compaction_crossing_deadline_never_starts_work_query(pa_workspace
     result = await ProactiveAgentStep(app_context=env.context)()
     assert result.answer["reason"] == "outside_active_hours"
     env.agent.reply.assert_not_awaited()
-    assert "worker-session" in env.runtime.proactive_context_path.read_text()
+    assert env.runtime.proactive_handoff_path.read_text() == ""
+    env.agent.release_session.assert_awaited_once_with("worker-session")
 
 
 @pytest.mark.asyncio

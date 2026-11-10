@@ -18,7 +18,7 @@ class WriteProactiveInboxStep(BasePaStep):
 
 @R.register("read_proactive_inbox_step")
 class ReadProactiveInboxStep(BasePaStep):
-    """Return unread inbox text after saving its recovery checkpoint."""
+    """Return unread inbox text and advance its consumption state."""
 
     async def execute(self):
         current = self.pa.current_round
@@ -28,7 +28,6 @@ class ReadProactiveInboxStep(BasePaStep):
             self.pa.proactive_inbox_path,
             self.pa.inbox.cursor_path,
             self.pa.inbox.receipts_path,
-            self.pa.proactive_context_path,
         )
         self.context.response.answer = await self.pa.read_proactive_inbox(
             max_bytes=self.max_file_bytes(),

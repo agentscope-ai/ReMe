@@ -152,20 +152,6 @@ class _Migration:
                     run["result_path"] = target.relative_to(self.runtime.workspace_path).as_posix()
                     break
             PaTaskState.model_validate(updated)
-        elif name == "proactive_context.jsonl":
-            updated = [
-                (
-                    {
-                        "round_id": row.get("round_id"),
-                        "time": row.get("time"),
-                        "kind": row["phase"],
-                        "value": row.get("documents", row.get("value")),
-                    }
-                    if "phase" in row
-                    else row
-                )
-                for row in updated
-            ]
         elif name == "temp_tasks.json":
             if not isinstance(updated, list):
                 raise ValueError("temp_tasks.json must contain a list")
@@ -298,7 +284,6 @@ def migrate(
         *sorted(files.root_path.glob("*/state.json")),
         runtime.cron_runs_path,
         runtime.temp_tasks.path,
-        runtime.proactive_context_path,
     ):
         if source.exists() and source not in migration.plans:
             migration.plan(source, source)

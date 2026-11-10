@@ -4,10 +4,8 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
-import json
 import math
 from pathlib import Path
-import threading
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -28,6 +26,7 @@ from ...schema.pa_hint import HintPeriod
 from ...schema.reminder import ReminderKind
 from ...schema.pa_task import PaTask
 from ...utils.async_utils import complete_in_thread, finish_cleanup
+from ...utils.file_utils import get_path_lock
 from ...constants import DEFAULT_MAX_FILE_BYTES
 
 
@@ -93,7 +92,6 @@ class PaRuntime(BaseComponent):
         self.temp_tasks = TempTasks(self)
         self.notifications: PaNotificationWindow | None = None
         self._proactive_lock = asyncio.Lock()
-        self._work_context_lock = threading.Lock()
         self.files = PaFiles(self)
         self.views = PaViews(self)
         self.sessions = PaSessions(self)
@@ -141,50 +139,29 @@ class PaRuntime(BaseComponent):
         return "day_closed" if window.closing_message_id is not None else None
 
     @property
-    def proactive_context_path(self) -> Path:
-        """Consumed inputs and partial progress, retained until the round completes."""
-        return self.files.metadata_path("proactive_context.jsonl")
+    def proactive_handoff_path(self) -> Path:
+        """Keep unfinished proactive work across successful rounds and restarts."""
+        return self.files.metadata_path("handoff.md")
 
-    def _checkpoint_context(self, round_id: str | None, kind: str, value) -> None:
-        if round_id is not None and value:
-            with self._work_context_lock:
-                self.files.append_jsonl(
-                    self.proactive_context_path,
-                    {
-                        "round_id": round_id,
-                        "time": self.now().isoformat(),
-                        "kind": kind,
-                        "value": value,
-                    },
-                )
+    async def read_proactive_handoff(self) -> str:
+        """Read the last handoff without requiring an existing file."""
+        path = self.proactive_handoff_path
+        async with await get_path_lock(path):
+            try:
+                return await asyncio.to_thread(self.files.read, path)
+            except FileNotFoundError:
+                return ""
 
-    async def checkpoint_proactive(self, round_id: str | None, kind: str, value) -> None:
-        """Durably retain consumed inputs or progress for interrupted rounds."""
-        await complete_in_thread(self._checkpoint_context, round_id, kind, value)
-
-    async def clear_proactive_context(self) -> None:
-        """Clear recovery records after the work query completes."""
-
-        def clear():
-            with self._work_context_lock:
-                self.files.write_text(self.proactive_context_path, "")
-
-        await complete_in_thread(clear)
-
-    async def recover_proactive_context(self) -> str:
-        """Replay consumed inputs until a work query has successfully handled them."""
-
-        def read():
-            with self._work_context_lock:
-                if not self.proactive_context_path.exists():
-                    return ""
-                records = [json.loads(line) for line in self.files.read(self.proactive_context_path).splitlines()]
-                inputs = [
-                    record for record in records if record["kind"] in {"conversation", "feedback", "task_results"}
-                ]
-                return json.dumps(inputs, ensure_ascii=False) if inputs else ""
-
-        return await asyncio.to_thread(read)
+    async def save_proactive_handoff(self, content: str) -> None:
+        """Atomically replace the handoff, clearing it when no work remains."""
+        text = content.strip()
+        if text:
+            text += "\n"
+        if len(text.encode("utf-8")) > DEFAULT_MAX_FILE_BYTES:
+            raise ValueError("Proactive handoff exceeds the file read limit")
+        path = self.proactive_handoff_path
+        async with await get_path_lock(path):
+            await complete_in_thread(self.files.write_text, path, text)
 
     async def write_proactive_inbox(self, message: str) -> dict:
         """Queue a message for the proactive agent's next wakeup."""
@@ -196,7 +173,7 @@ class PaRuntime(BaseComponent):
         *,
         round_id: str | None = None,
     ) -> str:
-        """Return newly appended or edited Markdown, checkpointing it without deleting the user's inbox."""
+        """Return newly appended or edited Markdown without deleting the user's inbox."""
         return await self.inbox.read(round_id=round_id, max_bytes=max_bytes)
 
     @property
@@ -346,7 +323,7 @@ class PaRuntime(BaseComponent):
             self.proactive_inbox_path,
             self.chat_inbox_path,
             self.cron_runs_path,
-            self.proactive_context_path,
+            self.proactive_handoff_path,
         ):
             self.files.write_text(path, "", create_only=True)
         self.reminders.restore()

@@ -59,11 +59,10 @@ class ReadCronResultsStep(BasePaStep):
         round_id = self.context.get("pa_round_id")
         if self.pa.current_round is None or self.pa.current_round.id != round_id:
             raise RuntimeError("read_cron_results requires a live proactive round")
-        self.require_paths(self.pa.cron_path, self.pa.tasks.root_path, self.pa.proactive_context_path)
+        self.require_paths(self.pa.cron_path, self.pa.tasks.root_path)
         warnings = []
         self.context.response.answer = await self.pa.tasks.consume(
             self.context.get("limit", 3),
-            round_id,
             warnings=warnings,
         )
         if warnings:

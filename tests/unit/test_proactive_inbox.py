@@ -4,7 +4,6 @@
 
 from datetime import timedelta
 import asyncio
-import json
 from unittest.mock import AsyncMock
 
 import frontmatter
@@ -101,8 +100,7 @@ async def test_consumption_preserves_source_and_desktop_reading_does_not_consume
     async with env.runtime.proactive_round() as current:
         result = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
         assert result.answer == f"{message['created_at']} {message['message']}"
-        entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-        assert entries[-1]["kind"] == "feedback" and entries[-1]["value"] == source.decode("utf-8")
+        assert not (env.runtime.component_metadata_path / "proactive_context.jsonl").exists()
         again = await ReadProactiveInboxStep(app_context=env.context)(pa_round_id=current.id)
         assert again.answer == ""
     received = await view(action="list", kind="instruction")
@@ -177,12 +175,11 @@ async def test_inbox_returns_only_new_text_and_rereads_edited_source(pa_workspac
         assert await env.runtime.read_proactive_inbox(round_id=current.id) == edited
         assert await env.runtime.read_proactive_inbox(round_id=current.id) == ""
     assert path.read_text(encoding="utf-8") == edited
-    entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-    assert [entry["value"] for entry in entries] == [original, appended, edited]
+    assert not (env.runtime.component_metadata_path / "proactive_context.jsonl").exists()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["read_limit", "checkpoint"])
+@pytest.mark.parametrize("failure", ["read_limit", "cursor"])
 async def test_inbox_read_failure_preserves_unread_content_and_receipts(pa_workspace, monkeypatch, failure):
     env = pa_workspace
     message = await env.runtime.write_proactive_inbox("完整保留这条反馈🙂")
@@ -193,10 +190,21 @@ async def test_inbox_read_failure_preserves_unread_content_and_receipts(pa_works
             if failure == "read_limit":
                 kwargs["max_bytes"] = len(source) - 1
             else:
-                patch.setattr(env.runtime, "checkpoint_proactive", AsyncMock(side_effect=OSError("disk full")))
+                read = env.runtime.files.read
+
+                def fail_cursor(path):
+                    if path == env.runtime.inbox.cursor_path:
+                        raise OSError("disk full")
+                    return read(path)
+
+                env.runtime.files.write_json(env.runtime.inbox.cursor_path, {"bytes": 0})
+                patch.setattr(env.runtime.files, "read", fail_cursor)
             with pytest.raises((ValueError, OSError), match="read limit|disk full"):
                 await env.runtime.read_proactive_inbox(**kwargs)
-        assert not env.runtime.inbox.cursor_path.exists()
+        if failure == "read_limit":
+            assert not env.runtime.inbox.cursor_path.exists()
+        else:
+            assert env.runtime.inbox.consumed_bytes(source) == 0
         assert env.runtime.inbox.receipts()[message["id"]]["status"] == "queued"
         assert env.runtime.proactive_inbox_path.read_bytes() == source
         expected = f"{message['created_at']} {message['message']}"

@@ -141,7 +141,7 @@ class ProactiveInbox:
         return 0
 
     async def read(self, *, round_id, max_bytes) -> str:
-        """Return unconsumed text after checkpointing it and advancing its durable cursor."""
+        """Return unconsumed text and advance its durable cursor."""
         if type(max_bytes) is not int or max_bytes < 1:
             raise ValueError("max_bytes must be a positive integer")
         current = self.runtime.current_round
@@ -153,8 +153,6 @@ class ProactiveInbox:
                 raise ValueError("Proactive inbox exceeds the read limit; consumption was not advanced")
             offset = await asyncio.to_thread(self.consumed_bytes, raw)
             text = raw[offset:].decode("utf-8")
-            if text:
-                await self.runtime.checkpoint_proactive(round_id, "feedback", text)
             receipts = await asyncio.to_thread(self.receipts)
             result = self._display_text(text, receipts)
             for identifier, record in receipts.items():

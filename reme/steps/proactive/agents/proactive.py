@@ -30,27 +30,25 @@ class ProactiveAgentStep(BasePaAgentStep):
 
     async def _run_round(self, current, max_turns):
         runtime = self.pa
-        agent_session_id, operation = None, "prepare"
+        agent_session_id = None
         try:
             if self.context.stop_event is not None and self.context.stop_event.is_set():
                 raise asyncio.CancelledError()
             await self._ensure_memory()
             source = await self.agent_wrapper.read_session(current.session_id)
+            handoff = await runtime.read_proactive_handoff()
             options = self._agent_options(
                 injected={
                     "session_id": current.session_id,
                     "pa_round_id": current.id,
                     "pa_caller": "proactive",
                 },
+                handoff=handoff,
+                has_handoff=bool(handoff),
             )
-            recovery = await runtime.recover_proactive_context()
-            if recovery:
-                options["system_prompt"] += "\n\n" + self.prompt_format("recovery", context=recovery)
             fork = {"resume": current.session_id, "fork_session": True} if source.last_turn_id is not None else {}
             agent_session_id = await self.agent_wrapper.create_session(**fork, **options)
-            await runtime.checkpoint_proactive(current.id, "session", {"session_id": agent_session_id})
             if source.last_turn_id is not None:
-                operation = "compact"
                 await self.agent_wrapper.compact_session(agent_session_id)
             config = await runtime.get_proactive_config()
             try:
@@ -77,7 +75,6 @@ class ProactiveAgentStep(BasePaAgentStep):
                 has_hint=bool(optional_hint),
                 hint_period=current.hint_period or "normal",
             )
-            operation = "query"
             current.allow_message = True
             try:
                 reply = await self.agent_wrapper.reply(
@@ -96,26 +93,10 @@ class ProactiveAgentStep(BasePaAgentStep):
                     "The proactive query must submit a send_chat_message decision, including empty content",
                 )
             await runtime.get_proactive_config()
-            await runtime.clear_proactive_context()
+            await runtime.save_proactive_handoff(reply["result"])
             self.context.response.answer = dict(current.result)
             self.context.response.metadata["proactive_session_id"] = agent_session_id
             return self.context.response
-        except BaseException as exc:
-            try:
-                await finish_cleanup(
-                    runtime.checkpoint_proactive(
-                        current.id,
-                        "failure",
-                        {
-                            "operation": operation,
-                            "session_id": agent_session_id,
-                            "error": str(exc) or type(exc).__name__,
-                        },
-                    ),
-                )
-            except Exception as checkpoint_error:
-                self.logger.warning(f"Could not save proactive failure context: {checkpoint_error}")
-            raise
         finally:
             if agent_session_id is not None:
                 await finish_cleanup(self.agent_wrapper.release_session(agent_session_id))

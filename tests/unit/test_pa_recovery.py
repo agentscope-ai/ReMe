@@ -16,11 +16,13 @@ from .pa_helpers import bind_pa, configure, snapshot, task
 
 
 @pytest.mark.asyncio
-async def test_failed_consumption_replays_all_inputs_after_restart_before_acknowledging_success(pa_workspace):
+async def test_failed_consumption_keeps_sources_and_handoff_without_replaying_inputs_after_restart(pa_workspace):
     env = pa_workspace
     configure(env, [task()])
-    snapshot(env, content="unique-cron-finding")
+    result_path = snapshot(env, content="unique-cron-finding")
     await env.runtime.write_proactive_inbox("unique-feedback")
+    source = env.runtime.proactive_inbox_path.read_bytes()
+    await env.runtime.save_proactive_handoff("Previous unfinished work")
     env.snapshot.messages = [SessionMessage(id="user-1", role="user", content="unique-conversation")]
     options = []
 
@@ -35,37 +37,45 @@ async def test_failed_consumption_replays_all_inputs_after_restart_before_acknow
             raise RuntimeError("failed after consuming inputs")
         assert not conversation.answer and not cron.answer and not feedback
         prompt = kwargs["system_prompt"]
-        assert all(value in prompt for value in ["unique-conversation", "unique-feedback", "unique-cron-finding"])
+        assert "Previous unfinished work" in prompt
+        assert all(value not in prompt for value in ["unique-conversation", "unique-feedback", "unique-cron-finding"])
         await env.runtime.send_chat_message(
             "",
             kind="normal",
             round_id=binding["pa_round_id"],
             session_id=binding["session_id"],
         )
-        return {"status": "completed", "result": "Done"}
+        return {"status": "completed", "result": ""}
 
     env.agent.reply = AsyncMock(side_effect=reply)
     with pytest.raises(RuntimeError, match="failed after consuming"):
         await ProactiveAgentStep(app_context=env.context)()
-    original = env.runtime.proactive_context_path.read_text()
-    assert "unique-feedback" in original
+    assert env.runtime.proactive_handoff_path.read_text() == "Previous unfinished work\n"
+    assert env.runtime.proactive_inbox_path.read_bytes() == source
+    post = frontmatter.load(result_path)
+    assert post.content == "unique-cron-finding" and post["status"] == "read"
+    assert not (env.runtime.component_metadata_path / "proactive_context.jsonl").exists()
     env.runtime = bind_pa(env.context, env.agent)
     env.runtime.now = lambda: env.now[0]
     env.runtime._initialize_files()
     env.runtime.session_id = "session-1"
-    assert env.runtime.proactive_context_path.read_text() == original
+    assert env.runtime.proactive_handoff_path.read_text() == "Previous unfinished work\n"
     await ProactiveAgentStep(app_context=env.context)()
-    assert env.runtime.proactive_context_path.read_text() == ""
+    assert env.runtime.proactive_handoff_path.read_text() == ""
 
 
 @pytest.mark.asyncio
-async def test_recovery_survives_another_failure_before_consumption(pa_workspace):
+async def test_unused_legacy_recovery_is_ignored_and_preserved_when_preparation_fails(pa_workspace):
     env = pa_workspace
-    await env.runtime.checkpoint_proactive("prior", "feedback", "unhandled-feedback")
+    journal = env.runtime.component_metadata_path / "proactive_context.jsonl"
+    journal.write_bytes(b"Invalid legacy recovery that must remain untouched\n")
+    original = journal.read_bytes()
+    await env.runtime.save_proactive_handoff("Previous unfinished work")
     env.agent.create_session.side_effect = ConnectionError("offline")
     with pytest.raises(ConnectionError):
         await ProactiveAgentStep(app_context=env.context)()
-    assert "unhandled-feedback" in await env.runtime.recover_proactive_context()
+    assert journal.read_bytes() == original
+    assert env.runtime.proactive_handoff_path.read_text() == "Previous unfinished work\n"
 
 
 @pytest.mark.asyncio

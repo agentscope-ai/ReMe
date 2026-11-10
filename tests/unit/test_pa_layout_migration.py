@@ -1,4 +1,4 @@
-"""Persistent PA layout migration preserves documents, identities and recovery paths."""
+"""PA layout migration preserves documents, identities and unused legacy files."""
 
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
@@ -73,7 +73,7 @@ def legacy(tmp_path):
         )
         + "\n",
     )
-    runtime.proactive_context_path.write_text(
+    (root / "proactive_context.jsonl").write_text(
         json.dumps(
             {
                 "phase": "task_results",
@@ -90,7 +90,7 @@ def contents(root):
     return {path.relative_to(root): path.read_bytes() for path in root.rglob("*") if path.is_file()}
 
 
-def test_layout_migration_preserves_sources_and_reloads_recovery_and_temporary_tasks(legacy):
+def test_layout_migration_preserves_sources_and_reloads_temporary_tasks(legacy):
     runtime = legacy
     workspace = runtime.workspace_path
     original = contents(workspace)
@@ -99,7 +99,7 @@ def test_layout_migration_preserves_sources_and_reloads_recovery_and_temporary_t
     assert migrate(workspace, metadata_dir="state", daily_dir="notes/daily") > 0
     assert runtime.cron_path.exists() and runtime.chat_inbox_path.exists() and runtime.inbox.receipts_path.exists()
     for path, text in original.items():
-        if path.name not in {"temp_tasks.json", "proactive_context.jsonl"}:
+        if path.name != "temp_tasks.json":
             assert (workspace / path).read_bytes() == text
     assert list(runtime.temp_tasks.path.parent.glob("temp_tasks.json.before-pa-layout-*.bak"))
     task = runtime.tasks.load()[0]
@@ -112,9 +112,8 @@ def test_layout_migration_preserves_sources_and_reloads_recovery_and_temporary_t
     assert runtime.temp_tasks.document_path(temporary.id).read_text() == "临时结果。"
     record = json.loads(runtime.cron_runs_path.read_text())
     assert record["result_path"] == result_path
-    checkpoint = json.loads(runtime.proactive_context_path.read_text())
-    assert checkpoint["value"][0]["path"] == result_path
-    assert checkpoint["value"][0]["content"] == "原文 reme_cron 不修改。"
+    journal = runtime.component_metadata_path / "proactive_context.jsonl"
+    assert journal.read_bytes() == original[journal.relative_to(workspace)]
     runtime._initialize_files()
     assert runtime.reminders.read()[0].content == "消息正文。"
     assert migrate(workspace, metadata_dir="state", daily_dir="notes/daily") == 0
@@ -192,16 +191,18 @@ def test_symlink_source_cannot_escape_workspace(legacy, tmp_path):
     assert not legacy.chat_inbox_path.exists()
 
 
-def test_older_daily_results_and_absolute_references_are_migrated(legacy):
+def test_older_daily_results_are_migrated_without_rewriting_unused_recovery(legacy):
     workspace = legacy.workspace_path
     source = workspace / "notes/daily/2026-11-07/cron/two/235900.md"
     source.parent.mkdir(parents=True)
     source.write_text(frontmatter.dumps(frontmatter.Post("旧日结果。", task_id="two", run_id="previous-run")))
-    legacy.proactive_context_path.write_text(json.dumps({"path": str(source)}) + "\n")
+    journal = legacy.component_metadata_path / "proactive_context.jsonl"
+    journal.write_text(json.dumps({"path": str(source)}) + "\n")
+    original = journal.read_bytes()
     migrate(workspace, metadata_dir="state", daily_dir="notes/daily")
     target = legacy.tasks.task_path("two") / "2026-11-07/235900.md"
     assert target.read_bytes() == source.read_bytes()
-    assert json.loads(legacy.proactive_context_path.read_text())["path"] == str(target)
+    assert journal.read_bytes() == original
 
 
 def test_legacy_inline_run_results_become_archived_documents_without_new_proactive_inputs(legacy):

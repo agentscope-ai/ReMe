@@ -340,8 +340,8 @@ class TaskFiles:
         if post.get("started_at") != run.started_at.isoformat() or post.content != state.completion.summary:
             raise FileExistsError(f"Task snapshot already exists: {target}")
 
-    async def consume(self, limit: int, round_id: str, *, warnings: list[str] | None = None) -> list[dict]:
-        """Checkpoint full inputs before acknowledging read or superseded snapshots."""
+    async def consume(self, limit: int, *, warnings: list[str] | None = None) -> list[dict]:
+        """Return selected snapshot paths and mark results read or superseded."""
         if type(limit) is not int or not 1 <= limit <= 3:
             raise ValueError("limit must be an integer from 1 to 3")
 
@@ -355,7 +355,7 @@ class TaskFiles:
                     status = "read" if count < limit else "superseded"
                     if status == "read":
                         documents.append(
-                            {"task_id": task.id, "path": self.runtime.to_workspace_relative(path), "content": text},
+                            {"task_id": task.id, "path": self.runtime.to_workspace_relative(path)},
                         )
                     updates.append((path, text, status))
                     count += 1
@@ -371,8 +371,7 @@ class TaskFiles:
 
         async with self.lock:
             documents, updates = await asyncio.to_thread(select)
-            await self.runtime.checkpoint_proactive(round_id, "task_results", documents)
             for path, original, status in updates:
                 async with await get_path_lock(path):
                     await complete_in_thread(acknowledge, path, original, status)
-            return [{"task_id": document["task_id"], "path": document["path"]} for document in documents]
+            return documents

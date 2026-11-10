@@ -192,7 +192,7 @@ Before Jobs start, the PA component creates missing files under `{metadata_dir}/
 | `proactive_inbox.md` | Empty |
 | `proactive_inbox_receipts.jsonl` | Empty request receipts |
 | `temp_tasks.json` | `[]` |
-| `proactive_context.jsonl` | Empty recovery journal |
+| `handoff.md` | Empty handoff for the next proactive round |
 | `chat_inbox.jsonl` | Empty |
 | `cron_runs.jsonl` | Empty |
 

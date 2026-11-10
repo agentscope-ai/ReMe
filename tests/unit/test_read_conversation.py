@@ -1,9 +1,8 @@
-"""Incremental conversation rounds, bounded text and durable recovery before cursor commits."""
+"""Incremental conversation rounds, bounded text and durable consumption cursors."""
 
 # pylint: disable=missing-function-docstring,protected-access
 
 import json
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -100,7 +99,7 @@ async def test_active_last_round_is_consumed_only_after_completion(pa_workspace)
 
 
 @pytest.mark.asyncio
-async def test_native_failure_and_checkpoint_failure_preserve_cursors(pa_workspace, monkeypatch):
+async def test_native_failure_and_cursor_write_failure_preserve_cursors(pa_workspace, monkeypatch):
     env = pa_workspace
     env.snapshot.messages = dialogue()
     before = env.runtime.session_ids_path.read_bytes()
@@ -109,20 +108,26 @@ async def test_native_failure_and_checkpoint_failure_preserve_cursors(pa_workspa
         await env.runtime.sessions.read_conversation()
     assert env.runtime.session_ids_path.read_bytes() == before
     env.agent.read_session.side_effect = None
-    monkeypatch.setattr(env.runtime, "checkpoint_proactive", AsyncMock(side_effect=OSError("disk full")))
+    write = env.runtime.files.write_json
+
+    def fail(path, *args, **kwargs):
+        if path == env.runtime.session_ids_path:
+            raise OSError("disk full")
+        return write(path, *args, **kwargs)
+
+    monkeypatch.setattr(env.runtime.files, "write_json", fail)
     with pytest.raises(OSError, match="disk full"):
-        await env.runtime.sessions.read_conversation(round_id="round")
+        await env.runtime.sessions.read_conversation()
     assert env.runtime.session_ids_path.read_bytes() == before
 
 
 @pytest.mark.asyncio
-async def test_consumed_input_is_recoverable_before_cursor_changes(pa_workspace):
+async def test_consumed_input_advances_cursor_without_creating_recovery(pa_workspace):
     env = pa_workspace
     env.snapshot.messages = dialogue()
-    async with env.runtime.proactive_round() as current:
-        result = await env.runtime.sessions.read_conversation(round_id=current.id)
-    entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-    assert entries[-1]["value"] == result and entries[-1]["kind"] == "conversation"
+    result = await env.runtime.sessions.read_conversation()
+    assert "new answer" in result
+    assert not (env.runtime.component_metadata_path / "proactive_context.jsonl").exists()
     assert json.loads(env.runtime.session_ids_path.read_text())[-1]["last_read_message_id"] == "a2"
 
 
@@ -139,8 +144,7 @@ async def test_registered_conversation_tool_consumes_through_a_bound_job(pa_work
         response = await job(**options)
         assert response.success and "new answer" in response.answer
         assert (await job(**options)).answer == ""
-    entries = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-    assert entries[-1]["kind"] == "conversation" and "new answer" in entries[-1]["value"]
+    assert json.loads(env.runtime.session_ids_path.read_text())[-1]["last_read_message_id"] == "a2"
 
 
 @pytest.mark.asyncio

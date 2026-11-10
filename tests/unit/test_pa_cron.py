@@ -300,7 +300,7 @@ async def test_task_cancellation_records_interruption(pa_workspace):
 
 
 @pytest.mark.asyncio
-async def test_consume_latest_three_per_task_checkpoints_then_marks_older_superseded(
+async def test_consume_latest_three_per_task_marks_older_superseded(
     pa_workspace,
 ):
     env = pa_workspace
@@ -318,19 +318,24 @@ async def test_consume_latest_three_per_task_checkpoints_then_marks_older_supers
     assert all(frontmatter.load(path)["status"] == "read" for path in [*selected, paused])
     assert frontmatter.load(old)["status"] == "superseded"
     assert frontmatter.load(deleted)["status"] == "unread"
-    context = env.runtime.proactive_context_path.read_text()
-    assert "task_results" in context and "累计发现" in context
-    assert await env.runtime.tasks.consume(3, "next") == []
+    assert await env.runtime.tasks.consume(3) == []
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_failure_keeps_all_documents_unread(pa_workspace, monkeypatch):
+async def test_consumption_write_failure_keeps_documents_unread(pa_workspace, monkeypatch):
     env = pa_workspace
     configure(env, [task()])
     path = snapshot(env)
-    monkeypatch.setattr(env.runtime, "checkpoint_proactive", AsyncMock(side_effect=OSError("disk full")))
+    write = env.runtime.files.write_text
+
+    def fail(target, *args, **kwargs):
+        if target == path:
+            raise OSError("disk full")
+        return write(target, *args, **kwargs)
+
+    monkeypatch.setattr(env.runtime.files, "write_text", fail)
     with pytest.raises(OSError, match="disk full"):
-        await env.runtime.tasks.consume(3, "round")
+        await env.runtime.tasks.consume(3)
     assert frontmatter.load(path)["status"] == "unread"
 
 
@@ -339,16 +344,17 @@ async def test_new_publication_after_read_is_not_acknowledged_as_old_input(pa_wo
     env = pa_workspace
     configure(env, [task()])
     first = snapshot(env, time="110000")
-    original = env.runtime.checkpoint_proactive
+    original = env.runtime.files.write_text
     newer = None
 
-    async def checkpoint(*args):
+    def write(path, *args, **kwargs):
         nonlocal newer
-        await original(*args)
-        newer = snapshot(env, time="120000")
+        if path == first:
+            newer = snapshot(env, time="120000")
+        return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(env.runtime, "checkpoint_proactive", checkpoint)
-    result = await env.runtime.tasks.consume(3, "round")
+    monkeypatch.setattr(env.runtime.files, "write_text", write)
+    result = await env.runtime.tasks.consume(3)
     assert len(result) == 1 and frontmatter.load(first)["status"] == "read"
     assert frontmatter.load(newer)["status"] == "unread"
 
@@ -468,15 +474,15 @@ async def test_real_cron_can_opt_out_of_active_hours_and_closes_on_cancellation(
 
 
 @pytest.mark.asyncio
-async def test_result_tool_returns_paths_and_keeps_full_recovery_inputs(pa_workspace):
+async def test_result_tool_returns_paths_and_preserves_full_source_body(pa_workspace):
     env = pa_workspace
     configure(env, [task()])
     content = "完整证据。" * 10000
     path = snapshot(env, content=content)
-    result = await env.runtime.tasks.consume(3, "round")
+    result = await env.runtime.tasks.consume(3)
     assert result == [{"task_id": "one", "path": env.runtime.to_workspace_relative(path)}]
-    recovery = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-    assert content in recovery[-1]["value"][0]["content"]
+    post = frontmatter.load(path)
+    assert post.content == content and post["status"] == "read"
 
 
 @pytest.mark.asyncio

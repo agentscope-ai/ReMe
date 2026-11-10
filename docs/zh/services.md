@@ -175,7 +175,7 @@ PA 组件在 Job 启动前创建 `{metadata_dir}/pa/` 下缺失的文件：
 | `proactive_inbox.md` | 空文件 |
 | `proactive_inbox_receipts.jsonl` | 空的请求回执流水 |
 | `temp_tasks.json` | `[]` |
-| `proactive_context.jsonl` | 空的恢复记录 |
+| `handoff.md` | 空的主动 Agent 下轮交接 |
 | `chat_inbox.jsonl` | 空文件 |
 | `cron_runs.jsonl` | 空文件 |
 

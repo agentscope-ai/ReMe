@@ -2,8 +2,6 @@
 
 # pylint: disable=missing-function-docstring,protected-access
 
-import json
-
 import frontmatter
 import pytest
 
@@ -98,9 +96,7 @@ async def test_consumption_skips_invalid_results_without_using_the_limit(pa_work
     assert frontmatter.load(old)["status"] == "superseded"
     assert response.metadata["complete"] is False and len(response.metadata["warnings"]) == 1
     assert bad.read_bytes() == original
-    records = [json.loads(line) for line in env.runtime.proactive_context_path.read_text().splitlines()]
-    consumed = next(record["value"] for record in records if record["kind"] == "task_results")
-    assert len(consumed) == 3 and all(row["path"] != env.runtime.to_workspace_relative(bad) for row in consumed)
+    assert all(row["path"] != env.runtime.to_workspace_relative(bad) for row in response.answer)
 
 
 @pytest.mark.asyncio
@@ -132,7 +128,7 @@ async def test_consumption_revalidates_files_changed_after_selection(pa_workspac
 
     monkeypatch.setattr(env.runtime.tasks, "paths", select)
     warnings = []
-    results = await env.runtime.tasks.consume(3, "round", warnings=warnings)
+    results = await env.runtime.tasks.consume(3, warnings=warnings)
     assert results == [{"task_id": "one", "path": env.runtime.to_workspace_relative(valid)}]
     assert len(warnings) == 1 and changed.name in warnings[0]
     assert changed.read_text() == "No longer a valid result.\n"

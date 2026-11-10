@@ -64,8 +64,6 @@ class PaSessions:
         max_turns: int = 10,
         max_message_chars: int = 2000,
         max_chars: int = 20000,
-        *,
-        round_id: str | None = None,
     ) -> str:
         """Consume recent unread chat rounds, keeping each user input with its replies."""
         for name, value, maximum in (
@@ -142,7 +140,6 @@ class PaSessions:
                 raise ValueError("max_chars is too small for a timestamped conversation round")
             result = "\n\n".join(reversed(chunks))
             if cursors:
-                await self.runtime.checkpoint_proactive(round_id, "conversation", result)
                 async with self._sessions_lock:
                     current = await asyncio.to_thread(self.load)
                     for entry in current:
