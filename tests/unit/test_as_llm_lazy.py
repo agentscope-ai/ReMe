@@ -101,6 +101,21 @@ def test_explicit_model_assignment_preserves_injection():
 
 
 @pytest.mark.asyncio
+async def test_other_model_wrappers_preserve_lazy_access_after_close():
+    """OpenAI lifecycle fencing must not change non-OpenAI provider semantics."""
+    model_cls = Mock()
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm = LazyAsLLM(backend="fake", model="synthetic")
+    llm.credential_cls = credential_cls
+    await llm.start()
+    model = llm.model
+    await llm.close()
+    assert llm.model is model
+    model_cls.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_owned_openai_client_closes_after_failed_call():
     """A failed model operation must not leave client cleanup until loop GC."""
     from reme.components.as_llm import OpenAIAsLLM
@@ -478,3 +493,61 @@ async def test_cancelled_start_waiter_cannot_cleanup_first_startup_model():
     assert llm.model is model
     await llm.close()
     model.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["resolve", "hook"])
+async def test_startup_rollback_blocks_lazy_owned_model_recreation(failure_stage):
+    """Both failed-start paths must fence synchronous model access during cleanup."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    class FailingOpenAIAsLLM(OpenAIAsLLM):
+        """Exercise failures before and within the component startup hook."""
+
+        async def _resolve_bindings(self):
+            if failure_stage == "resolve":
+                raise RuntimeError("resolve failed")
+            await super()._resolve_bindings()
+
+        async def _start(self):
+            raise RuntimeError("hook failed")
+
+    first, replacement = Mock(), Mock()
+    first.client.close = AsyncMock()
+    replacement.client.close = AsyncMock()
+    model_cls = Mock(side_effect=[first, replacement])
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm = FailingOpenAIAsLLM(backend="openai", model="synthetic")
+    llm.credential_cls = credential_cls
+    assert llm.model is first
+
+    released, resume = asyncio.Event(), asyncio.Event()
+    original_release = llm._release_model
+
+    async def pause_after_release():
+        await original_release()
+        released.set()
+        await resume.wait()
+
+    llm._release_model = pause_after_release
+    starting = asyncio.create_task(llm.start())
+    try:
+        await asyncio.wait_for(released.wait(), 2)
+        assert llm._model is None
+        with pytest.raises(RuntimeError, match="after close"):
+            _ = llm.model
+        model_cls.assert_called_once()
+    finally:
+        resume.set()
+
+    expected = "resolve failed" if failure_stage == "resolve" else "hook failed"
+    with pytest.raises(RuntimeError, match=expected):
+        await asyncio.wait_for(starting, 2)
+    first.client.close.assert_awaited_once_with()
+    assert not llm.is_started
+    assert llm._model is None
+    assert not llm._closed
+    assert llm.model is replacement
+    await llm.close()
+    replacement.client.close.assert_awaited_once_with()
