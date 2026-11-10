@@ -173,9 +173,7 @@ test(
           const queries = (await state()).messages.filter(
             (message) => message.role === "user",
           );
-          assert.ok(
-            queries[1].content.startsWith("Explain this proactive reminder"),
-          );
+          assert.ok(queries[1].content.startsWith("Explain this content"));
           assert.ok(queries[1].content.includes(content));
           assert.ok(!queries[1].content.includes("这是还没有发送的草稿。"));
           await expect(english).toBeEnabled();

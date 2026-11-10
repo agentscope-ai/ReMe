@@ -57,6 +57,17 @@ export const messages = {
   earlier: ["更早", "Earlier"],
   today: ["今天", "Today"],
   viewDetails: ["查看详情", "View details"],
+  remindAgain: ["重新提醒", "Remind again"],
+  copyContent: ["复制内容", "Copy content"],
+  markAllRead: ["全部标为已读", "Mark all as read"],
+  markAllReadFailed: [
+    "部分内容未能标为已读，请重试。",
+    "Some items could not be marked as read. Please try again.",
+  ],
+  itemUnavailable: [
+    "这条内容已不可用，请刷新后重试。",
+    "This item is no longer available. Refresh and try again.",
+  ],
   privateMemory: ["本地记忆 · 与你同行", "Local memory. Always with you."],
   welcomeHint: [
     "你的 Proactive Agent，记住偏好、执行任务，在合适的时候主动提醒。",
@@ -398,9 +409,9 @@ export const messages = {
   startService: ["先启动 ReMe 服务：", "Start the ReMe service first:"],
   proactiveLabel: ["Remy 的主动提醒", "Proactive reminder from Remy"],
   explainReminder: ["详细解读", "Explain in detail"],
-  explainReminderQuery: [
-    "请详细解读下面这条主动提醒；涉及外部事实或数据时，请核实来源并附链接：\n\n{content}",
-    "Explain this proactive reminder in detail. Verify external facts or data and include source links:\n\n{content}",
+  explainItemQuery: [
+    "请详细解读以下内容；涉及外部事实或数据时，请核实来源并附链接：\n\n{content}",
+    "Explain this content in detail. Verify external facts or data and include source links:\n\n{content}",
   ],
   image: ["图片", "Image"],
   draftWhileBusy: ["可以先写下，等我说完…", "You can draft while I finish…"],

@@ -39,7 +39,7 @@ export function workspacePlacement(
 export function companionPlacement(
   anchor: { x: number; y: number },
   scale: number,
-  surface: "status" | "message" | null,
+  surface: "status" | "message" | "menu" | null,
   area: Rect,
   measured?: { width: number; height: number },
 ) {
@@ -59,11 +59,15 @@ export function companionPlacement(
   const bubble = surface !== null;
   const maxWidth = Math.max(
     1,
-    Math.min(surface === "status" ? 280 : 320, area.width - 24),
+    Math.min(
+      surface === "menu" ? 236 : surface === "status" ? 280 : 320,
+      area.width - 24,
+    ),
   );
   const width = Math.min(measured?.width ?? maxWidth, maxWidth);
   const height = Math.min(
-    measured?.height ?? (surface === "status" ? 36 : 180),
+    measured?.height ??
+      (surface === "menu" ? 380 : surface === "status" ? 36 : 180),
     Math.max(1, area.height - 24),
   );
   const gap = 6;

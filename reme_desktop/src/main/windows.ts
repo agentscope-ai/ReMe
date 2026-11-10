@@ -36,6 +36,7 @@ export class DesktopWindows {
   private readonly companionUpdates = new StateUpdates(true);
   private readonly chatUpdates = new StateUpdates(false);
   private companionBounds = "";
+  private menuFocused = false;
   private surfaceSize: SurfaceSize | undefined;
 
   constructor(
@@ -203,6 +204,12 @@ export class DesktopWindows {
   update(state: DesktopState): void {
     this.state = state;
     this.reposition();
+    const menu = state.surface?.kind === "menu";
+    if (menu !== this.menuFocused) {
+      this.menuFocused = menu;
+      this.companion.setFocusable(menu);
+      if (menu) this.companion.focus();
+    }
     for (const [window, updates] of [
       [this.companion, this.companionUpdates],
       [this.chat, this.chatUpdates],

@@ -10,7 +10,7 @@ const state = () =>
     messages: [],
     pending: null,
     workspace: "/workspace",
-    focusMessageId: null,
+    focusTarget: null,
     behavior: {
       animation: { id: 1, clip: "idle", mode: "loop" },
       label: "idle",
@@ -92,6 +92,8 @@ test("only the selected message preview crosses into the companion, and full cha
   value.surface = {
     kind: "message",
     message,
+    target: { kind: "message", id: message.id },
+    canSnooze: false,
     presentationId: 1,
     paused: false,
   };

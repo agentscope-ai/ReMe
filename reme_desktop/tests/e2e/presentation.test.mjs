@@ -97,7 +97,7 @@ test(
       });
       await reply.getByRole("button", { name: "展开聊聊" }).click();
       await expect
-        .poll(async () => (await state()).focusMessageId)
+        .poll(async () => (await state()).focusTarget?.id)
         .toBe("assistant-1");
 
       await start("请停止");
@@ -154,7 +154,7 @@ test(
       ).toHaveText("聊天打开时，两边也是同一条提醒。");
       await reminder.getByRole("button", { name: "展开聊聊" }).click();
       await expect
-        .poll(async () => (await state()).focusMessageId)
+        .poll(async () => (await state()).focusTarget?.id)
         .toBe("visible-reminder");
       await app.evaluate(({ app, BrowserWindow }) => {
         app.focus({ steal: true });

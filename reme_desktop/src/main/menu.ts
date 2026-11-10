@@ -9,7 +9,7 @@ import {
   translator,
 } from "../shared/i18n.ts";
 
-/** The character and tray expose the same native controls. */
+/** The operating system tray keeps native controls. */
 export function desktopMenu(
   controller: DesktopController,
   windows: DesktopWindows,
@@ -38,6 +38,18 @@ export function desktopMenu(
         : t("noUnread"),
       enabled: state.unread > 0,
       click: () => windows.openChat(),
+    },
+    {
+      id: "read-all",
+      label: t("markAllRead"),
+      enabled: state.connection === "connected",
+      click: () =>
+        void controller.markAllRead().catch((error: unknown) => {
+          dialog.showErrorBox(
+            t("operationFailed"),
+            errorText(error, state.settings.language),
+          );
+        }),
     },
     { type: "separator" },
     {

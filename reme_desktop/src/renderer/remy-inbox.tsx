@@ -1,8 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   Bell,
   Check,
+  CheckCheck,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -12,14 +13,48 @@ import {
 } from "lucide-react";
 import type {
   DesktopState,
-  ProactiveInboxItem,
   ProactiveInboxPage,
+  ItemTarget,
 } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
 import { inboxDate, inboxRequest } from "./inbox.ts";
+import ContextMenu from "./context-menu.tsx";
 
 const PAGE_SIZE = 5;
+
+function InboxCard({
+  target,
+  focused,
+  unread,
+  onError,
+  onMenu,
+  children,
+}: {
+  target: ItemTarget;
+  focused: ItemTarget | null;
+  unread: boolean;
+  onError: (error: unknown) => void;
+  onMenu: (target: ItemTarget, position: { x: number; y: number }) => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      className={`inbox-card ${unread ? "unread" : ""} ${focused?.kind === target.kind && focused.id === target.id ? "selected" : ""}`}
+      onClick={() =>
+        void action({ type: "item.action", action: "open", target }).catch(
+          onError,
+        )
+      }
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onMenu(target, { x: event.clientX, y: event.clientY });
+      }}
+    >
+      {children}
+    </button>
+  );
+}
 
 function TaskFilter({
   label,
@@ -138,14 +173,10 @@ function TaskFilter({
 
 export default function RemyInbox({
   state,
-  selected,
-  revision,
-  onOpen,
+  onError,
 }: {
   state: DesktopState;
-  selected: string;
-  revision: number;
-  onOpen: (item: ProactiveInboxItem) => void;
+  onError: (error: unknown) => void;
 }) {
   const language = state.settings.language;
   const t = translator(language);
@@ -158,6 +189,13 @@ export default function RemyInbox({
   const [error, setError] = useState<unknown>(null);
   const [retry, setRetry] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [markingRead, setMarkingRead] = useState(false);
+  const [menu, setMenu] = useState<{
+    target: ItemTarget;
+    position: { x: number; y: number };
+  } | null>(null);
+  const openMenu = (target: ItemTarget, position: { x: number; y: number }) =>
+    setMenu({ target, position });
   const read = new Set(state.readMessageIds);
   const messages = state.inboxMessages.toReversed();
   const reminders = view === "reminders";
@@ -173,16 +211,17 @@ export default function RemyInbox({
   };
 
   useEffect(() => {
-    if (state.focusMessageId) {
+    const focus = state.focusTarget;
+    if (focus?.kind === "message") {
       setView("reminders");
       const index = state.inboxMessages
         .toReversed()
-        .findIndex((item) => item.id === state.focusMessageId);
+        .findIndex((item) => item.id === focus.id);
       setChatLimit((current) =>
         Math.max(current, Math.ceil((index + 1) / PAGE_SIZE) * PAGE_SIZE),
       );
-    }
-  }, [state.focusRequest, state.focusMessageId]);
+    } else if (focus?.kind === "task_result") setView("results");
+  }, [state.focusRequest, state.focusTarget]);
 
   useEffect(() => {
     if (
@@ -234,7 +273,7 @@ export default function RemyInbox({
     task,
     offset,
     retry,
-    revision,
+    state.inboxRevision,
     state.activePage,
     state.connection,
   ]);
@@ -250,6 +289,19 @@ export default function RemyInbox({
           )}
         </h1>
         <p>{t(reminders ? "inboxCaption" : "taskInboxCaption")}</p>
+        <button
+          className="inbox-mark-all"
+          disabled={markingRead || state.connection !== "connected"}
+          onClick={() => {
+            setMarkingRead(true);
+            void action({ type: "items.read" })
+              .catch(onError)
+              .finally(() => setMarkingRead(false));
+          }}
+        >
+          <CheckCheck size={13} />
+          {t("markAllRead")}
+        </button>
       </div>
       <div className="source-tabs" role="group" aria-label={t("remyUpdates")}>
         {(["reminders", "results"] as const).map((value) => (
@@ -293,11 +345,12 @@ export default function RemyInbox({
               return (
                 <div key={message.id}>
                   {group && <div className="list-section-label">{day}</div>}
-                  <button
-                    className={`inbox-card ${!read.has(message.id) ? "unread" : ""} ${!selected && state.focusMessageId === message.id ? "selected" : ""}`}
-                    onClick={() =>
-                      void action({ type: "chat.open", messageId: message.id })
-                    }
+                  <InboxCard
+                    target={{ kind: "message", id: message.id }}
+                    focused={state.focusTarget}
+                    unread={!read.has(message.id)}
+                    onError={onError}
+                    onMenu={openMenu}
                   >
                     <div className="inbox-card-top">
                       <Sparkles size={14} />
@@ -321,7 +374,7 @@ export default function RemyInbox({
                         <ArrowUpRight size={12} />
                       </span>
                     </div>
-                  </button>
+                  </InboxCard>
                 </div>
               );
             })}
@@ -387,9 +440,12 @@ export default function RemyInbox({
               return (
                 <div key={item.id}>
                   {group && <div className="list-section-label">{day}</div>}
-                  <button
-                    className={`inbox-card ${!item.user_read_at ? "unread" : ""} ${selected === item.id ? "selected" : ""}`}
-                    onClick={() => onOpen(item)}
+                  <InboxCard
+                    target={{ kind: "task_result", id: item.id }}
+                    focused={state.focusTarget}
+                    unread={!item.user_read_at}
+                    onError={onError}
+                    onMenu={openMenu}
                   >
                     <div className="inbox-card-top">
                       <FileText size={14} />
@@ -410,7 +466,7 @@ export default function RemyInbox({
                         )}
                       </span>
                     </div>
-                  </button>
+                  </InboxCard>
                 </div>
               );
             })}
@@ -445,6 +501,34 @@ export default function RemyInbox({
         />
         {t(state.connection === "connected" ? "connected" : "reconnecting")}
       </div>
+      {menu && (
+        <ContextMenu
+          position={menu.position}
+          onClose={() => setMenu(null)}
+          items={(
+            [
+              ["remind", "remindAgain"],
+              ["open", "viewDetails"],
+              ["explain", "explainReminder"],
+              ["copy", "copyContent"],
+            ] as const
+          ).map(([id, label]) => ({
+            id,
+            label: t(label),
+            disabled:
+              id === "explain" &&
+              (state.connection !== "connected" ||
+                state.status === "active" ||
+                Boolean(state.pending?.streaming)),
+            select: () =>
+              void action({
+                type: "item.action",
+                action: id,
+                target: menu.target,
+              }).catch(onError),
+          }))}
+        />
+      )}
     </>
   );
 }

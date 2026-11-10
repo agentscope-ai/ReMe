@@ -27,18 +27,52 @@ import type {
   DesktopCommand,
   DesktopPage,
   WorkspaceRequest,
+  ItemTarget,
+  ProactiveInboxDetail,
+  ProactiveInboxPage,
 } from "../shared/protocol.ts";
 import { activityLevels, sleepDurations } from "../shared/protocol.ts";
+
+export function validateItemTarget(
+  value: unknown,
+): asserts value is ItemTarget {
+  const target = value as ItemTarget | null;
+  if (
+    !target ||
+    !["message", "task_result"].includes(target.kind) ||
+    typeof target.id !== "string" ||
+    !target.id ||
+    target.id.length > 8192 ||
+    target.id.includes("\0")
+  )
+    throw new UiError("invalidAction");
+}
 
 export class DesktopController {
   readonly model = new SessionModel();
   readonly bubbles: BubbleQueue;
+  // Paint acknowledgements must stay distinct when the same item moves between queues.
+  private bubbleSequence = 0;
+  private readonly nextPresentationId = () => ++this.bubbleSequence;
   private readonly instantBubbles = new BubbleQueue(
     0,
     () => {},
     Infinity,
     false,
+    this.nextPresentationId,
   );
+  private readonly replayBubbles = new BubbleQueue(
+    0,
+    () => {},
+    Infinity,
+    true,
+    this.nextPresentationId,
+  );
+  private replay: { target: ItemTarget; message: SessionMessage } | null = null;
+  private replayRequest = 0;
+  private menuOpen = false;
+  private menuSequence = 0;
+  private readingAll: Promise<void> | null = null;
   readonly state: DesktopState;
   readonly speech: SpeechController;
   private readonly behavior: BehaviorController;
@@ -85,6 +119,7 @@ export class DesktopController {
       status: null,
       messages: [],
       inboxMessages: [],
+      inboxRevision: 0,
       pending: null,
       surface: null,
       unread: 0,
@@ -92,18 +127,24 @@ export class DesktopController {
       activePage: "remy",
       chatVisible: false,
       chatFocused: false,
-      focusMessageId: null,
+      focusTarget: null,
       focusRequest: 0,
       behavior: this.behavior.value,
       speech: emptySpeech(),
     };
-    this.bubbles = new BubbleQueue(10 * 60_000, (id) => {
-      const receipt = this.presentation()?.receipts[id];
-      if (receipt) {
-        receipt.suppressed = true;
-        this.storage.changed();
-      }
-    });
+    this.bubbles = new BubbleQueue(
+      10 * 60_000,
+      (id) => {
+        const receipt = this.presentation()?.receipts[id];
+        if (receipt) {
+          receipt.suppressed = true;
+          this.storage.changed();
+        }
+      },
+      3,
+      true,
+      this.nextPresentationId,
+    );
     this.speech = new SpeechController(
       () => ({
         sessionId: this.model.sessionId,
@@ -150,6 +191,11 @@ export class DesktopController {
     this.notified.clear();
     this.bubbles.clear();
     this.instantBubbles.clear();
+    this.replayBubbles.clear();
+    this.replay = null;
+    this.replayRequest++;
+    this.menuOpen = false;
+    this.readingAll = null;
     this.visibleReminder = null;
     this.state.surface = null;
     this.state.pending = null;
@@ -287,8 +333,12 @@ export class DesktopController {
               this.notified.clear();
               this.bubbles.clear();
               this.instantBubbles.clear();
+              this.replayBubbles.clear();
+              this.replay = null;
+              this.replayRequest++;
+              this.menuOpen = false;
               this.visibleReminder = null;
-              this.state.focusMessageId = null;
+              this.state.focusTarget = null;
             }
             if (event.type === "snapshot" || event.type === "status_changed") {
               this.presentationController.observe(
@@ -510,15 +560,26 @@ export class DesktopController {
     const immediateNative =
       (!this.companionVisible || !this.companionReady) &&
       this.notificationEligible(true);
+    const replay = this.replayBubbles.tick(
+      now,
+      this.menuOpen ||
+        !this.companionVisible ||
+        !this.companionReady ||
+        this.behavior.dragging,
+    );
     const immediate = this.instantBubbles.tick(
       now,
-      !(immediateNative || (this.companionVisible && this.companionReady)) ||
+      this.menuOpen ||
+        Boolean(replay) ||
+        !(immediateNative || (this.companionVisible && this.companionReady)) ||
         this.behavior.dragging ||
         !this.ready,
     );
     const ordinary = this.bubbles.tick(
       now,
-      !(native || (this.companionVisible && this.companionReady)) ||
+      this.menuOpen ||
+        Boolean(replay) ||
+        !(native || (this.companionVisible && this.companionReady)) ||
         this.behavior.dragging ||
         Boolean(this.state.pending?.streaming) ||
         this.behavior.foregroundActive ||
@@ -530,7 +591,7 @@ export class DesktopController {
         !this.ready ||
         Boolean(immediate),
     );
-    const bubble = immediate ?? ordinary;
+    const bubble = replay ?? immediate ?? ordinary;
     this.visibleReminder =
       this.companionVisible && this.companionReady ? bubble : null;
     this.resolvePresentation();
@@ -550,7 +611,16 @@ export class DesktopController {
       ),
       now,
     );
+    this.replayBubbles.holdForSpeech(
+      Boolean(
+        replay &&
+        this.state.speech.playback?.messageId === replay.id &&
+        this.state.speech.playback.phase !== "error",
+      ),
+      now,
+    );
     if (
+      !this.menuOpen &&
       this.state.speech.playback?.kind === "reminder" &&
       this.state.speech.playback.phase !== "error" &&
       (this.state.surface?.kind !== "message" ||
@@ -558,6 +628,7 @@ export class DesktopController {
     )
       this.speech.stop();
     if (
+      !replay &&
       (immediate ? immediateNative : native) &&
       bubble &&
       this.model.sessionId
@@ -666,11 +737,44 @@ export class DesktopController {
   }
 
   private resolvePresentation(): void {
+    if (this.menuOpen && this.companionVisible) {
+      this.state.surface = {
+        kind: "menu",
+        id: `companion-menu:${this.menuSequence}`,
+        text: "Remy",
+      };
+      return;
+    }
+    if (
+      this.visibleReminder &&
+      this.replay &&
+      this.visibleReminder === this.replayBubbles.active
+    ) {
+      this.state.surface = {
+        kind: "message",
+        message: displayMessages(
+          {
+            sessionId: this.model.sessionId,
+            messages: [this.replay.message],
+            pending: null,
+          },
+          undefined,
+          this.state.settings.language,
+        )[0],
+        target: this.replay.target,
+        canSnooze: false,
+        presentationId: this.visibleReminder.presentationId,
+        paused: this.visibleReminder.paused,
+      };
+      return;
+    }
     const instant =
       this.visibleReminder && this.notificationMessage(this.visibleReminder.id);
     if (instant?.delivery === "immediate" && this.visibleReminder) {
       this.state.surface = {
         kind: "message",
+        target: { kind: "message", id: instant.id },
+        canSnooze: true,
         message: {
           id: instant.id,
           createdAt: instant.created_at,
@@ -757,6 +861,27 @@ export class DesktopController {
       this.state.surface.message.id !== id
     )
       return;
+    if (
+      this.replay &&
+      sessionId === this.model.sessionId &&
+      this.replayBubbles.presented(id, presentationId, Date.now())
+    ) {
+      const original =
+        this.replay.target.kind === "message"
+          ? this.notificationMessage(id)
+          : undefined;
+      const receipt =
+        original && this.notificationPresentation(original)?.receipts[id];
+      if (receipt) {
+        receipt.presented = true;
+        delete receipt.snoozeUntil;
+        this.bubbles.dismiss(id);
+        this.instantBubbles.dismiss(id);
+        this.storage.changed();
+      }
+      this.speech.speak(this.replay.message, "reminder");
+      return;
+    }
     if (this.confirmPresentation(sessionId, id, presentationId)) {
       const message = this.notificationMessage(id);
       if (message) {
@@ -808,15 +933,16 @@ export class DesktopController {
     return true;
   }
 
-  setChatVisible(visible: boolean, messageId?: string): void {
+  setChatVisible(visible: boolean, target?: ItemTarget): void {
+    if (target) validateItemTarget(target);
     this.state.chatVisible = visible;
     if (!visible) this.state.chatFocused = false;
     if (!visible) {
       this.speech.cancelCapture();
       if (this.state.speech.playback?.kind === "manual") this.speech.stop();
     }
-    this.state.focusMessageId = messageId ?? null;
-    if (messageId) {
+    this.state.focusTarget = target ?? null;
+    if (target) {
       this.state.activePage = "remy";
       this.state.focusRequest++;
     }
@@ -829,6 +955,13 @@ export class DesktopController {
     if (!focused && this.state.speech.capture?.phase !== "transcribing")
       this.speech.cancelCapture();
     if (focused) this.behavior.touch();
+    this.tick();
+    this.emit();
+  }
+
+  setMenuOpen(open: boolean): void {
+    if (open) this.menuSequence++;
+    this.menuOpen = open && this.companionVisible;
     this.tick();
     this.emit();
   }
@@ -852,6 +985,7 @@ export class DesktopController {
   }
 
   setCompanionVisible(visible: boolean): void {
+    if (!visible) this.menuOpen = false;
     this.companionVisible = visible;
     this.tick();
   }
@@ -950,14 +1084,22 @@ export class DesktopController {
       this.state.activePage !== "remy"
     )
       return;
-    let changed = false;
+    const messages: SessionMessage[] = [];
     for (const id of ids.slice(0, 100)) {
       const message = this.notificationMessage(id);
       if (
-        !message ||
-        (message.origin_session_id ?? this.model.sessionId) !== sessionId
+        message &&
+        (message.origin_session_id ?? this.model.sessionId) === sessionId
       )
-        continue;
+        messages.push(message);
+    }
+    this.readMessages(messages);
+  }
+
+  private readMessages(messages: SessionMessage[]): void {
+    let changed = false;
+    for (const message of messages) {
+      const id = message.id;
       const receipt = this.notificationPresentation(message)?.receipts[id];
       if (!receipt || receipt.read) continue;
       receipt.read = true;
@@ -966,9 +1108,9 @@ export class DesktopController {
       if (this.bubbles.active?.id !== id) this.bubbles.dismiss(id);
       if (this.instantBubbles.active?.id !== id)
         this.instantBubbles.dismiss(id);
-      this.storage.changed();
     }
     if (!changed) return;
+    this.storage.changed();
     this.tick();
     this.emit();
   }
@@ -980,9 +1122,163 @@ export class DesktopController {
     this.emit();
   }
 
-  workspace(request: WorkspaceRequest) {
+  async workspace(request: WorkspaceRequest) {
     if (!this.lifecycle || this.closed) throw new UiError("closed");
-    return requestWorkspace(this.client(), request, this.lifecycle.signal);
+    const generation = this.generation;
+    const response = await requestWorkspace(
+      this.client(),
+      request,
+      this.lifecycle.signal,
+    );
+    if (
+      request.type === "taskResult" &&
+      request.markRead &&
+      generation === this.generation
+    ) {
+      this.state.inboxRevision++;
+      this.emit();
+    }
+    return response;
+  }
+
+  markAllRead(): Promise<void> {
+    if (this.readingAll) return this.readingAll;
+    const pending = this.readAll();
+    this.readingAll = pending;
+    return pending.finally(() => {
+      if (this.readingAll === pending) this.readingAll = null;
+    });
+  }
+
+  private async readAll(): Promise<void> {
+    if (!this.lifecycle || !this.ready || this.closed)
+      throw new UiError("sessionUnavailable");
+    const generation = this.generation;
+    const signal = this.lifecycle.signal;
+    const client = this.client();
+    this.readMessages(this.notificationMessages());
+    const seen = new Set<string>();
+    try {
+      while (!signal.aborted) {
+        const response = await requestWorkspace(
+          client,
+          {
+            type: "proactiveInbox",
+            kind: "task_result",
+            filter: "unread",
+            limit: 100,
+          },
+          signal,
+        );
+        const page = response.answer as ProactiveInboxPage;
+        if (!page.complete || page.warnings.length)
+          throw new UiError("markAllReadFailed");
+        if (!page.items.length) return;
+        for (let offset = 0; offset < page.items.length; offset += 4) {
+          const results = await Promise.allSettled(
+            page.items.slice(offset, offset + 4).map(async (item) => {
+              if (
+                item.kind !== "task_result" ||
+                !item.path ||
+                seen.has(item.id)
+              )
+                throw new UiError("markAllReadFailed");
+              await requestWorkspace(
+                client,
+                { type: "taskResult", path: item.path, markRead: true },
+                signal,
+              );
+              seen.add(item.id);
+            }),
+          );
+          const failed = results.find((result) => result.status === "rejected");
+          if (failed?.status === "rejected") throw failed.reason;
+        }
+      }
+      throw new UiError("sessionUnavailable");
+    } finally {
+      if (generation === this.generation) {
+        this.state.inboxRevision++;
+        this.tick();
+        this.emit();
+      }
+    }
+  }
+
+  async item(target: ItemTarget): Promise<SessionMessage> {
+    validateItemTarget(target);
+    if (this.closed) throw new UiError("itemUnavailable");
+    if (target.kind === "message") {
+      const message = this.notificationMessage(target.id);
+      if (
+        !message ||
+        message.role !== "assistant" ||
+        !message.completed ||
+        !message.content
+      )
+        throw new UiError("itemUnavailable");
+      return message;
+    }
+    const generation = this.generation;
+    const response = await this.workspace({
+      type: "proactiveInboxEntry",
+      id: target.id,
+    });
+    const detail = response.answer as ProactiveInboxDetail;
+    if (
+      this.closed ||
+      generation !== this.generation ||
+      !detail?.content ||
+      detail.item?.id !== target.id ||
+      detail.item.kind !== "task_result"
+    )
+      throw new UiError("itemUnavailable");
+    return {
+      id: detail.item.id,
+      role: "assistant",
+      source: "proactive",
+      content: detail.content,
+      completed: true,
+      created_at: detail.item.created_at,
+      delivery: "idle",
+      notification_eligible: false,
+      chunks: [],
+    };
+  }
+
+  async remind(target: ItemTarget): Promise<boolean> {
+    const request = ++this.replayRequest;
+    const message = await this.item(target);
+    if (request !== this.replayRequest) return false;
+    this.replayBubbles.clear();
+    this.replay = { target, message };
+    this.replayBubbles.offer({ id: message.id, text: message.content });
+    this.tick();
+    this.emit();
+    return true;
+  }
+
+  async explain(target: ItemTarget): Promise<void> {
+    const generation = this.generation;
+    const sessionId = this.model.sessionId;
+    const message = await this.item(target);
+    if (generation !== this.generation || sessionId !== this.model.sessionId)
+      throw new UiError("itemUnavailable");
+    await this.send(
+      translate(this.state.settings.language, "explainItemQuery", {
+        content: message.content,
+      }),
+    );
+  }
+
+  speakMessage(id: string): void {
+    const message =
+      this.replayBubbles.active?.id === id
+        ? this.replay?.message
+        : this.notificationMessage(id);
+    if (!message || message.role !== "assistant" || !message.completed)
+      throw new UiError("speechNoText");
+    this.speech.speak(message);
   }
 
   bubbleAction(
@@ -990,6 +1286,17 @@ export class DesktopController {
     action: "dismiss" | "snooze" | "pause",
     paused = false,
   ): void {
+    if (this.replayBubbles.active?.id === id) {
+      if (action === "snooze") return;
+      if (action === "pause") this.replayBubbles.pause(id, paused, Date.now());
+      else {
+        this.replayBubbles.dismiss(id);
+        if (this.state.speech.playback?.messageId === id) this.speech.stop();
+      }
+      this.tick();
+      this.emit();
+      return;
+    }
     if (
       this.state.surface?.kind === "message" &&
       this.state.surface.message.source === "chat"
@@ -1041,7 +1348,9 @@ export class DesktopController {
   }
 
   async send(query: string): Promise<void> {
+    const generation = this.generation;
     await this.settingsWrites;
+    if (generation !== this.generation) throw new UiError("sessionUnavailable");
     query = query.trim();
     if (!query || query.length > 100_000) throw new UiError("invalidQuery");
     if (this.closed || !this.ready || this.model.status === "error")
@@ -1057,9 +1366,8 @@ export class DesktopController {
       streaming: true,
     };
     this.state.pending = pending;
-    this.state.focusMessageId = null;
+    this.state.focusTarget = null;
     this.pendingIssue = null;
-    const generation = this.generation;
     const controller = new AbortController();
     this.stream = controller;
     let progress: ReplyProgress = { text: "", blocks: new Map() };
@@ -1133,8 +1441,11 @@ export class DesktopController {
         message.completed,
     );
     if (!native) return;
-    if (this.state.focusMessageId === `local-assistant:${pending.id}`) {
-      this.state.focusMessageId = native.id;
+    if (
+      this.state.focusTarget?.kind === "message" &&
+      this.state.focusTarget.id === `local-assistant:${pending.id}`
+    ) {
+      this.state.focusTarget = { kind: "message", id: native.id };
       this.state.focusRequest++;
     }
     if (!pending.error) this.state.pending = null;

@@ -5,6 +5,8 @@ import { action } from "../desktop.ts";
 import { translator } from "../../shared/i18n.ts";
 import { ArrowUpRight, Sparkles, X, Volume2, Square } from "lucide-react";
 import MessageBody from "../message-body.tsx";
+import ContextMenu from "../context-menu.tsx";
+import { companionMenu } from "./menu.ts";
 import { surfaceKey } from "../../shared/surface.ts";
 
 export default function Companion({ state, manifest, layout }: Bootstrap) {
@@ -106,6 +108,14 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
         display: active ? undefined : "none",
       }}
     >
+      {surface?.kind === "menu" && (
+        <ContextMenu
+          key={surface.id}
+          position={{ x: layout.bubble.left, y: layout.bubble.top }}
+          items={companionMenu(state, manifest, run)}
+          onClose={() => run({ type: "companion.menu.close" })}
+        />
+      )}
       {bubble && message && (
         <section
           ref={bubbleElement}
@@ -188,11 +198,17 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
               )}
             <button
               className="primary"
-              onClick={() => run({ type: "chat.open", messageId: message.id })}
+              onClick={() =>
+                run({
+                  type: "item.action",
+                  action: "open",
+                  target: bubble.target,
+                })
+              }
             >
               {t("expandReminder")} <ArrowUpRight size={13} aria-hidden />
             </button>
-            {reminder && (
+            {bubble.canSnooze && (
               <button
                 className="subtle"
                 onClick={() => run({ type: "bubble.snooze", id: message.id })}
@@ -210,7 +226,12 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
           data-interactive
           aria-label={t("statusOpen", { text: surface.text })}
           onClick={() =>
-            run({ type: "chat.open", messageId: surface.messageId })
+            run({
+              type: "chat.open",
+              target: surface.messageId
+                ? { kind: "message", id: surface.messageId }
+                : undefined,
+            })
           }
           style={{
             left: layout.bubble.left + layout.bubble.width / 2,
@@ -245,6 +266,11 @@ export default function Companion({ state, manifest, layout }: Bootstrap) {
             run({ type: "companion.menu" });
         }}
         onPointerDown={(event) => {
+          if (surface?.kind === "menu") {
+            event.preventDefault();
+            run({ type: "companion.menu.close" });
+            return;
+          }
           if (
             event.button !== 0 ||
             !hitCharacter(canvas.current, event.clientX, event.clientY)

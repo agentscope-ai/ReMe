@@ -15,6 +15,12 @@ Selecting a reminder shows only that reminder, starting at the beginning, with a
 **Explain in detail** sends the selected reminder to the current chat and returns there without changing sessions or
 discarding the draft. Reminders become read after their detail is visible in the focused workspace.
 
+Right-click a reminder or task result to view, replay, explain, or copy its full content. **Remind again** shows the
+existing pet bubble immediately, including for historical or read items, while preserving its read state and the current
+conversation. **Mark all as read**, available above the lists and in the pet's context menu, covers both reminders and
+every page of task results. Replaying content does not rerun a task or generate a new chat message.
+List and pet context menus use the app's light or dark theme, with keyboard navigation and scrollable submenus.
+
 On macOS the workspace keeps native window controls and uses native Liquid Glass when the optional addon is available,
 falling back to Electron vibrancy. Reading surfaces remain mostly opaque. System reduced-transparency and reduced-motion
 preferences are respected. Light, dark, and system themes are available in Settings, alongside Chinese and English.

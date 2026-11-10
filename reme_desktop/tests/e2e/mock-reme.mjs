@@ -59,6 +59,8 @@ export async function mockReMe({
   let asrText = "语音输入的研究计划。";
   let speechDelay = 0;
   let replyDelay = 300;
+  let taskReadError = "";
+  const taskReads = [];
   const sockets = new Set();
   const events = [];
   const cursors = [];
@@ -167,6 +169,17 @@ export async function mockReMe({
         ),
       });
     if (job === "/task_results") {
+      taskReads.push(body.path);
+      if (body.path === taskReadError) {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(
+          JSON.stringify({
+            success: false,
+            answer: "Mock task result read failed",
+          }),
+        );
+        return;
+      }
       const item = taskResults.find((item) => item.path === body.path);
       if (body.mark_read) item.user_read_at = new Date().toISOString();
       return json({ user_read_at: item.user_read_at });
@@ -176,13 +189,15 @@ export async function mockReMe({
         const item = taskResults.find((item) => item.id === body.entry_id);
         return json({
           item,
-          content: item.preview,
+          content: item.content ?? item.preview,
           received_at: null,
           warnings: [],
         });
       }
       const items = taskResults.filter(
-        (item) => !body.task_id || item.task_id === body.task_id,
+        (item) =>
+          (!body.task_id || item.task_id === body.task_id) &&
+          (body.filter !== "unread" || !item.user_read_at),
       );
       const offset = body.offset ?? 0;
       const limit = body.limit ?? 5;
@@ -464,6 +479,10 @@ export async function mockReMe({
     cursors,
     ttsRequests,
     asrRequests,
+    taskReads,
+    setTaskReadError(value) {
+      taskReadError = value;
+    },
     setSpeechError(value) {
       speechError = value;
     },

@@ -7,6 +7,7 @@ import {
 } from "../shared/i18n.ts";
 import {
   app,
+  clipboard,
   dialog,
   globalShortcut,
   ipcMain,
@@ -19,7 +20,7 @@ import {
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DesktopController } from "./controller.ts";
+import { DesktopController, validateItemTarget } from "./controller.ts";
 import { loadAssets } from "./assets.ts";
 import { Storage, normalizeEndpoint } from "./storage.ts";
 import { DesktopWindows } from "./windows.ts";
@@ -55,11 +56,12 @@ else {
   let tray: Tray | undefined;
   let notifications: SystemNotifications | undefined;
   let refreshTray = () => {};
-  let openMenu = () => {};
   let quitting = false;
   let language = defaultLanguage;
   app.on("second-instance", () => windows?.openChat());
-  app.on("activate", () => windows?.openChat());
+  app.on("activate", () => {
+    if (controller?.state.surface?.kind !== "menu") windows?.openChat();
+  });
   app.on("window-all-closed", () => {});
   app.on("before-quit", (event) => {
     if (quitting || !controller) return;
@@ -181,7 +183,12 @@ else {
         (notice) => {
           if (!controller!.canOpenNotice(notice)) return;
           windows!.openChat();
-          controller!.setChatVisible(true, notice.messageId);
+          controller!.setChatVisible(
+            true,
+            notice.messageId
+              ? { kind: "message", id: notice.messageId }
+              : undefined,
+          );
         },
         (notice) => controller!.canNotify(notice),
       );
@@ -259,14 +266,7 @@ else {
           case "speech.speak": {
             if (action.sessionId !== controller!.model.sessionId)
               throw new UiError("sessionUnavailable");
-            const message = controller!.model.messages.find(
-              (message) =>
-                message.id === action.messageId &&
-                message.role === "assistant" &&
-                message.completed,
-            );
-            if (!message) throw new UiError("speechNoText");
-            controller!.speech.speak(message);
+            controller!.speakMessage(action.messageId);
             return;
           }
           case "speech.stop":
@@ -305,23 +305,77 @@ else {
           case "companion.menu":
             if (!windows!.isCompanionSender(event.sender.id))
               throw new UiError("menuFromCharacter");
-            openMenu();
+            controller!.setMenuOpen(true);
+            return;
+          case "companion.menu.close":
+            if (event.sender.id !== windows!.companion.webContents.id)
+              throw new UiError("invalidSender");
+            controller!.setMenuOpen(false);
+            return;
+          case "settings.open":
+            windows!.openChat();
+            controller!.selectPage("settings");
+            return;
+          case "animation.play":
+            if (
+              !assets.manifest.animations.some(
+                (clip) => clip.id === action.clip,
+              )
+            )
+              throw new UiError("invalidAction");
+            if (
+              controller!.state.status === "active" ||
+              controller!.state.pending?.streaming
+            )
+              throw new UiError("busy");
+            controller!.preview(action.clip);
+            return;
+          case "app.quit":
+            app.quit();
             return;
           case "chat.open":
           case "chat.close": {
             const visible = action.type === "chat.open";
-            const messageId =
-              action.type === "chat.open" ? action.messageId : undefined;
+            const target =
+              action.type === "chat.open" ? action.target : undefined;
             if (visible) {
               if (
                 event.sender.id === windows!.companion.webContents.id &&
-                !messageId
+                !target
               )
                 controller!.preview("happy");
               windows!.openChat();
             } else windows!.closeChat();
-            controller!.setChatVisible(visible, messageId);
+            controller!.setChatVisible(visible, target);
             return;
+          }
+          case "item.action": {
+            validateItemTarget(action.target);
+            if (
+              event.sender.id !== windows!.chat.webContents.id &&
+              action.action !== "open"
+            )
+              throw new UiError("invalidSender");
+            switch (action.action) {
+              case "open":
+                windows!.openChat();
+                controller!.setChatVisible(true, action.target);
+                return;
+              case "remind":
+                if (await controller!.remind(action.target))
+                  windows!.showCompanion();
+                return;
+              case "explain":
+                windows!.openChat();
+                return controller!.explain(action.target);
+              case "copy":
+                clipboard.writeText(
+                  (await controller!.item(action.target)).content,
+                );
+                return;
+              default:
+                throw new UiError("invalidAction");
+            }
           }
           case "chat.send":
             if (typeof action.query !== "string")
@@ -364,6 +418,13 @@ else {
               throw new UiError("invalidRead");
             controller!.markRead(action.sessionId, action.ids);
             return;
+          case "items.read":
+            if (
+              event.sender.id !== windows!.chat.webContents.id &&
+              !windows!.isCompanionSender(event.sender.id)
+            )
+              throw new UiError("invalidSender");
+            return controller!.markAllRead();
           case "bubble.dismiss":
             controller!.bubbleAction(action.id, "dismiss");
             return;
@@ -530,10 +591,6 @@ else {
           tray!.setToolTip(translate(state.settings.language, "trayTooltip"));
         }
       };
-      openMenu = () =>
-        menu().popup({
-          window: windows!.companion,
-        });
       refreshTray();
       tray.on("click", () => windows!.openChat());
       globalShortcut.register("CommandOrControl+Shift+Space", () =>

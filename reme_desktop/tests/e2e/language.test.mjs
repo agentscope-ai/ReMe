@@ -8,6 +8,7 @@ import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
 import { desktopWindows } from "./windows.mjs";
 import { mockReMe } from "./mock-reme.mjs";
+import { openCompanionMenu, chooseCompanionMenu } from "./menus.mjs";
 
 const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -37,25 +38,9 @@ test(
           ),
         )
         .toBe("connected");
-      await app.evaluate(({ Menu }) => {
-        Menu.prototype.popup = function () {
-          globalThis.languageMenu = this;
-        };
-      });
     };
-    const openMenu = async () => {
-      await companion.evaluate(() =>
-        window.desktop.action({ type: "companion.menu" }),
-      );
-    };
-    const choose = async (id) => {
-      await openMenu();
-      await app.evaluate((_, id) => {
-        const item = globalThis.languageMenu.getMenuItemById(id);
-        if (!item) throw new Error(`Missing menu item ${id}`);
-        item.click(item, undefined, {});
-      }, id);
-    };
+    const openMenu = () => openCompanionMenu(companion);
+    const choose = (id) => chooseCompanionMenu(companion, id);
     try {
       await launch();
       await t.test(
@@ -66,13 +51,10 @@ test(
             "zh-CN",
           );
           await openMenu();
-          assert.equal(
-            await app.evaluate(
-              () =>
-                globalThis.languageMenu.getMenuItemById("language:zh").checked,
-            ),
-            true,
-          );
+          await companion.locator('[data-menu-id="language"]').click();
+          await expect(
+            companion.locator('[data-menu-id="language:zh"]'),
+          ).toHaveAttribute("aria-checked", "true");
           await choose("chat");
           const draft = "保留草稿 / keep this draft";
           await chat
@@ -104,15 +86,26 @@ test(
             animation,
           );
           assert.equal(backend.cursors.length, subscriptions);
+          backend.activity("completed");
           await openMenu();
-          const labels = await app.evaluate(() => ({
-            settings: globalThis.languageMenu.getMenuItemById("settings").label,
-            animation:
-              globalThis.languageMenu.getMenuItemById("animation:thinking")
-                .label,
-            checked:
-              globalThis.languageMenu.getMenuItemById("language:en").checked,
-          }));
+          const labels = {
+            settings: await companion
+              .locator('[data-menu-id="settings"]')
+              .innerText(),
+          };
+          await companion.locator('[data-menu-id="animations"]').click();
+          labels.animation = await companion
+            .locator('[data-menu-id="animation:thinking"]')
+            .innerText();
+          await openMenu();
+          await companion.locator('[data-menu-id="language"]').click();
+          labels.checked =
+            (await companion
+              .locator('[data-menu-id="language:en"]')
+              .getAttribute("aria-checked")) === "true";
+          await companion.evaluate(() =>
+            window.desktop.action({ type: "companion.menu.close" }),
+          );
           assert.deepEqual(labels, {
             settings: "Settings…",
             animation: "Thinking",

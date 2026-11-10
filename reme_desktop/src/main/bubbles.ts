@@ -32,6 +32,7 @@ export class BubbleQueue {
     private readonly onSuperseded: (id: string) => void = () => {},
     private readonly maxPerHour = 3,
     private readonly coalesce = true,
+    private readonly nextPresentationId = () => ++this.sequence,
   ) {}
 
   offer(candidate: Candidate): void {
@@ -140,7 +141,7 @@ export class BubbleQueue {
       this.confirmed = false;
       this.active = {
         id: candidate.id,
-        presentationId: ++this.sequence,
+        presentationId: this.nextPresentationId(),
         text: candidate.text,
         paused: false,
       };

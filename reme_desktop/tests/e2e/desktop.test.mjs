@@ -8,6 +8,7 @@ import { _electron as electron } from "playwright";
 import { expect } from "playwright/test";
 import { desktopWindows } from "./windows.mjs";
 import { mockReMe } from "./mock-reme.mjs";
+import { chooseCompanionMenu } from "./menus.mjs";
 
 const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
@@ -139,61 +140,55 @@ test(
       );
 
       await t.test(
-        "right-click opens native controls without starting a drag or opening chat",
+        "right-click opens themed app controls without starting a drag or opening chat",
         async () => {
           await app.evaluate(({ Menu }) => {
             globalThis.originalMenuPopup = Menu.prototype.popup;
-            Menu.prototype.popup = function (options) {
-              globalThis.characterMenu = this;
-              globalThis.characterMenuWindow = options.window.id;
+            globalThis.nativeMenuCalls = 0;
+            Menu.prototype.popup = function () {
+              globalThis.nativeMenuCalls++;
             };
           });
           const openMenu = async () => {
-            await app.evaluate(() => {
-              globalThis.characterMenu = undefined;
-            });
             const rect = await companion.locator("canvas").boundingBox();
             await companion.mouse.click(
               rect.x + rect.width / 2,
               rect.y + rect.height * 0.35,
               { button: "right" },
             );
-            await expect
-              .poll(() => app.evaluate(() => Boolean(globalThis.characterMenu)))
-              .toBe(true);
+            await expect(companion.getByRole("menu")).toBeVisible();
           };
-          const choose = (id) =>
-            app.evaluate((_, id) => {
-              const item = globalThis.characterMenu.getMenuItemById(id);
-              if (!item) throw new Error(`Missing menu item: ${id}`);
-              item.click(item, undefined, {});
-            }, id);
+          const choose = (id) => chooseCompanionMenu(companion, id);
           try {
             await openMenu();
-            const menu = await app.evaluate(({ BrowserWindow }) => ({
-              labels: globalThis.characterMenu.items.map((item) => item.label),
-              animations:
-                globalThis.characterMenu.getMenuItemById("animations").submenu
-                  .items.length,
-              unreadEnabled:
-                globalThis.characterMenu.getMenuItemById("unread").enabled,
-              chatVisible: BrowserWindow.getAllWindows()
-                .find((window) =>
-                  window.webContents.getURL().includes("view=chat"),
-                )
-                .isVisible(),
-              companionId: BrowserWindow.getAllWindows().find((window) =>
-                window.webContents.getURL().includes("view=companion"),
-              ).id,
-              popupWindow: globalThis.characterMenuWindow,
-            }));
-            assert.ok(menu.labels.includes("和 Remy 聊聊"));
-            assert.ok(menu.labels.includes("播放动作"));
-            assert.ok(menu.labels.includes("设置…"));
-            assert.equal(menu.animations, 12);
-            assert.equal(menu.unreadEnabled, false);
-            assert.equal(menu.chatVisible, false);
-            assert.equal(menu.popupWindow, menu.companionId);
+            const labels = await companion
+              .locator(".context-menu [data-menu-id]")
+              .allTextContents();
+            assert.ok(labels.includes("和 Remy 聊聊"));
+            assert.ok(labels.includes("播放动作"));
+            assert.ok(labels.includes("设置…"));
+            await expect(
+              companion.locator('[data-menu-id="unread"]'),
+            ).toBeDisabled();
+            assert.equal(
+              await app.evaluate(() => globalThis.nativeMenuCalls),
+              0,
+            );
+            assert.equal(
+              await app.evaluate(({ BrowserWindow }) =>
+                BrowserWindow.getAllWindows()
+                  .find((window) =>
+                    window.webContents.getURL().includes("view=chat"),
+                  )
+                  .isVisible(),
+              ),
+              false,
+            );
+            assert.equal(app.windows().length, 2);
+            await companion.locator('[data-menu-id="animations"]').click();
+            await expect(
+              companion.locator('[data-menu-id^="animation:"]'),
+            ).toHaveCount(12);
             await expect(companion.locator(".character")).not.toHaveClass(
               /dragging/,
             );
@@ -253,12 +248,9 @@ test(
               )
               .toBeGreaterThan(Date.now());
             await openMenu();
-            assert.equal(
-              await app.evaluate(
-                () => globalThis.characterMenu.getMenuItemById("quiet").label,
-              ),
-              "恢复主动提醒",
-            );
+            await expect(
+              companion.locator('[data-menu-id="quiet"]'),
+            ).toHaveText("恢复主动提醒");
             await choose("quiet");
             await expect
               .poll(() =>
@@ -295,15 +287,10 @@ test(
               window.desktop.action({ type: "settings.update", scale: 0.9 }),
             );
             await openMenu();
-            assert.deepEqual(
-              await app.evaluate(() =>
-                globalThis.characterMenu
-                  .getMenuItemById("scale")
-                  .submenu.items.filter((item) => item.checked)
-                  .map((item) => item.label),
-              ),
-              ["90%"],
-            );
+            await companion.locator('[data-menu-id="scale"]').click();
+            await expect(
+              companion.locator('.context-menu [aria-checked="true"]'),
+            ).toHaveText(["90%"]);
             await choose("scale:1");
             await expect
               .poll(() =>
@@ -344,7 +331,12 @@ test(
               ),
               false,
             );
-            await choose("visibility");
+            await companion.evaluate(() =>
+              window.desktop.action({
+                type: "companion.visibility",
+                visible: true,
+              }),
+            );
             assert.equal(
               await app.evaluate(({ BrowserWindow }) =>
                 BrowserWindow.getAllWindows()
@@ -376,6 +368,9 @@ test(
               false,
             );
           } finally {
+            await companion.evaluate(() =>
+              window.desktop.action({ type: "companion.menu.close" }),
+            );
             await app.evaluate(({ Menu }) => {
               Menu.prototype.popup = globalThis.originalMenuPopup;
             });
@@ -432,10 +427,7 @@ test(
             ),
             false,
           );
-          await app.evaluate(() => {
-            const item = globalThis.characterMenu.getMenuItemById("reset");
-            item.click(item, undefined, {});
-          });
+          await chooseCompanionMenu(companion, "reset");
           const reset = await app.evaluate(({ BrowserWindow, screen }) => {
             const bounds = BrowserWindow.getAllWindows()
               .find((window) =>

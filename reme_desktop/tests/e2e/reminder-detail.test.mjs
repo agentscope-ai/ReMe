@@ -99,7 +99,10 @@ test(
       await expect
         .poll(async () => (await state()).inboxMessages.length)
         .toBe(3);
-      await action({ type: "chat.open", messageId: "long-reminder" });
+      await action({
+        type: "chat.open",
+        target: { kind: "message", id: "long-reminder" },
+      });
       const pane = chat.locator(".remy-detail > .document-pane");
       const cards = chat.locator("#sidebar-remy .inbox-card");
       await mkdir(path.join(project, "reports"), { recursive: true });
@@ -222,7 +225,10 @@ test(
               ),
             )
             .toBe(true);
-          await action({ type: "chat.open", messageId: "empty-reminder" });
+          await action({
+            type: "chat.open",
+            target: { kind: "message", id: "empty-reminder" },
+          });
           await expect(pane.locator(".explain-reminder")).toHaveCount(0);
           await chat.waitForTimeout(800);
           assert.ok(!(await state()).readMessageIds.includes("empty-reminder"));
@@ -274,9 +280,7 @@ test(
             (message) => message.role === "user",
           );
           assert.equal(english.length, 2);
-          assert.ok(
-            english[1].content.startsWith("Explain this proactive reminder"),
-          );
+          assert.ok(english[1].content.startsWith("Explain this content"));
           assert.ok(english[1].content.includes(oldContent));
         },
       );

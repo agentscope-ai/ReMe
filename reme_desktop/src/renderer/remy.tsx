@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import type {
   DesktopState,
   DisplayMessage,
   ProactiveInboxDetail,
-  ProactiveInboxItem,
+  ItemTarget,
 } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
 import { action } from "./desktop.ts";
@@ -25,16 +25,16 @@ export default function Remy({
 }) {
   const language = state.settings.language;
   const t = translator(language);
-  const [selected, setSelected] = useState("");
+  const selected =
+    state.focusTarget?.kind === "task_result" ? state.focusTarget.id : "";
   const [detail, setDetail] = useState<ProactiveInboxDetail | null>(null);
-  const [revision, setRevision] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
-  const sending = useRef(false);
   const scope = `${state.settings.endpoint}:${state.workspace}`;
-  const reminder = !selected
-    ? state.inboxMessages.find((item) => item.id === state.focusMessageId)
-    : undefined;
+  const reminder =
+    state.focusTarget?.kind === "message"
+      ? state.inboxMessages.find((item) => item.id === state.focusTarget?.id)
+      : undefined;
   const reminderRead = state.readMessageIds.includes(reminder?.id ?? "");
   const showingDetail = Boolean(selected || reminder);
   const busy = Boolean(state.pending?.streaming) || state.status === "active";
@@ -42,18 +42,9 @@ export default function Remy({
 
   useEffect(() => {
     setDetail(null);
-    setSelected("");
     setError(null);
-    setLoading(false);
-  }, [scope]);
-
-  useEffect(() => {
-    if (!state.focusMessageId) return;
-    setSelected("");
-    setDetail(null);
-    setError(null);
-    setLoading(false);
-  }, [scope, state.focusMessageId, state.focusRequest]);
+    setLoading(Boolean(selected));
+  }, [scope, selected, state.focusTarget, state.focusRequest]);
 
   useEffect(() => {
     const sessionId = reminder?.originSessionId;
@@ -140,7 +131,14 @@ export default function Remy({
       live = false;
       clearInterval(timer);
     };
-  }, [scope, selected, revision, state.activePage, state.connection]);
+  }, [
+    scope,
+    selected,
+    state.inboxRevision,
+    state.focusRequest,
+    state.activePage,
+    state.connection,
+  ]);
 
   const result = detail?.item;
   useEffect(() => {
@@ -175,7 +173,6 @@ export default function Remy({
                 }
               : current,
           );
-          setRevision((current) => current + 1);
         })
         .catch((error) => {
           if (live) setError(error);
@@ -191,65 +188,47 @@ export default function Remy({
     result?.path,
     result?.user_read_at,
     selected,
-    revision,
+    state.inboxRevision,
     state.activePage,
     state.chatVisible,
     state.chatFocused,
     state.connection,
   ]);
 
-  const openInput = (item: ProactiveInboxItem) => {
-    setSelected(item.id);
-    setDetail(null);
-    setLoading(true);
+  const explain = (target: ItemTarget) => {
     setError(null);
-    setRevision((current) => current + 1);
+    void action({ type: "item.action", action: "explain", target }).catch(
+      setError,
+    );
   };
-  const returnToChat = async () => {
-    try {
-      await action({ type: "chat.open" });
-      setSelected("");
-      setDetail(null);
-      setLoading(false);
-      setError(null);
-    } catch (error) {
-      setError(error);
-    }
-  };
-  const explainReminder = async (message: DisplayMessage) => {
-    if (sending.current || busy || !ready) return;
-    sending.current = true;
-    setError(null);
-    try {
-      await action({
-        type: "chat.send",
-        query: t("explainReminderQuery", { content: message.content }),
-      });
-    } catch (error) {
-      setError(error);
-    } finally {
-      sending.current = false;
-    }
-  };
+  const message: DisplayMessage | null =
+    reminder ??
+    (detail?.item.id === selected
+      ? {
+          id: detail.item.id,
+          role: "assistant",
+          source: "proactive",
+          content: detail.content,
+          createdAt: detail.item.created_at,
+          completed: true,
+          streaming: false,
+          status: null,
+        }
+      : null);
   return (
     <SplitPane
       name="remy"
       collapsed={collapsed}
       language={language}
-      sidebar={
-        <RemyInbox
-          key={scope}
-          state={state}
-          selected={selected}
-          revision={revision}
-          onOpen={openInput}
-        />
-      }
+      sidebar={<RemyInbox key={scope} state={state} onError={setError} />}
     >
       <div className="remy-detail">
         {showingDetail && (
           <div className="result-toolbar">
-            <button className="subtle" onClick={() => void returnToChat()}>
+            <button
+              className="subtle"
+              onClick={() => void action({ type: "chat.open" }).catch(setError)}
+            >
               <ArrowLeft size={15} />
               {t("backToChat")}
             </button>
@@ -269,81 +248,58 @@ export default function Remy({
             )}
           </div>
         )}
-        {!loading && selected && (
-          <div className="document-pane" key={selected}>
-            {detail && (
-              <article className="inbox-detail document-content">
-                <div className="eyebrow">
-                  {t("inbox")} / {t("taskResults")}
-                </div>
-                <h1 className="document-title">{detail.item.title}</h1>
-                <div className="inbox-detail-meta">
-                  <time>{inboxDate(detail.item.created_at, language)}</time>
-                  <span>
-                    {t(
-                      detail.item.user_read_at
-                        ? "inboxUserRead"
-                        : "inboxUserUnread",
-                    )}
-                  </span>
-                </div>
-                {detail.warnings.length > 0 && (
-                  <div className="inbox-warning" role="status">
-                    {detail.warnings.map((warning, index) => (
-                      <p key={index}>{warning}</p>
-                    ))}
-                  </div>
-                )}
-                <MessageBody
-                  message={{
-                    id: detail.item.id,
-                    role: "assistant",
-                    source: "proactive",
-                    content: detail.content,
-                    completed: true,
-                    streaming: false,
-                    status: null,
-                  }}
-                  language={language}
-                  onLink={(url) => {
-                    if (/^https?:\/\//i.test(url))
-                      void action({ type: "link.open", url });
-                  }}
-                />
-              </article>
-            )}
-          </div>
-        )}
-        {reminder && (
+        {!loading && message && (
           <div
             className="document-pane"
-            key={`${reminder.id}:${state.focusRequest}`}
+            key={`${message.id}:${state.focusRequest}`}
           >
             <article
               className="inbox-detail document-content"
-              data-message-id={reminder.id}
+              data-message-id={message.id}
             >
-              <div className="proactive-label">✦ {t("proactiveLabel")}</div>
+              {reminder ? (
+                <div className="proactive-label">✦ {t("proactiveLabel")}</div>
+              ) : (
+                <>
+                  <div className="eyebrow">
+                    {t("inbox")} / {t("taskResults")}
+                  </div>
+                  <h1 className="document-title">{detail?.item.title}</h1>
+                </>
+              )}
               <div className="inbox-detail-meta">
-                <time>{inboxDate(reminder.createdAt, language)}</time>
+                <time>{inboxDate(message.createdAt, language)}</time>
                 <span>
-                  {t(reminderRead ? "inboxUserRead" : "inboxUserUnread")}
+                  {t(
+                    (reminder ? reminderRead : detail?.item.user_read_at)
+                      ? "inboxUserRead"
+                      : "inboxUserUnread",
+                  )}
                 </span>
               </div>
+              {!reminder && detail?.warnings.length ? (
+                <div className="inbox-warning" role="status">
+                  {detail.warnings.map((warning, index) => (
+                    <p key={index}>{warning}</p>
+                  ))}
+                </div>
+              ) : null}
               <MessageBody
-                message={reminder}
+                message={message}
                 language={language}
                 onLink={(url) =>
                   void action({ type: "link.open", url }).catch(setError)
                 }
               />
-              {reminder.completed && reminder.content && !reminder.error && (
+              {message.completed && message.content && !message.error && (
                 <div className="message-actions">
                   <button
                     type="button"
                     className="explain-reminder"
                     disabled={busy || !ready}
-                    onClick={() => void explainReminder(reminder)}
+                    onClick={() =>
+                      state.focusTarget && explain(state.focusTarget)
+                    }
                   >
                     {t("explainReminder")}
                     <ArrowUpRight size={13} aria-hidden />
@@ -362,7 +318,9 @@ export default function Remy({
             state={state}
             active={state.activePage === "remy" && !loading && !showingDetail}
             onSettings={onSettings}
-            onExplain={(message) => void explainReminder(message)}
+            onExplain={(message) =>
+              explain({ kind: "message", id: message.id })
+            }
           />
         </div>
       </div>

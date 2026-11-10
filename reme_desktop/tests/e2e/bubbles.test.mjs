@@ -12,7 +12,7 @@ import { mockReMe } from "./mock-reme.mjs";
 const project = path.resolve(fileURLToPath(new URL("../../", import.meta.url)));
 
 test(
-  "switching reminder queues acknowledges each painted message even when presentation IDs match",
+  "switching reminder queues gives each painted message a unique presentation ID",
   { timeout: 30_000 },
   async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "reme-bubble-e2e-"));
@@ -73,7 +73,7 @@ test(
         companion.locator('[data-message-id="immediate"]'),
       ).toBeVisible();
       const immediate = (await state()).surface;
-      assert.equal(immediate.presentationId, ordinary.presentationId);
+      assert.notEqual(immediate.presentationId, ordinary.presentationId);
       await expect
         .poll(async () => (await state()).readMessageIds.includes("immediate"))
         .toBe(true);

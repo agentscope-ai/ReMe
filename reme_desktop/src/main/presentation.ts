@@ -132,6 +132,8 @@ export class PresentationController {
         return {
           kind: "message",
           message: reply,
+          target: { kind: "message", id: reply.id },
+          canSnooze: false,
           presentationId: this.sequence,
           paused: Boolean(this.pausedAt),
         };
@@ -145,6 +147,8 @@ export class PresentationController {
         return {
           kind: "message",
           message,
+          target: { kind: "message", id: message.id },
+          canSnooze: true,
           presentationId: reminder.presentationId,
           paused: reminder.paused,
         };

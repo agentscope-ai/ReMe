@@ -29,7 +29,7 @@ export function viewState(
         readMessageIds: [],
         pending: null,
         workspace: "",
-        focusMessageId: null,
+        focusTarget: null,
         focusRequest: 0,
       }
     : state;

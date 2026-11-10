@@ -223,6 +223,20 @@ html[data-platform="darwin"] .workspace-titlebar {
   color: var(--muted);
   font-size: 11px;
 }
+.inbox-mark-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 10px;
+}
+.inbox-mark-all:disabled {
+  opacity: 0.5;
+}
 .count-pill {
   display: inline-flex;
   align-items: center;

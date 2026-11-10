@@ -52,10 +52,14 @@ export default function Chat({
   const focusedMessage = useRef("");
   const sending = useRef(false);
   const messages = state.messages;
+  const focusedId =
+    state.focusTarget?.kind === "message" ? state.focusTarget.id : null;
   const visibleStatus =
     state.surface?.kind === "status"
       ? state.surface
-      : state.surface?.message.status;
+      : state.surface?.kind === "message"
+        ? state.surface.message.status
+        : null;
   const proactiveSignature = state.messages
     .filter((message) => message.source === "proactive")
     .map((message) => `${message.id}:${message.streaming}`)
@@ -76,20 +80,20 @@ export default function Chat({
   };
 
   useEffect(() => {
-    if (!active || !state.chatVisible || !state.focusMessageId) return;
-    const request = `${state.sessionId}:${state.focusRequest}:${state.focusMessageId}`;
+    if (!active || !state.chatVisible || !focusedId) return;
+    const request = `${state.sessionId}:${state.focusRequest}:${focusedId}`;
     if (focusedMessage.current === request) return;
     const element = [
       ...(history.current?.querySelectorAll<HTMLElement>("[data-message-id]") ??
         []),
-    ].find((node) => node.dataset.messageId === state.focusMessageId);
+    ].find((node) => node.dataset.messageId === focusedId);
     if (element) {
       element.scrollIntoView({ block: "start" });
       follow.current = false;
       focusedMessage.current = request;
     }
   }, [
-    state.focusMessageId,
+    focusedId,
     state.focusRequest,
     state.chatVisible,
     state.messages,
@@ -284,7 +288,7 @@ export default function Chat({
             key={message.id}
             data-message-id={message.id}
             data-proactive={message.source === "proactive"}
-            className={`message ${message.role} ${state.focusMessageId === message.id ? "message-focused" : ""}`}
+            className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
           >
             {message.source === "proactive" && (
               <div className="proactive-label" data-message-id={message.id}>

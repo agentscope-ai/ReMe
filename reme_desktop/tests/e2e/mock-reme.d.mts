@@ -3,7 +3,9 @@ export function mockReMe(options?: {
   speech?: boolean;
   workspace?: boolean;
   ttsSeconds?: number;
-  taskResults?: import("../../src/shared/protocol.ts").ProactiveInboxItem[];
+  taskResults?: (import("../../src/shared/protocol.ts").ProactiveInboxItem & {
+    content?: string;
+  })[];
 }): Promise<{
   url: string;
   push(id: string, content?: string, completed?: boolean): void;
@@ -21,6 +23,8 @@ export function mockReMe(options?: {
   cursors: (string | undefined)[];
   ttsRequests: { text: string }[];
   asrRequests: { audio: string; audio_format: string; sample_rate: number }[];
+  taskReads: string[];
+  setTaskReadError(value: string): void;
   setSpeechError(value: boolean): void;
   setSpeechErrorText(value: string): void;
   setAsrText(value: string): void;

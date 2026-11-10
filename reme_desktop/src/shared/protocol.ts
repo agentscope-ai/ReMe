@@ -63,11 +63,21 @@ export interface DisplayMessage {
 export interface MessageBubble {
   kind: "message";
   message: DisplayMessage;
+  target: ItemTarget;
+  canSnooze: boolean;
   presentationId: number;
   paused: boolean;
 }
 
-export type CompanionSurface = MessageBubble | StatusNotice;
+export type CompanionSurface =
+  MessageBubble | StatusNotice | { kind: "menu"; id: string; text: string };
+
+export interface ItemTarget {
+  kind: "message" | "task_result";
+  id: string;
+}
+
+export type ItemAction = "open" | "remind" | "explain" | "copy";
 
 export interface StreamChunk {
   chunk_type: string;
@@ -187,6 +197,7 @@ export interface DesktopState {
   status: SessionStatus | null;
   messages: DisplayMessage[];
   inboxMessages: DisplayMessage[];
+  inboxRevision: number;
   pending: PendingTurn | null;
   surface: CompanionSurface | null;
   unread: number;
@@ -194,7 +205,7 @@ export interface DesktopState {
   activePage: DesktopPage;
   chatVisible: boolean;
   chatFocused: boolean;
-  focusMessageId: string | null;
+  focusTarget: ItemTarget | null;
   focusRequest: number;
   behavior: Behavior;
   speech: SpeechState;
@@ -283,7 +294,12 @@ export type DesktopAction =
     }
   | { type: "interaction" }
   | { type: "companion.menu" }
-  | { type: "chat.open"; messageId?: string }
+  | { type: "companion.menu.close" }
+  | { type: "settings.open" }
+  | { type: "animation.play"; clip: string }
+  | { type: "app.quit" }
+  | { type: "chat.open"; target?: ItemTarget }
+  | { type: "item.action"; target: ItemTarget; action: ItemAction }
   | { type: "chat.close" }
   | { type: "chat.send"; query: string }
   | { type: "chat.stop" }
@@ -294,6 +310,7 @@ export type DesktopAction =
   | { type: "companion.visibility"; visible: boolean }
   | { type: "session.new" }
   | { type: "messages.read"; sessionId: string; ids: string[] }
+  | { type: "items.read" }
   | { type: "bubble.dismiss"; id: string }
   | { type: "bubble.snooze"; id: string }
   | { type: "bubble.pause"; id: string; paused: boolean }
