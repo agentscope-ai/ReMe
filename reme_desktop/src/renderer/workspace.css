@@ -329,6 +329,9 @@ html[data-platform="darwin"] .workspace-titlebar {
   flex-wrap: wrap;
   margin-bottom: 24px;
 }
+.inbox-detail {
+  width: 100%;
+}
 .inbox-detail .message-body {
   margin-top: 22px;
 }

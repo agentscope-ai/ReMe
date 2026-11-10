@@ -293,7 +293,6 @@ export type DesktopAction =
   | { type: "companion.reset" }
   | { type: "companion.visibility"; visible: boolean }
   | { type: "session.new" }
-  | { type: "session.select"; sessionId: string }
   | { type: "messages.read"; sessionId: string; ids: string[] }
   | { type: "bubble.dismiss"; id: string }
   | { type: "bubble.snooze"; id: string }
@@ -365,7 +364,6 @@ export type WorkspaceRequest =
     }
   | { type: "proactiveInboxEntry"; id: string }
   | { type: "taskResult"; path: string; markRead: boolean }
-  | { type: "conversation"; sessionId: string }
   | { type: "list"; path: string }
   | { type: "load"; path: string }
   | { type: "tags"; page: number }

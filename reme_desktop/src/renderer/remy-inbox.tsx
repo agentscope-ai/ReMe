@@ -317,7 +317,7 @@ export default function RemyInbox({
                         )}
                       </span>
                       <span className="inbox-card-link">
-                        {t("conversation")}
+                        {t("viewDetails")}
                         <ArrowUpRight size={12} />
                       </span>
                     </div>

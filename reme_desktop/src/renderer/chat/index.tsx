@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
 import { action } from "../desktop.ts";
 import MessageBody from "../message-body.tsx";
-import type { DesktopState } from "../../shared/protocol.ts";
+import type { DesktopState, DisplayMessage } from "../../shared/protocol.ts";
 import { useCapture } from "../speech/use-capture.ts";
 import { Plus, Sparkles, ArrowUpRight } from "lucide-react";
 
@@ -10,12 +10,12 @@ export default function Chat({
   state,
   active,
   onSettings,
-  readOnly = false,
+  onExplain,
 }: {
   state: DesktopState;
   active: boolean;
   onSettings: () => void;
-  readOnly?: boolean;
+  onExplain: (message: DisplayMessage) => void;
 }) {
   const language = state.settings.language;
   const t = translator(language);
@@ -26,7 +26,7 @@ export default function Chat({
   const queryRef = useRef(query);
   queryRef.current = query;
   const capture = useCapture(
-    { ...state, chatVisible: state.chatVisible && active && !readOnly },
+    { ...state, chatVisible: state.chatVisible && active },
     (text) => {
       const value = queryRef.current;
       const from = input.current?.selectionStart ?? value.length;
@@ -62,8 +62,7 @@ export default function Chat({
     .join("\n");
   const readIds = useRef(new Set<string>());
   readIds.current = new Set(state.readMessageIds);
-  const busy =
-    readOnly || Boolean(state.pending?.streaming) || state.status === "active";
+  const busy = Boolean(state.pending?.streaming) || state.status === "active";
   const ready = state.connection === "connected" && state.status !== "error";
   const run = async (value: Parameters<typeof action>[0]) => {
     setError(null);
@@ -85,7 +84,7 @@ export default function Chat({
         []),
     ].find((node) => node.dataset.messageId === state.focusMessageId);
     if (element) {
-      element.scrollIntoView({ block: "center" });
+      element.scrollIntoView({ block: "start" });
       follow.current = false;
       focusedMessage.current = request;
     }
@@ -96,6 +95,9 @@ export default function Chat({
     state.messages,
     active,
   ]);
+  useEffect(() => {
+    if (state.pending?.streaming) follow.current = true;
+  }, [state.pending?.id]);
   useEffect(() => {
     if (active && follow.current && history.current)
       history.current.scrollTop = history.current.scrollHeight;
@@ -171,16 +173,13 @@ export default function Chat({
     active,
   ]);
 
-  const send = async (
-    text = queryRef.current,
-    { preserveDraft = false } = {},
-  ) => {
+  const send = async (text = queryRef.current) => {
     const value = text.trim();
     if (!value || busy || !ready || sending.current) return;
     sending.current = true;
-    if (!preserveDraft) setQuery("");
+    setQuery("");
     follow.current = true;
-    if (!(await run({ type: "chat.send", query: value })) && !preserveDraft)
+    if (!(await run({ type: "chat.send", query: value })))
       setQuery((current) => current || value);
     sending.current = false;
   };
@@ -262,7 +261,6 @@ export default function Chat({
                 <button
                   key={query}
                   title={t(query)}
-                  disabled={readOnly}
                   onClick={() => {
                     setQuery(t(query));
                     input.current?.focus();
@@ -308,10 +306,7 @@ export default function Chat({
                     type="button"
                     className="read-aloud"
                     disabled={
-                      readOnly ||
-                      !state.speech.tts ||
-                      !state.speech.ready ||
-                      !ready
+                      !state.speech.tts || !state.speech.ready || !ready
                     }
                     aria-label={t(
                       voice?.messageId === message.id
@@ -368,14 +363,7 @@ export default function Chat({
                       type="button"
                       className="explain-reminder"
                       disabled={busy || !ready}
-                      onClick={() =>
-                        void send(
-                          t("explainReminderQuery", {
-                            content: message.content,
-                          }),
-                          { preserveDraft: true },
-                        )
-                      }
+                      onClick={() => onExplain(message)}
                     >
                       {t("explainReminder")}
                       <ArrowUpRight size={13} aria-hidden />
@@ -386,10 +374,7 @@ export default function Chat({
           </article>
         ))}
       </div>
-      <footer
-        className="chat-composer"
-        style={readOnly ? { display: "none" } : undefined}
-      >
+      <footer className="chat-composer">
         {capture.notice && (
           <div className="voice-notice" role="status">
             {t("speechNoInput")}

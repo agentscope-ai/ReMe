@@ -1036,29 +1036,6 @@ export class DesktopController {
     this.emit();
   }
 
-  async selectSession(sessionId: string): Promise<void> {
-    if (
-      !this.lifecycle ||
-      this.state.pending?.streaming ||
-      this.model.status === "active"
-    )
-      throw new UiError("sessionBusy");
-    await this.client().call(
-      "pa_select_session",
-      { session_id: sessionId },
-      this.lifecycle.signal,
-    );
-    this.speech.cancel();
-    this.state.pending = null;
-    const snapshot = await this.client().call<SessionSnapshot>(
-      "session_read",
-      { session_id: sessionId },
-      this.lifecycle.signal,
-    );
-    this.model.snapshot(snapshot);
-    this.emit();
-  }
-
   async send(query: string): Promise<void> {
     await this.settingsWrites;
     query = query.trim();

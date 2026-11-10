@@ -1,14 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowUpRight } from "lucide-react";
 import type {
   DesktopState,
   DisplayMessage,
   ProactiveInboxDetail,
   ProactiveInboxItem,
-  SessionSnapshot,
 } from "../shared/protocol.ts";
 import { errorText, translator } from "../shared/i18n.ts";
-import { displayMessages } from "../shared/messages.ts";
 import { action } from "./desktop.ts";
 import { inboxDate, inboxRequest } from "./inbox.ts";
 import Chat from "./chat/index.tsx";
@@ -30,18 +28,19 @@ export default function Remy({
   const [selected, setSelected] = useState("");
   const [detail, setDetail] = useState<ProactiveInboxDetail | null>(null);
   const [revision, setRevision] = useState(0);
-  const [preview, setPreview] = useState<{
-    sessionId: string;
-    messages: DisplayMessage[];
-  } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
-  const focusGeneration = useRef(0);
+  const sending = useRef(false);
   const scope = `${state.settings.endpoint}:${state.workspace}`;
+  const reminder = !selected
+    ? state.inboxMessages.find((item) => item.id === state.focusMessageId)
+    : undefined;
+  const reminderRead = state.readMessageIds.includes(reminder?.id ?? "");
+  const showingDetail = Boolean(selected || reminder);
+  const busy = Boolean(state.pending?.streaming) || state.status === "active";
+  const ready = state.connection === "connected" && state.status !== "error";
 
   useEffect(() => {
-    focusGeneration.current++;
-    setPreview(null);
     setDetail(null);
     setSelected("");
     setError(null);
@@ -49,54 +48,63 @@ export default function Remy({
   }, [scope]);
 
   useEffect(() => {
-    const id = state.focusMessageId;
-    if (!id) return;
+    if (!state.focusMessageId) return;
     setSelected("");
     setDetail(null);
     setError(null);
-    const message = state.inboxMessages.find((item) => item.id === id);
-    const origin = message?.originSessionId ?? state.sessionId;
-    const generation = ++focusGeneration.current;
-    if (
-      !origin ||
-      (origin === state.sessionId &&
-        state.messages.some((item) => item.id === id))
-    ) {
-      setPreview(null);
-      setLoading(false);
-      return;
-    }
-    const open = async () => {
-      setLoading(true);
-      setPreview(null);
-      try {
-        let messages = state.messages;
-        if (origin !== state.sessionId) {
-          const snapshot = await inboxRequest<SessionSnapshot>({
-            type: "conversation",
-            sessionId: origin,
-          });
-          messages = displayMessages(
-            { sessionId: origin, messages: snapshot.messages, pending: null },
-            undefined,
-            language,
-          );
-        }
-        if (message && !messages.some((item) => item.id === id))
-          messages = [...messages, message];
-        if (generation === focusGeneration.current)
-          setPreview({ sessionId: origin, messages });
-      } catch (error) {
-        if (generation === focusGeneration.current) setError(error);
-      } finally {
-        if (generation === focusGeneration.current) setLoading(false);
-      }
-    };
-    void open();
-    return () => {
-      focusGeneration.current++;
-    };
+    setLoading(false);
   }, [scope, state.focusMessageId, state.focusRequest]);
+
+  useEffect(() => {
+    const sessionId = reminder?.originSessionId;
+    if (
+      !reminder?.completed ||
+      !reminder.content ||
+      !sessionId ||
+      reminderRead ||
+      state.activePage !== "remy" ||
+      !state.chatVisible ||
+      !state.chatFocused
+    )
+      return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const acknowledge = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!document.hasFocus() || document.visibilityState !== "visible")
+          return;
+        void action({
+          type: "messages.read",
+          sessionId,
+          ids: [reminder.id],
+        })
+          .catch((error) => {
+            if (live) setError(error);
+          })
+          .finally(() => {
+            if (live) acknowledge();
+          });
+      }, 600);
+    };
+    acknowledge();
+    window.addEventListener("focus", acknowledge);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+      window.removeEventListener("focus", acknowledge);
+    };
+  }, [
+    scope,
+    reminder?.id,
+    reminder?.originSessionId,
+    reminder?.completed,
+    reminder?.content,
+    reminderRead,
+    state.activePage,
+    state.chatVisible,
+    state.chatFocused,
+  ]);
 
   useEffect(() => {
     if (
@@ -191,30 +199,36 @@ export default function Remy({
   ]);
 
   const openInput = (item: ProactiveInboxItem) => {
-    focusGeneration.current++;
     setSelected(item.id);
-    setPreview(null);
     setDetail(null);
     setLoading(true);
     setError(null);
     setRevision((current) => current + 1);
   };
-  const returnToChat = () => {
-    focusGeneration.current++;
-    setPreview(null);
-    setSelected("");
-    setDetail(null);
-    setLoading(false);
-    setError(null);
-  };
-  const continueConversation = async () => {
-    if (!preview) return;
+  const returnToChat = async () => {
     try {
-      if (preview.sessionId !== state.sessionId)
-        await action({ type: "session.select", sessionId: preview.sessionId });
-      returnToChat();
+      await action({ type: "chat.open" });
+      setSelected("");
+      setDetail(null);
+      setLoading(false);
+      setError(null);
     } catch (error) {
       setError(error);
+    }
+  };
+  const explainReminder = async (message: DisplayMessage) => {
+    if (sending.current || busy || !ready) return;
+    sending.current = true;
+    setError(null);
+    try {
+      await action({
+        type: "chat.send",
+        query: t("explainReminderQuery", { content: message.content }),
+      });
+    } catch (error) {
+      setError(error);
+    } finally {
+      sending.current = false;
     }
   };
   return (
@@ -233,33 +247,12 @@ export default function Remy({
       }
     >
       <div className="remy-detail">
-        {(selected || preview) && (
+        {showingDetail && (
           <div className="result-toolbar">
-            <button className="subtle" onClick={returnToChat}>
+            <button className="subtle" onClick={() => void returnToChat()}>
               <ArrowLeft size={15} />
               {t("backToChat")}
             </button>
-            {preview && (
-              <button
-                className="secondary"
-                disabled={
-                  Boolean(state.pending?.streaming) || state.status === "active"
-                }
-                onClick={() => void continueConversation()}
-              >
-                {t("continueConversation")}
-              </button>
-            )}
-            {selected && (
-              <button
-                className="icon-button"
-                aria-label={t("inboxRefresh")}
-                title={t("inboxRefresh")}
-                onClick={() => setRevision((current) => current + 1)}
-              >
-                <RefreshCw size={15} />
-              </button>
-            )}
           </div>
         )}
         {error != null && (
@@ -277,7 +270,7 @@ export default function Remy({
           </div>
         )}
         {!loading && selected && (
-          <div className="document-pane">
+          <div className="document-pane" key={selected}>
             {detail && (
               <article className="inbox-detail document-content">
                 <div className="eyebrow">
@@ -321,31 +314,55 @@ export default function Remy({
             )}
           </div>
         )}
-        {!loading && !selected && preview && (
-          <Chat
-            state={{
-              ...state,
-              sessionId: preview.sessionId,
-              messages: preview.messages,
-              pending: null,
-              surface: null,
-            }}
-            readOnly
-            active={state.activePage === "remy"}
-            onSettings={onSettings}
-          />
+        {reminder && (
+          <div
+            className="document-pane"
+            key={`${reminder.id}:${state.focusRequest}`}
+          >
+            <article
+              className="inbox-detail document-content"
+              data-message-id={reminder.id}
+            >
+              <div className="proactive-label">✦ {t("proactiveLabel")}</div>
+              <div className="inbox-detail-meta">
+                <time>{inboxDate(reminder.createdAt, language)}</time>
+                <span>
+                  {t(reminderRead ? "inboxUserRead" : "inboxUserUnread")}
+                </span>
+              </div>
+              <MessageBody
+                message={reminder}
+                language={language}
+                onLink={(url) =>
+                  void action({ type: "link.open", url }).catch(setError)
+                }
+              />
+              {reminder.completed && reminder.content && !reminder.error && (
+                <div className="message-actions">
+                  <button
+                    type="button"
+                    className="explain-reminder"
+                    disabled={busy || !ready}
+                    onClick={() => void explainReminder(reminder)}
+                  >
+                    {t("explainReminder")}
+                    <ArrowUpRight size={13} aria-hidden />
+                  </button>
+                </div>
+              )}
+            </article>
+          </div>
         )}
         <div
           className="remy-live-chat"
-          hidden={loading || Boolean(selected || preview)}
-          inert={loading || Boolean(selected || preview)}
+          hidden={loading || showingDetail}
+          inert={loading || showingDetail}
         >
           <Chat
             state={state}
-            active={
-              state.activePage === "remy" && !loading && !selected && !preview
-            }
+            active={state.activePage === "remy" && !loading && !showingDetail}
             onSettings={onSettings}
+            onExplain={(message) => void explainReminder(message)}
           />
         </div>
       </div>

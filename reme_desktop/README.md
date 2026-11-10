@@ -11,6 +11,10 @@ arrow keys on their separator.
 The sidebar button at the left of the title bar hides or restores the current page's sidebar. Each page remembers its
 collapsed state and width across restarts; drafts, documents, and selected settings remain mounted while it is hidden.
 
+Selecting a reminder shows only that reminder, starting at the beginning, with a back button to the current chat.
+**Explain in detail** sends the selected reminder to the current chat and returns there without changing sessions or
+discarding the draft. Reminders become read after their detail is visible in the focused workspace.
+
 On macOS the workspace keeps native window controls and uses native Liquid Glass when the optional addon is available,
 falling back to Electron vibrancy. Reading surfaces remain mostly opaque. System reduced-transparency and reduced-motion
 preferences are respected. Light, dark, and system themes are available in Settings, alongside Chinese and English.

@@ -127,15 +127,6 @@ export async function requestWorkspace(
         mark_read: request.markRead,
       };
       break;
-    case "conversation":
-      if (
-        typeof request.sessionId !== "string" ||
-        !/^[A-Za-z0-9_-]{1,128}$/.test(request.sessionId)
-      )
-        throw new UiError("invalidWorkspaceRequest");
-      job = "session_read";
-      body = { session_id: request.sessionId };
-      break;
     case "list":
       job = "list";
       body = {

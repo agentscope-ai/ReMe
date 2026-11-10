@@ -103,7 +103,7 @@ test(
           await app.evaluate(() => globalThis.noticeClicks[0]());
           await expect(
             chat
-              .locator(".chat-history")
+              .locator(".document-pane")
               .getByText("这是一条系统提醒", { exact: true }),
           ).toBeVisible();
         },

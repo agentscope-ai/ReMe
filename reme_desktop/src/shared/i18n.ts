@@ -28,7 +28,6 @@ export const messages = {
   filterTask: ["按任务筛选", "Filter by task"],
   allTasks: ["全部任务", "All tasks"],
   backToChat: ["返回当前对话", "Back to current chat"],
-  continueConversation: ["继续这段对话", "Continue this conversation"],
   inboxCaption: ["值得告诉你的新发现", "Good things worth sharing"],
   taskInboxCaption: [
     "定时任务的结果都在这里",
@@ -45,7 +44,6 @@ export const messages = {
   inboxPrevious: ["上一页", "Previous page"],
   inboxNext: ["下一页", "Next page"],
   inboxRetry: ["重试", "Retry"],
-  inboxRefresh: ["刷新", "Refresh"],
   inboxDetails: ["查看原因", "View details"],
   inboxPartial: [
     "部分收件箱内容暂时无法读取",
@@ -58,7 +56,7 @@ export const messages = {
   ],
   earlier: ["更早", "Earlier"],
   today: ["今天", "Today"],
-  conversation: ["对话", "Conversation"],
+  viewDetails: ["查看详情", "View details"],
   privateMemory: ["本地记忆 · 与你同行", "Local memory. Always with you."],
   welcomeHint: [
     "你的 Proactive Agent，记住偏好、执行任务，在合适的时候主动提醒。",
