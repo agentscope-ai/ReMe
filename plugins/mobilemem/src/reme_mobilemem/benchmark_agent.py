@@ -27,11 +27,8 @@ class BenchmarkAsAgentWrapper(AsAgentWrapper):
             and kwargs.get("output_schema") is None
         ):
             result["raw"]["benchmark_compat"] = {
-                "policy": "agentscope-exceed-max-iters-legacy-v1",
-                "legacy_source_commit": "d3e79918622173306be79ecda6494acadc7c4312",
                 "native_status": result["status"],
                 "native_error": result["error"],
-                "native_termination_reason": message["finished_reason"],
             }
             result["status"] = "completed"
             result["error"] = None
