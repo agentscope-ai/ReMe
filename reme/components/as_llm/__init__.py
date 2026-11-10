@@ -35,22 +35,31 @@ class BaseAsLLM(BaseComponent):
         self._model: ChatModelBase | None = None
         self._owns_model = False
         self._closed = False
+        self._closing_depth = 0
 
     async def start(self) -> None:
-        """Start the wrapper and clean up a lazy model if startup fails early."""
-        try:
-            await super().start()
-        except BaseException:
-            if self._owns_model and self._model is not None:
-                try:
-                    await self._close()
-                except BaseException:
-                    self.logger.exception("Failed to clean up model after startup failure")
-            raise
-        self._closed = False
+        """Start without cleaning up resources owned by another lifecycle call."""
+        await super().start()
+        if not self._closing_depth:
+            self._closed = False
+
+    async def _rollback_start(
+        self,
+        start_hook_entered: bool,
+        started_owned: list[BaseComponent],
+    ) -> None:
+        """Clean up a pre-start model while the base lifecycle lock is held."""
+        await super()._rollback_start(start_hook_entered, started_owned)
+        if not start_hook_entered and self._owns_model and self._model is not None:
+            try:
+                await self._close()
+            except BaseException:
+                self.logger.exception("Failed to clean up model after startup failure")
 
     async def close(self) -> None:
-        """Close started or pre-start resources while preserving base semantics elsewhere."""
+        """Prevent lazy construction throughout started or pre-start shutdown."""
+        self._closing_depth += 1
+        self._closed = True
         try:
             async with self._lock:
                 if not self._is_started:
@@ -59,6 +68,7 @@ class BaseAsLLM(BaseComponent):
             await super().close()
         finally:
             self._closed = True
+            self._closing_depth -= 1
 
     async def _start(self) -> None:
         """Keep service startup independent of provider credentials."""
@@ -78,10 +88,10 @@ class BaseAsLLM(BaseComponent):
 
     def initialize_model(self) -> None:
         """Construct the configured provider once, without making a remote request."""
+        if self._closed and (self._owns_model or self._model is None):
+            raise RuntimeError("Start the LLM component before accessing its model after close.")
         if self._model is not None:
             return
-        if self._closed:
-            raise RuntimeError("Start the LLM component before accessing its model after close.")
         kwargs = dict(self.kwargs)
         credential = self.credential_cls(**kwargs.pop("credential", {}))
         model_cls = credential.get_chat_model_class()

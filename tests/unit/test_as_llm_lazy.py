@@ -341,3 +341,140 @@ def test_openai_start_failure_rolls_back_owned_client(injected, failure_stage):
         await llm.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.asyncio
+async def test_owned_openai_model_cannot_be_recreated_during_shutdown():
+    """No second client can appear after the first is released but close is pending."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    first_model, next_model = Mock(), Mock()
+    first_model.client.close = AsyncMock()
+    next_model.client.close = AsyncMock()
+    model_cls = Mock(side_effect=[first_model, next_model])
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    llm.credential_cls = credential_cls
+
+    await llm.start()
+    assert llm.model is first_model
+    released, finish = asyncio.Event(), asyncio.Event()
+    original_release = llm._release_model
+
+    async def release_then_pause():
+        await original_release()
+        released.set()
+        await finish.wait()
+
+    llm._release_model = release_then_pause
+    closing = asyncio.create_task(llm.close())
+    try:
+        await asyncio.wait_for(released.wait(), 2)
+        assert llm._model is None
+        with pytest.raises(RuntimeError, match="after close"):
+            _ = llm.model
+        model_cls.assert_called_once()
+    finally:
+        finish.set()
+        await asyncio.wait_for(closing, 2)
+
+    first_model.client.close.assert_awaited_once_with()
+    with pytest.raises(RuntimeError, match="after close"):
+        _ = llm.model
+    await llm.start()
+    assert llm.model is next_model
+    await llm.close()
+    next_model.client.close.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_start_waiting_for_close_does_not_close_client_twice():
+    """A cancelled lifecycle-lock waiter must not clean up the closer's model."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    llm = OpenAIAsLLM(backend="openai", model="synthetic")
+    model = Mock()
+    closing, release = asyncio.Event(), asyncio.Event()
+
+    async def close_client():
+        closing.set()
+        await release.wait()
+
+    model.client.close = AsyncMock(side_effect=close_client)
+    model_cls = Mock(return_value=model)
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    await llm.start()
+    assert llm.model is model
+
+    close_task = asyncio.create_task(llm.close())
+    start_waiter = None
+    try:
+        await asyncio.wait_for(closing.wait(), 2)
+        start_waiter = asyncio.create_task(llm.start())
+        await asyncio.sleep(0)
+        assert not start_waiter.done()
+        start_waiter.cancel("cancel lock waiter")
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(start_waiter, 1)
+        model.client.close.assert_awaited_once_with()
+    finally:
+        release.set()
+        await asyncio.wait_for(close_task, 2)
+        if start_waiter is not None and not start_waiter.done():
+            start_waiter.cancel()
+            await asyncio.gather(start_waiter, return_exceptions=True)
+
+    model.client.close.assert_awaited_once_with()
+    assert llm._model is None
+    assert not llm.is_started
+
+
+@pytest.mark.asyncio
+async def test_cancelled_start_waiter_cannot_cleanup_first_startup_model():
+    """Cancellation before acquiring the lifecycle lock cannot own rollback."""
+    from reme.components.as_llm import OpenAIAsLLM
+
+    entered, finish = asyncio.Event(), asyncio.Event()
+
+    class BlockingStartupOpenAI(OpenAIAsLLM):
+        """Hold the first startup inside the base component lifecycle lock."""
+
+        async def _start(self):
+            entered.set()
+            await finish.wait()
+
+    llm = BlockingStartupOpenAI(backend="openai", model="synthetic")
+    model = Mock()
+    model.client.close = AsyncMock()
+    model_cls = Mock(return_value=model)
+    credential_cls = Mock()
+    credential_cls.return_value.get_chat_model_class.return_value = model_cls
+    llm.credential_cls = credential_cls
+    assert llm.model is model
+
+    first_start = asyncio.create_task(llm.start())
+    second_start = None
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        second_start = asyncio.create_task(llm.start())
+        await asyncio.sleep(0)
+        assert not second_start.done()
+        second_start.cancel("cancel queued startup")
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(second_start, 1)
+        model.client.close.assert_not_awaited()
+        assert llm._model is model
+    finally:
+        finish.set()
+        await asyncio.wait_for(first_start, 2)
+        if second_start is not None and not second_start.done():
+            second_start.cancel()
+            await asyncio.gather(second_start, return_exceptions=True)
+
+    assert llm.is_started
+    assert llm.model is model
+    await llm.close()
+    model.client.close.assert_awaited_once_with()
