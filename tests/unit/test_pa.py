@@ -52,8 +52,10 @@ def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
     assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "xhigh"
     assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["xhigh"]
     assert model["input_modalities"] == ["text", "image"]
-    assert model["context_window"] == options["model_context_window"] == 65536
-    assert options["model_auto_compact_token_limit"] == 56000
+    assert model["context_window"] == model["max_context_window"] == options["model_context_window"] == 1000000
+    assert model["effective_context_window_percent"] == 80
+    assert options["model_auto_compact_token_limit"] == 600000
+    assert options["model_auto_compact_token_limit_scope"] == "total"
     assert options["review_model"] == options["agents"]["default_subagent_model"] == background
     assert options["memories"]["extract_model"] == options["memories"]["consolidation_model"] == background
     assert options["features"]["memories"]

@@ -624,9 +624,10 @@ components:
       experimental_api: true
       config_overrides:
         - 'web_search="live"'
-        # Tested client budget; this is not the provider's maximum context size.
-        - model_context_window=65536
-        - model_auto_compact_token_limit=56000
+        # Qwen's model window is 1M; Bailian Responses accepts about 80% as input.
+        # Compact earlier to leave room for generation and tool results.
+        - model_context_window=1000000
+        - model_auto_compact_token_limit=600000
         - 'model_auto_compact_token_limit_scope="total"'
         # Zero disables extra compaction after a completed reply.
         - model_post_turn_compact_threshold_percent=0
@@ -661,9 +662,9 @@ components:
             supported_reasoning_levels:
               - effort: xhigh
                 description: Maximum reasoning
-            context_window: 65536
-            max_context_window: 65536
-            effective_context_window_percent: 95
+            context_window: 1000000
+            max_context_window: 1000000
+            effective_context_window_percent: 80
             input_modalities: [text, image]
             # The provider returns reasoning content without a reasoning.summary request parameter.
             supports_reasoning_summary_parameter: false
