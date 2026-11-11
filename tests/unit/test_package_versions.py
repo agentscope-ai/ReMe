@@ -36,6 +36,7 @@ def test_hermes_text_runtime_accepts_host_pins() -> None:
         if not line or line.startswith("#"):
             continue
         pin = Requirement(line)
+        assert not pin.extras, "pip constraint files cannot contain extras"
         for specifier in pin.specifier:
             if pin.name in requirements and specifier.operator == "==":
                 assert Version(specifier.version) in requirements[pin.name].specifier
