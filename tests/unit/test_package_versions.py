@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 import tomllib
 from types import ModuleType
@@ -166,7 +167,7 @@ def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
     version_file = tmp_path / "reme" / "__init__.py"
     version_file.write_text('__version__ = "1..2"\n', encoding="utf-8")
 
-    with pytest.raises(ValueError, match=rf"{version_file}.*Fix the __version__ declaration"):
+    with pytest.raises(ValueError, match=rf"{re.escape(str(version_file))}.*Fix the __version__ declaration"):
         bump_version.check_versions(tmp_path)
 
 

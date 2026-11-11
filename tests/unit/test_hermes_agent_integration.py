@@ -284,7 +284,9 @@ def test_save_config_uses_dashboard_layout_and_private_permissions(tmp_path):
 
     assert saved.recall_limit == 7
     assert path.is_file()
-    assert path.stat().st_mode & 0o777 == 0o600
+    # Windows chmod only controls the read-only flag, not POSIX permission bits.
+    if sys.platform != "win32":
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 class _FakeResponse:
