@@ -7,6 +7,7 @@ from . import client
 from .codex_app_server import CodexAppServer
 from . import as_embedding
 from . import embedding_store
+from .event_stream import LocalEventStream
 from . import file_catalog
 from . import file_graph
 from . import file_chunker
@@ -30,6 +31,7 @@ __all__ = [
     "ComponentMixin",
     "ComponentRegistry",
     "CodexAppServer",
+    "LocalEventStream",
     "PaRuntime",
     "R",
     "create_application_registry",

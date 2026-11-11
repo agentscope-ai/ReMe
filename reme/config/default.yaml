@@ -1071,6 +1071,14 @@ components:
     proactive:
       backend: local
 
+  # Enable when jobs use event streams; each directory allows one writer.
+#  event_stream:
+#    default:
+#      backend: local
+#      directory: event_stream
+#      segment_max_events: 1000
+#      max_segments: 10  # Paired event/receipt segments; unconsumed events are never evicted.
+
   file_chunker:
     markdown:
       backend: markdown

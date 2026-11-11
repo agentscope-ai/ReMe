@@ -24,6 +24,8 @@ class ComponentEnum(str, Enum):
 
     FILE_CATALOG = "file_catalog"
 
+    EVENT_STREAM = "event_stream"
+
     KEYWORD_INDEX = "keyword_index"
 
     TAG_INDEX = "tag_index"

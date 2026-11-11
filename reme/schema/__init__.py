@@ -18,6 +18,7 @@ from .proactive import (
     ProactiveTopic,
 )
 from .emb_node import EmbNode
+from .event import Event, EventConsumption
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
@@ -47,6 +48,8 @@ __all__ = [
     "DreamState",
     "DreamUnit",
     "EmbNode",
+    "Event",
+    "EventConsumption",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",
