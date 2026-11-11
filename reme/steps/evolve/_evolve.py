@@ -63,7 +63,9 @@ def strip_frontmatter(text: str) -> tuple[dict, str]:
     """Split leading ``---`` YAML frontmatter blocks from the body.
 
     Handles files with several consecutive frontmatter blocks; returns
-    ``(merged_meta, body)``. Parse failures degrade to empty meta.
+    ``(merged_meta, body)``. Consume a block only after it parses to a
+    mapping. On parse/construction errors or non-mapping YAML, stop and
+    preserve the remaining text rather than risk discarding Markdown.
     """
     meta: dict = {}
     body = text or ""
@@ -76,12 +78,13 @@ def strip_frontmatter(text: str) -> tuple[dict, str]:
         if end < 0:
             break
         block = rest[:end]
-        body = rest[end + 4 :]
         try:
             data = yaml.safe_load(block)
-        except yaml.YAMLError:
-            data = None
-        if isinstance(data, dict):
-            for key, value in data.items():
-                meta.setdefault(str(key), value)
+        except (yaml.YAMLError, ValueError):
+            break
+        if not isinstance(data, dict):
+            break
+        body = rest[end + 4 :]
+        for key, value in data.items():
+            meta.setdefault(str(key), value)
     return meta, body.strip()
