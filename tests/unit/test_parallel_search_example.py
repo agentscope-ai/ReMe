@@ -4,10 +4,12 @@ import argparse
 import asyncio
 from unittest.mock import AsyncMock
 
-import httpx
+import httpx2 as httpx
 import pytest
 
 from integrations.parallel_search import example
+from reme.components.service.scoped_mcp import ScopedMCP
+from reme.schema import Response
 
 
 class FakeClient:
@@ -117,3 +119,56 @@ def test_main_reports_rate_limit_from_real_mcp_transport(monkeypatch, capsys):
     assert example.main(["topic", "https://example.com"]) == 1
     assert "rate limit" in capsys.readouterr().err.lower()
     assert client.rate_limited is True
+
+
+@pytest.mark.asyncio
+async def test_custom_http_client_completes_real_local_mcp_connection(monkeypatch):
+    """The MCP 2 httpx2 factory can connect over TCP and call local tools."""
+
+    class LocalJob:
+        """Small ReMe job exposed by the local test MCP server."""
+
+        def __init__(self, name, answer, parameters):
+            self.name = name
+            self.description = name
+            self.answer = answer
+            self.parameters = parameters
+            self.calls = []
+
+        async def __call__(self, **kwargs):
+            self.calls.append(kwargs)
+            return Response(answer=self.answer)
+
+    search = LocalJob(
+        "web_search",
+        "local search result",
+        {"type": "object", "properties": {"objective": {"type": "string"}}},
+    )
+    fetch = LocalJob(
+        "web_fetch",
+        "local fetched page",
+        {"type": "object", "properties": {"urls": {"type": "array"}}},
+    )
+    server = ScopedMCP()
+    token = server.register([search, fetch], {})
+    try:
+        monkeypatch.setattr(example, "SERVER_URL", await server.listen())
+        transport_class = example.StreamableHttpTransport
+
+        def authorized_transport(*, url, httpx_client_factory):
+            return transport_class(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                httpx_client_factory=httpx_client_factory,
+            )
+
+        monkeypatch.setattr(example, "StreamableHttpTransport", authorized_transport)
+        emitted = []
+        await example.run_example("topic", "https://example.com", example.create_client(), emit=emitted.append)
+    finally:
+        await server.close()
+
+    assert search.calls == [{"objective": "topic", "search_queries": ["topic"]}]
+    assert fetch.calls == [{"urls": ["https://example.com"], "objective": "topic"}]
+    assert "local search result" in emitted
+    assert "local fetched page" in emitted

@@ -5,7 +5,7 @@ import asyncio
 import sys
 from urllib.parse import urlparse
 
-import httpx
+import httpx2
 from fastmcp.client import StreamableHttpTransport
 
 from reme.components.client import MCPClient
@@ -20,7 +20,7 @@ class _ParallelMCPClient(MCPClient):
     def __init__(self, httpx_transport=None):
         self.rate_limited = False
 
-        async def record_response(response: httpx.Response) -> None:
+        async def record_response(response: httpx2.Response) -> None:
             if response.status_code == 429:
                 self.rate_limited = True
 
@@ -28,7 +28,7 @@ class _ParallelMCPClient(MCPClient):
             kwargs["event_hooks"] = {"response": [record_response]}
             if httpx_transport is not None:
                 kwargs["transport"] = httpx_transport
-            return httpx.AsyncClient(**kwargs)
+            return httpx2.AsyncClient(**kwargs)
 
         transport = StreamableHttpTransport(
             url=SERVER_URL,
@@ -37,7 +37,7 @@ class _ParallelMCPClient(MCPClient):
         super().__init__(transport=transport, timeout=REQUEST_TIMEOUT_SECONDS)
 
 
-def create_client(httpx_transport: httpx.AsyncBaseTransport | None = None) -> _ParallelMCPClient:
+def create_client(httpx_transport: httpx2.AsyncBaseTransport | None = None) -> _ParallelMCPClient:
     """Create a ReMe client for Parallel's anonymous streamable-HTTP endpoint."""
     return _ParallelMCPClient(httpx_transport=httpx_transport)
 
