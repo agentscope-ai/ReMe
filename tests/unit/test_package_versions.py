@@ -27,6 +27,25 @@ bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
 
 
+def test_hermes_text_runtime_accepts_host_pins() -> None:
+    """Keep host-pinned shared packages installable without pulling the core SDK bundle."""
+    config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = {Requirement(value).name: Requirement(value) for value in config["project"]["dependencies"]}
+    pins = (REPOSITORY / "tests" / "constraints" / "hermes-0.21.4.txt").read_text(encoding="utf-8")
+    for line in pins.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        pin = Requirement(line)
+        for specifier in pin.specifier:
+            if pin.name in requirements and specifier.operator == "==":
+                assert Version(specifier.version) in requirements[pin.name].specifier
+
+    embedded = [Requirement(value) for value in config["project"]["optional-dependencies"]["hermes"]]
+    assert {requirement.name for requirement in embedded} == {"agentscope"}
+    assert Version("2.0.10") in embedded[0].specifier
+    assert Version("2.0.11") not in embedded[0].specifier
+
+
 def test_home_requires_workflow_and_sandbox_release() -> None:
     """Home requires workflow interfaces, request path rejection and environment isolation."""
     config = tomllib.loads((REPOSITORY / "plugins" / "home" / "pyproject.toml").read_text(encoding="utf-8"))

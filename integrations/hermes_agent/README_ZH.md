@@ -23,7 +23,7 @@ ReMe 返回的证据加入受保护的 memory context。
 | 模式 | ReMe 运行位置 | Hermes 环境依赖 | 适用场景 |
 | --- | --- | --- | --- |
 | HTTP | 独立 `reme start` 服务 | 不需要 ReMe SDK | 进程隔离、共享服务或独立运维 |
-| Embedded | Hermes 进程内的专用 event-loop thread | `reme-ai[core]` | 单机使用，不希望维护服务和端口 |
+| Embedded | Hermes 进程内的专用 event-loop thread | `reme-ai[hermes]` | 单机使用，不希望维护服务和端口 |
 
 ## 环境要求
 
@@ -79,7 +79,18 @@ Hermes Dashboard 的 **Plugins → Runtime provider plugins → Memory provider 
 
 ## HTTP 模式
 
-为当前 Hermes profile 启动独立 workspace：
+ReMe 与 Hermes 应使用不同的虚拟环境。插件声明 `pip_dependencies: []`，HTTP 客户端只使用 Python 标准库，
+不需要在 Hermes 环境安装 ReMe SDK。
+
+创建并激活 ReMe 专用环境（Windows 使用 `.venv-reme\Scripts\Activate.ps1` 替代激活命令）：
+
+```bash
+python -m venv .venv-reme
+source .venv-reme/bin/activate
+python -m pip install "reme-ai[core]"
+```
+
+在这个环境启动服务和 workspace，保持终端运行；在另一个终端使用 Hermes 自己的环境启动 Hermes：
 
 ```bash
 reme start \
@@ -105,11 +116,36 @@ reme start \
 
 ## Embedded 模式
 
-先把 ReMe 安装到 Hermes 使用的同一个 Python 环境：
+Embedded 与 Hermes 共用 Python 环境，要求依赖约束兼容。Hermes >=0.21 表示插件接口要求，
+不代表已经验证该范围内的 Embedded 依赖兼容性。
+
+`reme-ai[hermes]` 提供文本记忆所需的 AgentScope 运行时，不引入完整 `core` 中的 Pillow、
+Claude Code/Codex SDK、向量数据库和 Studio。它使用 AgentScope 2.0.10，以兼容 Hermes 0.21.4 的 certifi 固定版本。
+ReMe 同时允许该 Hermes 版本使用的 OpenAI 2.24.0、Pydantic 2.13.4、Rich 14.3.3 和 croniter 6.0.0。
+
+已使用 [Hermes 0.21.4 的发布约束](https://github.com/NousResearch/hermes-agent/blob/v2026.9.21/pyproject.toml)
+验证 Windows / Python 3.11 的依赖解析。其他 Hermes 版本或额外插件仍需检查约束；
+不要在此环境额外安装 `reme-ai[core]` 或 `[as]`，它们可能重新引入冲突。
+这个安装选项面向默认文本记忆；图片处理、可选模型后端等功能需要各自的依赖和兼容性检查。
+
+安装前，在实际启动 Hermes 的环境运行 `python -m pip check`，先解决已有冲突。
+再保存已安装版本，检查能否在不改变它们的情况下添加 ReMe（约束文件保存在 ReMe 源码仓库之外）：
 
 ```bash
-pip install "reme-ai[core]"
+python -m pip freeze > hermes-constraints.txt
+python -m pip install --dry-run -c hermes-constraints.txt "reme-ai[hermes]"
 ```
+
+如果解析失败，停止安装并使用 HTTP 模式，不要移除约束或强制安装。dry run 通过只表示依赖解析成功，
+不保证运行兼容。仅在可以重建的环境中继续，并保留相同约束：
+
+```bash
+python -m pip install -c hermes-constraints.txt "reme-ai[hermes]"
+python -m pip check
+```
+
+不带约束的安装可能升级 Hermes 固定的依赖，pip 可能警告冲突后仍完成安装。
+`import reme` 成功也不代表 Hermes 兼容。
 
 然后配置独立 workspace：
 
@@ -257,7 +293,8 @@ hermes config set memory.provider reme
 
 ### Embedded 模式提示缺少 SDK
 
-必须把 `reme-ai[core]` 安装到 Hermes 实际使用的 Python 环境，而不是另一个虚拟环境。用
+先按 [Embedded 模式](#embedded-模式) 检查依赖兼容性；约束冲突时改用 HTTP 模式。
+仅在兼容时安装到 Hermes 实际使用的 Python 环境。用
 `python -c 'import reme; print(reme.__version__)'` 核对。
 
 ### 对话完成但 workspace 尚未出现新记录

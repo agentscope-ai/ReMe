@@ -68,6 +68,20 @@ ReMeServiceError = CLIENT_MODULE.ReMeServiceError
 scoped_session_id = PLUGIN_MODULE._scoped_session_id
 
 
+def test_embedded_default_text_runtime_starts_without_optional_sdks(tmp_path):
+    """Exercise the real default Application in the minimal Hermes dependency environment."""
+    backend = EmbeddedReMeBackend(str(tmp_path), start_timeout=15)
+    try:
+        backend.start()
+        assert backend.health(timeout=5)["metadata"]["health"]["healthy"] is True
+        result = backend.search("unrecorded synthetic fact", limit=5, timeout=5)
+        assert result["success"] is True
+    finally:
+        backend.close(timeout=10)
+    assert backend.state == "closed"
+    assert not backend._thread.is_alive()
+
+
 @pytest.fixture
 def reme_http_server():
     requests = []
