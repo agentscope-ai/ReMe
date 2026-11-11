@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -9,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock
+from claude_agent_sdk import project_key_for_directory
 
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.cc_session_store import CcFileSessionStore
@@ -63,6 +65,103 @@ async def test_create_empty_native_session_is_hidden_resumable_and_idle(wrapper)
     assert frames[0]["shouldQuery"] is False
     await wrapper.release_session(session_id)
     assert await wrapper.session_exists(session_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("external", [False, True])
+@pytest.mark.parametrize("fork", [False, True])
+async def test_continue_resolves_latest_main_session_and_holds_its_lease(wrapper, monkeypatch, external, fork):
+    """Resolve continuation before execution, including native forks and external stores."""
+    data = wrapper._session_defaults()
+    root = wrapper.workspace_path / "external" if external else wrapper.session_path / "claude_config" / "projects"
+    store = CcFileSessionStore(root)
+    if external:
+        wrapper.kwargs["session_store"] = store
+    project = project_key_for_directory(data.cwd)
+    source_id = str(uuid4())
+    for index, (identifier, sidechain) in enumerate([(source_id, False), (str(uuid4()), True), ("invalid", False)]):
+        key = {"project_key": project, "session_id": identifier}
+        await store.append(
+            key,
+            [
+                {
+                    "type": "user",
+                    "uuid": str(uuid4()),
+                    "isSidechain": sidechain,
+                    "message": {"role": "user", "content": "earlier"},
+                },
+            ],
+        )
+        os.utime(root / project / f"{identifier}.jsonl", (index + 1, index + 1))
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def query(prompt, options):
+        assert options.resume == source_id and not options.continue_conversation
+        session_id = options.session_id if fork else options.resume
+        assert (session_id != source_id) == fork
+        frames = [frame async for frame in prompt]
+        await store.append({"project_key": project, "session_id": session_id}, frames)
+        started.set()
+        await release.wait()
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id=session_id,
+            result="continued",
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    pending = asyncio.create_task(wrapper.reply("continue", continue_conversation=True, fork_session=fork))
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        assert (await wrapper.get_session_status(source_id)).status == "active"
+        with pytest.raises(TimeoutError):
+            await wrapper.append_session(source_id, "queued", message_id="queued", timeout=0.01)
+        release.set()
+        result = await pending
+    finally:
+        release.set()
+        await asyncio.gather(pending, return_exceptions=True)
+    assert result["result"] == "continued"
+    snapshot = await wrapper.read_session(result["session_id"])
+    assert snapshot.messages[-1].content == "continue"
+    assert snapshot.state.status == "idle"
+
+
+@pytest.mark.asyncio
+async def test_continue_without_history_starts_a_new_session(wrapper, monkeypatch):
+    """Native --continue starts fresh when no resumable transcript exists."""
+
+    async def query(prompt, options):
+        assert options.resume is None and not options.continue_conversation
+        frames = [frame async for frame in prompt]
+        write_entries(wrapper, options, frames)
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id=options.session_id,
+            result="new session",
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    result = await wrapper.reply("start", continue_conversation=True)
+    assert (await wrapper.read_session(result["session_id"])).messages[0].content == "start"
+
+
+@pytest.mark.asyncio
+async def test_fork_cannot_acquire_the_same_session_twice_with_different_uuid_case(wrapper):
+    """UUID casing cannot bypass the fork collision check and deadlock the shared lease."""
+    session_id = await wrapper.create_session()
+    with pytest.raises(ValueError, match="different session_id"):
+        async with asyncio.timeout(0.2):
+            await wrapper.reply("same session", resume=session_id.upper(), session_id=session_id, fork_session=True)
+    assert (await wrapper.get_session_status(session_id)).status == "idle"
 
 
 @pytest.mark.asyncio

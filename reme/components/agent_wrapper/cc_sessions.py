@@ -185,6 +185,23 @@ class CcSessions:
         path = self.native_path(session_id, data)
         return await asyncio.to_thread(path.is_file)
 
+    async def latest(self, data: SessionData, store: Any = None) -> str | None:
+        """Resolve native --continue to a main session before taking its writer lease."""
+        from claude_agent_sdk import project_key_for_directory
+        from .cc_session_store import CcFileSessionStore
+
+        listing_store = store if store is not None else CcFileSessionStore(Path(data.config_dir) / "projects")
+        sessions = await listing_store.list_sessions(project_key_for_directory(data.cwd))
+        for candidate in sorted(sessions, key=lambda item: item["mtime"], reverse=True):
+            try:
+                session_id = self.validate_id(candidate["session_id"])
+            except ValueError:
+                continue
+            entries = await self.entries(session_id, data, store)
+            if entries and not entries[0].get("isSidechain"):
+                return session_id
+        return None
+
     @asynccontextmanager
     async def lease(self, session_id: str) -> AsyncIterator[SessionRuntime]:
         """Hold the same lease for reply, compaction, native injection and publication."""

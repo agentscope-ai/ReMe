@@ -598,6 +598,7 @@ turn settings and job tools. Only explicit call arguments override these setting
 do not. Effective settings are saved beside session message records as `.config.jsonl`, without generated MCP
 credentials, so forks can restore them after unloading or restarting. An empty source without a native rollout
 creates an independent thread with the same settings.
+Rejected or cancelled native session setup leaves the prior effective settings and tool binding intact.
 
 `create_session()` saves turn settings such as `effort` before the first query, including for later forks.
 `output_schema` applies only to the current invocation and is never saved or inherited from a session. Omission uses
@@ -616,6 +617,8 @@ Claude Code uses native streaming input and a zero-inference flush receipt to pe
 `{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
 an explicitly configured external `mem_session_dir` remains supported. History and status reads do not wait behind
 generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
+`continue_conversation=True` resolves the latest main session in the current project before taking its lease,
+including when using an external `session_store`; with no stored conversation it starts a new session.
 
 The `session_read`, `session_status` and `session_append` jobs use the wrapper selected by their Step configuration.
 Start the service with `reme start config=default`, then use another terminal:

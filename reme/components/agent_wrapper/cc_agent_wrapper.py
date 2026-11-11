@@ -670,6 +670,18 @@ class CcAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Keep one session lease through SDK shutdown and metadata publication."""
         options = self._build_options(inputs, stream=True, **self._merged_kwargs(kwargs))
+        if options.resume:
+            options.resume = self._sessions.validate_id(options.resume)
+        if options.continue_conversation:
+            if options.session_id and not options.fork_session:
+                raise ValueError("session_id cannot be used with continue_conversation unless fork_session=True")
+            if not options.resume:
+                async with asyncio.timeout(options.load_timeout_ms / 1000):
+                    options.resume = await self._sessions.latest(
+                        self._sessions.location(options),
+                        options.session_store,
+                    )
+            options.continue_conversation = False
         session_id = options.session_id or (options.resume if not options.fork_session else None) or str(uuid4())
         session_id = self._sessions.validate_id(session_id)
         if not options.resume or options.fork_session:

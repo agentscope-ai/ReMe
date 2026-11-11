@@ -1649,6 +1649,53 @@ async def test_fork_model_override_preserves_source_and_wrapper_defaults(system)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["binding", "resume", "cancelled"])
+async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, monkeypatch, failure):
+    first, second, server, _ = system
+    source_id = (
+        await first.reply("source", model="source-model", system_prompt="Source instructions.", effort="high")
+    )["session_id"]
+    native = _Codex.instances[0]
+    settings = server._message_path(source_id).with_suffix(".config.jsonl")
+    original_settings = settings.read_bytes()
+    changes = {"model": "rejected-model", "system_prompt": "Rejected instructions.", "effort": "low"}
+    if failure == "binding":
+        changes["job_tools"] = ["search"]
+        expected = ValueError
+    else:
+        expected = asyncio.CancelledError if failure == "cancelled" else ValueError
+    with monkeypatch.context() as patch:
+        if failure != "binding":
+            patch.setattr(native, "thread_resume", AsyncMock(side_effect=expected("resume rejected")))
+        with pytest.raises(expected):
+            await first.reply("must not execute", resume=source_id, **changes)
+    assert native.threads[source_id].inputs == ["source"]
+    assert settings.read_bytes() == original_settings
+
+    fork = await second.reply("fork", resume=source_id, fork_session=True)
+    assert native.opened[-1][2]["model"] == "source-model"
+    assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
+    assert native.threads[fork["session_id"]].options[-1]["effort"].value == "high"
+    await first.reply("retry", resume=source_id)
+    assert native.threads[source_id].options[-1]["model"] == "source-model"
+    assert native.threads[source_id].options[-1]["effort"].value == "high"
+
+
+@pytest.mark.asyncio
+async def test_saved_thread_config_is_detached_from_mutable_call_options(system):
+    first, second, server, _ = system
+    config = {"shell_environment_policy": {"set": {"ORIGINAL": "before"}}}
+    source_id = (await first.reply("source", config=config))["session_id"]
+    settings = server._message_path(source_id).with_suffix(".config.jsonl").read_bytes()
+    config["shell_environment_policy"]["set"]["ORIGINAL"] = "after"
+
+    await second.reply("fork", resume=source_id, fork_session=True)
+    native = _Codex.instances[0]
+    assert native.opened[-1][2]["config"]["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
+    assert server._message_path(source_id).with_suffix(".config.jsonl").read_bytes() == settings
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("restore", ["loaded", "unloaded", "restart"])
 @pytest.mark.parametrize("caller", [None, "temporary"])
 async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore, caller):

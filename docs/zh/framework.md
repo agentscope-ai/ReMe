@@ -573,6 +573,7 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 只有显式调用参数会覆盖这些设置，调用方 wrapper 的默认值不会覆盖。有效设置以 `.config.jsonl` 保存在会话消息
 记录旁，不保存自动生成的 MCP 凭据，卸载或重启后仍可恢复。来源为空且尚无原生 rollout 时，创建使用相同设置的
 独立 thread。
+原生会话准备被拒绝或取消时，保留之前有效的设置和工具绑定。
 
 `create_session()` 在首次查询前就保存 `effort` 等 turn 设置，后续 fork 也会继承。
 `output_schema` 只作用于本次调用，不保存或继承到会话。普通调用省略时使用调用方 wrapper 的默认值；
@@ -589,6 +590,8 @@ Claude Code 使用原生流式输入和零推理回执保存追加消息。
 `{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
 工作区外的 `mem_session_dir`。历史和状态读取不等待生成；追加、压缩与生成共用会话锁。
 空会话包含一条隐藏的原生种子输入。
+`continue_conversation=True` 先定位当前项目最近的主会话，再获取它的会话锁；外部 `session_store` 同样支持，
+没有历史会话时创建新会话。
 
 `session_read`、`session_status` 和 `session_append` Job 使用各自 Step 配置中指定的 wrapper。
 先通过 `reme start config=default` 启动服务，再在另一个终端调用：

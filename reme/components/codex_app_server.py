@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, nullcontext, suppress
+from copy import deepcopy
 from dataclasses import dataclass, field
 import json
 import hashlib
@@ -696,34 +697,34 @@ class CodexAppServer(BaseComponent):
             raise ValueError("Codex job_tools must be enabled")
 
     async def _bind_tools(self, state, options, jobs, injected, startup_timeout, tool_timeout):
-        """Rebind transport credentials while retaining the model-visible tool catalog."""
+        """Prepare transport credentials without committing the thread's effective settings."""
         self.validate_job_tools(jobs)
         if jobs is None:
-            return options
+            return options, state.binding, state.token
         injected = json.loads(json.dumps(injected or {}))
         binding = json.dumps({"jobs": [job.name for job in jobs], "injected": injected}, sort_keys=True)
         if state.binding is not None and state.binding != binding:
             raise ValueError("job_tools, tool_context_id and injected_job_kwargs cannot change on a loaded thread")
-        state.binding = binding
         config = dict(options.get("config") or {})
         servers = dict(config.get("mcp_servers") or {})
         if "reme_jobs" in servers:
             raise ValueError("mcp_servers.reme_jobs is reserved for ReMe job tools")
         servers["reme_jobs"] = {"url": "http://127.0.0.1", "enabled": False}
+        token = state.token
         if jobs:
             url = await self._mcp_url()
-            if state.token is None:
-                state.token = self.jobs_mcp.register(jobs, injected)
+            if token is None:
+                token = self.jobs_mcp.register(jobs, injected)
             servers["reme_jobs"] = {
                 "url": url,
-                "http_headers": {"Authorization": f"Bearer {state.token}"},
+                "http_headers": {"Authorization": f"Bearer {token}"},
                 "required": True,
                 "enabled_tools": [job.name for job in jobs],
                 "tools": {job.name: {"approval_mode": "approve"} for job in jobs},
                 "startup_timeout_sec": startup_timeout,
                 "tool_timeout_sec": tool_timeout,
             }
-        return {**options, "config": {**config, "mcp_servers": servers}}
+        return {**options, "config": {**config, "mcp_servers": servers}}, binding, token
 
     @asynccontextmanager
     async def thread(
@@ -746,7 +747,6 @@ class CodexAppServer(BaseComponent):
         self._active += 1
         self._idle.clear()
         state = None
-        previous_token = None
         thread = None
         codex = None
         try:
@@ -755,15 +755,15 @@ class CodexAppServer(BaseComponent):
             state = self._threads.setdefault(thread_id, _ThreadState()) if thread_id and not fork else _ThreadState()
             state.users += 1
             state.revision += 1
-            previous_token = state.token
             async with state.lock:
                 if thread_id and not fork:
                     await self._restore_thread_config(thread_id, state, restore_binding=jobs is None)
                 async with self._fork_source(thread_id) if fork else nullcontext(None) as source:
-                    options = dict(options or {})
+                    options = deepcopy(options or {})
+                    prepared_turn_options = dict(state.turn_options)
                     if source is not None:
                         inherited = dict(source.options)
-                        state.turn_options = dict(source.turn_options)
+                        prepared_turn_options = dict(source.turn_options)
                         for key in ("cwd", "model", "approval_mode", "sandbox", "service_tier"):
                             if key in source.turn_options:
                                 inherited[key] = source.turn_options[key]
@@ -780,10 +780,10 @@ class CodexAppServer(BaseComponent):
                             binding = json.loads(source.binding)
                             jobs = [self.app_context.jobs[name] for name in binding["jobs"]]
                             injected = {**binding["injected"], **(injected or {})}
-                    state.turn_options.update(turn_options or {})
+                    prepared_turn_options.update(turn_options or {})
                     effective = {key: value for key, value in options.items() if value is not None}
-                    state.options = deep_merge_config(state.options, effective)
-                    options = await self._bind_tools(
+                    prepared_options = deep_merge_config(state.options, effective)
+                    options, binding, token = await self._bind_tools(
                         state,
                         options,
                         jobs,
@@ -791,28 +791,35 @@ class CodexAppServer(BaseComponent):
                         mcp_startup_timeout,
                         mcp_tool_timeout,
                     )
-                    if fork:
-                        # Native fork requires a rollout, which an unstarted live thread may not have yet.
-                        source_path = await self.get_session_path(thread_id) if source.pending is not None else None
-                        empty = source.pending is not None and (
-                            source_path is None or not await asyncio.to_thread(source_path.exists)
-                        )
-                        if empty:
+                    try:
+                        if fork:
+                            # Native fork requires a rollout, which an unstarted live thread may not have yet.
+                            source_path = await self.get_session_path(thread_id) if source.pending is not None else None
+                            empty = source.pending is not None and (
+                                source_path is None or not await asyncio.to_thread(source_path.exists)
+                            )
+                            if empty:
+                                thread = await codex.thread_start(**options)
+                                state.token_usage = TokenUsage()
+                            else:
+                                state.token_usage = await self.token_usage(thread_id)
+                                thread = await codex.thread_fork(thread_id, **options)
+                                await finish_cleanup(self._fork_messages(thread_id, thread))
+                        elif state.pending is not None:
+                            thread = state.pending
+                        elif thread_id:
+                            thread = await codex.thread_resume(thread_id, **options)
+                        else:
                             thread = await codex.thread_start(**options)
                             state.token_usage = TokenUsage()
-                        else:
-                            state.token_usage = await self.token_usage(thread_id)
-                            thread = await codex.thread_fork(thread_id, **options)
-                            await finish_cleanup(self._fork_messages(thread_id, thread))
-                    elif state.pending is not None:
-                        thread = state.pending
-                    elif thread_id:
-                        thread = await codex.thread_resume(thread_id, **options)
-                    else:
-                        thread = await codex.thread_start(**options)
-                        state.token_usage = TokenUsage()
-                        if keep_empty:
-                            state.pending = thread
+                            if keep_empty:
+                                state.pending = thread
+                    except BaseException:
+                        if token != state.token:
+                            self.jobs_mcp.scopes.pop(token, None)
+                        raise
+                    state.options, state.turn_options = prepared_options, prepared_turn_options
+                    state.binding, state.token = binding, token
                 self._threads[thread.id] = state
                 if thread_id and not fork:
                     await self.wait_idle(thread)
@@ -859,9 +866,6 @@ class CodexAppServer(BaseComponent):
         finally:
             if state is not None:
                 state.users -= 1
-                if thread is None and state.token != previous_token:
-                    self.jobs_mcp.scopes.pop(state.token, None)
-                    state.token = previous_token
             self._active -= 1
             if not self._active:
                 self._idle.set()
