@@ -3,6 +3,7 @@
 # pylint: disable=protected-access
 
 from contextlib import chdir as temp_chdir
+import asyncio
 import tempfile
 
 import pytest
@@ -19,6 +20,68 @@ from .file_store_test_support import (
     chunk,
     node,
 )
+
+
+@pytest.mark.asyncio
+async def test_faiss_embedding_reindex_and_close_complete_concurrently(tmp_path, monkeypatch):
+    """Shutdown must not take the FAISS lock while reindex holds maintenance."""
+    monkeypatch.chdir(tmp_path)
+    embedding_started = asyncio.Event()
+    release_embedding = asyncio.Event()
+    shutdown_checkpoint = asyncio.Event()
+
+    class BlockingEmbeddingStore(FakeEmbeddingStore):
+        """Pause a real embedding reindex at its provider boundary."""
+
+        async def get_node_embeddings(self, nodes, **kwargs):
+            embedding_started.set()
+            await release_embedding.wait()
+            return await super().get_node_embeddings(nodes, **kwargs)
+
+    store = _new_faiss_store("t_reindex_close")
+    await store.start()
+    tasks = []
+    close_task = None
+    try:
+        store.embedding_store = FakeEmbeddingStore()
+        store._faiss_index = store._new_index()
+        await store.upsert([(node("a.md"), [chunk("a", "a.md", "alpha memory")])])
+        store.embedding_store = BlockingEmbeddingStore()
+        dump_owned_state = store._dump_owned_state
+
+        async def observe_shutdown_checkpoint():
+            if asyncio.current_task() is close_task:
+                shutdown_checkpoint.set()
+            await dump_owned_state()
+
+        monkeypatch.setattr(store, "_dump_owned_state", observe_shutdown_checkpoint)
+        reindex_task = asyncio.create_task(store.reindex("embedding"))
+        tasks.append(reindex_task)
+        await asyncio.wait_for(embedding_started.wait(), timeout=3)
+        close_task = asyncio.create_task(store.close())
+        tasks.append(close_task)
+        await asyncio.wait_for(shutdown_checkpoint.wait(), timeout=3)
+        release_embedding.set()
+        result, _ = await asyncio.wait_for(asyncio.gather(*tasks), timeout=3)
+        assert result == {"indexed": 1, "scope": "embedding"}
+        assert store.faiss_path.exists()
+        assert store.faiss_idmap_path.exists()
+    finally:
+        release_embedding.set()
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await store.close()
+
+    restored = _new_faiss_store("t_reindex_close")
+    restored.embedding_store = FakeEmbeddingStore()
+    await restored.start()
+    try:
+        assert restored._faiss_index.ntotal == 1
+        assert [result.id for result in await restored.vector_search("alpha", 5, {})] == ["a"]
+    finally:
+        await restored.close()
 
 
 @pytest.mark.asyncio
