@@ -558,13 +558,54 @@ HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函
 迁移：用 `result`/`raw` 替代 `last_message`/`turn`，消费终止结果，不再拼接所有流式 payload。
 纯文本生产者使用默认 `delta` 操作。
 
+AgentScope wrapper 支持上述会话操作，保留现有 Agent 生成流程。`resume` 恢复模型上下文；显式 `session_id`
+在该 ID 下使用新的模型上下文，同时保留显示历史。`{mem_session_dir}/agentscope/<UUID>.jsonl` 原子保存完整
+SDK 状态和显示历史，因此压缩不会丢失已经记录的聊天。旧的摘要/上下文文件仍可读取，之前已经丢弃的历史无法
+恢复。回复、压缩和追加 user/assistant 消息共用会话锁；读取历史、查询状态不等待生成。追加要求会话空闲，保留展示
+策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
+同一个 Application 中，独立进程不能并发写入同一会话。
+
 Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
+传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的指令、模型、turn 设置和 job 工具。
+只有显式调用参数会覆盖这些设置，调用方 wrapper 的默认值不会覆盖。有效设置以 `.config.jsonl` 保存在会话消息
+记录旁，不保存自动生成的 MCP 凭据，卸载或重启后仍可恢复。来源为空且尚无原生 rollout 时，创建使用相同设置的
+独立 thread。
+
+`create_session()` 在首次查询前就保存 `effort` 等 turn 设置，后续 fork 也会继承。
+`output_schema` 只作用于本次调用，不保存或继承到会话。普通调用省略时使用调用方 wrapper 的默认值；
+显式传 `None` 仅在本次调用关闭该默认值。
+
+`CodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
+会话监听器也会收到这些事件；turn 完成、失败或取消时结束活动。
+三个 wrapper 均支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
+同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
+`append_session(..., delivery="idle" | "immediate")` 在消息中保留展示策略与来源会话；两种策略都等待原生会话
+空闲后再注入。Codex 读取会话、查询状态和追加消息时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
+
+Claude Code 使用原生流式输入和零推理回执保存追加消息。
+`{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
+工作区外的 `mem_session_dir`。历史和状态读取不等待生成；追加、压缩与生成共用会话锁。
+空会话包含一条隐藏的原生种子输入。
+
+`session_read`、`session_status` 和 `session_append` Job 使用各自 Step 配置中指定的 wrapper。
+先通过 `reme start config=default` 启动服务，再在另一个终端调用：
+
+```bash
+reme session_append session_id=YOUR_SESSION_ID message_id=note-1 role=user content="补充上下文"
+reme session_read session_id=YOUR_SESSION_ID
+reme session_status session_id=YOUR_SESSION_ID
+```
+
 `await wrapper.get_session_path(session_id)` 返回原生会话文件的 `Path`；Codex 未提供路径时返回 `None`。
 第一轮对话前文件可能尚未创建。查询错误继续传播，返回路径必须位于配置的 `codex_home` 内。
-查询不恢复 thread，也不加载对话历史。其他后端暂时抛出 `NotImplementedError`。
+AgentScope 和 Claude Code 也返回各自的原生会话文件；Claude 配置外部 `session_store` 时返回 `None`。
+路径查询不恢复会话，也不生成新的回复。
+
+`await wrapper.session_exists(session_id)` 检查会话是否可恢复，包括尚未生成 rollout 的 Codex 活跃空会话；
+不支持该能力的后端抛出 `NotImplementedError`。
 
 默认使用 `approval_mode: deny_all` 和 `sandbox: full-access`；SDK 将该模式映射为 `approval_policy: never`，
 可用工具直接执行，不经过人工或模型审批。需要新增权限的请求直接拒绝，不弹出审批。

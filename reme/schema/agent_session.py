@@ -25,6 +25,8 @@ class SessionMessage(BaseModel):
     created_at: str | None = None
     turn_id: str | None = None
     completed: bool = True
+    delivery: Literal["idle", "immediate"] = "idle"
+    origin_session_id: str | None = None
     chunks: list[StreamChunk] = Field(default_factory=list)
 
 

@@ -21,6 +21,7 @@ class _SessionStep(BaseStep):
             kwargs = {
                 "content": self.context.get("content"),
                 "message_id": self.context.get("message_id"),
+                "role": self.context.get("role", "assistant"),
                 "timeout": float(self.context.get("wait_timeout", 30)),
             }
         try:
@@ -41,6 +42,6 @@ class SessionReadStep(_SessionStep):
 
 @R.register("session_append_step")
 class SessionAppendStep(_SessionStep):
-    """Append a proactive assistant message after the current turn finishes."""
+    """Append a user or assistant message without starting a model turn."""
 
     operation = "append_session"

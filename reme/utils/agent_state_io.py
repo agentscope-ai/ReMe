@@ -1,19 +1,29 @@
-"""AgentState JSONL dump / load.
+"""Atomically persist AgentScope state and display history in one JSONL file.
 
-Format:
-  Line 1 — header Msg: AgentState.summary as content, state scalars in metadata.
-  Lines 2+ — AgentState.context, one Msg per line.
+The header contains the summary, remaining SDK state, and display history.
+Subsequent records contain the current model context. Legacy headers remain readable.
 """
 
+import asyncio
 import os
+from dataclasses import dataclass, field
 from uuid import uuid4
 from pathlib import Path
 
-import aiofiles
 from agentscope.message import Msg, UserMsg
 from agentscope.state import AgentState
 
-_META_KEYS = ("session_id", "reply_id", "cur_iter")
+from .async_utils import complete_in_thread
+from ..schema.agent_session import SessionMessage
+
+
+@dataclass
+class AsSessionData:
+    """Native model state and the history that must survive its compression."""
+
+    state: AgentState
+    messages: list[SessionMessage] = field(default_factory=list)
+    last_turn_id: str | None = None
 
 
 class AsStateHandler:
@@ -33,43 +43,48 @@ class AsStateHandler:
         """Return whether the state file exists."""
         return self.path.is_file()
 
-    async def load_or_none(self) -> AgentState | None:
-        """Load state if the file exists, otherwise return ``None``."""
-        if not self.exists():
-            return None
-        return await self.load()
-
-    async def delete(self) -> bool:
-        """Delete the state file if present. Returns whether a file was removed."""
-        if not self.exists():
-            return False
-        self.path.unlink()
-        return True
-
     async def dump(self, state: AgentState) -> Path:
-        """Write *state* to ``self.path`` in JSONL format."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        """Write a standalone SDK state without application display history."""
+        return await self.dump_session(AsSessionData(state))
+
+    async def dump_session(self, session: AsSessionData) -> Path:
+        """Commit state, history and proactive message IDs together, including on cancellation."""
+        state = session.state
         header = UserMsg(
             name="__state__",
             content=state.summary or "",
-            metadata={k: getattr(state, k) for k in _META_KEYS},
+            metadata={
+                "agent_state": state.model_dump(mode="json", exclude={"context"}),
+                "messages": [message.model_dump(mode="json") for message in session.messages],
+                "last_turn_id": session.last_turn_id,
+            },
         )
-        tmp_path = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
-        async with aiofiles.open(tmp_path, "w", encoding="utf-8") as f:
-            await f.write(header.model_dump_json() + "\n")
-            for msg in state.context:
-                await f.write(msg.model_dump_json() + "\n")
-        os.replace(tmp_path, self.path)
+        records = [header.model_dump_json(), *(msg.model_dump_json() for msg in state.context)]
+        await complete_in_thread(self._write, "\n".join(records) + "\n")
         return self.path
 
+    def _write(self, content: str) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
+        try:
+            with tmp_path.open("w", encoding="utf-8") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp_path, self.path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
     async def load(self) -> AgentState:
-        """Read an AgentState back from ``self.path``."""
-        async with aiofiles.open(self.path, encoding="utf-8") as f:
-            # Unicode line separators are valid JSON string content, not JSONL delimiters.
-            content = await f.read()
-            lines = content.split("\n") if content else []
+        """Read native state through the same parser used by session operations."""
+        return (await self.load_session()).state
+
+    async def load_session(self) -> AsSessionData:
+        """Read a complete session; Unicode separators inside JSON strings stay intact."""
+        content = await asyncio.to_thread(self.path.read_text, encoding="utf-8")
+        lines = content.split("\n") if content else []
         if not lines:
-            return AgentState()
+            return AsSessionData(AgentState())
 
         header = Msg.model_validate_json(lines[0])
         summary: str | list = (
@@ -79,8 +94,18 @@ class AsStateHandler:
         )
 
         metadata = header.metadata or {}
-        return AgentState(
-            **{k: metadata.get(k, d) for k, d in [("session_id", ""), ("reply_id", ""), ("cur_iter", 0)]},
-            summary=summary,
-            context=[Msg.model_validate_json(line) for line in lines[1:] if line.strip()],
+        scalars = metadata.get("agent_state") or {
+            k: metadata.get(k, d) for k, d in [("session_id", ""), ("reply_id", ""), ("cur_iter", 0)]
+        }
+        state = AgentState.model_validate(
+            {
+                **scalars,
+                "summary": scalars.get("summary", summary),
+                "context": [Msg.model_validate_json(line) for line in lines[1:] if line.strip()],
+            },
+        )
+        return AsSessionData(
+            state,
+            [SessionMessage.model_validate(message) for message in metadata.get("messages", [])],
+            metadata.get("last_turn_id"),
         )

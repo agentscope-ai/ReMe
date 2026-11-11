@@ -2,13 +2,13 @@
 
 import asyncio
 import os
-import re
 import subprocess
+import sys
 import time
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
 
 from agentscope.agent import Agent, ContextConfig, ReActConfig
@@ -55,20 +55,16 @@ from agentscope.tool import (
 )
 
 from .base_agent_wrapper import BaseAgentWrapper
+from .as_session_store import AsSessionStore, record_chunk, record_end, record_inputs
 from ..as_llm import BaseAsLLM
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import AgentReply, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
-from ...utils import AsStateHandler
+from ...utils.async_utils import finish_cleanup
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
-
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-    re.IGNORECASE,
-)
 
 
 class WorkspaceBackend(LocalBackend):
@@ -159,6 +155,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         self.as_llm = self.bind(as_llm, BaseAsLLM, optional=False)
         self.session_retention_days = int(session_retention_days)
         self._session_cleanup_done = False
+        self._session_store: AsSessionStore | None = None
 
     @classmethod
     def _make_tool(
@@ -229,11 +226,18 @@ class AsAgentWrapper(BaseAgentWrapper):
             return self.workspace_path / "mem_session" / "agentscope"
         return self.workspace_path / self.app_context.app_config.mem_session_dir / "agentscope"
 
-    @staticmethod
-    def _validate_session_id(session_id: str, field: str = "session_id") -> str:
-        if not _UUID_RE.match(session_id):
-            raise ValueError(f"{field} must be a valid UUID: {session_id!r}")
-        return session_id.lower()
+    @property
+    def _sessions(self) -> AsSessionStore:
+        """Share one owner across wrappers targeting the same application session directory."""
+        if self.app_context is not None:
+            stores = self.app_context.metadata.setdefault("__agentscope_session_stores", {})
+            key = str(self.session_path.resolve())
+            if key not in stores:
+                stores[key] = AsSessionStore(self.session_path)
+            return stores[key]
+        if self._session_store is None:
+            self._session_store = AsSessionStore(self.session_path)
+        return self._session_store
 
     def _cleanup_expired_sessions(self) -> None:
         """Delete persisted session files older than ``session_retention_days``."""
@@ -241,7 +245,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             self._session_cleanup_done = True
             return
 
-        session_path = self.session_path
+        session_path = self._sessions.path(str(uuid4())).parent
         if not session_path.is_dir():
             self._session_cleanup_done = True
             return
@@ -250,6 +254,8 @@ class AsAgentWrapper(BaseAgentWrapper):
         removed = 0
         for path in session_path.glob("*.jsonl"):
             try:
+                if self._sessions.in_use(path.stem):
+                    continue
                 if path.is_file() and path.stat().st_mtime < cutoff:
                     path.unlink()
                     removed += 1
@@ -262,40 +268,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             )
         self._session_cleanup_done = True
 
-    async def _load_state(self, kwargs: dict[str, Any], perm_mode: PermissionMode) -> AgentState:
-        resume = kwargs.get("resume") or ""
-        session_id = kwargs.get("session_id") or ""
-        fork_session = bool(kwargs.get("fork_session", False))
-        if resume:
-            resume = self._validate_session_id(resume, "resume")
-        if session_id:
-            session_id = self._validate_session_id(session_id)
-
-        if session_id and resume and not fork_session:
-            raise ValueError("session_id cannot be used with resume unless fork_session=True")
-
-        if resume:
-            handler = AsStateHandler.for_session(self.session_path, resume)
-            state = await handler.load_or_none()
-            if state is None:
-                raise FileNotFoundError(f"AgentScope session not found: {resume}")
-            state.permission_context = PermissionContext(mode=perm_mode)
-            state.session_id = resume
-            if fork_session:
-                forked = AgentState(
-                    session_id=session_id or str(uuid4()),
-                    summary=state.summary,
-                    context=list(state.context),
-                    permission_context=PermissionContext(mode=perm_mode),
-                )
-                return forked
-            return state
-
-        return AgentState(session_id=session_id or str(uuid4()), permission_context=PermissionContext(mode=perm_mode))
-
-    async def _dump_state(self, state: AgentState) -> None:
-        await AsStateHandler.for_session(self.session_path, state.session_id).dump(state)
-
     def _resolve_skills(self, skills: list[str] | str | None) -> list[str]:
         """Resolve configured skill names to AgentScope local skill directories."""
         return [str(path) for path in self._resolve_project_skills(skills).values()]
@@ -305,7 +277,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         del options
         return Agent(**kwargs)
 
-    async def _build_agent(self, inputs: Any, **kwargs) -> tuple[Agent, Any]:
+    async def _build_agent(self, inputs: Any, *, state: AgentState | None = None, **kwargs) -> tuple[Agent, Any]:
         """Build an Agent instance from kwargs. Returns (agent, processed_inputs)."""
         model = self.as_llm.model if self.as_llm else None
         if model is None:
@@ -330,8 +302,10 @@ class AsAgentWrapper(BaseAgentWrapper):
             skills_or_loaders=skills,
         )
 
-        perm_mode = PermissionMode(kwargs.get("permission_mode", "bypass"))
-        state = await self._load_state(kwargs, perm_mode)
+        if state is None:
+            options = self._sessions.options(kwargs)
+            async with self._sessions.open(options, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+                state = session.state
 
         agent = self._create_agent(
             options=kwargs,
@@ -412,27 +386,60 @@ class AsAgentWrapper(BaseAgentWrapper):
     async def create_session(self, **kwargs) -> str:
         """Persist an empty state so the next turn can resume without calling a model."""
         kwargs = self._merged_kwargs(kwargs)
-        state = AgentState(
-            session_id=str(uuid4()),
-            permission_context=PermissionContext(mode=PermissionMode(kwargs.get("permission_mode", "bypass"))),
-        )
-        await self._dump_state(state)
-        return state.session_id
+        options = {"session_id": str(uuid4())}
+        async with self._sessions.open(options, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+            await self._sessions.save(session)
+            return session.state.session_id
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Check stored or active sessions without constructing an Agent."""
+        return await self._sessions.exists(self._sessions.validate_id(session_id))
+
+    async def get_session_path(self, session_id: str) -> Path:
+        """Resolve the contained native state file, including before its first write."""
+        return self._sessions.path(session_id)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Read stored or live display history without waiting behind generation."""
+        return await self._sessions.snapshot(session_id)
 
     async def get_session_status(self, session_id: str) -> SessionStatus:
-        """Stored states are idle between application-owned turns."""
-        session_id = self._validate_session_id(session_id)
-        if not AsStateHandler.for_session(self.session_path, session_id).exists():
-            raise FileNotFoundError(f"AgentScope session not found: {session_id}")
-        return SessionStatus(session_id=session_id, status="idle")
+        """Report application-owned execution and SDK approval/execution waits."""
+        return await self._sessions.get_status(session_id)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
+        timeout: float = 30,
+        expected_turn_id: str | None = None,
+        delivery: str = "idle",
+    ) -> SessionMessage:
+        """Append an idempotent user or assistant observation without generating a reply."""
+        return await self._sessions.append(
+            session_id,
+            content,
+            message_id=message_id,
+            role=role,
+            timeout=timeout,
+            expected_turn_id=expected_turn_id,
+            delivery=delivery,
+            name=self.name,
+        )
 
     async def compact_session(self, session_id: str) -> None:
         """Force compression of an AgentScope session."""
-        kwargs = self._merged_kwargs({"resume": session_id})
-        agent, _ = await self._build_agent(None, **kwargs)
-        config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
-        await agent.compress_context(ContextConfig(**config))
-        await self._dump_state(agent.state)
+        kwargs = self._sessions.options(self._merged_kwargs({"resume": session_id}))
+        async with self._sessions.open(kwargs, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+            agent, _ = await self._build_agent(None, state=session.state, **kwargs)
+            config = {**(kwargs.get("context_config") or {}), "trigger_ratio": 1e-9}
+            try:
+                await agent.compress_context(ContextConfig(**config))
+            finally:
+                await finish_cleanup(self._sessions.save(session))
 
     # ----- StreamChunk conversion -------------------------------------------
 
@@ -513,45 +520,65 @@ class AsAgentWrapper(BaseAgentWrapper):
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, streaming native events followed by the complete outcome."""
-        kwargs = self._merged_kwargs(kwargs)
-        agent, inputs = await self._build_agent(inputs, **kwargs)
-        last_msg, terminal = None, None
-        model_usages = []
-        finishing = False
-        try:
-            async with aclosing(agent.reply_stream(inputs, yield_final_msg=True)) as stream:
-                async for event in stream:
-                    if isinstance(event, Msg):
-                        last_msg = event
-                        continue
-                    if isinstance(event, ModelCallEndEvent):
-                        model_usages.append(self._agentscope_usage(event))
-                    chunk = self._event_to_chunk(event)
-                    chunk.session_id = chunk.session_id or agent.state.session_id
-                    if isinstance(event, ReplyEndEvent):
-                        terminal = chunk
-                    else:
-                        yield chunk
-            if last_msg is None:
-                raise RuntimeError("AgentScope final message not received")
-            if terminal is None:
-                if last_msg.finished_reason is not None:
-                    raise RuntimeError("AgentScope reply_end not received")
-                terminal = self._chunk(
-                    ChunkEnum.REPLY_END,
-                    event="end",
-                    chunk=None,
-                    session_id=agent.state.session_id,
-                    turn_id=last_msg.id,
-                    status="waiting",
-                )
-            finishing = True
-            result = await self._finish_reply(agent, last_msg, kwargs)
-        finally:
-            if not finishing and model_usages:
-                self._record_token_usage(TokenUsage.combine(model_usages))
-            await self._dump_state(agent.state)
-        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
-        terminal.status = result["status"]
-        terminal.metadata["error"] = result["error"]
+        kwargs = self._sessions.options(self._merged_kwargs(kwargs))
+        async with self._sessions.open(kwargs, PermissionMode(kwargs.get("permission_mode", "bypass"))) as session:
+            agent, inputs = await self._build_agent(inputs, state=session.state, **kwargs)
+            last_msg, terminal = None, None
+            turn_id = None
+            inputs_recorded = False
+            model_usages = []
+            finishing = False
+            result = None
+            try:
+                async with aclosing(agent.reply_stream(inputs, yield_final_msg=True)) as stream:
+                    async for event in stream:
+                        if not inputs_recorded:
+                            record_inputs(session, inputs)
+                            inputs_recorded = True
+                        if isinstance(event, Msg):
+                            last_msg = event
+                            continue
+                        if isinstance(event, ModelCallEndEvent):
+                            model_usages.append(self._agentscope_usage(event))
+                        chunk = self._event_to_chunk(event)
+                        chunk.session_id = chunk.session_id or agent.state.session_id
+                        turn_id = chunk.turn_id or turn_id
+                        if isinstance(event, ReplyEndEvent):
+                            terminal = chunk
+                        else:
+                            record_chunk(session, chunk)
+                            yield chunk
+                if last_msg is None:
+                    raise RuntimeError("AgentScope final message not received")
+                if terminal is None:
+                    if last_msg.finished_reason is not None:
+                        raise RuntimeError("AgentScope reply_end not received")
+                    terminal = self._chunk(
+                        ChunkEnum.REPLY_END,
+                        event="end",
+                        chunk=None,
+                        session_id=agent.state.session_id,
+                        turn_id=last_msg.id,
+                        status="waiting",
+                    )
+                finishing = True
+                result = await self._finish_reply(agent, last_msg, kwargs)
+                terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+                terminal.status = result["status"]
+                terminal.metadata["error"] = result["error"]
+            finally:
+                if not finishing and model_usages:
+                    self._record_token_usage(TokenUsage.combine(model_usages))
+                if result is None:
+                    interrupted = isinstance(sys.exception(), (asyncio.CancelledError, GeneratorExit))
+                    terminal = self._chunk(
+                        ChunkEnum.REPLY_END,
+                        event="end",
+                        chunk=None,
+                        turn_id=turn_id,
+                        session_id=agent.state.session_id,
+                        status="interrupted" if interrupted else "failed",
+                    )
+                record_end(session, terminal, last_msg)
+                await finish_cleanup(self._sessions.save(session))
         yield terminal

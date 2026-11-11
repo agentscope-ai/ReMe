@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import re
+from typing import Literal
 from uuid import uuid4
 
 from ...enumeration import ChunkEnum
@@ -35,7 +36,7 @@ def read_records(path: Path) -> list[dict]:
     """Read the application-owned provenance file; corruption fails explicitly."""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line.strip()]
 
 
 def write_records(path: Path, records: list[dict]) -> None:
@@ -68,18 +69,24 @@ def injected_ids(thread, home: Path) -> set[str]:
     if not path.exists():
         return set()
     found = set()
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines = path.read_text(encoding="utf-8").split("\n")
     for index, line in enumerate(lines):
+        if not line.strip():
+            continue
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
-            if index == len(lines) - 1 and not line.endswith("\n"):
+            if index == len(lines) - 1:
                 break  # An unrelated native append may still be writing its final line.
             raise
         if entry.get("type") != "response_item":
             continue
         payload = entry.get("payload")
-        if not isinstance(payload, dict) or payload.get("type") != "message" or payload.get("role") != "assistant":
+        if (
+            not isinstance(payload, dict)
+            or payload.get("type") != "message"
+            or payload.get("role") not in ("user", "assistant")
+        ):
             continue
         item_id = payload.get("id", "")
         if isinstance(item_id, str) and item_id.startswith("reme-proactive-"):
@@ -111,12 +118,12 @@ def read_token_usage(thread, home: Path) -> TokenUsage:
     return usage
 
 
-def new_record(message_id: str, content: str, thread) -> dict:
+def new_record(message_id: str, content: str, thread, *, role: Literal["user", "assistant"] = "assistant") -> dict:
     """Anchor proactive messages after the last completed native turn."""
     return {
         "message": SessionMessage(
             id=f"reme-proactive-{message_id}",
-            role="assistant",
+            role=role,
             content=content,
             source="proactive",
             created_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),

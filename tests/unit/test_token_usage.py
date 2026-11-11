@@ -155,7 +155,7 @@ async def test_agentscope_records_usage_in_both_return_modes(tmp_path, monkeypat
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
     if streaming:
         chunks = [chunk async for chunk in wrapper.reply_stream("hello")]
         result = chunks[-1].chunk

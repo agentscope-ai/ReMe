@@ -169,7 +169,7 @@ class PaRuntime(BaseComponent):
                 for message in change.messages:
                     self.observe(message)
                 self._needs_refresh = False
-            else:
+            elif isinstance(change, SessionStatus):
                 self._native_status = change
         self.publish_status()
 

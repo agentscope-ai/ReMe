@@ -42,7 +42,7 @@ def _agentscope(tmp_path, monkeypatch, message, model=None):
     )
     wrapper.as_llm = SimpleNamespace(model=model)
     monkeypatch.setattr(wrapper, "_build_agent", AsyncMock(return_value=(agent, "hello")))
-    monkeypatch.setattr(wrapper, "_dump_state", AsyncMock())
+    monkeypatch.setattr(wrapper._sessions, "save", AsyncMock())  # pylint: disable=protected-access
     return wrapper
 
 
@@ -142,7 +142,7 @@ async def test_agentscope_propagates_cancellation_even_if_sdk_returns_a_message(
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    wrapper._dump_state.assert_awaited_once_with(agent.state)  # pylint: disable=protected-access
+    wrapper._sessions.save.assert_awaited_once()  # pylint: disable=protected-access
     counters = global_counter_get_all(wrapper.app_context.metadata, ["__token_counter", wrapper.name])
     assert counters["children"]["total_tokens"]["value"] == 12
 

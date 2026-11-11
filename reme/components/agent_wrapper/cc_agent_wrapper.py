@@ -1,18 +1,23 @@
 """Claude Code SDK backend for the unified agent wrapper."""
 
+import asyncio
 import json
 import shlex
 from collections.abc import AsyncGenerator
-from contextlib import aclosing
+from contextlib import aclosing, AsyncExitStack
 from dataclasses import asdict, dataclass, fields
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
 
 from .base_agent_wrapper import BaseAgentWrapper
+from .cc_sessions import AppendRecord, CcSessions, SessionData, input_frame, native_id
+from . import cc_session_history
 from ..component_registry import R
 from ...enumeration import ChunkEnum
-from ...schema import AgentReply, StreamChunk, TokenUsage
+from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...utils.async_utils import finish_cleanup
 
 if TYPE_CHECKING:
     from claude_agent_sdk import AssistantMessage, ResultMessage, UserMessage
@@ -37,6 +42,10 @@ class CcAgentWrapper(BaseAgentWrapper):
     DEFAULT_DISALLOWED_TOOLS = ["WebSearch"]
     MCP_SERVER_NAME = "mcp_server"
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._session_owner: CcSessions | None = None
+
     @staticmethod
     def _claude_usage(usage: dict[str, Any] | None) -> TokenUsage:
         """Normalize Claude CLI's input/output usage."""
@@ -48,6 +57,223 @@ class CcAgentWrapper(BaseAgentWrapper):
         if self.app_context is None:
             return self.workspace_path / "mem_session"
         return self.workspace_path / self.app_context.app_config.mem_session_dir
+
+    @property
+    def _sessions(self) -> CcSessions:
+        """Share leases among wrappers that own the same local session metadata."""
+        root = self.session_path / "claude_sessions"
+        if self.app_context is not None:
+            stores = self.app_context.metadata.setdefault("__claude_session_owners", {})
+            return stores.setdefault(str(root.resolve()), CcSessions(root, self.workspace_path))
+        if self._session_owner is None:
+            self._session_owner = CcSessions(root, self.workspace_path)
+        return self._session_owner
+
+    def _session_defaults(self) -> SessionData:
+        """Resolve the default native location without constructing jobs or SDK clients."""
+        environment = {**(self.kwargs.get("env") or {}), **self.subprocess_environment}
+        config_dir = Path(environment.get("CLAUDE_CONFIG_DIR") or self.session_path / "claude_config").expanduser()
+        return SessionData(
+            cwd=str(self.cwd.resolve()),
+            config_dir=str((self.cwd / config_dir).resolve()),
+        )
+
+    def _injection_options(self, session_id: str, data: SessionData, *, new: bool = False, **kwargs):
+        """Build a short-lived, tool-free client for native context injection."""
+        options = self._build_options(
+            "",
+            **self._merged_kwargs(
+                {
+                    **kwargs,
+                    "job_tools": [],
+                    "skills": None,
+                    "mcp_servers": {},
+                    "tools": [],
+                    "output_schema": None,
+                    "resume": None if new else session_id,
+                    "session_id": session_id if new else None,
+                    "fork_session": False,
+                },
+            ),
+        )
+        options.cwd = data.cwd
+        options.env["CLAUDE_CONFIG_DIR"] = data.config_dir
+        options.env["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] = "1"
+        return options
+
+    @staticmethod
+    async def _inject(options, frames: list[dict]) -> None:
+        """Use the public streaming-input client and require a zero-inference receipt."""
+        from claude_agent_sdk import ClaudeSDKClient, ResultMessage
+
+        async def inputs():
+            for frame in frames:
+                yield frame
+
+        async with ClaudeSDKClient(options=options) as client:
+            await client.query(inputs())
+            async with asyncio.timeout(30):
+                async for message in client.receive_messages():
+                    if isinstance(message, ResultMessage):
+                        if message.is_error or message.subtype != "success":
+                            raise RuntimeError(CcAgentWrapper._result_error_text(message))
+                        usage = CcAgentWrapper._claude_usage(message.usage)
+                        if message.num_turns != 0 or usage.total_tokens:
+                            raise RuntimeError("Claude session append unexpectedly invoked a model")
+                        return
+            raise RuntimeError("Claude session append receipt not received")
+
+    async def create_session(self, **kwargs) -> str:
+        """Persist a hidden empty input so the SDK can resume without a model call."""
+        session_id = str(uuid4())
+        options = self._build_options("", **self._merged_kwargs(kwargs))
+        data = self._sessions.location(options)
+        data.hidden_ids.append(native_id(session_id, "seed"))
+        async with self._sessions.lease(session_id):
+
+            async def create():
+                await self._sessions.save(session_id, data)
+                await self._inject(
+                    self._injection_options(session_id, data, new=True, **kwargs),
+                    [input_frame(session_id, native_id(session_id, "seed"), "")],
+                )
+                entries = await self._sessions.entries(session_id, data, options.session_store)
+                if not entries:
+                    raise RuntimeError("Claude empty session was not persisted")
+
+            await finish_cleanup(create())
+        return session_id
+
+    async def session_exists(self, session_id: str) -> bool:
+        """Check live or persisted native state without calling a model."""
+        session_id = self._sessions.validate_id(session_id)
+        if session_id in self._sessions.runtimes:
+            return True
+        data = await self._sessions.load(session_id, self._session_defaults())
+        return await self._sessions.exists(session_id, data, self.kwargs.get("session_store"))
+
+    async def get_session_path(self, session_id: str) -> Path | None:
+        """Return the native file, or None for an explicitly configured external store."""
+        session_id = self._sessions.validate_id(session_id)
+        if self.kwargs.get("session_store") is not None:
+            return None
+        data = await self._sessions.load(session_id, self._session_defaults())
+        return self._sessions.native_path(session_id, data)
+
+    async def read_session(self, session_id: str) -> SessionSnapshot:
+        """Project native history and live partial output without acquiring the writer lease."""
+        session_id = self._sessions.validate_id(session_id)
+        data = await self._sessions.load(session_id, self._session_defaults())
+        entries = await self._sessions.entries(session_id, data, self.kwargs.get("session_store"))
+        runtime = self._sessions.runtimes.get(session_id)
+        if entries is None and runtime is None:
+            raise FileNotFoundError(f"Claude session not found: {session_id}")
+        messages = cc_session_history.messages(session_id, entries or [], data, self._message_content_to_chunks)
+        if runtime is not None:
+            cc_session_history.overlay_live(messages, runtime)
+        return SessionSnapshot(
+            session_id=session_id,
+            state=self._sessions.status(session_id, data),
+            messages=messages,
+            path=(
+                str(self._sessions.native_path(session_id, data)) if self.kwargs.get("session_store") is None else None
+            ),
+            last_turn_id=(
+                runtime.input.turn_id
+                if runtime and runtime.input is not None
+                else data.last_turn_id or cc_session_history.last_turn_id(entries or [])
+            ),
+        )
+
+    async def get_session_status(self, session_id: str) -> SessionStatus:
+        """Expose native approval waits and application-owned execution."""
+        session_id = self._sessions.validate_id(session_id)
+        data = await self._sessions.load(session_id, self._session_defaults())
+        if session_id not in self._sessions.runtimes and not await self._sessions.exists(
+            session_id,
+            data,
+            self.kwargs.get("session_store"),
+        ):
+            raise FileNotFoundError(f"Claude session not found: {session_id}")
+        return self._sessions.status(session_id, data)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
+        timeout: float = 30,
+        expected_turn_id: str | None = None,
+        delivery: str = "idle",
+    ) -> SessionMessage:
+        """Inject once, flush without inference, and recover commits by their native UUID."""
+        session_id = self._sessions.validate_id(session_id)
+        self._sessions.validate_append(content, message_id, role, timeout, delivery)
+        async with asyncio.timeout(timeout):
+            async with self._sessions.lease(session_id):
+                data = await self._sessions.load(session_id, self._session_defaults())
+                entries = await self._sessions.entries(session_id, data, self.kwargs.get("session_store"))
+                if entries is None:
+                    raise FileNotFoundError(f"Claude session not found: {session_id}")
+                data.last_turn_id = data.last_turn_id or cc_session_history.last_turn_id(entries)
+                identifier = native_id(session_id, f"append:{message_id}")
+                record = next(
+                    (item for item in data.appends if item.message.id == f"reme-proactive-{message_id}"),
+                    None,
+                )
+                if record is not None:
+                    identifier = record.native_id
+                    if (record.message.content, record.message.role) != (content, role):
+                        raise ValueError("message_id already belongs to different content or role")
+                    native = next((entry for entry in entries if entry.get("uuid") == identifier), None)
+                    if native is not None:
+                        message = cc_session_history.accepted_message(native, record)
+                        record.accepted = True
+                        await self._sessions.save(session_id, data)
+                        return message
+                    if record.accepted:
+                        raise RuntimeError("Accepted Claude message is missing from native history")
+                if data.waiting:
+                    raise RuntimeError("Session must be idle before appending")
+                if expected_turn_id is not None and (data.last_turn_id or "") != expected_turn_id:
+                    raise RuntimeError("Session changed before appending")
+                if record is None:
+                    record = AppendRecord(
+                        native_id=identifier,
+                        message=SessionMessage(
+                            id=f"reme-proactive-{message_id}",
+                            role=role,
+                            content=content,
+                            source="proactive",
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                            delivery=delivery,
+                            origin_session_id=session_id,
+                        ),
+                    )
+                    data.appends.append(record)
+                record.message.turn_id = data.last_turn_id
+                flush_id = native_id(session_id, f"flush:{identifier}")
+                if role == "assistant" and flush_id not in data.hidden_ids:
+                    data.hidden_ids.append(flush_id)
+
+                async def inject_and_commit():
+                    await self._sessions.save(session_id, data)
+                    frames = [input_frame(session_id, identifier, content, role)]
+                    if role == "assistant":
+                        frames.append(input_frame(session_id, flush_id, ""))
+                    await self._inject(self._injection_options(session_id, data), frames)
+                    saved = await self._sessions.entries(session_id, data, self.kwargs.get("session_store"))
+                    native = next((entry for entry in saved or [] if entry.get("uuid") == identifier), None)
+                    if native is None:
+                        raise RuntimeError("Claude acknowledged append without persisting its native message")
+                    cc_session_history.accepted_message(native, record)
+                    record.accepted = True
+                    await self._sessions.save(session_id, data)
+
+                await finish_cleanup(inject_and_commit())
+                return record.message.model_copy(deep=True)
 
     def _ensure_claude_skill_dir(self, config_dir: Path, skills: list[str] | str) -> None:
         """Add selected project skills to Claude Code discovery locations."""
@@ -314,6 +540,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         visible_tool_call_ids: set[str] | None = None,
         include_text: bool = False,
         message_id: str | None = None,
+        block_offset: int = 0,
     ) -> list[StreamChunk]:
         """Use completed SDK blocks as authoritative snapshots, including tool results."""
         from claude_agent_sdk import (
@@ -340,7 +567,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                     ),
                 )
             return chunks
-        for index, block in enumerate(content or []):
+        for index, block in enumerate(content or [], start=block_offset):
             common = {
                 "session_id": session_id,
                 "message_id": message_id,
@@ -441,6 +668,58 @@ class CcAgentWrapper(BaseAgentWrapper):
             raise RuntimeError(result["error"] or f"Claude Code session compaction {result['status']}")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:
+        """Keep one session lease through SDK shutdown and metadata publication."""
+        options = self._build_options(inputs, stream=True, **self._merged_kwargs(kwargs))
+        session_id = options.session_id or (options.resume if not options.fork_session else None) or str(uuid4())
+        session_id = self._sessions.validate_id(session_id)
+        if not options.resume or options.fork_session:
+            options.session_id = session_id
+        if options.fork_session and session_id == options.resume:
+            raise ValueError("A fork must have a different session_id")
+        options.env["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] = "1"
+        options.env["CLAUDE_CODE_BG_TASKS_REPORT_RUNNING"] = "1"
+        turn_id = str(uuid4())
+        terminal = None
+        source = options.resume if options.fork_session else None
+        async with AsyncExitStack() as leases:
+            runtimes = {
+                key: await leases.enter_async_context(self._sessions.lease(key))
+                for key in sorted({session_id, source} - {None})
+            }
+            runtime = runtimes[session_id]
+            if not options.resume or options.fork_session:
+                existing = await self._sessions.load(session_id, self._sessions.location(options))
+                if await self._sessions.entries(session_id, existing, options.session_store) is not None:
+                    raise FileExistsError(f"Claude session already exists: {session_id}")
+            data = await self._sessions.load(source or session_id, self._sessions.location(options))
+            if source:
+                data.hidden_ids.append(native_id(source, "seed"))
+                source_entries = await self._sessions.entries(source, data, options.session_store)
+                accepted = {entry.get("uuid") for entry in source_entries or []}
+                data.appends = [record for record in data.appends if record.native_id in accepted]
+            if options.resume:
+                options.env["CLAUDE_CONFIG_DIR"] = data.config_dir
+            runtime.input = SessionMessage(id=turn_id, role="user", content=inputs, turn_id=turn_id)
+            data.last_turn_id = turn_id
+            data.waiting = False
+            await self._sessions.save(session_id, data)
+            try:
+                async with aclosing(self._stream_reply(inputs, options, turn_id)) as stream:
+                    async for chunk in stream:
+                        runtime.observe(chunk)
+                        if chunk.chunk_type == ChunkEnum.REPLY_END:
+                            terminal = chunk
+                        else:
+                            yield chunk
+            finally:
+                data.waiting = (
+                    terminal.status == "waiting" if terminal is not None else runtime.state == "requires_action"
+                )
+                await self._sessions.save(session_id, data)
+        if terminal is not None:
+            yield terminal
+
+    async def _stream_reply(self, inputs: str, opts: Any, turn_id: str) -> AsyncGenerator[StreamChunk, None]:
         """Stream one invocation, keeping model-message boundaries inside it."""
         from claude_agent_sdk import (
             AssistantMessage,
@@ -453,11 +732,8 @@ class CcAgentWrapper(BaseAgentWrapper):
             UserMessage,
         )
 
-        kwargs = self._merged_kwargs(kwargs)
-        opts = self._build_options(inputs, stream=True, **kwargs)
         block_states: dict[str | None, dict[int, _BlockState]] = {}
         visible_tool_call_ids: set[str] = set()
-        turn_id = uuid4().hex
         partial_message_ids: dict[str | None, str] = {}
         current_session_id = None
         emitted_content = False
@@ -465,8 +741,17 @@ class CcAgentWrapper(BaseAgentWrapper):
         result: AgentReply | None = None
         usage = None
         expected_trailing_error = None
+
+        async def prompt():
+            yield {
+                "type": "user",
+                "uuid": turn_id,
+                "parent_tool_use_id": None,
+                "message": {"role": "user", "content": inputs},
+            }
+
         try:
-            async with aclosing(query(prompt=inputs, options=opts)) as stream:
+            async with aclosing(query(prompt=prompt(), options=opts)) as stream:
                 async for msg in stream:
                     current_session_id = getattr(msg, "session_id", None) or current_session_id
                     if not started:

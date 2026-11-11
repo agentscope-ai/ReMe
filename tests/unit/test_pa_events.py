@@ -21,7 +21,7 @@ from reme.components.pa_runtime import PaRuntime
 from reme.config import resolve_app_config
 from reme.constants import REME_SERVICE_INFO
 from reme.enumeration import ChunkEnum
-from reme.schema import SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
+from reme.schema import AgentActivity, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk
 from reme.steps.proactive import PaChatStep, PaEventsStep
 
 
@@ -119,6 +119,18 @@ async def test_initial_snapshot_and_heartbeat_are_read_only(system, tmp_path):
     agent.create_session.assert_not_awaited()
     agent.read_session.assert_not_awaited()
     assert not (tmp_path / "digest/personal/REME_MEMORY.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_execution_phases_do_not_replace_native_session_status(system):
+    _app, agent, runtime, server = system
+    session_id = await select(agent, runtime)
+    server._notify_session(session_id, SessionStatus(session_id=session_id, status="active"))
+    server.publish_activity(AgentActivity(session_id=session_id, turn_id="turn-1", phase="thinking"))
+    assert runtime._native_status == SessionStatus(session_id=session_id, status="active")
+    async with aclosing(runtime.events()) as events:
+        snapshot = await next_event(events)
+        assert snapshot.type == "snapshot" and snapshot.status == "idle"
 
 
 @pytest.mark.asyncio

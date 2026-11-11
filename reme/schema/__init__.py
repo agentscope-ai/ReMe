@@ -3,6 +3,7 @@
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
+from .agent_activity import AgentActivity
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -32,6 +33,7 @@ from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "AgentActivity",
     "AgentReply",
     "collect_reply",
     "replay_reply",

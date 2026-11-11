@@ -580,14 +580,59 @@ history refreshes. Raw HTTP `stream_chunks()` includes errors and DONE; CLI/text
 Migration: replace `last_message`/`turn` with `result`/`raw`, and consume the terminal outcome instead of concatenating
 all stream payloads. Existing text-only producers use the default `delta` operation.
 
+AgentScope wrappers implement the session operations without changing the agent's generation flow. `resume` restores
+model context; an explicit `session_id` starts fresh context under that ID while retaining its display history.
+Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the complete SDK state and display history, so
+compaction preserves earlier displayed messages. Legacy summary/context files remain readable; previously discarded
+history cannot be recovered. Replies, compaction and user/assistant appends share a session lock; history/status reads do
+not wait behind generation. Appends require an idle session, retain their delivery policy, and are idempotent by
+`message_id` across restarts. Pending approval or external execution is reported as active. Ownership and live status
+are scoped to the Application; independent processes must not write the same session concurrently.
+
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+Pass `fork_session=True` with `resume` or `session_id` to inherit the source conversation's instructions, model,
+turn settings and job tools. Only explicit call arguments override these settings; the calling wrapper's defaults
+do not. Effective settings are saved beside session message records as `.config.jsonl`, without generated MCP
+credentials, so forks can restore them after unloading or restarting. An empty source without a native rollout
+creates an independent thread with the same settings.
+
+`create_session()` saves turn settings such as `effort` before the first query, including for later forks.
+`output_schema` applies only to the current invocation and is never saved or inherited from a session. Omission uses
+the calling wrapper's default for ordinary calls; explicit `None` disables that default for one invocation.
+
+`CodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
+session listeners also receive these events. A completed turn, failure or cancellation closes its activity.
+All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
+is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
+`source="proactive"` independently of their role, including after reload or fork.
+`append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
+both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
+reading, status and appending in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
+
+Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
+`{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
+an explicitly configured external `mem_session_dir` remains supported. History and status reads do not wait behind
+generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
+
+The `session_read`, `session_status` and `session_append` jobs use the wrapper selected by their Step configuration.
+Start the service with `reme start config=default`, then use another terminal:
+
+```bash
+reme session_append session_id=YOUR_SESSION_ID message_id=note-1 role=user content="Additional context"
+reme session_read session_id=YOUR_SESSION_ID
+reme session_status session_id=YOUR_SESSION_ID
+```
+
 `await wrapper.get_session_path(session_id)` returns the native session file as a `Path`, or `None` when Codex
 reports no path. The file may not exist before the first turn. Lookup errors propagate, and returned paths must stay
-inside the configured `codex_home`. The lookup does not resume the thread or load its turn history. Other backends
-currently raise `NotImplementedError`.
+inside the configured `codex_home`. AgentScope and Claude Code also expose their native session files; Claude returns
+`None` when an external `session_store` is configured. Path lookup does not resume or generate a turn.
+
+`await wrapper.session_exists(session_id)` checks resumability, including a live empty Codex thread whose rollout
+has not been created yet. Unsupported backends raise `NotImplementedError`.
 
 The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
 `approval_policy: never`, so available tools run without human or model approval. Requests that need additional

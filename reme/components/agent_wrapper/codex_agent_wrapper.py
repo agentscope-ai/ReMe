@@ -10,15 +10,15 @@ from functools import partial
 import json
 import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
 from .codex_session_history import item_chunks
 from ..codex_app_server import CodexAppServer
 from ..component_registry import R
-from ..job import BackgroundJob, StreamJob
 from ...enumeration import ChunkEnum
-from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...utils.agent_activity import ActivityTracker
+from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 
 if TYPE_CHECKING:
@@ -84,7 +84,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
-        return self._merged_kwargs(kwargs)
+        # A fork inherits its source, rather than this wrapper's current defaults.
+        if not kwargs.get("fork_session"):
+            return self._merged_kwargs(kwargs)
+        options = dict(kwargs)
+        if "output_schema" in options:
+            options["output_schema"] = self._normalize_output_schema(options["output_schema"])
+        return options
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -136,15 +142,16 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ephemeral=kwargs.get("ephemeral"),
                 thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
-        else:
-            options["personality"] = self._enum(Personality, kwargs.get("personality"))
-            if not (kwargs.get("resume") or kwargs.get("session_id")):
-                options.update(
-                    ephemeral=kwargs.get("ephemeral"),
-                    service_name=kwargs.get("service_name"),
-                    session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
-                    thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
-                )
+            names = {"developer_instructions": "system_prompt"}
+            return {key: value for key, value in options.items() if names.get(key, key) in kwargs}
+        options["personality"] = self._enum(Personality, kwargs.get("personality"))
+        if not (kwargs.get("resume") or kwargs.get("session_id")):
+            options.update(
+                ephemeral=kwargs.get("ephemeral"),
+                service_name=kwargs.get("service_name"),
+                session_start_source=self._enum(ThreadStartSource, kwargs.get("session_start_source")),
+                thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
+            )
         return options
 
     @asynccontextmanager
@@ -162,11 +169,13 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork = bool(kwargs.get("fork_session"))
         if fork and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
-        jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
-        if any(isinstance(job, (BackgroundJob, StreamJob)) for job in jobs or []):
-            raise TypeError("Codex job_tools must be non-stream request jobs")
-        if any(not getattr(job, "enabled", True) for job in jobs or []):
-            raise ValueError("Codex job_tools must be enabled")
+        inherit_jobs = fork and "job_tools" not in kwargs
+        jobs = (
+            None
+            if compact or inherit_jobs
+            else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        )
+        CodexAppServer.validate_job_tools(jobs)
         self._ensure_skills(kwargs.get("skills"))
         await self.start()
         self._active += 1
@@ -176,6 +185,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 thread_id,
                 fork=fork,
                 options={} if compact else self._thread_options(kwargs),
+                turn_options={} if compact else self._turn_options(kwargs),
                 jobs=jobs,
                 injected=self._resolve_injected_job_kwargs(kwargs),
                 mcp_startup_timeout=kwargs.get("mcp_startup_timeout", 30),
@@ -214,7 +224,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         finally:
             await stream.aclose()
 
-    def _finish_reply(self, session_id, completed, items, native_usage, usage, kwargs) -> AgentReply:
+    def _finish_reply(self, session_id, completed, items, native_usage, usage, output_schema) -> AgentReply:
         """Build the native TurnResult and portable outcome from this turn's events."""
         from openai_codex import TurnResult
 
@@ -248,7 +258,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         status = completed.status.value
         error = completed.error.message if completed.error else None
         structured_output = None
-        if status == "completed" and kwargs.get("output_schema") is not None:
+        if status == "completed" and output_schema is not None:
             try:
                 structured_output = json.loads(final_response or "")
             except json.JSONDecodeError:
@@ -283,15 +293,33 @@ class CodexAgentWrapper(BaseAgentWrapper):
         await self.start()
         return await self.app_server.get_session_path(session_id)
 
+    async def session_exists(self, session_id: str) -> bool:
+        """Check resumability without loading or generating conversation content."""
+        await self.start()
+        return await self.app_server.session_exists(session_id)
+
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
-        await self.start()
-        return await self.app_server.read_session(session_id)
+        async with self._session_request():
+            return await self.app_server.read_session(session_id)
 
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Report native thread activity, including approval/input waits."""
-        await self.start()
-        return await self.app_server.get_session_status(session_id)
+        async with self._session_request():
+            return await self.app_server.get_session_status(session_id)
+
+    @asynccontextmanager
+    async def _session_request(self):
+        """Normalize recoverable SDK failures at the session-owner boundary."""
+        from openai_codex.errors import TransportClosedError, is_retryable_error
+
+        try:
+            await self.start()
+            yield
+        except Exception as exc:
+            if isinstance(exc, TransportClosedError) or is_retryable_error(exc):
+                raise ConnectionError(str(exc)) from exc
+            raise
 
     async def append_session(
         self,
@@ -299,34 +327,41 @@ class CodexAgentWrapper(BaseAgentWrapper):
         content: str,
         *,
         message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
-        """Append a proactive message through the shared session owner."""
-        await self.start()
-        return await self.app_server.append_session(
-            session_id,
-            content,
-            message_id=message_id,
-            timeout=timeout,
-            expected_turn_id=expected_turn_id,
-        )
+        """Append a user or assistant message through the shared session owner."""
+        async with self._session_request():
+            return await self.app_server.append_session(
+                session_id,
+                content,
+                message_id=message_id,
+                role=role,
+                timeout=timeout,
+                expected_turn_id=expected_turn_id,
+                delivery=delivery,
+            )
 
-    def _turn_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+    def _turn_options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Resolve persistent turn settings, excluding invocation-scoped output schemas."""
         from openai_codex import ApprovalMode, Sandbox
         from openai_codex.types import Personality, ReasoningEffort, ReasoningSummary
 
-        return {
+        options = {
             "approval_mode": self._enum(ApprovalMode, kwargs.get("approval_mode")),
             "cwd": str(self.cwd),
             "effort": self._enum(ReasoningEffort, kwargs.get("effort")),
             "model": kwargs.get("model"),
-            "output_schema": kwargs.get("output_schema"),
             "personality": self._enum(Personality, kwargs.get("personality")),
             "sandbox": self._enum(Sandbox, kwargs.get("sandbox")),
             "service_tier": kwargs.get("service_tier"),
             "summary": self._enum(ReasoningSummary, kwargs.get("summary")),
         }
+        if kwargs.get("fork_session"):
+            options.pop("cwd")
+        return {key: value for key, value in options.items() if key in kwargs or key == "cwd"}
 
     @classmethod
     # pylint: disable=too-many-return-statements
@@ -485,47 +520,78 @@ class CodexAgentWrapper(BaseAgentWrapper):
     async def reply_stream(self, inputs: RunInput, **kwargs) -> AsyncGenerator[StreamChunk, None]:
         """Execute once, retaining every notification and a complete terminal outcome."""
         kwargs = self._reply_kwargs(kwargs)
+        output_schema = kwargs.get("output_schema")
         emitted_usage = None
-        async with self._session(kwargs) as thread:
-            usage = _TurnUsage(await self.app_server.token_usage(thread.id))
-            turn = await self.app_server.turn(thread, inputs, **self._turn_kwargs(kwargs))
-            stream = self._turn_stream(turn, usage)
-            items, native_usage, completed, terminal = [], None, None, None
-            try:
-                async for event in stream:
-                    payload = event.payload
-                    if event.method == "item/completed" and payload.turn_id == turn.id:
-                        items.append(payload.item)
-                    elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
-                        native_usage = payload.token_usage
-                    elif event.method == "turn/completed" and payload.turn.id == turn.id:
-                        completed = payload.turn
-                    update = usage.usage if usage.usage != emitted_usage else None
-                    chunks = self._event_to_chunks(event, thread.id, usage=update)
-                    if event.method == "thread/tokenUsage/updated":
-                        emitted_usage = usage.usage
-                    if not chunks:
-                        chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
-                    for chunk in chunks:
-                        chunk.metadata.pop("native", None)
-                    chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
-                    for chunk in chunks:
-                        chunk.session_id = thread.id
-                        chunk.turn_id = chunk.turn_id or turn.id
-                        if chunk.chunk_type == ChunkEnum.REPLY_END:
-                            terminal = chunk
-                        else:
-                            yield chunk
-                if completed is None or terminal is None:
-                    raise RuntimeError("Codex turn completed event not received")
-                result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, kwargs)
-            finally:
-                if usage.usage is not None:
-                    self._record_token_usage(usage.usage)
-                if completed is None:
-                    await self._interrupt(turn)
-                await stream.aclose()
-        terminal.chunk = {key: value for key, value in result.items() if key != "events"}
-        terminal.status = result["status"]
-        terminal.metadata["error"] = result["error"]
-        yield terminal
+        source = kwargs.pop("activity_source", "chat")
+        target_session = kwargs.pop("activity_session_id", None)
+        started_at = kwargs.pop("activity_started_at", None)
+        task_id = kwargs.pop("activity_task_id", None)
+        presentation = AgentActivity(
+            session_id=target_session or "",
+            turn_id="",
+            source=source,
+            phase="thinking",
+            started_at=started_at,
+            task_id=task_id,
+        )
+        activity = None
+        try:
+            async with self._session(kwargs) as thread:
+                usage = _TurnUsage(await self.app_server.token_usage(thread.id))
+                turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
+                activity = presentation.model_copy(
+                    update={"session_id": target_session or thread.id, "turn_id": turn.id},
+                )
+                self.app_server.publish_activity(activity)
+                tracker = ActivityTracker(activity)
+                stream = self._turn_stream(turn, usage)
+                items, native_usage, completed, terminal = [], None, None, None
+                try:
+                    async for event in stream:
+                        payload = event.payload
+                        if event.method == "item/completed" and payload.turn_id == turn.id:
+                            items.append(payload.item)
+                        elif event.method == "thread/tokenUsage/updated" and payload.turn_id == turn.id:
+                            native_usage = payload.token_usage
+                        elif event.method == "turn/completed" and payload.turn.id == turn.id:
+                            completed = payload.turn
+                        update = usage.usage if usage.usage != emitted_usage else None
+                        chunks = self._event_to_chunks(event, thread.id, usage=update)
+                        if event.method == "thread/tokenUsage/updated":
+                            emitted_usage = usage.usage
+                        if not chunks:
+                            chunks = [self._chunk(ChunkEnum.DATA, chunk=None, metadata={"visibility": "diagnostic"})]
+                        for chunk in chunks:
+                            chunk.metadata.pop("native", None)
+                        chunks[0].metadata["native"] = {"method": event.method, "payload": self._serialize(payload)}
+                        for chunk in chunks:
+                            chunk.session_id = thread.id
+                            chunk.turn_id = chunk.turn_id or turn.id
+                            if chunk.chunk_type == ChunkEnum.REPLY_END:
+                                terminal = chunk
+                            else:
+                                updated = tracker.update(chunk)
+                                if updated != activity:
+                                    activity = updated
+                                    self.app_server.publish_activity(activity)
+                                yield chunk
+                    if completed is None or terminal is None:
+                        raise RuntimeError("Codex turn completed event not received")
+                    result = self._finish_reply(thread.id, completed, items, native_usage, usage.usage, output_schema)
+                finally:
+                    if usage.usage is not None:
+                        self._record_token_usage(usage.usage)
+                    if completed is None:
+                        await self._interrupt(turn)
+                    await stream.aclose()
+            terminal.chunk = {key: value for key, value in result.items() if key != "events"}
+            terminal.status = result["status"]
+            terminal.metadata["error"] = result["error"]
+            activity = tracker.update(terminal)
+            self.app_server.publish_activity(activity)
+            yield terminal
+        except BaseException as exc:
+            if activity is not None and activity.phase not in {"completed", "failed", "interrupted"}:
+                phase = "interrupted" if isinstance(exc, (asyncio.CancelledError, GeneratorExit)) else "failed"
+                self.app_server.publish_activity(activity.model_copy(update={"phase": phase, "tool": None}))
+            raise

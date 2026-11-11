@@ -29,11 +29,9 @@ async def test_agentscope_empty_session_is_persisted_resumable_and_idle(tmp_path
     state = await AsStateHandler.for_session(wrapper.session_path, session_id).load()
     assert state.session_id == session_id and not state.context
     assert (await wrapper.get_session_status(session_id)).status == "idle"
-    restored = await wrapper._load_state(
-        {"resume": session_id},
-        state.permission_context.mode,
-    )
-    assert restored.session_id == session_id and not restored.context
+    assert await wrapper.session_exists(session_id)
+    snapshot = await wrapper.read_session(session_id)
+    assert snapshot.session_id == session_id and not snapshot.messages
 
 
 def test_read_native_usage_ignores_estimates_and_an_incomplete_tail_without_writing(tmp_path):
@@ -121,7 +119,7 @@ class NativeSession:
         self.injected.extend(params["items"])
         with open(self.threads[params["threadId"]].path, "a", encoding="utf-8") as stream:
             for item in params["items"]:
-                stream.write(json.dumps({"type": "response_item", "payload": item}) + "\n")
+                stream.write(json.dumps({"type": "response_item", "payload": item}, ensure_ascii=False) + "\n")
         if self.inject_hook:
             await self.inject_hook()
         return SimpleNamespace()
@@ -273,9 +271,76 @@ async def test_multiple_appends_are_ordered_durable_and_idempotent(runtime):
 
 
 @pytest.mark.asyncio
-async def test_fork_inherits_only_accepted_proactive_records(runtime):
+@pytest.mark.parametrize("delivery", ["idle", "immediate"])
+@pytest.mark.parametrize("role", ["assistant", "user"])
+async def test_message_delivery_policy_survives_reload_and_retry(runtime, delivery, role):
     server, native = runtime
-    await server.append_session("session-1", "inherited", message_id="one")
+    content = "before\u2028middle\u2029after"
+    message = await server.append_session("session-1", content, message_id="policy", delivery=delivery, role=role)
+    assert message.role == role
+    assert message.delivery == delivery and message.origin_session_id == "session-1"
+    assert (await server.read_session("session-1")).messages[-1] == message
+    assert await server.append_session("session-1", content, message_id="policy", role=role) == message
+    assert len(native.injected) == 1
+
+
+@pytest.mark.asyncio
+async def test_user_and_assistant_injections_preserve_order_without_generating(runtime, monkeypatch):
+    server, native = runtime
+    generate = AsyncMock(side_effect=AssertionError("Appending must not start a turn"))
+    monkeypatch.setattr(server, "turn", generate)
+    observed = []
+    server.watch_session("session-1", observed.append)
+    assistant = await server.append_session("session-1", "background result", message_id="assistant")
+    user = await server.append_session("session-1", "additional context", message_id="user", role="user")
+    assert [item["role"] for item in native.injected] == ["assistant", "user"]
+    assert [item["content"] for item in native.injected] == [
+        [{"type": "output_text", "text": assistant.content}],
+        [{"type": "input_text", "text": user.content}],
+    ]
+    assert (await server.read_session("session-1")).messages[-2:] == [assistant, user]
+    assert observed == [assistant, user]
+    assert user.source == "proactive"
+    generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["assistant", "user"])
+async def test_message_id_cannot_be_reused_with_a_different_role(runtime, role):
+    server, native = runtime
+    await server.append_session("session-1", "same content", message_id="identity", role=role)
+    other_role = "user" if role == "assistant" else "assistant"
+    with pytest.raises(ValueError, match="different.*role"):
+        await server.append_session("session-1", "same content", message_id="identity", role=other_role)
+    assert len(native.injected) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["system", "developer", "tool", None, []])
+async def test_invalid_injection_role_fails_before_native_access_or_persistence(runtime, role):
+    server, native = runtime
+    with pytest.raises(ValueError, match="role"):
+        await server.append_session("session-1", "result", message_id="role", role=role)
+    native.client.thread_resume.assert_not_awaited()
+    native.client._client.thread_read.assert_not_awaited()
+    assert not native.injected
+    assert not server._message_path("session-1").exists()
+
+
+@pytest.mark.asyncio
+async def test_invalid_delivery_policy_does_not_inject_or_persist(runtime):
+    server, native = runtime
+    with pytest.raises(ValueError, match="delivery policy"):
+        await server.append_session("session-1", "result", message_id="policy", delivery="unknown")
+    assert not native.injected
+    assert not server._message_path("session-1").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["assistant", "user"])
+async def test_fork_inherits_only_accepted_proactive_records(runtime, role):
+    server, native = runtime
+    await server.append_session("session-1", "inherited", message_id="one", role=role)
     path = server._message_path("session-1")
     records = history.read_records(path)
     # Include a native-accepted message whose publication was interrupted, and
@@ -307,7 +372,8 @@ async def test_fork_inherits_only_accepted_proactive_records(runtime):
     snapshot = await server.read_session("fork-1")
     assert [message.content for message in snapshot.messages] == ["A", "B", "inherited", "D", "E"]
     assert history.read_records(path) == records
-    assert await server.append_session("fork-1", "inherited", message_id="one") == snapshot.messages[2]
+    assert snapshot.messages[2].role == role
+    assert await server.append_session("fork-1", "inherited", message_id="one", role=role) == snapshot.messages[2]
     assert len(native.injected) == 1
     await server.append_session("fork-1", "fork only", message_id="two")
     assert history.read_records(path) == records
@@ -347,25 +413,27 @@ async def test_append_waits_until_active_turn_releases_its_lease(runtime):
 
 
 @pytest.mark.asyncio
-async def test_recover_publication_failure_without_reinjecting(runtime, monkeypatch):
+@pytest.mark.parametrize("role", ["assistant", "user"])
+async def test_recover_publication_failure_without_reinjecting(runtime, monkeypatch, role):
     server, native = runtime
     notifications = []
     server.watch_session("session-1", notifications.append)
     original = history.write_records
 
     def fail_commit(path, records):
-        if records[-1]["injected"]:
+        if path == server._message_path("session-1") and records[-1]["injected"]:
             raise OSError("publication interrupted")
         original(path, records)
 
     monkeypatch.setattr(history, "write_records", fail_commit)
     with pytest.raises(OSError, match="publication interrupted"):
-        await server.append_session("session-1", "once", message_id="recover")
+        await server.append_session("session-1", "once", message_id="recover", role=role)
     assert not notifications
     assert not history.read_records(server._message_path("session-1"))[0]["injected"]
     assert (await server.read_session("session-1")).messages[-1].content == "once"
     monkeypatch.setattr(history, "write_records", original)
-    await server.append_session("session-1", "once", message_id="recover")
+    recovered = await server.append_session("session-1", "once", message_id="recover", role=role)
+    assert recovered.role == role
     assert len(native.injected) == 1
     assert [message.id for message in notifications] == ["reme-proactive-recover"]
 
@@ -396,7 +464,8 @@ async def test_unaccepted_retry_uses_the_current_turn_anchor(runtime):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_append_finishes_publication_before_releasing_lease(runtime):
+@pytest.mark.parametrize("role", ["assistant", "user"])
+async def test_cancelled_append_finishes_publication_before_releasing_lease(runtime, role):
     server, native = runtime
     notifications = []
     server.watch_session("session-1", notifications.append)
@@ -407,7 +476,7 @@ async def test_cancelled_append_finishes_publication_before_releasing_lease(runt
         await release.wait()
 
     native.inject_hook = hold
-    pending = asyncio.create_task(server.append_session("session-1", "once", message_id="cancel"))
+    pending = asyncio.create_task(server.append_session("session-1", "once", message_id="cancel", role=role))
     await entered.wait()
     pending.cancel()
     await asyncio.sleep(0)
@@ -418,7 +487,7 @@ async def test_cancelled_append_finishes_publication_before_releasing_lease(runt
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert [message.id for message in notifications] == ["reme-proactive-cancel"]
-    await server.append_session("session-1", "once", message_id="cancel")
+    await server.append_session("session-1", "once", message_id="cancel", role=role)
     assert len(native.injected) == 1
 
 
@@ -554,16 +623,18 @@ class UnsupportedAgent(BaseAgentWrapper):
 async def test_optional_base_capabilities_fail_explicitly():
     agent = UnsupportedAgent()
     for operation, kwargs in (
+        (agent.session_exists, {}),
         (agent.read_session, {}),
         (agent.get_session_status, {}),
-        (agent.append_session, {"content": "text", "message_id": "one"}),
+        (agent.append_session, {"content": "text", "message_id": "one", "role": "user"}),
     ):
         with pytest.raises(NotImplementedError, match="UnsupportedAgent"):
             await operation("session-1", **kwargs)
 
 
 @pytest.mark.asyncio
-async def test_http_session_jobs_and_unsupported_error_code(tmp_path, monkeypatch):
+@pytest.mark.parametrize("role", ["user", "assistant"])
+async def test_http_session_jobs_and_unsupported_error_code(tmp_path, monkeypatch, role):
     config = resolve_app_config(config="proactive", log_config=False)
     app = Application(
         workspace_dir=str(tmp_path),
@@ -594,11 +665,18 @@ async def test_http_session_jobs_and_unsupported_error_code(tmp_path, monkeypatc
             response = (
                 await client.post(
                     "/session_append",
-                    json={"session_id": "session-1", "content": "hello", "message_id": "http", "wait_timeout": 1},
+                    json={
+                        "session_id": "session-1",
+                        "content": "hello",
+                        "message_id": "http",
+                        "wait_timeout": 1,
+                        "role": role,
+                    },
                 )
             ).json()
             assert response["success"]
             assert response["answer"]["source"] == "proactive"
+            assert response["answer"]["role"] == role
             monkeypatch.setattr(CodexAgentWrapper, "read_session", BaseAgentWrapper.read_session)
             response = (await client.post("/session_read", json={"session_id": "session-1"})).json()
             assert not response["success"]

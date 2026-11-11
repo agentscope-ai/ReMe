@@ -261,7 +261,7 @@ async def test_agentscope_closing_stream_records_reported_usage_and_closes_sdk(t
     agent = SimpleNamespace(state=SimpleNamespace(session_id="session"), reply_stream=native_stream)
     wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
     monkeypatch.setattr(wrapper, "_build_agent", AsyncMock(return_value=(agent, "hello")))
-    monkeypatch.setattr(wrapper, "_dump_state", AsyncMock())
+    monkeypatch.setattr(wrapper._sessions, "save", AsyncMock())  # pylint: disable=protected-access
     stream = wrapper.reply_stream("hello")
     await anext(stream)
     await stream.aclose()

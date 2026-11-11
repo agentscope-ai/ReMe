@@ -42,7 +42,7 @@ class CcFileSessionStore:
     @staticmethod
     def _read_entries(path: Path) -> list["SessionStoreEntry"]:
         entries = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding="utf-8").split("\n"):
             if line.strip():
                 entries.append(json.loads(line))
         return entries
