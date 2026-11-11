@@ -264,12 +264,6 @@ Memory Search 的“渐进式”不是一次把全库内容塞进结果，而是
 该字段还包含便于阅读的 `message`。程序调用方应通过 `reason` 区分两种情况。
 正常命中不包含 `empty_result`，正文格式保持原样。
 
-## Traverse 返回格式
-
-`TraverseStep` 会在 `response.answer` 中返回易读的已到达节点和有向边摘要。节点行会显示可用的 frontmatter 名称和简短描述；未索引路径会标明尚无索引 frontmatter，并说明文件仍可能存在于磁盘。当请求的深度和方向内没有到达的边时，答案会明确说明。
-
-完整结构化 `TraverseGraph` 保存在 `response.metadata.graph`。这会将 `response.answer` 从图字典改为字符串。原先解析旧答案的程序调用方应迁移到 `response.metadata.graph`，读取 seeds、方向、深度、节点和边。
-
 通过 CLI 客户端调用已启动的服务时，可以开启已有的元数据显示选项查看原因：
 
 ```bash
@@ -289,3 +283,9 @@ reme search query="最近关于索引的讨论" show_metadata=true
 
 `counts` 会告诉你本次向量、关键词各召回了多少候选，以及最终返回多少条。默认 embedding 关闭时，`vector` 通常是 `0`，`hybrid` 是
 `false`。
+
+## Traverse 返回格式
+
+`TraverseStep` 会在 `response.answer` 中返回易读的已到达节点和有向边摘要。节点行会显示可用的 frontmatter 名称和简短描述；未索引路径会标明尚无索引 frontmatter，并说明文件仍可能存在于磁盘。当请求的深度和方向内没有到达的边时，答案会明确说明。
+
+完整结构化 `TraverseGraph` 保存在 `response.metadata.graph`。这会将 `response.answer` 从图字典改为字符串。原先解析旧答案的程序调用方应迁移到 `response.metadata.graph`，读取 seeds、方向、深度、节点和边。
