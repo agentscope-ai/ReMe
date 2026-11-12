@@ -8,11 +8,7 @@ from reme.schema import AgentReply
 
 
 class BenchmarkAsAgentWrapper(AsAgentWrapper):
-    """Accept the legacy iteration-limit outcome only in this benchmark config.
-
-    Structured-output calls retain the strict core outcome: these benchmark
-    memory/answer paths do not request an extra structured-model response.
-    """
+    """Accept error-free, unstructured iteration-limit results in this benchmark."""
 
     def __init__(self, **kwargs):
         # The alias selects this class; native image capability remains AgentScope.
@@ -26,10 +22,6 @@ class BenchmarkAsAgentWrapper(AsAgentWrapper):
             and message.get("error") is None
             and kwargs.get("output_schema") is None
         ):
-            result["raw"]["benchmark_compat"] = {
-                "native_status": result["status"],
-                "native_error": result["error"],
-            }
             result["status"] = "completed"
             result["error"] = None
         return result

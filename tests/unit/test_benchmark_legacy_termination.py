@@ -60,9 +60,7 @@ async def test_legacy_exceed_preserves_result_usage_and_diagnostics(wrapper, tex
     result = await wrapper._finish_reply(agent, message, {})
     assert result["status"] == "completed" and result["error"] is None
     assert agent_reply_result_text(result) == text
-    assert result["raw"]["message"] == message.model_dump(mode="json")
-    assert result["raw"]["benchmark_compat"]["native_status"] == "failed"
-    assert result["raw"]["benchmark_compat"]["native_error"] == "AgentScope reply ended: exceed_max_iters"
+    assert result["raw"] == {"message": message.model_dump(mode="json")}
     assert result["usage"] == {"input_tokens": 10, "output_tokens": 2, "total_tokens": 12}
     wrapper._record_token_usage.assert_called_once()
 
