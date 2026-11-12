@@ -54,6 +54,15 @@ function tableRows(content) {
     .map((line) => line.split("|").slice(1, -1).map((cell) => cell.trim().replaceAll("**", "")));
 }
 
+function assertReproduction(notes, total, results) {
+  const section = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
+  const expectedCount = total.toLocaleString("en-US");
+  const rows = tableRows(section).filter((row) => row[1]?.endsWith(` / ${expectedCount}`));
+  assert.deepEqual(rows.map((row) => row.slice(0, 4)), results.map(([model, scored, correct]) => [
+    model, `${scored.toLocaleString("en-US")} / ${expectedCount}`, String(correct), (100 * correct / scored).toFixed(2),
+  ]));
+}
+
 test("MemLens bilingual notes and blogs match the published scores", async () => {
   for (const language of ["en", "zh"]) {
     const blog = await readFile(path.join(generatedDir, language, "blog_20261009.md"), "utf8");
@@ -86,13 +95,11 @@ test("MemLens notes disclose moderation filters, reproduction results and Judge 
       .filter((id) => /^q_[0-9a-f]{8}$/.test(id));
     assert.deepEqual(excludedIds.sort(), excluded);
     assert.match(notes, /189\/195/);
-    const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
-    const reproducedRows = tableRows(reproduction).filter((row) => /^\d+ \/ 189$/.test(row[1]));
-    assert.deepEqual(reproducedRows.map((row) => row.slice(0, 4)), [
-      ["Qwen3.6-35B-A3B", "189 / 189", "104", "55.03"],
-      ["Qwen3.8-Max", "189 / 189", "133", "70.37"],
-      ["Kimi-K3", "189 / 189", "123", "65.08"],
-      ["DeepSeek-V4.1-Flash", "184 / 189", "119", "64.67"],
+    assertReproduction(notes, 189, [
+      ["Qwen3.6-35B-A3B", 189, 104],
+      ["Qwen3.8-Max", 189, 133],
+      ["Kimi-K3", 189, 123],
+      ["DeepSeek-V4.1-Flash", 184, 119],
     ]);
     const judge = notes.split("\n\n").find((paragraph) => /(?:as|作为) Judge/.test(paragraph));
     assert.ok(judge, `${language}: Judge settings must be documented`);
@@ -141,12 +148,10 @@ test("MobileMem publishes seven results over 1,333 questions in both languages",
       assert.equal(row[3], `${correct} / 1,333`);
       assert.equal(row[4], (100 * correct / 1333).toFixed(2));
     }
-    const reproduction = notes.split("{#independent-reproduction}")[1].split("\n## ")[0];
-    const reproducedRows = tableRows(reproduction).filter((row) => /^[\d,]+ \/ 1,333$/.test(row[1]));
-    assert.deepEqual(reproducedRows.map((row) => row.slice(0, 4)), [
-      ["Qwen3.8-Max", "1,329 / 1,333", "803", "60.42"],
-      ["Kimi-K3", "1,278 / 1,333", "669", "52.35"],
-      ["DeepSeek-V4.1-Flash", "1,328 / 1,333", "712", "53.61"],
+    assertReproduction(notes, 1333, [
+      ["Qwen3.8-Max", 1329, 803],
+      ["Kimi-K3", 1278, 669],
+      ["DeepSeek-V4.1-Flash", 1328, 712],
     ]);
     assert.match(notes, /8_69/);
     assert.match(notes, /14_74_2/);
