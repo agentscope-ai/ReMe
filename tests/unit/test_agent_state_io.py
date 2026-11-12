@@ -1,12 +1,32 @@
 """AgentScope state persistence must follow JSONL record boundaries."""
 
 from pathlib import Path
+import threading
 
 import pytest
 from agentscope.message import AssistantMsg, TextBlock, ToolCallBlock, UserMsg
 from agentscope.state import AgentState
 
 from reme.utils import AsStateHandler
+from reme.utils.agent_state_io import AsSessionData
+from reme.schema import SessionMessage
+
+
+@pytest.mark.asyncio
+async def test_display_history_serialization_does_not_block_the_event_loop(tmp_path, monkeypatch):
+    """Large display history must be serialized outside the application's event loop."""
+    main_thread = threading.get_ident()
+    serialize = SessionMessage.model_dump
+
+    def check_thread(message, **kwargs):
+        assert threading.get_ident() != main_thread
+        return serialize(message, **kwargs)
+
+    monkeypatch.setattr(SessionMessage, "model_dump", check_thread)
+    message = SessionMessage(id="one", role="user", content="history")
+    handler = AsStateHandler.for_session(tmp_path, "history")
+    await handler.dump_session(AsSessionData(AgentState(session_id="history"), [message]))
+    assert (await handler.load_session()).messages == [message]
 
 
 @pytest.mark.asyncio

@@ -84,10 +84,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
         invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
-        # A fork inherits its source, rather than this wrapper's current defaults.
+        # Context settings inherit the source; configured caller execution policies still apply.
         if not kwargs.get("fork_session"):
             return self._merged_kwargs(kwargs)
-        options = dict(kwargs)
+        policy_keys = {"sandbox", "approval_mode", "job_tools", "injected_job_kwargs", "tool_context_id", "config"}
+        options = {**{key: value for key, value in self.kwargs.items() if key in policy_keys}, **kwargs}
         if "output_schema" in options:
             options["output_schema"] = self._normalize_output_schema(options["output_schema"])
         return options
@@ -330,6 +331,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Append a user or assistant message through the shared session owner."""
@@ -341,6 +343,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 role=role,
                 timeout=timeout,
                 expected_turn_id=expected_turn_id,
+                expected_revision=expected_revision,
                 delivery=delivery,
             )
 
@@ -540,7 +543,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 usage = _TurnUsage(await self.app_server.token_usage(thread.id))
                 turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
                 activity = presentation.model_copy(
-                    update={"session_id": target_session or thread.id, "turn_id": turn.id},
+                    update={
+                        "session_id": target_session or thread.id,
+                        "execution_session_id": thread.id,
+                        "turn_id": turn.id,
+                    },
                 )
                 self.app_server.publish_activity(activity)
                 tracker = ActivityTracker(activity)

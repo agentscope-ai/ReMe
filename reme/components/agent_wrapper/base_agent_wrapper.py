@@ -312,11 +312,13 @@ class BaseAgentWrapper(BaseComponent):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Append a user or assistant message once without generating a reply.
 
-        The optional turn guard rejects a changed conversation anchor.
+        The optional revision guard detects history changes, including no-inference appends.
+        The turn guard only checks the model-turn anchor.
         Both idle/immediate delivery policies wait for the session to become idle before injection.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")

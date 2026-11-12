@@ -564,13 +564,18 @@ SDK 状态和显示历史，因此压缩不会丢失已经记录的聊天。旧�
 恢复。回复、压缩和追加 user/assistant 消息共用会话锁；读取历史、查询状态不等待生成。追加要求会话空闲，保留展示
 策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
 同一个 Application 中，独立进程不能并发写入同一会话。
+序列化和磁盘写入在线程中完成。原子状态文件每次保存仍会重写保留的显示历史，压缩模型上下文不会限制这部分
+历史大小。需要精确重放时应单独保存 `AgentReply`；当前 API 不提供增量历史存储和分页。
 
 Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享组件。多个 wrapper 可以共享同一个进程，
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
 传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的指令、模型、turn 设置和 job 工具。
-只有显式调用参数会覆盖这些设置，调用方 wrapper 的默认值不会覆盖。有效设置以 `.config.jsonl` 保存在会话消息
+上下文设置由显式调用参数覆盖；调用方配置的执行策略（`sandbox`、`approval_mode`、`job_tools`、
+`injected_job_kwargs`、`tool_context_id`、`config`）同样作用于 fork，其中 `job_tools=[]` 禁用继承的 ReMe 工具。
+调用参数优先于 wrapper 配置。AgentScope 和 Claude 则从调用方 wrapper 和调用参数构建模型、工具配置；
+它们的 fork 复制原生上下文，不提供 Codex 的已保存有效配置继承。Codex 的有效设置以 `.config.jsonl` 保存在会话消息
 记录旁，不保存自动生成的 MCP 凭据，卸载或重启后仍可恢复。来源为空且尚无原生 rollout 时，创建使用相同设置的
 独立 thread。
 原生会话准备被拒绝或取消时，保留之前有效的设置和工具绑定。
@@ -581,10 +586,16 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 
 `CodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
 会话监听器也会收到这些事件；turn 完成、失败或取消时结束活动。
+`session_id` 保留为展示目标，`execution_session_id` 表示 `turn_id` 所属的实际原生会话；任务活动另用
+`task_id` 和 `started_at` 标识任务运行。
 三个 wrapper 均支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
 `append_session(..., delivery="idle" | "immediate")` 在消息中保留展示策略与来源会话；两种策略都等待原生会话
 空闲后再注入。Codex 读取会话、查询状态和追加消息时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
+`read_session()` 返回显示内容及 turn 锚点的 `revision`。通过
+`append_session(..., expected_revision=snapshot.revision)` 可以拒绝过期决策，包括 user/assistant 追加导致的变化。
+校验和追加共用写锁；已接受的 `message_id` 重试仍保持幂等。revision 是不透明的内容哈希，不是有序计数器；
+`expected_turn_id` 只检查模型轮次锚点。`session_append` Job 同样支持两种校验和 `delivery` 展示策略。
 
 Claude Code 使用原生流式输入和零推理回执保存追加消息。
 `{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
@@ -592,6 +603,17 @@ Claude Code 使用原生流式输入和零推理回执保存追加消息。
 空会话包含一条隐藏的原生种子输入。
 `continue_conversation=True` 先定位当前项目最近的主会话，再获取它的会话锁；外部 `session_store` 同样支持，
 没有历史会话时创建新会话。
+恢复和 fork 同时沿用保存的 `cwd` 与原生存储位置，显式传入不同的调用级 `cwd` 会报错，不支持跨项目迁移原生会话。
+查询在原生接受输入前被拒绝时，保留之前的轮次锚点和等待状态。
+最终元数据发布中断时，历史和追加校验从原生记录恢复已接受的输入锚点，主动追加的观察消息不作为模型轮次。
+
+[`LocalEventStream`](../../reme/components/event_stream.py) 需通过 `components.event_stream` 显式启用，目前没有内置
+Job 生产或消费事件。它保存持久输入，与资源 catalog 的文件变更检查点独立，不替代或迁移
+`resource_changes`/`resource_processed`。生产者先完成资源写入再追加事件，并保证引用文件在处理完成前可用。
+消费者先持久化结果再 `ack`，通过稳定事件 ID 实现重放幂等，取消时对未完成的 claim 执行 `nack`。
+保存结果后、ack 前崩溃会重放事件；确认消费不表示通知已送达或用户已读。资源缺失、永久失败和通知去重由消费方处理。
+pending 预算由所有 stream 共享；append 超时覆盖共享锁和容量等待。磁盘提交一旦开始，会在取消后完成提交再释放锁。
+仅完全消费的分段对可被回收，队列不删除资源文件；接入的业务消费者还需验证自己的重放链路。
 
 `session_read`、`session_status` 和 `session_append` Job 使用各自 Step 配置中指定的 wrapper。
 先通过 `reme start config=default` 启动服务，再在另一个终端调用：

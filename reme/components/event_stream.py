@@ -364,8 +364,8 @@ class LocalEventStream(BaseComponent):
     async def append(self, name: str, events: Event | dict | list[Event | dict]) -> list[str]:
         """Durably append one segment-sized batch; wait for capacity or raise TimeoutError."""
         prepared = self._prepare(events)
-        async with self._changed:
-            async with asyncio.timeout(self.append_timeout_seconds):
+        async with asyncio.timeout(self.append_timeout_seconds) as deadline:
+            async with self._changed:
                 while True:
                     stream = self._stream(name)
                     fresh = []
@@ -395,8 +395,9 @@ class LocalEventStream(BaseComponent):
                     ):
                         break
                     await self._changed.wait()
-            await finish_cleanup(self._append(name, stream, fresh, rotate))
-            return [item[0]["id"] for item in prepared]
+                deadline.reschedule(None)
+                await finish_cleanup(self._append(name, stream, fresh, rotate))
+                return [item[0]["id"] for item in prepared]
 
     async def _append(self, name: str, stream: _Stream, prepared: list, rotate: bool) -> None:
         segment = _Segment(stream.segments[-1].number + 1 if stream.segments else 1) if rotate else stream.segments[-1]

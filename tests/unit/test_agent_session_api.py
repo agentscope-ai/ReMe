@@ -186,6 +186,42 @@ async def test_session_path_lookup_propagates_native_lookup_errors(runtime):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["user", "assistant"])
+async def test_content_revision_guards_appends_and_allows_idempotent_retries(runtime, role):
+    server, native = runtime
+    before = await server.read_session("session-1")
+    await server.append_session("session-1", "stop reminders", message_id="stop", role=role)
+    after = await server.read_session("session-1")
+    assert after.last_turn_id == before.last_turn_id
+    assert after.revision != before.revision
+    with pytest.raises(RuntimeError, match="changed"):
+        await server.append_session(
+            "session-1",
+            "stale reminder",
+            message_id="stale",
+            expected_revision=before.revision,
+        )
+    await server.append_session(
+        "session-1",
+        "stop reminders",
+        message_id="stop",
+        role=role,
+        expected_revision=before.revision,
+    )
+    server._threads.clear()
+    assert (await server.read_session("session-1")).revision == after.revision
+    results = await asyncio.gather(
+        *(
+            server.append_session("session-1", key, message_id=key, expected_revision=after.revision)
+            for key in ("one", "two")
+        ),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(result, RuntimeError) for result in results) == 1
+    assert len(native.injected) == 2
+
+
+@pytest.mark.asyncio
 async def test_context_guard_rejects_stale_reminder_but_recovers_accepted_delivery(runtime):
     from reme.components.codex_app_server import SessionChangedError
 
@@ -662,6 +698,7 @@ async def test_http_session_jobs_and_unsupported_error_code(tmp_path, monkeypatc
             for action in ("session_status", "session_read"):
                 response = (await client.post("/" + action, json={"session_id": "session-1"})).json()
                 assert response["success"]
+            revision = response["answer"]["revision"]
             response = (
                 await client.post(
                     "/session_append",
@@ -671,12 +708,28 @@ async def test_http_session_jobs_and_unsupported_error_code(tmp_path, monkeypatc
                         "message_id": "http",
                         "wait_timeout": 1,
                         "role": role,
+                        "expected_revision": revision,
+                        "delivery": "immediate",
                     },
                 )
             ).json()
             assert response["success"]
             assert response["answer"]["source"] == "proactive"
             assert response["answer"]["role"] == role
+            assert response["answer"]["delivery"] == "immediate"
+            stale = (
+                await client.post(
+                    "/session_append",
+                    json={
+                        "session_id": "session-1",
+                        "content": "stale",
+                        "message_id": "stale",
+                        "expected_revision": revision,
+                    },
+                )
+            ).json()
+            assert not stale["success"]
+            assert len(native.injected) == 1
             monkeypatch.setattr(CodexAgentWrapper, "read_session", BaseAgentWrapper.read_session)
             response = (await client.post("/session_read", json={"session_id": "session-1"})).json()
             assert not response["success"]

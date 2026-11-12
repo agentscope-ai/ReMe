@@ -131,6 +131,32 @@ async def test_idempotent_append_and_conflicting_ids(stream, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_consumer_recovers_saved_results_before_ack_without_duplicate_work(stream, tmp_path):
+    """Exercise resource -> event -> durable result -> restart -> replay -> ack."""
+    resource = tmp_path / "resource/news/report.md"
+    resource.parent.mkdir(parents=True)
+    resource.write_text("source observation", encoding="utf-8")
+    await stream.append("news", event())
+    batch = await stream.claim("news")
+    result = tmp_path / f"{batch['events'][0]['id']}.result"
+    result.write_text(resource.read_text(encoding="utf-8"), encoding="utf-8")
+    result_before = result.stat().st_mtime_ns
+    # The consumer stopped after persisting its result, before it could acknowledge.
+    await stream.close()
+    async with make_stream(tmp_path) as restored:
+        replayed = await restored.claim("news")
+        assert replayed["events"] == batch["events"]
+        for item in replayed["events"]:
+            target = tmp_path / f"{item['id']}.result"
+            if not target.exists():
+                target.write_text((tmp_path / item["paths"][0]).read_text(encoding="utf-8"), encoding="utf-8")
+        await restored.ack("news", replayed["token"])
+        assert result.stat().st_mtime_ns == result_before
+        assert resource.read_text(encoding="utf-8") == result.read_text(encoding="utf-8")
+        assert await restored.claim("news") is None
+
+
+@pytest.mark.asyncio
 async def test_segment_retention_never_discards_partially_consumed_events(tmp_path):
     async with make_stream(tmp_path, segment_max_events=2, max_segments=2, append_timeout_seconds=0.01) as store:
         await store.create("news")
@@ -238,6 +264,42 @@ async def test_concurrent_append_and_claim_are_serialized(stream):
     assert [item["id"] for item in await consume(stream)] == ["later"]
     with pytest.raises(ValueError, match="token"):
         await stream.ack("news", claimed[0]["token"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["append", "ack"])
+async def test_append_timeout_includes_waiting_for_another_stream_commit(stream, monkeypatch, operation):
+    """An unstarted append times out even while another stream holds the shared lock."""
+    await stream.create("other")
+    await stream.append("news", event())
+    batch = await stream.claim("news")
+    entered, release = ThreadEvent(), ThreadEvent()
+    original = stream._write
+
+    def blocked_write(path, raw):
+        entered.set()
+        assert release.wait(2)
+        original(path, raw)
+
+    monkeypatch.setattr(stream, "_write", blocked_write)
+    stream.append_timeout_seconds = 0.01
+    committing = asyncio.create_task(
+        stream.append("news", event("e2")) if operation == "append" else stream.ack("news", batch["token"]),
+    )
+    pending = None
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        pending = asyncio.create_task(stream.append("other", event("unstarted")))
+        done, _ = await asyncio.wait([pending], timeout=0.2)
+        assert pending in done, "append timeout did not cover lock acquisition"
+        with pytest.raises(TimeoutError):
+            await pending
+    finally:
+        release.set()
+        if pending is not None:
+            await asyncio.gather(pending, return_exceptions=True)
+        await committing
+    assert await stream.claim("other") is None
 
 
 @pytest.mark.asyncio
