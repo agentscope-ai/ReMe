@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
-from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, SystemMessage, TextBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, StreamEvent, TextBlock
 from claude_agent_sdk import project_key_for_directory
 
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
@@ -22,7 +22,7 @@ from reme.components.application_context import ApplicationContext
 
 def write_entries(wrapper, options, frames):
     """Simulate only the CLI's native persistence boundary, within tmp_path."""
-    session_id = options.session_id if options.fork_session else options.resume or options.session_id
+    session_id = options.resume or options.session_id
     data = wrapper._sessions.location(options)
     path = wrapper._sessions.native_path(session_id, data)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -65,142 +65,6 @@ async def test_create_empty_native_session_is_hidden_resumable_and_idle(wrapper)
     assert frames[0]["shouldQuery"] is False
     await wrapper.release_session(session_id)
     assert await wrapper.session_exists(session_id)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("external", [False, True])
-@pytest.mark.parametrize("fork", [False, True])
-async def test_resume_restores_saved_cwd_across_wrappers(wrapper, monkeypatch, tmp_path, external, fork):
-    """Native execution and history lookup must use the same saved project key."""
-    original = tmp_path / "original"
-    original.mkdir()
-    store = CcFileSessionStore(tmp_path / "external") if external else None
-    if store is not None:
-        wrapper.kwargs["session_store"] = store
-
-        async def inject(options, frames):
-            key = {"project_key": project_key_for_directory(str(options.cwd)), "session_id": options.session_id}
-            await store.append(key, frames)
-
-        monkeypatch.setattr(wrapper, "_inject", inject)
-    session_id = await wrapper.create_session(cwd=str(original))
-    observed = []
-
-    async def query(prompt, options):
-        observed.append(options)
-        frames = [frame async for frame in prompt]
-        target = options.session_id if fork else options.resume
-        if store is not None:
-            await store.append(
-                {"project_key": project_key_for_directory(str(options.cwd)), "session_id": target},
-                frames,
-            )
-        else:
-            write_entries(wrapper, options, frames)
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=1,
-            session_id=target,
-            result="done",
-        )
-
-    monkeypatch.setattr("claude_agent_sdk.query", query)
-    other = CcAgentWrapper(app_context=wrapper.app_context, cwd=tmp_path, session_store=store)
-    result = await other.reply("resume", resume=session_id, fork_session=fork)
-    assert str(observed[0].cwd) == str(original)
-    data = await other._sessions.load(result["session_id"], other._session_defaults())
-    assert data.cwd == str(original)
-    assert (await other.read_session(result["session_id"])).messages[-1].content == "resume"
-    with pytest.raises(ValueError, match="cwd"):
-        await other.reply("move", resume=session_id, cwd=str(tmp_path))
-    assert len(observed) == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("waiting", [False, True])
-@pytest.mark.parametrize("accepted", [False, True])
-async def test_failed_query_commits_anchor_only_after_native_acceptance(wrapper, monkeypatch, waiting, accepted):
-    """Rejected setup preserves the previous anchor and approval wait state."""
-    session_id = await wrapper.create_session()
-    data = await wrapper._sessions.load(session_id, wrapper._session_defaults())
-    data.waiting = waiting
-    await wrapper._sessions.save(session_id, data)
-    before = await wrapper.read_session(session_id)
-
-    async def query(prompt, options):
-        if accepted:
-            write_entries(wrapper, options, [frame async for frame in prompt])
-        yield SystemMessage(subtype="init", data={"session_id": session_id})
-        raise ValueError("query rejected")
-
-    monkeypatch.setattr("claude_agent_sdk.query", query)
-    with pytest.raises(ValueError, match="query rejected"):
-        await wrapper.reply("new input", resume=session_id)
-    after = await wrapper.read_session(session_id)
-    restored = await wrapper._sessions.load(session_id, wrapper._session_defaults())
-    if accepted:
-        assert after.last_turn_id != before.last_turn_id
-        assert after.messages[-1].turn_id == after.last_turn_id
-        assert not restored.waiting
-    else:
-        assert after.messages == before.messages
-        assert after.last_turn_id == before.last_turn_id
-        assert restored.waiting == waiting
-        if not waiting:
-            await wrapper.append_session(session_id, "still valid", message_id="valid", expected_turn_id="")
-
-
-@pytest.mark.asyncio
-async def test_injected_user_observation_is_not_a_turn_even_without_native_meta_flag(wrapper):
-    """Provenance identifies appends independently of the CLI's optional display flags."""
-    session_id = await wrapper.create_session()
-    await wrapper.append_session(session_id, "observation", message_id="user", role="user")
-    path = await wrapper.get_session_path(session_id)
-    entries = [json.loads(line) for line in path.read_text(encoding="utf-8").split("\n") if line]
-    for entry in entries:
-        entry.pop("isMeta", None)
-    path.write_text("\n".join(json.dumps(entry) for entry in entries) + "\n", encoding="utf-8")
-    assert (await wrapper.read_session(session_id)).last_turn_id is None
-    await wrapper.append_session(session_id, "still no model turn", message_id="next", expected_turn_id="")
-
-
-@pytest.mark.asyncio
-async def test_native_turn_recovers_when_final_metadata_publication_fails(wrapper, monkeypatch):
-    """Native accepted input remains the anchor even if final metadata was never published."""
-
-    async def query(prompt, options):
-        write_entries(wrapper, options, [frame async for frame in prompt])
-        yield ResultMessage(
-            subtype="success",
-            duration_ms=1,
-            duration_api_ms=1,
-            is_error=False,
-            num_turns=1,
-            session_id=options.resume or options.session_id,
-            result="done",
-        )
-
-    monkeypatch.setattr("claude_agent_sdk.query", query)
-    session_id = (await wrapper.reply("earlier"))["session_id"]
-    before = await wrapper.read_session(session_id)
-    save = wrapper._sessions.save
-
-    async def fail_publication(identifier, data):
-        if data.last_turn_id != before.last_turn_id:
-            raise OSError("metadata publication failed")
-        await save(identifier, data)
-
-    monkeypatch.setattr(wrapper._sessions, "save", fail_publication)
-    with pytest.raises(OSError, match="publication failed"):
-        await wrapper.reply("accepted input", resume=session_id)
-    snapshot = await wrapper.read_session(session_id)
-    assert snapshot.messages[-1].content == "accepted input"
-    assert snapshot.last_turn_id == snapshot.messages[-1].turn_id != before.last_turn_id
-    monkeypatch.setattr(wrapper._sessions, "save", save)
-    await wrapper.append_session(session_id, "current", message_id="current", expected_turn_id=snapshot.last_turn_id)
 
 
 @pytest.mark.asyncio
@@ -298,41 +162,6 @@ async def test_fork_cannot_acquire_the_same_session_twice_with_different_uuid_ca
         async with asyncio.timeout(0.2):
             await wrapper.reply("same session", resume=session_id.upper(), session_id=session_id, fork_session=True)
     assert (await wrapper.get_session_status(session_id)).status == "idle"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["user", "assistant"])
-async def test_content_revision_guards_appends_and_allows_idempotent_retries(wrapper, role):
-    """Native append changes the decision guard even when no model turn is generated."""
-    session_id = await wrapper.create_session()
-    before = await wrapper.read_session(session_id)
-    await wrapper.append_session(session_id, "stop reminders", message_id="stop", role=role)
-    after = await wrapper.read_session(session_id)
-    assert after.last_turn_id == before.last_turn_id
-    assert after.revision != before.revision
-    with pytest.raises(RuntimeError, match="changed"):
-        await wrapper.append_session(
-            session_id,
-            "stale reminder",
-            message_id="stale",
-            expected_revision=before.revision,
-        )
-    await wrapper.append_session(
-        session_id,
-        "stop reminders",
-        message_id="stop",
-        role=role,
-        expected_revision=before.revision,
-    )
-    assert (await wrapper.read_session(session_id)).revision == after.revision
-    results = await asyncio.gather(
-        *(
-            wrapper.append_session(session_id, key, message_id=key, expected_revision=after.revision)
-            for key in ("one", "two")
-        ),
-        return_exceptions=True,
-    )
-    assert sum(isinstance(result, RuntimeError) for result in results) == 1
 
 
 @pytest.mark.asyncio

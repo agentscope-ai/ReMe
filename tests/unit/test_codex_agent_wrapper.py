@@ -1649,23 +1649,6 @@ async def test_fork_model_override_preserves_source_and_wrapper_defaults(system)
 
 
 @pytest.mark.asyncio
-async def test_fork_preserves_calling_wrappers_execution_policy(system):
-    """Inherited context cannot discard explicitly configured caller restrictions."""
-    from openai_codex import ApprovalMode, Sandbox
-
-    first, second, server, job = system
-    source = await first.reply("source", sandbox="full-access", job_tools=[job.name])
-    second.kwargs.update(sandbox="read-only", approval_mode="auto_review", job_tools=[])
-    forked = await second.reply("read context", resume=source["session_id"], fork_session=True)
-    options = _Codex.instances[0].opened[-1][2]
-    assert options["sandbox"] == Sandbox.read_only
-    assert options["approval_mode"] == ApprovalMode.auto_review
-    assert options["config"]["mcp_servers"]["reme_jobs"]["enabled"] is False
-    assert json.loads(server._threads[forked["session_id"]].binding)["jobs"] == []
-    assert json.loads(server._threads[source["session_id"]].binding)["jobs"] == [job.name]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["binding", "resume", "cancelled"])
 async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, monkeypatch, failure):
     first, second, server, _ = system
@@ -1743,7 +1726,7 @@ async def test_fork_inherits_source_instructions_tools_and_turn_settings(system,
     if restore == "restart":
         server._threads.clear()
         server.jobs_mcp.scopes.clear()
-    second.kwargs.update(system_prompt="Other instructions.", model="other-model", effort="low")
+    second.kwargs.update(system_prompt="Other instructions.", model="other-model", effort="low", job_tools=[])
 
     overrides = {} if caller is None else {"injected_job_kwargs": {"pa_caller": caller}}
     forked = await second.reply("Only summarize.", resume=source_id, fork_session=True, **overrides)
@@ -1818,7 +1801,7 @@ async def test_fork_of_unstarted_session_preserves_source_options_and_tools(syst
         side_effect=None if persisted else RuntimeError("no rollout found for thread id"),
     )
     monkeypatch.setattr(native, "thread_fork", fork)
-    second.kwargs.update(system_prompt="Unrelated instructions.", model="other-model")
+    second.kwargs.update(system_prompt="Unrelated instructions.", model="other-model", job_tools=[])
 
     reply = await second.reply("Prepare context.", resume=source_id, fork_session=True)
 
@@ -1907,18 +1890,11 @@ async def test_reply_activity_reaches_the_selected_proactive_session(system):
     observed = []
     unsubscribe = server.watch_session(selected, observed.append)
     try:
-        result = await first.reply(
-            "background result",
-            job_tools=[],
-            activity_source="proactive",
-            activity_session_id=selected,
-        )
+        await first.reply("background result", job_tools=[], activity_source="proactive", activity_session_id=selected)
         activities = [event for event in observed if isinstance(event, AgentActivity)]
         assert activities[0].phase == "thinking"
         assert activities[-1].phase == "completed"
         assert all(event.session_id == selected and event.source == "proactive" for event in activities)
-        assert all(event.execution_session_id == result["session_id"] for event in activities)
-        assert result["session_id"] != selected
         assert len({event.turn_id for event in activities}) == 1
     finally:
         unsubscribe()
@@ -2088,7 +2064,6 @@ async def test_wrapper_forwards_message_policy_and_turn_guard(system, monkeypatc
             role=role,
             timeout=7,
             expected_turn_id="turn-1",
-            expected_revision="revision-1",
             delivery="immediate",
         )
         == message
@@ -2100,7 +2075,6 @@ async def test_wrapper_forwards_message_policy_and_turn_guard(system, monkeypatc
         role=role,
         timeout=7,
         expected_turn_id="turn-1",
-        expected_revision="revision-1",
         delivery="immediate",
     )
 

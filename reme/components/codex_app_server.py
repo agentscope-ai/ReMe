@@ -281,7 +281,6 @@ class CodexAppServer(BaseComponent):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
-        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Wait for the thread lease, then inject and publish one retry-safe message."""
@@ -323,11 +322,6 @@ class CodexAppServer(BaseComponent):
 
                         return await finish_cleanup(recover_and_publish())
                 if expected_turn_id is not None and (thread.turns[-1].id if thread.turns else "") != expected_turn_id:
-                    raise SessionChangedError("Session changed before appending")
-                if (
-                    expected_revision is not None
-                    and history.session_snapshot(thread, records, accepted).revision != expected_revision
-                ):
                     raise SessionChangedError("Session changed before appending")
                 if record is None:
                     record = history.new_record(message_id, content, thread, role=role)

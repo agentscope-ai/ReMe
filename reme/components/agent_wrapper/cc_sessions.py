@@ -222,9 +222,7 @@ class CcSessions:
     def status(self, session_id: str, data: SessionData) -> SessionStatus:
         """A result alone cannot declare a leased or approval-blocked session idle."""
         runtime = self.runtimes.get(session_id)
-        waiting = (
-            runtime.state == "requires_action" if runtime is not None and runtime.input is not None else data.waiting
-        )
+        waiting = data.waiting or (runtime is not None and runtime.state == "requires_action")
         return SessionStatus(
             session_id=session_id,
             status="active" if waiting or (runtime is not None and runtime.lock.locked()) else "idle",

@@ -71,41 +71,6 @@ def wrapper(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["user", "assistant"])
-async def test_content_revision_guards_appends_and_allows_idempotent_retries(wrapper, role):
-    """A user observation invalidates an earlier decision without creating a turn."""
-    session_id = await wrapper.create_session()
-    before = await wrapper.read_session(session_id)
-    await wrapper.append_session(session_id, "stop reminders", message_id="stop", role=role)
-    after = await wrapper.read_session(session_id)
-    assert after.last_turn_id == before.last_turn_id
-    assert after.revision != before.revision
-    with pytest.raises(RuntimeError, match="changed"):
-        await wrapper.append_session(
-            session_id,
-            "stale reminder",
-            message_id="stale",
-            expected_revision=before.revision,
-        )
-    await wrapper.append_session(
-        session_id,
-        "stop reminders",
-        message_id="stop",
-        role=role,
-        expected_revision=before.revision,
-    )
-    assert (await wrapper.read_session(session_id)).revision == after.revision
-    results = await asyncio.gather(
-        *(
-            wrapper.append_session(session_id, key, message_id=key, expected_revision=after.revision)
-            for key in ("one", "two")
-        ),
-        return_exceptions=True,
-    )
-    assert sum(isinstance(result, RuntimeError) for result in results) == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["user", "assistant"])
 async def test_empty_session_and_proactive_append_survive_restart_without_a_model(wrapper, role):
     """Creation and retry-safe observations work without a bound provider."""
     session_id = await wrapper.create_session()

@@ -24,15 +24,13 @@ def accepted_message(entry: dict, record: AppendRecord) -> SessionMessage:
     return record.message.model_copy(deep=True)
 
 
-def last_turn_id(entries: list[dict], data: SessionData) -> str | None:
-    """Recover the accepted prompt, excluding injected observations and hidden inputs."""
-    hidden = {*data.hidden_ids, *(record.native_id for record in data.appends)}
+def last_turn_id(entries: list[dict]) -> str | None:
+    """Recover an ordinary prompt anchor from existing native-only sessions."""
     return next(
         (
             entry.get("uuid")
             for entry in reversed(entries)
             if entry.get("type") == "user"
-            and entry.get("uuid") not in hidden
             and not (entry.get("isMeta") or entry.get("isSidechain") or entry.get("isCompactSummary"))
             and text_content((entry.get("message") or {}).get("content"))
         ),

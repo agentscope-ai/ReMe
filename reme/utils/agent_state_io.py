@@ -49,11 +49,6 @@ class AsStateHandler:
 
     async def dump_session(self, session: AsSessionData) -> Path:
         """Commit state, history and proactive message IDs together, including on cancellation."""
-        await complete_in_thread(self._dump_session, session)
-        return self.path
-
-    def _dump_session(self, session: AsSessionData) -> None:
-        """Serialize growing history off the event loop while its owner holds the lease."""
         state = session.state
         header = UserMsg(
             name="__state__",
@@ -65,7 +60,8 @@ class AsStateHandler:
             },
         )
         records = [header.model_dump_json(), *(msg.model_dump_json() for msg in state.context)]
-        self._write("\n".join(records) + "\n")
+        await complete_in_thread(self._write, "\n".join(records) + "\n")
+        return self.path
 
     def _write(self, content: str) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -306,9 +306,6 @@ jobs:
         content: {type: string, minLength: 1, maxLength: 100000}
         role: {type: string, enum: [user, assistant], default: assistant}
         wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
-        expected_turn_id: {type: string, description: "optional model-turn anchor; does not detect message appends"}
-        expected_revision: {type: string, description: "optional revision returned by session_read; rejects changed history"}
-        delivery: {type: string, enum: [idle, immediate], default: idle, description: "presentation policy; both wait for idle"}
       required: [session_id, message_id, content]
     steps:
       - backend: session_append_step

@@ -24,9 +24,6 @@ class _SessionStep(BaseStep):
                 "role": self.context.get("role", "assistant"),
                 "timeout": float(self.context.get("wait_timeout", 30)),
             }
-            for key in ("expected_turn_id", "expected_revision", "delivery"):
-                if self.context.get(key) is not None:
-                    kwargs[key] = self.context.get(key)
         try:
             result = await getattr(self.agent_wrapper, self.operation)(session_id, **kwargs)
         except NotImplementedError:

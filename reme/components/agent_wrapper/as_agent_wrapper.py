@@ -416,7 +416,6 @@ class AsAgentWrapper(BaseAgentWrapper):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
-        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Append an idempotent user or assistant observation without generating a reply."""
@@ -427,7 +426,6 @@ class AsAgentWrapper(BaseAgentWrapper):
             role=role,
             timeout=timeout,
             expected_turn_id=expected_turn_id,
-            expected_revision=expected_revision,
             delivery=delivery,
             name=self.name,
         )

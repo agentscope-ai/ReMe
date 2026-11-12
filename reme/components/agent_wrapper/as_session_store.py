@@ -320,7 +320,6 @@ class AsSessionStore:
         role: Literal["user", "assistant"],
         timeout: float,
         expected_turn_id: str | None,
-        expected_revision: str | None,
         delivery: str,
         name: str,
     ) -> SessionMessage:
@@ -349,8 +348,6 @@ class AsSessionStore:
                 if tail is not None and session.state.has_awaiting_tool_calls(tail.name):
                     raise RuntimeError("Session must be idle before appending")
                 if expected_turn_id is not None and (session.last_turn_id or "") != expected_turn_id:
-                    raise RuntimeError("Session changed before appending")
-                if expected_revision is not None and (await self.snapshot(session_id)).revision != expected_revision:
                     raise RuntimeError("Session changed before appending")
                 factory = AssistantMsg if role == "assistant" else UserMsg
                 native = factory(name=name if role == "assistant" else "user", content=content, id=native_id)

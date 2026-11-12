@@ -588,21 +588,14 @@ history cannot be recovered. Replies, compaction and user/assistant appends shar
 not wait behind generation. Appends require an idle session, retain their delivery policy, and are idempotent by
 `message_id` across restarts. Pending approval or external execution is reported as active. Ownership and live status
 are scoped to the Application; independent processes must not write the same session concurrently.
-Serialization and disk writes run off the event loop. The atomic state file still rewrites retained display history
-on each save; context compaction does not bound this history. Exact stream replay belongs in a separately saved
-`AgentReply`. Incremental history storage and pagination are not provided by this API.
 
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
 Pass `fork_session=True` with `resume` or `session_id` to inherit the source conversation's instructions, model,
-turn settings and job tools. Context settings are overridden by explicit call arguments. Configured caller policies
-(`sandbox`, `approval_mode`, `job_tools`, `injected_job_kwargs`, `tool_context_id`, `config`) also apply to forks;
-in particular, `job_tools=[]` disables inherited ReMe tools. Call arguments take precedence over wrapper settings.
-AgentScope and Claude instead build their model/tool configuration from the calling wrapper and call arguments;
-their forks copy native context, without Codex's saved effective configuration inheritance.
-Effective Codex settings are saved beside session message records as `.config.jsonl`, without generated MCP
+turn settings and job tools. Only explicit call arguments override these settings; the calling wrapper's defaults
+do not. Effective settings are saved beside session message records as `.config.jsonl`, without generated MCP
 credentials, so forks can restore them after unloading or restarting. An empty source without a native rollout
 creates an independent thread with the same settings.
 Rejected or cancelled native session setup leaves the prior effective settings and tool binding intact.
@@ -613,19 +606,12 @@ the calling wrapper's default for ordinary calls; explicit `None` disables that 
 
 `CodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
 session listeners also receive these events. A completed turn, failure or cancellation closes its activity.
-`session_id` remains the presentation target; `execution_session_id` identifies the actual native session owning
-`turn_id`. For task activity, `task_id` and `started_at` identify the task run separately.
 All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.
 `append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
 both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
 reading, status and appending in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
-`read_session()` returns an opaque `revision` of its displayed content and turn anchor. Pass it as
-`append_session(..., expected_revision=snapshot.revision)` to reject stale decisions, including changes from user
-or assistant appends. The check and append share the writer lease; accepted `message_id` retries remain idempotent.
-Revision tokens are content hashes, not ordered counters. `expected_turn_id` only checks the model-turn anchor.
-The `session_append` job exposes both guards and the `delivery` policy.
 
 Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
 `{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
@@ -633,22 +619,6 @@ an explicitly configured external `mem_session_dir` remains supported. History a
 generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
 `continue_conversation=True` resolves the latest main session in the current project before taking its lease,
 including when using an external `session_store`; with no stored conversation it starts a new session.
-Resume and fork restore the saved `cwd` along with the native storage location. An explicit different call-time
-`cwd` is rejected; moving a native session between projects is not supported. Queries rejected before native input
-acceptance preserve the previous turn anchor and waiting state.
-If final metadata publication is interrupted, history and append guards recover the accepted prompt anchor from
-the native transcript, excluding injected observations.
-
-[`LocalEventStream`](../../reme/components/event_stream.py) is opt-in through `components.event_stream`; no built-in
-job produces or consumes it yet. It stores durable inputs, independently of the resource catalog's file-change
-checkpoints, and does not replace or migrate `resource_changes`/`resource_processed`. Producers must finish resource
-writes before appending events and keep referenced files available until processing finishes. Consumers persist
-results before `ack`, use stable event IDs to make replay idempotent, and `nack` unfinished claims on cancellation.
-A crash after saving a result but before `ack` replays the event; an acknowledgement does not prove notification
-delivery or user reading. Missing resources, permanent failures and notification deduplication belong to consumers.
-Pending budgets are shared across streams; append deadlines include waiting for the shared lock and capacity.
-Once a commit starts, it completes through cancellation before releasing the lock. Only fully consumed segment pairs
-are reclaimed; resource files are never removed by the queue. Business consumers need their own replay tests.
 
 The `session_read`, `session_status` and `session_append` jobs use the wrapper selected by their Step configuration.
 Start the service with `reme start config=default`, then use another terminal:
