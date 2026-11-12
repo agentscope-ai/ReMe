@@ -35,6 +35,10 @@ const externalDocuments = [
   ["en/benchmarks/beam.md", "benchmark/beam/README.md"],
   ["zh/benchmarks/longmemeval.md", "benchmark/longmemeval/README_ZH.md"],
   ["en/benchmarks/longmemeval.md", "benchmark/longmemeval/README.md"],
+  ["zh/benchmarks/memlens.md", "benchmark/memlens/docs/zh/evaluation.md"],
+  ["en/benchmarks/memlens.md", "benchmark/memlens/docs/en/evaluation.md"],
+  ["zh/benchmarks/mobilemem.md", "benchmark/mobilemem/docs/zh/evaluation.md"],
+  ["en/benchmarks/mobilemem.md", "benchmark/mobilemem/docs/en/evaluation.md"],
   ["zh/benchmarks/pibench.md", "benchmark/pibench/README_ZH.md"],
   ["en/benchmarks/pibench.md", "benchmark/pibench/README.md"],
   ["zh/benchmarks/toolmemory.md", "benchmark/toolmemory/README_ZH.md"],
@@ -266,6 +270,31 @@ for (const [destination, source] of externalDocuments) {
   await writeFile(destinationPath, content);
   sourceMap[destination] = source;
 }
+
+for (const language of ["zh", "en"]) {
+  const destination = `${language}/memlens_256k_evaluation.md`;
+  const title = language === "zh" ? "MemLens-256K 评测说明已迁移" : "MemLens-256K Evaluation Notes Have Moved";
+  const script = 'window.location.replace("./benchmarks/memlens" + window.location.hash);';
+  await writeFile(path.join(outputDir, destination), [
+    "---",
+    `title: ${title}`,
+    "sidebar: false",
+    "head:",
+    "  - [meta, {name: robots, content: noindex}]",
+    `  - [script, {}, ${JSON.stringify(script)}]`,
+    "---",
+    "",
+    `# ${title}`,
+    "",
+    "[MemLens-256K](./benchmarks/memlens.md)",
+    "",
+  ].join("\n"));
+  sourceMap[destination] = "github-pages/scripts/generate-content.mjs";
+}
+
+await cp(path.join(repoDir, "benchmark/memlens/docs/figure"), path.join(outputDir, "public/figures/benchmarks/memlens"), {
+  recursive: true,
+});
 
 await cp(path.join(repoDir, "integrations/codex/figures"), path.join(outputDir, "public/figures/codex"), {
   recursive: true,
