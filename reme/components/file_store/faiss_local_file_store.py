@@ -484,8 +484,11 @@ class FaissLocalFileStore(LocalFileStore):
             self.faiss_idmap_path.unlink(missing_ok=True)
             return False
 
+    @BaseFileStore.serialized
     async def _dump_owned_state(self) -> None:
         """Persist chunks and the FAISS sidecar, excluding dependency snapshots."""
+        # Shutdown enters here directly: take maintenance before the FAISS lock,
+        # matching reindex/dump/clear and the serialized parent checkpoint.
         async with self._faiss_dump_lock:
             await super()._dump_owned_state()
             if self._faiss_index is None or self.embedding_store is None:
