@@ -166,8 +166,11 @@ launches Hermes and resolve existing conflicts first. Then snapshot installed
 versions and check whether ReMe can be added without changing them. Save the
 constraints file outside the ReMe source repository:
 
+Use `pip list --format=freeze` so editable installations, including a Hermes
+source checkout, are recorded as package/version constraints rather than `-e` entries.
+
 ```bash
-python -m pip freeze > hermes-constraints.txt
+python -m pip list --format=freeze > hermes-constraints.txt
 python -m pip install --dry-run -c hermes-constraints.txt "reme-ai[hermes]"
 ```
 

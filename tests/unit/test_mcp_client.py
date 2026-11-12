@@ -38,7 +38,18 @@ async def test_mcp_catalog_uses_sdk_field_names():
         "required": ["query"],
     }
     output = {"type": "object", "properties": {"answer": {"type": "string"}}}
-    metadata = {"input_schema": "user-owned metadata", "_meta": {"keep": True}}
+    metadata = {
+        "input_schema": "user-owned metadata",
+        "_meta": {"keep": True},
+        "execution": {"taskSupport": "user-owned value"},
+        "icons": [{"mimeType": "user-owned value"}],
+    }
+    parameters["properties"]["taskSupport"] = {"type": "string"}
+    output["properties"]["mimeType"] = {"type": "string"}
+    protocol_fields = {
+        "execution": {"taskSupport": "optional"},
+        "icons": [{"src": "https://example.com/icon.png", "mimeType": "image/png"}],
+    }
     if "input_schema" in Tool.model_fields:
         tool = Tool(
             name="search",
@@ -46,6 +57,7 @@ async def test_mcp_catalog_uses_sdk_field_names():
             output_schema=output,
             annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
             meta=metadata,
+            **protocol_fields,
         )
     else:
         tool = Tool(
@@ -54,6 +66,7 @@ async def test_mcp_catalog_uses_sdk_field_names():
             outputSchema=output,
             annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
             _meta=metadata,
+            **protocol_fields,
         )
     client = MCPClient()
     client.client = SimpleNamespace(list_tools=AsyncMock(return_value=[tool]))
@@ -66,6 +79,10 @@ async def test_mcp_catalog_uses_sdk_field_names():
     assert action["annotations"]["read_only_hint"] is True
     assert action["annotations"]["open_world_hint"] is False
     assert action["meta"] == metadata
+    assert action["execution"] == {"task_support": "optional"}
+    assert action["icons"][0]["mime_type"] == "image/png"
+    assert action["icons"][0]["src"] == "https://example.com/icon.png"
+    assert "mimeType" not in action["icons"][0]
     assert {"inputSchema", "outputSchema", "_meta"}.isdisjoint(action)
 
 

@@ -114,6 +114,12 @@ class MCPClient(BaseClient):
                 ):
                     if wire in annotations:
                         annotations[field] = annotations.pop(wire)
+            execution = action.get("execution")
+            if isinstance(execution, dict) and "taskSupport" in execution:
+                execution["task_support"] = execution.pop("taskSupport")
+            for icon in action.get("icons") or []:
+                if isinstance(icon, dict) and "mimeType" in icon:
+                    icon["mime_type"] = icon.pop("mimeType")
             actions.append(action)
         return actions
 

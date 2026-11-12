@@ -131,8 +131,10 @@ ReMe 同时允许该 Hermes 版本使用的 OpenAI 2.24.0、Pydantic 2.13.4、Ri
 安装前，在实际启动 Hermes 的环境运行 `python -m pip check`，先解决已有冲突。
 再保存已安装版本，检查能否在不改变它们的情况下添加 ReMe（约束文件保存在 ReMe 源码仓库之外）：
 
+使用 `pip list --format=freeze`，让 Hermes 源码等 editable 安装也生成包名和版本约束，避免产生 pip 不接受的 `-e` 条目。
+
 ```bash
-python -m pip freeze > hermes-constraints.txt
+python -m pip list --format=freeze > hermes-constraints.txt
 python -m pip install --dry-run -c hermes-constraints.txt "reme-ai[hermes]"
 ```
 
