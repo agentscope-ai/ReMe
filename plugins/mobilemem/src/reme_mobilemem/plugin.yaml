@@ -1,4 +1,5 @@
 backends:
+  mobilemem_benchmark_agent: reme_mobilemem.benchmark_agent:BenchmarkAsAgentWrapper
   mobilemem_auto_memory_step: reme_mobilemem.auto_memory:MobileMemAutoMemoryStep
   mobilemem_agentic_answer_step: reme_mobilemem.agentic_answer:MobileMemAgenticAnswerStep
 

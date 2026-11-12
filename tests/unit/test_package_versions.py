@@ -40,6 +40,18 @@ def test_home_requires_workflow_and_sandbox_release() -> None:
     assert Version(bump_version.read_version()) in requirement.specifier
 
 
+@pytest.mark.parametrize("plugin", ["memlens", "mobilemem"])
+def test_multimodal_benchmarks_require_agent_reply_release(plugin: str) -> None:
+    """Benchmark wrappers require the AgentReply interface introduced after 0.4.2.2."""
+    config = tomllib.loads((REPOSITORY / "plugins" / plugin / "pyproject.toml").read_text(encoding="utf-8"))
+    requirement = next(Requirement(value) for value in config["project"]["dependencies"] if value.startswith("reme-ai"))
+
+    assert requirement.extras == {"as"}
+    assert Version("0.4.2.2") not in requirement.specifier
+    assert Version("0.4.2.3") in requirement.specifier
+    assert Version(bump_version.read_version()) in requirement.specifier
+
+
 def test_studio_packages_have_independent_identity() -> None:
     """Keep both Studio distributions independent from the ReMe release version."""
     main_config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
