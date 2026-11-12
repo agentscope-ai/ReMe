@@ -47,6 +47,7 @@ const externalDocumentRewrites = {
     ['href="./README.md"', 'href="/en/overview"'],
     ['href="./README_ZH.md"', 'href="/zh/overview"'],
     ['src="docs/figure/', 'src="../figure/'],
+    ["(docs/figure/proactive-agent-loop.svg)", "(/figure/proactive-agent-loop.svg)"],
     ["(docs/en/", "(./"],
   ],
   "README_ZH.md": [
@@ -54,6 +55,7 @@ const externalDocumentRewrites = {
     ['href="./README.md"', 'href="/en/overview"'],
     ['href="./README_ZH.md"', 'href="/zh/overview"'],
     ['src="docs/figure/', 'src="../figure/'],
+    ["(docs/figure/proactive-agent-loop.svg)", "(/figure/proactive-agent-loop.svg)"],
     ["(docs/zh/", "(./"],
   ],
   "integrations/claude_code/README.md": [
@@ -255,6 +257,7 @@ await cp(path.join(siteDir, "public", "ecosystem"), path.join(outputDir, "public
 });
 await cp(path.join(repoDir, "docs/figure/reme-icon.svg"), path.join(outputDir, "public", "reme-icon.svg"));
 await cp(path.join(repoDir, "docs/figure/reme-logo-fashion.svg"), path.join(outputDir, "public", "reme-logo.svg"));
+await cp(path.join(repoDir, "docs/figure/proactive-agent-loop.svg"), path.join(outputDir, "public/figure/proactive-agent-loop.svg"));
 
 const sourceMap = {};
 for (const [destination, source] of externalDocuments) {
