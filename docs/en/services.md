@@ -147,8 +147,9 @@ session cache. The memory path continues to refer to the latest file. Invalid pa
 leave the current session selection unchanged.
 
 The roles use concise bilingual prompts with a few generic examples; model choice and reasoning follow
-`reme/config/proactive.yaml`. The Codex client uses a 65536-token context budget and a 56000-token automatic compaction threshold;
-these are client settings, not the provider's maximum context claim. Native long-term memory remains enabled.
+`reme/config/proactive.yaml`. The Codex client configures a 1000000-token context window and a 600000-token automatic
+compaction threshold with total-token accounting. These settings must match the selected provider's capabilities.
+Native long-term memory remains enabled.
 `CODEX_MODEL_NAME` can override the model; review the model catalog capabilities when changing it. File changes load
 on the next service start and apply to subsequent chats in the restored session.
 
@@ -158,7 +159,7 @@ An empty chat session starts a fresh worker without fork or compaction; unreadab
 The query reads current memory, completed conversations, inbox feedback, task results and message delivery history;
 handles explicit configuration requests; selects and verifies useful findings; and submits one message decision. See `reme/steps/proactive/agents/proactive.py` and its bilingual YAML prompts.
 Research is optional, with a prompt budget of three leads and five search API calls. There are no per-stage queries or
-intermediate model reports. Latest explicit feedback takes precedence over inherited background and recovery inputs.
+intermediate model reports. Latest explicit feedback takes precedence over inherited background and prior handoffs.
 Paused, inactive, evening-closed or invalid configurations never start a proactive model call, including compaction.
 Chat Agent queues topics, feedback and settings requests through `write_proactive_inbox`; they wait for the next permitted
 wakeup and never trigger an extra model call. A disabled agent or invalid configuration requires external re-enabling
@@ -170,16 +171,18 @@ fewer interruptions. Empty content is an explicit silence decision. Code require
 sending query, permits one decision per round, and checks the latest message-history snapshot before nonempty submissions.
 Accepted reminders retain independent background delivery, supersession, daily greeting limits and evening closure.
 
-Consumed inputs are checkpointed before cursor advancement and replayed after failures or restart. A successful work query
-clears handled recovery records; an interrupted query retains them. Preparation, compaction and work share the active-window
-deadline. Temporary tasks fork the chat session only when due, inheriting its context, model and tools;
+Completed work queries atomically replace `handoff.md` with their final unfinished-work summary, clearing it when empty.
+Failed or interrupted queries preserve the previous handoff. Input consumption cursors advance when the tools read the
+inputs; consumed inputs are not replayed automatically after failure. Source files and native chat history remain available.
+Preparation, compaction and work share the active-window deadline. Temporary tasks fork the chat session only when due,
+inheriting its context, model and tools;
 cron tasks retain their own sessions.
 The runtime coordinates shared file operations, session consumption and event replay through their dedicated owners.
 
 PA chat, selection and event Steps require the configured `PaRuntime`; there is no metadata-state fallback.
 The runtime owns session lifecycle and one typed active round. Internal task and reminder owners keep their own locks;
 the delivery worker can continue after an agent round ends. Reminder submission requires a live server-bound round.
-Inbox tools share `proactive_inbox.py`; message tools share `chat_messages.py`. Task tools are configured only in YAML, with
+Inbox tools share `tools/inbox.py`; message tools share `tools/messages.py`. Task tools are configured only in YAML, with
 screen capture and finance as defaults. Session selection is restored only from `session_ids.json`; the old `pa.json`
 startup migration has been removed.
 
@@ -213,7 +216,7 @@ the loop waits for the next opening. Sleep checks JSON edits at most every 30 se
 restart. Invalid configuration pauses model work while reporting the error. The former YAML wakeup delay, in-memory
 override and `set_next_wakeup` tool are removed. Resource cleanup remains an independent CronJob.
 Each round checks active hours before preparation and again before its work query. Preparation and in-flight work are
-interrupted at the window deadline, retaining recovery records. Evening closure prevents subsequent ordinary rounds.
+interrupted at the window deadline, preserving the previous handoff. Evening closure prevents subsequent ordinary rounds.
 Polling and policy checks spend no model tokens.
 
 Optional conversational hints default to enabled. Set `hints_enabled: false` in `proactive.json` to disable sampling
@@ -236,20 +239,20 @@ stop proactive queries until the next opening; misses and empty decisions do not
 owns this state across restarts and session switches, without a separate quiet-state file.
 
 The conversation tool consumes completed unread rounds across the latest 100 registered chats during the work query.
-Each user input stays with its replies; tools and injected messages are excluded. Defaults remain 20 rounds,
-2000 characters per message and 20000 total. Read or checkpoint errors preserve cursors.
+Each user input stays with its replies; tools and injected messages are excluded. Defaults are 10 rounds,
+2000 characters per message and 20000 total. Read errors leave cursors unchanged; cursor writes finish before cancellation.
 
 `write_proactive_inbox(message)` queues timestamped Markdown for Proactive's next wakeup. Put topics, reminder feedback
 and settings requests in the message; Proactive interprets them and edits its own configuration during its work query.
 Queued or received means the message was saved or read, not that its requested work or setting change is complete.
-While notifications are paused, outside active hours or blocked by invalid settings, explicit inbox requests still get
-a settings-only round. It can repair or resume settings without researching or sending reminders; failed requests remain retryable.
-`read_proactive_inbox()` checkpoints appended or edited content before advancing a content-hash
+While notifications are paused, outside active hours or blocked by invalid settings, inbox requests remain queued until
+the next permitted wakeup; disabled or invalid settings require external re-enabling or repair.
+`read_proactive_inbox()` reads appended or edited content and advances a content-hash
 cursor, retaining the source file. It returns the complete unread Markdown text directly, or an empty string when unchanged;
 queued messages appear as `timestamp content`, without request IDs or source labels; handwritten Markdown is preserved.
 Receipt matching uses request IDs and timestamps rather than the displayed agent label, so existing entries remain readable.
 No follow-up file read is needed. This replaces the previous path-based response.
-Chat Agent and Proactive work share the personal-memory lock.
+Missing personal memory is initialized under a path lock; Proactive reads it without modifying it.
 
 `manage_temp_proactive_agent` lists, creates, updates, pauses, resumes or cancels one-shot tasks. Creation requires a clear
 `query`; `run_at` and `delay_minutes` are mutually exclusive, and fractional delays are supported. Existing tasks use their

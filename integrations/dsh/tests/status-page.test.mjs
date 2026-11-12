@@ -19,6 +19,7 @@ before(async () => {
     write: false,
     platform: "node",
     format: "cjs",
+    jsx: "automatic",
     external: ["react", "@deepseek-ai/dsh-client-ui-primitives"],
   });
   const module = { exports: {} };

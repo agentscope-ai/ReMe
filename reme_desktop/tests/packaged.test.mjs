@@ -86,11 +86,12 @@ test(
       await companion.getByRole("button", { name: "展开聊聊" }).click();
       await expect(
         chat
-          .locator(".chat-history")
+          .locator('.inbox-detail[data-message-id="packaged-reminder"]')
           .getByText("你关注的 Agent 记忆论文有更新，想看看重点吗？", {
             exact: true,
           }),
       ).toBeVisible();
+      await expect(chat.locator(".remy-live-chat")).toBeHidden();
       await chat.evaluate(() =>
         window.desktop.action({ type: "settings.update", theme: "dark" }),
       );

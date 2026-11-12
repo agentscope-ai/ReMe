@@ -142,6 +142,12 @@ test(
       await t.test(
         "right-click opens themed app controls without starting a drag or opening chat",
         async () => {
+          const settings = await companion.evaluate(() =>
+            window.desktop.bootstrap().then(({ state }) => ({
+              quietUntil: state.settings.quietUntil,
+              scale: state.settings.scale,
+            })),
+          );
           await app.evaluate(({ Menu }) => {
             globalThis.originalMenuPopup = Menu.prototype.popup;
             globalThis.nativeMenuCalls = 0;
@@ -150,12 +156,14 @@ test(
             };
           });
           const openMenu = async () => {
-            const rect = await companion.locator("canvas").boundingBox();
-            await companion.mouse.click(
-              rect.x + rect.width / 2,
-              rect.y + rect.height * 0.35,
-              { button: "right" },
-            );
+            await expect(companion.getByRole("menu")).toHaveCount(0);
+            const canvas = companion.locator("canvas");
+            const rect = await canvas.boundingBox();
+            // Wait for the renderer and native bounds to settle after closing a menu.
+            await canvas.click({
+              button: "right",
+              position: { x: rect.width / 2, y: rect.height * 0.35 },
+            });
             await expect(companion.getByRole("menu")).toBeVisible();
           };
           const choose = (id) => chooseCompanionMenu(companion, id);
@@ -370,6 +378,11 @@ test(
           } finally {
             await companion.evaluate(() =>
               window.desktop.action({ type: "companion.menu.close" }),
+            );
+            await companion.evaluate(
+              (settings) =>
+                window.desktop.action({ type: "settings.update", ...settings }),
+              settings,
             );
             await app.evaluate(({ Menu }) => {
               Menu.prototype.popup = globalThis.originalMenuPopup;

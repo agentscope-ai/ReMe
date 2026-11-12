@@ -21,8 +21,26 @@ class _PageText(HTMLParser):
 
     _ignored_tags = {"script", "style", "noscript", "template", "svg", "nav", "footer"}
     _block_tags = {
-        "p", "div", "li", "br", "hr", "section", "article", "main", "tr", "h1", "h2", "h3", "h4", "h5", "h6",
-        "pre", "blockquote", "ul", "ol", "table",
+        "p",
+        "div",
+        "li",
+        "br",
+        "hr",
+        "section",
+        "article",
+        "main",
+        "tr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "pre",
+        "blockquote",
+        "ul",
+        "ol",
+        "table",
     }
 
     def __init__(self):
@@ -93,8 +111,11 @@ def _decode_text(data: bytes, content_type: str, charset: str | None, is_html: b
     """Honor BOMs and format-specific declarations without inspecting arbitrary body text."""
     encoding = charset or "utf-8"
     for bom, name in (
-        (codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),
-        (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16"), (codecs.BOM_UTF8, "utf-8-sig"),
+        (codecs.BOM_UTF32_LE, "utf-32"),
+        (codecs.BOM_UTF32_BE, "utf-32"),
+        (codecs.BOM_UTF16_LE, "utf-16"),
+        (codecs.BOM_UTF16_BE, "utf-16"),
+        (codecs.BOM_UTF8, "utf-8-sig"),
     ):
         if data.startswith(bom):
             encoding = name
@@ -179,8 +200,12 @@ class FetchUrlStep(BaseConnectorStep):
                     content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
                     if content_type and not (
                         content_type.startswith("text/")
-                        or content_type in {
-                            "application/xhtml+xml", "application/json", "application/xml", "application/pdf",
+                        or content_type
+                        in {
+                            "application/xhtml+xml",
+                            "application/json",
+                            "application/xml",
+                            "application/pdf",
                             "application/octet-stream",
                         }
                         or content_type.endswith(("+json", "+xml"))
@@ -240,7 +265,8 @@ class FetchUrlStep(BaseConnectorStep):
             else:
                 context = "No readable text found. Check the source; loading more data may require a browser."
         (destination / "metadata.json").write_text(
-            json.dumps(self._metadata, ensure_ascii=False, indent=2), encoding="utf-8",
+            json.dumps(self._metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
         return ConnectorResult(context=context, paths=[f"{folder}/{name}" for name in [*files, "metadata.json"]])
 
