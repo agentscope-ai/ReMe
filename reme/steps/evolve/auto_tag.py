@@ -1,8 +1,11 @@
 """Generate entity-oriented memory tags for added or modified Markdown files."""
 
 from dataclasses import dataclass
+import json
+import re
 from typing import Literal
 
+from agentscope.message import SystemMsg, UserMsg
 import frontmatter
 
 from ._evolve import agent_reply_result_text
@@ -53,9 +56,18 @@ def normalize_memory_tags(
 class AutoTagStep(BaseStep):
     """Update memory tags for Markdown files described by the common ``changes`` contract."""
 
-    def __init__(self, **kwargs):
+    def __init__(
+        self,
+        direct_llm: bool = False,
+        direct_excerpt_chars: int = 4500,
+        direct_candidate_tags: int = 80,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.tools = ["read", "list_tags", "frontmatter_read", "frontmatter_update"]
+        self.direct_llm = direct_llm
+        self.direct_excerpt_chars = max(500, direct_excerpt_chars)
+        self.direct_candidate_tags = max(0, direct_candidate_tags)
 
     def _targets(self) -> tuple[list[_TagTarget], list[dict[str, str]]]:
         """Validate, normalize, and de-duplicate added/modified Markdown changes."""
@@ -101,6 +113,147 @@ class AutoTagStep(BaseStep):
             targets[path] = _TagTarget(change=normalized_change, path=path)
         return list(targets.values()), ignored
 
+    @staticmethod
+    def _document_excerpt(content: str, max_chars: int) -> str:
+        """Keep the title-adjacent text and heading outline within a local model budget."""
+        if len(content) <= max_chars:
+            return content
+        headings = [line.strip() for line in content.splitlines() if line.lstrip().startswith("#") and line.strip()]
+        heading_text = "\n".join(headings)
+        if len(heading_text) > max_chars // 3:
+            heading_text = heading_text[: max_chars // 3]
+        body_budget = max(0, max_chars - len(heading_text) - 64)
+        head = content[: body_budget // 2]
+        tail = content[-(body_budget - len(head)) :] if body_budget > len(head) else ""
+        return f"{head}\n\n[Headings]\n{heading_text}\n\n[Tail]\n{tail}"
+
+    @staticmethod
+    def _evidence_key(text: str) -> str:
+        """Casefold text into space-separated alphanumeric tokens.
+
+        Separators become single spaces so that a check cannot run across a word
+        boundary: ``openai`` must not be found inside ``open air``. Underscores
+        and spaces are treated as equivalent because tag normalization turns
+        spaces into underscores.
+        """
+        return " ".join(re.findall(r"[^\W_]+", text.casefold().replace("_", " ")))
+
+    @staticmethod
+    def _contains_key(haystack: str, needle: str) -> bool:
+        """Return True when ``needle`` occurs in ``haystack`` on token boundaries."""
+        if not needle:
+            return False
+        return re.search(rf"(?<!\S){re.escape(needle)}(?!\S)", haystack) is not None
+
+    async def _direct_tags(self, target: _TagTarget) -> list[str]:
+        """Generate tags in one structured call without an agent tool loop."""
+        wrapper = self.agent_wrapper
+        model = getattr(getattr(wrapper, "as_llm", None), "model", None)
+        if model is None:
+            raise RuntimeError("Direct auto-tag mode requires an agent wrapper with a bound LLM")
+        file_store = self.file_store
+        tag_index = file_store.require_tag_index()
+        tag_key = tag_index.tag_key
+        path = self.workspace_path / target.path
+        post = frontmatter.loads(path.read_text(encoding="utf-8"))
+        metadata = post.metadata or {}
+
+        candidates: list[str] = []
+        if self.direct_candidate_tags:
+            page = await tag_index.list_tags(
+                order_by="file_count",
+                order="desc",
+                page_size=self.direct_candidate_tags,
+            )
+            candidates = [item[0] for item in page["items"]]
+
+        excerpt = self._document_excerpt(post.content, self.direct_excerpt_chars)
+        metadata_hint = {key: metadata[key] for key in ("name", "description", "kind") if key in metadata}
+        messages = [
+            SystemMsg(
+                name="system",
+                content=self.prompt_format(
+                    "direct_system_prompt",
+                    tag_key=tag_key,
+                    max_tags_per_file=tag_index.max_tags_per_file,
+                    existing_tags=", ".join(candidates) or "(none)",
+                ),
+            ),
+            UserMsg(
+                name="user",
+                content=self.prompt_format(
+                    "direct_user_message",
+                    path=target.path,
+                    metadata_json=json.dumps(metadata_hint, ensure_ascii=False, indent=2),
+                    excerpt=excerpt,
+                ),
+            ),
+        ]
+        schema = {
+            "type": "object",
+            "properties": {
+                "entity_type": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "person",
+                        "organization",
+                        "product",
+                        "place",
+                        "asset",
+                        "named_project",
+                    ],
+                },
+                "evidence": {
+                    "type": "string",
+                    "description": "Exact short quote from the document body or description supporting the entity",
+                },
+                tag_key: {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": tag_index.max_tags_per_file,
+                },
+            },
+            "required": ["entity_type", "evidence", tag_key],
+            "additionalProperties": False,
+        }
+        response = await model.generate_structured_output(
+            messages=messages,
+            structured_model=schema,
+        )
+        content = response.content
+        if hasattr(content, "model_dump"):
+            content = content.model_dump()
+        if not isinstance(content, dict):
+            raise RuntimeError("Direct auto-tag model did not return an object")
+        normalized = normalize_memory_tags(
+            content.get(tag_key),
+            max_tags_per_file=tag_index.max_tags_per_file,
+            max_tag_length=tag_index.max_tag_length,
+        )
+        if str(content.get("entity_type") or "").strip().lower() == "none":
+            return []
+        evidence = str(content.get("evidence") or "").strip()
+        body_without_headings = "\n".join(
+            line for line in post.content.splitlines() if not line.lstrip().startswith("#")
+        )
+        searchable = "\n".join(
+            value for value in (str(metadata.get("description") or ""), body_without_headings) if value
+        )
+        evidence_key = self._evidence_key(evidence)
+        searchable_key = self._evidence_key(searchable)
+        if not evidence_key or not self._contains_key(searchable_key, evidence_key):
+            self.logger.warning(f"[{self.name}] rejected unsupported tag evidence path={target.path}")
+            # A rejected response is not an empty result: failing the target
+            # keeps the tags already written to the file untouched.
+            raise RuntimeError(f"Auto-tag evidence for {target.path} is not present in the document")
+        supported = [tag for tag in normalized if self._contains_key(evidence_key, self._evidence_key(tag))]
+        if len(supported) != len(normalized):
+            self.logger.warning(f"[{self.name}] rejected tags without evidence path={target.path}")
+            if not supported:
+                raise RuntimeError(f"Auto-tag response for {target.path} has no tag supported by its evidence")
+        return supported
+
     async def _process_target(self, target: _TagTarget) -> str:
         file_store = self.file_store
         tag_index = file_store.require_tag_index()
@@ -110,27 +263,34 @@ class AutoTagStep(BaseStep):
             "_allowed_paths": [target.path],
             "_allowed_frontmatter_keys": [tag_key],
         }
-        result = await self.agent_wrapper.reply(
-            self.prompt_format("user_message", path=target.path, change=target.change, tag_key=tag_key),
-            system_prompt=self.prompt_format(
-                "system_prompt",
-                tag_key=tag_key,
-                max_tags_per_file=tag_index.max_tags_per_file,
-            ),
-            job_tools=self.tools,
-            injected_job_kwargs=tool_context,
-        )
-        text = agent_reply_result_text(result)
+        if self.direct_llm:
+            generated_tags = await self._direct_tags(target)
+            text = f"Generated tags: {json.dumps(generated_tags, ensure_ascii=False)}"
+        else:
+            result = await self.agent_wrapper.reply(
+                self.prompt_format("user_message", path=target.path, change=target.change, tag_key=tag_key),
+                system_prompt=self.prompt_format(
+                    "system_prompt",
+                    tag_key=tag_key,
+                    max_tags_per_file=tag_index.max_tags_per_file,
+                ),
+                job_tools=self.tools,
+                injected_job_kwargs=tool_context,
+            )
+            text = agent_reply_result_text(result)
 
         path = self.workspace_path / target.path
         metadata = dict(frontmatter.loads(path.read_text(encoding="utf-8")).metadata or {})
-        if tag_key not in metadata:
+        if self.direct_llm:
+            normalized = generated_tags
+        elif tag_key not in metadata:
             raise RuntimeError(f"Auto-tag agent did not write the required {tag_key!r} field")
-        normalized = normalize_memory_tags(
-            metadata.get(tag_key),
-            max_tags_per_file=tag_index.max_tags_per_file,
-            max_tag_length=tag_index.max_tag_length,
-        )
+        else:
+            normalized = normalize_memory_tags(
+                metadata.get(tag_key),
+                max_tags_per_file=tag_index.max_tags_per_file,
+                max_tag_length=tag_index.max_tag_length,
+            )
         if metadata.get(tag_key) != normalized:
             response = await self.run_job(
                 "frontmatter_update",

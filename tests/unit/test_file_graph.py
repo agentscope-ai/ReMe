@@ -103,6 +103,36 @@ async def test_upsert_replaces_old_links(backend_cls):
 
 @pytest.mark.parametrize("backend_cls", BACKENDS)
 @pytest.mark.asyncio
+async def test_windows_separator_paths_are_canonicalized(backend_cls):
+    """Persisted Windows paths and POSIX wikilink targets form one graph."""
+
+    with tempfile.TemporaryDirectory() as tmpdir, temp_chdir(tmpdir):
+        graph = backend_cls()
+        await graph.start()
+        await graph.upsert_nodes(
+            [
+                make_node(r"daily\2026-10-27\a.md", [(r"daily\2026-10-27\b.md", None)]),
+                make_node(r"daily\2026-10-27\b.md"),
+            ],
+        )
+
+        assert {node.path for node in await graph.get_nodes()} == {
+            "daily/2026-10-27/a.md",
+            "daily/2026-10-27/b.md",
+        }
+        assert {
+            link.target_path for link in await graph.get_outlinks(r"daily\2026-10-27\a.md", scope=LinkScopeEnum.ALL)
+        } == {"daily/2026-10-27/b.md"}
+        assert {
+            link.source_path for link in await graph.get_inlinks(r"daily\2026-10-27\b.md", scope=LinkScopeEnum.ALL)
+        } == {"daily/2026-10-27/a.md"}
+        assert await graph.get_outlinks(r"daily\2026-10-27\a.md", scope=LinkScopeEnum.VIRTUAL) == []
+
+        await graph.close()
+
+
+@pytest.mark.parametrize("backend_cls", BACKENDS)
+@pytest.mark.asyncio
 async def test_outlinks_include_virtual_targets(backend_cls):
     """get_outlinks(scope=ALL) surfaces edges into virtual targets too;
     scope=VIRTUAL isolates them; default scope=REAL hides them.
