@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import re
 from pathlib import Path
 import tomllib
 from types import ModuleType
@@ -25,6 +26,26 @@ def _load_script(name: str) -> ModuleType:
 
 bump_version = _load_script("bump_version")
 package_studio = _load_script("package_studio")
+
+
+def test_hermes_text_runtime_accepts_host_pins() -> None:
+    """Keep host-pinned shared packages installable without pulling the core SDK bundle."""
+    config = tomllib.loads((REPOSITORY / "pyproject.toml").read_text(encoding="utf-8"))
+    requirements = {Requirement(value).name: Requirement(value) for value in config["project"]["dependencies"]}
+    pins = (REPOSITORY / "tests" / "constraints" / "hermes-0.21.4.txt").read_text(encoding="utf-8")
+    for line in pins.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        pin = Requirement(line)
+        assert not pin.extras, "pip constraint files cannot contain extras"
+        for specifier in pin.specifier:
+            if pin.name in requirements and specifier.operator == "==":
+                assert Version(specifier.version) in requirements[pin.name].specifier
+
+    embedded = [Requirement(value) for value in config["project"]["optional-dependencies"]["hermes"]]
+    assert {requirement.name for requirement in embedded} == {"agentscope"}
+    assert Version("2.0.10") in embedded[0].specifier
+    assert Version("2.0.11") not in embedded[0].specifier
 
 
 def test_home_requires_workflow_and_sandbox_release() -> None:
@@ -158,7 +179,7 @@ def test_read_version_identifies_invalid_source_file(tmp_path: Path) -> None:
     version_file = tmp_path / "reme" / "__init__.py"
     version_file.write_text('__version__ = "1..2"\n', encoding="utf-8")
 
-    with pytest.raises(ValueError, match=rf"{version_file}.*Fix the __version__ declaration"):
+    with pytest.raises(ValueError, match=rf"{re.escape(str(version_file))}.*Fix the __version__ declaration"):
         bump_version.check_versions(tmp_path)
 
 

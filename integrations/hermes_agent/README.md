@@ -29,7 +29,7 @@ adds the returned evidence to its protected memory context.
 | Mode | ReMe process | Hermes dependency | Best for |
 | --- | --- | --- | --- |
 | HTTP | Separate `reme start` service | No ReMe SDK required | Process isolation, shared or independently managed services |
-| Embedded | Inside Hermes on a dedicated event-loop thread | `reme-ai[core]` | Simple local setup with no extra service or port |
+| Embedded | Inside Hermes on a dedicated event-loop thread | `reme-ai[hermes]` | Simple local setup with no extra service or port |
 
 ## Requirements
 
@@ -99,8 +99,21 @@ setup save writes a complete current config without deleting the legacy file.
 
 ## HTTP mode
 
-Install ReMe in the environment that will run its service, then start one
-service and workspace for the active Hermes profile:
+Use a separate virtual environment for ReMe. The plugin declares
+`pip_dependencies: []` and its HTTP client uses the Python standard library;
+do not install the ReMe SDK into Hermes' environment for this mode.
+
+Create and activate a dedicated ReMe environment (on Windows, use
+`.venv-reme\Scripts\Activate.ps1` instead of the activation command):
+
+```bash
+python -m venv .venv-reme
+source .venv-reme/bin/activate
+python -m pip install "reme-ai[core]"
+```
+
+Start the service and workspace in this environment. Keep this terminal running
+and launch Hermes from its own environment in another terminal:
 
 ```bash
 reme start \
@@ -130,11 +143,50 @@ a trusted tunnel or authenticated proxy.
 
 ## Embedded mode
 
-Install ReMe into the same Python environment used by Hermes:
+Embedded mode shares Hermes' Python environment and requires compatible
+package constraints. Hermes >=0.21 describes the plugin API requirement, not a
+verified embedded dependency compatibility range.
+
+Use `reme-ai[hermes]` for the text-memory runtime. It includes AgentScope but
+avoids core's unrelated Pillow, Claude Code/Codex SDKs, vector databases, and
+Studio. It selects AgentScope 2.0.10 to preserve Hermes 0.21.4's certifi pin.
+ReMe also accepts that Hermes version's OpenAI 2.24.0, Pydantic 2.13.4,
+Rich 14.3.3, and croniter 6.0.0 versions.
+
+Dependency resolution has been checked for Windows / Python 3.11 against the
+[Hermes 0.21.4 release constraints](https://github.com/NousResearch/hermes-agent/blob/v2026.9.21/pyproject.toml).
+Other Hermes versions and additional plugins still need constraint checks.
+Do not additionally install `reme-ai[core]` or `[as]` in this environment;
+those extras can reintroduce conflicts. This extra targets default text memory;
+image processing and optional model backends need their own dependencies and
+compatibility checks.
+
+Before installing, run `python -m pip check` in the exact environment that
+launches Hermes and resolve existing conflicts first. Then snapshot installed
+versions and check whether ReMe can be added without changing them. Save the
+constraints file outside the ReMe source repository:
+
+Use `pip list --format=freeze` so editable installations, including a Hermes
+source checkout, are recorded as package/version constraints rather than `-e` entries.
 
 ```bash
-pip install "reme-ai[core]"
+python -m pip list --format=freeze > hermes-constraints.txt
+python -m pip install --dry-run -c hermes-constraints.txt "reme-ai[hermes]"
 ```
+
+If resolution fails, stop and use HTTP mode; do not remove constraints or force
+installation. A successful dry run checks dependency resolution, not runtime
+compatibility. Only proceed in an environment you can recreate, retaining the
+same constraints:
+
+```bash
+python -m pip install -c hermes-constraints.txt "reme-ai[hermes]"
+python -m pip check
+```
+
+An unconstrained install can upgrade packages pinned by Hermes; pip may warn
+about installed package conflicts and still complete. A successful `import reme`
+does not verify Hermes compatibility.
 
 Then configure a dedicated workspace:
 
@@ -304,7 +356,8 @@ hermes memory status
 
 ### Embedded mode is unavailable
 
-- Install `reme-ai[core]` into the exact Python environment that launches Hermes.
+- Follow the compatibility checks in [Embedded mode](#embedded-mode) before
+  installing into Hermes' environment. Use HTTP mode if constraints conflict.
 - Use an absolute, writable workspace outside the source repository.
 - Check that the selected ReMe config exposes all three required jobs.
 

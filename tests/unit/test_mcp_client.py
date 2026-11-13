@@ -49,14 +49,36 @@ async def test_mcp_catalog_uses_sdk_field_names():
         "required": ["query"],
     }
     output = {"type": "object", "properties": {"answer": {"type": "string"}}}
-    metadata = {"input_schema": "user-owned metadata", "_meta": {"keep": True}}
-    tool = Tool(
-        name="search",
-        input_schema=parameters,
-        output_schema=output,
-        annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
-        meta=metadata,
-    )
+    metadata = {
+        "input_schema": "user-owned metadata",
+        "_meta": {"keep": True},
+        "execution": {"taskSupport": "user-owned value"},
+        "icons": [{"mimeType": "user-owned value"}],
+    }
+    parameters["properties"]["taskSupport"] = {"type": "string"}
+    output["properties"]["mimeType"] = {"type": "string"}
+    protocol_fields = {
+        "execution": {"taskSupport": "optional"},
+        "icons": [{"src": "https://example.com/icon.png", "mimeType": "image/png"}],
+    }
+    if "input_schema" in Tool.model_fields:
+        tool = Tool(
+            name="search",
+            input_schema=parameters,
+            output_schema=output,
+            annotations=ToolAnnotations(read_only_hint=True, open_world_hint=False),
+            meta=metadata,
+            **protocol_fields,
+        )
+    else:
+        tool = Tool(
+            name="search",
+            inputSchema=parameters,
+            outputSchema=output,
+            annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False),
+            _meta=metadata,
+            **protocol_fields,
+        )
     client = MCPClient()
     client.client = SimpleNamespace(list_tools=AsyncMock(return_value=[tool]))
 
@@ -68,6 +90,10 @@ async def test_mcp_catalog_uses_sdk_field_names():
     assert action["annotations"]["read_only_hint"] is True
     assert action["annotations"]["open_world_hint"] is False
     assert action["meta"] == metadata
+    assert action["execution"] == {"task_support": "optional"}
+    assert action["icons"][0]["mime_type"] == "image/png"
+    assert action["icons"][0]["src"] == "https://example.com/icon.png"
+    assert "mimeType" not in action["icons"][0]
     assert {"inputSchema", "outputSchema", "_meta"}.isdisjoint(action)
 
 
@@ -76,9 +102,9 @@ async def test_mcp_execute_preserves_all_text_content_blocks():
     """MCP responses may have multiple text blocks separated by non-text blocks."""
     result = CallToolResult(
         content=[
-            TextContent(text="First result"),
-            ImageContent(data="aW1hZ2U=", mime_type="image/png"),
-            TextContent(text="Second result"),
+            TextContent(type="text", text="First result"),
+            ImageContent.model_validate({"type": "image", "data": "aW1hZ2U=", "mimeType": "image/png"}),
+            TextContent(type="text", text="Second result"),
         ],
     )
     mcp = SimpleNamespace(call_tool=AsyncMock(return_value=result))
@@ -93,6 +119,8 @@ async def test_mcp_execute_preserves_all_text_content_blocks():
 
 def test_mcp_extract_text_falls_back_when_response_has_no_text_blocks():
     """Non-text-only responses retain the existing fallback representation."""
-    content = CallToolResult(content=[ImageContent(data="aW1hZ2U=", mime_type="image/png")])
+    content = CallToolResult(
+        content=[ImageContent.model_validate({"type": "image", "data": "aW1hZ2U=", "mimeType": "image/png"})],
+    )
 
     assert MCPClient._extract_text(content) == str(content.content)
