@@ -251,8 +251,12 @@ def remember_prompt(config: dict, payload: dict) -> None:
         "created_at": event_time(payload),
     }
     root = prompt_root(config, session)
-    write_json(root / f"{digest(turn)}.json", record)
-    if not turn_id(payload):
+    # One cache record per turn: a payload without a turn ID is read back from
+    # latest.json, so writing a second hashed copy would leave plaintext prompt
+    # text behind after the completed turn is delivered.
+    if turn_id(payload):
+        write_json(root / f"{digest(turn)}.json", record)
+    else:
         write_json(root / "latest.json", record)
     log_status("prompt_cached")
 
@@ -366,12 +370,27 @@ def flush_all(config: dict, *, force: bool) -> None:
 
 
 def flush_worker(*, force: bool) -> None:
-    """Run one detached delivery pass, serialized across ZCode Hook processes."""
+    """Run detached delivery passes until no newer request is waiting."""
     config = load_config()
-    with lock(data_dir() / "worker.lock") as acquired:
-        if not acquired:
+    if not config["auto_memory"]:
+        # Recording was disabled after the queue was written: keep the pending
+        # files untouched instead of delivering them behind the user's back.
+        log_status("worker_skipped_auto_memory_disabled")
+        return
+    rerun = data_dir() / "worker.rerun"
+    while True:
+        with lock(data_dir() / "worker.lock") as acquired:
+            if not acquired:
+                # Another worker owns the current pass. Its snapshot may predate
+                # the session that just queued this request, so leave a marker
+                # for it to scan again instead of dropping the request.
+                rerun.touch()
+                log_status("worker_requeued")
+                return
+            rerun.unlink(missing_ok=True)
+            flush_all(config, force=force)
+        if not rerun.exists():
             return
-        flush_all(config, force=force)
 
 
 def spawn_worker(*, force: bool) -> bool:

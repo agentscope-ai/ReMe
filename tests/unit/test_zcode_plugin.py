@@ -2,6 +2,7 @@
 
 # pylint: disable=missing-function-docstring,redefined-outer-name
 
+import contextlib
 import importlib.util
 import json
 import os
@@ -261,3 +262,59 @@ def test_hook_entrypoint_fails_open_for_malformed_input(tmp_path):
     assert result.stderr == ""
     log = (tmp_path / "host/reme/hooks.log").read_text(encoding="utf-8")
     assert "hook_failed" in log and "{invalid" not in log
+
+
+def test_worker_honors_disabled_memory_before_delivery(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    capture_one(adapter, monkeypatch)
+    call = Mock(return_value={"success": True})
+    monkeypatch.setattr(adapter, "call", call)
+    write_config(adapter, {"auto_recall": False, "auto_memory": False, "memory_interval": 1})
+
+    adapter.flush_worker(force=True)
+
+    call.assert_not_called()
+    root = adapter.session_queue(adapter.load_config(), stop_payload())
+    assert len(list(root.glob("*.json"))) == 1
+    assert "worker_skipped_auto_memory_disabled" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
+
+
+def test_worker_leaves_rerun_marker_when_another_pass_holds_the_lock(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    monkeypatch.setattr(adapter, "lock", lambda _path: contextlib.nullcontext(False))
+
+    adapter.flush_worker(force=True)
+
+    assert (adapter.data_dir() / "worker.rerun").exists()
+    assert "worker_requeued" in (adapter.data_dir() / "hooks.log").read_text(encoding="utf-8")
+
+
+def test_worker_runs_another_pass_when_a_session_is_captured_during_delivery(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    marker = adapter.data_dir() / "worker.rerun"
+    passes: list[bool] = []
+
+    def flush_all(config, *, force):
+        passes.append(force)
+        if len(passes) == 1:
+            marker.touch()
+
+    monkeypatch.setattr(adapter, "flush_all", flush_all)
+    adapter.flush_worker(force=True)
+
+    assert passes == [True, True]
+    assert not marker.exists()
+
+
+def test_stop_without_turn_id_leaves_no_prompt_copy(adapter, monkeypatch):
+    write_config(adapter, {"auto_recall": False, "auto_memory": True, "memory_interval": 1})
+    spawn = Mock(return_value=True)
+    monkeypatch.setattr(adapter, "spawn_worker", spawn)
+
+    adapter.handle_event(prompt_payload(turn=None))
+    assert [path.name for path in (adapter.data_dir() / "prompts").rglob("*.json")] == ["latest.json"]
+
+    adapter.handle_event(stop_payload(turn=None))
+
+    assert not list((adapter.data_dir() / "prompts").rglob("*.json"))
+    assert len(list((adapter.data_dir() / "queue").rglob("*.json"))) == 1
