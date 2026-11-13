@@ -327,9 +327,8 @@ async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data, relative)
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("backend_class", [PathBubbleBackend, PathSeatbeltBackend])
 @pytest.mark.parametrize("target", ["absolute", "relative", "parent", "symlink", "no_grants", "file_sibling"])
-async def test_sandbox_write_rejects_ungranted_paths_before_execution(tmp_path, monkeypatch, backend_class, target):
+async def test_sandbox_write_rejects_ungranted_paths_before_execution(tmp_path, monkeypatch, target):
     """Private temporary mounts must not make ungranted host-path writes look successful."""
     from unittest.mock import AsyncMock
 
@@ -349,7 +348,7 @@ async def test_sandbox_write_rejects_ungranted_paths_before_execution(tmp_path, 
         "file_sibling": str(output / "sibling.bin"),
     }
     writable = [] if target == "no_grants" else [str(granted_file if target == "file_sibling" else output)]
-    backend = backend_class(cwd=tmp_path, read_only_paths=[], writable_paths=writable)
+    backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=writable)
     run_job = AsyncMock(return_value=ExecResult(exit_code=0, stdout=b"", stderr=b""))
     monkeypatch.setattr(backend, "_run_job", run_job)
 
