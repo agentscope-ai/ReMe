@@ -89,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:  # Report provider and transport failures to the caller.
         if getattr(client, "rate_limited", False):
             print(
-                f"Keenable rate limit reached. Wait before retrying or set {API_KEY_ENV} for higher limits.",
+                "Keenable rate limit reached. Wait before retrying or set KEENABLE_API_KEY for higher limits.",
                 file=sys.stderr,
             )
         else:
