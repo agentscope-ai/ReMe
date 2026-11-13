@@ -112,6 +112,10 @@ Qoder 的 transcript 与 Claude Code 一样使用 user/assistant JSONL。插件�
 
 `integrations/hermes_agent/` 提供 HTTP 和 Embedded 双模式 memory provider：模型调用前检索相关记忆，每轮结束后异步调用 `auto_memory`，并通过 Hermes 通用配置面板展示设置。完整配置见该目录 README。
 
+## 社区配套项目
+
+- [SemanticMemory](https://github.com/star-nebula/SemanticMemory)：把已评审的当前事实、来源 quote、决策和任务保存为 Markdown，并可通过可选 `reme_ref` 指回 ReMe 证据。它是独立社区项目，不属于 ReMe 核心。参见[社区介绍](https://github.com/agentscope-ai/ReMe/discussions/703)。
+
 ## 生产接入建议
 
 - 明确选择稳定、绝对的 `workspace_dir`；
