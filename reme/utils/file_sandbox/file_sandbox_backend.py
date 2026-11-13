@@ -144,9 +144,14 @@ class FileSandboxBackend(LocalProcessBackend):
         """Write through a sandboxed command so file rules still apply."""
         if not isinstance(data, bytes):
             raise TypeError("data must be bytes")
+        # Linux's private /tmp can otherwise accept ungranted host paths and
+        # report success even though the host file was never written.
+        target = os.path.realpath(os.path.join(self._cwd, path))
+        if not any(contains(root, target) for root in self._writable_paths):
+            raise PermissionError(f"sandbox write path is outside writable_paths: {path}")
         script = 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"'
         result = await self._run_job(
-            ["/bin/sh", "-c", script, "sh", path],
+            ["/bin/sh", "-c", script, "sh", target],
             self._cwd,
             data=data,
             timeout=None,

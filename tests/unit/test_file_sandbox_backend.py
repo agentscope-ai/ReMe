@@ -305,7 +305,8 @@ def test_seatbelt_excludes_read_only_child_from_writable_parent(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("data", [b"", b"hello\x00\n\xff"])
-async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data):
+@pytest.mark.parametrize("relative", [False, True])
+async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data, relative):
     """The common file helpers preserve binary stdin, literal paths and write errors."""
     backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[str(tmp_path)])
     # Exercise shared file I/O with real pipes; OS isolation is checked separately.
@@ -314,13 +315,48 @@ async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data):
         "_start_process",
         LocalProcessBackend()._start_process,  # pylint: disable=protected-access
     )
-    path = str(tmp_path / "nested directory" / "literal ' ; name.bin")
+    path = "nested directory/literal ' ; name.bin"
+    if not relative:
+        path = str(tmp_path / path)
     await backend.write_file(path, data)
     assert await backend.read_file(path) == data
     with pytest.raises(TypeError, match="data must be bytes"):
         await backend.write_file(path, "invalid")
     with pytest.raises(OSError):
         await backend.write_file(str(tmp_path), data)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", ["absolute", "relative", "parent", "symlink", "no_grants", "file_sibling"])
+async def test_sandbox_write_rejects_ungranted_paths_before_execution(tmp_path, monkeypatch, target):
+    """Private temporary mounts must not make ungranted host-path writes look successful."""
+    from unittest.mock import AsyncMock
+
+    output = tmp_path / "output"
+    output.mkdir()
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"original")
+    (output / "link").symlink_to(outside)
+    granted_file = output / "allowed.bin"
+    granted_file.touch()
+    paths = {
+        "absolute": str(outside),
+        "relative": "outside.bin",
+        "parent": "output/../outside.bin",
+        "symlink": str(output / "link"),
+        "no_grants": str(output / "new.bin"),
+        "file_sibling": str(output / "sibling.bin"),
+    }
+    writable = [] if target == "no_grants" else [str(granted_file if target == "file_sibling" else output)]
+    backend = PathBubbleBackend(cwd=tmp_path, read_only_paths=[], writable_paths=writable)
+    run_job = AsyncMock(return_value=ExecResult(exit_code=0, stdout=b"", stderr=b""))
+    monkeypatch.setattr(backend, "_run_job", run_job)
+
+    with pytest.raises(PermissionError, match="outside writable_paths"):
+        await backend.write_file(paths[target], b"forbidden")
+
+    run_job.assert_not_awaited()
+    assert outside.read_bytes() == b"original"
 
 
 @pytest.mark.asyncio
@@ -464,7 +500,11 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode, raise_err
 
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
-    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    backend = PathSeatbeltBackend(
+        cwd=tmp_path,
+        read_only_paths=[],
+        writable_paths=[str(tmp_path)] if mode == "write" else [],
+    )
     monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=True))
     killed = Mock()
     monkeypatch.setattr(backend, "_kill_process", killed)
