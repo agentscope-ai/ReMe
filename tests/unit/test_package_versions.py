@@ -257,7 +257,8 @@ def test_daily_paper_declares_runtime_dependencies() -> None:
 
     assert not by_name["reme-ai"].extras
     assert Version("0.4.1.11") not in by_name["reme-ai"].specifier
-    assert Version("0.4.1.12") in by_name["reme-ai"].specifier
+    assert Version("0.4.1.12") not in by_name["reme-ai"].specifier
+    assert Version("0.4.2.0") in by_name["reme-ai"].specifier
     assert "pypdf" in by_name
 
 
