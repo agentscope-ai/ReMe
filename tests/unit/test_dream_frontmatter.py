@@ -102,6 +102,35 @@ def test_pack_paths_preserves_body_that_opens_with_a_thematic_break(tmp_path):
     assert "name:" not in blob
 
 
+def test_pack_paths_preserves_markdown_body_that_parses_as_mapping(tmp_path):
+    """Review case (#738): a blank line, not YAML parseability, ends metadata.
+
+    The Markdown between the thematic breaks is itself a valid YAML mapping —
+    ``# Recovery procedure`` is a YAML comment and ``Instruction: ...`` is a
+    mapping key — so requiring a mapping cannot tell this body apart from
+    front matter. The metadata run stops at the blank line instead, and the
+    whole body stays in the packed material.
+    """
+    note = _write(
+        tmp_path / "daily" / "2026-05-28" / "mapping-body.md",
+        "---\n"
+        "name: recovery\n"
+        "description: recovery procedure\n"
+        "---\n\n"
+        "---\n"
+        "# Recovery procedure\n"
+        "Instruction: Rotate the recovery key before restarting the gateway.\n"
+        "---\n",
+    )
+
+    blob = pack_paths(tmp_path, [note.relative_to(tmp_path).as_posix()])
+
+    assert "Instruction: Rotate the recovery key before restarting the gateway." in blob
+    assert "# Recovery procedure" in blob
+    assert "name: recovery" not in blob
+    assert "description: recovery procedure" not in blob
+
+
 def test_pack_paths_survives_unconstructible_metadata_value(tmp_path):
     """Review case (#738): ``safe_load`` raises ``ValueError`` on bad timestamps."""
     note = _write(
@@ -148,8 +177,13 @@ def test_pack_paths_preserves_markdown_that_is_invalid_yaml(tmp_path, prefix):
             "---\nname: recovery\n---\n\n---\nInstruction: [keep this unfinished example\n---\n",
             "---\nInstruction: [keep this unfinished example\n---",
         ),
+        (
+            "---\nname: recovery\ndescription: recovery procedure\n---\n\n"
+            "---\n# Recovery procedure\nInstruction: Rotate the recovery key.\n---\n",
+            "---\n# Recovery procedure\nInstruction: Rotate the recovery key.\n---",
+        ),
     ],
-    ids=["thematic-break", "invalid-timestamp", "invalid-yaml-body"],
+    ids=["thematic-break", "invalid-timestamp", "invalid-yaml-body", "mapping-shaped-body"],
 )
 async def test_configured_dream_sees_body_before_checkpointing(tmp_path, monkeypatch, raw, expected_body):
     """Empty extraction is valid only after the model has received the note's body."""

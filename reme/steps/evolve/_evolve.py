@@ -63,17 +63,21 @@ def strip_frontmatter(text: str) -> tuple[dict, str]:
     """Split leading ``---`` YAML frontmatter blocks from the body.
 
     Handles files with several consecutive frontmatter blocks; returns
-    ``(merged_meta, body)``. Consume a block only after it parses to a
-    mapping. On parse/construction errors or non-mapping YAML, stop and
-    preserve the remaining text rather than risk discarding Markdown.
+    ``(merged_meta, body)``. A block is consumed only when it parses to a
+    mapping **and** it is structurally part of the metadata run: the first
+    block may be preceded by leading whitespace, while every later block has
+    to follow the previous block's closing ``---`` with no blank line in
+    between. A blank line is the metadata/body boundary, so whatever follows
+    is kept verbatim as Markdown even when it would itself parse as a mapping
+    (a ``#`` heading is a YAML comment and ``Instruction: ...`` is a valid
+    mapping, so parseability alone cannot tell metadata from body). On
+    parse/construction errors or non-mapping YAML, stop and preserve the
+    remaining text rather than risk discarding Markdown.
     """
     meta: dict = {}
-    body = text or ""
-    while True:
-        stripped = body.lstrip()
-        if not stripped.startswith("---"):
-            break
-        rest = stripped[3:]
+    body = (text or "").lstrip()
+    while body.startswith("---"):
+        rest = body[3:]
         end = rest.find("\n---")
         if end < 0:
             break
@@ -84,7 +88,12 @@ def strip_frontmatter(text: str) -> tuple[dict, str]:
             break
         if not isinstance(data, dict):
             break
-        body = rest[end + 4 :]
         for key, value in data.items():
             meta.setdefault(str(key), value)
+        tail = rest[end + 4 :]
+        nxt = tail.lstrip("\n")
+        if len(tail) - len(nxt) > 1 or not nxt.startswith("---"):
+            body = tail
+            break
+        body = nxt
     return meta, body.strip()
