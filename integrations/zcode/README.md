@@ -19,6 +19,11 @@ library; the only OS-specific step is detaching the delivery process (`creationf
 `start_new_session` elsewhere). Commands below are given for both Windows PowerShell and
 macOS/Linux.
 
+Verified on the Windows desktop build of the ZCode 3.16 series. Compatibility rests on the payload
+fields listed above rather than on a version number: a build that renames or stops sending one of
+them degrades recording silently instead of failing loudly, so check `hooks.log` after a ZCode
+upgrade.
+
 ## 1. Prepare ReMe
 
 Install ReMe and its Python dependencies with the interpreter ZCode can reach:

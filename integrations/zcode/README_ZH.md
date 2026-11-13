@@ -16,6 +16,10 @@ Windows、macOS、Linux 均受支持。Hook 脚本只用 Python 标准库，唯�
 （Windows 用 `creationflags`，其他平台用 `start_new_session`）。下面的命令同时给出 Windows PowerShell
 和 macOS/Linux 两种写法。
 
+已在 ZCode 3.16 系列的 Windows 桌面版上验证。兼容性依赖的是上面列出的 payload 字段，而不是某个版本号：
+如果某个 build 改了字段名或不再发送某个字段，记录会静默降级而不是报错，所以 ZCode 升级后请看一眼
+`hooks.log`。
+
 ## 1. 准备 ReMe
 
 用 ZCode 能访问到的解释器安装 ReMe 及其 Python 依赖：
