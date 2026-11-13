@@ -2,12 +2,14 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { MarkdownText } from "@deepseek-ai/dsh-client-ui-primitives";
 
 import { ReMeClient } from "../reme/client.js";
+import { safeError } from "../endpoint.js";
 import type {
   ReMeComponentHealth,
   ReMeHealth,
@@ -304,17 +306,37 @@ export function ReMeStatusPage({
   const [tab, setTab] = useState<StatusTab>("overview");
   const [data, setData] = useState<StatusData>({ loading: true, error: "" });
   const [runningDream, setRunningDream] = useState(false);
+  const request = useRef<AbortController>();
+  const fullRefresh = useRef(false);
+  const dataSettings = useRef(settings);
+  const dreamRequest = useRef<AbortController>();
 
   const refresh = useCallback(
     async (runtimeOnly = false) => {
-      if (settings === undefined) return;
+      if (settings === undefined || (runtimeOnly && fullRefresh.current))
+        return;
+      request.current?.abort();
       const controller = new AbortController();
+      request.current = controller;
+      fullRefresh.current = !runtimeOnly;
+      const changed = dataSettings.current !== settings;
+      dataSettings.current = settings;
+      if (changed) {
+        dreamRequest.current?.abort();
+        dreamRequest.current = undefined;
+        setRunningDream(false);
+      }
       if (!runtimeOnly)
-        setData((current) => ({ ...current, loading: true, error: "" }));
+        setData((current) =>
+          changed
+            ? { loading: true, error: "" }
+            : { ...current, loading: true, error: "" },
+        );
       try {
         const runtimePromise = loadRuntime(rpc, controller.signal);
         if (runtimeOnly) {
           const runtime = await runtimePromise;
+          if (controller.signal.aborted) return;
           setData((current) => ({ ...current, runtime }));
           return;
         }
@@ -326,6 +348,7 @@ export function ReMeStatusPage({
           runtimePromise,
         ]);
         const failed = [health, status, config].find((result) => !result.ok);
+        if (controller.signal.aborted) return;
         setData((current) => ({
           ...current,
           loading: false,
@@ -341,8 +364,13 @@ export function ReMeStatusPage({
         setData((current) => ({
           ...current,
           loading: false,
-          error: error instanceof Error ? error.message : String(error),
+          error: safeError(error),
         }));
+      } finally {
+        if (request.current === controller) {
+          request.current = undefined;
+          fullRefresh.current = false;
+        }
       }
     },
     [rpc, settings],
@@ -350,6 +378,10 @@ export function ReMeStatusPage({
 
   useEffect(() => {
     void refresh();
+    return () => {
+      request.current?.abort();
+      dreamRequest.current?.abort();
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -366,19 +398,35 @@ export function ReMeStatusPage({
   }
 
   const runDream = async () => {
-    if (runningDream) return;
+    if (dreamRequest.current) return;
+    const controller = new AbortController();
+    dreamRequest.current = controller;
     setRunningDream(true);
     setData((current) => ({ ...current, error: "", dreamAction: undefined }));
-    const result = await diagnosticClient(settings).autoDream({
-      hint: settings.dreamHint,
-    });
-    setData((current) => ({
-      ...current,
-      error: result.ok ? "" : `${t("dreamFailed")}: ${result.error ?? ""}`,
-      dreamAction: result.ok ? t("dreamCompleted") : undefined,
-    }));
-    setRunningDream(false);
-    void refresh();
+    try {
+      const result = await diagnosticClient(settings).autoDream({
+        hint: settings.dreamHint,
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setData((current) => ({
+        ...current,
+        error: result.ok ? "" : `${t("dreamFailed")}: ${result.error ?? ""}`,
+        dreamAction: result.ok ? t("dreamCompleted") : undefined,
+      }));
+      if (result.ok) void refresh();
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setData((current) => ({
+          ...current,
+          error: `${t("dreamFailed")}: ${safeError(error)}`,
+        }));
+    } finally {
+      if (dreamRequest.current === controller) {
+        dreamRequest.current = undefined;
+        setRunningDream(false);
+      }
+    }
   };
 
   const tabs: Array<[StatusTab, keyof typeof statusEn]> = [
@@ -445,6 +493,11 @@ export function ReMeStatusPage({
         ) : null}
         {tab === "journal" ? (
           <MemoryFiles
+            key={`${settings.endpoint}:${directoryFrom(
+              data.appConfig,
+              "daily_dir",
+              "daily",
+            )}`}
             kind="journal"
             settings={settings}
             directory={directoryFrom(data.appConfig, "daily_dir", "daily")}
@@ -453,6 +506,11 @@ export function ReMeStatusPage({
         ) : null}
         {tab === "knowledge" ? (
           <MemoryFiles
+            key={`${settings.endpoint}:${directoryFrom(
+              data.appConfig,
+              "digest_dir",
+              "digest",
+            )}`}
             kind="knowledge"
             settings={settings}
             directory={directoryFrom(data.appConfig, "digest_dir", "digest")}
@@ -952,16 +1010,23 @@ function MemoryFiles({
   const [content, setContent] = useState<string>();
   const [contentLoading, setContentLoading] = useState(false);
   const [query, setQuery] = useState("");
+  const fileRequest = useRef<AbortController>();
 
   const openFile = useCallback(
     async (path: string, signal?: AbortSignal) => {
+      fileRequest.current?.abort();
+      const controller = new AbortController();
+      fileRequest.current = controller;
+      const active = signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal;
       setSelected(path);
       setContentLoading(true);
       setError("");
       const result = await diagnosticClient(settings).loadFile(path, {
-        signal,
+        signal: active,
       });
-      if (signal?.aborted) return;
+      if (active.aborted) return;
       setContentLoading(false);
       if (!result.ok) {
         setContent(undefined);
@@ -988,7 +1053,10 @@ function MemoryFiles({
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      fileRequest.current?.abort();
+    };
   }, [directory, openFile, settings]);
 
   const visibleFiles = useMemo(() => {

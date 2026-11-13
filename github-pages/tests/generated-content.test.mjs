@@ -119,6 +119,16 @@ test("publishes the root READMEs as localized project overviews", async () => {
   assert.match(chinese, /\(https:\/\/reme\.agentscope\.io\/zh\/memory_search\)/);
 });
 
+test("publishes the proactive diagram linked from both project overviews", async () => {
+  const target = "figure/proactive-agent-loop.svg";
+  const published = await readFile(path.join(generatedDir, "public", target), "utf8");
+  assert.equal(published, await readFile(path.join(repoDir, "docs", target), "utf8"));
+  for (const language of ["en", "zh"]) {
+    const overview = await readFile(path.join(generatedDir, language, "overview.md"), "utf8");
+    assert.ok(overview.includes(`](/${target})`));
+  }
+});
+
 test("publishes portable and accurate DSH instructions", async () => {
   const english = await readFile(path.join(generatedDir, "en/integrations/dsh.md"), "utf8");
   const chinese = await readFile(path.join(generatedDir, "zh/integrations/dsh.md"), "utf8");

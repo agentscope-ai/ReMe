@@ -291,3 +291,34 @@ test("lists and loads read-only ReMe workspace files", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("HTTP 200 without an explicit successful ReMe response cannot acknowledge work", async () => {
+  const originalFetch = globalThis.fetch;
+  const client = new ReMeClient({
+    endpoint: "http://127.0.0.1:2333",
+    requestTimeoutMs: 1000,
+    backgroundTimeoutMs: 1000,
+  });
+  try {
+    for (const payload of [
+      null,
+      [],
+      {},
+      { answer: "proxy response" },
+      { success: "true" },
+    ]) {
+      globalThis.fetch = async () => Response.json(payload);
+      const result = await client.autoMemory([], "session");
+      assert.equal(result.ok, false);
+      assert.ok(result.error);
+    }
+    globalThis.fetch = async () =>
+      new Response("<html>proxy</html>", { status: 200 });
+    assert.equal((await client.autoMemory([], "session")).ok, false);
+    globalThis.fetch = async () =>
+      Response.json({ success: true, answer: "saved" });
+    assert.equal((await client.autoMemory([], "session")).ok, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

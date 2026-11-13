@@ -82,6 +82,7 @@ test("solid theme actions use foreground colors with sufficient contrast", async
     assert.ok(contrast(theme.danger, theme["danger-foreground"]) >= 4.5);
   }
   for (const selector of [
+    ".welcome > button",
     ".composer button",
     ".settings-sidebar button.active",
     ".primary-action",

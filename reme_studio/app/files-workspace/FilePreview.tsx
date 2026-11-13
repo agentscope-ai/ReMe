@@ -6,6 +6,7 @@ const DemoTags = IS_DEMO
   ? dynamic(() => import("../../demo/DemoTags"), { ssr: false })
   : null;
 import { parseMarkdownFrontmatter } from "./markdown";
+import { parseCsv } from "./csv";
 import styles from "./files-workspace.module.css";
 
 export type PreviewType = "markdown" | "csv" | "text";
@@ -15,31 +16,6 @@ export function getPreviewType(filePath: string): PreviewType {
   if (ext === "md" || ext === "mdx") return "markdown";
   if (ext === "csv") return "csv";
   return "text";
-}
-
-function parseCsv(raw: string): string[][] {
-  return raw
-    .trimEnd()
-    .split(/\r?\n/)
-    .map((line) => {
-      const cells: string[] = [];
-      let current = "";
-      let quoted = false;
-      for (let index = 0; index < line.length; index += 1) {
-        const char = line[index];
-        if (char === '"') {
-          if (quoted && line[index + 1] === '"') {
-            current += '"';
-            index += 1;
-          } else quoted = !quoted;
-        } else if (char === "," && !quoted) {
-          cells.push(current);
-          current = "";
-        } else current += char;
-      }
-      cells.push(current);
-      return cells;
-    });
 }
 
 function MarkdownPreview({ content }: { content: string }) {

@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { browserStorage } from "./browser-storage";
 import dynamic from "next/dynamic";
 import { IS_DEMO } from "./studio-mode";
 import { loadWorkspaceFile, openWorkspaceFile } from "./open-file";
 import { SparkMenuExpandLine, SparkMenuFoldLine } from "@agentscope-ai/icons";
-import { BookOpenText, Settings } from "lucide-react";
-import ChatEntries from "./chat-entries";
+import { BookOpenText, Settings, Sparkles } from "lucide-react";
 import FilesNavigator from "./files-workspace/FilesNavigator";
 import MemoryGraphView from "./files-workspace/MemoryGraphView";
 import { clampNavigatorWidth } from "./files-workspace/panel-resize";
 import { useI18n, useLanguageStore } from "./i18n";
 import { useWorkspaceStore } from "./store";
 import { useThemeStore } from "./theme";
-import type { AppConfig, WorkspaceTab } from "./types";
+import type { WorkspaceTab } from "./types";
 import ThemeMenu from "./workspace-theme";
 import Tabs from "./workspace-tabs";
 import Chat from "./workspace-chat";
@@ -51,9 +51,9 @@ function Workspace() {
   const [navOpen, setNavOpen] = useState(true);
   const [navigatorWidth, setNavigatorWidth] = useState(260);
   const [resizingNavigator, setResizingNavigator] = useState(false);
+  const resizeCleanup = useRef<(() => void) | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [config, setConfig] = useState<AppConfig>();
-  const { tabs, activeTabId } = useWorkspaceStore();
+  const { tabs, activeTabId, openAgent } = useWorkspaceStore();
   const active = tabs.find((tab) => tab.id === activeTabId);
   useEffect(() => {
     let mounted = true;
@@ -86,46 +86,51 @@ function Workspace() {
     hydrateTheme();
   }, [hydrateTheme]);
   useEffect(() => {
-    const saved = Number(localStorage.getItem("reme-navigator-width"));
+    const saved = Number(browserStorage.getItem("reme-navigator-width"));
     if (!Number.isFinite(saved) || saved <= 0) return;
     const frame = requestAnimationFrame(() =>
       setNavigatorWidth(clampNavigatorWidth(saved, window.innerWidth)),
     );
     return () => cancelAnimationFrame(frame);
   }, []);
+  useEffect(() => () => resizeCleanup.current?.(), []);
 
   const resizeNavigator = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
     event.preventDefault();
     const navigator = event.currentTarget.parentElement;
     const surface = navigator?.parentElement;
     if (!navigator || !surface) return;
+    resizeCleanup.current?.();
     setResizingNavigator(true);
     const startX = event.clientX;
     const initialWidth = navigator.getBoundingClientRect().width;
     const containerWidth = surface.getBoundingClientRect().width;
+    let width = initialWidth;
     const move = (nextEvent: PointerEvent) => {
-      setNavigatorWidth(
-        clampNavigatorWidth(
-          initialWidth + nextEvent.clientX - startX,
-          containerWidth,
-        ),
-      );
-    };
-    const stop = (nextEvent: PointerEvent) => {
-      const finalWidth = clampNavigatorWidth(
+      width = clampNavigatorWidth(
         initialWidth + nextEvent.clientX - startX,
         containerWidth,
       );
-      setNavigatorWidth(finalWidth);
-      localStorage.setItem("reme-navigator-width", String(finalWidth));
-      setResizingNavigator(false);
+      setNavigatorWidth(width);
+    };
+    const cleanup = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("blur", stop);
+      resizeCleanup.current = undefined;
     };
+    const stop = () => {
+      browserStorage.setItem("reme-navigator-width", String(width));
+      setResizingNavigator(false);
+      cleanup();
+    };
+    resizeCleanup.current = cleanup;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
+    window.addEventListener("blur", stop);
   };
 
   const resizeNavigatorWithKeyboard = (
@@ -141,7 +146,7 @@ function Workspace() {
         current + (event.key === "ArrowRight" ? 24 : -24),
         containerWidth,
       );
-      localStorage.setItem("reme-navigator-width", String(next));
+      browserStorage.setItem("reme-navigator-width", String(next));
       return next;
     });
   };
@@ -236,8 +241,6 @@ function Workspace() {
       {DemoBar && <DemoBar />}
       <div className="surface">
         <FilesNavigator
-          config={config}
-          onConfigChange={setConfig}
           open={navOpen}
           width={navigatorWidth}
           resizing={resizingNavigator}
@@ -258,7 +261,10 @@ function Workspace() {
                   <span>Studio</span>
                 </h1>
                 <p>{t("welcomeDescription")}</p>
-                <ChatEntries config={config} />
+                <button onClick={openAgent}>
+                  <Sparkles size={16} />
+                  {t("startChat")}
+                </button>
                 <small>{t("localFiles")}</small>
               </div>
             )}
@@ -267,12 +273,7 @@ function Workspace() {
             )}
             {tabs.map((tab) =>
               tab.type === "agent" ? (
-                <Chat
-                  key={tab.id}
-                  tab={tab}
-                  config={config}
-                  active={activeTabId === tab.id}
-                />
+                <Chat key={tab.id} tab={tab} active={activeTabId === tab.id} />
               ) : null,
             )}
             {active?.type === "graph" && (

@@ -3,11 +3,15 @@
 # pylint: disable=missing-function-docstring,protected-access,redefined-outer-name
 
 import asyncio
+from datetime import datetime
 import json
+from pathlib import Path
+import tomllib
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+import yaml
 
 from reme.application import Application
 from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CcAgentWrapper, CodexAgentWrapper
@@ -16,7 +20,49 @@ from reme.config import resolve_app_config
 from reme.constants import DEFAULT_MAX_BYTES
 from reme.enumeration import ChunkEnum
 from reme.schema import SessionStatus, StreamChunk
-from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep, PaSessionStep
+from reme.steps.proactive.agents.chat import PaChatStep, PaNewSessionStep
+from reme.steps.proactive.api.sessions import PaSessionStep
+from .pa_helpers import bind_pa
+
+
+@pytest.mark.parametrize("override", [None, "custom-codex-model"])
+def test_proactive_model_defaults_and_explicit_override(monkeypatch, override):
+    if override is None:
+        monkeypatch.delenv("CODEX_MODEL_NAME", raising=False)
+    else:
+        monkeypatch.setenv("CODEX_MODEL_NAME", override)
+    config = resolve_app_config(config="proactive", log_config=False)
+    agent = config["components"]["agent_wrapper"]["default"]
+    server = config["components"]["codex_app_server"]["default"]
+    model = server["model_catalog"]["models"][0]
+    options = tomllib.loads("\n".join(server["config_overrides"]))
+    selected = override or "qwen3.8-max-0902"
+    background = "qwen3.8-max-0902"
+    assert agent["model"] == background
+    assert {item["slug"] for item in server["model_catalog"]["models"]} == {background}
+    for name, expected in (
+        ("pa_chat", selected),
+        ("pa_new_session", selected),
+        ("pa_proactive", selected),
+        ("cron_agent", background),
+    ):
+        assert config["jobs"][name]["steps"][0]["model"] == expected
+    assert "model" not in config["jobs"]["temp_agent"]["steps"][0]
+    assert agent["effort"] == model["default_reasoning_level"] == options["model_reasoning_effort"] == "max"
+    assert model["multi_agent_reasoning_effort"] == options["agents"]["default_subagent_reasoning_effort"] == "max"
+    assert [level["effort"] for level in model["supported_reasoning_levels"]] == ["max"]
+    assert model["input_modalities"] == ["text", "image"]
+    assert model["context_window"] == model["max_context_window"] == options["model_context_window"] == 1000000
+    assert model["effective_context_window_percent"] == 80
+    assert options["model_auto_compact_token_limit"] == 600000
+    assert options["model_auto_compact_token_limit_scope"] == "total"
+    assert options["review_model"] == options["agents"]["default_subagent_model"] == background
+    assert options["memories"]["extract_model"] == options["memories"]["consolidation_model"] == background
+    assert options["features"]["memories"]
+    assert options["memories"]["generate_memories"] and options["memories"]["use_memories"]
+    if override is None:
+        generic = resolve_app_config(config="default", log_config=False)
+        assert generic["components"]["agent_wrapper"]["codex"]["model"] == "qwen3.8-max"
 
 
 class PaAgent(CodexAgentWrapper):
@@ -65,7 +111,7 @@ class PaAgent(CodexAgentWrapper):
 def runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), language="zh")
     agent = PaAgent(app_context=context)
-    context.components["agent_wrapper"] = {"default": agent}
+    bind_pa(context, agent)
     return context, agent
 
 
@@ -74,7 +120,7 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
     context, agent = runtime
     assert (await PaSessionStep(app_context=context)()).answer == {"session_id": None, "status": None}
     assert not agent.created
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory = agent.workspace_path / "daily/personal/MEMORY.md"
     assert not memory.exists()
     step = PaNewSessionStep(app_context=context)
     assert (await step()).answer == "session-1"
@@ -90,23 +136,35 @@ async def test_current_session_is_read_only_and_new_session_does_not_generate(ru
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("custom_prompt", [None, "", "配置的个人助手提示词。\n"])
-async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_prompt):
+@pytest.mark.parametrize("selected_model", [None, "qwen3.8-max-0902"])
+async def test_chat_creates_once_and_resumes_across_fresh_steps(runtime, custom_prompt, selected_model):
     context, agent = runtime
     prompt_dict = {} if custom_prompt is None else {"system_prompt_zh": custom_prompt}
     for query in ("first", "second"):
         queue = asyncio.Queue()
-        response = await PaChatStep(app_context=context, prompt_dict=prompt_dict)(query=query, stream_queue=queue)
+        step = PaChatStep(app_context=context, prompt_dict=prompt_dict, model=selected_model)
+        response = await step(query=query, stream_queue=queue)
         assert response.success and response.answer == "hello"
         assert all(queue.get_nowait().session_id == "session-1" for _ in range(queue.qsize()))
     assert len(agent.created) == 1
+    assert agent.created[0].get("model") == selected_model
+    assert all(kwargs.get("model") == selected_model for _, kwargs in agent.calls)
+    assert "model" not in agent.kwargs
     prompt = agent.created[0]["system_prompt"]
     if custom_prompt is None:
-        assert prompt.startswith("你叫 Remy")
-        assert str(agent.workspace_path / "digest/personal/REME_MEMORY.md") in prompt
+        assert prompt.startswith("## 角色")
+        assert str(agent.workspace_path / "daily/personal/MEMORY.md") in prompt
     else:
         assert prompt == custom_prompt.strip()
     assert [kwargs["resume"] for _, kwargs in agent.calls] == ["session-1", "session-1"]
     assert agent.created[0] == {key: value for key, value in agent.calls[0][1].items() if key != "resume"}
+
+
+@pytest.mark.asyncio
+async def test_session_api_uses_runtime_without_binding_an_agent_wrapper(runtime):
+    context, _agent = runtime
+    response = await PaSessionStep(app_context=context, agent_wrapper="missing")()
+    assert response.answer == {"session_id": None, "status": None}
 
 
 @pytest.mark.asyncio
@@ -255,7 +313,7 @@ async def test_status_does_not_publish_a_session_superseded_during_the_native_re
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("step", [PaChatStep, PaNewSessionStep, PaSessionStep])
+@pytest.mark.parametrize("step", [PaChatStep, PaNewSessionStep])
 @pytest.mark.parametrize("wrapper", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
 async def test_pa_rejects_non_codex_wrappers_before_accessing_state(tmp_path, step, wrapper):
     context = ApplicationContext(workspace_dir=str(tmp_path))
@@ -274,7 +332,7 @@ async def test_pa_rejects_non_codex_wrappers_before_accessing_state(tmp_path, st
 @pytest.mark.parametrize("first_chat", [False, True])
 async def test_session_uses_memory_path_without_injecting_or_modifying_existing_contents(runtime, content, first_chat):
     context, agent = runtime
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory = agent.workspace_path / "daily/personal/MEMORY.md"
     memory.parent.mkdir(parents=True)
     memory.write_text(content, encoding="utf-8")
     agent._cwd = agent.workspace_path / "another-directory"
@@ -286,20 +344,19 @@ async def test_session_uses_memory_path_without_injecting_or_modifying_existing_
     prompt = agent.created[0]["system_prompt"]
     assert str(memory) in prompt
     assert str(agent.cwd) not in prompt
-    assert "先读取最新完整文件" in prompt
-    assert "主人要求遗忘时，立即删除对应记忆" in prompt
-    assert "保留仍有效的长期事实" in prompt
+    assert "完整读取最新记忆" in prompt
+    assert "删除主人要求遗忘的内容" in prompt
+    assert "保留其他有效事实" in prompt
     if content.strip():
         assert content.strip() not in prompt
     assert memory.read_text(encoding="utf-8") == content
 
 
 @pytest.mark.asyncio
-async def test_session_keeps_its_prompt_and_tools_until_rotation(runtime):
+async def test_chat_uses_current_prompt_and_tools_without_a_session_parameter_cache(runtime):
     context, agent = runtime
     await PaNewSessionStep(app_context=context, prompt_dict={"system_prompt_zh": "原来的提示词。"})()
-    original = agent.created[0]
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory = agent.workspace_path / "daily/personal/MEMORY.md"
     memory.write_text("# Projects\n- Build ReMe.\n", encoding="utf-8")
     for _ in range(2):
         await PaChatStep(
@@ -310,20 +367,26 @@ async def test_session_keeps_its_prompt_and_tools_until_rotation(runtime):
             query="continue",
             stream_queue=asyncio.Queue(),
         )
-        assert agent.calls[-1][1] == {"resume": "session-1", **original}
+        assert agent.calls[-1][1] == {
+            "resume": "session-1",
+            "system_prompt": "修改后的提示词。",
+            "job_tools": ["search"],
+            "injected_job_kwargs": {"pa_caller": "chat"},
+        }
+        assert "reply_kwargs" not in vars(context.components["pa"]["default"])
     await PaNewSessionStep(app_context=context, prompt_dict={"system_prompt_zh": "修改后的提示词。"})()
     assert agent.created[1]["system_prompt"] == "修改后的提示词。"
     assert memory.read_text(encoding="utf-8") == "# Projects\n- Build ReMe.\n"
 
 
 @pytest.mark.asyncio
-async def test_personal_memory_and_interest_observations_follow_digest_directory(runtime):
+async def test_personal_memory_follows_configured_daily_directory(runtime):
     context, agent = runtime
-    context.app_config.digest_dir = "summaries"
-    memory = agent.workspace_path / "summaries/personal/REME_MEMORY.md"
+    context.app_config.daily_dir = "summaries"
+    memory = agent.workspace_path / "summaries/personal/MEMORY.md"
     memory.parent.mkdir(parents=True)
     memory.write_text("主人正在研究桌面交互。", encoding="utf-8")
-    legacy = agent.workspace_path / "personal/REME_MEMORY.md"
+    legacy = agent.workspace_path / "other/MEMORY.md"
     legacy.parent.mkdir()
     legacy.write_text("旧路径的内容不应加载。", encoding="utf-8")
     await PaNewSessionStep(app_context=context)()
@@ -338,8 +401,8 @@ async def test_personal_memory_and_interest_observations_follow_digest_directory
 async def test_memory_initialization_errors_preserve_the_current_session(runtime, tmp_path, monkeypatch, failure):
     context, agent = runtime
     await PaNewSessionStep(app_context=context)()
-    previous = dict(context.metadata["pa"])
-    memory = tmp_path / "digest/personal/REME_MEMORY.md"
+    previous = context.components["pa"]["default"].session_id
+    memory = tmp_path / "daily/personal/MEMORY.md"
     memory.unlink()
     if failure == "directory":
         memory.mkdir()
@@ -349,13 +412,13 @@ async def test_memory_initialization_errors_preserve_the_current_session(runtime
         error, message = ValueError, "inside the workspace"
     else:
         monkeypatch.setattr(
-            "reme.steps.proactive.pa.write_file_safe",
+            "reme.steps.proactive.agents.base.write_file_safe",
             AsyncMock(side_effect=PermissionError("write denied")),
         )
         error, message = PermissionError, "write denied"
     with pytest.raises(error, match=message):
         await PaNewSessionStep(app_context=context)()
-    assert context.metadata["pa"] == previous
+    assert context.components["pa"]["default"].session_id == previous
     assert len(agent.created) == 1 and not agent.released
 
 
@@ -365,8 +428,8 @@ async def test_memory_initialization_errors_preserve_the_current_session(runtime
 async def test_pa_templates_follow_language_and_preserve_memory(tmp_path, app_language, step_language, content):
     context = ApplicationContext(workspace_dir=str(tmp_path), language=app_language)
     agent = PaAgent(app_context=context)
-    context.components["agent_wrapper"] = {"default": agent}
-    memory = tmp_path / "digest/personal/REME_MEMORY.md"
+    bind_pa(context, agent)
+    memory = tmp_path / "daily/personal/MEMORY.md"
     if content is not None:
         memory.parent.mkdir(parents=True)
         memory.write_text(content, encoding="utf-8")
@@ -374,8 +437,8 @@ async def test_pa_templates_follow_language_and_preserve_memory(tmp_path, app_la
     await step()
     prompt = agent.created[0]["system_prompt"]
     chinese = (step_language or app_language) == "zh"
-    assert prompt.startswith("你叫 Remy" if chinese else "You are Remy")
-    assert ("可爱、亲切" if chinese else "cute, warm") in prompt
+    assert prompt.startswith("## 角色" if chinese else "## Role")
+    assert ("对话 Agent" if chinese else "Chat Agent") in prompt
     assert f"{'工作区：' if chinese else 'Workspace: '}{tmp_path}" in prompt
     assert "【工作流】" not in prompt and "[Workflow]" not in prompt
     assert "会话创建时间" not in prompt and "Session created at" not in prompt
@@ -399,7 +462,7 @@ async def test_pa_prompt_and_default_memory_overrides_only_seed_missing_files(ru
         "default_memory_zh": "# 自定义初始记忆\n保留 {原文}。",
     }
     await PaNewSessionStep(app_context=context, prompt_dict=prompts)()
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
+    memory = agent.workspace_path / "daily/personal/MEMORY.md"
     assert agent.created[0]["system_prompt"] == f"自定义人设。\n文件：{memory}"
     assert memory.read_text(encoding="utf-8") == prompts["default_memory_zh"] + "\n"
     memory.write_text("更新后的 {记忆}。", encoding="utf-8")
@@ -410,7 +473,11 @@ async def test_pa_prompt_and_default_memory_overrides_only_seed_missing_files(ru
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("config_name", ["default", "proactive"])
-async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, config_name):
+async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, config_name, monkeypatch):
+    monkeypatch.setattr(
+        "reme.steps.proactive.agents.base.BasePaAgentStep._now",
+        lambda _self: datetime.fromisoformat("2026-11-08T12:00:00+08:00"),
+    )
     config = resolve_app_config(config=config_name, log_config=False)
     app = Application(
         workspace_dir=str(tmp_path),
@@ -427,6 +494,8 @@ async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, confi
     )
     agent = PaAgent(app_context=app.context)
     app.context.components["agent_wrapper"] = {"default": agent}
+    if config_name == "proactive":
+        bind_pa(app.context, agent)
     service = app.context.service
     service.build_service(app)
     service.add_jobs(app)
@@ -464,3 +533,20 @@ async def test_http_chat_modes_follow_the_selected_configuration(tmp_path, confi
             forbidden = (await client.post("/pa_new_session", json={"session_id": "other"})).json()
             assert not forbidden["success"]
             assert (await client.post("/pa_session", json={})).json()["answer"]["session_id"] == "session-1"
+
+
+@pytest.mark.parametrize(
+    "module,memory_field",
+    [("agents/chat", "memory_path"), ("agents/proactive", "memory_path"), ("agents/cron", "memory_path")],
+)
+def test_role_prompts_have_matching_localized_placeholders(module, memory_field):
+    from string import Formatter
+
+    root = Path(__file__).resolve().parents[2]
+    prompts = yaml.safe_load((root / f"reme/steps/proactive/{module}.yaml").read_text())
+
+    def fields(value):
+        return {field for _, field, _, _ in Formatter().parse(value) if field}
+
+    assert fields(prompts["system_prompt"]) == fields(prompts["system_prompt_zh"])
+    assert memory_field in fields(prompts["system_prompt"])

@@ -1,27 +1,38 @@
+import { parseDocument, stringify } from "yaml";
+
 export interface FrontmatterEntry {
   key: string;
   value: string;
 }
 
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
+const FRONTMATTER_PATTERN =
+  /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m;
 
-/** Split a leading YAML frontmatter block from the Markdown body. Copied from QwenPaw. */
+/** Invalid YAML stays visible as source instead of silently discarding document data. */
 export function parseMarkdownFrontmatter(content: string): {
   body: string;
   entries: FrontmatterEntry[];
 } {
   const match = FRONTMATTER_PATTERN.exec(content);
-  if (!match) return { body: content, entries: [] };
-  const entries = match[1]
-    .split(/\r?\n/)
-    .map((line) => {
-      const separator = line.indexOf(":");
-      if (separator <= 0 || /^\s/.test(line)) return null;
-      return {
-        key: line.slice(0, separator).trim(),
-        value: line.slice(separator + 1).trim(),
-      };
-    })
-    .filter((entry): entry is FrontmatterEntry => entry !== null);
-  return { body: content.slice(match[0].length), entries };
+  if (!match || match.index !== 0) return { body: content, entries: [] };
+  try {
+    const yaml = parseDocument(match[1]);
+    if (yaml.errors.length) return { body: content, entries: [] };
+    const metadata: unknown = yaml.toJS({ maxAliasCount: 50 });
+    if (
+      metadata !== null &&
+      (typeof metadata !== "object" || Array.isArray(metadata))
+    )
+      return { body: content, entries: [] };
+    const entries = Object.entries(metadata ?? {}).map(([key, value]) => ({
+      key,
+      value:
+        value !== null && typeof value === "object"
+          ? stringify(value, { lineWidth: 0 }).trimEnd()
+          : String(value ?? ""),
+    }));
+    return { body: content.slice(match[0].length), entries };
+  } catch {
+    return { body: content, entries: [] };
+  }
 }

@@ -204,61 +204,29 @@ The conversation surface supports:
 - Token-by-token streaming from the ReMe Agent.
 - Separate rendering for answer text, reasoning, tool calls, structured data, approvals, and usage information.
 - Collapsible completed reasoning and tool blocks to keep long conversations readable.
-- Independent Chat tabs and one application-owned Proactive Chat view, sharing the same conversation component.
+- Multiple independent chat tabs and resumable backend session identifiers.
 - Starter prompts for common memory questions.
 - Dragging a workspace file into the composer to insert a path reference.
 - `Enter` to send and `Shift+Enter` for a new line.
-
-The two entries follow the service's exposed Jobs. The default configuration enables **Chat**, which sends `query` and
-an optional `session_id` to `chat`. Each tab owns its session; **New chat** opens an independent conversation without
-calling the PA APIs. Start `reme start config=proactive` to enable **Proactive Chat** instead. Unavailable entries show
-configuration guidance. Custom configurations can expose both modes.
-
-Proactive Chat has one current conversation shared by clients of the same Application. Its requests use `pa_chat(query)`;
-`pa_session()` returns a dictionary containing `session_id` and `status`, and `pa_new_session()` creates and selects an
-empty session and returns its ID without generating a reply. **New chat** changes the conversation while preserving
-workspace memory. Chat and session creation reject concurrent operations; status remains readable during generation.
-The current selection is held in ApplicationContext and resets when the service restarts. Browser history is a display
-cache and never selects the backend session. Proactive Chat currently requires `CodexAgentWrapper`; other wrappers
-raise `NotImplementedError`. The proactive configuration exposes only the `pa_*` conversation Jobs.
-
-New PA sessions load workspace `personal/REME_MEMORY.md`. Missing or empty files prompt the agent to learn about the
-user in its first reply and create concise personal memory; the agent is instructed to maintain it as information
-changes, remove explicitly forgotten or confirmed obsolete information, and avoid restoring deleted content from old
-context. PA prompts use `PromptHandler` and the bilingual `reme/steps/proactive/pa.yaml` templates; the proactive
-configuration defaults to `language=zh`, with `language=en` selecting English. Each session reuses its initial prompt,
-and new sessions reload the file. Session creation does not generate a reply or write memory.
 
 The built-in chat job is read-only with respect to the workspace. It can search and read context but should not be used
 as a substitute for explicitly saving durable knowledge. Chat requires a valid Agent/model configuration; file browsing,
 editing, graphs, and service inspection do not.
 
-With `config=proactive`, Studio uses a Codex agent with full tool access and supports proactive messages. It synchronizes history when opening a
-conversation, after streaming, on focus, and every five seconds while the conversation is visible. Hidden pages and
-locally streaming conversations stop history polling. Proactive messages have a distinct background and a “Proactive reminder” label.
-
-Start the service in one terminal:
+Studio sends `query` and an optional `session_id` to the `chat` stream job. Each chat tab owns an independent session.
+Start the default service in one terminal:
 
 ```bash
-reme start config=proactive
+reme start config=default
 ```
 
-From another terminal, inspect or rotate the current session, then use its ID for history and proactive messages:
+Then open Studio at the service URL. Custom configurations can also provide `chat`; the built-in `proactive` and `demo`
+configurations do not provide this job and cannot serve Studio chat. The browser-only demo continues to use simulated
+conversations without a backend.
 
-```bash
-reme pa_session
-reme pa_new_session
-reme session_append session_id=SESSION_ID message_id=reminder-1 content="This information may be useful to you." wait_timeout=30
-reme session_read session_id=SESSION_ID
-```
-
-`session_append` waits for the current turn's lease and appends an assistant message without starting model generation.
-Retry with the same `message_id` and content; reusing an ID with different content fails. Provenance records live under
-`{session_dir}/proactive/` in the workspace, filling the injected-message gap in Codex's native display-history APIs.
-Writes and ordinary chat must use the same ReMe app-server; session locks are not shared across processes.
-Only persistent Codex sessions are supported; other wrappers explicitly raise `NotImplementedError` for these three APIs.
-Busy waits time out. Once injection starts, cancellation finishes publication before releasing the session lock.
-Recovering interrupted publication reads reserved message IDs from the Codex rollout without rewriting native files.
+When `session_read` is supported, Studio synchronizes history when opening a conversation, after streaming, on focus,
+and every five seconds while the conversation is visible. Hidden pages and locally streaming conversations stop
+history polling. If history is unsupported, chat continues using the locally cached conversation.
 
 ### 7. Service status
 

@@ -224,6 +224,13 @@ ReMe 会把 Agent 记忆保存为可读的 Markdown。
 如需为基础安装单独添加 Studio，可使用 `pip install "reme-ai[web]"`。源码构建、配置和开发说明见
 [ReMe Studio 指南](https://reme.agentscope.io/zh/workspace/studio)。
 
+### ReMe Desktop（可选）
+
+[ReMe Desktop](https://github.com/agentscope-ai/ReMe/tree/main/reme_desktop) 是 proactive agent 的 Electron + React 桌面客户端。
+点击 Remy 开聊，拖动角色调整位置，也能通过桌面气泡接收主动消息；会话和记忆由现有 ReMe 服务与工作区管理。
+
+[Proactive Agent Loop 关系图（英文）](docs/figure/proactive-agent-loop.svg) 展示四类 Agent、收件箱及共享工具与工作区文档之间的协作关系。
+
 ## 🤝 将 ReMe 接入你的 Agent
 
 ReMe 既可以作为本地记忆服务，通过 CLI、HTTP API 或 MCP server 接入，也可以通过 Python API 嵌入宿主进程。宿主集成可根据不同

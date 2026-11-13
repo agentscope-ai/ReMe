@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { browserStorage } from "./browser-storage";
 
 export type ThemePreference = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
@@ -35,7 +36,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   preference: "system",
   resolved: "light",
   hydrate: () => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = browserStorage.getItem(STORAGE_KEY);
     const preference: ThemePreference =
       saved === "light" || saved === "dark" || saved === "system"
         ? saved
@@ -51,7 +52,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       });
   },
   setPreference: (preference) => {
-    localStorage.setItem(STORAGE_KEY, preference);
+    browserStorage.setItem(STORAGE_KEY, preference);
     set({ preference, resolved: applyTheme(preference) });
   },
 }));

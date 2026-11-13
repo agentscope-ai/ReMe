@@ -1,0 +1,224 @@
+{
+  "version": 2,
+  "canvas": [
+    512,
+    512
+  ],
+  "grid": {
+    "columns": 4,
+    "rows": 2
+  },
+  "fps": 24,
+  "animations": [
+    {
+      "id": "idle",
+      "label": "待机",
+      "ticks": [
+        18,
+        12,
+        12,
+        2,
+        3,
+        2,
+        12,
+        11
+      ],
+      "description": "轻轻呼吸，眨一下眼，安静陪着你。"
+    },
+    {
+      "id": "listening",
+      "label": "聆听",
+      "ticks": [
+        14,
+        10,
+        10,
+        2,
+        3,
+        2,
+        14,
+        17
+      ],
+      "description": "稍稍侧头、轻轻点头，认真听你说话。"
+    },
+    {
+      "id": "thinking",
+      "label": "思考",
+      "ticks": [
+        14,
+        10,
+        10,
+        2,
+        3,
+        2,
+        14,
+        17
+      ],
+      "description": "指尖抵着下巴，视线轻轻移动，想一想再回答。"
+    },
+    {
+      "id": "remembering",
+      "label": "回忆",
+      "ticks": [
+        6,
+        4,
+        4,
+        6,
+        18,
+        10,
+        6,
+        6
+      ],
+      "description": "从小包里取出便签，低头读一读，再放回去。"
+    },
+    {
+      "id": "speaking",
+      "label": "对话",
+      "ticks": [
+        4,
+        5,
+        5,
+        5,
+        2,
+        5,
+        5,
+        5
+      ],
+      "description": "嘴型轻轻变化，配合自然的小手势。"
+    },
+    {
+      "id": "reminding",
+      "label": "主动提醒",
+      "ticks": [
+        5,
+        3,
+        3,
+        4,
+        6,
+        24,
+        4,
+        5
+      ],
+      "description": "取出便签，举起来给你看，再放回记忆小包。",
+      "segments": {
+        "enter": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "hold": [
+          5
+        ],
+        "exit": [
+          6,
+          7
+        ]
+      }
+    },
+    {
+      "id": "happy",
+      "label": "完成",
+      "ticks": [
+        4,
+        4,
+        4,
+        12,
+        6,
+        4,
+        4,
+        4
+      ],
+      "description": "开心地举起双手，轻轻庆祝事情完成。"
+    },
+    {
+      "id": "confused",
+      "label": "疑惑",
+      "ticks": [
+        12,
+        8,
+        8,
+        2,
+        3,
+        2,
+        11,
+        14
+      ],
+      "description": "轻轻碰着脸颊，带着一点疑惑侧头看你。"
+    },
+    {
+      "id": "sleeping",
+      "label": "睡觉",
+      "ticks": [
+        14,
+        14,
+        14,
+        2,
+        3,
+        7,
+        20,
+        22
+      ],
+      "description": "抱着记忆小包打盹，肩膀随着呼吸轻轻起伏。",
+      "render_scale": 0.75
+    },
+    {
+      "id": "dragged",
+      "label": "拖动",
+      "ticks": [
+        4,
+        4,
+        5,
+        5,
+        4,
+        4,
+        5,
+        5
+      ],
+      "description": "轻轻悬空，双脚晃一晃，惊讶地看着你。"
+    },
+    {
+      "id": "petting_fish",
+      "label": "摸鱼",
+      "ticks": [
+        7,
+        6,
+        10,
+        9,
+        14,
+        10,
+        6,
+        7
+      ],
+      "description": "托着橙色小鱼，轻轻抚摸鱼背，看着小鱼摆尾回应，再回到待机。"
+    },
+    {
+      "id": "walking",
+      "label": "走路",
+      "ticks": [
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3,
+        3
+      ],
+      "description": "朝右迈步，双脚交替、手臂自然摆动；向左移动时由播放器镜像。"
+    }
+  ],
+  "ambient": [
+    "petting_fish",
+    "listening",
+    "remembering",
+    "thinking"
+  ],
+  "ambient_weights": {
+    "petting_fish": 40,
+    "listening": 25,
+    "remembering": 25,
+    "thinking": 10
+  }
+}

@@ -1,0 +1,109 @@
+name: CI / ReMe Desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "reme_desktop/**"
+      - "assets/remy/**"
+      - ".github/workflows/ci-reme-desktop.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "reme_desktop/**"
+      - "assets/remy/**"
+      - ".github/workflows/ci-reme-desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: Desktop checks (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            name: macOS
+          - os: windows-2025
+            name: Windows
+    defaults:
+      run:
+        working-directory: reme_desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: reme_desktop/package-lock.json
+      - run: npm ci
+      - run: npx install-electron
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run test:e2e
+        timeout-minutes: 5
+        env:
+          DEBUG: pw:browser*
+      - run: npm run test:dev
+      - run: npx electron-builder --dir --publish never --config.electronDist=node_modules/electron/dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - run: npm run test:packaged
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npx electron-builder --win --x64 --prepackaged dist/win-unpacked --publish never
+      - name: Install Windows application and verify its shortcut
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem dist -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected one Windows installer' }
+          $installDir = Join-Path $env:RUNNER_TEMP 'ReMe Desktop installed'
+          $result = Start-Process $installers[0].FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+          if ($result.ExitCode -ne 0) { throw "Installer exited with $($result.ExitCode)" }
+          $executable = Join-Path $installDir 'ReMe Desktop.exe'
+          if (!(Test-Path $executable)) { throw 'Installed executable is missing' }
+          $programs = [Environment]::GetFolderPath('Programs')
+          $shell = New-Object -ComObject Shell.Application
+          $folder = $shell.NameSpace($programs)
+          $shortcut = $folder.ParseName('ReMe Desktop.lnk')
+          if ($null -eq $shortcut) { throw 'Start Menu shortcut is missing' }
+          $appId = (Get-Content package.json -Raw | ConvertFrom-Json).build.appId
+          if ($shortcut.ExtendedProperty('System.AppUserModel.ID') -ne $appId) {
+            throw 'Start Menu shortcut AppUserModelID differs from the application ID'
+          }
+          "REME_DESKTOP_EXECUTABLE=$executable" >> $env:GITHUB_ENV
+      - name: Test installed Windows application
+        if: runner.os == 'Windows'
+        run: npm run test:packaged
+      - name: Uninstall Windows application
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installDir = Join-Path $env:RUNNER_TEMP 'ReMe Desktop installed'
+          $uninstaller = Join-Path $installDir 'Uninstall ReMe Desktop.exe'
+          if (Test-Path $uninstaller) {
+            $result = Start-Process $uninstaller -ArgumentList "/S _?=$installDir" -Wait -PassThru
+            if ($result.ExitCode -ne 0) { throw "Uninstaller exited with $($result.ExitCode)" }
+            if (Test-Path (Join-Path $installDir 'ReMe Desktop.exe')) {
+              throw 'Uninstall left the application executable behind'
+            }
+          }
+      - name: Save Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reme-desktop-windows-x64
+          path: reme_desktop/dist/*-setup.exe
+          if-no-files-found: error

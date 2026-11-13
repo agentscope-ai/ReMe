@@ -218,18 +218,25 @@ export class ReMeClient {
         body: JSON.stringify(payload),
         signal,
       });
-      const body = (await response
-        .json()
-        .catch(() => ({}))) as ReMeResponseBody;
-      const ok = response.ok && body.success !== false;
+      const parsed: unknown = await response.json().catch(() => undefined);
+      const body: ReMeResponseBody = isRecord(parsed) ? parsed : {};
+      const invalidResponse = response.ok && typeof body.success !== "boolean";
+      const ok = response.ok && body.success === true;
       return {
         ok,
         status: response.status,
         answer: body.answer ?? "",
         metadata: body.metadata ?? {},
+        ...(invalidResponse ? { errorCode: "invalid-response" as const } : {}),
         error: ok
           ? ""
-          : safeError(body.answer || body.detail || `HTTP ${response.status}`),
+          : safeError(
+              body.answer ||
+                body.detail ||
+                (response.ok
+                  ? "Invalid ReMe response"
+                  : `HTTP ${response.status}`),
+            ),
       };
     } catch (error) {
       return {

@@ -1,0 +1,175 @@
+/* A quiet reading surface, with geometry owned by the main process. */
+.companion .status-notice,
+.companion .message-bubble {
+  --bubble-fill: light-dark(#f5f6f5f5, #292d2bf5);
+  border: 1px solid light-dark(#ffffffc9, #ffffff24);
+  background: var(--bubble-fill);
+  color: var(--ink);
+  box-shadow:
+    0 2px 5px light-dark(#17251d0b, #00000020),
+    0 5px 10px light-dark(#17251d14, #00000030);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  animation: bubble-appear 120ms ease-out;
+}
+.companion .status-notice::before,
+.companion .message-bubble::before {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--bubble-fill);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.companion [data-side="top"]::before {
+  left: calc(var(--bubble-tip) - 5px);
+  bottom: -5px;
+  border-right: inherit;
+  border-bottom: inherit;
+}
+.companion [data-side="bottom"]::before {
+  left: calc(var(--bubble-tip) - 5px);
+  top: -5px;
+  border-left: inherit;
+  border-top: inherit;
+}
+.companion [data-side="left"]::before {
+  top: calc(var(--bubble-tip) - 5px);
+  right: -5px;
+  border-right: inherit;
+  border-top: inherit;
+}
+.companion [data-side="right"]::before {
+  top: calc(var(--bubble-tip) - 5px);
+  left: -5px;
+  border-left: inherit;
+  border-bottom: inherit;
+}
+.companion .status-notice {
+  padding: 8px 12px;
+  gap: 9px;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.status-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.companion .status-light {
+  width: 5px;
+  height: 5px;
+}
+.companion .status-arrow {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+.companion .message-bubble {
+  display: grid;
+  grid-template-rows: 24px minmax(0, 1fr) 28px;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+}
+.companion .message-bubble header {
+  min-width: 0;
+}
+.bubble-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.bubble-heading svg {
+  color: var(--accent);
+}
+.companion .message-bubble .icon-button {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+}
+.companion .message-bubble .message-body {
+  min-height: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.companion .message-bubble .message-content {
+  max-height: 100%;
+  overflow: hidden;
+}
+.companion .message-bubble p {
+  display: block;
+  margin: 0 0 6px;
+  font-size: inherit;
+  line-height: inherit;
+}
+.companion .message-bubble ul,
+.companion .message-bubble ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.companion .message-bubble footer {
+  min-width: 0;
+  gap: 5px;
+  align-items: center;
+}
+.companion .message-bubble footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: 5px;
+  height: 28px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 18px;
+}
+.companion .message-bubble footer .primary {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  background: light-dark(#36775f13, #9aceb01c);
+  color: var(--accent);
+}
+.companion .message-bubble footer .primary:hover {
+  background: light-dark(#36775f20, #9aceb02b);
+}
+.companion .message-bubble footer .subtle {
+  width: 28px;
+  padding: 0;
+}
+html[data-platform="win32"] .companion .status-notice,
+html[data-platform="win32"] .companion .message-bubble {
+  --bubble-fill: light-dark(#f5f6f5, #292d2b);
+}
+@keyframes bubble-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .companion .status-notice,
+  .companion .message-bubble {
+    animation: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .companion .status-notice,
+  .companion .message-bubble {
+    --bubble-fill: light-dark(#f5f6f5, #292d2b);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}

@@ -1,62 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyStreamChunk } from "../app/chat-stream.ts";
-import {
-  bindChatSession,
-  mergeSessionMessages,
-  mergeSessionTab,
-  selectPaSession,
-} from "../app/session-sync.ts";
-
-test("the server selection clears another session and leaves a live local stream alone", () => {
-  const tab = {
-    id: "agent",
-    type: "agent",
-    mode: "pa",
-    title: "old",
-    sessionId: "old",
-    messages: [{ id: "old" }],
-  };
-  assert.equal(selectPaSession(tab, "old"), tab);
-  assert.deepEqual(selectPaSession(tab, "new"), {
-    ...tab,
-    title: "",
-    sessionId: "new",
-    messages: [],
-  });
-  assert.equal(
-    selectPaSession({ ...tab, streaming: true }, "new").sessionId,
-    "old",
-  );
-  assert.equal(selectPaSession(tab, null).sessionId, undefined);
-});
-
-test("a query routed to a changed current session keeps only its own turn", () => {
-  const tab = {
-    id: "agent",
-    type: "agent",
-    mode: "pa",
-    sessionId: "old",
-    title: "old",
-    streaming: true,
-    messages: [
-      { id: "old-answer", role: "assistant", content: "old context" },
-      { id: "user", role: "user", content: "new query" },
-      { id: "answer", role: "assistant", content: "" },
-    ],
-  };
-  const updated = bindChatSession(tab, "answer", { session_id: "new" });
-  assert.equal(updated.sessionId, "new");
-  assert.equal(updated.title, "new query");
-  assert.deepEqual(
-    updated.messages.map((message) => message.id),
-    ["user", "answer"],
-  );
-  assert.equal(
-    bindChatSession(tab, "closed-request", { session_id: "new" }),
-    tab,
-  );
-});
+import { mergeSessionMessages, mergeSessionTab } from "../app/session-sync.ts";
 
 const entry = (id, role, content, extra = {}) => ({
   id,
@@ -196,7 +141,6 @@ test("stale session snapshots cannot overwrite a new turn or a different session
   const tab = {
     id: "tab",
     type: "agent",
-    mode: "pa",
     sessionId: "session-1",
     title: "",
     messages: [turn("new-answer", "latest")],
@@ -352,26 +296,4 @@ test("native completion cannot overwrite a collected application-level terminal 
     );
     assert.equal(mergeSessionMessages(restored, data), restored);
   }
-});
-
-test("ordinary chat binds native session IDs without discarding earlier messages", () => {
-  const messages = [
-    { id: "earlier", role: "user", content: "first question" },
-    { id: "current", role: "assistant", content: "" },
-  ];
-  const tab = {
-    id: "chat",
-    type: "agent",
-    mode: "chat",
-    title: "first question",
-    messages,
-  };
-  const bound = bindChatSession(tab, "current", { session_id: "native-id" });
-  assert.equal(bound.sessionId, "native-id");
-  assert.equal(bound.title, tab.title);
-  assert.equal(bound.messages, messages);
-  assert.equal(
-    bindChatSession(bound, "current", { session_id: "native-id" }),
-    bound,
-  );
 });

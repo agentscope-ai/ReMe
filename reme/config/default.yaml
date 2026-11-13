@@ -486,6 +486,26 @@ jobs:
     steps:
       - backend: list_tags_step
 
+  list_tag_files:
+    backend: base
+    description: "Browse existing files matching any selected memory tag, with directory scope and pagination."
+    parameters:
+      type: object
+      properties:
+        tags:
+          type: array
+          items: {type: string}
+          minItems: 1
+        path:
+          type: string
+          default: ""
+          description: "workspace-relative directory; empty means the whole workspace"
+        page: {type: integer, minimum: 1, default: 1}
+        page_size: {type: integer, minimum: 1, maximum: 1000, default: 100}
+      required: [tags]
+    steps:
+      - backend: list_tag_files_step
+
   reindex:
     backend: base
     description: "rebuild BM25, embedding, and/or tag indexes without rescanning workspace files"
@@ -978,10 +998,10 @@ components:
       codex_home: .codex
       supports_websockets: false
       config_overrides:
-        - 'model_reasoning_effort="xhigh"'
+        - 'model_reasoning_effort="max"'
         - 'review_model="qwen3.8-max"'
         - 'agents.default_subagent_model="qwen3.8-max"'
-        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'agents.default_subagent_reasoning_effort="max"'
         - 'memories.extract_model="qwen3.8-flash"'
         - 'memories.consolidation_model="qwen3.8-max"'
       model_catalog:
@@ -991,10 +1011,10 @@ components:
             display_name: Qwen3.8 Flash
             description: Simple tasks and automatic approval review
             auto_review_model_override: *codex_simple_model
-            default_reasoning_level: xhigh
-            multi_agent_reasoning_effort: xhigh
+            default_reasoning_level: max
+            multi_agent_reasoning_effort: max
             supported_reasoning_levels:
-              - effort: xhigh
+              - effort: max
                 description: Maximum reasoning
             context_window: 983616
             input_modalities: [text, image]
@@ -1013,13 +1033,16 @@ components:
           - <<: *codex_model_defaults
             slug: &codex_complex_model qwen3.8-max
             display_name: Qwen3.8 Max
-            description: Main conversations and complex tasks
-            default_reasoning_level: xhigh
+            description: Chat and complex tasks
+            default_reasoning_level: max
             priority: 0
     oauth:
       backend: sdk
       auth_mode: oauth
       codex_home: ${CODEX_HOME:-~/.codex}
+      config_overrides:
+        - 'model_reasoning_effort="max"'
+        - 'agents.default_subagent_reasoning_effort="max"'
 
   agent_wrapper:
     default:
@@ -1044,13 +1067,14 @@ components:
       backend: codex
       app_server: default
       model: ${CODEX_MODEL_NAME:-qwen3.8-max}
-      effort: xhigh
+      effort: max
       approval_mode: deny_all
       sandbox: full-access
     codex_oauth:
       backend: codex
       app_server: oauth
       model: ${CODEX_OAUTH_MODEL_NAME:-}
+      effort: max
       approval_mode: deny_all
       sandbox: full-access
 

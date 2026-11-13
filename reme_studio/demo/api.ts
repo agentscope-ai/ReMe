@@ -43,21 +43,11 @@ export async function getAppConfig(): Promise<AppConfig> {
     daily_dir: "daily",
     digest_dir: "digest",
     resource_dir: "resources",
-    service: {},
-    jobs: {
-      chat: { backend: "stream", enabled: true, enable_serve: true },
-    },
   };
 }
 
 export async function readChatSession() {
   return undefined;
-}
-export async function getPaSession() {
-  return { session_id: null, status: null };
-}
-export async function newPaSession() {
-  return crypto.randomUUID();
 }
 export async function listWorkspaceFiles(extensions: string[]) {
   return {
@@ -82,8 +72,9 @@ export async function saveWorkspaceFile(
 export async function getGraphSnapshot() {
   return demoWorkspace().graph();
 }
-export async function streamPaChat(
+export async function streamChat(
   query: string,
+  _sessionId: string | undefined,
   signal: AbortSignal,
   onChunk: (chunk: StreamChunk) => void,
 ) {
@@ -141,13 +132,4 @@ export async function streamPaChat(
   }
   emit("reply_end", "");
   emit("done", "");
-}
-
-export async function streamChat(
-  query: string,
-  _sessionId: string | undefined,
-  signal: AbortSignal,
-  onChunk: (chunk: StreamChunk) => void,
-) {
-  return streamPaChat(query, signal, onChunk);
 }

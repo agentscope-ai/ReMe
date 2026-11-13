@@ -15,10 +15,10 @@ import {
   FolderOpen,
   FolderTree,
   LoaderCircle,
+  MessageSquarePlus,
   Network,
 } from "lucide-react";
 import { getAppConfig, listWorkspaceFiles, REME_API_ENDPOINT } from "../api";
-import ChatEntries from "../chat-entries";
 import { useI18n } from "../i18n";
 import { WORKSPACE_CHANGED } from "../studio-mode";
 import { openWorkspaceFile } from "../open-file";
@@ -47,6 +47,8 @@ const extensions = parseWorkspaceExtensions(
 const AUTO_REFRESH_MS = 10_000;
 const isEditable = (name: string) =>
   extensions.has(name.split(".").pop()?.toLowerCase() || "");
+const loadWorkspace = () =>
+  Promise.all([getAppConfig(), listWorkspaceFiles([...extensions])]);
 const remeEndpoint = (() => {
   try {
     return new URL(REME_API_ENDPOINT).host;
@@ -152,8 +154,6 @@ function DirectoryNode({
 
 /** ReMe adapter of QwenPaw FilesNavigator. Profile/archive, project switching and Git are intentionally omitted. */
 interface FilesNavigatorProps {
-  config?: AppConfig;
-  onConfigChange: (config: AppConfig) => void;
   open: boolean;
   width: number;
   resizing: boolean;
@@ -162,8 +162,6 @@ interface FilesNavigatorProps {
 }
 
 export default function FilesNavigator({
-  config,
-  onConfigChange,
   open,
   width,
   resizing,
@@ -171,12 +169,14 @@ export default function FilesNavigator({
   onResizeKeyDown,
 }: FilesNavigatorProps) {
   const { t } = useI18n();
+  const [config, setConfig] = useState<AppConfig>();
   const [paths, setPaths] = useState<string[]>([]);
   const [limited, setLimited] = useState(false);
   const [status, setStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
   const [source, setSource] = useState<WorkspaceSource>("workspace");
+  const openAgent = useWorkspaceStore((state) => state.openAgent);
   useEffect(() => {
     let mounted = true;
     let loading = false;
@@ -184,16 +184,12 @@ export default function FilesNavigator({
       if (loading || !mounted) return;
       loading = true;
       try {
-        const [nextConfig, listing] = await Promise.allSettled([
-          getAppConfig(),
-          listWorkspaceFiles([...extensions]),
-        ]);
+        const [nextConfig, listing] = await loadWorkspace();
         if (!mounted) return;
-        if (nextConfig.status === "fulfilled") onConfigChange(nextConfig.value);
-        if (listing.status === "rejected") throw listing.reason;
-        setPaths(listing.value.paths);
-        setLimited(listing.value.limited);
-        setStatus(nextConfig.status === "fulfilled" ? "ready" : "error");
+        setConfig(nextConfig);
+        setPaths(listing.paths);
+        setLimited(listing.limited);
+        setStatus("ready");
       } catch {
         if (mounted) setStatus("error");
       } finally {
@@ -217,7 +213,7 @@ export default function FilesNavigator({
       window.removeEventListener(WORKSPACE_CHANGED, onVisibilityChange);
       window.removeEventListener("storage", onVisibilityChange);
     };
-  }, [onConfigChange]);
+  }, []);
   const visiblePaths = useMemo(
     () => (config ? filterPathsBySource(paths, source, config) : paths),
     [config, paths, source],
@@ -253,7 +249,6 @@ export default function FilesNavigator({
         onKeyDown={onResizeKeyDown}
       />
       <div className="navigator-content">
-        <ChatEntries config={config} />
         <div className="source-tabs" role="tablist">
           <button
             role="tab"
@@ -281,6 +276,16 @@ export default function FilesNavigator({
           >
             <BookOpen size={13} />
             {t("knowledgeTab")}
+          </button>
+          <button
+            className="chat-tab"
+            role="tab"
+            aria-selected={false}
+            aria-label={t("newAgentChat")}
+            onClick={openAgent}
+          >
+            <MessageSquarePlus size={13} />
+            {t("chatTab")}
           </button>
         </div>
         <div className="tree" role="tree" aria-busy={status === "loading"}>

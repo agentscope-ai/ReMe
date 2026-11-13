@@ -189,11 +189,18 @@ async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp
 
 @pytest.mark.asyncio
 async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
-    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
+    """The PA stream uses configured Job tools and the localized prompt template."""
+
+    from types import MethodType
+    from unittest.mock import AsyncMock
+    from .pa_helpers import bind_pa
 
     config = _load_config("proactive")
     app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
+    agent = CodexAgentWrapper(app_context=app_context, app_server="")
+    agent.create_session = AsyncMock(return_value="session-new")
+    agent.reply_stream = MethodType(_StreamingAgent.reply_stream, agent)
+    bind_pa(app_context, agent)
     app_context.components["agent_wrapper"] = {"default": agent}
     chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
     queue = asyncio.Queue()
@@ -201,10 +208,10 @@ async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tm
     await chat.start()
     try:
         await chat(query="Help plan my day", stream_queue=queue)
-        assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
-        memory = tmp_path / "digest/personal/REME_MEMORY.md"
-        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
+        assert agent.reply_kwargs["job_tools"] == config["jobs"]["pa_chat"]["steps"][0]["job_tools"]
+        assert agent.reply_kwargs["system_prompt"].startswith("## Role")
+        memory = tmp_path / "daily/personal/MEMORY.md"
+        assert str(memory) in agent.reply_kwargs["system_prompt"]
         assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
         assert "financial news" in memory.read_text(encoding="utf-8")
         assert agent.reply_kwargs["resume"] == "session-new"

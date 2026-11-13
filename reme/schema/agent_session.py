@@ -23,8 +23,12 @@ class SessionMessage(BaseModel):
     content: str
     source: Literal["chat", "proactive"] = "chat"
     created_at: str | None = None
+    expires_at: str | None = None
     turn_id: str | None = None
     completed: bool = True
+    delivery: Literal["idle", "immediate"] = "idle"
+    origin_session_id: str | None = None
+    notification_eligible: bool = True
     chunks: list[StreamChunk] = Field(default_factory=list)
 
 

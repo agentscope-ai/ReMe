@@ -125,7 +125,7 @@ def test_initial_result_refresh_offline_failure_theme_and_untrusted_text(languag
     playwright = pytest.importorskip("playwright.sync_api")
     initial = snapshot(language)
     with playwright.sync_playwright() as runtime:
-        browser = runtime.chromium.launch()
+        browser = runtime.chromium.launch(executable_path=os.environ.get("REME_UI_BROWSER"))
         page = browser.new_page(viewport={"width": 980, "height": 1250})
         page.set_default_timeout(5000)
         errors, external = [], []

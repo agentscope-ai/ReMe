@@ -1,0 +1,8 @@
+query_execute: |
+  Current time: {now}. Scheduled time: {run_at}.
+  - Complete the registered task: {query}. Use inherited context and tools; verify facts and sources as needed.
+  - Return a concise, complete result with necessary context, evidence and sources; note deadlines or decisions needing attention. The application saves and delivers it.
+query_execute_zh: |
+  当前时间：{now}。计划时间：{run_at}。
+  - 执行已登记任务：{query}。结合继承的上下文和工具，按需核实事实与来源。
+  - 简洁完整地返回结果、必要背景、依据和来源，注明需关注的期限或未决事项。框架负责保存和投递。

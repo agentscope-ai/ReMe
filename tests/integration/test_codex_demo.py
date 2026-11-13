@@ -62,8 +62,8 @@ async def demo_app(tmp_path, monkeypatch, request):
                 reasoning.add((settings["model"], settings.get("reasoning_effort")))
     print(f"\nCodex models observed: {sorted(models)}")
     print(f"Codex reasoning observed: {sorted(reasoning)}")
-    assert ("qwen3.8-max", "xhigh") in reasoning
-    assert {effort for _, effort in reasoning} == {"xhigh"}
+    assert ("qwen3.8-max", "max") in reasoning
+    assert {effort for _, effort in reasoning} == {"max"}
     assert models == (
         {"qwen3.8-max", "qwen3.8-flash"}
         if approval_mode == "auto_review" and global_counter_get(app.context.metadata, ["__job_counter", "add"])

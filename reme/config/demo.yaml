@@ -124,10 +124,10 @@ components:
       codex_home: .codex
       supports_websockets: false
       config_overrides:
-        - 'model_reasoning_effort="xhigh"'
+        - 'model_reasoning_effort="max"'
         - 'review_model="qwen3.8-max"'
         - 'agents.default_subagent_model="qwen3.8-max"'
-        - 'agents.default_subagent_reasoning_effort="xhigh"'
+        - 'agents.default_subagent_reasoning_effort="max"'
         - 'memories.extract_model="qwen3.8-flash"'
         - 'memories.consolidation_model="qwen3.8-max"'
       model_catalog:
@@ -137,10 +137,10 @@ components:
             display_name: Qwen3.8 Flash
             description: Simple tasks and automatic approval review
             auto_review_model_override: *codex_simple_model
-            default_reasoning_level: xhigh
-            multi_agent_reasoning_effort: xhigh
+            default_reasoning_level: max
+            multi_agent_reasoning_effort: max
             supported_reasoning_levels:
-              - effort: xhigh
+              - effort: max
                 description: Maximum reasoning
             context_window: 983616
             input_modalities: [text, image]
@@ -159,8 +159,8 @@ components:
           - <<: *codex_model_defaults
             slug: &codex_complex_model qwen3.8-max
             display_name: Qwen3.8 Max
-            description: Main conversations and complex tasks
-            default_reasoning_level: xhigh
+            description: Chat and complex tasks
+            default_reasoning_level: max
             priority: 0
 
   agent_wrapper:
@@ -190,7 +190,7 @@ components:
       backend: codex
       app_server: default
       model: *codex_complex_model
-      effort: xhigh
+      effort: max
       job_tools:
         - add
       approval_mode: deny_all

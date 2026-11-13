@@ -1,0 +1,107 @@
+{
+  "name": "@agentscope-ai/reme_desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ReMe desktop companion and PA conversation client",
+  "author": "ReMe contributors",
+  "type": "module",
+  "main": "out/main/index.js",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron .",
+    "build": "npm run typecheck && electron-vite build && node scripts/icon.mjs",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --experimental-transform-types --test tests/*.test.ts",
+    "test:e2e": "npm run build && node --test --test-concurrency=1 tests/e2e/*.test.mjs",
+    "test:dev": "node --experimental-transform-types --test tests/dev.test.mjs",
+    "test:packaged": "node --test tests/packaged.test.mjs",
+    "pack": "npm run build && electron-builder --dir --publish never",
+    "dist": "npm run build && electron-builder --publish never"
+  },
+  "dependencies": {
+    "@radix-ui/react-switch": "^1.4.1",
+    "@radix-ui/react-tabs": "^1.2.1",
+    "lucide-react": "^1.70.0",
+    "mdast-util-from-markdown": "^2.1.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.19",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "electron": "45.2.3",
+    "electron-builder": "26.18.0",
+    "electron-vite": "6.0.0",
+    "playwright": "1.65.0",
+    "prettier": "3.9.10",
+    "typescript": "~5.9.3",
+    "vite": "^8.2.1"
+  },
+  "build": {
+    "appId": "io.agentscope.reme.desktop",
+    "productName": "ReMe Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../assets/remy/anime/animations/v1",
+        "to": "remy",
+        "filter": [
+          "manifest.json",
+          "frames/**/*.png"
+        ]
+      }
+    ],
+    "mac": {
+      "entitlements": "scripts/entitlements.mac.plist",
+      "entitlementsInherit": "scripts/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "ReMe Desktop 仅在你录制语音消息时使用麦克风。 Microphone access is used only when you record a voice message."
+      },
+      "icon": "out/remy.icns",
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "icon": "../assets/remy/anime/animations/v1/frames/idle/00.png",
+      "artifactName": "${productName}-${version}-${arch}-setup.${ext}",
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility"
+    }
+  },
+  "optionalDependencies": {
+    "electron-liquid-glass": "^1.1.1"
+  }
+}

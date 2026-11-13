@@ -460,44 +460,25 @@ textarea:focus-visible {
   color: var(--brand-blue);
   background: color-mix(in srgb, var(--brand-blue) 15%, transparent);
 }
-.chat-entries {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 10px;
-}
-.chat-entries button {
-  min-width: 0;
-  padding: 9px 6px;
+.source-tabs .chat-tab {
+  height: 27px;
+  margin-left: 2px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
-  border-radius: 8px;
   color: var(--accent-strong);
   background: var(--soft);
-  font-size: 11px;
-  cursor: pointer;
 }
-.chat-entries button > span {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-}
-.chat-entries small {
-  display: block;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 10px;
-}
-.chat-entries button:hover:not(:disabled) {
+.source-tabs .chat-tab:hover {
   border-color: var(--accent);
+  color: var(--accent-strong);
+  background: var(--soft);
 }
-.chat-entries button:disabled {
-  cursor: default;
-  color: var(--muted);
-  border-color: var(--line);
-  background: transparent;
+:root[data-theme="dark"] .source-tabs .chat-tab {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+  color: var(--accent);
+  background: var(--soft);
 }
-:root[data-theme="dark"] .chat-entries button:not(:disabled) {
+:root[data-theme="dark"] .source-tabs .chat-tab:hover {
+  border-color: var(--accent);
   color: var(--accent);
 }
 .tree {
@@ -774,10 +755,19 @@ textarea:focus-visible {
   margin: 8px 0 22px;
   color: var(--muted);
 }
-.welcome .chat-entries {
-  width: min(360px, 100%);
+.welcome > button {
+  height: 38px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--accent-foreground);
+  background: var(--accent);
+  cursor: pointer;
 }
-.welcome > small {
+.welcome small {
   margin-top: 30px;
   color: var(--muted);
   opacity: 0.72;
@@ -836,40 +826,6 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   background: var(--bg);
-}
-.chat-session {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--line);
-}
-.chat-session > div {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 13px;
-}
-.chat-session span {
-  color: var(--muted);
-  font-size: 12px;
-}
-.chat-session button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--panel);
-  color: var(--ink);
-  cursor: pointer;
-}
-.chat-session button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 .messages {
   min-height: 0;

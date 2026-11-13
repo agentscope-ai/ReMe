@@ -6,7 +6,6 @@ import type {
   ReMeResponse,
   StreamChunk,
   SessionSnapshot,
-  PaSession,
 } from "./types";
 import { readChatStream } from "./chat-stream";
 import { healthFromResponse } from "./health-status";
@@ -30,16 +29,23 @@ const message = (key: TranslationKey, status: number) =>
     status: String(status),
   });
 
-async function parseResponse<T>(response: Response): Promise<ReMeResponse<T>> {
+async function readPayload<T>(response: Response): Promise<ReMeResponse<T>> {
   let payload: ReMeResponse<T>;
   try {
     payload = (await response.json()) as ReMeResponse<T>;
   } catch {
     throw new Error(message("invalidResponse", response.status));
   }
-  if (!response.ok || !payload.success) {
+  if (typeof payload?.success !== "boolean")
+    throw new Error(message("invalidResponse", response.status));
+  return payload;
+}
+
+async function parseResponse<T>(response: Response): Promise<ReMeResponse<T>> {
+  const payload = await readPayload<T>(response);
+  if (!response.ok || payload?.success !== true) {
     const detail =
-      typeof payload.answer === "string"
+      typeof payload?.answer === "string"
         ? payload.answer
         : message("requestFailed", response.status);
     throw new Error(detail);
@@ -50,13 +56,11 @@ async function parseResponse<T>(response: Response): Promise<ReMeResponse<T>> {
 export async function callReMe<T>(
   action: string,
   body: Record<string, unknown> = {},
-  signal?: AbortSignal,
 ): Promise<ReMeResponse<T>> {
   const response = await fetch(`${REME_API_URL}/${action}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal,
   });
   return parseResponse<T>(response);
 }
@@ -69,14 +73,6 @@ export async function getReMeVersion(): Promise<string> {
   return String((await callReMe<string>("version")).answer);
 }
 
-export async function getPaSession(signal: AbortSignal): Promise<PaSession> {
-  return (await callReMe<PaSession>("pa_session", {}, signal)).answer;
-}
-
-export async function newPaSession(signal: AbortSignal): Promise<string> {
-  return (await callReMe<string>("pa_new_session", {}, signal)).answer;
-}
-
 export async function readChatSession(
   sessionId: string,
   signal: AbortSignal,
@@ -87,11 +83,12 @@ export async function readChatSession(
     body: JSON.stringify({ session_id: sessionId }),
     signal,
   });
-  const payload = (await response.json()) as ReMeResponse<SessionSnapshot>;
-  if (payload.metadata?.code === "session_not_supported") return undefined;
-  if (!response.ok || !payload.success) {
+  if (response.status === 404) return undefined;
+  const payload = await readPayload<SessionSnapshot>(response);
+  if (payload?.metadata?.code === "session_not_supported") return undefined;
+  if (!response.ok || payload?.success !== true) {
     throw new Error(
-      typeof payload.answer === "string"
+      typeof payload?.answer === "string"
         ? payload.answer
         : message("requestFailed", response.status),
     );
@@ -152,41 +149,19 @@ export async function saveWorkspaceFile(
   return response.metadata as unknown as FileStat;
 }
 
-export async function streamPaChat(
-  query: string,
-  signal: AbortSignal,
-  onChunk: (chunk: StreamChunk) => void,
-): Promise<void> {
-  return streamChatRequest("pa_chat", { query }, signal, onChunk);
-}
-
 export async function streamChat(
   query: string,
   sessionId: string | undefined,
   signal: AbortSignal,
   onChunk: (chunk: StreamChunk) => void,
 ): Promise<void> {
-  return streamChatRequest(
-    "chat",
-    { query, session_id: sessionId },
-    signal,
-    onChunk,
-  );
-}
-
-async function streamChatRequest(
-  job: "chat" | "pa_chat",
-  body: { query: string; session_id?: string },
-  signal: AbortSignal,
-  onChunk: (chunk: StreamChunk) => void,
-): Promise<void> {
-  const response = await fetch(`${REME_API_URL}/${job}`, {
+  const response = await fetch(`${REME_API_URL}/chat`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ query, session_id: sessionId || null }),
     signal,
   });
   if (!response.ok || !response.body)

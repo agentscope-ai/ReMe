@@ -71,6 +71,7 @@ export default function Tabs() {
                 });
               }}
               role="tab"
+              aria-selected={tab.id === activeTabId}
             >
               {tab.type === "agent" ? (
                 <Bot size={14} />
@@ -84,8 +85,6 @@ export default function Tabs() {
                   ? tab.path.split("/").slice(-2).join("/")
                   : tab.type === "graph"
                   ? `${tab.root} · ${t("memoryGraphShort")}`
-                  : tab.mode === "pa"
-                  ? t("paChat")
                   : tab.title || t("newConversation")}
               </span>
               {dirty ? (

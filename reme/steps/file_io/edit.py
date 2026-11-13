@@ -6,10 +6,11 @@ import frontmatter
 import yaml
 
 from ._base import _FileIOStep
-from ._file_io import get_path_lock, read_file_safe, write_file_safe
+from ._file_io import read_file_safe, write_file_safe
 from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ...components import R
 from ...constants import MAX_FILE_READ_BYTES
+from ...utils.file_utils import get_path_lock
 
 
 def _replace_normalized_newlines(body: str, old: str, new: str) -> tuple[str, int]:

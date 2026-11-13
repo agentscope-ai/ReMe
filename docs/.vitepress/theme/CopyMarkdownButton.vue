@@ -1,21 +1,41 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useData } from "vitepress";
 
 const { frontmatter, lang } = useData();
 const copied = ref(false);
+const failed = ref(false);
+const markdown = computed(() => String(frontmatter.value._rawMarkdown || ""));
+let timer: ReturnType<typeof setTimeout> | undefined;
+let request = 0;
 const label = computed(() => {
   if (copied.value) return lang.value.startsWith("zh") ? "已复制" : "Copied";
+  if (failed.value) return lang.value.startsWith("zh") ? "复制失败，请重试" : "Copy failed. Try again";
   return lang.value.startsWith("zh") ? "复制 Markdown" : "Copy Markdown";
 });
 
 async function copyMarkdown() {
-  const markdown = String(frontmatter.value._rawMarkdown || "");
-  if (!markdown) return;
-  await navigator.clipboard.writeText(markdown);
-  copied.value = true;
-  window.setTimeout(() => { copied.value = false; }, 1800);
+  if (!markdown.value) return;
+  reset();
+  const current = request;
+  try {
+    await navigator.clipboard.writeText(markdown.value);
+    if (current !== request) return;
+    copied.value = true;
+    timer = setTimeout(() => { copied.value = false; }, 1800);
+  } catch {
+    if (current === request) failed.value = true;
+  }
 }
+
+function reset() {
+  request++;
+  clearTimeout(timer);
+  copied.value = false;
+  failed.value = false;
+}
+watch(markdown, reset, { flush: "sync" });
+onBeforeUnmount(reset);
 </script>
 
 <template>
