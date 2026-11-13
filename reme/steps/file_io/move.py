@@ -27,12 +27,19 @@ component (same rule as ``file_upload``). For cross-realm transfer
 Opt out via ``retarget=False`` for the rare case where you intentionally
 want to leave references stale (e.g. moving aside before delete) — the
 original is still removed in that case (move semantics, not copy).
+
+Permission: honors the request-scoped ``_allowed_paths`` constraint
+injected by the server into the RuntimeContext; both the source (which is
+unlinked) and the destination (which is written) must be inside the scope.
+Automatic inbound-link retargeting counts as a write too: with a scope
+injected, the move is rejected before any mutation when retargeting would
+rewrite a referencing file outside it.
 """
 
 import shutil
 from pathlib import Path
 
-from ._path import resolve_path
+from ._path import _check_path_permission, resolve_path
 from ..base_step import BaseStep
 from ...components import R
 from ...utils.wikilink_handler import WikilinkHandler
@@ -78,6 +85,23 @@ class MoveStep(BaseStep):
         if precheck_error:
             return precheck_error
         assert src_abs is not None and dst_abs is not None  # narrowed by precheck
+        allowed_paths = self.context.get("_allowed_paths")
+        if not _check_path_permission(workspace_dir, src_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
+        if not _check_path_permission(workspace_dir, dst_abs, allowed_paths):
+            return {"src_path": src_path, "dst_path": dst_path, "error": "no permission to move this file"}
+        if retarget and allowed_paths is not None:
+            retarget_precheck_error = await _precheck_retarget_permission(
+                workspace_dir,
+                self.file_store,
+                src_path=src_path,
+                dst_path=dst_path,
+                allowed_paths=allowed_paths,
+            )
+            if retarget_precheck_error:
+                retarget_precheck_error.setdefault("src_path", src_path)
+                retarget_precheck_error.setdefault("dst_path", dst_path)
+                return retarget_precheck_error
         dst_abs.parent.mkdir(parents=True, exist_ok=True)
 
         # Step 1 — copy. Wikilinks use workspace-relative paths, so outgoing
@@ -145,4 +169,36 @@ def _precheck_move(
         return {"src_path": src_path, "dst_path": dst_path, "error": "src_path and dst_path are the same"}
     if dst_abs.exists() and not overwrite:
         return {"dst_path": dst_path, "error": "destination exists; pass overwrite=True"}
+    return None
+
+
+async def _precheck_retarget_permission(
+    workspace_dir: Path,
+    file_store,
+    src_path: str,
+    dst_path: str,
+    allowed_paths,
+) -> dict | None:
+    """Reject the move when automatic retargeting would rewrite a file outside the scope.
+
+    ``retarget_links`` rewrites inbound ``[[src_path]]`` references wherever the
+    file_graph finds them — including files outside ``_allowed_paths`` — so the
+    endpoints alone don't cover every write this step performs. A dry run
+    enumerates exactly the files retargeting would modify (candidates the graph
+    reports AND that still contain a matching link); each is checked against the
+    same constraint, and any violation fails the move before the copy, the
+    rewrites, or the unlink happen. Only runs when a scope is injected; without
+    ``_allowed_paths`` retargeting stays unrestricted.
+    """
+    try:
+        report = await WikilinkHandler.retarget_links(file_store, src=src_path, dst=dst_path, dry_run=True)
+    except Exception as exc:
+        return {"error": f"retarget precheck raised: {exc!r}"}
+    if "error" in report:
+        return {"error": f"retarget precheck failed: {report['error']}"}
+    for entry in report.get("by_file", []):
+        rel = entry.get("path", "") if isinstance(entry, dict) else ""
+        resolved, err = resolve_path(workspace_dir, rel)
+        if err or resolved is None or not _check_path_permission(workspace_dir, resolved, allowed_paths):
+            return {"error": f"no permission to retarget links in {rel}", "retarget_blocked_path": rel}
     return None
