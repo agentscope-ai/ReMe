@@ -254,7 +254,7 @@ async def test_auto_tag_direct_llm_uses_one_structured_call_and_normalizes_outpu
             self.calls: list[dict] = []
 
         async def generate_structured_output(self, **_kwargs):
-            self.calls.append(kwargs)
+            self.calls.append(_kwargs)
             return SimpleNamespace(
                 content={
                     "entity_type": "organization",
