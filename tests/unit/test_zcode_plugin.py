@@ -294,7 +294,7 @@ def test_worker_runs_another_pass_when_a_session_is_captured_during_delivery(ada
     marker = adapter.data_dir() / "worker.rerun"
     passes: list[bool] = []
 
-    def flush_all(config, *, force):
+    def flush_all(_config, *, force):
         passes.append(force)
         if len(passes) == 1:
             marker.touch()
