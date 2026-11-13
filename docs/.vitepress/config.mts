@@ -187,6 +187,7 @@ function integrationsSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] 
       { text: "Claude Code", link: `/${language}/integrations/claude-code` },
       { text: "Codex", link: `/${language}/integrations/codex` },
       { text: "Qoder", link: `/${language}/integrations/qoder` },
+      { text: "ZCode", link: `/${language}/integrations/zcode` },
       { text: "Hermes Agent", link: `/${language}/integrations/hermes` },
       { text: "DeepSeek Harness", link: `/${language}/integrations/dsh` },
       { text: "OpenClaw", link: `/${language}/integrations/openclaw` },
