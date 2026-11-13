@@ -1,6 +1,7 @@
 """Components"""
 
 from . import agent_wrapper
+from . import action_item_store
 from . import as_llm
 from . import as_decision_model
 from . import client
@@ -37,6 +38,7 @@ __all__ = [
     "RuntimeContext",
     # base components
     "agent_wrapper",
+    "action_item_store",
     "as_llm",
     "as_decision_model",
     "client",
