@@ -253,7 +253,7 @@ async def test_auto_tag_direct_llm_uses_one_structured_call_and_normalizes_outpu
         def __init__(self) -> None:
             self.calls: list[dict] = []
 
-        async def generate_structured_output(self, **kwargs):
+        async def generate_structured_output(self, **_kwargs):
             self.calls.append(kwargs)
             return SimpleNamespace(
                 content={
@@ -317,7 +317,7 @@ async def test_auto_tag_direct_llm_keeps_existing_tags_when_evidence_is_rejected
     )
 
     class _StructuredTagModel:
-        async def generate_structured_output(self, **kwargs):
+        async def generate_structured_output(self, **_kwargs):
             return SimpleNamespace(
                 content={
                     "entity_type": "organization",
@@ -356,7 +356,7 @@ async def test_auto_tag_direct_llm_requires_entity_name_boundaries(tmp_path, mon
     )
 
     class _StructuredTagModel:
-        async def generate_structured_output(self, **kwargs):
+        async def generate_structured_output(self, **_kwargs):
             return SimpleNamespace(
                 content={
                     "entity_type": "organization",
