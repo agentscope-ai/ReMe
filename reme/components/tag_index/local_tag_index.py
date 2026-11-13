@@ -1,11 +1,12 @@
 """In-memory tag index derived from ``FileNode.front_matter``."""
 
 import asyncio
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import PurePosixPath
 
 from .base_tag_index import BaseTagIndex, TagListItem, TagListResult, TagOrder, TagOrderBy
 from ..component_registry import R
 from ...schema import FileFrontMatter, FileNode
+from ...utils import canonical_index_path
 
 
 @R.register("local")
@@ -62,19 +63,29 @@ class LocalTagIndex(BaseTagIndex):
         return self._normalize_tags(value, limit=None)
 
     @staticmethod
+    def _is_windows_absolute(path: str) -> bool:
+        """Return True for a drive-letter absolute path such as ``C:/a.md``."""
+        return len(path) >= 3 and path[0].isalpha() and path[1:3] == ":/"
+
+    @staticmethod
     def _validate_path(path: str) -> str:
         if not isinstance(path, str) or not path:
             raise ValueError(f"Invalid workspace-relative tag-index path: {path!r}")
-        normalized = path.replace("\\", "/")
-        pure = PurePosixPath(normalized)
+        # Nodes persisted by older Windows builds may still carry native
+        # separators. The index contract is workspace-relative POSIX, so
+        # canonicalize that legacy spelling instead of letting a single such
+        # node abort an otherwise valid rebuild.
+        canonical = canonical_index_path(path)
+        pure = PurePosixPath(canonical)
+        invalid_parts = any(part in ("", ".", "..") for part in pure.parts)
         if (
             pure.is_absolute()
-            or PureWindowsPath(path).anchor
-            or normalized != pure.as_posix()
-            or any(part in ("", ".", "..") for part in pure.parts)
+            or canonical != pure.as_posix()
+            or invalid_parts
+            or LocalTagIndex._is_windows_absolute(canonical)
         ):
             raise ValueError(f"Invalid workspace-relative tag-index path: {path!r}")
-        return normalized
+        return canonical
 
     def _prepare_nodes(self, nodes: list[FileNode]) -> list[tuple[str, tuple[str, ...]]]:
         prepared: list[tuple[str, tuple[str, ...]]] = []

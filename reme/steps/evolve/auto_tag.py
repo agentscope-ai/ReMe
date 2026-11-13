@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import re
 from typing import Literal
 
 from agentscope.message import SystemMsg, UserMsg
@@ -128,8 +129,21 @@ class AutoTagStep(BaseStep):
 
     @staticmethod
     def _evidence_key(text: str) -> str:
-        """Normalize text for conservative evidence checks."""
-        return "".join(char.casefold() for char in text if char.isalnum())
+        """Casefold text into space-separated alphanumeric tokens.
+
+        Separators become single spaces so that a check cannot run across a word
+        boundary: ``openai`` must not be found inside ``open air``. Underscores
+        and spaces are treated as equivalent because tag normalization turns
+        spaces into underscores.
+        """
+        return " ".join(re.findall(r"[^\W_]+", text.casefold().replace("_", " ")))
+
+    @staticmethod
+    def _contains_key(haystack: str, needle: str) -> bool:
+        """Return True when ``needle`` occurs in ``haystack`` on token boundaries."""
+        if not needle:
+            return False
+        return re.search(rf"(?<!\S){re.escape(needle)}(?!\S)", haystack) is not None
 
     async def _direct_tags(self, target: _TagTarget) -> list[str]:
         """Generate tags in one structured call without an agent tool loop."""
@@ -228,12 +242,16 @@ class AutoTagStep(BaseStep):
         )
         evidence_key = self._evidence_key(evidence)
         searchable_key = self._evidence_key(searchable)
-        if not evidence_key or evidence_key not in searchable_key:
+        if not evidence_key or not self._contains_key(searchable_key, evidence_key):
             self.logger.warning(f"[{self.name}] rejected unsupported tag evidence path={target.path}")
-            return []
-        supported = [tag for tag in normalized if self._evidence_key(tag) in evidence_key]
+            # A rejected response is not an empty result: failing the target
+            # keeps the tags already written to the file untouched.
+            raise RuntimeError(f"Auto-tag evidence for {target.path} is not present in the document")
+        supported = [tag for tag in normalized if self._contains_key(evidence_key, self._evidence_key(tag))]
         if len(supported) != len(normalized):
             self.logger.warning(f"[{self.name}] rejected tags without evidence path={target.path}")
+            if not supported:
+                raise RuntimeError(f"Auto-tag response for {target.path} has no tag supported by its evidence")
         return supported
 
     async def _process_target(self, target: _TagTarget) -> str:

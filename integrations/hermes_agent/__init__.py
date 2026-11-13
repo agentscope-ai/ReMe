@@ -23,7 +23,7 @@ from .http_backend import HttpReMeBackend
 
 logger = logging.getLogger(__name__)
 _NON_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._-]+")
-_SDK_INSTALL_HINT = 'Embedded ReMe mode requires the SDK. Install it with: pip install "reme-ai[core]"'
+_SDK_INSTALL_HINT = 'Embedded ReMe mode requires the SDK. Install it with: python -m pip install "reme-ai[hermes]"'
 
 
 def _slug(value: str, fallback: str, *, limit: int) -> str:

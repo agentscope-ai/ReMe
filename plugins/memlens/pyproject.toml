@@ -5,7 +5,7 @@ description = "MemLens multimodal memory benchmark plugin for ReMe."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-dependencies = ["reme-ai[as]>=0.4.1.11", "pillow>=10.0.0"]
+dependencies = ["reme-ai[as]>=0.4.2.3", "pillow>=10.0.0"]
 
 [project.entry-points."reme.plugins"]
 memlens = "reme_memlens"

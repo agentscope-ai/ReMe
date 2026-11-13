@@ -1,5 +1,11 @@
 # MobileMem plugin
 
+ReMe normally treats reaching an Agent's iteration limit as a failure. The benchmark
+overrides the AgentScope wrapper's result handling to accept `exceed_max_iters` for
+memory and answers when there is no underlying error and no structured output was
+requested. This preserves the previous evaluation behavior without adding iterations
+or model calls. Other failures remain failures.
+
 Install this plugin from the repository:
 
 ```bash

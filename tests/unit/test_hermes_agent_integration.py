@@ -68,6 +68,20 @@ ReMeServiceError = CLIENT_MODULE.ReMeServiceError
 scoped_session_id = PLUGIN_MODULE._scoped_session_id
 
 
+def test_embedded_default_text_runtime_starts_without_optional_sdks(tmp_path):
+    """Exercise the real default Application in the minimal Hermes dependency environment."""
+    backend = EmbeddedReMeBackend(str(tmp_path), start_timeout=15)
+    try:
+        backend.start()
+        assert backend.health(timeout=5)["metadata"]["health"]["healthy"] is True
+        result = backend.search("unrecorded synthetic fact", limit=5, timeout=5)
+        assert result["success"] is True
+    finally:
+        backend.close(timeout=10)
+    assert backend.state == "closed"
+    assert not backend._thread.is_alive()
+
+
 @pytest.fixture
 def reme_http_server():
     requests = []
@@ -270,7 +284,9 @@ def test_save_config_uses_dashboard_layout_and_private_permissions(tmp_path):
 
     assert saved.recall_limit == 7
     assert path.is_file()
-    assert path.stat().st_mode & 0o777 == 0o600
+    # Windows chmod only controls the read-only flag, not POSIX permission bits.
+    if sys.platform != "win32":
+        assert path.stat().st_mode & 0o777 == 0o600
 
 
 class _FakeResponse:

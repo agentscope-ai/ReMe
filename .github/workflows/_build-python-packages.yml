@@ -94,6 +94,53 @@ jobs:
           assert runtime.config["jobs"]["auto_bash"]["steps"] == [{"backend": "auto_bash_step"}]
           PY
 
+      - name: Build and verify benchmark plugin distributions
+        run: |
+          REPOSITORY="$(pwd)"
+          REME_WHEEL="${REPOSITORY}/$(ls dist/reme/reme_ai-[0-9]*.whl)"
+          for BENCHMARK in memlens mobilemem; do
+            python -m build --outdir "dist/${BENCHMARK}" "plugins/${BENCHMARK}"
+            python -m twine check "dist/${BENCHMARK}/"*
+            PLUGIN_WHEEL="${REPOSITORY}/$(ls dist/${BENCHMARK}/reme_${BENCHMARK}-[0-9]*.whl)"
+            PLUGIN_ENV="${RUNNER_TEMP}/reme-${BENCHMARK}-package-smoke"
+            python -m venv "${PLUGIN_ENV}"
+            "${PLUGIN_ENV}/bin/python" -m pip install "${REME_WHEEL}[as]" "${PLUGIN_WHEEL}"
+            "${PLUGIN_ENV}/bin/python" -m pip check
+            (
+              cd "${RUNNER_TEMP}"
+              "${PLUGIN_ENV}/bin/python" -I - "${BENCHMARK}" <<'PY'
+          from importlib import import_module, metadata
+          from pathlib import Path
+          import sys
+          import reme
+          from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
+          from reme.config.config_parser import _load_config
+          from reme.enumeration import ComponentEnum
+          from reme.plugin import resolve_plugin_runtime
+
+          name = sys.argv[1]
+          plugin = import_module(f"reme_{name}")
+          wrapper = import_module(f"reme_{name}.benchmark_agent").BenchmarkAsAgentWrapper
+          for module in (reme, plugin, sys.modules[wrapper.__module__]):
+              assert Path(module.__file__).resolve().is_relative_to(Path(sys.prefix).resolve()), module.__file__
+          entries = tuple(metadata.entry_points(group="reme.plugins", name=name))
+          assert len(entries) == 1 and entries[0].load() is plugin
+          presets = tuple(metadata.entry_points(group="reme.configs", name=f"{name}-benchmark"))
+          assert len(presets) == 1 and presets[0].load() == plugin.BENCHMARK_CONFIG
+          assert plugin.BENCHMARK_CONFIG.is_file()
+          assert Path(plugin.__file__).with_name("plugin.yaml").is_file()
+          runtime = resolve_plugin_runtime(_load_config(f"{name}-benchmark"))
+          backend = f"{name}_benchmark_agent"
+          assert issubclass(wrapper, AsAgentWrapper)
+          assert callable(AsAgentWrapper._finish_reply)
+          assert runtime.registry.get(ComponentEnum.AGENT_WRAPPER, backend) is wrapper
+          for variant in ("default", "bench"):
+              assert runtime.config["components"]["agent_wrapper"][variant]["backend"] == backend
+          print(f"{name}: installed wheel entry points and backends verified")
+          PY
+            )
+          done
+
       - name: Verify released core dependencies
         if: inputs.upload_artifacts
         run: |

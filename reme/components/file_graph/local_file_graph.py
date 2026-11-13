@@ -34,7 +34,12 @@ class LocalFileGraph(BaseFileGraph):
             for line in read_jsonl_zst(self._graph_file):
                 if line.strip():
                     node = self.canonical_node(FileNode.model_validate_json(line))
-                    self._nodes[node.path] = node
+                    existing = self._nodes.get(node.path)
+                    if existing is None:
+                        self._nodes[node.path] = node
+                        continue
+                    keep, extra = (node, existing) if node.st_mtime >= existing.st_mtime else (existing, node)
+                    self._nodes[node.path] = self.select_winning_record(keep, extra)
             self.logger.debug(f"Loaded {len(self._nodes)} nodes from {self._graph_file}")
         except Exception as e:
             self.logger.exception(f"Failed to load {self._graph_file}: {e}")
@@ -78,8 +83,8 @@ class LocalFileGraph(BaseFileGraph):
     # -- Node CRUD ---------------------------------------------------------
 
     async def upsert_nodes(self, nodes: list[FileNode]) -> None:
-        for raw_node in nodes:
-            node = self.canonical_node(raw_node)
+        for node in nodes:
+            node = self.canonical_node(node)
             path = node.path
             old = self._nodes.get(path)
             if old is not None:
@@ -93,8 +98,8 @@ class LocalFileGraph(BaseFileGraph):
                 self._inverse.setdefault(path, set()).update(promoted)
 
     async def delete_nodes(self, paths: list[str]) -> None:
-        for raw_path in paths:
-            path = self.normalize_path(raw_path)
+        for path in paths:
+            path = self.canonical_path(path)
             node = self._nodes.pop(path, None)
             if node is None:
                 continue
@@ -107,7 +112,8 @@ class LocalFileGraph(BaseFileGraph):
     async def get_nodes(self, paths: list[str] | None = None) -> list[FileNode]:
         if paths is None:
             return list(self._nodes.values())
-        return [self._nodes[self.normalize_path(p)] for p in paths if self.normalize_path(p) in self._nodes]
+        canonical = [self.canonical_path(p) for p in paths]
+        return [self._nodes[p] for p in canonical if p in self._nodes]
 
     async def rebuild_links(self) -> None:
         self._inverse.clear()
@@ -126,14 +132,14 @@ class LocalFileGraph(BaseFileGraph):
 
     async def get_outlinks(self, path: str, scope: LinkScopeEnum | str = LinkScopeEnum.REAL) -> list[FileLink]:
         scope = self._normalize_scope(scope)
-        node = self._nodes.get(self.normalize_path(path))
+        node = self._nodes.get(self.canonical_path(path))
         if node is None:
             return []
         return [lnk for lnk in node.links if lnk.target_path and self._scope_match(lnk.target_path, scope)]
 
     async def get_inlinks(self, path: str, scope: LinkScopeEnum | str = LinkScopeEnum.REAL) -> list[FileLink]:
         scope = self._normalize_scope(scope)
-        path = self.normalize_path(path)
+        path = self.canonical_path(path)
         sources: set[str] = set()
         if scope in (LinkScopeEnum.REAL, LinkScopeEnum.ALL):
             sources |= self._inverse.get(path, set())

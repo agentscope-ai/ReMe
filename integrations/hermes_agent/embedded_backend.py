@@ -128,7 +128,7 @@ class EmbeddedReMeBackend:
             from reme.config import resolve_app_config
         except ImportError as exc:
             raise ReMeBackendError(
-                'Embedded ReMe mode requires the SDK. Install it with: pip install "reme-ai[core]"',
+                'Embedded ReMe mode requires the SDK. Install it with: python -m pip install "reme-ai[hermes]"',
             ) from exc
 
         app_config = resolve_app_config(

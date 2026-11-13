@@ -3,6 +3,8 @@
 # pylint: disable=protected-access
 
 import asyncio
+import json
+import pickle
 from pathlib import Path
 
 import pytest
@@ -12,9 +14,10 @@ from reme.components.file_chunker import MarkdownFileChunker
 from reme.components.file_store import LocalFileStore
 from reme.components.tag_index import LocalTagIndex
 from reme.config import resolve_app_config
-from reme.enumeration import ComponentEnum
-from reme.schema import FileChunk, FileFrontMatter, FileNode
+from reme.enumeration import ComponentEnum, LinkScopeEnum
+from reme.schema import FileChunk, FileFrontMatter, FileLink, FileNode
 from reme.steps.index.list_tags import ListTagsStep
+from reme.utils.jsonl_zst import read_jsonl_zst, write_jsonl_zst
 
 
 def _node(path: str, tags: object = None, *, key: str = "memory_tags") -> FileNode:
@@ -94,6 +97,57 @@ async def test_rebuild_is_atomic_and_supports_all_or_any_queries() -> None:
         await index.rebuild([_node("daily/new.md", ["new"]), _node("../escape.md", ["invalid"])])
     assert index.path_to_tags == before_paths
     assert index.tag_to_paths == before_tags
+
+
+@pytest.mark.asyncio
+async def test_rebuild_canonicalizes_legacy_windows_separators() -> None:
+    """Accept native separators persisted by older builds instead of failing the rebuild."""
+
+    index = LocalTagIndex()
+    await index.rebuild(
+        [
+            _node("daily/a.md", ["python"]),
+            _node("daily\\b.md", ["python", "legacy"]),
+        ],
+    )
+
+    assert index.is_healthy
+    assert index.n_files == 2
+    assert await index.paths_for_tags(["legacy"]) == ["daily/b.md"]
+    assert await index.tags_for_path("daily\\b.md") == ["python", "legacy"]
+    assert await index.tags_for_path("daily/b.md") == ["python", "legacy"]
+
+    await index.delete(["daily\\b.md"])
+    assert await index.tags_for_path("daily/b.md") == []
+    await index.close()
+
+
+@pytest.mark.asyncio
+async def test_mixed_separator_spellings_address_one_entry() -> None:
+    """Treat a Windows spelling and its POSIX form as the same indexed file."""
+
+    index = LocalTagIndex()
+    await index.rebuild(
+        [
+            _node("daily\\a.md", ["old"]),
+            _node("daily/a.md", ["new"]),
+        ],
+    )
+
+    assert index.n_files == 1
+    assert await index.tags_for_path("daily\\a.md") == ["new"]
+    await index.close()
+
+
+@pytest.mark.asyncio
+async def test_windows_absolute_and_escaping_paths_stay_rejected() -> None:
+    """Canonicalization must not admit absolute Windows paths or parent traversal."""
+
+    index = LocalTagIndex()
+    for invalid in ("C:\\Users\\someone\\a.md", "..\\escape.md"):
+        with pytest.raises(ValueError, match="Invalid workspace-relative"):
+            await index.rebuild([_node(invalid, ["bad"])])
+    await index.close()
 
 
 @pytest.mark.asyncio
@@ -588,3 +642,347 @@ def test_default_config_enables_tag_index_with_explicit_key() -> None:
         {"backend": "auto_memory_cc_step"},
         {"backend": "auto_tag_step"},
     ]
+
+
+def _rewrite_persisted_separators(root: Path, separator: str = "\\") -> int:
+    """Rewrite persisted index paths to emulate an older Windows build.
+
+    Only local index files are touched: the user-owned Markdown sources must be
+    left byte-identical.
+    """
+    rewritten = 0
+    for path in sorted(root.rglob("*.jsonl.zst")):
+        lines = [line for line in read_jsonl_zst(path) if line.strip()]
+        if not lines:
+            continue
+        new_lines = []
+        for line in lines:
+            payload = json.loads(line)
+            before = json.dumps(payload, sort_keys=True)
+            payload["path"] = payload["path"].replace("/", separator)
+            for link in payload.get("links") or []:
+                for key in ("source_path", "target_path"):
+                    value = link.get(key)
+                    if isinstance(value, str):
+                        link[key] = value.replace("/", separator)
+            rewritten += before != json.dumps(payload, sort_keys=True)
+            new_lines.append(json.dumps(payload))
+        write_jsonl_zst(path, new_lines)
+    return rewritten
+
+
+@pytest.mark.asyncio
+async def test_persisted_windows_spellings_feed_tag_listing_retrieval_and_search(monkeypatch, tmp_path: Path) -> None:
+    """Keep tag listing, node retrieval and tagged search on one identity."""
+
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "daily" / "a.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# A\n\nalpha memory\n", encoding="utf-8")
+    original_note = note.read_bytes()
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    await store.upsert(
+        [(_node("daily/a.md", ["ReMe"]), [_chunk("chunk-a", "daily/a.md", "alpha memory")])],
+    )
+    await store.close()
+
+    assert _rewrite_persisted_separators(tmp_path) == 2
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        assert [node.path for node in await store.get_nodes(["daily/a.md"])] == ["daily/a.md"]
+        assert [node.path for node in await store.get_nodes(["daily\\a.md"])] == ["daily/a.md"]
+        assert [node.path for node in await store.get_nodes()] == ["daily/a.md"]
+        assert await store.tag_index.paths_for_tags(["reme"]) == ["daily/a.md"]
+        assert await store.tag_index.tags_for_path("daily\\a.md") == ["reme"]
+
+        allowed = await store.tag_index.paths_for_tags(["reme"])
+        hits = await store.keyword_search("alpha", 5, {"paths": allowed})
+        assert [chunk.path for chunk in hits] == ["daily/a.md"]
+        assert note.read_bytes() == original_note
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_both_spellings_address_one_file_across_update_and_delete(monkeypatch, tmp_path: Path) -> None:
+    """Canonicalize writes and deletes so neither spelling duplicates the file."""
+
+    monkeypatch.chdir(tmp_path)
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        await store.upsert(
+            [(_node("daily\\a.md", ["Legacy"]), [_chunk("chunk-legacy", "daily\\a.md", "legacy body")])],
+        )
+        assert [node.path for node in await store.get_nodes(["daily/a.md"])] == ["daily/a.md"]
+        assert await store.tag_index.paths_for_tags(["legacy"]) == ["daily/a.md"]
+
+        await store.upsert(
+            [(_node("daily/a.md", ["ReMe"]), [_chunk("chunk-new", "daily/a.md", "new body")])],
+        )
+        nodes = await store.get_nodes()
+        assert [node.path for node in nodes] == ["daily/a.md"]
+        assert list(nodes[0].chunk_ids) == ["chunk-new"]
+        assert await store.tag_index.paths_for_tags(["legacy"]) == []
+
+        await store.delete("daily\\a.md")
+        assert await store.get_nodes() == []
+        assert await store.tag_index.paths_for_tags(["reme"]) == []
+        assert await store.keyword_search("new", 5, {}) == []
+    finally:
+        await store.close()
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["..\\escape.md", "daily\\..\\..\\escape.md", "C:\\absolute\\a.md", "/absolute/a.md"],
+)
+def test_legacy_normalization_keeps_containment_validation(path: str) -> None:
+    """Canonicalizing separators must not weaken the workspace containment rule."""
+
+    async def run() -> None:
+        index = LocalTagIndex()
+        await index.start()
+        with pytest.raises(ValueError):
+            await index.upsert_nodes([_node(path, ["ReMe"])])
+        await index.close()
+
+    asyncio.run(run())
+
+
+def test_nx_file_graph_migrates_persisted_separators(monkeypatch, tmp_path: Path) -> None:
+    """Merge legacy node and edge keys when the networkx backend loads."""
+
+    pytest.importorskip("networkx")
+    from reme.components.file_graph import NxFileGraph  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.chdir(tmp_path)
+    graph = NxFileGraph(name="test")
+    legacy = graph._graph.__class__()
+    link = FileLink(source_path="daily\\a.md", target_path="daily\\b.md")
+    node = _node("daily\\a.md", ["ReMe"]).model_copy(update={"links": [link]})
+    legacy.add_node("daily\\a.md", node=node)
+    legacy.add_edge(
+        "daily\\a.md",
+        "daily\\b.md",
+        link=link,
+    )
+    with open(graph._graph_file, "wb") as file:
+        pickle.dump(legacy, file)
+
+    asyncio.run(graph.load())
+
+    assert list(graph._graph.nodes) == ["daily/a.md", "daily/b.md"]
+    assert graph._graph.nodes["daily/a.md"]["node"].path == "daily/a.md"
+    assert [node.path for node in asyncio.run(graph.get_nodes(["daily\\a.md"]))] == ["daily/a.md"]
+    outlinks = asyncio.run(graph.get_outlinks("daily\\a.md", LinkScopeEnum.ALL))
+    assert [link.target_path for link in outlinks] == ["daily/b.md"]
+
+
+def _append_legacy_duplicates(root: Path) -> int:
+    """Add a second index row per file under the legacy Windows spelling."""
+    added = 0
+    for path in sorted(root.rglob("*.jsonl.zst")):
+        lines = [line for line in read_jsonl_zst(path) if line.strip()]
+        if not lines:
+            continue
+        new_lines = list(lines)
+        for line in lines:
+            payload = json.loads(line)
+            legacy = dict(payload)
+            legacy["path"] = payload["path"].replace("/", "\\")
+            if "id" in legacy:
+                legacy["id"] = "legacy-" + str(legacy["id"])
+            if "chunk_ids" in legacy:
+                legacy["chunk_ids"] = ["legacy-" + str(chunk_id) for chunk_id in legacy["chunk_ids"]]
+            if "st_mtime" in legacy:
+                legacy["st_mtime"] = legacy["st_mtime"] - 10
+            new_lines.append(json.dumps(legacy))
+            added += 1
+        write_jsonl_zst(path, new_lines)
+    return added
+
+
+@pytest.mark.asyncio
+async def test_mixed_spellings_merge_without_wiping_the_index(monkeypatch, tmp_path: Path) -> None:
+    """Coexisting legacy and canonical rows merge into one winning node."""
+
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "daily" / "a.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# A\n\nalpha memory\n", encoding="utf-8")
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    await store.upsert(
+        [(_node("daily/a.md", ["ReMe"]), [_chunk("chunk-a", "daily/a.md", "alpha memory")])],
+    )
+    await store.close()
+
+    assert _append_legacy_duplicates(tmp_path) == 2
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        nodes = await store.get_nodes()
+        assert [node.path for node in nodes] == ["daily/a.md"]
+        assert list(nodes[0].chunk_ids) == ["chunk-a"]
+        assert list(store.file_chunks) == ["chunk-a"]
+        assert await store.tag_index.paths_for_tags(["reme"]) == ["daily/a.md"]
+        hits = await store.keyword_search("alpha", 10, {})
+        assert {chunk.path for chunk in hits} == {"daily/a.md"}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_superseded_spelling_cannot_keep_its_text_searchable(monkeypatch, tmp_path: Path) -> None:
+    """Chunks of the losing spelling must leave the store and the indexes."""
+
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "daily" / "a.md"
+    note.parent.mkdir(parents=True)
+    note.write_text("# A\n\ncurrent body\n", encoding="utf-8")
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    await store.upsert(
+        [(_node("daily/a.md", ["current"]), [_chunk("chunk-current", "daily/a.md", "current body")])],
+    )
+    chunks_path, graph_path = store.chunks_path, store.file_graph._graph_file
+    await store.close()
+
+    superseded = _node("daily\\a.md", ["obsolete"]).model_copy(
+        update={"chunk_ids": ["chunk-old"], "st_mtime": 0.0},
+    )
+    graph_lines = [line for line in read_jsonl_zst(graph_path) if line.strip()]
+    write_jsonl_zst(graph_path, graph_lines + [superseded.model_dump_json()])
+    chunk_lines = [line for line in read_jsonl_zst(chunks_path) if line.strip()]
+    write_jsonl_zst(
+        chunks_path,
+        chunk_lines
+        + [
+            LocalFileStore._serialize_chunk(
+                _chunk("chunk-old", "daily\\a.md", "removed secret"),
+            ),
+        ],
+    )
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        nodes = await store.get_nodes()
+        assert [node.path for node in nodes] == ["daily/a.md"]
+        assert list(nodes[0].chunk_ids) == ["chunk-current"]
+        assert list(store.file_chunks) == ["chunk-current"]
+        assert await store.keyword_search("removed", 10, {}) == []
+        assert await store.tag_index.paths_for_tags(["obsolete"]) == []
+        assert await store.tag_index.paths_for_tags(["current"]) == ["daily/a.md"]
+        allowed = await store.tag_index.paths_for_tags(["current"])
+        assert await store.keyword_search("removed", 10, {"paths": allowed}) == []
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_one_batch_with_both_spellings_keeps_graph_and_chunks_in_step(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """A duplicate path in one batch must not leave unreachable chunks behind."""
+
+    monkeypatch.chdir(tmp_path)
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        await store.upsert(
+            [
+                (_node("daily\\a.md", ["Legacy"]), [_chunk("chunk-legacy", "daily\\a.md", "legacy body")]),
+                (_node("daily/a.md", ["ReMe"]), [_chunk("chunk-new", "daily/a.md", "new body")]),
+            ],
+        )
+        nodes = await store.get_nodes()
+        assert [node.path for node in nodes] == ["daily/a.md"]
+        assert list(nodes[0].chunk_ids) == ["chunk-new"]
+        assert list(store.file_chunks) == ["chunk-new"]
+        assert await store.keyword_search("legacy", 10, {}) == []
+    finally:
+        await store.close()
+
+    store = _standalone_file_store_with_tag_index(name="test", embedding_store="")
+    await store.start()
+    try:
+        assert [node.path for node in await store.get_nodes()] == ["daily/a.md"]
+        assert list(store.file_chunks) == ["chunk-new"]
+        assert await store.keyword_search("legacy", 10, {}) == []
+    finally:
+        await store.close()
+
+
+def test_nx_file_graph_load_handles_persisted_edges(monkeypatch, tmp_path: Path) -> None:
+    """Legacy-key probing must not unpack MultiDiGraph edges as pairs."""
+
+    pytest.importorskip("networkx")
+    from reme.components.file_graph import NxFileGraph  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.chdir(tmp_path)
+    graph = NxFileGraph(name="test")
+    persisted = graph._graph.__class__()
+    persisted.add_node("daily/a.md", node=_node("daily/a.md", ["ReMe"]))
+    persisted.add_edge(
+        "daily/a.md",
+        "daily/b.md",
+        link=FileLink(source_path="daily/a.md", target_path="daily/b.md"),
+    )
+    with open(graph._graph_file, "wb") as file:
+        pickle.dump(persisted, file)
+
+    asyncio.run(graph.load())
+    assert graph._has_legacy_keys() is False
+    assert [node.path for node in asyncio.run(graph.get_nodes())] == ["daily/a.md"]
+    outlinks = asyncio.run(graph.get_outlinks("daily/a.md", LinkScopeEnum.ALL))
+    assert [link.target_path for link in outlinks] == ["daily/b.md"]
+
+
+def test_nx_file_graph_keeps_only_the_winning_spellings_links(monkeypatch, tmp_path: Path) -> None:
+    """Migration must rebuild edges from the record that won the merge."""
+
+    pytest.importorskip("networkx")
+    from reme.components.file_graph import NxFileGraph  # pylint: disable=import-outside-toplevel
+
+    monkeypatch.chdir(tmp_path)
+    graph = NxFileGraph(name="test")
+    legacy = _node("daily\\a.md", ["Legacy"]).model_copy(
+        update={
+            "st_mtime": 0.0,
+            "links": [FileLink(source_path="daily\\a.md", target_path="daily\\obsolete.md")],
+        },
+    )
+    current = _node("daily/a.md", ["ReMe"]).model_copy(
+        update={"links": [FileLink(source_path="daily/a.md", target_path="daily/current.md")]},
+    )
+    persisted = graph._graph.__class__()
+    persisted.add_node("daily\\a.md", node=legacy)
+    persisted.add_node("daily/a.md", node=current)
+    persisted.add_edge(
+        "daily\\a.md",
+        "daily\\obsolete.md",
+        link=FileLink(source_path="daily\\a.md", target_path="daily\\obsolete.md"),
+    )
+    persisted.add_edge(
+        "daily/a.md",
+        "daily/current.md",
+        link=FileLink(source_path="daily/a.md", target_path="daily/current.md"),
+    )
+    with open(graph._graph_file, "wb") as file:
+        pickle.dump(persisted, file)
+
+    asyncio.run(graph.load())
+
+    assert sorted(graph._graph.nodes) == ["daily/a.md", "daily/current.md"]
+    outlinks = asyncio.run(graph.get_outlinks("daily/a.md", LinkScopeEnum.ALL))
+    assert [link.target_path for link in outlinks] == ["daily/current.md"]

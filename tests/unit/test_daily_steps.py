@@ -25,6 +25,8 @@ from contextlib import chdir as temp_chdir
 import tempfile
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -295,6 +297,57 @@ async def test_daily_write_delegates_to_write_and_refreshes_index():
 
 
 @pytest.mark.asyncio
+async def test_daily_write_reports_unreadable_index_without_losing_note(tmp_path):
+    """A successful note write remains durable when its derived index is unreadable."""
+
+    with temp_chdir(tmp_path):
+        store = LocalFileStore(name="t", embedding_store="")
+        index = tmp_path / "daily" / "2026-05-18.md"
+        index.parent.mkdir(parents=True)
+        damaged = b"---\ntags: [\n---\nold index\n"
+        index.write_bytes(damaged)
+        step = await _make_daily_write_step(store, str(tmp_path))
+
+        async def write_note(_specs, **kwargs):
+            note = tmp_path / kwargs["path"]
+            note.parent.mkdir(parents=True, exist_ok=True)
+            note.write_text(
+                f"---\nname: {kwargs['name']}\ndescription: {kwargs['description']}\n"
+                f"session_id: {kwargs['metadata']['session_id']}\n---\n{kwargs['content']}\n",
+                encoding="utf-8",
+            )
+            return [SimpleNamespace(success=True, answer="note written")]
+
+        async def failed_refresh(*_args, **_kwargs):
+            return {
+                "date": "2026-05-18",
+                "path": "daily/2026-05-18.md",
+                "notes": [],
+                "created": False,
+                "changed": False,
+                "error": "daily index is unreadable: malformed YAML",
+            }
+
+        step.dispatch_steps = write_note
+
+        with patch("reme.steps.file_io.daily_write.refresh_day_index", new=failed_refresh):
+            await step(
+                name="project-plan",
+                description="Plan note",
+                session_id="session-1",
+                content="body text",
+                date="2026-05-18",
+            )
+
+        response = step.context.response
+        assert response.success is False
+        assert response.answer.startswith("Error: daily index is unreadable:")
+        assert response.metadata["index"]["changed"] is False
+        assert (tmp_path / "daily/2026-05-18/project-plan.md").is_file()
+        assert index.read_bytes() == damaged
+
+
+@pytest.mark.asyncio
 async def test_daily_write_accepts_explicit_date():
     """``daily_write`` can write historical notes instead of always using today's folder."""
 
@@ -517,6 +570,67 @@ async def test_day_index_description_updates_when_note_count_changes():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("raw_index", [b"---\ntags: [\n---\nbody\n", b"\xff\xfe\xfd\n"])
+async def test_day_index_read_failure_preserves_derived_bytes(raw_index, tmp_path):
+    """A damaged derived index must not be destroyed during rebuilding."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    index.write_bytes(raw_index)
+    before = index.read_bytes()
+
+    result = await daily_reindex_step.refresh_day_index(
+        SimpleNamespace(workspace_path=tmp_path),
+        "2026-05-18",
+        "daily",
+    )
+    assert result["error"].startswith("daily index is unreadable:")
+    assert not result["changed"]
+    assert not result["created"]
+    assert index.read_bytes() == before
+
+
+@pytest.mark.asyncio
+async def test_day_index_rebuild_recovers_and_is_byte_idempotent(tmp_path):
+    """Replacing a damaged index permits recovery, and a stable rebuild is byte-idempotent."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    index.write_bytes(b"\xff\xfe\xfd\n")
+    store = SimpleNamespace(workspace_path=tmp_path)
+
+    failed = await daily_reindex_step.refresh_day_index(store, "2026-05-18", "daily")
+    assert "error" in failed
+
+    index.write_text("---\nname: 2026-05-18\n---\nuser body\n", encoding="utf-8")
+    repaired = await daily_reindex_step.refresh_day_index(store, "2026-05-18", "daily")
+    assert "error" not in repaired
+    repaired_bytes = index.read_bytes()
+    repeated = await daily_reindex_step.refresh_day_index(store, "2026-05-18", "daily")
+    assert repeated["changed"] is False
+    assert index.read_bytes() == repaired_bytes
+
+
+@pytest.mark.asyncio
+async def test_daily_reindex_surfaces_unreadable_index_as_failed_response(tmp_path):
+    """The standalone reindex caller keeps the shared error envelope."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    before = b"---\ntags: [\n---\nbody\n"
+    index.write_bytes(before)
+
+    app_context = ApplicationContext(workspace_dir=str(tmp_path))
+    store = LocalFileStore(name="t", embedding_store="", app_context=app_context)
+    step = daily_reindex_step.DailyReindexStep(file_store=store, app_context=app_context)
+    await step(date="2026-05-18")
+
+    response = step.context.response
+    assert response.success is False
+    assert response.answer.startswith("Error: daily index is unreadable:")
+    assert response.metadata["path"] == "daily/2026-05-18.md"
+    assert response.metadata["changed"] is False
+    assert index.read_bytes() == before
+
+
+@pytest.mark.asyncio
 async def test_day_index_preserves_user_content_outside_marker():
     """Any user-authored content sitting outside the auto markers is
     preserved verbatim across refreshes."""
@@ -595,3 +709,25 @@ async def test_daily_reindex_created_flag_flips_on_rerun():
         assert payload_second["created"] is False
         assert payload_second["notes_count"] == 1
         await store.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("read_error", [PermissionError(13, "private path"), FileNotFoundError(2, "raced away")])
+async def test_day_index_filesystem_read_failure_preserves_original_bytes(read_error, tmp_path):
+    """Unreadable or concurrently removed index reads fail closed without rewriting the index."""
+    index = tmp_path / "daily" / "2026-05-18.md"
+    index.parent.mkdir(parents=True)
+    before = b"---\nname: 2026-05-18\n---\nuser-authored details\n"
+    index.write_bytes(before)
+
+    with patch("reme.steps.file_io._daily_index.Path.read_text", side_effect=read_error):
+        result = await daily_reindex_step.refresh_day_index(
+            SimpleNamespace(workspace_path=tmp_path),
+            "2026-05-18",
+            "daily",
+        )
+
+    assert result["error"] == f"daily index is unreadable: {type(read_error).__name__}"
+    assert result["created"] is False
+    assert result["changed"] is False
+    assert index.read_bytes() == before

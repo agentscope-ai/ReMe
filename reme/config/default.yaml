@@ -414,7 +414,7 @@ jobs:
   traverse:
     backend: base
     description: >-
-      Return a bounded wikilink graph with frontend-ready nodes and directed edges.
+      Return a readable bounded wikilink summary in answer and the complete structured graph in metadata.graph.
     parameters:
       type: object
       properties:

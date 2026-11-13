@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { parse as parseYaml } from "yaml";
 import { legacyRoutes } from "../../docs/.vitepress/legacy-routes.mjs";
 
@@ -22,6 +23,8 @@ test("generates every required bilingual guide", async () => {
     "faq.md",
     "reference/cli.md",
     "reference/jobs.md",
+    "benchmarks/memlens.md",
+    "benchmarks/mobilemem.md",
   ];
   for (const language of ["zh", "en"]) {
     for (const name of names) await access(path.join(generatedDir, language, name));
@@ -61,6 +64,42 @@ test("maps mirrored pages back to their canonical repository sources", async () 
   assert.equal(sourceMap["en/workspace/studio.md"], "reme_studio/README.md");
   assert.equal(sourceMap["zh/plugins/lme.md"], "plugins/lme/README_ZH.md");
   assert.equal(sourceMap["en/reference/jobs.md"], "reme/config/default.yaml");
+  for (const language of ["zh", "en"]) {
+    for (const benchmark of ["memlens", "mobilemem"]) {
+      assert.equal(
+        sourceMap[`${language}/benchmarks/${benchmark}.md`],
+        `benchmark/${benchmark}/docs/${language}/evaluation.md`,
+      );
+    }
+  }
+});
+
+test("preserves legacy MemLens addresses and anchors with a generated redirect", async () => {
+  for (const language of ["zh", "en"]) {
+    const legacy = await readFile(path.join(generatedDir, language, "memlens_256k_evaluation.md"), "utf8");
+    const frontmatter = parseYaml(legacy.split("---")[1]);
+    assert.deepEqual(frontmatter.head[0], ["meta", { name: "robots", content: "noindex" }]);
+    assert.match(legacy, /\[MemLens-256K\]\(\.\/benchmarks\/memlens\.md\)/);
+    let destination;
+    runInNewContext(frontmatter.head[1][2], {
+      window: { location: { hash: "#evaluation-settings", replace: (value) => { destination = value; } } },
+    });
+    for (const base of ["/", "/ReMe/"]) {
+      for (const extension of ["", ".html"]) {
+        const oldUrl = `https://reme-docs.local${base}${language}/memlens_256k_evaluation${extension}`;
+        const target = new URL(destination, oldUrl);
+        assert.equal(target.pathname, `${base}${language}/benchmarks/memlens`);
+        assert.equal(target.hash, "#evaluation-settings");
+      }
+    }
+  }
+});
+
+test("publishes the canonical benchmark chart for both blog languages", async () => {
+  const name = "memlens-256k-four-models-judge.svg";
+  const source = await readFile(path.join(repoDir, "benchmark/memlens/docs/figure", name), "utf8");
+  const published = await readFile(path.join(generatedDir, "public/figures/benchmarks/memlens", name), "utf8");
+  assert.equal(published, source);
 });
 
 test("publishes the root READMEs as localized project overviews", async () => {
@@ -200,6 +239,8 @@ test("tracks every generated input in documentation CI and deployment", async ()
     "integrations/openclaw/figures/**",
     "reme_studio/**",
     "benchmark/toolmemory/gitcha.png",
+    "benchmark/memlens/docs/**",
+    "benchmark/mobilemem/docs/**",
   ];
   for (const workflow of ["ci-docs.yml", "deploy-docs.yml"]) {
     const source = await readFile(path.join(repoDir, ".github/workflows", workflow), "utf8");

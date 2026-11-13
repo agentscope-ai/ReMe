@@ -298,3 +298,86 @@ async def test_auto_tag_direct_llm_uses_one_structured_call_and_normalizes_outpu
         "keywords",
     ]
     assert "Frontmatter metadata" in str(model.calls[0]["messages"][1].content)
+
+
+@pytest.mark.asyncio
+async def test_auto_tag_direct_llm_keeps_existing_tags_when_evidence_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "memory/note.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        "---\n"
+        "name: note\n"
+        "description: OpenAI released an API.\n"
+        "memory_tags:\n"
+        "  - OpenAI\n"
+        "---\n"
+        "OpenAI released an API.\n",
+        encoding="utf-8",
+    )
+
+    class _StructuredTagModel:
+        async def generate_structured_output(self, **kwargs):
+            return SimpleNamespace(
+                content={
+                    "entity_type": "organization",
+                    "evidence": "Anthropic shipped a competing model.",
+                    "memory_tags": ["Anthropic"],
+                },
+            )
+
+    step = AutoTagStep(
+        agent_wrapper=_DirectTaggingWrapper(tmp_path, _StructuredTagModel()),
+        direct_llm=True,
+        direct_candidate_tags=0,
+        file_store=_file_store(),
+    )
+
+    async def update_frontmatter(name, /, **kwargs):
+        raise AssertionError("rejected evidence must not rewrite frontmatter")
+
+    monkeypatch.setattr(step, "run_job", update_frontmatter)
+
+    response = await step(RuntimeContext(changes=[{"change": "modified", "path": "memory/note.md"}]))
+
+    assert response.metadata["auto_tag"]["succeeded"] == 0
+    assert response.metadata["auto_tag"]["failed"] == 1
+    assert frontmatter.loads(note.read_text(encoding="utf-8")).metadata["memory_tags"] == ["OpenAI"]
+
+
+@pytest.mark.asyncio
+async def test_auto_tag_direct_llm_requires_entity_name_boundaries(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    note = tmp_path / "memory/note.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        "---\nname: note\ndescription: A market scene.\n---\nWe walked through an open air market.\n",
+        encoding="utf-8",
+    )
+
+    class _StructuredTagModel:
+        async def generate_structured_output(self, **kwargs):
+            return SimpleNamespace(
+                content={
+                    "entity_type": "organization",
+                    "evidence": "We walked through an open air market.",
+                    "memory_tags": ["OpenAI"],
+                },
+            )
+
+    step = AutoTagStep(
+        agent_wrapper=_DirectTaggingWrapper(tmp_path, _StructuredTagModel()),
+        direct_llm=True,
+        direct_candidate_tags=0,
+        file_store=_file_store(),
+    )
+
+    async def update_frontmatter(name, /, **kwargs):
+        raise AssertionError("a tag absent from the document must not be written")
+
+    monkeypatch.setattr(step, "run_job", update_frontmatter)
+
+    response = await step(RuntimeContext(changes=[{"change": "modified", "path": "memory/note.md"}]))
+
+    assert response.metadata["auto_tag"]["failed"] == 1
+    assert "memory_tags" not in frontmatter.loads(note.read_text(encoding="utf-8")).metadata
