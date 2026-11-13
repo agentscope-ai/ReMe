@@ -1,5 +1,13 @@
 """Schema"""
 
+from .action_item import (
+    ActionItem,
+    ActionItemEvidence,
+    ActionItemQuery,
+    ActionItemState,
+    action_item_id,
+    apply_update,
+)
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
@@ -32,6 +40,12 @@ from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ActionItem",
+    "ActionItemEvidence",
+    "ActionItemQuery",
+    "ActionItemState",
+    "action_item_id",
+    "apply_update",
     "AgentReply",
     "collect_reply",
     "replay_reply",
