@@ -9,8 +9,9 @@ from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 
-from reme.components import ApplicationContext
+from reme.components import ApplicationContext, RuntimeContext
 from reme.components.agent_runtime import BaseAgentRuntime
 from reme.components.agent_runtime._internal.files import AgentFiles
 from reme.schema import ResourceMetadata
@@ -26,6 +27,29 @@ class PackageConnector(BaseConnectorStep):
     def collect(self, directory: Path):
         (directory / "1.png").write_bytes(b"image")
         return [{"path": "1.png"}]
+
+
+@pytest.mark.asyncio
+async def test_empty_collection_skips_publication_and_the_following_event_step(tmp_path):
+    context = ApplicationContext(workspace_dir=str(tmp_path))
+    invocation = RuntimeContext()
+    step = PackageConnector(app_context=context)
+    step.collect = Mock(return_value=[])
+    await step(invocation)
+    assert invocation["resource"] is None
+    response = await ResourceEventStep(app_context=context)(invocation)
+    assert response.success and response.answer == {"skipped": "no_new_data"}
+    assert not (tmp_path / "resource").exists()
+    assert not list(tmp_path.glob(".reme-resource-*"))
+
+
+@pytest.mark.asyncio
+async def test_invalid_collection_result_is_not_treated_as_an_empty_batch(tmp_path):
+    step = PackageConnector(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
+    step.collect = Mock(return_value=None)
+    with pytest.raises(ValidationError):
+        await step()
+    assert not (tmp_path / "resource").exists()
 
 
 @pytest.mark.asyncio

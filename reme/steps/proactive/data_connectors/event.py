@@ -13,6 +13,9 @@ class ResourceEventStep(BaseAgentStep):
     """Run after a connector; stable package IDs make publication retry-safe."""
 
     async def execute(self):
+        if "resource" in self.context and self.context["resource"] is None:
+            self.context.response.answer = {"skipped": "no_new_data"}
+            return self.context.response
         agent_id = self.context.get("agent_id")
         if not isinstance(agent_id, str) or not agent_id:
             raise ValueError("resource_event_step requires a target agent_id")

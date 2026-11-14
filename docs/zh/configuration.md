@@ -223,6 +223,34 @@ schema 定义问题与答案。接口见 `reme/components/as_decision_model/`。
 
 完整策略、SVG 图解及真实模型用例见[基于决策模型的上下文压缩](./context_compaction.md)。
 
+## 语音识别与合成
+
+`proactive` 配置包含 `asr_demo`、`tts_demo`，以及串联 TTS 与 ASR 的 `speech_demo`。
+设置 `DASHSCOPE_API_KEY` 后启动服务：
+
+```bash
+reme start config=proactive
+```
+
+在另一个终端调用：
+
+```bash
+reme tts_demo text="你好，这是 ReMe 的语音测试。"
+reme speech_demo text="你好，这是 ReMe 的语音测试。"
+```
+
+`asr_demo` 接收 Base64 `audio`、`audio_format`（`wav`、`mp3`、`pcm` 或 `opus`）与可选的 `sample_rate`，
+answer 为识别文本；静音返回空字符串。`tts_demo` 在标准响应的 answer 中返回 Base64 `audio`、`format`、
+`sample_rate` 和 `is_last=true`。供应商调用失败时返回 `success=false`。
+
+Step 通过 `asr: <组件名>` 和 `tts: <组件名>` 选择组件；模型、音色、供应商 `parameters` 与超时配置在
+`components.asr` 和 `components.tts` 下。缺少语音凭证不影响启动。
+DashScope 语音使用原生 `/api/v1` 地址，与 OpenAI 兼容的 LLM 地址分开配置。
+
+新增 backend 时实现 `BaseASR.transcribe` 或 `BaseTTS.stream`；`BaseTTS.synthesize` 统一收集同一个音频流。
+组件之间传递音频 bytes，Step 处理 Base64 传输；录音与播放由客户端负责。
+接口见 `reme/components/asr/`、`reme/components/tts/` 和 `reme/schema/speech.py`。
+
 ## Embedding 配置
 
 向量检索默认关闭。只设置 `EMBEDDING_API_KEY` 不会自动启用它；还需要同时启用 `as_embedding`、`embedding_store`，并把它连接到 `file_store`：

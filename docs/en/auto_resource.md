@@ -92,6 +92,37 @@ and package-relative file entries. Any failed display discards the staged packag
 capture cleanup. macOS requires Screen Recording permission for the host process; headless or unavailable displays
 fail the round. Collection does not call an LLM; the receiving Proactive Agent interprets the event separately.
 
+## Scheduled Finance Collection
+
+`config=proactive` enables three collection jobs: `finance_news_cron` fetches new CLS news every five minutes, and
+`stock_quotes_cron` collects Xiaomi (01810.HK), Alibaba (09988.HK), Tencent (00700.HK), Apple (AAPL), Amazon (AMZN)
+and Meta (META) every minute during their market sessions. Install `reme-ai[finance]` for the trading calendars;
+this extra is included in `[core]`. Calendars account for holidays, half-days, lunch breaks and US daylight saving time.
+Quotes may be delayed; snapshots retain quote and collection times, with a 30-minute closing catch-up window.
+
+`btc_quotes_cron` independently collects BTC/USDT spot statistics every minute, 24/7, from Binance's public
+[market-data-only API](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only), without an API key.
+BTC uses the rolling 24-hour percentage change, with the statistics window and collection time saved explicitly;
+its USDT prices and percentage basis are distinct from stock quotes. Stock holidays and collection failures do not stop BTC.
+
+The collectors save `news.jsonl`, `quotes.jsonl` or `btc.jsonl` under `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`, then call
+the existing `append_event` Job for the `finance` event Agent. Collection does not use an LLM. Empty batches produce
+no files or events. News uses a rolling 24-hour lookback and retained news IDs for deduplication; outages longer than
+the lookback can leave gaps. Saved batches without a delivery receipt are retried before collecting new inputs.
+Per-package `delivery-finance.json` receipts prevent replaying successful deliveries; resources are retained.
+
+Start the service in one terminal with `reme start config=proactive`. Initial Agent settings and memory are created
+only once. For a workspace whose finance Agent still uses cron, run this in another terminal:
+
+```bash
+reme manage_proactive_agent action=update agent_id=finance 'config={"trigger_type":"event","cron":null}'
+reme manage_proactive_agent action=status agent_id=finance
+```
+
+Use the returned `memory_path` to update its existing task and AI-news preferences; restarting does not overwrite memory.
+Disable a collector with `jobs.finance_news_cron.enabled=false`, `jobs.stock_quotes_cron.enabled=false` or
+`jobs.btc_quotes_cron.enabled=false` at startup.
+
 ## Image Resources
 
 Text and image resources share the same agent-wrapper and note-writing tools. Image inputs add a native AgentScope

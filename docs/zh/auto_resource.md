@@ -84,6 +84,35 @@ manifest 使用 `ResourceMetadata`：带时区的创建/更新时间、source、
 任一屏幕失败都会丢弃暂存包；取消时等待同步采集退出并清理。macOS 需要实际宿主进程的屏幕录制权限，
 无图形会话或显示器不可用时该轮失败。采集不调用 LLM，由接收事件的 Proactive Agent 独立解读。
 
+## 定时财经采集
+
+`config=proactive` 默认启用三个采集任务：`finance_news_cron` 每 5 分钟采集新增财联社新闻，
+`stock_quotes_cron` 在相应市场交易时段每分钟采集小米（01810.HK）、阿里巴巴（09988.HK）、腾讯（00700.HK）、
+苹果（AAPL）、亚马逊（AMZN）和 Meta（META）的行情。交易日历需要安装 `reme-ai[finance]`，`[core]` 已包含该依赖；
+日历处理节假日、半日市、午休和美国夏令时。行情可能延迟，快照同时记录报价时间和采集时间，收市后保留 30 分钟补采窗口。
+
+`btc_quotes_cron` 独立每分钟、7×24 小时采集 BTC/USDT 现货行情，使用 Binance 的公开
+[纯行情接口](https://developers.binance.com/en/docs/products/spot/faqs/market_data_only)，无需 API key。
+BTC 使用滚动 24 小时涨跌幅，保存统计窗口和采集时间；USDT 报价及涨跌幅口径与股票分别标明。
+股票休市或采集失败不会阻止 BTC 采集。
+
+采集器将 `news.jsonl`、`quotes.jsonl` 或 `btc.jsonl` 保存到 `resource/<source>/YYYY-MM-DD/hhmmss_<suffix>/`，
+随后调用已有 `append_event` Job，投递给 `finance` 事件 Agent。采集不调用 LLM；无新增时不创建文件或事件。
+新闻回看最近 24 小时，按保留新闻文件中的 ID 去重；超过回看窗口的停机可能留下缺口。
+已落盘但缺少投递回执的批次会在采集新数据前补投；每个资源包的 `delivery-finance.json` 记录成功投递，资源文件继续保留。
+
+先在一个终端运行 `reme start config=proactive`。初始 Agent 配置和记忆只创建一次；已有工作区的 finance
+若仍为 cron 类型，在另一个终端执行：
+
+```bash
+reme manage_proactive_agent action=update agent_id=finance 'config={"trigger_type":"event","cron":null}'
+reme manage_proactive_agent action=status agent_id=finance
+```
+
+按返回的 `memory_path` 更新已有任务和 AI 新闻偏好，重启不会覆盖记忆。
+启动时可用 `jobs.finance_news_cron.enabled=false`、`jobs.stock_quotes_cron.enabled=false` 或
+`jobs.btc_quotes_cron.enabled=false` 分别关闭采集任务。
+
 ## 图像资源
 
 文本和图像共用 agent-wrapper 与笔记写入工具；图片输入只是在理解提示词旁加入原生 AgentScope 图像块。

@@ -2,7 +2,7 @@
 # Start: reme start config=proactive
 # Then: reme manage_proactive_agent action=list
 # Configure LLM_API_KEY, LLM_BASE_URL and optionally CODEX_MODEL_NAME.
-# Collectors are opt-in. Input files are retained; no automatic resource deletion.
+# Finance and five-minute work observations are enabled. Input files are retained.
 language: zh
 reme_agent_dir: reme_agents
 
@@ -12,6 +12,49 @@ service:
   mcp_enabled: true
 
 jobs:
+  speech_demo:
+    backend: base
+    description: "Synthesize text, then transcribe the audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+      - backend: asr_step
+        asr: default
+
+  tts_demo:
+    backend: base
+    description: "Synthesize text; returns Base64 audio, format and sample rate; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        text: {type: string, minLength: 1}
+      required: [text]
+    steps:
+      - backend: tts_step
+        tts: default
+
+  asr_demo:
+    backend: base
+    description: "Transcribe Base64-encoded audio; requires DASHSCOPE_API_KEY."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        audio: {type: string, minLength: 1, description: "Base64-encoded audio bytes"}
+        audio_format: {type: string, enum: [wav, mp3, pcm, opus], default: wav}
+        sample_rate: {type: integer, minimum: 1, description: "Audio sample rate in Hz"}
+      required: [audio]
+    steps:
+      - backend: asr_step
+        asr: default
+
   chat:
     backend: stream
     description: "Chat with the fixed main Agent using its current session."
@@ -56,12 +99,51 @@ jobs:
   screen_capture_cron:
     backend: cron
     enabled: false
-    cron: "*/15 * * * *"
-    # Enable this collector to publish observations to the work Agent.
+    cron: "*/5 * * * *"
+    # Optional standalone collector; work_observation_cron already captures every display.
     agent_id: work
     steps:
       - backend: screen_capture_step
       - backend: resource_event_step
+
+  work_observation_init:
+    backend: background
+    track_execution: false
+    # Establish the baseline on startup, without importing existing dialogue.
+    steps:
+      - backend: work_observation_init_step
+        codex_home: &work_codex_home ${CODEX_HOME:-~/.codex}
+
+  work_observation_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    steps:
+      - backend: work_observation_step
+        agent_id: work
+        codex_home: *work_codex_home
+
+  finance_news_cron:
+    backend: cron
+    cron: "*/5 * * * *"
+    steps:
+      - backend: finance_news_step
+        agent_id: finance
+
+  stock_quotes_cron:
+    backend: cron
+    cron: "* * * * *"
+    # The collector checks each market's trading calendar and skips closed sessions.
+    steps:
+      - backend: stock_quotes_step
+        agent_id: finance
+
+  btc_quotes_cron:
+    backend: cron
+    cron: "* * * * *"
+    # BTC trades continuously; stock trading calendars do not apply.
+    steps:
+      - backend: btc_quotes_step
+        agent_id: finance
 
   manage_proactive_agent:
     backend: base
@@ -225,6 +307,23 @@ jobs:
       - backend: version_step
 
 components:
+  asr:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-asr-flash
+      timeout: 60
+  tts:
+    default:
+      backend: dashscope
+      api_key: ${DASHSCOPE_API_KEY:-}
+      base_url: https://dashscope.aliyuncs.com/api/v1
+      model: qwen-audio-3.1-tts-plus
+      voice: longanhuan_v3.1
+      audio_format: mp3
+      sample_rate: 22050
+      timeout: 60
   event_stream:
     default:
       backend: agent
@@ -240,10 +339,12 @@ components:
       agents:
         - name: finance
           enabled: true
-          trigger_type: cron
-          cron: "0 * * * *"
+          trigger_type: event
           description: |
-            主人只关注 AI 相关的大新闻。关注 AI 领域的重要新闻，筛选值得主人了解的重大进展，说明发生了什么、为什么重要，并保留来源。
+            主人偏好 AI 相关的财经新闻。结合收到的财联社新闻，筛选值得主人了解的重要进展，说明事实、影响和来源。
+            跟踪小米（01810.HK）、阿里巴巴（09988.HK）、腾讯（00700.HK）、苹果（AAPL）、亚马逊（AMZN）和 Meta（META）的当日涨跌幅。
+            同时跟踪 BTC/USDT 现货行情及滚动 24 小时涨跌幅，区分 USDT 报价与股票的昨收涨跌幅口径。
+            行情可能延迟，按报价时间判断新鲜度；结合相关新闻分析重要变化，区分事实与推测，避免重复提醒。
         - name: work
           enabled: true
           trigger_type: event

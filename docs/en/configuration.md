@@ -226,6 +226,34 @@ headroom, independent of the host model tokenizer.
 
 See [Context compaction with decision models](./context_compaction.md) for the strategy, SVG walkthrough, and live integration cases.
 
+## Speech recognition and synthesis
+
+The `proactive` configuration includes `asr_demo`, `tts_demo`, and the `speech_demo` TTS-to-ASR round trip.
+Set `DASHSCOPE_API_KEY`, then start the service:
+
+```bash
+reme start config=proactive
+```
+
+From another terminal:
+
+```bash
+reme tts_demo text="Hello from ReMe."
+reme speech_demo text="Hello from ReMe."
+```
+
+`asr_demo` accepts Base64 `audio`, `audio_format` (`wav`, `mp3`, `pcm`, or `opus`), and optional `sample_rate`.
+Its answer is the recognized text; silence returns an empty string. `tts_demo` returns Base64 `audio`, `format`,
+`sample_rate`, and `is_last=true` inside the standard response answer. Provider failures return `success=false`.
+
+Select components through Step settings `asr: <name>` and `tts: <name>`. Configure model, voice, provider `parameters`,
+and timeout under `components.asr` and `components.tts`. Missing credentials do not prevent startup.
+DashScope speech uses its native `/api/v1` base URL, separately from OpenAI-compatible LLM endpoints.
+
+Implement `BaseASR.transcribe` or `BaseTTS.stream` to add a backend; `BaseTTS.synthesize` collects the same stream.
+Components exchange audio bytes; Steps handle Base64 transport. Capture and playback belong to the client.
+See `reme/components/asr/`, `reme/components/tts/`, and `reme/schema/speech.py` for the contracts.
+
 ## Embeddings
 
 Vector retrieval is disabled by default. Credentials alone do not enable it: configure `as_embedding`, `embedding_store`, and connect the store to `file_store`.

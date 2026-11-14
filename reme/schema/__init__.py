@@ -30,6 +30,7 @@ from .proactive import (
 )
 from .emb_node import EmbNode
 from .event import Event, EventConsumption
+from .finance import CryptoQuote, FinanceNewsItem, StockQuote
 from .proactive_agent import (
     CreateProactiveAgentConfig,
     ManageProactiveAgentRequest,
@@ -48,10 +49,14 @@ from .request import Request
 from .response import Response
 from .resource_metadata import ResourceFile, ResourceMetadata
 from .stream_chunk import StreamChunk
+from .speech import ASRResult, AudioFormat, TTSResult
 from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "ASRResult",
+    "AudioFormat",
+    "TTSResult",
     "AgentActivity",
     "AgentReply",
     "collect_reply",
@@ -68,6 +73,9 @@ __all__ = [
     "EmbNode",
     "Event",
     "EventConsumption",
+    "FinanceNewsItem",
+    "StockQuote",
+    "CryptoQuote",
     "AgentSession",
     "ChatAgentConfig",
     "CreateChatAgentConfig",

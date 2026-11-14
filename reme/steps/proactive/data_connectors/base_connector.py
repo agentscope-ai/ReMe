@@ -22,6 +22,7 @@ class BaseConnectorStep(BaseStep):
 
     source: str = ""
     description: str = ""
+    _cancelled: Event
 
     @abstractmethod
     def collect(self, directory: Path) -> list[dict]:
@@ -45,7 +46,7 @@ class BaseConnectorStep(BaseStep):
     async def execute(self):
         assert self.context is not None
         target, now = self.resource_target()
-        cancelled = Event()
+        cancelled = self._cancelled = Event()
         task = asyncio.create_task(asyncio.to_thread(self._collect_and_publish, target, now, cancelled))
         try:
             metadata = await asyncio.shield(task)
@@ -55,6 +56,11 @@ class BaseConnectorStep(BaseStep):
                 await finish_cleanup(task)
             raise
 
+        if metadata is None:
+            self.context["resource"] = None
+            self.context.response.success = True
+            self.context.response.answer = {"skipped": "no_new_data"}
+            return self.context.response
         result = {"path": self.to_workspace_relative(target / "metadata.json"), "files": metadata["files"]}
         self.context["resource"] = result
         self.context.response.success = True
@@ -62,11 +68,15 @@ class BaseConnectorStep(BaseStep):
         self.context.response.metadata.update(result)
         return self.context.response
 
-    def _collect_and_publish(self, target: Path, created_at: datetime, cancelled: Event) -> dict:
+    def _collect_and_publish(self, target: Path, created_at: datetime, cancelled: Event) -> dict | None:
         """Stage outside resource/, then atomically rename on the same filesystem."""
         with TemporaryDirectory(prefix=".reme-resource-", dir=self.workspace_path.resolve()) as temporary:
             directory = Path(temporary)
             files = self.collect(directory)
+            if cancelled.is_set() or (self.context.stop_event is not None and self.context.stop_event.is_set()):
+                raise RuntimeError("Resource collection stopped before publication")
+            if files == []:
+                return None
             metadata = ResourceMetadata(
                 dataclass=type(self).__name__,
                 source=self.source,

@@ -14,6 +14,10 @@ class ComponentEnum(str, Enum):
 
     AS_EMBEDDING = "as_embedding"
 
+    ASR = "asr"
+
+    TTS = "tts"
+
     EMBEDDING_STORE = "embedding_store"
 
     FILE_CHUNKER = "file_chunker"
