@@ -75,7 +75,9 @@ reme/
     as_llm/, as_embedding/   # model wrappers
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
-    codex_app_server.py      # shared Codex process and conversation locks
+    codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
+    event_stream/            # BaseEventStream / local and Agent storage backends
+    agent_runtime/           # BaseAgentRuntime / local Agent coordination
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -593,25 +595,28 @@ Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple 
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
-Pass `fork_session=True` with `resume` or `session_id` to inherit the source conversation's instructions, model,
-turn settings and job tools. Only explicit call arguments override these settings; the calling wrapper's defaults
-do not. Effective settings are saved beside session message records as `.config.jsonl`, without generated MCP
-credentials, so forks can restore them after unloading or restarting. An empty source without a native rollout
-creates an independent thread with the same settings.
-Rejected or cancelled native session setup leaves the prior effective settings and tool binding intact.
+Pass `fork_session=True` with `resume` or `session_id` to inherit native conversation context.
+Models, instructions, turn settings and job tools come from the current wrapper configuration and call arguments.
+After restart, the application configuration and Steps reconstruct these settings; session snapshots under
+`session/proactive/` are no longer saved or read. An empty source without a native rollout starts an independent
+thread with the current configuration. Rejected or cancelled preparation retains the previous live settings and tools.
 
-`create_session()` saves turn settings such as `effort` before the first query, including for later forks.
-`output_schema` applies only to the current invocation and is never saved or inherited from a session. Omission uses
-the calling wrapper's default for ordinary calls; explicit `None` disables that default for one invocation.
+`create_session()` retains in-process turn settings such as `effort` before the first query.
+`output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
+`None` disables that default for this invocation.
 
-`CodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
+Proactive reminders are read through the inbox and handled by a normal Chat reply. Codex no longer exposes message
+appends or stores application-authored message copies. `reme_agents/` retains Agent configuration, memory, session IDs and
+inbox references; full recovery also requires native conversation histories and source reminder files.
+
+`BaseCodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
 session listeners also receive these events. A completed turn, failure or cancellation closes its activity.
-All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
+AgentScope and Claude Code wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.
 `append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
 both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
-reading, status and appending in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
+reading and status in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
 
 Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
 `{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
@@ -620,11 +625,10 @@ generation; append and compaction share its session lease. Empty sessions contai
 `continue_conversation=True` resolves the latest main session in the current project before taking its lease,
 including when using an external `session_store`; with no stored conversation it starts a new session.
 
-The `session_read`, `session_status` and `session_append` jobs use the wrapper selected by their Step configuration.
+The `session_read` and `session_status` jobs use the wrapper selected by their Step configuration.
 Start the service with `reme start config=default`, then use another terminal:
 
 ```bash
-reme session_append session_id=YOUR_SESSION_ID message_id=note-1 role=user content="Additional context"
 reme session_read session_id=YOUR_SESSION_ID
 reme session_status session_id=YOUR_SESSION_ID
 ```

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from ._base import _FileIOStep
 from ._file_io import read_file_lines_safe, read_file_safe, truncate_session_output, truncate_text_output
-from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
+from ._path import check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ..index._source_format import is_session_path
 from ...components import R
 from ...constants import DEFAULT_MAX_BYTES, MAX_FILE_READ_BYTES
@@ -139,7 +139,7 @@ class ReadStep(_FileIOStep):
         target = self._resolve_target(raw)
         if target is None:
             return None
-        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to access this file", path=str(target))
             return None
         if not self._validate_line_args(start_line, end_line):

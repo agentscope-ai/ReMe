@@ -17,8 +17,7 @@ from watchfiles import Change
 
 from ...components.runtime_context import RuntimeContext
 from ..base_step import BaseStep
-from ..file_io import refresh_day_index, validate_filename_component
-from ..file_io._path import is_relative_to, resolve_path
+from ..file_io import is_relative_to, refresh_day_index, resolve_path, validate_filename_component
 from ._evolve import agent_reply_result_text, now
 
 _SOURCE_RESOURCE_KEY = "source_resource"

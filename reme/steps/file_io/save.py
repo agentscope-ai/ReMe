@@ -4,7 +4,7 @@ from datetime import datetime
 
 from ._base import _FileIOStep
 from ._file_io import detect_file_encoding, get_path_lock, write_file_safe
-from ._path import _check_path_permission, resolve_path
+from ._path import check_path_permission, resolve_path
 from ...components import R
 
 
@@ -27,7 +27,7 @@ class SaveStep(_FileIOStep):
         if error or target is None:
             self._fail(error or "invalid path", path=raw_path)
             return self.context.response
-        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to write this file", path=raw_path)
             return self.context.response
         if target.exists() and not target.is_file():

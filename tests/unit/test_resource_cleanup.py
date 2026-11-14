@@ -8,13 +8,10 @@ from functools import wraps
 from pathlib import Path
 
 import pytest
-from watchfiles import Change
-
 from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog
 from reme.components.runtime_context import RuntimeContext
-from reme.config.config_parser import resolve_app_config
-from reme.schema import ApplicationConfig, FileNode
+from reme.schema import FileNode
 from reme.steps.index.cleanup_catalog import CleanupCatalogStep
 
 
@@ -254,47 +251,3 @@ async def test_cleanup_refuses_platforms_without_safe_directory_deletion(tmp_pat
     with pytest.raises(RuntimeError, match="symlink-resistant"):
         await catalog.cleanup_expired("resource", 7)
     assert (tmp_path / node.path).is_file()
-
-
-@pytest.mark.asyncio
-async def test_proactive_watcher_only_observes_and_cleanup_uses_shared_catalog_settings(tmp_path, monkeypatch):
-    """Proactive has one scope, a read-only watcher, and TTL cleanup independent of consumption."""
-    config = ApplicationConfig(**resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path)))
-    app = ApplicationContext(**config.model_dump())
-    catalog = LocalFileCatalog(
-        name="resource",
-        app_context=app,
-        **config.components["file_catalog"]["resource"].model_dump(),
-    )
-    app.components["file_catalog"] = {"resource": catalog}
-    paths = ["resource/2026-10-01/source.pdf", "resource/2026-11-05/source.unknown"]
-    for path in paths:
-        _write(tmp_path, path)
-    watcher = config.jobs["resource_watch_loop"]
-    assert watcher.model_extra == {"file_catalog": "resource"}
-    assert [step.backend for step in watcher.steps] == ["watch_changes_step"]
-    assert watcher.steps[0].model_extra["dispatch_steps"] == ["log_changes_step"]
-    from reme.steps.index.watch_changes import WatchChangesStep
-
-    step = WatchChangesStep(app_context=app, **watcher.steps[0].model_dump())
-    step.context = RuntimeContext(stop_event=asyncio.Event(), **watcher.model_extra)
-    assert step._get_watch_rules() == catalog.watch_rules  # pylint: disable=protected-access
-
-    async def changes(*_paths, **_kwargs):
-        yield {(Change.added, str(tmp_path / paths[1]))}
-
-    monkeypatch.setattr("reme.steps.index.watch_changes.awatch", changes)
-    await step.execute()
-    assert not catalog.watch_suffixes
-    assert catalog.watch_filenames == ["metadata.json"]
-    assert catalog.ttl_days == 7
-    assert await catalog.get_nodes() == []
-    cleanup = config.jobs["resource_cleanup_cron"]
-    assert cleanup.model_extra == {"cron": "0 * * * *", "file_catalog": "resource"}
-    cleanup_config = cleanup.steps[0].model_dump()
-    step_cls = app.registry.get("step", cleanup_config["backend"])
-    response = await step_cls(app_context=app, **cleanup_config)(RuntimeContext(**cleanup.model_extra))
-    assert response.success is True
-    assert response.metadata["deleted_dirs"] == ["resource/2026-10-01"]
-    assert (tmp_path / paths[1]).is_file()
-    assert await catalog.get_nodes() == []

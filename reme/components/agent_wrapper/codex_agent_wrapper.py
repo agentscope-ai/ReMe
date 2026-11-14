@@ -10,15 +10,15 @@ from functools import partial
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
-from .codex_session_history import item_chunks
-from ..codex_app_server import CodexAppServer
+from ..codex_app_server._session_history import item_chunks
+from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...utils.agent_activity import ActivityTracker
-from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentActivity, AgentReply, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
     def __init__(self, app_server: str = "default", **kwargs) -> None:
         self._reject_server_options(kwargs)
         super().__init__(**kwargs)
-        self.app_server = self.bind(app_server, CodexAppServer, default_factory=CodexAppServer, optional=False)
+        self.app_server = self.bind(app_server, BaseCodexAppServer, default_factory=SdkCodexAppServer, optional=False)
         self._active = 0
         self._idle = asyncio.Event()
         self._idle.set()
@@ -84,13 +84,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         invalid = sorted({"app_server", "cwd"}.intersection(kwargs))
         if invalid:
             raise TypeError(f"Configure Codex wrapper options on the component: {', '.join(invalid)}")
-        # A fork inherits its source, rather than this wrapper's current defaults.
-        if not kwargs.get("fork_session"):
-            return self._merged_kwargs(kwargs)
-        options = dict(kwargs)
-        if "output_schema" in options:
-            options["output_schema"] = self._normalize_output_schema(options["output_schema"])
-        return options
+        return self._merged_kwargs(kwargs)
 
     def _ensure_skills(self, skills: list[str] | str | None) -> None:
         """Expose selected project skills through Codex's repo-level directory."""
@@ -142,8 +136,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 ephemeral=kwargs.get("ephemeral"),
                 thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
             )
-            names = {"developer_instructions": "system_prompt"}
-            return {key: value for key, value in options.items() if names.get(key, key) in kwargs}
+            if kwargs.get("personality") is not None:
+                options["config"]["personality"] = kwargs["personality"]
+            return options
         options["personality"] = self._enum(Personality, kwargs.get("personality"))
         if not (kwargs.get("resume") or kwargs.get("session_id")):
             options.update(
@@ -169,13 +164,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
         fork = bool(kwargs.get("fork_session"))
         if fork and not thread_id:
             raise ValueError("fork_session=True requires resume or session_id")
-        inherit_jobs = fork and "job_tools" not in kwargs
-        jobs = (
-            None
-            if compact or inherit_jobs
-            else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
-        )
-        CodexAppServer.validate_job_tools(jobs)
+        jobs = None if compact else self._resolve_job_tools(list(dict.fromkeys(kwargs.get("job_tools") or [])))
+        BaseCodexAppServer.validate_job_tools(jobs)
         self._ensure_skills(kwargs.get("skills"))
         await self.start()
         self._active += 1
@@ -320,29 +310,6 @@ class CodexAgentWrapper(BaseAgentWrapper):
             if isinstance(exc, TransportClosedError) or is_retryable_error(exc):
                 raise ConnectionError(str(exc)) from exc
             raise
-
-    async def append_session(
-        self,
-        session_id: str,
-        content: str,
-        *,
-        message_id: str,
-        role: Literal["user", "assistant"] = "assistant",
-        timeout: float = 30,
-        expected_turn_id: str | None = None,
-        delivery: str = "idle",
-    ) -> SessionMessage:
-        """Append a user or assistant message through the shared session owner."""
-        async with self._session_request():
-            return await self.app_server.append_session(
-                session_id,
-                content,
-                message_id=message_id,
-                role=role,
-                timeout=timeout,
-                expected_turn_id=expected_turn_id,
-                delivery=delivery,
-            )
 
     def _turn_options(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Resolve persistent turn settings, excluding invocation-scoped output schemas."""

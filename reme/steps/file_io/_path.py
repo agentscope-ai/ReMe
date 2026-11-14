@@ -119,7 +119,7 @@ def resolve_path(
     return target, None
 
 
-def _check_path_permission(workspace_path: Path, target: Path, allowed_paths) -> bool:
+def check_path_permission(workspace_path: Path, target: Path, allowed_paths) -> bool:
     """Return whether ``target`` is covered by the optional allowed-path scope.
 
     ``None`` leaves access unrestricted. Existing files allow that exact path;

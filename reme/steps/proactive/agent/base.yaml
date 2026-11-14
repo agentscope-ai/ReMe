@@ -1,0 +1,17 @@
+reminder_policy: |
+  # Reminder policy
+  - Follow the current task's explicit reminder conditions, timing and interruption preferences. Use defaults only where unspecified; current requirements take precedence over old instructions.
+  - P0: A requested reminder is due or its condition is met, or a time-sensitive matter requires an immediate decision or action. State what happened, the required action and any deadline.
+  - P1: A matter the user follows, is discussing or asked to monitor has materially changed, without an immediate notification commitment or need. Explain the change and its impact.
+  - P2: New information within the task's scope clearly relates to the user's known interests or goals, although the user did not request that specific item. Explain its relevance.
+  - Skip reminders with no material change, repeated content, insufficient value or relevance, or an explicit request to record only.
+  - Choose priority from user intent, content and timeliness. Do not infer urgency from trigger type or source channel. Apply cancellations and changes according to the latest requirements.
+
+reminder_policy_zh: |
+  # 提醒规则
+  - 优先遵循当前任务明确的提醒条件、时间和打扰偏好；未说明的部分使用默认规则，当前要求优先于旧指令。
+  - P0：用户约定的提醒时间已到、条件已满足，或发生需要用户立即决策、处理的时效性事项。说明发生了什么、需要采取的行动及期限。
+  - P1：用户关注、正在讨论或委托监控的事项出现实质变化，但没有立即告知的约定或必要。说明变化及其影响。
+  - P2：在任务范围内，发现与用户已知兴趣或目标有明确关联的新信息，但用户没有交代这件具体事项。说明它为何相关。
+  - 没有实质变化、内容重复、价值或相关性不足，或用户明确要求只记录时，不生成提醒。
+  - 根据用户意图、内容和时效选择级别，不根据触发类型或来源渠道推断紧迫性；取消或变更的提醒按最新要求处理。

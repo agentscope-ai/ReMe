@@ -32,13 +32,12 @@ from pydantic import BaseModel
 from reme.application import Application
 from reme.components.application_context import ApplicationContext
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.codex_app_server import CodexAppServer
+from reme.components.codex_app_server import SdkCodexAppServer
 from reme.components.job import BackgroundJob, StreamJob
 from reme.components.service.scoped_mcp import ScopedMCP
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import Response, TokenUsage
-from reme.steps.proactive.pa import PaChatStep, PaNewSessionStep
 from reme.utils import global_counter_get_all
 
 
@@ -244,7 +243,7 @@ def _wrapper(tmp_path, **kwargs):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     job = _Job()
     context.jobs[job.name] = job
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         name="default",
         app_context=context,
         auth_mode="oauth",
@@ -360,37 +359,6 @@ async def test_releasing_a_superseded_empty_session_keeps_other_threads(system):
     assert server._threads[current].pending is not None
     assert client.unsubscribed == [previous]
     assert not client.threads[previous].inputs and not client.threads[current].inputs
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("language", ["en", "zh"])
-async def test_pa_memory_path_reaches_codex_without_snapshotting_contents(system, language):
-    agent, _, _, _ = system
-    context = agent.app_context
-    context.app_config.language = language
-    context.components["agent_wrapper"] = {"default": agent}
-    memory = agent.workspace_path / "digest/personal/REME_MEMORY.md"
-    memory.parent.mkdir(parents=True)
-    memory.write_text("# Preferences\n- Use Chinese.\n", encoding="utf-8")
-    session_id = (await PaNewSessionStep(app_context=context)()).answer
-    client = _Codex.instances[0]
-    prompt = client.opened[-1][2]["developer_instructions"]
-    assert str(memory) in prompt and str(agent.workspace_path) in prompt
-    assert "Use Chinese." not in prompt
-    assert ("先读取最新完整文件" if language == "zh" else "Read the complete current file") in prompt
-    assert ("立即删除对应记忆" if language == "zh" else "Immediately remove memories") in prompt
-    assert (
-        "不从旧会话或摘要中恢复" if language == "zh" else "restore them from old conversations or summaries"
-    ) in prompt
-    assert not client.threads[session_id].inputs
-    memory.write_text("# Preferences\n- Use English.\n", encoding="utf-8")
-    for _ in range(2):
-        response = await PaChatStep(app_context=context)(query="hello", stream_queue=asyncio.Queue())
-        assert response.success
-    assert all(options["developer_instructions"] == prompt for _, _, options in client.opened)
-    await PaNewSessionStep(app_context=context)()
-    assert client.opened[-1][2]["developer_instructions"] == prompt
-    assert memory.read_text(encoding="utf-8") == "# Preferences\n- Use English.\n"
 
 
 @pytest.mark.asyncio
@@ -971,7 +939,7 @@ def test_process_options_must_be_configured_on_server(name):
 
 def test_server_config_authentication_environment_and_home(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), environment={"CUSTOM": "preserved"})
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         name="one",
         app_context=context,
         auth_mode="api_key",
@@ -986,16 +954,16 @@ def test_server_config_authentication_environment_and_home(tmp_path):
     assert 'model_providers.reme.base_url="https://proxy.test/v1"' in config.config_overrides
     assert "model_providers.reme.requires_openai_auth=true" in config.config_overrides
     assert "model_providers.reme.supports_websockets=false" in config.config_overrides
-    oauth = CodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
-    assert CodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
-    assert CodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
+    oauth = SdkCodexAppServer(app_context=context, auth_mode="oauth", api_key="ignored", base_url="ignored")
+    assert SdkCodexAppServer(codex_home="~/.codex").session_path == Path.home() / ".codex"
+    assert SdkCodexAppServer(app_context=context, codex_home="other-home").session_path == tmp_path / "other-home"
     assert oauth._client_config().config_overrides == ('forced_login_method="chatgpt"',)
     with pytest.raises(ValueError, match="requires a non-empty"):
-        CodexAppServer(app_context=context, auth_mode="api_key")._client_config()
+        SdkCodexAppServer(app_context=context, auth_mode="api_key")._client_config()
 
 
 def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(tmp_path):
-    server = CodexAppServer(
+    server = SdkCodexAppServer(
         app_context=ApplicationContext(workspace_dir=str(tmp_path)),
         auth_mode="api_key",
         api_key="key",
@@ -1011,14 +979,14 @@ def test_custom_provider_websocket_support_and_explicit_overrides_are_preserved(
 def test_server_materializes_model_catalog_inside_its_private_home(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path))
     catalog = {"models": [{"slug": "main", "auto_review_model_override": "reviewer"}, {"slug": "reviewer"}]}
-    server = CodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
+    server = SdkCodexAppServer(name="catalog", app_context=context, model_catalog=catalog)
     config = server._client_config()
     path = server.session_path / "reme-model-catalog.json"
     assert json.loads(path.read_text(encoding="utf-8")) == catalog
     assert f"model_catalog_json={json.dumps(str(path))}" in config.config_overrides
     assert path.is_relative_to(tmp_path)
     with pytest.raises(ValueError, match="not both"):
-        CodexAppServer(
+        SdkCodexAppServer(
             app_context=context,
             model_catalog=catalog,
             config_overrides=['model_catalog_json="external.json"'],
@@ -1271,7 +1239,7 @@ async def test_replaced_runtime_uses_loopback_when_its_gateway_is_not_mounted(tm
         components={"codex_app_server": {"default": {"backend": "sdk"}}},
     )
     app.context.service.build_service(app)
-    replacement = CodexAppServer(app_context=app.context)
+    replacement = SdkCodexAppServer(app_context=app.context)
     app.context.service.service.mount("/assets", app=ScopedMCP())
     listen = AsyncMock(return_value="http://127.0.0.1:1234/local")
     monkeypatch.setattr(replacement.jobs_mcp, "listen", listen)
@@ -1644,7 +1612,7 @@ async def test_fork_model_override_preserves_source_and_wrapper_defaults(system)
     native = _Codex.instances[0]
     assert native.opened[-1][2]["model"] == "task-model"
     assert native.threads[forked["session_id"]].options[-1]["model"] == "task-model"
-    assert server._threads[source["session_id"]].options["model"] == "chat-model"
+    assert server._threads[source["session_id"]].turn_options["model"] == "chat-model"
     assert second.kwargs["model"] == "wrapper-default"
 
 
@@ -1656,8 +1624,7 @@ async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, mon
         await first.reply("source", model="source-model", system_prompt="Source instructions.", effort="high")
     )["session_id"]
     native = _Codex.instances[0]
-    settings = server._message_path(source_id).with_suffix(".config.jsonl")
-    original_settings = settings.read_bytes()
+    original_settings = dict(server._threads[source_id].turn_options)
     changes = {"model": "rejected-model", "system_prompt": "Rejected instructions.", "effort": "low"}
     if failure == "binding":
         changes["job_tools"] = ["search"]
@@ -1670,9 +1637,16 @@ async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, mon
         with pytest.raises(expected):
             await first.reply("must not execute", resume=source_id, **changes)
     assert native.threads[source_id].inputs == ["source"]
-    assert settings.read_bytes() == original_settings
+    assert server._threads[source_id].turn_options == original_settings
 
-    fork = await second.reply("fork", resume=source_id, fork_session=True)
+    fork = await second.reply(
+        "fork",
+        resume=source_id,
+        fork_session=True,
+        model="source-model",
+        system_prompt="Source instructions.",
+        effort="high",
+    )
     assert native.opened[-1][2]["model"] == "source-model"
     assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
     assert native.threads[fork["session_id"]].options[-1]["effort"].value == "high"
@@ -1682,143 +1656,23 @@ async def test_rejected_resume_preserves_settings_for_retry_and_fork(system, mon
 
 
 @pytest.mark.asyncio
-async def test_saved_thread_config_is_detached_from_mutable_call_options(system):
-    first, second, server, _ = system
+async def test_live_thread_settings_are_detached_from_mutable_call_options(system):
+    first, second, _server, _ = system
     config = {"shell_environment_policy": {"set": {"ORIGINAL": "before"}}}
     source_id = (await first.reply("source", config=config))["session_id"]
-    settings = server._message_path(source_id).with_suffix(".config.jsonl").read_bytes()
+    native = _Codex.instances[0]
+    source_config = native.opened[0][2]["config"]
     config["shell_environment_policy"]["set"]["ORIGINAL"] = "after"
 
-    await second.reply("fork", resume=source_id, fork_session=True)
-    native = _Codex.instances[0]
+    assert source_config["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
+    await second.reply(
+        "fork",
+        resume=source_id,
+        fork_session=True,
+        config={"shell_environment_policy": source_config["shell_environment_policy"]},
+    )
     assert native.opened[-1][2]["config"]["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
-    assert server._message_path(source_id).with_suffix(".config.jsonl").read_bytes() == settings
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("restore", ["loaded", "unloaded", "restart"])
-@pytest.mark.parametrize("caller", [None, "temporary"])
-async def test_fork_inherits_source_instructions_tools_and_turn_settings(system, restore, caller):
-    from openai_codex import Sandbox
-    from openai_codex.types import ReasoningEffort
-
-    first, second, server, job = system
-    instructions = "Original\u2028instructions\u2029preserved."
-    original = await first.reply(
-        "source work",
-        system_prompt=instructions,
-        model="original-model",
-        effort="high",
-        sandbox="read-only",
-        personality="friendly",
-        job_tools=[job.name],
-        injected_job_kwargs={"_allowed_paths": ["original.md"], "pa_caller": "chat"},
-        config={"mcp_servers": {"external": {"url": "https://example.test/mcp"}}},
-    )
-    source_id = original["session_id"]
-    source_token = server._threads[source_id].token
-    source_tools = server.jobs_mcp.scopes[source_token]
-    settings_path = server._message_path(source_id).with_suffix(".config.jsonl")
-    assert source_token not in settings_path.read_text()
-    native = _Codex.instances[0]
-    if restore != "loaded":
-        native.loaded.clear()
-    if restore == "restart":
-        server._threads.clear()
-        server.jobs_mcp.scopes.clear()
-    second.kwargs.update(system_prompt="Other instructions.", model="other-model", effort="low", job_tools=[])
-
-    overrides = {} if caller is None else {"injected_job_kwargs": {"pa_caller": caller}}
-    forked = await second.reply("Only summarize.", resume=source_id, fork_session=True, **overrides)
-
-    assert forked["session_id"] != source_id and native.threads[source_id].inputs == ["source work"]
-    assert native.threads[forked["session_id"]].inputs == ["Only summarize."]
-    operation, parent, options = native.opened[-1]
-    assert operation == "fork" and parent == source_id
-    assert options["developer_instructions"] == instructions
-    assert options["model"] == "original-model" and options["sandbox"] == Sandbox.read_only
-    assert options["config"]["personality"] == "friendly"
-    assert options["config"]["mcp_servers"]["external"]["url"] == "https://example.test/mcp"
-    fork_token = server._threads[forked["session_id"]].token
-    assert fork_token != source_token
-    tools = server.jobs_mcp.scopes[fork_token]
-    assert [(tool.name, tool.description, tool.parameters) for tool in tools] == [
-        (tool.name, tool.description, tool.parameters) for tool in source_tools
-    ]
-    await tools[0].fn(query="read")
-    assert job.calls[-1]["_allowed_paths"] == ["original.md"]
-    assert job.calls[-1]["pa_caller"] == (caller or "chat")
-    await source_tools[0].fn(query="source")
-    assert job.calls[-1]["pa_caller"] == "chat"
-    assert native.threads[forked["session_id"]].options[-1]["effort"] == ReasoningEffort.high
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("replacement", ["disabled", BackgroundJob, StreamJob])
-async def test_fork_revalidates_inherited_job_tools(system, replacement):
-    first, second, server, job = system
-    source_id = (await first.reply("source", job_tools=[job.name]))["session_id"]
-    token = server._threads[source_id].token
-    if replacement == "disabled":
-        job.enabled = False
-        error, match = ValueError, "enabled"
-    else:
-        first.app_context.jobs[job.name] = replacement(name=job.name)
-        error, match = TypeError, "non-stream"
-    with pytest.raises(error, match=match):
-        await second.reply("fork", resume=source_id, fork_session=True)
-    assert set(server.jobs_mcp.scopes) == {token}
-    assert _Codex.instances[0].opened[-1][0] != "fork"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("restore", ["live", "persisted", "restart"])
-async def test_fork_of_unstarted_session_preserves_source_options_and_tools(system, monkeypatch, restore):
-    from openai_codex.types import ReasoningEffort, ReasoningSummary
-
-    first, second, server, job = system
-    source_id = await first.create_session(
-        system_prompt="Source instructions.",
-        model="source-model",
-        effort="high",
-        summary="auto",
-        job_tools=[job.name],
-        injected_job_kwargs={"_allowed_paths": ["source.md"]},
-    )
-    native = _Codex.instances[0]
-    source = native.threads[source_id]
-    source.path = str(server.session_path / "sessions" / "source.jsonl")
-    persisted = restore != "live"
-    if persisted:
-        Path(source.path).parent.mkdir(parents=True, exist_ok=True)
-        Path(source.path).write_text("", encoding="utf-8")
-    if restore == "restart":
-        server._threads.clear()
-        server.jobs_mcp.scopes.clear()
-        native.loaded.clear()
-    fork = AsyncMock(
-        wraps=native.thread_fork,
-        side_effect=None if persisted else RuntimeError("no rollout found for thread id"),
-    )
-    monkeypatch.setattr(native, "thread_fork", fork)
-    second.kwargs.update(system_prompt="Unrelated instructions.", model="other-model", job_tools=[])
-
-    reply = await second.reply("Prepare context.", resume=source_id, fork_session=True)
-
-    assert reply["status"] == "completed" and reply["session_id"] != source_id
-    assert source.inputs == []
-    if restore != "restart":
-        assert server._threads[source_id].pending is source
-    assert source_id not in native.unsubscribed
-    assert native.opened[-1][0] == ("fork" if persisted else "start")
-    assert native.opened[-1][2]["developer_instructions"] == "Source instructions."
-    assert native.opened[-1][2]["model"] == "source-model"
-    assert native.threads[reply["session_id"]].options[-1]["effort"] == ReasoningEffort.high
-    assert native.threads[reply["session_id"]].options[-1]["summary"] == ReasoningSummary("auto")
-    assert fork.await_count == int(persisted)
-    token = server._threads[reply["session_id"]].token
-    await server.jobs_mcp.scopes[token][0].fn(query="read")
-    assert job.calls[-1]["_allowed_paths"] == ["source.md"]
+    assert source_config["shell_environment_policy"]["set"] == {"ORIGINAL": "before"}
 
 
 @pytest.mark.asyncio
@@ -2015,7 +1869,7 @@ async def test_fork_normalizes_an_explicit_output_schema_without_mutating_defaul
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["read_session", "get_session_status", "append_session"])
+@pytest.mark.parametrize("operation", ["read_session", "get_session_status"])
 @pytest.mark.parametrize("at_start", [False, True])
 @pytest.mark.parametrize("error_kind", ["transport", "busy", "invalid", "cancelled"])
 async def test_session_requests_normalize_only_recoverable_sdk_errors(
@@ -2037,46 +1891,13 @@ async def test_session_requests_normalize_only_recoverable_sdk_errors(
     error = errors[error_kind]
     target, name = (first, "start") if at_start else (server, operation)
     monkeypatch.setattr(target, name, AsyncMock(side_effect=error))
-    kwargs = {"content": "result", "message_id": "one"} if operation == "append_session" else {}
     expected = ConnectionError if error_kind in {"transport", "busy"} else type(error)
     with pytest.raises(expected) as caught:
-        await getattr(first, operation)("session-1", **kwargs)
+        await getattr(first, operation)("session-1")
     if expected is ConnectionError:
         assert caught.value.__cause__ is error
     else:
         assert caught.value is error
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("role", ["assistant", "user"])
-async def test_wrapper_forwards_message_policy_and_turn_guard(system, monkeypatch, role):
-    from reme.schema import SessionMessage
-
-    first, _second, server, _job = system
-    message = SessionMessage(id="one", role=role, content="result", delivery="immediate")
-    append = AsyncMock(return_value=message)
-    monkeypatch.setattr(server, "append_session", append)
-    assert (
-        await first.append_session(
-            "session-1",
-            "result",
-            message_id="one",
-            role=role,
-            timeout=7,
-            expected_turn_id="turn-1",
-            delivery="immediate",
-        )
-        == message
-    )
-    append.assert_awaited_once_with(
-        "session-1",
-        "result",
-        message_id="one",
-        role=role,
-        timeout=7,
-        expected_turn_id="turn-1",
-        delivery="immediate",
-    )
 
 
 @pytest.mark.asyncio
@@ -2094,7 +1915,7 @@ async def test_output_schema_applies_only_to_its_invocation(system, continuation
         server._threads.clear()
         server.jobs_mcp.scopes.clear()
         native.loaded.clear()
-    options = {"session_id": source_id, "fork_session": continuation == "fork"}
+    options = {"session_id": source_id, "fork_session": continuation == "fork", "effort": "high"}
     if streaming:
         chunks = [chunk async for chunk in first.reply_stream("plain handoff", **options)]
         result = chunks[-1].chunk
@@ -2105,8 +1926,7 @@ async def test_output_schema_applies_only_to_its_invocation(system, continuation
     actual = native.threads[result["session_id"]].options[-1]
     assert actual["output_schema"] is None
     assert actual["effort"] == ReasoningEffort.high
-    saved = json.loads(server._message_path(result["session_id"]).with_suffix(".config.jsonl").read_text())
-    assert "output_schema" not in saved["turn_options"]
+    assert "output_schema" not in server._threads[result["session_id"]].turn_options
 
 
 @pytest.mark.asyncio
@@ -2134,8 +1954,74 @@ async def test_empty_session_retains_turn_settings_before_its_first_reply(system
     state = server._threads[source_id]
     assert not _Codex.instances[0].threads[source_id].inputs
     assert state.turn_options["effort"] == ReasoningEffort.high
-    saved = json.loads(server._message_path(source_id).with_suffix(".config.jsonl").read_text())
-    assert saved["turn_options"]["effort"] == "high"
+    assert not (server.workspace_path / "session" / "proactive").exists()
     await first.reply("first query", session_id=source_id)
     actual = _Codex.instances[0].threads[source_id].options[-1]
     assert actual["effort"] == ReasoningEffort.high and actual["summary"] == ReasoningSummary("auto")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart", [False, True])
+@pytest.mark.parametrize("fork", [False, True])
+async def test_sessions_use_current_configuration_without_sidecar_files(system, restart, fork):
+    first, second, server, job = system
+    source_id = (
+        await first.reply(
+            "source",
+            model="old-model",
+            effort="low",
+            job_tools=[job.name],
+            injected_job_kwargs={"_agent_id": "main"},
+        )
+    )["session_id"]
+    sidecars = server.workspace_path / "session" / "proactive"
+    assert not sidecars.exists()
+    native = _Codex.instances[0]
+    if restart:
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+        native.loaded.clear()
+    second.kwargs.update(
+        model="current-model",
+        system_prompt="Current instructions.",
+        effort="high",
+        job_tools=[job.name],
+        injected_job_kwargs={"_agent_id": "main"},
+    )
+    result = await second.reply("continue", resume=source_id, fork_session=fork)
+    assert result["status"] == "completed"
+    assert native.opened[-1][2]["model"] == "current-model"
+    assert native.opened[-1][2]["developer_instructions"] == "Current instructions."
+    assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
+    token = server._threads[result["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="memory")
+    assert job.calls[-1]["_agent_id"] == "main"
+    assert not sidecars.exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restore", ["live", "persisted", "restart"])
+async def test_empty_source_fork_uses_current_configuration(system, restore):
+    first, second, server, job = system
+    source_id = await first.create_session(model="old-model", effort="low")
+    native = _Codex.instances[0]
+    source = native.threads[source_id]
+    source.path = str(server.session_path / "sessions" / "source.jsonl")
+    if restore != "live":
+        Path(source.path).parent.mkdir(parents=True, exist_ok=True)
+        Path(source.path).write_text("", encoding="utf-8")
+    if restore == "restart":
+        server._threads.clear()
+        server.jobs_mcp.scopes.clear()
+        native.loaded.clear()
+    second.kwargs.update(model="current-model", effort="high", job_tools=[job.name])
+    result = await second.reply("fork", resume=source_id, fork_session=True)
+    assert result["status"] == "completed" and result["session_id"] != source_id
+    assert source.inputs == []
+    assert native.opened[-1][0] == ("start" if restore == "live" else "fork")
+    assert native.opened[-1][2]["model"] == "current-model"
+    assert native.threads[result["session_id"]].options[-1]["effort"].value == "high"
+    token = server._threads[result["session_id"]].token
+    await server.jobs_mcp.scopes[token][0].fn(query="memory")
+    assert job.calls[-1]["query"] == "memory"
+    assert not (server.workspace_path / "session" / "proactive").exists()

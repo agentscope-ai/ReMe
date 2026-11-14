@@ -10,7 +10,7 @@ from ....components import R
 class ScreenCaptureStep(BaseConnectorStep):
     """Collect one PNG per display; a failed display aborts the whole package."""
 
-    source = "screen"
+    source = "screenshot"
     description = (
         "Screenshots of all displays from one collection. Read every listed image together to understand "
         "the user's activity at the recorded time. Display IDs are enumeration numbers for this collection. "
@@ -25,7 +25,7 @@ class ScreenCaptureStep(BaseConnectorStep):
             raise RuntimeError("Screen capture requires mss; install reme-ai[core]") from exc
 
         files = []
-        with mss.mss() as capture:
+        with mss.MSS() as capture:
             monitors = capture.monitors[1:]
             if not monitors:
                 raise RuntimeError("No displays available for screen capture")

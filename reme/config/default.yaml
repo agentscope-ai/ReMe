@@ -295,22 +295,6 @@ jobs:
       - backend: session_status_step
         agent_wrapper: default
 
-  session_append:
-    backend: base
-    description: "Append a user or assistant message without inference once idle; retry with the same message_id."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-        message_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "stable retry/idempotency identifier"}
-        content: {type: string, minLength: 1, maxLength: 100000}
-        role: {type: string, enum: [user, assistant], default: assistant}
-        wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
-      required: [session_id, message_id, content]
-    steps:
-      - backend: session_append_step
-        agent_wrapper: default
-
   app_config:
     backend: base
     description: "return the effective application config with secrets redacted"
@@ -1076,8 +1060,8 @@ components:
 #    default:
 #      backend: local
 #      directory: event_stream
-#      segment_max_events: 1000
-#      max_segments: 10  # Paired event/receipt segments; unconsumed events are never evicted.
+#      # events_unread.jsonl stores pending inputs; events_read.jsonl stores consumed batches.
+#      max_read_events: 1000  # Unread inputs are never evicted; trim oldest consumed batches.
 
   file_chunker:
     markdown:

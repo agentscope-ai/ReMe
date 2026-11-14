@@ -70,7 +70,9 @@ reme/
     as_llm/, as_embedding/   # 模型封装
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
-    codex_app_server.py      # 共享 Codex 进程与会话锁
+    codex_app_server/        # BaseCodexAppServer / SDK 后端 / 共享会话生命周期
+    event_stream/            # BaseEventStream / 本地与 Agent 存储后端
+    agent_runtime/           # BaseAgentRuntime / 本地 Agent 协调
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps
     common/                  # version、help、health_check、status、chat
@@ -569,22 +571,23 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
-传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的指令、模型、turn 设置和 job 工具。
-只有显式调用参数会覆盖这些设置，调用方 wrapper 的默认值不会覆盖。有效设置以 `.config.jsonl` 保存在会话消息
-记录旁，不保存自动生成的 MCP 凭据，卸载或重启后仍可恢复。来源为空且尚无原生 rollout 时，创建使用相同设置的
-独立 thread。
-原生会话准备被拒绝或取消时，保留之前有效的设置和工具绑定。
+传入 `fork_session=True` 和 `resume` 或 `session_id`，可继承来源会话的原生上下文。
+模型、指令、turn 设置和 job 工具由当前 wrapper 配置与调用参数提供；重启后重新从应用配置和 Step 构造，
+不再保存或读取 `session/proactive/` 下的会话配置快照。来源为空且尚无原生 rollout 时，创建使用当前配置的独立 thread。
+原生会话准备被拒绝或取消时，保留之前有效的运行中设置和工具绑定。
 
-`create_session()` 在首次查询前就保存 `effort` 等 turn 设置，后续 fork 也会继承。
-`output_schema` 只作用于本次调用，不保存或继承到会话。普通调用省略时使用调用方 wrapper 的默认值；
-显式传 `None` 仅在本次调用关闭该默认值。
+`create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
+`output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
 
-`CodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
+主动提醒通过收件箱读取，再由 Chat 正常回复；Codex 不再提供追加消息接口或保存应用追加消息副本。
+`reme_agents/` 保存 Agent 配置、记忆、会话 ID 和收件箱引用；恢复完整对话与提醒还需要原生会话历史和提醒源文件。
+
+`BaseCodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
 会话监听器也会收到这些事件；turn 完成、失败或取消时结束活动。
-三个 wrapper 均支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
+AgentScope 和 Claude Code wrapper 支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
 `append_session(..., delivery="idle" | "immediate")` 在消息中保留展示策略与来源会话；两种策略都等待原生会话
-空闲后再注入。Codex 读取会话、查询状态和追加消息时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
+空闲后再注入。Codex 读取会话、查询状态时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
 
 Claude Code 使用原生流式输入和零推理回执保存追加消息。
 `{mem_session_dir}/claude_sessions/<UUID>.json` 保留原生存储位置、来源及跨重启的重试标识，继续支持显式配置
@@ -593,11 +596,10 @@ Claude Code 使用原生流式输入和零推理回执保存追加消息。
 `continue_conversation=True` 先定位当前项目最近的主会话，再获取它的会话锁；外部 `session_store` 同样支持，
 没有历史会话时创建新会话。
 
-`session_read`、`session_status` 和 `session_append` Job 使用各自 Step 配置中指定的 wrapper。
+`session_read` 和 `session_status` Job 使用各自 Step 配置中指定的 wrapper。
 先通过 `reme start config=default` 启动服务，再在另一个终端调用：
 
 ```bash
-reme session_append session_id=YOUR_SESSION_ID message_id=note-1 role=user content="补充上下文"
 reme session_read session_id=YOUR_SESSION_ID
 reme session_status session_id=YOUR_SESSION_ID
 ```

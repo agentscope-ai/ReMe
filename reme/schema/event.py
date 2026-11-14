@@ -1,4 +1,4 @@
-"""Immutable observations; consumption receipts are stored separately."""
+"""Immutable observations and durable batch consumption receipts."""
 
 from pathlib import PurePosixPath, PureWindowsPath
 from uuid import uuid4
@@ -41,9 +41,10 @@ class Event(BaseModel):
 
 
 class EventConsumption(BaseModel):
-    """One durable acknowledgement of a batch within a single log segment."""
+    """One durable acknowledgement of a consumed event batch."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     event_ids: list[str] = Field(min_length=1)
     consume_ts: AwareDatetime
+    metadata: dict[str, JsonValue] = Field(default_factory=dict)

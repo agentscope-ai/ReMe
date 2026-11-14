@@ -26,6 +26,8 @@ class ComponentEnum(str, Enum):
 
     EVENT_STREAM = "event_stream"
 
+    AGENT_RUNTIME = "agent_runtime"
+
     KEYWORD_INDEX = "keyword_index"
 
     TAG_INDEX = "tag_index"

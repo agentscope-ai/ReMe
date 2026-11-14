@@ -1,20 +1,26 @@
-"""Steps for the application-owned proactive agent."""
+"""Chat and proactive agents sharing application-owned runtime infrastructure."""
 
-from . import data_connectors, tools
-from .pa import PaChatStep, PaNewSessionStep, PaSessionStep
-from .events import PaEventsStep
-from .find_interest import FindInterestStep
-from .loop import PaLoopStep
-from .push_interest import PushInterestStep
+from . import agent, background, data_connectors, tools
+from .agent import (
+    BaseAgentStep,
+    ChatAgentStep,
+    InboxChatStep,
+    ListChatSessionsStep,
+    NewChatSessionStep,
+    ProactiveAgentStep,
+    ProactiveQueryStep,
+)
 
 __all__ = [
-    "FindInterestStep",
-    "PaChatStep",
-    "PaEventsStep",
-    "PaLoopStep",
-    "PaNewSessionStep",
-    "PaSessionStep",
-    "PushInterestStep",
+    "BaseAgentStep",
+    "ChatAgentStep",
+    "InboxChatStep",
+    "ListChatSessionsStep",
+    "NewChatSessionStep",
+    "ProactiveAgentStep",
+    "ProactiveQueryStep",
+    "agent",
+    "background",
     "data_connectors",
     "tools",
 ]

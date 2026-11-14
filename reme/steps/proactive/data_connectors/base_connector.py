@@ -5,13 +5,14 @@ from abc import abstractmethod
 from contextlib import suppress
 from datetime import datetime
 from pathlib import Path
+import re
 from tempfile import TemporaryDirectory
 from threading import Event
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from ...base_step import BaseStep
-from ...file_io._path import _check_path_permission, resolve_path
+from ...file_io import check_path_permission, resolve_path
 from ....schema import ApplicationConfig, ResourceMetadata
 from ....utils.async_utils import finish_cleanup
 
@@ -26,18 +27,24 @@ class BaseConnectorStep(BaseStep):
     def collect(self, directory: Path) -> list[dict]:
         """Write payloads into the private directory; raise if any collection fails."""
 
-    async def execute(self):
-        assert self.context is not None
+    def resource_target(self) -> tuple[Path, datetime]:
+        """Validate the destination before collection or any external I/O."""
         config = self.app_context.app_config if self.app_context else ApplicationConfig()
         workspace = self.workspace_path.resolve()
         root, error = resolve_path(workspace, config.resource_dir)
         if error or root == workspace or (workspace / config.resource_dir).absolute() != root:
             raise ValueError(error or "resource_dir must stay inside the workspace without symlinks")
+        if not re.fullmatch(r"[a-z][a-z0-9_-]*", self.source):
+            raise ValueError("resource source must be a lowercase directory name")
         now = datetime.now(ZoneInfo(config.timezone)) if config.timezone else datetime.now().astimezone()
-        target = root / now.date().isoformat() / uuid4().hex
-        if not _check_path_permission(workspace, target, self.context.get("_allowed_paths")):
+        target = root / self.source / now.date().isoformat() / f"{now:%H%M%S}_{uuid4().hex[:6]}"
+        if not check_path_permission(workspace, target, self.context.get("_allowed_paths")):
             raise PermissionError("no permission to write this resource package")
+        return target, now
 
+    async def execute(self):
+        assert self.context is not None
+        target, now = self.resource_target()
         cancelled = Event()
         task = asyncio.create_task(asyncio.to_thread(self._collect_and_publish, target, now, cancelled))
         try:

@@ -1,15 +1,13 @@
 """ReMe tools available to proactive agents."""
 
-from .resource_changes import ResourceChangesStep
-from .resource_processed import ResourceProcessedStep
-from .send_reminder import SendReminderStep
-from .session_status import SessionStatusStep
-from .set_next_wakeup import SetNextWakeupStep
+from .manage_proactive_agent import ManageProactiveAgentStep
+from .append_event import AppendEventStep
+from .manage_inbox import ManageInboxStep
+from .web_extract import WebExtractStep
 
 __all__ = [
-    "ResourceChangesStep",
-    "ResourceProcessedStep",
-    "SendReminderStep",
-    "SessionStatusStep",
-    "SetNextWakeupStep",
+    "ManageProactiveAgentStep",
+    "AppendEventStep",
+    "ManageInboxStep",
+    "WebExtractStep",
 ]

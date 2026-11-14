@@ -31,7 +31,7 @@ def test_task_activity_requires_a_run_identity_and_keeps_it_through_phase_change
     [
         ({"chunk_type": "think", "chunk": "reason"}, "thinking"),
         ({"chunk_type": "content", "chunk": "answer"}, "answering"),
-        ({"chunk_type": "tool_call", "tool_call_name": "read_proactive_inbox"}, "remembering"),
+        ({"chunk_type": "tool_call", "tool_call_name": "manage_inbox"}, "remembering"),
         ({"chunk_type": "tool_call", "tool_call_name": "web_search"}, "working"),
         ({"chunk_type": "tool_result", "status": "running"}, "working"),
         ({"chunk_type": "tool_result", "status": "failed"}, "thinking"),

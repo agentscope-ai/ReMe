@@ -1,210 +1,216 @@
-# Studio workspace with MCP and a full-access Codex chat agent using API-key authentication.
-# Set LLM_API_KEY / LLM_BASE_URL (and optionally CODEX_MODEL_NAME) for chat.
-# Custom LLM_BASE_URL endpoints must support the Responses API.
+# LocalAgentRuntime with Chat and Proactive Agent steps; Studio integration is separate.
 # Start: reme start config=proactive
-# Open: http://127.0.0.1:2333
-# Temporary assets: resource/YYYY-MM-DD/...; keep permanent assets outside resource/.
-# The watcher reports changes; only resource_processed confirms consumption. TTL takes precedence.
-# Resource packages are discovered only through metadata.json; screen capture runs every 15 minutes.
-
+# Then: reme manage_proactive_agent action=list
+# Configure LLM_API_KEY, LLM_BASE_URL and optionally CODEX_MODEL_NAME.
+# Collectors are opt-in. Input files are retained; no automatic resource deletion.
 language: zh
+reme_agent_dir: reme_agents
 
 service:
   backend: http
-  web_enabled: true
+  web_enabled: false
   mcp_enabled: true
-  timeout_graceful_shutdown: 5  # Cancel open subscriptions before application shutdown.
 
 jobs:
+  chat:
+    backend: stream
+    description: "Chat with the fixed main Agent using its current session."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        query: {type: string, minLength: 1}
+      required: [query]
+    steps:
+      - &main_chat
+        backend: chat_agent_step
+        job_tools: [manage_proactive_agent, manage_inbox, web_extract]
+
+  inbox_chat:
+    backend: base
+    enable_serve: false
+    steps:
+      - <<: *main_chat
+        backend: inbox_chat_step
+
+  new_chat_session:
+    backend: base
+    description: "Create and select an empty main session; retain all previous session IDs."
+    parameters: {type: object, additionalProperties: false, properties: {}}
+    steps:
+      - <<: *main_chat
+        backend: new_chat_session_step
+
+  list_chat_sessions:
+    backend: base
+    description: "Global main Chat history, newest first. Pure query; cold listing never creates sessions."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        offset: {type: integer, minimum: 0, default: 0}
+        limit: {type: integer, minimum: 1, default: 10}
+    steps:
+      - backend: list_chat_sessions_step
+
   screen_capture_cron:
     backend: cron
-    cron: "*/15 * * * *"  # Next quarter-hour in the application timezone; no startup capture.
+    enabled: false
+    cron: "*/15 * * * *"
+    # Enable this collector to publish observations to the work Agent.
+    agent_id: work
     steps:
       - backend: screen_capture_step
+      - backend: resource_event_step
 
-  resource_watch_loop:
-    backend: background
-    file_catalog: resource
-    steps:
-      - backend: watch_changes_step
-        dispatch_steps: [log_changes_step]
-
-  resource_changes:
+  manage_proactive_agent:
     backend: base
     description: >-
-      List workspace-relative metadata.json paths of existing, unexpired resources added or modified since last processed;
-      read-only.
+      Manage named proactive agents: list/create/status/update/delete/query.
+      Before create, call list and inspect relevant tasks with status; reuse or update a matching task.
+      Choose a short, meaningful English name, unique regardless of letter case, such as experiment_monitor or market_digest.
+      Create config requires name (the immutable agent_id), description and trigger_type (cron or event).
+      description initializes MEMORY.md at creation; edit task requirements and background in the returned memory_path.
+      main and tmp are reserved. Same-name creation restores a deleted Agent and retains its existing memory and history.
+      list/update return execution settings, status and memory_path without memory bodies.
+      create/status also return memory_content and memory_truncated.
+      If memory_truncated is true, read the complete file before editing. Configuration file paths are not returned.
+      Before modifying or deleting a task, use status to inspect its current requirements and progress.
+      update accepts execution settings only; it does not accept description or change task memory.
+      cron requires a cron expression; event accepts min_trigger_interval_seconds.
+      Optional config: temporary, enabled, notify_window {start,end} in HH:MM.
+      Cron tasks have web access; event tasks use incoming observations and local files.
+      Temporary is independent of trigger_type; idle agents are collected after seven days without new inputs.
+      query forks the agent session for a temporary read-only answer.
     parameters:
       type: object
-      properties:
-        limit: {type: integer, minimum: 1, default: 20, description: "Maximum number of changed resource paths to return"}
       additionalProperties: false
+      properties:
+        action: {type: string, enum: [list, create, status, update, delete, query]}
+        agent_id: &agent_id
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: '^[\w-]+$'
+          description: "Immutable Agent creation name."
+        config:
+          type: object
+          additionalProperties: false
+          properties:
+            name: {<<: *agent_id, description: "Short, meaningful English name, unique regardless of case; immutable agent_id. main and tmp are reserved."}
+            description: {type: string, minLength: 1, maxLength: 100000, description: "Create only: initial task requirements and background for MEMORY.md."}
+            trigger_type: {type: string, enum: [cron, event]}
+            enabled: {type: boolean}
+            temporary: {type: boolean, default: false}
+            cron: {type: [string, "null"]}
+            min_trigger_interval_seconds: {type: number, minimum: 0}
+            notify_window:
+              type: [object, "null"]
+              properties:
+                start: {type: string}
+                end: {type: string}
+              required: [start, end]
+              additionalProperties: false
+        query: {type: string}
+      required: [action]
     steps:
-      - backend: resource_changes_step
-        file_catalog: resource
+      - backend: manage_proactive_agent_step
 
-  resource_processed:
+  web_extract:
     backend: base
-    description: "Mark immutable resource packages as successfully processed by metadata.json paths; returns a boolean."
+    description: >-
+      Read a known HTTP(S) URL (text or PDF, up to 20 MiB by default). Save complete files under resource_dir;
+      return workspace-relative paths, source metadata and a bounded text preview. Read saved files for full content.
+      HTML source is preserved without executing JavaScript. PDFs are downloaded without text extraction.
     parameters:
       type: object
       additionalProperties: false
       properties:
-        paths:
+        url: {type: string, minLength: 1, maxLength: 4096, description: "HTTP or HTTPS URL to read"}
+        max_chars:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 3000
+          description: "Preview character limit; also bounded by the tool output budget"
+      required: [url]
+    steps:
+      - backend: web_extract_step
+
+  append_event:
+    backend: base
+    description: "Durably append observations to a named agent; source belongs to each event."
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        agent_id: *agent_id
+        events:
           type: array
-          description: "Workspace-relative metadata.json paths of successfully processed packages"
-          items: {type: string}
-      required: [paths]
+          minItems: 1
+          items:
+            type: object
+            properties:
+              id: {type: string}
+              event_ts: {type: string, format: date-time}
+              source: {type: string}
+              description: {type: string}
+              paths: {type: array, items: {type: string}}
+              metadata: {type: object}
+            required: [event_ts, source, description]
+            additionalProperties: false
+      required: [agent_id, events]
     steps:
-      - backend: resource_processed_step
-        file_catalog: resource
+      - backend: append_event_step
 
-  resource_cleanup_cron:
-    backend: cron
-    cron: "0 * * * *"  # Hourly in the application timezone; no startup cleanup.
-    file_catalog: resource
+  manage_inbox:
+    backend: base
+    description: >-
+      Read the calling Agent's inbox without changing read state, or mark selected msg_ids read.
+      read defaults to unread_only=true with no priority filter; priority optionally selects P0, P1 or P2.
+      mark_read is idempotent and means the Agent has processed the messages, not that the user has read them.
+      agent_id is bound inside Agent tools and required for external calls.
+    parameters:
+      type: object
+      additionalProperties: false
+      properties:
+        action: {type: string, enum: [read, mark_read]}
+        agent_id: *agent_id
+        priority: {type: [string, "null"], enum: [P0, P1, P2, null]}
+        unread_only: {type: boolean, default: true}
+        limit: {type: integer, minimum: 1, maximum: 100, default: 20}
+        msg_ids:
+          type: array
+          items: {type: string, pattern: '^[a-zA-Z0-9_-]{1,128}$'}
+          minItems: 1
+          maxItems: 100
+      required: [action]
     steps:
-      - backend: cleanup_catalog_step
+      - backend: manage_inbox_step
 
-  pa_loop:
-    backend: background
-    steps:
-      - backend: pa_loop_step
-        default_wakeup_minutes: &pa_wakeup_minutes 5
-
-  pa_proactive:
+  proactive_run:
     backend: base
     enable_serve: false
     track_execution: true
-    default_wakeup_minutes: *pa_wakeup_minutes
     steps:
-      - backend: find_interest_step
-        agent_wrapper: default
-      - backend: push_interest_step
-        agent_wrapper: default
+      - backend: proactive_agent_step
+        reminder_history_limit: 10
 
-  send_reminder:
+  proactive_query:
     backend: base
     enable_serve: false
-    description: "Send one contextual assistant reminder to the bound PA session and mark its interest files sent."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        message: {type: string, minLength: 1, maxLength: 100000}
-        files:
-          type: array
-          minItems: 1
-          uniqueItems: true
-          description: "Interest filenames under daily_dir, including the .md extension"
-          items: {type: string}
-      required: [message, files]
     steps:
-      - backend: send_reminder_step
-        agent_wrapper: default
+      - backend: proactive_query_step
 
-  set_next_wakeup:
-    backend: base
-    enable_serve: false
-    description: "Set only the next proactive wakeup delay in minutes; omission uses the configured default."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        minutes: {type: number, exclusiveMinimum: 0}
-      required: [minutes]
+  proactive_loop:
+    backend: background
     steps:
-      - backend: set_next_wakeup_step
+      - backend: proactive_loop_step
 
-  pa_chat:
-    backend: stream
-    description: "Stream a message through the current Codex session with workspace personal memory."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        query: {type: string, minLength: 1, description: "user message"}
-      required: [query]
+  inbox_loop:
+    backend: background
     steps:
-      - &pa_options
-        backend: pa_chat_step
-        agent_wrapper: default
-        job_tools: []
-
-  pa_events:
-    backend: stream
-    stream_queue_size: 1
-    description: "Subscribe to current PA session changes; replay a cursor or reset to a fresh snapshot."
-    parameters:
-      type: object
-      additionalProperties: false
-      properties:
-        cursor: {type: string, maxLength: 128, description: "Opaque cursor from the last applied PA event"}
-    steps:
-      - backend: pa_events_step
-        agent_wrapper: default
-
-  pa_session:
-    backend: base
-    description: "Return the current agent session ID and activity status; does not create a session."
-    parameters:
-      type: object
-      properties: {}
-      additionalProperties: false
-    steps:
-      - backend: pa_session_step
-        agent_wrapper: default
-
-  pa_new_session:
-    backend: base
-    description: "Prepare personal memory and select an empty Codex session; return its ID without generating a reply."
-    parameters:
-      type: object
-      properties: {}
-      additionalProperties: false
-    steps:
-      - <<: *pa_options
-        backend: pa_new_session_step
-
-  session_read:
-    backend: base
-    description: "Read session history, including proactive user and assistant messages."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-      required: [session_id]
-    steps:
-      - backend: session_read_step
-        agent_wrapper: default
-
-  session_status:
-    backend: base
-    description: "Inspect session activity without waiting for generation."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-      required: [session_id]
-    steps:
-      - backend: session_status_step
-        agent_wrapper: default
-
-  session_append:
-    backend: base
-    description: "Append a user or assistant message without inference once idle; retry with the same message_id."
-    parameters:
-      type: object
-      properties:
-        session_id: {type: string, description: "agent session identifier"}
-        message_id: {type: string, pattern: "^[A-Za-z0-9_-]{1,128}$", description: "stable retry/idempotency identifier"}
-        content: {type: string, minLength: 1, maxLength: 100000}
-        role: {type: string, enum: [user, assistant], default: assistant}
-        wait_timeout: {type: number, exclusiveMinimum: 0, default: 30}
-      required: [session_id, message_id, content]
-    steps:
-      - backend: session_append_step
-        agent_wrapper: default
+      - backend: inbox_loop_step
 
   app_config:
     backend: base
@@ -218,75 +224,36 @@ jobs:
     steps:
       - backend: version_step
 
-  status:
-    backend: base
-    description: "Report component memory estimates and process RSS."
-    steps:
-      - backend: status_step
-
-  health_check:
-    backend: base
-    description: "Return a concise health-check snapshot of ReMe components."
-    steps:
-      - backend: health_check_step
-
-  reindex:
-    backend: base
-    description: "Rebuild the local BM25 index from already-ingested chunks."
-    parameters:
-      type: object
-      properties:
-        scope: {type: string, enum: [all, bm25], default: all}
-    steps:
-      - backend: reindex_step
-
-  list:
-    backend: base
-    description: "List files under a workspace path."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative directory; empty = root", default: ""}
-        recursive: {type: boolean, default: false}
-        sort_by: {type: string, enum: [mtime]}
-        extensions: {type: array, items: {type: string}}
-        limit: {type: integer, default: 100}
-    steps:
-      - backend: list_step
-
-  load:
-    backend: base
-    description: "Load a complete text file for the local editor without agent-output truncation."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative path"}
-      required: [path]
-    steps:
-      - backend: load_step
-        max_bytes: 5242880
-
-  save:
-    backend: base
-    description: "Save text verbatim, optionally rejecting external changes since the file was opened."
-    parameters:
-      type: object
-      properties:
-        path: {type: string, description: "workspace-relative path"}
-        content: {type: string, description: "complete file content, including frontmatter"}
-        expected_mtime: {type: string, description: "optional ISO mtime returned by load/stat"}
-      required: [path, content]
-    steps:
-      - backend: save_step
-
 components:
-  pa:
+  event_stream:
+    default:
+      backend: agent
+  agent_runtime:
     default:
       backend: local
       agent_wrapper: default
-      max_events: 512
-      max_buffer_bytes: 4194304
-      heartbeat_seconds: 15
+      event_stream: default
+      main:
+        description: |
+          主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
+      # Initial tasks are created once; existing tasks, including deleted ones, are retained on restart.
+      agents:
+        - name: finance
+          enabled: true
+          trigger_type: cron
+          cron: "0 * * * *"
+          description: |
+            主人只关注 AI 相关的大新闻。关注 AI 领域的重要新闻，筛选值得主人了解的重大进展，说明发生了什么、为什么重要，并保留来源。
+        - name: work
+          enabled: true
+          trigger_type: event
+          description: |
+            关注主人现在正在做哪些项目，逐个跟踪项目的进度、新进展和难点，梳理需要进一步讨论的问题。
+            根据收到的资料持续更新项目情况，区分已确认的信息和待确认的问题。
+      inbox:
+        p0_delay_seconds: 0
+        p1_idle_seconds: 10
+        p2_idle_seconds: 1800
 
   codex_app_server:
     default:
@@ -358,7 +325,7 @@ components:
             truncation_policy:
               mode: bytes
               limit: 10000
-            # PA instructions come from PromptHandler.
+            # Agent context comes from PromptHandler.
             model_messages:
               instructions_template: ""
 
@@ -370,36 +337,3 @@ components:
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
       sandbox: full-access
-
-  tokenizer:
-    default:
-      backend: regex
-
-  keyword_index:
-    default:
-      backend: bm25
-      tokenizer: default
-
-  file_graph:
-    default:
-      backend: local
-
-  file_catalog:
-    resource:
-      backend: local
-      watch_dirs: [resource_dir]
-      watch_suffixes: []
-      watch_filenames: [metadata.json]
-      ttl_days: 7
-
-  file_chunker:
-    markdown:
-      backend: markdown
-      supported_extensions: [md]
-
-  file_store:
-    default:
-      backend: local
-      embedding_store: ""
-      keyword_index: default
-      file_graph: default

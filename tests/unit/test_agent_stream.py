@@ -19,7 +19,7 @@ from openai_codex.generated.v2_all import (
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_session_history import item_chunks
+from reme.components.codex_app_server._session_history import item_chunks
 from reme.components.application_context import ApplicationContext
 from reme.components.client.http_client import HttpClient
 from reme.components.runtime_context import RuntimeContext

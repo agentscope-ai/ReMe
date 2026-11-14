@@ -61,136 +61,36 @@ without changing the router.
 
 ## Resource Retention and TTL
 
-The default configuration does not automatically delete source resources. `config=proactive` uses one catalog to track
-**successfully confirmed file state** and explicitly enables this retention convention:
-
-- Store temporary resources as packages under `resource/YYYY-MM-DD/{uuid_hex}/`, discovered through `metadata.json`.
-- Keep permanent material elsewhere in the workspace, for example under `archive/`.
-- Loose root files, non-date directories, invalid dates, and date-directory symlinks are preserved by physical cleanup.
-
-Configure directories, filename filtering, and retention once on the catalog:
-Move the previous `jobs.resource_cleanup_cron.ttl_days` setting to `components.file_catalog.resource.ttl_days`.
-
-```yaml
-components:
-  file_catalog:
-    resource:
-      backend: local
-      watch_dirs: [resource_dir]
-      watch_suffixes: []
-      watch_filenames: [metadata.json]
-      ttl_days: 7
-```
-
-`watch_dirs` accepts existing application directory fields or workspace directories, such as `resource_dir`,
-`resource_dir/inbox`, and `inbox`. Scan and cleanup roots must stay inside the workspace and contain no symlinks.
-`watch_filenames` matches exact filenames. When suffix and filename filters are both configured, both must match;
-empty filters accept every file. Physical cleanup ignores file filters and deletes the entire expired date directory,
-including uncataloged images and empty directories.
-
-`resource_watch_loop` selects this scope with `file_catalog: resource`. It only watches and logs live events; it does not
-advance the catalog, call an LLM, or create daily cards. `resource_changes` scans source files on
-each call, returning existing, unexpired `metadata.json` paths added or modified since acknowledgement.
-It works without a running watcher, does not advance the catalog, and repeats unacknowledged paths. Deleted files are omitted.
-
-Start the service in one terminal:
-
-```bash
-reme start config=proactive components.file_catalog.resource.ttl_days=7
-```
-
-Query pending resources from another terminal:
-
-```bash
-reme resource_changes
-reme resource_changes limit=40
-```
-
-`answer` is a sorted list of workspace-relative path strings, capped by `limit` (a positive integer, default `20`).
-Unreturned resources remain pending. Read each manifest's `description` and `files`, process the
-whole package, then pass only successfully processed manifest paths to `resource_processed`:
-
-```bash
-reme resource_processed paths='["resource/2026-11-05/7bf0379a0c0d4bc6a436508052727dae/metadata.json"]'
-```
-
-After acknowledging a batch, call `resource_changes` again to retrieve the next batch.
-
-Both `answer` and `success` are booleans: `true` confirms the whole batch; out-of-scope, missing, non-regular, or expired
-paths and I/O failures return `false` without advancing any checkpoint in the batch. `paths` is required; an empty list
-succeeds, and repeated acknowledgement is allowed. Unselected resources remain pending.
-Both Jobs bind `file_catalog: resource` in their Step configuration and expose no catalog selector.
-
-The proactive watcher and `resource_changes` discover only files named exactly `metadata.json`; images, other JSON files,
-and loose payloads are not discovered independently. Published packages are immutable snapshots; publish updates in a new
-UUID directory. Acknowledgement records each file's current mtime without checking the version consumed, so packages must
-remain unchanged during processing. Editing or deleting a payload alone does not make its package pending again.
-Consumers must still check that listed files exist and stay inside the package. Catalog confirmation state is never
-written into resource metadata. Existing Auto Resource processing and its defaults stay unchanged.
-
-Processing state is stored in `metadata/file_catalog/resource.jsonl.zst`. To process all existing resources again,
-stop the service, back up and move aside this derived catalog, then restart. Retain the original resource files.
-
-TTL takes precedence over consumption. Calendar age in the application `timezone` determines expiry, independent of file
-mtime. On 2026-11-05 with `ttl_days: 7`, directories dated 2026-10-29 or earlier expire; 2026-10-30 and later remain.
-Expired resources immediately leave pending results and cannot be acknowledged. Every hour, `resource_cleanup_cron` asks the
-catalog to delete expired directories and matching catalog entries without waiting for processing. An in-flight consumer
-cannot restore expired entries through a late acknowledgement. `ttl_days` must be a positive integer.
-
-Cron first runs at the next hour after startup; physical deletion does not run while the service is stopped.
-`jobs.resource_cleanup_cron.enabled=false` only disables physical cleanup; `resource_changes` and `resource_processed`
-still apply the configured TTL.
-Failed deletions retain entries for directories that still exist and fail that execution; later runs retry.
-Cleanup requires descriptor-relative safe directory deletion (Linux and macOS); unsupported platforms fail without deleting files.
-See [`LocalFileCatalog`](https://github.com/agentscope-ai/ReMe/blob/main/reme/components/file_catalog/local_file_catalog.py).
-The existing `file_catalog.delete()` still removes catalog entries only.
-
-Cleanup does not rewrite other directories or references. If another configuration also enables Auto Resource, its existing
-deletion handlers still remove associated daily cards.
+The default and `proactive` configurations retain source files. A custom file catalog can use `ttl_days` and
+`cleanup_catalog_step` for dated temporary directories, but cleanup must preserve material referenced by pending
+Proactive events. The named-agent flow uses durable event acknowledgements rather than catalog processing flags.
+Permanent material should remain in user-controlled workspace paths.
 
 ## Scheduled Screen Capture
 
-With `config=proactive`, `screen_capture_cron` runs at minutes 00, 15, 30, and 45 in the application timezone.
-It does not capture immediately on startup or replay missed intervals. Install `pip install "reme-ai[core]"`,
-then start with the preceding `reme start config=proactive` command.
-Set `jobs.screen_capture_cron.enabled=false` to disable capture.
+`config=proactive` includes an opt-in `screen_capture_cron` job. Create an event agent first, configure
+`jobs.screen_capture_cron.agent_id` with its ID, and set `jobs.screen_capture_cron.enabled=true` before restarting.
+It captures every 15 minutes in the application timezone, without a startup capture.
 
-Capture observes the desktop of the host running ReMe. On macOS, grant Screen Recording permission to the actual
-running process. Missing dependencies, permissions, displays, or a graphical session fail that run without publishing
-a resource package; the next scheduled run retries. Availability depends on the local MSS backend.
-
-Under `reme/steps/proactive/data_connectors/`, `BaseConnectorStep` stages, validates, and atomically publishes a package.
-`ScreenCaptureStep` saves a separate PNG at the size returned by MSS for each display, without merging or resizing:
+`BaseConnectorStep` stages and atomically publishes a complete package; `ScreenCaptureStep` saves one original-size PNG
+per display. `ResourceEventStep` then appends a stable-ID observation to the configured agent. The event contains the
+package description and workspace-relative paths to its manifest and all payloads. Retrying publication is idempotent.
 
 ```text
-resource/YYYY-MM-DD/{uuid_hex}/
+resource/screenshot/YYYY-MM-DD/hhmmss_<uuid4-first-6>/
   1.png
   2.png
   metadata.json
 ```
 
-`metadata.json` follows the `ResourceMetadata` schema:
+Directories use the collector source, application-local date and time plus the first six UUID4 hex characters: `screenshot` for screenshots
+and `web_extract` for web extraction. `metadata.json` lists the collected files using package-relative paths. Event IDs
+are derived from the workspace-relative package path. Existing packages stay in place and retain their saved references.
 
-```json
-{
-  "schema_version": 1,
-  "dataclass": "ScreenCaptureStep",
-  "source": "screen",
-  "created_at": "2026-11-05T15:00:00+08:00",
-  "modified_at": "2026-11-05T15:00:01+08:00",
-  "description": "All display screenshots from one collection; read every image to understand the activity at that time.",
-  "files": [{"path": "1.png"}, {"path": "2.png"}]
-}
-```
-
-`dataclass` names the actual Step class; `source` identifies the channel. Timestamps carry timezone offsets, and the
-date directory follows the collection start time. `files` is a nonempty object list: only `path` is required, with optional
-`description` or connector-specific fields. Paths are relative to the package and cannot escape it or reference symlinks.
-Image filenames use display enumeration numbers for that collection, without promising stability across restarts.
-Displays are captured sequentially, not at an identical instant. Any display failure discards the entire staged batch;
-the directory appears in `resource/` only after all images and the manifest are ready. Cancellation waits for native I/O
-to finish and cleans staged files. There are 96 scheduled collections per day; failed runs save nothing. Packages use
-the seven-day TTL described above. Capture does not call an LLM or generate daily cards.
+The manifest uses `ResourceMetadata`: timezone-aware creation/update timestamps, source, description, connector class
+and package-relative file entries. Any failed display discards the staged package. Cancellation waits for synchronous
+capture cleanup. macOS requires Screen Recording permission for the host process; headless or unavailable displays
+fail the round. Collection does not call an LLM; the receiving Proactive Agent interprets the event separately.
 
 ## Image Resources
 
