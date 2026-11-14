@@ -1,6 +1,7 @@
 """Shared auto-dream helpers."""
 
 import datetime as dt
+import json
 import re
 from pathlib import Path
 
@@ -206,8 +207,12 @@ def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
     candidates.extend(m.group(1).strip() for m in re.finditer(r"```(?:json|ya?ml)?\s*(.*?)```", text, re.S | re.I))
     error = "expected a JSON/YAML object"
     for raw in candidates:
+        raw = _strip_reasoning_tags(raw).strip()
         if not raw:
             continue
+        data = _largest_json_object(raw)
+        if data is not None:
+            return data
         try:
             data = yaml.safe_load(raw)
         except yaml.YAMLError as exc:
@@ -220,6 +225,62 @@ def parse_structured_reply(text: str, *, strict: bool = False) -> dict:
     if strict:
         raise ValueError(f"Invalid structured reply: {error}")
     return {}
+
+
+def _strip_reasoning_tags(raw: str) -> str:
+    """Remove paired or orphan reasoning markers without depending on their attributes."""
+    return re.sub(r"<\s*/?\s*(?:think|thought)\b[^>]*>", "", raw, flags=re.I)
+
+
+def _largest_json_object(raw: str) -> dict | None:
+    """Return the largest valid JSON object enclosed in balanced braces/brackets."""
+    spans: list[tuple[int, int, str]] = []
+    stack: list[tuple[str, int]] = []
+    opening_for = {"}": "{", "]": "["}
+    in_string = False
+    escaped = False
+    for index, char in enumerate(raw):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"' and stack:
+            in_string = True
+        elif char in "{[":
+            stack.append((char, index))
+        elif char in "}]":
+            if not stack or stack[-1][0] != opening_for[char]:
+                stack.clear()
+                continue
+            _, start = stack.pop()
+            spans.append((start, index + 1, raw[start : index + 1]))
+
+    decoded_spans = []
+    for start, end, span in spans:
+        try:
+            data = json.loads(span)
+        except json.JSONDecodeError:
+            continue
+        decoded_spans.append((start, end, data))
+
+    # Ignore nested values inside a valid outer JSON value; in particular, do not
+    # unwrap an object nested in a top-level array into a supported object reply.
+    top_level = [
+        candidate
+        for candidate in decoded_spans
+        if not any(
+            outer[0] <= candidate[0]
+            and candidate[1] <= outer[1]
+            and (outer[0], outer[1]) != (candidate[0], candidate[1])
+            for outer in decoded_spans
+        )
+    ]
+    objects = [candidate for candidate in top_level if isinstance(candidate[2], dict)]
+    return max(objects, key=lambda item: item[1] - item[0])[2] if objects else None
 
 
 def _parse_scalar_mapping(raw: str) -> dict:
