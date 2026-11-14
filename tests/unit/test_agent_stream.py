@@ -19,7 +19,7 @@ from openai_codex.generated.v2_all import (
 from reme.components.agent_wrapper.as_agent_wrapper import AsAgentWrapper
 from reme.components.agent_wrapper.cc_agent_wrapper import CcAgentWrapper
 from reme.components.agent_wrapper.codex_agent_wrapper import CodexAgentWrapper
-from reme.components.agent_wrapper.codex_session_history import item_chunks
+from reme.components.codex_app_server._session_history import item_chunks
 from reme.components.application_context import ApplicationContext
 from reme.components.client.http_client import HttpClient
 from reme.components.runtime_context import RuntimeContext
@@ -261,7 +261,7 @@ async def test_agentscope_closing_stream_records_reported_usage_and_closes_sdk(t
     agent = SimpleNamespace(state=SimpleNamespace(session_id="session"), reply_stream=native_stream)
     wrapper = AsAgentWrapper(app_context=ApplicationContext(workspace_dir=str(tmp_path)), as_llm="")
     monkeypatch.setattr(wrapper, "_build_agent", AsyncMock(return_value=(agent, "hello")))
-    monkeypatch.setattr(wrapper, "_dump_state", AsyncMock())
+    monkeypatch.setattr(wrapper._sessions, "save", AsyncMock())  # pylint: disable=protected-access
     stream = wrapper.reply_stream("hello")
     await anext(stream)
     await stream.aclose()

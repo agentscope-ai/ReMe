@@ -28,9 +28,6 @@ class _StreamingAgent(CodexAgentWrapper):
     async def reply(self, inputs, **kwargs) -> dict:
         raise AssertionError("ChatStep must always use reply_stream()")
 
-    async def create_session(self, **kwargs) -> str:
-        return "session-new"
-
     async def reply_stream(self, inputs, **kwargs):
         self.reply_kwargs = kwargs
         yield StreamChunk(chunk_type=ChunkEnum.TOOL_CALL, chunk="{}", tool_call_id="tool-1", tool_call_name="search")
@@ -185,36 +182,3 @@ async def test_default_chat_uses_configured_prompt_and_allows_empty_override(tmp
         assert agent.reply_kwargs["system_prompt"].startswith("You are ReMe Agent")
         await chat(query="hello", system_prompt="", stream_queue=asyncio.Queue())
         assert agent.reply_kwargs["system_prompt"] == ""
-
-
-@pytest.mark.asyncio
-async def test_proactive_chat_uses_native_tools_and_loads_its_prompt_template(tmp_path):
-    """The proactive stream opts out of ReMe tools and loads the PA prompt template."""
-
-    config = _load_config("proactive")
-    app_context = ApplicationContext(workspace_dir=str(tmp_path))
-    agent = _StreamingAgent(app_context=app_context)
-    app_context.components["agent_wrapper"] = {"default": agent}
-    chat = StreamJob(name="pa_chat", app_context=app_context, **config["jobs"]["pa_chat"])
-    queue = asyncio.Queue()
-
-    await chat.start()
-    try:
-        await chat(query="Help plan my day", stream_queue=queue)
-        assert agent.reply_kwargs["job_tools"] == []
-        assert agent.reply_kwargs["system_prompt"].startswith("You are Remy")
-        memory = tmp_path / "digest/personal/REME_MEMORY.md"
-        assert f"Personal memory: {memory}" in agent.reply_kwargs["system_prompt"]
-        assert f"Workspace: {tmp_path}" in agent.reply_kwargs["system_prompt"]
-        assert "financial news" in memory.read_text(encoding="utf-8")
-        assert agent.reply_kwargs["resume"] == "session-new"
-        chunks = [await queue.get() for _ in range(5)]
-        assert [chunk.chunk_type for chunk in chunks] == [
-            ChunkEnum.DATA,
-            ChunkEnum.TOOL_CALL,
-            ChunkEnum.CONTENT,
-            ChunkEnum.REPLY_END,
-            ChunkEnum.DONE,
-        ]
-    finally:
-        await chat.close()

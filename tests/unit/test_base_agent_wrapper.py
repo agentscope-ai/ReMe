@@ -82,7 +82,7 @@ async def test_session_commands_are_backend_neutral():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper, AsAgentWrapper, CcAgentWrapper])
+@pytest.mark.parametrize("wrapper_class", [BaseAgentWrapper])
 async def test_session_path_lookup_is_explicitly_unsupported(tmp_path, wrapper_class):
     """Backends without native path lookup raise the shared capability error."""
     wrapper = wrapper_class(app_context=ApplicationContext(workspace_dir=str(tmp_path)))
@@ -253,7 +253,7 @@ async def test_agentscope_structured_output_uses_model_tool_choice_policy(tmp_pa
         return None
 
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
 
     result = await wrapper.reply("hello", output_schema={"type": "object"})
 

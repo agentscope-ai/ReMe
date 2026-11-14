@@ -7,8 +7,6 @@ import pytest
 
 from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog
-from reme.components.job.base_job import BaseJob
-from reme.config.config_parser import resolve_app_config
 from reme.schema import FileNode
 
 
@@ -201,57 +199,3 @@ async def test_failed_processed_write_keeps_baseline_retryable(catalog, tmp_path
     assert not (tmp_path / "metadata/file_catalog/resource.jsonl.zst").exists()
     assert await catalog.changes() == batch
     assert await catalog.processed(batch) is True
-
-
-@pytest.mark.asyncio
-async def test_jobs_bind_the_resource_catalog_and_return_paths_or_boolean(
-    tmp_path,
-    clock,
-):  # pylint: disable=unused-argument
-    """Public Jobs use the configured resource scope without a caller-selected catalog."""
-    config = resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path))
-    app = ApplicationContext(**config)
-    resource = LocalFileCatalog(
-        name="resource",
-        app_context=app,
-        **app.app_config.components["file_catalog"]["resource"].model_dump(),
-    )
-    other = LocalFileCatalog(name="other", app_context=app, watch_dirs=["inbox"])
-    app.components["file_catalog"] = {"resource": resource, "other": other}
-    path = "resource/2026-11-05/a/metadata.json"
-    second_path = "resource/2026-11-05/b/metadata.json"
-    _write(tmp_path, path)
-    _write(tmp_path, second_path)
-    _write(tmp_path, "resource/2026-11-05/a/image.png")
-    _write(tmp_path, "inbox/b.txt")
-    changes = BaseJob(name="resource_changes", app_context=app, **app.app_config.jobs["resource_changes"].model_dump())
-    processed = BaseJob(
-        name="resource_processed",
-        app_context=app,
-        **app.app_config.jobs["resource_processed"].model_dump(),
-    )
-    assert changes.parameters["properties"]["limit"]["default"] == 20
-    assert changes.parameters["properties"]["limit"]["minimum"] == 1
-    assert set(processed.parameters["properties"]) == {"paths"}
-    assert processed.parameters["required"] == ["paths"]
-    await changes.start()
-    await processed.start()
-    try:
-        response = await changes()
-        assert response.answer == [path, second_path]
-        assert response.success is True
-        assert (await changes(file_catalog="other", limit=1)).answer == [path]
-        assert (await changes(limit=0)).success is False
-        response = await processed(file_catalog="other", paths=[path, second_path])
-        assert response.success is True
-        assert response.answer is True
-        assert (await changes()).answer == []
-        assert len(await resource.get_nodes()) == 2
-        assert await other.get_nodes() == []
-        response = await processed(paths=["inbox/b.txt"])
-        assert response.success is False
-        assert response.answer is False
-        assert (await processed()).success is False
-    finally:
-        await processed.close()
-        await changes.close()

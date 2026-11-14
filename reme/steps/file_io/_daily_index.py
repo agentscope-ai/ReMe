@@ -7,7 +7,7 @@ from pathlib import Path
 import frontmatter
 import yaml
 
-from ._path import _check_path_permission, resolve_path, validate_filename_component
+from ._path import check_path_permission, resolve_path, validate_filename_component
 from ...utils import get_logger
 
 logger = get_logger(log_to_file=False)
@@ -100,7 +100,7 @@ def scan_notes(workspace_dir: Path, date: str, daily_dir: str, *, allowed_paths=
                 target, err = resolve_path(workspace_dir, str(md_path))
                 if err or target is None:
                     continue
-            if not _check_path_permission(workspace_dir, target, allowed_paths):
+            if not check_path_permission(workspace_dir, target, allowed_paths):
                 continue
             if not target.is_file():
                 continue

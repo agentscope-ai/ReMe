@@ -20,7 +20,7 @@ from ._evolve import agent_reply_result_text, format_history, now
 from ..base_step import BaseStep
 from ..file_io import extract_daily_date, get_path_lock, parse_daily_date, refresh_day_index, write_file_safe
 from ..file_io import validate_filename_component, validate_session_id
-from ..file_io._path import IMAGE_MIME_BY_EXT, _check_path_permission, resolve_path
+from ..file_io import IMAGE_MIME_BY_EXT, check_path_permission, resolve_path
 from ..index import normalize_posix_path
 from ...components import R
 from ...schema import Response
@@ -36,7 +36,7 @@ def _checked_write_path(workspace: Path, relative: str, allowed_paths) -> Path:
     target, error = resolve_path(workspace, relative)
     if error or target is None:
         raise ValueError(error or "Invalid write path")
-    if not _check_path_permission(workspace, target, allowed_paths):
+    if not check_path_permission(workspace, target, allowed_paths):
         raise PermissionError(f"No permission to write {relative}")
     return target
 

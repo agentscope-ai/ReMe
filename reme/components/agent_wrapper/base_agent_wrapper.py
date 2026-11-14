@@ -3,7 +3,7 @@
 from collections.abc import AsyncGenerator
 from importlib import metadata
 from pathlib import Path
-from typing import Any, ClassVar, TYPE_CHECKING
+from typing import Any, ClassVar, Literal, TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -284,6 +284,10 @@ class BaseAgentWrapper(BaseComponent):
     async def release_session(self, session_id: str) -> None:
         """Release idle runtime resources; persisted session history remains available."""
 
+    async def session_exists(self, session_id: str) -> bool:
+        """Check whether a session can be resumed without generating a reply."""
+        raise NotImplementedError(f"{type(self).__name__} does not support session existence checks")
+
     async def get_session_path(self, session_id: str) -> Path | None:
         """Return the native session file path, or None when no path is available.
 
@@ -305,10 +309,16 @@ class BaseAgentWrapper(BaseComponent):
         content: str,
         *,
         message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        delivery: str = "idle",
     ) -> SessionMessage:
-        """Append an idempotent assistant message, optionally requiring the current conversation turn."""
+        """Append a user or assistant message once without generating a reply.
+
+        The optional turn guard rejects a changed conversation anchor.
+        Both idle/immediate delivery policies wait for the session to become idle before injection.
+        """
         raise NotImplementedError(f"{type(self).__name__} does not support session appending")
 
     async def reply_stream(self, inputs: Any, **kwargs) -> AsyncGenerator[StreamChunk, None]:

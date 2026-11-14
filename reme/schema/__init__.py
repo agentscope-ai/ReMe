@@ -3,6 +3,18 @@
 from .application_config import ApplicationConfig, ComponentConfig, JobConfig
 from .agent_reply import AgentReply, collect_reply, replay_reply
 from .agent_session import SessionMessage, SessionSnapshot, SessionStatus
+from .agent_runtime import (
+    AgentId,
+    AgentNotification,
+    AgentSession,
+    ChatAgentConfig,
+    CreateChatAgentConfig,
+    InboxConfig,
+    AgentReminder,
+    ReminderRef,
+    ManageInboxRequest,
+)
+from .agent_activity import AgentActivity
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -17,11 +29,19 @@ from .proactive import (
     ProactiveTopic,
 )
 from .emb_node import EmbNode
+from .event import Event, EventConsumption
+from .proactive_agent import (
+    CreateProactiveAgentConfig,
+    ManageProactiveAgentRequest,
+    NotificationWindow,
+    ProactiveAgent,
+    ProactiveAgentConfig,
+    ProactiveRunResult,
+)
 from .file_chunk import FileChunk
 from .file_front_matter import FileFrontMatter
 from .graph_snapshot import GraphSnapshot, GraphSnapshotEdge, GraphSnapshotNode
 from .job_execution import JobExecution, JobExecutionStatus
-from .pa_event import PaEvent
 from .file_link import FileLink
 from .file_node import FileNode
 from .request import Request
@@ -32,6 +52,7 @@ from .token_usage import TokenUsage
 from .traverse_graph import TraverseGraph, TraverseGraphEdge, TraverseGraphNode
 
 __all__ = [
+    "AgentActivity",
     "AgentReply",
     "collect_reply",
     "replay_reply",
@@ -45,6 +66,23 @@ __all__ = [
     "DreamState",
     "DreamUnit",
     "EmbNode",
+    "Event",
+    "EventConsumption",
+    "AgentSession",
+    "ChatAgentConfig",
+    "CreateChatAgentConfig",
+    "ManageProactiveAgentRequest",
+    "NotificationWindow",
+    "ProactiveAgent",
+    "ProactiveAgentConfig",
+    "CreateProactiveAgentConfig",
+    "AgentReminder",
+    "ReminderRef",
+    "AgentNotification",
+    "AgentId",
+    "InboxConfig",
+    "ManageInboxRequest",
+    "ProactiveRunResult",
     "FileChunk",
     "FileFrontMatter",
     "FileLink",
@@ -56,7 +94,6 @@ __all__ = [
     "JobConfig",
     "JobExecution",
     "JobExecutionStatus",
-    "PaEvent",
     "ProactiveResult",
     "ProactiveState",
     "ProactiveStateFile",

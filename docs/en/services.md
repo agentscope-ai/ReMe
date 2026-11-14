@@ -52,122 +52,111 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
-Studio shares one conversation UI between **Chat** and **Proactive Chat**. The default configuration exposes only
-`chat`, with `query` and an optional `session_id` for independent conversations. Start with `config=proactive` to expose
-the `pa_*` Jobs instead of `chat`. Entries are enabled according to the service's exposed Jobs.
+The `proactive` configuration exposes `chat(query)` for the fixed `main` Agent. It resumes the current
+native session; `new_chat_session` selects a fresh session and retains the history exposed by `list_chat_sessions`.
+MCP does not expose Stream Jobs. Studio integration is separate from this backend.
 
-Proactive Chat uses the application-owned `pa_chat` stream with only `query`. `pa_session` takes no parameters and returns
-`{"session_id": "...", "status": "idle"}` in `answer` (both values are null before a session exists). `pa_new_session` takes
-no parameters, creates and selects an empty session, and returns its ID in `answer` without model generation.
+## Agent Runtime
 
-Start the service with `reme start config=proactive` in one terminal, then use another terminal:
+The `agent_runtime` Component owns sessions, event streams, inboxes and scheduling. `ChatAgentStep` and
+`ProactiveAgentStep` define the two Agent behaviors under `reme/steps/proactive/agent/`.
+Configure the Component through `components.agent_runtime.default` and the workspace-relative `reme_agent_dir`
+(default `reme_agents`). Each Agent owns `config.json`, `MEMORY.md` and `sessions.jsonl`. Event and cron Agents also own
+`events/` and `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`; temporary Agents use `reme_agents/tmp/<agent_id>/`.
+There is no global definition index or checkpoint file: startup rebuilds runtime state from source files.
+Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
+and removed by the next append. Corrupt complete records fail explicitly.
+Validated reminders are saved before input consumption is committed; the outbox retries delivery independently.
+An interrupted, uncommitted round may run again. Consumption receipts retain reminder references until handoff.
 
-```bash
-reme pa_session
-reme pa_chat query="What should I follow up on?"
-reme pa_new_session
-```
-
-The current session is shared within one Application and resets on restart; session files remain on disk. Chat and
-session creation reject concurrent operations. Status queries do not wait for generation. PA Jobs currently require
-`CodexAgentWrapper`; other wrappers raise `NotImplementedError`.
-If the current native session is unavailable, `pa_session` returns `status: "error"`; create a new session to recover.
-Once empty-session creation starts, selecting that session completes before cancellation is propagated.
-
-`proactive` also exposes read-only `POST /pa_events` for background clients. With the service running, subscribe from
-another terminal:
+Start the backend in one terminal, with `LLM_API_KEY`, `LLM_BASE_URL` and optional `CODEX_MODEL_NAME`:
 
 ```bash
-curl -N http://127.0.0.1:2333/pa_events \
-  -H 'Content-Type: application/json' \
-  -d '{}'
+reme start config=proactive
 ```
 
-Each SSE `data:` frame contains a `StreamChunk`; its `chunk` is a typed
-[`PaEvent`](../../reme/schema/pa_event.py). A first connection receives `snapshot`, containing the current session ID,
-merged PA activity, and optional `SessionSnapshot` history. No session is created. Subsequent events are:
+From another terminal:
 
-| Type | Client action |
-| --- | --- |
-| `session_changed` | Select the new session and clear the previous session's displayed history. |
-| `message_upsert` | Replace or insert the complete `message`, keyed by `(session_id, message.id)`. |
-| `status_changed` | Update activity; PA operations remain active until their serialization lock is released. |
-| `reset` | Discard the old cursor; a fresh `snapshot` follows on the same connection. |
-| `heartbeat` | Keep the connection alive; this event has no cursor. |
+```bash
+reme manage_proactive_agent action=list
+reme manage_proactive_agent action=create \
+  'config={"name":"experiment","trigger_type":"event","description":"Monitor experiment logs and report failures or completion."}'
+reme manage_inbox action=read agent_id=main
+reme manage_inbox action=mark_read agent_id=main 'msg_ids=["MESSAGE_ID"]'
+```
 
-Save an event's opaque `cursor` after applying it. Reconnect with `{"cursor":"<saved-cursor>"}` to replay retained
-changes before waiting for live updates. Process/runtime restart, upstream disconnection, or falling behind the bounded
-buffer requires a reset. Snapshots and replay handoff are version-checked to avoid missing a concurrent switch or commit.
-A failed history read produces a snapshot with `error`, no history, and no cursor; retain the existing display while it
-retries at the heartbeat interval. Incremental delivery resumes after a successful snapshot. Clients should tolerate
-repeated message upserts. Only completed proactive messages should
-enter a reminder bubble queue; token streaming continues through `pa_chat`.
+`manage_proactive_agent` supports `list/create/status/update/delete/query`. The creation name is the immutable
+`agent_id`; `main` and `tmp` are reserved. Deletion stops owned work and retains files, events and native session history.
+Creating the same name restores that Agent. `query` asks a temporary read-only fork without selecting it for future work.
 
-Message events follow successful proactive-message publication or a readable native history snapshot after a chat turn
-settles, including cancellation. Files remain the recovery source; event buffers and cursors are in memory and do not
-represent delivery/read receipts. Configure retention and heartbeat through `components.pa.default.max_events`,
-`max_buffer_bytes`, and `heartbeat_seconds`. `jobs.pa_events.stream_queue_size: 1` bounds the HTTP output queue so slow
-clients reset from history instead of accumulating unlimited pending events. Other stream Jobs keep their existing
-unbounded default (`stream_queue_size: 0`). Custom configurations enabling `pa_events` must include the `pa` component
-from `proactive.yaml`. The subscription follows that component's configured Codex wrapper.
+`config.description` is creation-only: it initializes the Agent's `MEMORY.md`, with sections for the current task,
+confirmed background and long-term findings. Task text is not stored in `config.json` or injected separately each round.
+`list/update` return settings, status and workspace-relative `memory_path`; `create/status` also return `memory_content`
+(up to 2,000 characters) and `memory_truncated`. Read the complete file when truncated. Configuration file paths are
+not returned. Before changing or deleting a task, inspect `status`; edit task requirements directly in `memory_path`,
+replace superseded requirements and read back the result. Use `update` for execution settings and `delete` to stop
+owned work. Changes apply to subsequent rounds; an already-running round may have read the previous task.
+Same-name restoration preserves existing memory. To migrate an older Agent, move its stored `description` into the
+current-task section of `MEMORY.md`, retain its accumulated knowledge, then remove `description` from `config.json`.
+`reme_agent_dir` now defaults to `reme_agents`; set it explicitly to `agents` to keep using an existing directory.
+No workspace files or embedded references are moved automatically.
 
-The `proactive` config sets `service.timeout_graceful_shutdown: 5`. During HTTP shutdown, requests still active after
-five seconds are cancelled before application components close, so an open subscription cannot hold shutdown
-indefinitely. Custom HTTP configurations with long-lived subscriptions should also set a finite shutdown timeout.
+Chat's initial memory is configured through `components.agent_runtime.default.main.description`. Runtime startup
+initializes its `MEMORY.md` using the same mechanism as task Agents; existing memory survives restarts and session
+changes. Chat's `job_tools` are selected in its Step configuration.
 
-PA prompts contain the configured workspace and `{digest_dir}/personal/REME_MEMORY.md` paths. The agent reads current
-memory as needed and reads the complete latest file before merging updates. Memory contents are not injected into the
-session prompt. Before a new session or proactive round, shared code initializes a missing memory file using
-`default_memory` from `reme/steps/proactive/pa.yaml`, with per-path locking and atomic writes. The defaults cover financial
-news, AI advances, and ReMe, distinguishing known interests from exploration directions. Existing files, including empty
-ones, are preserved; there is no onboarding or empty-memory gate.
+Initial tasks can be declared in `components.agent_runtime.default.agents` in `proactive.yaml`, using the same creation
+fields including `description`. Startup creates missing identities only; restarting does not overwrite edited memory
+or settings, or restore deleted tasks. Two tasks are enabled by default: `finance` checks for major AI news hourly,
+and the event-driven `work` tracks the user's current projects, progress, difficulties and discussion points from
+incoming observations. Screen capture targets `work` when explicitly enabled; the collector remains disabled by default.
 
-The same YAML supplies Remy's persona and memory maintenance/forgetting instructions through `PromptHandler`, with
-English defaults and Chinese variants. The proactive config defaults to `language=zh`; use `language=en` for English
-or a Step's `language` to override the application language. Customize localized keys through the Step `prompt_dict`
-(for example, `system_prompt_zh` and `default_memory_zh`). Default-memory overrides only affect missing files.
-Explicit forgetting requests instruct the agent to remove matching content without copying it elsewhere or restoring
-it from old conversations or summaries. Maintenance removes confirmed obsolete state while retaining valid long-term
-facts. Creating a session initializes missing memory but does not generate a reply. The session reuses its initial
-prompt and tools; the memory path continues to refer to the latest file. Invalid paths or initialization failures
-leave the current session selection unchanged.
+Task configuration uses `trigger_type` (`cron` or `event`). Rename the old `type` key to `trigger_type` in existing
+Agent `config.json` files and API calls; the old key is no longer accepted.
 
-The `proactive` config starts a serial `pa_loop`. Its startup and fallback delay comes from
-`jobs.pa_loop.steps[0].default_wakeup_minutes` (five minutes by default). Memory initialization failures fail the round
-before resource processing. Each round uses two fresh agent sessions:
+An `event` Agent accepts observations through `append_event(agent_id, events)`, with `event_ts`, `source`, `description`
+and optional workspace-relative `paths`, `id` and `metadata`. A `cron` Agent requires a cron expression and executes
+its full task at the scheduled time. Both use the application timezone and a serial executor per Agent.
+`source=cron` is reserved. Event tasks may set `min_trigger_interval_seconds`.
 
-- **Collect:** Remy reads confirmed memory, optional `{digest_dir}/personal/INTERESTS.md`, and changed resource packages.
-  Before processing resources, it reads the current PA session file for recent tasks, requests, and feedback;
-  missing or unreadable session files defer collection without acknowledging resources. No current PA session skips it.
-  The prompt controls relevance, deduplication, web research, and interest exploration. Useful findings go into at most
-  one `{daily_dir}/interest_HHMMSS.md`; filename collisions receive a numeric suffix. Code supplies `unsent` status and
-  timezone-aware creation/update timestamps. Acknowledge packages through `resource_processed` only after assessment
-  and, for useful material, successful saving.
-- **Remind:** Remy reads finding notes and the native PA session file, checks `session_status`, and decides whether and
-  how to interrupt. Older unsent notes remain eligible when there are no new findings. Private Job
-  `send_reminder(message, files)` takes one message and one or more interest filenames, including `.md`; the target
-  session is bound by code. The agent keeps these files read-only. The Job verifies the selected files and conversation
-  have not changed, restores unloaded sessions through the owner, and verifies idle before appending the assistant
-  message. Successful delivery marks unchanged selected files `sent`; it does not indicate that the user read it.
+Chat and cron Agents enable native `web_search`, `web_extract` and command network access; event Agents stay offline.
+Remove the obsolete `enable_web` field from existing task configurations and creation calls. `web_extract` saves complete
+text or PDF files under `resource_dir` and returns paths plus a bounded text preview; it does not execute JavaScript
+or extract PDF text. Temporary `query` forks remain read-only and offline.
+`notify_window={start,end}` limits automatic inbox wakeups; messages can still be processed and saved outside it.
+`temporary=true` is independent of trigger type. Temporary Agents become eligible for collection after seven days
+without new accepted inputs; cron triggers count as inputs, while duplicates and retries do not. Collection waits for
+running work, pending events, undelivered messages and retained Inbox references. Daily records and resources remain.
+On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
+Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_id>.md`; round details use
+`<agent_id>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
+updates delivery, wakeup and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`.
 
-Confirmed user statements belong in `{digest_dir}/personal/REME_MEMORY.md`, maintained by foreground chat. The collector
-maintains hypotheses in `INTERESTS.md`, grouped by topic with dates, user evidence, and uncertainty. Its own searches,
-recommendations, repeated notes, and the user's silence do not confirm an interest. Prompts for both roles follow
-role, context, workflow, and notes, and live beside their implementations under `reme/steps/proactive/`.
-Each agent tool has its own module in `proactive/tools/`; resource collectors and their shared base live in
-`proactive/data_connectors/`. Tool registration names and Job parameters are independent of these module paths.
+Only `main` receives messages. Its `inbox_unread.jsonl` and `inbox_read.jsonl` contain only `{file,id}` references;
+the read view retains the latest 1,000. Bodies and timestamps remain in canonical reminders. One lifecycle-owned
+watcher and periodic rescans reconcile file edits and interrupted handoffs. Appending a valid reference to the read
+view marks the original message read. Missing views are rebuilt from reminders.
+Existing daily reminder JSONL logs require migration to Markdown frontmatter before startup.
+`manage_inbox(action="read")` leaves messages unread, defaults to `unread_only=true`, and does not filter priority
+unless `priority` is supplied. `unread_only=false` includes read history. Results are ordered by priority, then time.
+After processing, call `action="mark_read"` with `msg_ids`, including when no user notification is needed.
+Repeated marks preserve the original read time. Agent-read is distinct from user-read; there are no claim tokens.
+Agent-bound tools infer the receiver; external calls must supply `agent_id`.
 
-Delivery calls the session append API directly, reusing one message ID for retries within the live round. File locks
-and version checks preserve concurrent edits; a changed or unwritable note does not block other notes or later rounds.
-There is no cross-round delivery journal. A crash after append succeeds but before note status is saved may cause a
-repeat reminder. Runtime state supports only `unsent` and `sent`; the former `ready` workflow and dated note layout are
-removed. Existing workspace data is not moved or rewritten automatically.
+P0 requests a Chat turn immediately, or after `components.agent_runtime.default.inbox.p0_delay_seconds` (default 0).
+P1 waits for continuous Chat idle (default 10 seconds); P2 may be read on demand or wakes Chat after 1800 idle seconds.
+The latter delays are `inbox.p1_idle_seconds` and `inbox.p2_idle_seconds`. User and automatic turns share one lock;
+P0 waits behind an active turn. Every completed, failed or cancelled Chat turn restarts the idle clock; message arrival
+does not. A successful P0 wakeup is recorded separately from reading, preventing repeated wakeups for the same batch.
+Chat promptly notifies for P0 and uses conversation context for P1/P2, finishing silently when no reminder is needed.
 
-Remy may call private Job `set_next_wakeup(minutes=...)` to override only the next delay. Omission, failed rounds, and
-restart use the configured default. `pa_proactive`, `send_reminder`, and `set_next_wakeup` are private Jobs bound to the
-background agent's tools. Disable background reminders with `jobs.pa_loop.enabled=false`.
+`proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. The inbox background worker starts actual
+Chat inference instead of appending reminder text as an assistant answer. The former direct-delivery and sender-review
+paths are removed. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_id` and enable the job to publish
+complete resource packages as observations. No resource watcher or automatic TTL deletion participates in this flow.
 
-MCP does not expose Stream Jobs.
+This is a breaking replacement of the previous inbox and PA APIs. Existing workspace files are retained without
+automatic conversion. The backend uses CodexAgentWrapper; other wrappers need equivalent session capabilities.
 
 ## MCP
 

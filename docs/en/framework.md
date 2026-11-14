@@ -75,7 +75,9 @@ reme/
     as_llm/, as_embedding/   # model wrappers
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
-    codex_app_server.py      # shared Codex process and conversation locks
+    codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
+    event_stream/            # BaseEventStream / local and Agent storage backends
+    agent_runtime/           # BaseAgentRuntime / local Agent coordination
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps
     common/                  # version, help, health_check, status, chat
@@ -580,14 +582,64 @@ history refreshes. Raw HTTP `stream_chunks()` includes errors and DONE; CLI/text
 Migration: replace `last_message`/`turn` with `result`/`raw`, and consume the terminal outcome instead of concatenating
 all stream payloads. Existing text-only producers use the default `delta` operation.
 
+AgentScope wrappers implement the session operations without changing the agent's generation flow. `resume` restores
+model context; an explicit `session_id` starts fresh context under that ID while retaining its display history.
+Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the complete SDK state and display history, so
+compaction preserves earlier displayed messages. Legacy summary/context files remain readable; previously discarded
+history cannot be recovered. Replies, compaction and user/assistant appends share a session lock; history/status reads do
+not wait behind generation. Appends require an idle session, retain their delivery policy, and are idempotent by
+`message_id` across restarts. Pending approval or external execution is reported as active. Ownership and live status
+are scoped to the Application; independent processes must not write the same session concurrently.
+
 Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple wrappers can share one server while
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+Pass `fork_session=True` with `resume` or `session_id` to inherit native conversation context.
+Models, instructions, turn settings and job tools come from the current wrapper configuration and call arguments.
+After restart, the application configuration and Steps reconstruct these settings; session snapshots under
+`session/proactive/` are no longer saved or read. An empty source without a native rollout starts an independent
+thread with the current configuration. Rejected or cancelled preparation retains the previous live settings and tools.
+
+`create_session()` retains in-process turn settings such as `effort` before the first query.
+`output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
+`None` disables that default for this invocation.
+
+Proactive reminders are read through the inbox and handled by a normal Chat reply. Codex no longer exposes message
+appends or stores application-authored message copies. `reme_agents/` retains Agent configuration, memory, session IDs and
+inbox references; full recovery also requires native conversation histories and source reminder files.
+
+`BaseCodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
+session listeners also receive these events. A completed turn, failure or cancellation closes its activity.
+AgentScope and Claude Code wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
+is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
+`source="proactive"` independently of their role, including after reload or fork.
+`append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
+both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
+reading and status in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
+
+Claude Code uses native streaming input and a zero-inference flush receipt to persist appended messages.
+`{mem_session_dir}/claude_sessions/<UUID>.json` retains native locations, provenance and retry IDs across restarts;
+an explicitly configured external `mem_session_dir` remains supported. History and status reads do not wait behind
+generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
+`continue_conversation=True` resolves the latest main session in the current project before taking its lease,
+including when using an external `session_store`; with no stored conversation it starts a new session.
+
+The `session_read` and `session_status` jobs use the wrapper selected by their Step configuration.
+Start the service with `reme start config=default`, then use another terminal:
+
+```bash
+reme session_read session_id=YOUR_SESSION_ID
+reme session_status session_id=YOUR_SESSION_ID
+```
+
 `await wrapper.get_session_path(session_id)` returns the native session file as a `Path`, or `None` when Codex
 reports no path. The file may not exist before the first turn. Lookup errors propagate, and returned paths must stay
-inside the configured `codex_home`. The lookup does not resume the thread or load its turn history. Other backends
-currently raise `NotImplementedError`.
+inside the configured `codex_home`. AgentScope and Claude Code also expose their native session files; Claude returns
+`None` when an external `session_store` is configured. Path lookup does not resume or generate a turn.
+
+`await wrapper.session_exists(session_id)` checks resumability, including a live empty Codex thread whose rollout
+has not been created yet. Unsupported backends raise `NotImplementedError`.
 
 The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
 `approval_policy: never`, so available tools run without human or model approval. Requests that need additional

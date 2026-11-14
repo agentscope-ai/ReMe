@@ -377,19 +377,20 @@ async def test_agentscope_compact_session_forces_and_persists_compression(tmp_pa
 
     async def build_agent(inputs, **kwargs):
         observed["build"] = (inputs, kwargs)
+        FakeAgent.state = kwargs["state"]
         return FakeAgent(), inputs
 
     async def dump_state(state):
         observed["state"] = state
 
+    session_id = await wrapper.create_session()
     monkeypatch.setattr(wrapper, "_build_agent", build_agent)
-    monkeypatch.setattr(wrapper, "_dump_state", dump_state)
+    monkeypatch.setattr(wrapper._sessions, "save", dump_state)  # pylint: disable=protected-access
+    await wrapper.compact_session(session_id)
 
-    await wrapper.compact_session("session-1")
-
-    assert observed["build"] == (None, {"resume": "session-1"})
+    assert observed["build"] == (None, {"resume": session_id, "state": FakeAgent.state})
     assert observed["config"].trigger_ratio == 1e-9
-    assert observed["state"] is FakeAgent.state
+    assert observed["state"].state is FakeAgent.state
 
 
 def test_error_result_with_success_subtype_is_not_suppressed():

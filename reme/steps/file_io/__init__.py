@@ -2,7 +2,15 @@
 
 from ._daily_index import extract_daily_date, parse_daily_date, refresh_day_index, validate_session_id
 from ._file_io import get_path_lock, write_file_safe
-from ._path import validate_filename_component
+from ._path import (
+    IMAGE_MIME_BY_EXT,
+    IMAGE_SUFFIXES,
+    check_path_permission,
+    display_path,
+    is_relative_to,
+    resolve_path,
+    validate_filename_component,
+)
 from .daily_list import DailyListStep
 from .daily_reindex import DailyReindexStep
 from .daily_write import DailyWriteStep
@@ -21,6 +29,12 @@ from .stat import StatStep
 from .write import WriteStep
 
 __all__ = [
+    "IMAGE_MIME_BY_EXT",
+    "IMAGE_SUFFIXES",
+    "check_path_permission",
+    "display_path",
+    "is_relative_to",
+    "resolve_path",
     "refresh_day_index",
     "extract_daily_date",
     "parse_daily_date",

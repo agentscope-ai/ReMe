@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from agentscope.message import UserMsg
+from agentscope.message import AssistantMsg, TextBlock, ToolCallBlock, UserMsg
 from agentscope.state import AgentState
 
 from reme.utils import AsStateHandler
@@ -54,3 +54,53 @@ async def test_state_load_accepts_empty_file(tmp_path: Path):
     assert restored.context == []
     assert restored.cur_iter == 0
     assert restored.session_id
+
+
+@pytest.mark.asyncio
+async def test_state_round_trip_preserves_sdk_resume_context(tmp_path):
+    """Parked replies, middleware state and activated tools survive restart."""
+    state = AgentState(session_id="state-context")
+    state.reply_context.structured_schema = {"type": "object", "required": ["ok"]}
+    state.reply_context.structured_output = {"ok": True}
+    state.tool_context.activated_groups = ["group"]
+    state.middle_context = {"probe": {"round": 2}}
+    state.context.append(
+        AssistantMsg(
+            name="agent",
+            id=state.reply_id,
+            content=[ToolCallBlock(id="tool", name="example", input="{}", state="asking")],
+        ),
+    )
+    handler = AsStateHandler.for_session(tmp_path, state.session_id)
+    await handler.dump(state)
+    restored = await handler.load()
+    assert restored.model_dump(mode="json") == state.model_dump(mode="json")
+    assert restored.has_awaiting_tool_calls("agent")
+
+
+@pytest.mark.asyncio
+async def test_legacy_header_remains_readable(tmp_path):
+    """Previously saved summary/context files load without rewriting user data."""
+    header = UserMsg(
+        name="__state__",
+        content="summary",
+        metadata={"session_id": "legacy", "reply_id": "reply", "cur_iter": 2},
+    )
+    message = UserMsg(name="user", content="before\u2028after")
+    handler = AsStateHandler.for_session(tmp_path, "legacy")
+    original = header.model_dump_json() + "\n" + message.model_dump_json() + "\n"
+    handler.path.write_text(original, encoding="utf-8")
+    restored = await handler.load()
+    assert restored.summary == "summary" and restored.reply_id == "reply" and restored.cur_iter == 2
+    assert restored.context == [message]
+    assert handler.path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("summary", [[], [TextBlock(text="summary", id="summary-block")]])
+async def test_state_preserves_text_only_summary_blocks(tmp_path, summary):
+    """A native block-list summary keeps its type and IDs, including when empty."""
+    state = AgentState(session_id="block-summary", summary=summary)
+    handler = AsStateHandler.for_session(tmp_path, state.session_id)
+    await handler.dump(state)
+    assert (await handler.load()).model_dump(mode="json") == state.model_dump(mode="json")

@@ -7,7 +7,7 @@ import yaml
 
 from ._base import _FileIOStep
 from ._file_io import get_path_lock, read_file_safe, write_file_safe
-from ._path import _check_path_permission, NON_MD_WARNING, gate_md, resolve_path
+from ._path import check_path_permission, NON_MD_WARNING, gate_md, resolve_path
 from ...components import R
 from ...constants import MAX_FILE_READ_BYTES
 
@@ -87,7 +87,7 @@ class EditStep(_FileIOStep):
 
         target, is_md = gate_md(target)
 
-        if not _check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
+        if not check_path_permission(self.workspace_path, target, self.context.get("_allowed_paths")):
             self._fail("no permission to edit this file", path=str(target))
             return None
 
