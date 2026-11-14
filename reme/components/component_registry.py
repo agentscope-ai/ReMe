@@ -6,7 +6,7 @@ from threading import RLock
 from typing import Callable, TypeVar, cast
 
 from .base_component import ComponentMixin
-from ..enumeration import ComponentType, component_type_name
+from ..enumeration import ComponentEnum, ComponentType, component_type_name
 
 T = TypeVar("T", bound=ComponentMixin)
 
@@ -35,6 +35,8 @@ class ComponentRegistry:
             component_type = component_type_name(getattr(cls, "component_type", None))
         except (TypeError, ValueError) as exc:
             raise TypeError(f"{cls.__name__} must have a non-empty string 'component_type' attribute") from exc
+        if component_type == ComponentEnum.BASE:
+            raise TypeError(f"{cls.__name__} must declare a non-BASE 'component_type'")
         if not name:
             raise ValueError("Component name cannot be empty")
 

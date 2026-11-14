@@ -17,7 +17,7 @@ from watchfiles import Change
 
 from ...components.runtime_context import RuntimeContext
 from ..base_step import BaseStep
-from ..file_io import is_relative_to, refresh_day_index, resolve_path, validate_filename_component
+from ..file_io import refresh_day_index, resolve_path, validate_filename_component
 from ._evolve import agent_reply_result_text, now
 
 _SOURCE_RESOURCE_KEY = "source_resource"
@@ -219,7 +219,7 @@ class BaseAutoResourceStep(BaseStep):
         resolved, path_error = resolve_path(workspace, value)
         if path_error or resolved is None:
             raise ValueError(f"invalid resource path {value!r}: {path_error or 'cannot resolve path'}")
-        if not is_relative_to(resolved, resource_root):
+        if not resolved.is_relative_to(resource_root):
             raise ValueError("resource path must stay inside the configured resource directory")
 
         if supplied.is_absolute():

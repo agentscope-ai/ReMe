@@ -74,7 +74,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.chat_lock = asyncio.Lock()
         self.chat_tasks = set()
         self.workers = {}
-        self.queries = {}
+        self.agent_tasks = {}
         self.executions = {}
         self.cron = {}
         self.changed = asyncio.Event()
@@ -123,7 +123,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.watch_stop.set()
         self.changed.set()
         await self.inbox.close()
-        tasks = set(self.workers.values()) | set(self.queries) | self.chat_tasks
+        tasks = set(self.workers.values()) | set(self.agent_tasks) | self.chat_tasks
         if self.watcher is not None:
             tasks.add(self.watcher)
         for task in tasks:
@@ -131,7 +131,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         if tasks:
             await finish_cleanup(asyncio.gather(*tasks, return_exceptions=True))
         self.workers.clear()
-        self.queries.clear()
+        self.agent_tasks.clear()
         self.chat_tasks.clear()
         self.executions.clear()
         self.cron.clear()
@@ -194,7 +194,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def delete(self, agent_id):
         """Stop owned work while retaining a restorable identity and all source files."""
         async with self.management_lock:
-            tasks = {task for task, owner in self.queries.items() if owner == agent_id}
+            tasks = {task for task, owner in self.agent_tasks.items() if owner == agent_id}
             if agent_id in self.workers:
                 tasks.add(self.workers[agent_id])
             for task in tasks:
@@ -290,14 +290,22 @@ class LocalAgentRuntime(BaseAgentRuntime):
         return await self.sessions.list("main", offset, limit)
 
     @asynccontextmanager
+    async def _agent_task(self, agent_id):
+        """Own Agent calls before they wait for locks so shutdown and deletion can cancel them."""
+        if self.closed:
+            raise RuntimeError("Agent runtime is closed")
+        task = asyncio.current_task()
+        self.agent_tasks[task] = agent_id
+        try:
+            yield
+        finally:
+            self.agent_tasks.pop(task, None)
+
+    @asynccontextmanager
     async def query_turn(self, agent_id):
         """Serialize query registration with deletion and temporary Agent collection."""
-        task = asyncio.current_task()
-        try:
+        async with self._agent_task(agent_id):
             async with self.management_lock:
-                if self.closed:
-                    raise RuntimeError("Agent runtime is closed")
-                self.queries[task] = agent_id
                 agent = await self.definition(agent_id)
                 await self.prepare(agent)
                 receipt = (await self.snapshot(agent_id))["consumption"]
@@ -305,12 +313,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session_id is None:
                     raise ValueError("proactive agent has no completed session to query")
             yield session_id
-        finally:
-            self.queries.pop(task, None)
 
     async def run(self, agent_id, execute):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
-        async with self.round_locks.setdefault(agent_id, asyncio.Lock()):
+        async with self._agent_task(agent_id), self.round_locks.setdefault(agent_id, asyncio.Lock()):
             async with self.management_lock:
                 agent = await self.definition(agent_id)
                 if not agent.enabled:
@@ -321,7 +327,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if batch is None:
                     return {"agent_id": agent_id, "processed": 0}
                 owns_worker = agent_id not in self.workers
-                self.workers[agent_id] = asyncio.current_task()
+                if owns_worker:
+                    self.workers[agent_id] = asyncio.current_task()
             try:
                 self.executions[agent_id].started_at = self.now()
                 result, session_id = await execute(agent, batch["events"])
@@ -405,7 +412,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     await self._collect(agent)
 
     async def _collect(self, agent):
-        if agent.agent_id in self.workers or agent.agent_id in self.queries.values():
+        if agent.agent_id in self.workers or agent.agent_id in self.agent_tasks.values():
             return
         snapshot = await self.snapshot(agent.agent_id)
         event = snapshot["event"]

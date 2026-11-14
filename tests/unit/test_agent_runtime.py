@@ -1099,6 +1099,39 @@ async def test_shutdown_cancels_owned_execution_and_leaves_input_pending(tmp_pat
         assert (await runtime.snapshot("monitor"))["pending_count"] == 1
 
 
+@pytest.mark.parametrize("operation", ["run", "query"])
+@pytest.mark.asyncio
+async def test_shutdown_cancels_agent_tasks_waiting_for_locks(tmp_path, operation):
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        await create_agent(runtime)
+        lock = (
+            runtime.management_lock
+            if operation == "query"
+            else runtime.round_locks.setdefault("monitor", asyncio.Lock())
+        )
+        execute = AsyncMock(return_value=(ProactiveRunResult(notifications=[]), "session-1"))
+
+        async def invoke():
+            if operation == "run":
+                await runtime.run("monitor", execute)
+            else:
+                async with runtime.query_turn("monitor"):
+                    await execute()
+
+        async with lock:
+            task = asyncio.create_task(invoke())
+            try:
+                await asyncio.sleep(0)
+                await runtime.close()
+                assert task.cancelled()
+            finally:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        execute.assert_not_called()
+    async with running_runtime(tmp_path) as (runtime, _, _):
+        assert (await runtime.snapshot("monitor"))["pending_count"] == 1
+
+
 @pytest.mark.asyncio
 async def test_agent_directory_symlinks_are_rejected(tmp_path):
     outside = tmp_path.parent / f"{tmp_path.name}-outside"
@@ -1162,7 +1195,7 @@ async def test_query_registration_protects_temporary_agent_during_checkpoint_sel
         collecting = None
         try:
             await asyncio.wait_for(checkpoint_entered.wait(), 2)
-            assert runtime.queries.get(querying) == "experiment"
+            assert runtime.agent_tasks.get(querying) == "experiment"
             collecting = asyncio.create_task(runtime.tick(AsyncMock(), "proactive_run"))
             checkpoint_release.set()
             await asyncio.wait_for(model_entered.wait(), 2)
@@ -1170,7 +1203,7 @@ async def test_query_registration_protects_temporary_agent_during_checkpoint_sel
             assert directory.is_dir()
             model_release.set()
             assert (await asyncio.wait_for(querying, 2)).success
-            assert not runtime.queries
+            assert not runtime.agent_tasks
         finally:
             checkpoint_release.set()
             model_release.set()
@@ -1186,7 +1219,7 @@ async def test_query_without_a_completed_checkpoint_releases_ownership(tmp_path)
         await create_agent(runtime)
         with pytest.raises(ValueError, match="no completed session"):
             await ProactiveQueryStep(app_context=context)(agent_id="monitor", query="Status?")
-        assert not runtime.queries and not wrapper.created
+        assert not runtime.agent_tasks and not wrapper.created
 
 
 @pytest.mark.asyncio

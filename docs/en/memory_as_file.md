@@ -230,6 +230,9 @@ search match       -> expand inbound and outbound links to provide context
 
 Parsed result:
 
+`FileLink` stores only source, target and optional anchor. Rebuild derived graph indexes that still contain the removed
+`predicate` field; the source Markdown files do not need changes.
+
 ```text
 FileLink
   source_path = current file

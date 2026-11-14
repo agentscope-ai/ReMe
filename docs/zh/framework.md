@@ -436,6 +436,9 @@ flowchart LR
 
 Step 是具体业务动作。所有 Step 都继承 `BaseStep` 并实现 `execute()`。
 
+`shell_step` 复用本地进程执行器：stdout、stderr 各有 1 MiB 上限，超时、取消和执行结束时都会清理子进程。
+`shell_timeout` 必须是有限的正数，单位为秒。
+
 ```mermaid
 flowchart LR
     A["Job._build_steps()"] --> B["Step.__init__()"]

@@ -28,8 +28,8 @@ class InstalledPlugin:
 
     @property
     def format(self) -> str:
-        """Return the declarative or compatibility contract used by the entry point."""
-        return "manifest" if ":" not in self.target else "legacy"
+        """Identify package manifests and unsupported object entry points without imports."""
+        return "manifest" if ":" not in self.target else "unsupported"
 
 
 def _installed_plugins() -> list[InstalledPlugin]:
@@ -120,7 +120,7 @@ def _list_plugins(args: argparse.Namespace) -> int:
 
 def _installed_manifest(plugin: InstalledPlugin) -> PluginManifest:
     if plugin.format != "manifest":
-        raise ValueError(f"Plugin '{plugin.name}' uses the legacy Python descriptor format")
+        raise ValueError(f"Plugin '{plugin.name}' requires a package-only entry point and plugin.yaml")
     distribution = getattr(plugin.entry, "dist", None)
     if distribution is not None:
         relative = Path(*plugin.target.split(".")).joinpath(PLUGIN_MANIFEST)
@@ -129,7 +129,7 @@ def _installed_manifest(plugin: InstalledPlugin) -> PluginManifest:
             return parse_plugin_manifest(path.read_text(encoding="utf-8"), plugin_name=plugin.name)
     # Editable installs may not expose package data through ``locate_file``.
     # Importlib resources then has to import the package, whose ``__init__``
-    # may still contain legacy registration side effects.
+    # may contain registration side effects.
     from .components.component_registry import R
 
     with R.preserve(allow_mutation=True):
@@ -146,11 +146,10 @@ def _plugin_details(plugin: InstalledPlugin) -> dict:
         "backends": [],
         "default_jobs": [],
     }
-    if plugin.format == "manifest":
-        manifest = _installed_manifest(plugin)
-        details["backends"] = list(manifest.backends)
-        jobs = manifest.application_defaults.get("jobs") or {}
-        details["default_jobs"] = list(jobs) if isinstance(jobs, dict) else []
+    manifest = _installed_manifest(plugin)
+    details["backends"] = list(manifest.backends)
+    jobs = manifest.application_defaults.get("jobs") or {}
+    details["default_jobs"] = list(jobs) if isinstance(jobs, dict) else []
     return details
 
 
@@ -297,7 +296,7 @@ def _validate_local(path: Path) -> list[str]:
     for source_root in reversed(inserted_roots):
         sys.path.insert(0, source_root)
     try:
-        # Match installed-plugin loading: imports may execute compatibility
+        # Match installed-plugin loading: imports may execute registration
         # decorators, but they must not mutate the frozen built-in template.
         with R.preserve(allow_mutation=True):
             for name, manifest_path in manifests:

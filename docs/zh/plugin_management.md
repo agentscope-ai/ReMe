@@ -32,8 +32,8 @@ PLUGIN    DISTRIBUTION   VERSION  FORMAT
 auto-fin  reme-auto-fin  X.Y.Z    manifest
 ```
 
-`manifest` 表示插件使用当前的 package-level `plugin.yaml` 契约；`legacy` 表示插件使用仍然兼容的 Python descriptor
-契约。
+`manifest` 表示插件使用 package-level 的 `plugin.yaml` 契约；`unsupported` 表示旧的 `package:object`
+entry point，需要迁移为 package-only entry point 和 `plugin.yaml` 后才能启用或查看详情。
 
 manifest 将 backend 注册与应用配置分开：
 

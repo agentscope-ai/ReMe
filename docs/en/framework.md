@@ -454,6 +454,9 @@ flowchart LR
 
 A Step is a concrete business action. Every Step extends `BaseStep` and implements `execute()`.
 
+`shell_step` uses the shared local process runner: stdout and stderr each have a 1 MiB limit. Timeout, cancellation
+and completion clean up child processes. `shell_timeout` must be a finite positive number of seconds.
+
 ```mermaid
 flowchart LR
     A["Job._build_steps()"] --> B["Step.__init__()"]

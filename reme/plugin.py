@@ -1,8 +1,7 @@
 """Load explicitly enabled plugins into one application's config and registry.
 
-New plugins expose a package-only ``reme.plugins`` entry point and declare two
+Plugins expose a package-only ``reme.plugins`` entry point and declare two
 optional mappings in ``plugin.yaml``: ``backends`` and ``application_defaults``.
-Python ``Plugin`` descriptors remain supported as a compatibility boundary.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ from typing import Any
 from .components.base_component import ComponentMixin
 from .components.component_registry import ComponentRegistry, create_application_registry
 from .config import deep_merge_config, expand_env_vars
-from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, load_entry_point, unique_entry_point
+from .entry_point import PLUGIN_ENTRY_POINT_GROUP, find_entry_points, unique_entry_point
 from .plugin_manifest import PluginManifest, load_package_manifest
 
 
@@ -30,7 +29,7 @@ class Backend:
 
 @dataclass(frozen=True)
 class Plugin:
-    """Legacy Python descriptor accepted during the plugin manifest migration."""
+    """Resolved backend classes and defaults from one package manifest."""
 
     name: str
     backends: tuple[Backend, ...] = ()
@@ -71,19 +70,14 @@ def _plugin_from_manifest(name: str, manifest: PluginManifest) -> Plugin:
 
 
 def _load_plugin(name: str, entry: EntryPoint) -> Plugin:
-    """Load a package manifest, falling back to the legacy descriptor form."""
-    if ":" not in entry.value:
-        # Package-only targets use plugin.yaml; package:object targets are the
-        # legacy Python descriptor contract.
-        from .components.component_registry import R
+    """Load declared contributions without retaining import-time registrations."""
+    from .components.component_registry import R
 
-        with R.preserve(allow_mutation=True):
-            manifest = load_package_manifest(entry.value, plugin_name=name)
-            return _plugin_from_manifest(name, manifest)
-    plugin = load_entry_point(entry, invoke=True)
-    if not isinstance(plugin, Plugin):
-        raise TypeError(f"Plugin entry point '{name}' did not return reme.plugin.Plugin")
-    return plugin
+    if ":" in entry.value:
+        raise ValueError(f"Plugin '{name}' requires a package-only entry point and plugin.yaml")
+    with R.preserve(allow_mutation=True):
+        manifest = load_package_manifest(entry.value, plugin_name=name)
+        return _plugin_from_manifest(name, manifest)
 
 
 class PluginManager:
@@ -109,8 +103,6 @@ class PluginManager:
             if entry is None:
                 raise ValueError(f"Plugin '{name}' is not installed")
             plugin = _load_plugin(name, entry)
-            if plugin.name != name:
-                raise ValueError(f"Plugin entry point '{name}' returned plugin '{plugin.name}'")
             plugins.append(plugin)
             seen.add(name)
         return cls(plugins)

@@ -380,7 +380,7 @@ jobs:
 
 #  shell:
 #    backend: base
-#    description: "execute a shell command asynchronously in the workspace"
+#    description: "execute a shell command in the workspace, with 1 MiB per output stream and child cleanup"
 #    parameters:
 #      type: object
 #      properties:

@@ -104,8 +104,10 @@ reme my_action text=hello
 
 仓库中的 `plugins/daily_paper`、`plugins/auto-fin`、`plugins/lme` 和 `plugins/beam` 是完整参考实现。
 
-## 兼容性
+## Entry-point 契约
 
-迁移期间仍兼容旧的 Python Plugin descriptor 和 `reme.configs` entry point，但新插件应使用 `plugin.yaml`。不要依赖进程级全局 enable/disable 状态；插件启用始终属于具体 Application 配置。
+插件必须使用 package-only 的 `reme.plugins` entry point，并在 `plugin.yaml` 中声明贡献。
+旧的 `package:object` entry point 需要迁移到此格式才能启用。独立的 `reme.configs` entry point
+仍可提供命名配置预设。插件启用属于具体 Application 配置。
 
 包管理命令、升级与卸载行为见[插件管理](./plugin_management.md)。

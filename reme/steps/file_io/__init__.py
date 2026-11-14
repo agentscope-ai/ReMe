@@ -7,7 +7,6 @@ from ._path import (
     IMAGE_SUFFIXES,
     check_path_permission,
     display_path,
-    is_relative_to,
     resolve_path,
     validate_filename_component,
 )
@@ -33,7 +32,6 @@ __all__ = [
     "IMAGE_SUFFIXES",
     "check_path_permission",
     "display_path",
-    "is_relative_to",
     "resolve_path",
     "refresh_day_index",
     "extract_daily_date",

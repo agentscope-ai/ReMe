@@ -21,8 +21,8 @@ def make_node(path: str, links: list[tuple[str, str | None]] | None = None) -> F
     )
 
 
-def test_file_node_loads_legacy_predicate_without_persisting_it():
-    """Legacy predicates are accepted for compatibility but omitted from new snapshots."""
+def test_file_node_round_trips_link_paths_and_anchors():
+    """Graph snapshots retain only source, target and optional anchor fields."""
     node = FileNode.model_validate(
         {
             "path": "a.md",
@@ -32,15 +32,21 @@ def test_file_node_loads_legacy_predicate_without_persisting_it():
                     "source_path": "a.md",
                     "target_path": "b.md",
                     "target_anchor": "intro",
-                    "predicate": "related",
                 },
             ],
         },
     )
     assert node.links == [
-        FileLink(source_path="a.md", target_path="b.md", target_anchor="intro", predicate="related"),
+        FileLink(source_path="a.md", target_path="b.md", target_anchor="intro"),
     ]
+    assert FileNode.model_validate_json(node.model_dump_json()) == node
     assert "predicate" not in node.model_dump_json()
+
+
+def test_file_link_rejects_removed_predicate():
+    """Old derived indexes need rebuilding rather than a second link contract."""
+    with pytest.raises(ValueError, match="predicate"):
+        FileLink(source_path="a.md", target_path="b.md", predicate="related")
 
 
 # Both backends should satisfy the same BaseFileGraph contract.
