@@ -379,6 +379,33 @@ class LocalEventStream(BaseEventStream):
                 for name, stream in sorted(self._streams.items())
             ]
 
+    async def read(self, name: str, *, state: str = "all", offset: int = 0, limit: int = 20) -> dict:
+        """Snapshot a bounded page under the same lock as claims and acknowledgements."""
+        if state not in {"all", "pending", "processing", "processed"}:
+            raise ValueError("invalid event state")
+        if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("offset must be nonnegative and limit must be between 1 and 100")
+        async with self._changed:
+            stream = self._stream(name)
+            claimed = stream.claim[1] if stream.claim else 0
+            items = [
+                {"event": pending.event, "state": "processing" if index < claimed else "pending", "consume_ts": None}
+                for index, pending in enumerate(stream.pending)
+            ]
+            items.extend(
+                {"event": event, "state": "processed", "consume_ts": batch.receipt.consume_ts.isoformat()}
+                for batch in stream.history
+                for event in batch.events
+            )
+            items = [item for item in items if state in {"all", item["state"]}]
+            items.sort(
+                key=lambda item: (datetime.fromisoformat(item["event"]["event_ts"]), item["event"]["id"]),
+                reverse=True,
+            )
+            return deepcopy(
+                {"items": items[offset : offset + limit], "total": len(items), "offset": offset, "limit": limit},
+            )
+
     @staticmethod
     def _encode(event: dict) -> bytes:
         return (
@@ -406,8 +433,8 @@ class LocalEventStream(BaseEventStream):
     async def append(self, name: str, events: Event | dict | list[Event | dict]) -> list[str]:
         """Durably append inputs; wait for pending capacity or raise TimeoutError."""
         prepared = self._prepare(events)
-        async with self._changed:
-            async with asyncio.timeout(self.append_timeout_seconds):
+        async with asyncio.timeout(self.append_timeout_seconds) as deadline:
+            async with self._changed:
                 while True:
                     stream = self._stream(name)
                     fresh = []
@@ -428,8 +455,9 @@ class LocalEventStream(BaseEventStream):
                     ):
                         break
                     await self._changed.wait()
-            await finish_cleanup(self._append(name, stream, fresh))
-            return [item[0]["id"] for item in prepared]
+                deadline.reschedule(None)
+                await finish_cleanup(self._append(name, stream, fresh))
+                return [item[0]["id"] for item in prepared]
 
     async def _append(self, name: str, stream: _Stream, prepared: list) -> None:
         try:

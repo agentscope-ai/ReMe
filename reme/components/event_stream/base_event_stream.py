@@ -31,6 +31,10 @@ class BaseEventStream(BaseComponent):
         """Read the latest retained input, execution receipt and pending counts."""
 
     @abstractmethod
+    async def read(self, name: str, *, state: str = "all", offset: int = 0, limit: int = 20) -> dict:
+        """Page retained inputs and their real processing state without consuming them."""
+
+    @abstractmethod
     async def append(self, name: str, events: Event | dict | list[Event | dict]) -> list[str]:
         """Persist inputs before publishing them to a consumer."""
 

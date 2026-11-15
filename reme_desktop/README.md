@@ -1,0 +1,112 @@
+# ReMe Desktop
+
+Electron + React client for ReMe's AgentRuntime. The Python service owns Agents, native sessions and workspace files;
+Desktop connects over JSON/SSE through its sandboxed preload bridge. Credentials remain in the backend environment.
+
+The top bar contains **Remy** and **Knowledge**, with Settings at the right.
+
+- Remy's sidebar lists the Chat Agent as **Remy** (`agent_id=chat`) and each named Cron or Proactive/event Agent.
+- Selecting an Agent opens its current formal conversation. Temporary query forks never become the displayed current
+  session. Browsing an Agent with no session leaves it empty until a message or explicit new-session action creates one.
+- Each Agent has a conversation, Memory and a mailbox. Task Agents also expose Events. Task conversations show the latest
+  native turn; previous turns remain in native history and model context. Related links open original workspace files.
+- User conversations and automatic execution are serialized per Agent. An active child reply continues when switching
+  Agents, with separate message histories and drafts. Chat Agent and task Agent conversations never share native session IDs.
+- Remy's Updates tab retains reminder browsing, document details, replay, narration and explicit user-read receipts.
+  Automatic Chat Agent replies retain their turn provenance across reconnects and restarts. AgentRuntime determines
+  notification eligibility; the client applies quiet mode and its presentation budget.
+  User reading and Agent inbox processing are independent; reading a reminder never consumes an event batch.
+- Knowledge retains Workspace / Daily / Knowledge browsing, Markdown and YAML previews, wikilinks, tags and search.
+  Tag-only browsing uses `list_tag_files`; selecting multiple tags uses OR semantics.
+- The desktop character, voice settings, themes and native window behavior are migrated from ReMe3.
+
+## Start
+
+Use Python 3.11+, Node.js 22.13+ and npm. Install from the repository root:
+
+```bash
+python -m pip install -e reme_studio -e ".[dev,core]"
+cd reme_desktop
+npm ci
+npx install-electron
+```
+
+Configure `LLM_API_KEY` and `LLM_BASE_URL` in the backend environment. The endpoint must support Responses API.
+The optional voice functions also require `DASHSCOPE_API_KEY`. See
+[`proactive.yaml`](../reme/config/proactive.yaml) for the model, collectors and initial Agents.
+
+Terminal one, from the repository root:
+
+```bash
+reme start config=proactive workspace_dir=/absolute/path/to/your/workspace service.host=127.0.0.1 service.port=2333
+```
+
+Terminal two:
+
+```bash
+cd reme_desktop
+npm run dev
+```
+
+Desktop defaults to `http://127.0.0.1:2333`; change it in Settings. The backend and Desktop are independent processes.
+Closing the workspace hides the window; use the character or tray to reopen it. Quit through the tray to stop Desktop.
+
+On macOS, double-click [`restart_desktop.command`](../restart_desktop.command), or run it from any directory:
+
+```bash
+/path/to/ReMe2/restart_desktop.command
+```
+
+It builds the latest frontend, restarts this checkout's backend and Desktop, verifies their connection, and opens the
+conversation window. The backend loads the repository `.env`, uses `config=proactive`, workspace `ReMe2/.reme` and
+`http://127.0.0.1:2333`. Existing workspace files and desktop settings are retained. Logs are written to
+`reme_desktop/reports/run/`. An unrelated process occupying port 2333 is left running and reported as an error.
+Python selection prefers an explicit `REME_PYTHON=/path/to/python`, then the repository `.venv`, then the active Conda
+environment and other available interpreters. Each candidate is checked against the enabled stock-quote collector's
+`exchange-calendars` dependency. An invalid explicit interpreter fails immediately. The selected Python path is printed,
+and the environment is checked again before building or stopping existing services.
+
+## Service contract
+
+The client uses the following jobs from the same checkout:
+
+| Job                                                     | Behavior                                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `agent_list`                                            | Remy and task identities, current formal session IDs and lightweight status          |
+| `agent_session`                                         | Current session snapshot for `agent_id`, or a null snapshot before the first session |
+| `agent_chat`                                            | Stream a user turn in that Agent's formal session; defaults to chat                  |
+| `agent_new_session`                                     | Select a fresh empty formal session and retain previous native history               |
+| `agent_events`                                          | Observe one Agent's current session plus global sidebar status                       |
+| `agent_mailbox`                                         | Chat inbox or task outbox; canonical mail and independent user-read receipts         |
+| `agent_event_list`                                      | Page pending, processing and processed inputs without consuming them                 |
+| `session_read` / `session_status`                       | Read retained native history / inspect native activity                               |
+| `list`, `load`, `list_tags`, `list_tag_files`, `search` | Read-only Knowledge browsing                                                         |
+
+Subscriptions start with an authoritative snapshot, emit changed messages and replacement snapshots, and send idle
+heartbeats. Every reconnect reconstructs the current view; a stale client cursor is unnecessary. Polling also observes
+external workspace edits and works with session-capable wrappers. Stream errors and the terminal `DONE` retain ReMe's
+normal service contract. Interrupted user requests are never automatically resent.
+
+The existing `manage_proactive_agent(action=query)` remains a separate temporary, read-only query. Desktop conversations
+use `agent_chat`, so their history remains available to later automatic execution. See
+[`AgentRuntime`](../reme/components/agent_runtime/base_agent_runtime.py) and
+[service Steps](../reme/steps/proactive/agent/api.py) for the contracts.
+
+The sidebar separates Remy, Proactive and Cron. Task groups collapse independently. Each conversation shows only the current formal session; memory, reminders, inboxes, event records and outboxes have dedicated views. Workspace links open the original file in Knowledge, including images; web links open the browser.
+
+Inbox processing (`read_at`) and user reading (`user_read_at`) are independent. Reading a mailbox never claims events or consumes mail. Event history is bounded by the configured event-stream retention.
+
+## Validate and package
+
+```bash
+npm run typecheck
+npm test
+npm run format:check
+npm run pack
+```
+
+`npm run dist` builds the host platform's installer. Windows uses NSIS, macOS uses DMG/ZIP, and Linux uses AppImage.
+Remy's artwork, source sheets, prompts and rebuild script live in [`assets/remy/`](assets/remy/README.md).
+Packages contain the Electron client plus Remy's manifest and runtime frames; Python, credentials and workspace data
+stay separately managed.
+Native microphone access and system notification delivery additionally depend on operating-system permissions.

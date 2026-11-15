@@ -12,9 +12,11 @@ from .agent_runtime import (
     InboxConfig,
     AgentReminder,
     ReminderRef,
-    ManageInboxRequest,
+    ReadInboxRequest,
+    SendChatMessageRequest,
 )
 from .agent_activity import AgentActivity
+from .agent_view import AgentChatRequest, AgentRequest, AgentSessionView, AgentView
 from .compaction import CallDecision, CompactionOptions, CompactionRequest, CompactionResult
 from .dream import (
     DreamExtractOutput,
@@ -76,6 +78,10 @@ __all__ = [
     "FinanceNewsItem",
     "StockQuote",
     "CryptoQuote",
+    "AgentView",
+    "AgentRequest",
+    "AgentChatRequest",
+    "AgentSessionView",
     "AgentSession",
     "ChatAgentConfig",
     "CreateChatAgentConfig",
@@ -89,7 +95,8 @@ __all__ = [
     "AgentNotification",
     "AgentId",
     "InboxConfig",
-    "ManageInboxRequest",
+    "ReadInboxRequest",
+    "SendChatMessageRequest",
     "ProactiveRunResult",
     "FileChunk",
     "FileFrontMatter",

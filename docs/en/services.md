@@ -52,7 +52,7 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"Summarize my long-term preferences"}'
 ```
 
-The `proactive` configuration exposes `chat(query)` for the fixed `main` Agent. It resumes the current
+The `proactive` configuration exposes `chat(query)` for the fixed `chat` Agent. It resumes the current
 native session; `new_chat_session` selects a fresh session and retains the history exposed by `list_chat_sessions`.
 MCP does not expose Stream Jobs. Studio integration is separate from this backend.
 
@@ -81,35 +81,42 @@ From another terminal:
 reme manage_proactive_agent action=list
 reme manage_proactive_agent action=create \
   'config={"name":"experiment","trigger_type":"event","description":"Monitor experiment logs and report failures or completion."}'
-reme manage_inbox action=read agent_id=main
-reme manage_inbox action=mark_read agent_id=main 'msg_ids=["MESSAGE_ID"]'
+reme agent_mailbox
 ```
 
 `manage_proactive_agent` supports `list/create/status/update/delete/query`. The creation name is the immutable
-`agent_id`; `main` and `tmp` are reserved. Deletion stops owned work and retains files, events and native session history.
+`agent_id`; `chat` and `tmp` are reserved. Deletion stops owned work and retains files, events and native session history.
 Creating the same name restores that Agent. `query` asks a temporary read-only fork without selecting it for future work.
 
-`config.description` is creation-only: it initializes the Agent's `MEMORY.md`, with sections for the current task,
-confirmed background and long-term findings. Task text is not stored in `config.json` or injected separately each round.
+`config.description` is creation-only: it is written verbatim to the Agent's `MEMORY.md` without preset headings.
+Task text is not stored in `config.json` or injected separately each round.
 `list/update` return settings, status and workspace-relative `memory_path`; `create/status` also return `memory_content`
 (up to 2,000 characters) and `memory_truncated`. Read the complete file when truncated. Configuration file paths are
-not returned. Before changing or deleting a task, inspect `status`; edit task requirements directly in `memory_path`,
-replace superseded requirements and read back the result. Use `update` for execution settings and `delete` to stop
+not returned. Before changing or deleting a task, inspect `status`. Users may edit the original `memory_path`; Agents
+use the private `agent_memory` tool to read complete content and a `revision`, then write `content` with
+`expected_revision`, rereading and merging on conflict. Codex command tools have read-only access to their own
+MEMORY.md so they cannot bypass revision checks. Replace superseded requirements and read back the result. Use `update` for execution settings and `delete` to stop
 owned work. Changes apply to subsequent rounds; an already-running round may have read the previous task.
-Same-name restoration preserves existing memory. To migrate an older Agent, move its stored `description` into the
-current-task section of `MEMORY.md`, retain its accumulated knowledge, then remove `description` from `config.json`.
+Same-name restoration preserves existing memory. To migrate an older Agent, move its stored `description` into
+`MEMORY.md`, retain its accumulated knowledge, then remove `description` from `config.json`.
 `reme_agent_dir` now defaults to `reme_agents`; set it explicitly to `agents` to keep using an existing directory.
-No workspace files or embedded references are moved automatically.
+Changing `reme_agent_dir` itself does not move workspace files or rewrite embedded references.
 
-Chat's initial memory is configured through `components.agent_runtime.default.main.description`. Runtime startup
+Chat's initial memory is configured through `components.agent_runtime.default.chat.description`. Runtime startup
 initializes its `MEMORY.md` using the same mechanism as task Agents; existing memory survives restarts and session
 changes. Chat's `job_tools` are selected in its Step configuration.
 
+The fixed Chat Agent uses `agent_id=chat`. Rename the former `components.agent_runtime.default.main` configuration
+key to `chat`. Before upgrading an existing workspace, move its fixed Chat directory from `reme_agents/main/` to
+`reme_agents/chat/` and set `config.json`'s `name` to `chat`, preserving memory, session IDs and inbox receipts.
+The runtime accepts the current layout only and does not migrate workspace files automatically.
+
 Initial tasks can be declared in `components.agent_runtime.default.agents` in `proactive.yaml`, using the same creation
 fields including `description`. Startup creates missing identities only; restarting does not overwrite edited memory
-or settings, or restore deleted tasks. Two tasks are enabled by default: `finance` checks for major AI news hourly,
+or settings, or restore deleted tasks. Two event tasks are enabled by default: `finance` analyzes collected news and quotes,
 and the event-driven `work` tracks the user's current projects, progress, difficulties and discussion points from
-incoming observations. Screen capture targets `work` when explicitly enabled; the collector remains disabled by default.
+incoming observations. Work observations capture screens and new Codex dialogue every five minutes. The separate
+standalone screen-capture collector is disabled by default.
 
 Task configuration uses `trigger_type` (`cron` or `event`). Rename the old `type` key to `trigger_type` in existing
 Agent `config.json` files and API calls; the old key is no longer accepted.
@@ -130,29 +137,39 @@ running work, pending events, undelivered messages and retained Inbox references
 On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_id>.md`; round details use
 `<agent_id>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
-updates delivery, wakeup and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`.
+updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`.
 
-Only `main` receives messages. Its `inbox_unread.jsonl` and `inbox_read.jsonl` contain only `{file,id}` references;
+Only `chat` receives messages. Its `inbox_unread.jsonl` and `inbox_read.jsonl` contain only `{file,id}` references;
 the read view retains the latest 1,000. Bodies and timestamps remain in canonical reminders. One lifecycle-owned
-watcher and periodic rescans reconcile file edits and interrupted handoffs. Appending a valid reference to the read
-view marks the original message read. Missing views are rebuilt from reminders.
-Existing daily reminder JSONL logs require migration to Markdown frontmatter before startup.
-`manage_inbox(action="read")` leaves messages unread, defaults to `unread_only=true`, and does not filter priority
-unless `priority` is supplied. `unread_only=false` includes read history. Results are ordered by priority, then time.
-After processing, call `action="mark_read"` with `msg_ids`, including when no user notification is needed.
-Repeated marks preserve the original read time. Agent-read is distinct from user-read; there are no claim tokens.
-Agent-bound tools infer the receiver; external calls must supply `agent_id`.
+watcher and periodic rescans reconcile file edits and interrupted handoffs. Missing views are rebuilt from reminders.
+Existing daily reminder JSONL logs require migration to Markdown frontmatter before startup; remove the retired
+`woken_at` frontmatter field from previously generated Markdown reminders. Missing or corrupt individual reminders
+retain their source files and event receipts, report their paths, and are isolated without blocking other reminders
+or application startup. Restoring the original file automatically restores processing.
 
-P0 requests a Chat turn immediately, or after `components.agent_runtime.default.inbox.p0_delay_seconds` (default 0).
-P1 waits for continuous Chat idle (default 10 seconds); P2 may be read on demand or wakes Chat after 1800 idle seconds.
-The latter delays are `inbox.p1_idle_seconds` and `inbox.p2_idle_seconds`. User and automatic turns share one lock;
-P0 waits behind an active turn. Every completed, failed or cancelled Chat turn restarts the idle clock; message arrival
-does not. A successful P0 wakeup is recorded separately from reading, preventing repeated wakeups for the same batch.
-Chat promptly notifies for P0 and uses conversation context for P1/P2, finishing silently when no reminder is needed.
+P0 forks Chat as soon as its session is available, after `components.agent_runtime.default.inbox.p0_delay_seconds`
+(default 0). P1 waits for 10 continuous idle seconds, P2 for 1800, controlled by `inbox.p1_idle_seconds` and
+`inbox.p2_idle_seconds`. Notification windows still apply. Only foreground Chat turns reset the idle clock.
+The temporary fork inherits the current conversation, runs read-only and offline, and is disposed of after execution,
+including failure or cancellation. Its hint and tool traces never enter the main conversation.
 
-`proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. The inbox background worker starts actual
-Chat inference instead of appending reminder text as an assistant answer. The former direct-delivery and sender-review
-paths are removed. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_id` and enable the job to publish
+Only the reminder fork receives `read_inbox(priority=...)` and `send_chat_msg(content=...)`.
+Reminder evaluation has a 120-second timeout and proactive execution a 600-second timeout, configured with each
+Step's `timeout_seconds`. Transient inbox failures retry with exponential backoff capped at 300 seconds; SDK type
+or import errors stop retries until the environment is repaired and restarted. Chat status exposes inbox failures,
+and cron logs unsuccessful partial collection results.
+
+Reading is limited to the selected batch. Nonempty content is appended as an assistant message marked
+`source="proactive"`; empty content commits a silent decision without inserting a message. Successful decisions
+automatically consume the messages read, independently of user-read state. Failures remain retryable, and a switched
+Chat session or a new foreground turn rejects the old fork's decision. The ordinary fork reply is never sent to the user.
+Desktop derives its reminder list from these marked messages; `agent_mailbox` browses the Chat inbox or a task outbox (`agent_id=<name>`); user-read receipts do not consume messages. `agent_event_list agent_id=<name>` pages retained input events without claiming them.
+
+`agent_session` and `agent_events` expose full Chat history, but only the latest native turn for event/cron Agents,
+including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
+`snapshot`; `heartbeat` carries no messages. Persisted sessions and model context retain earlier turns.
+
+`proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_id` and enable the job to publish
 complete resource packages as observations. No resource watcher or automatic TTL deletion participates in this flow.
 
 This is a breaking replacement of the previous inbox and PA APIs. Existing workspace files are retained without

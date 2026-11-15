@@ -165,6 +165,39 @@ async def test_fork_cannot_acquire_the_same_session_twice_with_different_uuid_ca
 
 
 @pytest.mark.asyncio
+async def test_resume_with_explicit_session_id_requires_a_fork_before_any_writes(wrapper, monkeypatch):
+    """An invalid SDK request cannot create metadata under a different target ID."""
+
+    def query(*_args, **_kwargs):
+        raise AssertionError("Invalid resume must not reach the SDK")
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    session_id = await wrapper.create_session()
+    target = str(uuid4())
+    with pytest.raises(ValueError, match="session_id cannot be used with resume"):
+        await wrapper.reply("wrong target", resume=session_id, session_id=target)
+    assert not wrapper._sessions.path(target).exists()
+    assert wrapper._inject.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_file_store_rejects_final_jsonl_symlink_before_read_or_write(tmp_path):
+    """Containment must check the final filename after adding its extension."""
+    root = tmp_path / "store"
+    project = root / "project"
+    project.mkdir(parents=True)
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text('{"uuid":"original"}\n')
+    (project / "session.jsonl").symlink_to(outside)
+    store = CcFileSessionStore(root)
+    key = {"project_key": "project", "session_id": "session"}
+    for operation in (lambda: store.load(key), lambda: store.append(key, [{"uuid": "extra"}])):
+        with pytest.raises(ValueError, match="escapes root"):
+            await operation()
+    assert outside.read_text() == '{"uuid":"original"}\n'
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["user", "assistant"])
 async def test_append_role_is_durable_and_idempotent_across_wrapper_restart(wrapper, role):
     """Both roles preserve provenance and retry identity after reloading metadata."""
@@ -574,3 +607,57 @@ async def test_injection_requires_zero_inference_and_closes_the_sdk(monkeypatch,
     else:
         await CcAgentWrapper._inject(SimpleNamespace(), [{"type": "user"}])
     assert closed == [True] and sent == [{"type": "user"}]
+
+
+@pytest.mark.asyncio
+async def test_resume_restores_saved_cwd_and_rejects_explicit_project_changes(wrapper, tmp_path, monkeypatch):
+    """The SDK and history reader must use the same native project key."""
+    original = tmp_path / "original"
+    original.mkdir()
+    session_id = await wrapper.create_session(cwd=str(original))
+    other = tmp_path / "other"
+    other.mkdir()
+    wrapper.kwargs["cwd"] = str(other)
+
+    async def query(prompt, options):
+        assert options.cwd == str(original)
+        write_entries(wrapper, options, [frame async for frame in prompt])
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id=session_id,
+            result="Resumed",
+        )
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    assert (await wrapper.reply("Continue", resume=session_id))["status"] == "completed"
+    assert (await wrapper.read_session(session_id)).messages[0].content == "Continue"
+    with pytest.raises(ValueError, match="original cwd"):
+        await wrapper.reply("Continue", resume=session_id, cwd=str(other))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [False, True])
+async def test_failed_query_updates_anchor_only_after_native_input_acceptance(wrapper, monkeypatch, accepted):
+    """Rejected setup preserves both the last conversation anchor and pending approval state."""
+    session_id = await wrapper.create_session()
+    data = await wrapper._sessions.load(session_id, wrapper._session_defaults())
+    previous = data.last_turn_id = str(uuid4())
+    data.waiting = True
+    await wrapper._sessions.save(session_id, data)
+
+    async def query(prompt, options):
+        if accepted:
+            write_entries(wrapper, options, [frame async for frame in prompt])
+        raise RuntimeError("Rejected query")
+        yield  # pylint: disable=unreachable
+
+    monkeypatch.setattr("claude_agent_sdk.query", query)
+    with pytest.raises(RuntimeError, match="Rejected query"):
+        await wrapper.reply("Continue", resume=session_id)
+    saved = await wrapper._sessions.load(session_id, wrapper._session_defaults())
+    assert (saved.last_turn_id != previous) is accepted
+    assert saved.waiting is not accepted

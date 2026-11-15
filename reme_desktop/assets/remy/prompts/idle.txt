@@ -1,0 +1,15 @@
+Use case: identity-preserve
+Asset type: a precision 2D ANIMATION SPRITE SHEET, not a concept board or a single pose.
+Input image: the approved ORIGINAL ReMe long-haired anime bookmark-girl idle illustration. Preserve this character exactly across all frames: mint hair and ONE side ponytail on the RIGHT side of each cell with indigo tips, ivory bookmark hair ornament on upper RIGHT, indigo headband, large teal-green eyes, ivory capelet with mint edging and indigo round brooch, mint blouse, indigo pleated skirt, opaque navy tights, ivory boots, navy crossbody memory satchel on RIGHT hip with a clear turquoise uppercase R. Same cute face, body proportions, outfit and crisp cel-shaded anime line art. Do not redesign or mirror her.
+LAYOUT IS CRITICAL: ONE WIDE LANDSCAPE transparent PNG, aspect ratio 2:1, ideally 2048x1024. EXACTLY EIGHT equal-sized rectangular cells in a rigid 4-column by 2-row grid. Read frames left to right, top row then bottom row. Each cell contains ONE entire full-body character with completely transparent padding. No grid lines, labels, numbers or decoration. No other art outside the eight cells. Each cell has exactly the SAME scale, camera, body placement and foot baseline. Center the torso in its own cell; feet at 90% cell height, head around 8% cell height. At least 6% clear space around every figure. Do not vary frame size or place characters at arbitrary spacing.
+ANIMATION: quiet idle breathing and a single natural blink. This is ONE continuous small-motion loop of the SAME standing pose, NOT eight unrelated poses. One hand lightly holds the strap, other arm relaxed downward, feet never move. Very subtle breathing in the shoulders/chest and a tiny side-ponytail sway; face and torso stay registered.
+Frame 1, top-left: eyes fully open, gentle closed-mouth smile, neutral breath and hair.
+Frame 2: eyes fully open, shoulders/chest very slightly rise in a gentle inhale, ponytail tip sways a tiny amount to the right.
+Frame 3: eyes still open, breathing near peak, hair follows softly, same hands and body pose.
+Frame 4, top-right: upper eyelids half lowered for the beginning of the blink, mouth unchanged.
+Frame 5, bottom-left: both eyes naturally fully CLOSED with curved eyelids, mouth unchanged; preserve the face and lashes.
+Frame 6: eyes half open, breathing starts to relax, hair gently follows back.
+Frame 7: both eyes fully open again, calm smile, chest eases down, ponytail returns.
+Frame 8, bottom-right: eyes open, neutral breath, exact same standing composition as frame 1 so the animation loops cleanly.
+BACKGROUND: genuine transparent alpha throughout and between cells. No baked white or colored background, checkerboard, floor or shadow.
+CONSTRAINTS: exactly 8 full-body figures in a 4x2 grid; no speech bubbles, card, text or props beyond existing clothing and bag; only the single R badge per bag is text. All artwork must be complete within its cell, no crop, overlap, new accessories, extra arms/hands or inconsistent costumes. Keep outlines and eye details clear enough to use as actual animation frames.

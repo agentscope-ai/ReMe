@@ -12,10 +12,13 @@ import pytest
 import pytest_asyncio
 from openai_codex.generated.v2_all import ThreadItem
 
-from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper
+from reme.components.agent_wrapper import AsAgentWrapper, BaseAgentWrapper, CodexAgentWrapper
+from reme.components.agent_wrapper import codex_session_history
 from reme.components.codex_app_server import _session_history as history
 from reme.components.application_context import ApplicationContext
 from reme.components.codex_app_server import SdkCodexAppServer
+from reme.enumeration import ComponentEnum
+from reme.schema import SessionMessage, SessionSnapshot, SessionStatus
 from reme.utils import AsStateHandler
 
 
@@ -101,11 +104,19 @@ class NativeSession:
             ),
             thread_resume=AsyncMock(return_value=self.handle),
         )
+        self.handle._codex = self.client
+        self.injections = []
 
     async def read(self, session_id=None, **_kwargs):
         return SimpleNamespace(thread=self.threads[session_id] if session_id else self.thread)
 
     async def request(self, method, _params, **_kwargs):
+        if method == "thread/inject_items":
+            self.injections.extend(_params["items"])
+            with Path(self.thread.path).open("a", encoding="utf-8") as stream:
+                for item in _params["items"]:
+                    stream.write(json.dumps({"type": "response_item", "payload": item, "timestamp": "now"}) + "\n")
+            return SimpleNamespace()
         if method == "thread/loaded/list":
             return SimpleNamespace(data=list(self.threads), next_cursor=None)
         if method == "thread/unsubscribe":
@@ -189,6 +200,208 @@ async def runtime(tmp_path, monkeypatch):
         await server.close()
 
 
+@pytest_asyncio.fixture
+async def codex_wrapper(runtime):
+    server, native = runtime
+    server.app_context.components = {ComponentEnum.CODEX_APP_SERVER: {"default": server}}
+    wrapper = CodexAgentWrapper(app_context=server.app_context)
+    await wrapper.start()
+    try:
+        yield wrapper, native
+    finally:
+        await wrapper.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["user", "assistant"])
+async def test_codex_append_is_native_durable_and_idempotent(codex_wrapper, role):
+    wrapper, native = codex_wrapper
+    message = await wrapper.append_session("session-1", "injected", message_id="one", role=role, delivery="immediate")
+    assert (message.role, message.content, message.source) == (role, "injected", "proactive")
+    assert (message.turn_id, message.origin_session_id, message.delivery) == ("turn-1", "session-1", "immediate")
+    assert native.injections[0]["content"] == [
+        {"type": "output_text" if role == "assistant" else "input_text", "text": "injected"},
+    ]
+    restarted = CodexAgentWrapper(app_context=wrapper.app_context)
+    try:
+        snapshot = await restarted.read_session("session-1")
+        assert [item.content for item in snapshot.messages] == ["A", "B", "injected"]
+        assert (
+            await restarted.append_session(
+                "session-1",
+                "injected",
+                message_id="one",
+                role=role,
+                expected_turn_id="stale",
+            )
+            == message
+        )
+        assert len(native.injections) == 1
+        with pytest.raises(ValueError, match="different content or role"):
+            await restarted.append_session("session-1", "changed", message_id="one", role=role)
+        with pytest.raises(ValueError, match="different content or role"):
+            await restarted.append_session(
+                "session-1",
+                "injected",
+                message_id="one",
+                role="assistant" if role == "user" else "user",
+            )
+    finally:
+        await restarted.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"role": "system"}, {"content": " "}, {"message_id": "../escape"}, {"timeout": 0}, {"delivery": "later"}],
+)
+async def test_codex_invalid_append_never_resumes_or_writes(codex_wrapper, kwargs):
+    wrapper, native = codex_wrapper
+    with pytest.raises(ValueError):
+        await wrapper.append_session("session-1", **{"content": "text", "message_id": "one", **kwargs})
+    native.client.thread_resume.assert_not_awaited()
+    assert not native.injections
+
+
+@pytest.mark.asyncio
+async def test_codex_append_shares_generation_lease_and_checks_turn_guard(codex_wrapper):
+    wrapper, native = codex_wrapper
+    async with wrapper.app_server.thread("session-1"):
+        with pytest.raises(TimeoutError):
+            await wrapper.append_session("session-1", "queued", message_id="one", timeout=0.01)
+    with pytest.raises(RuntimeError, match="Session changed"):
+        await wrapper.append_session("session-1", "stale", message_id="one", expected_turn_id="old")
+    assert not native.injections
+
+
+@pytest.mark.asyncio
+async def test_codex_cancelled_append_finishes_before_releasing_lease(codex_wrapper):
+    wrapper, native = codex_wrapper
+    entered, release = asyncio.Event(), asyncio.Event()
+    request = native.client._client.request.side_effect
+
+    async def blocked(method, params, **kwargs):
+        if method == "thread/inject_items":
+            entered.set()
+            await release.wait()
+        return await request(method, params, **kwargs)
+
+    native.client._client.request.side_effect = blocked
+    pending = asyncio.create_task(wrapper.append_session("session-1", "once", message_id="one"))
+    await entered.wait()
+    pending.cancel()
+    pending.cancel()
+    await asyncio.sleep(0)
+    assert not pending.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    await wrapper.append_session("session-1", "once", message_id="one")
+    assert len(native.injections) == 1
+
+
+@pytest.mark.asyncio
+async def test_codex_append_recovers_a_lost_receipt_without_injecting_twice(codex_wrapper):
+    wrapper, native = codex_wrapper
+    request = native.client._client.request.side_effect
+
+    async def lose_receipt(method, params, **kwargs):
+        result = await request(method, params, **kwargs)
+        if method == "thread/inject_items":
+            raise RuntimeError("lost append receipt")
+        return result
+
+    native.client._client.request.side_effect = lose_receipt
+    with pytest.raises(RuntimeError, match="lost append receipt"):
+        await wrapper.append_session("session-1", "once", message_id="one")
+    message = await wrapper.append_session("session-1", "once", message_id="one")
+    assert message.content == "once" and len(native.injections) == 1
+
+
+def test_codex_native_appends_tolerate_only_an_incomplete_tail(tmp_path):
+    path = tmp_path / "rollout.jsonl"
+    record = {
+        "type": "response_item",
+        "payload": {
+            "type": "message",
+            "id": codex_session_history.item_id("session-1", "one", None, "idle"),
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "native text"}],
+        },
+    }
+    path.write_text(json.dumps(record) + '\n{"type":')
+    assert codex_session_history.read_appends(str(path), tmp_path)[0].content == "native text"
+    path.write_bytes((json.dumps(record) + "\n").encode() + b'{"type":"\xe4')
+    assert codex_session_history.read_appends(str(path), tmp_path)[0].content == "native text"
+    path.write_text(json.dumps(record) + "\n{broken}\n")
+    with pytest.raises(json.JSONDecodeError):
+        codex_session_history.read_appends(str(path), tmp_path)
+    with pytest.raises(ValueError, match="outside"):
+        codex_session_history.read_appends(str(tmp_path.parent / "outside.jsonl"), tmp_path)
+
+
+def test_codex_append_projection_keeps_initial_and_missing_anchors():
+    snapshot = SessionSnapshot(
+        session_id="session-1",
+        state=SessionStatus(session_id="session-1", status="idle"),
+        messages=[SessionMessage(id="answer", role="assistant", content="answer", turn_id="turn-1")],
+    )
+    appends = [
+        SessionMessage(id="initial", role="assistant", content="initial"),
+        SessionMessage(id="after", role="assistant", content="after", turn_id="turn-1"),
+        SessionMessage(id="old", role="assistant", content="old", turn_id="missing"),
+    ]
+    result = codex_session_history.merge_appends(snapshot, appends)
+    assert [message.content for message in result.messages] == ["initial", "answer", "after", "old"]
+
+
+@pytest.mark.parametrize("archived", [False, True])
+def test_codex_native_fork_inherits_only_its_immutable_prefix(tmp_path, archived):
+    directory = tmp_path / ("archived_sessions" if archived else "sessions")
+    directory.mkdir()
+    source = directory / "rollout-time-parent.jsonl"
+    child = tmp_path / "sessions" / "rollout-time-child.jsonl"
+    child.parent.mkdir(exist_ok=True)
+    payload = {
+        "type": "message",
+        "id": codex_session_history.item_id("parent", "one", None, "immediate"),
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "已继承的消息"}],
+    }
+    prefix = (json.dumps({"type": "response_item", "payload": payload}, ensure_ascii=False) + "\n").encode()
+    source.write_bytes(prefix + b"{later malformed parent content}\n")
+    child.write_text(
+        json.dumps(
+            {
+                "type": "session_meta",
+                "payload": {"history_base": {"thread_id": "parent", "end_byte_offset": len(prefix)}},
+            },
+        )
+        + "\n",
+    )
+    messages = codex_session_history.read_appends(str(child), tmp_path)
+    assert len(messages) == 1 and messages[0].content == "已继承的消息"
+    assert messages[0].origin_session_id == "parent" and messages[0].delivery == "immediate"
+
+
+@pytest.mark.parametrize("invalid_base", ["../parent", "missing", "child"])
+def test_codex_native_fork_rejects_invalid_missing_or_cyclic_bases(tmp_path, invalid_base):
+    directory = tmp_path / "sessions"
+    directory.mkdir()
+    path = directory / "rollout-time-child.jsonl"
+    path.write_text(
+        json.dumps(
+            {
+                "type": "session_meta",
+                "payload": {"history_base": {"thread_id": invalid_base, "end_byte_offset": 1000}},
+            },
+        )
+        + "\n",
+    )
+    with pytest.raises((ValueError, FileNotFoundError)):
+        codex_session_history.read_appends(str(path), tmp_path)
+
+
 @pytest.mark.asyncio
 async def test_read_and_status_do_not_wait_behind_generation(runtime):
     server, native = runtime
@@ -210,8 +423,6 @@ async def test_read_and_status_do_not_wait_behind_generation(runtime):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_turn_owner_publishes_readable_history_when_the_lease_finishes(runtime, cancelled):
-    from reme.schema import SessionSnapshot, SessionStatus
-
     server, native = runtime
     notifications = []
     server.watch_session("session-1", notifications.append)

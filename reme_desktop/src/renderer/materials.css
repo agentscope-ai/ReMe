@@ -1,0 +1,15 @@
+/* Shared across the workspace and transparent companion surfaces. */
+:root {
+  --ink: light-dark(#26322f, #e5ebe8);
+  --muted: light-dark(#858e89, #95a09b);
+  --accent: light-dark(#36775f, #9aceb0);
+  --accent-ink: light-dark(#fff, #163e2b);
+  --line: light-dark(#263c2b12, #e3f2e315);
+  --soft: light-dark(#e9f0eb, #2c3c33);
+  --surface: light-dark(#ffffffed, #27312cec);
+  --page: light-dark(#fbfcfbef, #1d2521f5);
+  --glass: light-dark(#f0f3ef72, #1b282170);
+  --card: light-dark(#ffffffa8, #ffffff08);
+  --shadow: light-dark(0 3px 14px #213e2810, 0 3px 14px #00000016);
+  --error: light-dark(#9a4a3f, #efb5a7);
+}

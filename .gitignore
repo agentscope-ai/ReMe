@@ -86,3 +86,7 @@ benchmark/*/results/
 # integration tests outputs
 tests/integration/logs/
 daily/
+
+# Desktop generated output
+reme_desktop/out/
+reme_desktop/reports/

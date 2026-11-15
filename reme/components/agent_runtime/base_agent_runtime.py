@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from ..agent_wrapper import BaseAgentWrapper
     from ..event_stream import BaseEventStream
     from ...schema.proactive_agent import ProactiveAgent
+    from ...schema.agent_activity import AgentActivity
 
 
 class BaseAgentRuntime(BaseComponent):
@@ -38,7 +39,9 @@ class BaseAgentRuntime(BaseComponent):
     chat_lock: asyncio.Lock
     chat_tasks: set[asyncio.Task]
     workers: dict[str, asyncio.Task]
-    queries: dict[asyncio.Task, str]
+    agent_tasks: dict[asyncio.Task, str]
+    interactive: dict[asyncio.Task, str]
+    activities: dict[str, AgentActivity]
     changed: asyncio.Event
     closed: bool
     retry_seconds: float
@@ -85,7 +88,7 @@ class BaseAgentRuntime(BaseComponent):
 
     @asynccontextmanager
     @abstractmethod
-    async def main_turn(self) -> AsyncIterator[None]:
+    async def chat_turn(self) -> AsyncIterator[None]:
         """Own one serial Chat turn and its cancellation."""
         yield
 
@@ -95,9 +98,40 @@ class BaseAgentRuntime(BaseComponent):
         """Own a query from checkpoint selection through temporary session cleanup."""
         yield
 
+    @asynccontextmanager
+    @abstractmethod
+    async def agent_turn(self, agent_id: str) -> AsyncIterator[None]:
+        """Serialize a user turn with the selected Agent's background work."""
+        yield
+
+    @abstractmethod
+    async def list_views(self) -> dict:
+        """Read all foreground and task identities with current session state."""
+
+    @abstractmethod
+    async def read_agent(self, agent_id: str) -> dict:
+        """Read one current session without creating it."""
+
+    @abstractmethod
+    async def watch_agent(self, agent_id: str) -> AsyncIterator[dict]:
+        """Observe one current conversation and global Agent state."""
+        yield {}
+
+    @abstractmethod
+    async def mailbox(self, agent_id: str, **kwargs) -> dict:
+        """Page received or outgoing canonical mail."""
+
+    @abstractmethod
+    async def mail(self, agent_id: str, message_id: str, *, mark_read: bool = False) -> dict:
+        """Read one scoped message, independently of Agent acknowledgement."""
+
+    @abstractmethod
+    async def list_events(self, agent_id: str, **kwargs) -> dict:
+        """Page retained inputs without acquiring a consumption lease."""
+
     @abstractmethod
     async def list_chat_sessions(self, offset=0, limit=10) -> dict:
-        """Inspect main's retained session references."""
+        """Inspect the Chat Agent's retained session references."""
 
     @abstractmethod
     async def run(self, agent_id: str, execute: Callable) -> dict:

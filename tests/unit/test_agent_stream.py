@@ -72,14 +72,16 @@ def test_codex_reasoning_deltas_correlate_with_their_final_sections():
 
 def test_agentscope_block_boundaries_final_correction_and_url_data():
     start = AsAgentWrapper._event_to_chunk(TextBlockStartEvent(reply_id="reply", block_id="block"))
-    end = AsAgentWrapper._event_to_chunk(TextBlockEndEvent(reply_id="reply", block_id="block", text="corrected"))
+    end = AsAgentWrapper._event_to_chunk(
+        TextBlockEndEvent(reply_id="reply", block_id="block").model_copy(update={"text": "corrected"}),
+    )
     url = AsAgentWrapper._event_to_chunk(
         DataBlockDeltaEvent(
             reply_id="reply",
             block_id="image",
             media_type="image/png",
-            url="https://example.com/a.png",
-        ),
+            data="",
+        ).model_copy(update={"url": "https://example.com/a.png"}),
     )
     assert start.event == "start" and start.chunk is None
     assert end.event == "end" and end.chunk == "corrected"

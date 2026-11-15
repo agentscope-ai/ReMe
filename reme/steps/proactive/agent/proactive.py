@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import date
-import json
+import math
 
 import frontmatter
 
@@ -16,11 +16,14 @@ from ....utils.async_utils import finish_cleanup
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(self, reminder_history_limit: int = 10, **kwargs):
+    def __init__(self, reminder_history_limit: int = 10, timeout_seconds=600, **kwargs):
         super().__init__(**kwargs)
         if type(reminder_history_limit) is not int or reminder_history_limit < 1:
             raise ValueError("reminder_history_limit must be a positive integer")
         self.reminder_history_limit = reminder_history_limit
+        if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be a finite positive number")
+        self.timeout_seconds = timeout_seconds
 
     def _paths(self, agent, now):
         runtime = self.agent_runtime
@@ -64,30 +67,51 @@ class ProactiveAgentStep(BaseAgentStep):
         """Scheduled tasks have web access; event monitoring stays offline."""
         return {
             **self.web_options(agent.trigger_type == "cron"),
+            "job_tools": ["agent_memory", *(["web_extract"] if agent.trigger_type == "cron" else [])],
+            "injected_job_kwargs": {"_agent_id": agent.agent_id},
             "sandbox": "workspace-write",
             "approval_mode": "deny_all",
         }
 
+    def session_options(self, agent):
+        """Use identical session identity and permissions for scheduled and user turns."""
+        now = self.agent_runtime.now()
+        system = self.prompt_format(
+            "system_prompt",
+            workspace_dir=self.workspace_path,
+            agent_id=agent.agent_id,
+            memory_path=self.agent_runtime.agents.directory_for(agent) / "MEMORY.md",
+            app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
+            reminder_policy=self.get_prompt("reminder_policy"),
+            event=agent.trigger_type == "event",
+            cron=agent.trigger_type == "cron",
+        )
+        return {"system_prompt": system, **self.memory_options(agent.agent_id), **self._options(agent)}
+
     def _query(self, agent, events, paths, now):
         cron = agent.trigger_type == "cron"
         files = self.agent_runtime.files
-        inputs = [
-            (
-                {"event_ts": event["event_ts"]}
-                if cron
-                else {
-                    **{key: event[key] for key in ("id", "event_ts", "source", "description")},
-                    "paths": [str(files.path(path)) for path in event["paths"]],
-                }
-            )
-            for event in events
-        ]
+        inputs = []
+        for number, event in enumerate(events, 1):
+            if cron:
+                content = self.prompt_format("cron_input", event_ts=event["event_ts"])
+            else:
+                content = self.prompt_format(
+                    "event_input",
+                    number=number,
+                    event_ts=event["event_ts"],
+                    source=event["source"],
+                    description=event["description"],
+                    paths="\n".join(f"  - `{files.path(path)}`" for path in event["paths"]),
+                )
+            inputs.append(content)
         return self.prompt_format(
             "query",
             **{key: str(value) for key, value in paths.items()},
             now=now.isoformat(),
-            input_content=json.dumps(inputs, ensure_ascii=False, indent=2),
+            input_content="\n\n".join(inputs),
             reminder_history_limit=self.reminder_history_limit,
+            first_run=paths["history_summary_path"] is None,
             has_history=paths["history_summary_path"] is not None,
             event=not cron,
             cron=cron,
@@ -134,27 +158,21 @@ class ProactiveAgentStep(BaseAgentStep):
         summary_mtime = paths["summary_path"].stat().st_mtime_ns if paths["summary_path"].exists() else None
         if not (await asyncio.to_thread(runtime.files.read, paths["memory_path"])).strip():
             raise ValueError("proactive Agent MEMORY.md must not be blank")
-        system = self.prompt_format(
-            "system_prompt",
-            workspace_dir=self.workspace_path,
-            agent_id=agent.agent_id,
-            app_timezone=self.app_context.app_config.timezone or str(now.tzinfo),
-            reminder_policy=self.get_prompt("reminder_policy"),
-        )
-        options = self._options(agent)
+        options = self.session_options(agent)
         session_id = await runtime.sessions.ensure(
             agent.agent_id,
             runtime.agent_wrapper,
-            {"system_prompt": system, **options},
+            options,
             now,
         )
-        reply = await runtime.agent_wrapper.reply(
-            self._query(agent, events, paths, now),
-            resume=session_id,
-            activity_source="proactive",
-            activity_task_id=agent.agent_id,
-            **options,
-        )
+        async with asyncio.timeout(self.timeout_seconds):
+            reply = await runtime.agent_wrapper.reply(
+                self._query(agent, events, paths, now),
+                resume=session_id,
+                activity_source="proactive",
+                activity_task_id=agent.agent_id,
+                **options,
+            )
         result = await asyncio.to_thread(self._read_artifacts, reply, paths, summary_mtime)
         return result, reply["session_id"]
 
@@ -197,7 +215,10 @@ class ProactiveQueryStep(BaseAgentStep):
                 )
                 if reply["status"] != "completed":
                     raise RuntimeError(reply.get("error") or f"Proactive query {reply['status']}")
-                self.context.response.answer = {"agent_id": arguments["agent_id"], "answer": reply["result"]}
+                self.context.response.answer = {
+                    "agent_id": arguments["agent_id"],
+                    "answer": reply["result"],
+                }
                 return self.context.response
             finally:
                 if session_id is not None:

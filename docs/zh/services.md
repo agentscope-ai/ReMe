@@ -58,7 +58,7 @@ curl -N http://127.0.0.1:2333/chat \
   -d '{"query":"总结我的长期偏好"}'
 ```
 
-`proactive` 配置提供 `chat(query)`，使用固定 `main` Agent 的当前原生会话。
+`proactive` 配置提供 `chat(query)`，使用固定 `chat` Agent 的当前原生会话。
 `new_chat_session` 创建并选中新会话，历史由 `list_chat_sessions` 查询。MCP 不暴露 Stream Job，Studio 另行适配。
 
 ## Agent 运行时
@@ -84,31 +84,36 @@ reme start config=proactive
 reme manage_proactive_agent action=list
 reme manage_proactive_agent action=create \
   'config={"name":"experiment_monitor","trigger_type":"event","description":"分析实验日志，失败或结束时提醒我。"}'
-reme manage_inbox action=read agent_id=main
-reme manage_inbox action=mark_read agent_id=main 'msg_ids=["消息ID"]'
+reme agent_mailbox
 ```
 
 `manage_proactive_agent` 支持 `list/create/status/update/delete/query`。创建名称即不可变的 `agent_id`，
-`main` 和 `tmp` 是保留名。删除停止调度和执行，保留文件、事件和原生会话历史；再次创建同名 Agent 会恢复它。
+`chat` 和 `tmp` 是保留名。删除停止调度和执行，保留文件、事件和原生会话历史；再次创建同名 Agent 会恢复它。
 `query` 使用临时只读 fork 回答问题，不改变后续执行的主会话。
 
-`config.description` 只用于创建时初始化 Agent 的 `MEMORY.md`，其中分为当前任务、已确认背景和长期结论；
+`config.description` 只用于创建时原样写入 Agent 的 `MEMORY.md`，不添加预设标题；
 任务文本不再保存在 `config.json` 中，也不再每轮单独注入。`list/update` 返回配置、状态和工作区相对 `memory_path`；
 `create/status` 还返回 `memory_content`（最多 2000 字符）和 `memory_truncated`，截断时继续读取完整文件，
-不返回配置文件路径。修改或删除前先查看 `status`；任务要求直接修改 `memory_path`，替换失效要求并读回确认，
+不返回配置文件路径。修改或删除前先查看 `status`；用户可编辑原始 `memory_path`，Agent 使用私有
+`agent_memory` 工具读取完整内容和 `revision`，保存时提交 `content` 与 `expected_revision`，冲突后重新读取合并。
+Codex 对自身 MEMORY.md 的原生命令写入设为只读，避免绕过版本检查。替换失效要求并读回确认，
 运行配置使用 `update`，停止并删除任务使用 `delete`。修改对后续轮次生效，正在执行的一轮可能已读取旧要求。
-同名恢复保留已有记忆。旧 Agent 迁移时，将配置中的 `description` 移入 MEMORY 的当前任务部分，保留积累的知识，
+同名恢复保留已有记忆。旧 Agent 迁移时，将配置中的 `description` 移入 `MEMORY.md`，保留积累的知识，
 再从 `config.json` 删除 `description`。
 `reme_agent_dir` 默认值已改为 `reme_agents`；已有目录可显式设置 `reme_agent_dir=agents` 继续使用，
-不会自动移动工作区文件或改写其中的路径引用。
+更改该目录配置本身不会移动工作区文件或改写其中的路径引用。
 
-Chat 的初始记忆通过 `components.agent_runtime.default.main.description` 配置，Runtime 启动时与任务 Agent
+Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` 配置，Runtime 启动时与任务 Agent
 使用同一机制初始化 MEMORY；重启和切换会话保留已有记忆。Chat 的 `job_tools` 统一在 Step 配置中选择。
+
+固定的对话 Agent 使用 `agent_id=chat`，旧配置中的 `components.agent_runtime.default.main` 需改为 `chat`。
+升级已有工作区前，将固定对话 Agent 的 `reme_agents/main/` 移至 `reme_agents/chat/`，并将 `config.json` 的
+`name` 改为 `chat`，保留记忆、原生会话 ID 和收件箱回执。运行时仅接受当前布局，不自动迁移工作区文件。
 
 可在 `proactive.yaml` 的 `components.agent_runtime.default.agents` 中声明初始任务，字段与创建接口相同，
 同样用 `description` 初始化 MEMORY。启动只创建缺失身份，重启不覆盖已修改的记忆或配置，也不恢复已删除任务；
-默认启用两个任务：`finance` 每小时关注 AI 相关的大新闻；`work` 根据新观察资料跟踪主人正在做的项目，
-整理各项目的进度、进展、难点和待讨论问题。截图采集开启后默认投递给 `work`，采集器仍默认关闭。
+默认启用两个事件任务：`finance` 分析采集的新闻和行情；`work` 根据新观察资料跟踪主人正在做的项目，
+整理各项目的进度、进展、难点和待讨论问题。工作观察每五分钟采集截图和新增 Codex 对话；独立截图采集器默认关闭。
 
 任务配置使用 `trigger_type`（`cron` 或 `event`）。已有 Agent `config.json` 和 API 调用中的旧字段
 `type` 需改为 `trigger_type`，旧字段不再接受。
@@ -126,26 +131,33 @@ cron 触发也算输入，重复事件和重试不续期。有执行、待处理
 日记和原始资源保持不变。重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 日记 `daily/YYYY-MM-DD/<agent_id>.md` 保存累计交接，`<agent_id>_HHMMSS.md` 保存本轮明细，
-Agent 自己的 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递、唤醒和已读时间，
+Agent 自己的 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递和已读时间，
 由框架维护；同秒日记明细重名增加数字后缀。
 
-只有 `main` 接收消息。它的 `inbox_unread.jsonl` 和 `inbox_read.jsonl` 只保存 `{file,id}` 引用，
-已读视图保留最近 1000 条；不复制正文或状态时间。共用一个生命周期内的文件监听器并定期补扫，恢复修改和中断交接。
-向已读视图追加有效引用会更新原提醒的已读回执，丢失的视图从提醒重建。
-旧的日级提醒 JSONL 需要先迁移到 Markdown frontmatter，再启动服务。
-`manage_inbox(action="read")` 不改变已读状态，默认 `unread_only=true`，
-不传 `priority` 时不筛选级别；`unread_only=false` 包含已读历史。结果按优先级、时间排序。
-处理后通过 `action="mark_read", msg_ids=[...]` 标记，包括决定不提醒的消息；重复标记保留首次已读时间。
-Agent 已读不代表主人已读，不使用 claim token。Agent 内部调用自动绑定身份，外部调用必须指定 `agent_id`。
+只有 `chat` 接收消息。它的 `inbox_unread.jsonl` 和 `inbox_read.jsonl` 只保存 `{file,id}` 引用，
+已读视图保留最近 1000 条；正文和状态时间保存在原始提醒中。共用一个生命周期内的文件监听器并定期补扫，
+恢复修改和中断交接，丢失的视图从提醒重建。旧的日级提醒 JSONL 需要先迁移到 Markdown frontmatter，
+已有 Markdown 提醒需要删除停用的 `woken_at` frontmatter 字段。单个提醒缺失或损坏时保留原文件和事件回执、
+报告具体路径并隔离故障，不阻断其他提醒或应用启动；修复原文件后自动恢复。
 
-P0 入箱后立即请求 Chat 处理，可通过 `components.agent_runtime.default.inbox.p0_delay_seconds` 调整延迟，默认 0。
-P1 等待 Chat 连续空闲 10 秒，P2 可主动读取或在连续空闲 1800 秒后自动唤醒，分别由
-`inbox.p1_idle_seconds`、`inbox.p2_idle_seconds` 配置。用户对话与自动轮次共用锁，P0 在当前轮结束后处理。
-每个 Chat 轮次完成、失败或取消后重新计时，单纯入箱不重置 idle。
-P0 成功唤醒与已读分别记录，避免同批反复唤醒。Chat 对 P0 优先提醒，对 P1/P2 结合上下文判断，无需提醒时静默结束。
+P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.agent_runtime.default.inbox.p0_delay_seconds` 配置，默认 0。
+P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `inbox.p1_idle_seconds`、`inbox.p2_idle_seconds` 配置，
+继续遵守提醒时间窗口。只有前台 Chat 轮次重置空闲计时。
+临时 fork 继承当前对话，只读、离线运行，执行结束、失败或取消后清理；hint 和工具过程留在 fork 中。
 
-`proactive_run`、`proactive_query`、`inbox_chat` 为服务私有 Job。收件箱后台任务启动真实 Chat 推理，
-替换原来的正文直接追加和发送方延后复核。采集器默认关闭，配置 `jobs.screen_capture_cron.agent_id`
+只有提醒 fork 绑定 `read_inbox(priority=...)` 和 `send_chat_msg(content=...)`，读取范围限定为本轮选中的消息。
+非空内容作为标记 `source="proactive"` 的 assistant 消息注入主会话；空内容表示静默，不追加消息。
+决定成功提交后，框架自动消费本轮读取的消息，独立于主人已读状态；失败保留重试，主会话切换或收到新用户轮次后拒绝旧 fork 的结果。
+提醒判断默认限时 120 秒，主动执行默认限时 600 秒，可在对应 Step 设置 `timeout_seconds`。
+收件箱临时故障按指数退避重试（最长 300 秒），SDK 类型或导入错误停止重试，修复环境并重启后恢复。
+`agent_list` 的 Chat 状态会显示收件箱故障，cron 返回的部分采集失败也会写入日志。
+fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表，`agent_mailbox` 按 `agent_id` 查询 Remy 收件箱或任务发件箱；用户已读不会消费消息。`agent_event_list agent_id=<name>` 分页浏览保留的输入事件，不获取消费租约。
+
+`agent_session` 和 `agent_events` 对 Chat 返回完整对话，对事件与定时 Agent 仅返回最近一个原生轮次，
+包含该轮输入及全部助手进度和最终消息。任务订阅每次通过 `snapshot` 整体替换视图，`heartbeat` 不含消息。
+历史轮次仍保存在原生会话中，并继续用于模型上下文。
+
+`proactive_run`、`proactive_query`、`inbox_chat` 为服务私有 Job。采集器默认关闭，配置 `jobs.screen_capture_cron.agent_id`
 并启用任务后，完整资源包才会转成观察事件；本流程不使用资源 watcher 或自动 TTL 删除。
 
 本次重构不保留旧收件箱和 PA 接口，工作区历史文件保留，不自动转换。当前后端使用 CodexAgentWrapper；

@@ -24,10 +24,10 @@ class AgentRegistry:
         return self.files.checked(parent / agent.agent_id)
 
     def path(self, agent_id: str):
-        """Resolve main or a retained task identity, including deleted tasks."""
+        """Resolve chat or a retained task identity, including deleted tasks."""
         validate_agent_id(agent_id)
-        if agent_id == "main":
-            return self.files.checked(self.directory / "main")
+        if agent_id == "chat":
+            return self.files.checked(self.directory / "chat")
         return self.directory_for(self.get(agent_id, include_deleted=True))
 
     def load(self, *, include_deleted=False) -> dict[str, ProactiveAgent]:
@@ -35,7 +35,7 @@ class AgentRegistry:
         agents = []
         for pattern in ("*/config.json", "tmp/*/config.json"):
             for path in sorted(self.directory.glob(pattern)):
-                if path.parent == self.directory / "main":
+                if path.parent == self.directory / "chat":
                     continue
                 agent = ProactiveAgent.model_validate_json(self.files.read(path))
                 if path.parent != self.directory_for(agent):
@@ -66,17 +66,11 @@ class AgentRegistry:
         """Publish one validated definition without rewriting other agents."""
         self.files.write_json(self.directory_for(agent) / "config.json", agent.model_dump(mode="json"))
 
-    def initialize_memory(self, directory: Path, description: str, *, language=""):
-        """Initialize all Agent memories once, preserving existing files verbatim."""
-        headings = (
-            ("当前任务", "已确认背景", "长期结论")
-            if language == "zh"
-            else ("Current task", "Confirmed background", "Long-term findings")
-        )
-        memory = f"# {headings[0]}\n\n{description}\n\n# {headings[1]}\n\n# {headings[2]}\n"
-        self.files.write(directory / "MEMORY.md", memory, create_only=True)
+    def initialize_memory(self, directory: Path, description: str):
+        """Write initial text verbatim once, preserving existing Agent memories."""
+        self.files.write(directory / "MEMORY.md", description, create_only=True)
 
-    def create(self, config, now: datetime, *, language=""):
+    def create(self, config, now: datetime):
         """Publish initial memory before configuration; retained memory survives restoration."""
         config = CreateProactiveAgentConfig.model_validate(config)
         agents = self.load(include_deleted=True)
@@ -92,7 +86,7 @@ class AgentRegistry:
         )
         agents[agent.agent_id] = agent
         self._validate_names(list(agents.values()))
-        self.initialize_memory(self.directory_for(agent), config.description, language=language)
+        self.initialize_memory(self.directory_for(agent), config.description)
         self.save(agent)
         return agent
 
@@ -104,7 +98,7 @@ class AgentRegistry:
                 raise ValueError(f"{key} is immutable")
         values = {key: getattr(agent, key) for key in ProactiveAgentConfig.model_fields}
         config = ProactiveAgentConfig.model_validate({**values, **patch})
-        agent = agent.model_copy(update=config.model_dump())
+        agent = ProactiveAgent.model_validate({**agent.model_dump(), **config.model_dump()})
         self.save(agent)
         return agent
 

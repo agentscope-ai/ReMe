@@ -38,6 +38,32 @@ def test_platform_selection_and_memory_defaults(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_write_rejects_ungranted_and_read_only_symlink_targets_before_spawning(tmp_path, monkeypatch):
+    """Writes cannot succeed only inside a sandbox's disposable shadow directories."""
+    writable = tmp_path / "writable"
+    writable.mkdir()
+    protected = writable / ".git"
+    protected.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (writable / "escape").symlink_to(outside, target_is_directory=True)
+    backend = PathBubbleBackend(
+        cwd=writable,
+        read_only_paths=[str(protected)],
+        writable_paths=[str(writable)],
+    )
+
+    async def run(*_args, **_kwargs):
+        raise AssertionError("Denied write must not spawn a subprocess")
+
+    monkeypatch.setattr(backend, "_run_job", run)
+    for path in (outside / "new.txt", protected / "config", writable / "escape/new.txt"):
+        with pytest.raises(PermissionError, match="not writable"):
+            await backend.write_file(str(path), b"forbidden")
+    assert not list(outside.iterdir()) and not list(protected.iterdir())
+
+
+@pytest.mark.asyncio
 async def test_unsupported_platform_never_runs_python_on_host(tmp_path, monkeypatch):
     """Default execution fails closed when the platform has no sandbox."""
     monkeypatch.setattr("reme.utils.file_sandbox.sys.platform", "unsupported")
@@ -464,7 +490,7 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode, raise_err
 
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
-    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[str(tmp_path)])
     monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=True))
     killed = Mock()
     monkeypatch.setattr(backend, "_kill_process", killed)

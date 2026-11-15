@@ -521,3 +521,14 @@ def test_event_paths_are_workspace_relative(path):
 def test_invalid_configuration(tmp_path, options):
     with pytest.raises(ValueError):
         make_stream(tmp_path, **options)
+
+
+@pytest.mark.asyncio
+async def test_append_timeout_includes_waiting_for_shared_writer_lock(tmp_path):
+    async with make_stream(tmp_path, append_timeout_seconds=0.01) as stream:
+        await stream.create("news")
+        async with stream._changed:
+            pending = asyncio.create_task(stream.append("news", event()))
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(pending, 1)
+        assert (await stream.snapshot("news"))["pending_count"] == 0

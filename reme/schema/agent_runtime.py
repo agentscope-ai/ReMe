@@ -9,7 +9,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    StrictBool,
     field_validator,
     model_validator,
 )
@@ -78,7 +77,7 @@ class ChatAgentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Literal["main"] = "main"
+    name: Literal["chat"] = "chat"
     type: Literal["chat"] = "chat"
     temporary: Literal[False] = False
     created_at: AwareDatetime
@@ -124,35 +123,55 @@ class ReminderRef(BaseModel):
 
 
 class AgentReminder(AgentNotification):
-    """The single durable message and its receiver-owned acknowledgements."""
+    """The single durable message with independent Agent and user acknowledgements."""
 
     id: InboxMessageId
     created_at: AwareDatetime
     delivered_at: AwareDatetime | None = None
     read_at: AwareDatetime | None = None
-    woken_at: AwareDatetime | None = None
+    user_read_at: AwareDatetime | None = None
 
 
-class ManageInboxRequest(BaseModel):
-    """Read messages without consuming them, or explicitly mark selected IDs read."""
+class InboxWakeRequest(BaseModel):
+    """A framework-selected batch eligible for automatic processing."""
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["read", "mark_read"]
+    priority: InboxPriority
+    msg_ids: list[InboxMessageId] = Field(min_length=1, max_length=100)
+
+
+class ReadInboxRequest(BaseModel):
+    """Read the active fork's batch at its assigned priority."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    priority: InboxPriority
+
+
+class SendChatMessageRequest(BaseModel):
+    """Submit user-facing text, or an empty decision to stay quiet."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(max_length=100000)
+
+
+class AgentMemoryRequest(BaseModel):
+    """A write must refer to the exact complete memory previously read."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["read", "write"]
     agent_id: AgentId | None = None
-    priority: InboxPriority | None = None
-    unread_only: StrictBool = True
-    limit: int = Field(default=20, ge=1, le=100, strict=True)
-    msg_ids: list[InboxMessageId] | None = Field(default=None, min_length=1, max_length=100)
+    content: str | None = Field(default=None, max_length=100000)
+    expected_revision: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
-    def action_arguments(self):
-        """Keep each action's arguments explicit and disjoint."""
-        if self.action == "read" and self.msg_ids is not None:
-            raise ValueError("read does not accept msg_ids")
-        if self.action == "mark_read":
-            if self.msg_ids is None:
-                raise ValueError("mark_read requires msg_ids")
-            if self.model_fields_set & {"priority", "unread_only", "limit"}:
-                raise ValueError("mark_read accepts only msg_ids and agent_id")
+    def arguments(self):
+        """Reject ambiguous read and unconditional replacement requests."""
+        if self.action == "write" and (self.content is None or self.expected_revision is None):
+            raise ValueError("write requires content and expected_revision from a complete read")
+        if self.action == "read" and self.model_fields_set - {"action", "agent_id"}:
+            raise ValueError("read accepts only action and agent_id")
         return self

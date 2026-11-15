@@ -37,7 +37,10 @@ class CcFileSessionStore:
         values = [key["project_key"], key["session_id"]]
         if subpath := key.get("subpath"):
             values.append(subpath)
-        return self._path(*values).with_suffix(".jsonl")
+        path = self._path(*values).with_suffix(".jsonl")
+        if not path.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError(f"Session store path escapes root: {path}")
+        return path
 
     @staticmethod
     def _read_entries(path: Path) -> list["SessionStoreEntry"]:

@@ -142,6 +142,21 @@ async def test_live_history_and_status_do_not_wait_for_generation(wrapper):
 
 
 @pytest.mark.asyncio
+async def test_new_live_session_exists_with_uppercase_id_before_first_save(wrapper):
+    """UUID spelling must not hide an active session that has no file yet."""
+    session_id = str(uuid4())
+    wrapper.as_llm.model.paused = True
+    task = asyncio.create_task(wrapper.reply("first turn", session_id=session_id))
+    await asyncio.wait_for(wrapper.as_llm.model.entered.wait(), 2)
+    try:
+        assert not wrapper._sessions.path(session_id).exists()
+        assert await wrapper.session_exists(session_id.upper())
+    finally:
+        wrapper.as_llm.model.release.set()
+        await task
+
+
+@pytest.mark.asyncio
 async def test_turn_guard_and_accepted_retry_have_distinct_semantics(wrapper):
     """Stale new deliveries fail while retries recover previously accepted messages."""
     session_id = await wrapper.create_session()

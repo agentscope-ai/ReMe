@@ -2,11 +2,12 @@
 
 import asyncio
 import os
+import signal
 import subprocess
 import sys
 import time
 from collections.abc import AsyncGenerator
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from pathlib import Path
 from typing import Any, Literal, TYPE_CHECKING
 from uuid import uuid4
@@ -104,17 +105,28 @@ class WorkspaceBackend(LocalBackend):
             kwargs["cwd"] = cwd
         if os.name == "nt":
             kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+        else:
+            kwargs["start_new_session"] = True
 
         try:
             process = await asyncio.create_subprocess_exec(*command, **kwargs)
         except (FileNotFoundError, NotADirectoryError, OSError) as exc:
             return ExecResult(exit_code=127, stdout=b"", stderr=str(exc).encode("utf-8"))
 
+        async def stop():
+            with suppress(ProcessLookupError):
+                if os.name == "nt":
+                    process.kill()
+                else:
+                    os.killpg(process.pid, signal.SIGKILL)
+            await process.communicate()
+
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.communicate()
+        except (asyncio.TimeoutError, asyncio.CancelledError) as exc:
+            await finish_cleanup(stop())
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             return ExecResult(exit_code=-1, stdout=b"", stderr=b"timed out")
         return ExecResult(exit_code=process.returncode or 0, stdout=stdout, stderr=stderr)
 

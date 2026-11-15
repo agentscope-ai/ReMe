@@ -672,6 +672,8 @@ class CcAgentWrapper(BaseAgentWrapper):
         options = self._build_options(inputs, stream=True, **self._merged_kwargs(kwargs))
         if options.resume:
             options.resume = self._sessions.validate_id(options.resume)
+            if options.session_id and not options.fork_session:
+                raise ValueError("session_id cannot be used with resume unless fork_session=True")
         if options.continue_conversation:
             if options.session_id and not options.fork_session:
                 raise ValueError("session_id cannot be used with continue_conversation unless fork_session=True")
@@ -711,9 +713,10 @@ class CcAgentWrapper(BaseAgentWrapper):
                 data.appends = [record for record in data.appends if record.native_id in accepted]
             if options.resume:
                 options.env["CLAUDE_CONFIG_DIR"] = data.config_dir
+                if "cwd" in kwargs and Path(options.cwd).resolve() != Path(data.cwd).resolve():
+                    raise ValueError("resuming a Claude session requires its original cwd")
+                options.cwd = data.cwd
             runtime.input = SessionMessage(id=turn_id, role="user", content=inputs, turn_id=turn_id)
-            data.last_turn_id = turn_id
-            data.waiting = False
             await self._sessions.save(session_id, data)
             try:
                 async with aclosing(self._stream_reply(inputs, options, turn_id)) as stream:
@@ -724,9 +727,15 @@ class CcAgentWrapper(BaseAgentWrapper):
                         else:
                             yield chunk
             finally:
-                data.waiting = (
-                    terminal.status == "waiting" if terminal is not None else runtime.state == "requires_action"
+                accepted = terminal is not None or any(
+                    entry.get("uuid") == turn_id
+                    for entry in await self._sessions.entries(session_id, data, options.session_store) or []
                 )
+                if accepted:
+                    data.last_turn_id = turn_id
+                    data.waiting = (
+                        terminal.status == "waiting" if terminal is not None else runtime.state == "requires_action"
+                    )
                 await self._sessions.save(session_id, data)
         if terminal is not None:
             yield terminal

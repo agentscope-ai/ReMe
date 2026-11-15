@@ -53,7 +53,9 @@ class CronJob(BackgroundJob):
             if self._stop_event.is_set():
                 break
             try:
-                await self._execute_steps()
+                result = await self._execute_steps()
+                if not result.success:
+                    self.logger.error(f"Cron job '{self.name}' failed: {result.answer}")
             except Exception as exc:
                 self.logger.exception(f"Cron job '{self.name}' failed: {exc}")
         response = Response()

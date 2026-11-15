@@ -22,6 +22,7 @@ from ..agent_wrapper import BaseAgentWrapper
 from ..event_stream import BaseEventStream
 from ..component_registry import R
 from ...schema.agent_runtime import ChatAgentConfig, CreateChatAgentConfig, InboxConfig
+from ...schema.agent_activity import AgentActivity
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
 from ...schema.proactive_agent import CreateProactiveAgentConfig
@@ -48,7 +49,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         inbox=None,
         retry_seconds=5,
         agents=None,
-        main=None,
+        chat=None,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -59,7 +60,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.initial_agents = [CreateProactiveAgentConfig.model_validate(value) for value in agents or []]
         if len({agent.name.casefold() for agent in self.initial_agents}) != len(self.initial_agents):
             raise ValueError("initial Agent names must be unique, including case")
-        self.initial_main = CreateChatAgentConfig.model_validate(main if main is not None else {})
+        self.initial_chat = CreateChatAgentConfig.model_validate(chat if chat is not None else {})
         self.agent_wrapper = self.bind(agent_wrapper, BaseAgentWrapper, optional=False)
         self.event_stream = self.bind(event_stream, BaseEventStream, optional=False)
         self.files = AgentFiles(self.workspace_path)
@@ -75,6 +76,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.chat_tasks = set()
         self.workers = {}
         self.agent_tasks = {}
+        self.interactive = {}
+        self.activities = {}
         self.executions = {}
         self.cron = {}
         self.changed = asyncio.Event()
@@ -92,18 +95,17 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def _start(self):
         if self.app_context is None:
             raise RuntimeError("LocalAgentRuntime requires an ApplicationContext")
-        main = self.agents.path("main") / "config.json"
-        config = self.files.read_json(main, None)
+        chat = self.agents.path("chat") / "config.json"
+        config = self.files.read_json(chat, None)
         config = (
             ChatAgentConfig.model_validate(config) if config is not None else ChatAgentConfig(created_at=self.now())
         )
         await complete_in_thread(
             self.agents.initialize_memory,
-            main.parent,
-            self.initial_main.description,
-            language=self.app_context.app_config.language,
+            chat.parent,
+            self.initial_chat.description,
         )
-        await complete_in_thread(self.files.write_json, main, config.model_dump(mode="json"))
+        await complete_in_thread(self.files.write_json, chat, config.model_dump(mode="json"))
         existing = {name.casefold() for name in await asyncio.to_thread(self.agents.load, include_deleted=True)}
         for initial in self.initial_agents:
             if initial.name.casefold() not in existing:
@@ -113,6 +115,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
         await self.outbox.sync()
         self.inbox.last_activity_at = self.now()
         self.inbox.retry_at = None
+        self.inbox.error = None
+        self.inbox.failures = 0
+        self.inbox.blocked = False
         self.closed = False
         self.changed.set()
         self.watch_stop.clear()
@@ -132,6 +137,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
             await finish_cleanup(asyncio.gather(*tasks, return_exceptions=True))
         self.workers.clear()
         self.agent_tasks.clear()
+        self.interactive.clear()
+        self.activities.clear()
         self.chat_tasks.clear()
         self.executions.clear()
         self.cron.clear()
@@ -176,7 +183,6 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 self.agents.create,
                 config,
                 self.now(),
-                language=self.app_context.app_config.language,
             )
             await self.prepare(agent)
             self.changed.set()
@@ -250,9 +256,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
             "running": agent_id in self.workers,
             "pending_events": snapshot["pending_count"],
             "in_flight_events": snapshot["in_flight_count"],
-            "last_started_at": execution.started_at.isoformat() if execution.started_at else None,
+            "last_started_at": (execution.started_at.isoformat() if execution.started_at else None),
             "last_completed_at": receipt.consume_ts.isoformat() if receipt else None,
-            "next_trigger_at": self.cron[agent_id][1].isoformat() if agent_id in self.cron else None,
+            "next_trigger_at": (self.cron[agent_id][1].isoformat() if agent_id in self.cron else None),
             "error": execution.error,
         }
         if include_memory:
@@ -264,17 +270,18 @@ class LocalAgentRuntime(BaseAgentRuntime):
         return result
 
     async def list_agents(self):
-        """List task identities independently of main and native session counts."""
+        """List task identities independently of chat and native session counts."""
         agents = await asyncio.to_thread(self.agents.load)
         items = [await self._status(agent) for agent in agents.values()]
         return {"items": items, "total": len(items)}
 
     @asynccontextmanager
-    async def main_turn(self):
+    async def chat_turn(self):
         """Serialize Chat and explicit session rotation while owning shutdown cancellation."""
         if self.closed:
             raise RuntimeError("Agent runtime is closed")
         task = asyncio.current_task()
+        self.inbox.foreground()
         self.chat_tasks.add(task)
         try:
             async with self.chat_lock:
@@ -285,9 +292,65 @@ class LocalAgentRuntime(BaseAgentRuntime):
         finally:
             self.chat_tasks.discard(task)
 
+    @asynccontextmanager
+    async def agent_turn(self, agent_id):
+        """Own an interactive task turn under the same lock as background execution."""
+        if agent_id == "chat":
+            async with self.chat_turn():
+                yield
+            return
+        async with self._agent_task(agent_id):
+            task = asyncio.current_task()
+            async with self.management_lock:
+                await self.definition(agent_id)
+                lock = self.round_locks.setdefault(agent_id, asyncio.Lock())
+                if lock.locked() or agent_id in self.workers or agent_id in self.interactive.values():
+                    raise RuntimeError("Agent is busy; retry after its turn completes")
+                self.interactive[task] = agent_id
+            try:
+                async with lock:
+                    await self.definition(agent_id)
+                    yield
+            finally:
+                self.interactive.pop(task, None)
+                self.changed.set()
+
+    async def list_views(self):
+        """Inspect all visible identities, including Remy, without creating sessions."""
+        from ._internal.views import AgentViews
+
+        return await AgentViews(self).list()
+
+    async def read_agent(self, agent_id):
+        """Read the current formal session without activating a temporary query fork."""
+        from ._internal.views import AgentViews
+
+        return await AgentViews(self).read(agent_id)
+
+    async def watch_agent(self, agent_id):
+        """Stream reconstructible snapshots and changes; reconnect starts with a snapshot."""
+        from ._internal.views import AgentViews
+
+        async with aclosing(AgentViews(self).events(agent_id)) as events:
+            async for event in events:
+                yield event
+
+    async def mailbox(self, agent_id, **kwargs):
+        """Read canonical mail without publishing or consuming it."""
+        return await self.outbox.mailbox(agent_id, **kwargs)
+
+    async def mail(self, agent_id, message_id, *, mark_read=False):
+        """Keep user reading separate from internal acknowledgement."""
+        return await self.outbox.mail(agent_id, message_id, mark_read=mark_read)
+
+    async def list_events(self, agent_id, **kwargs):
+        """Read the mounted input stream for a named task."""
+        await self.definition(agent_id)
+        return await self.event_stream.read(agent_id, **kwargs)
+
     async def list_chat_sessions(self, offset=0, limit=10):
         """Listing is side-effect-free, including before the first Chat turn."""
-        return await self.sessions.list("main", offset, limit)
+        return await self.sessions.list("chat", offset, limit)
 
     @asynccontextmanager
     async def _agent_task(self, agent_id):
@@ -316,7 +379,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def run(self, agent_id, execute):
         """Commit successful execution before handing asynchronous delivery to the outbox."""
-        async with self._agent_task(agent_id), self.round_locks.setdefault(agent_id, asyncio.Lock()):
+        async with (
+            self._agent_task(agent_id),
+            self.round_locks.setdefault(agent_id, asyncio.Lock()),
+        ):
             async with self.management_lock:
                 agent = await self.definition(agent_id)
                 if not agent.enabled:
@@ -331,7 +397,16 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     self.workers[agent_id] = asyncio.current_task()
             try:
                 self.executions[agent_id].started_at = self.now()
+                self.activities[agent_id] = AgentActivity(
+                    session_id="",
+                    turn_id=batch["token"],
+                    source="task",
+                    task_id=agent_id,
+                    started_at=self.executions[agent_id].started_at,
+                    phase="working",
+                )
                 result, session_id = await execute(agent, batch["events"])
+                self.activities[agent_id] = self.activities[agent_id].model_copy(update={"session_id": session_id})
                 run_id = sha256(json.dumps([agent_id, batch["events"]], sort_keys=True).encode()).hexdigest()[:32]
 
                 async def commit():
@@ -339,17 +414,25 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     await self.event_stream.ack(
                         name,
                         batch["token"],
-                        metadata={"reminders": [ref.model_dump() for ref in refs], "session_id": session_id},
+                        metadata={
+                            "reminders": [ref.model_dump() for ref in refs],
+                            "session_id": session_id,
+                        },
                         retain=bool(refs),
                     )
 
                 await finish_cleanup(commit())
+                self.activities[agent_id] = self.activities[agent_id].model_copy(update={"phase": "completed"})
                 self.changed.set()
                 return {
                     "agent_id": agent_id,
                     "processed": len(batch["events"]),
                     "notifications": result.model_dump()["notifications"],
                 }
+            except BaseException as exc:
+                phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
+                self.activities[agent_id] = self.activities[agent_id].model_copy(update={"phase": phase})
+                raise
             finally:
                 try:
                     await finish_cleanup(self.event_stream.nack(name, batch["token"]))
@@ -393,7 +476,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if agent.enabled and agent.trigger_type == "cron":
                     await self._schedule_cron(agent)
                 execution = self.executions[agent.agent_id]
-                if not agent.enabled or agent.agent_id in self.workers:
+                if not agent.enabled or agent.agent_id in self.workers or agent.agent_id in self.interactive.values():
                     continue
                 if execution.retry_at is not None and execution.retry_at > self.now():
                     continue
@@ -440,6 +523,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
             await finish_cleanup(remove())
         self.executions.pop(agent.agent_id, None)
+        self.activities.pop(agent.agent_id, None)
         self.round_locks.pop(agent.agent_id, None)
         self.sessions.locks.pop(agent.agent_id, None)
         self.cron.pop(agent.agent_id, None)
@@ -461,7 +545,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def wait(self, stop, seconds=1):
         """Wake for external edits or new inputs while continuing timer checks."""
-        tasks = [asyncio.create_task(stop.wait()), asyncio.create_task(self.changed.wait())]
+        tasks = [
+            asyncio.create_task(stop.wait()),
+            asyncio.create_task(self.changed.wait()),
+        ]
         try:
             await asyncio.wait(tasks, timeout=seconds, return_when=asyncio.FIRST_COMPLETED)
         finally:

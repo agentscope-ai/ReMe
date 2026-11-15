@@ -43,8 +43,8 @@ class ProactiveAgentConfig(BaseModel):
     @classmethod
     def safe_name(cls, value: str) -> str:
         """Names also identify workspace files, including non-English names."""
-        if value.casefold() in {"main", "tmp"}:
-            raise ValueError("main and tmp are reserved agent names")
+        if value.casefold() in {"chat", "tmp"}:
+            raise ValueError("chat and tmp are reserved agent names")
         return value
 
     @field_validator("min_trigger_interval_seconds", mode="before")

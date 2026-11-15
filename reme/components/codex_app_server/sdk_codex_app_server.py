@@ -135,7 +135,13 @@ class SdkCodexAppServer(BaseCodexAppServer):
         try:
             path = await self.get_session_path(session_id)
         except Exception as exc:
-            missing = ("thread not found", "no rollout found", "session not found", "unknown thread")
+            missing = (
+                "thread not found",
+                "thread not loaded",
+                "no rollout found",
+                "session not found",
+                "unknown thread",
+            )
             if isinstance(exc, FileNotFoundError) or any(text in str(exc).lower() for text in missing):
                 return False
             raise

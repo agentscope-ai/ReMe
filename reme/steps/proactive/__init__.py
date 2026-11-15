@@ -1,6 +1,6 @@
 """Chat and proactive agents sharing application-owned runtime infrastructure."""
 
-from . import agent, background, data_connectors, tools
+from . import agent, data_connectors, tools
 from .agent import (
     BaseAgentStep,
     ChatAgentStep,
@@ -20,7 +20,6 @@ __all__ = [
     "ProactiveAgentStep",
     "ProactiveQueryStep",
     "agent",
-    "background",
     "data_connectors",
     "tools",
 ]

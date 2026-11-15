@@ -144,9 +144,15 @@ class FileSandboxBackend(LocalProcessBackend):
         """Write through a sandboxed command so file rules still apply."""
         if not isinstance(data, bytes):
             raise TypeError("data must be bytes")
+        target = os.path.realpath(os.path.join(self._cwd, path))
+        grants = [(root, False) for root in self._read_only_paths]
+        grants.extend((root, True) for root in self._writable_paths)
+        matches = [(root, writable) for root, writable in grants if contains(root, target)]
+        if not max(matches, key=lambda item: len(item[0]), default=("", False))[1]:
+            raise PermissionError(f"sandbox path is not writable: {path}")
         script = 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"'
         result = await self._run_job(
-            ["/bin/sh", "-c", script, "sh", path],
+            ["/bin/sh", "-c", script, "sh", target],
             self._cwd,
             data=data,
             timeout=None,

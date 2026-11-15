@@ -259,6 +259,7 @@ class AsSessionStore:
 
     async def exists(self, session_id: str) -> bool:
         """Check resumability without constructing an agent or invoking its model."""
+        session_id = self.validate_id(session_id)
         path = self.path(session_id)
         runtime = self._runtimes.get(session_id)
         return path.is_file() or (runtime is not None and runtime.session is not None)

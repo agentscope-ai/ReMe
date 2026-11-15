@@ -8,18 +8,21 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 import json
+import math
 import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any, Literal, TYPE_CHECKING
 
 from .base_agent_wrapper import BaseAgentWrapper
+from . import codex_session_history
 from ..codex_app_server._session_history import item_chunks
 from ..codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from ..component_registry import R
 from ...enumeration import ChunkEnum
 from ...utils.agent_activity import ActivityTracker
-from ...schema import AgentActivity, AgentReply, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
+from ...schema import AgentActivity, AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
+from ...utils.async_utils import finish_cleanup
 
 if TYPE_CHECKING:
     from openai_codex import AsyncThread, RunInput
@@ -116,6 +119,24 @@ class CodexAgentWrapper(BaseAgentWrapper):
         from openai_codex.types import Personality, ThreadSource, ThreadStartSource
 
         config = dict(kwargs.get("config") or {})
+        protected = kwargs.get("read_only_paths") or []
+        if protected:
+            mode = kwargs.get("sandbox", "full-access")
+            filesystem = {":root": "write" if mode == "full-access" else "read"}
+            if mode == "workspace-write":
+                filesystem.update({str(self.cwd): "write", ":tmpdir": "write", ":slash_tmp": "write"})
+            for path in protected:
+                if not isinstance(path, str) or not Path(path).is_absolute():
+                    raise ValueError("native permission paths must be absolute")
+                filesystem[path] = "read"
+            network = config.get("sandbox_workspace_write", {}).get("network_access", mode == "full-access")
+            config.update(
+                default_permissions="reme_agent",
+                permissions={
+                    **config.get("permissions", {}),
+                    "reme_agent": {"filesystem": filesystem, "network": {"enabled": network}},
+                },
+            )
         if proxy_environment := self.command_proxy_environment:
             policy = dict(config.get("shell_environment_policy") or {})
             policy["set"] = {**policy.get("set", {}), **proxy_environment}
@@ -128,10 +149,12 @@ class CodexAgentWrapper(BaseAgentWrapper):
             "developer_instructions": kwargs.get("system_prompt"),
             "model": kwargs.get("model"),
             "model_provider": kwargs.get("model_provider"),
-            "sandbox": self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
+            "sandbox": None if protected else self._enum(Sandbox, kwargs.get("sandbox"), Sandbox.full_access),
             "service_tier": kwargs.get("service_tier"),
         }
         if kwargs.get("fork_session"):
+            if kwargs.get("ephemeral"):
+                options["include_turns"] = False
             options.update(
                 ephemeral=kwargs.get("ephemeral"),
                 thread_source=self._enum(ThreadSource, kwargs.get("thread_source")),
@@ -291,7 +314,91 @@ class CodexAgentWrapper(BaseAgentWrapper):
     async def read_session(self, session_id: str) -> SessionSnapshot:
         """Read history without acquiring the generation lease."""
         async with self._session_request():
-            return await self.app_server.read_session(session_id)
+            snapshot = await self.app_server.read_session(session_id)
+            messages = await asyncio.to_thread(
+                codex_session_history.read_appends,
+                snapshot.path,
+                self.app_server.session_path,
+            )
+            return codex_session_history.merge_appends(snapshot, messages)
+
+    async def append_session(
+        self,
+        session_id: str,
+        content: str,
+        *,
+        message_id: str,
+        role: Literal["user", "assistant"] = "assistant",
+        timeout: float = 30,
+        expected_turn_id: str | None = None,
+        delivery: str = "idle",
+    ) -> SessionMessage:
+        """Inject once under the shared session lease, without starting a model turn.
+
+        Native message IDs carry retry identity and presentation metadata; the
+        native rollout remains the only durable copy of the message content.
+        Both delivery policies wait for the session to become idle.
+        """
+        from openai_codex.generated.v2_all import ThreadInjectItemsResponse
+
+        from ..codex_app_server._session_history import validate_identifier
+
+        validate_identifier(session_id)
+        validate_identifier(message_id)
+        if role not in {"user", "assistant"}:
+            raise ValueError("role must be 'user' or 'assistant'")
+        if not isinstance(content, str) or not content.strip() or len(content) > 100_000:
+            raise ValueError("content must contain 1-100000 characters")
+        if delivery not in {"idle", "immediate"}:
+            raise ValueError("Invalid chat delivery policy")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be positive and finite")
+        if expected_turn_id:
+            validate_identifier(expected_turn_id)
+        async with asyncio.timeout(timeout):
+            async with self._session_request(), self._session({"session_id": session_id}, compact=True) as thread:
+                snapshot = await self.read_session(session_id)
+                identifier = f"reme-proactive-{message_id}"
+                accepted = next((message for message in snapshot.messages if message.id == identifier), None)
+                if accepted is not None:
+                    if (accepted.content, accepted.role) != (content, role):
+                        raise ValueError("message_id already belongs to different content or role")
+                    return accepted
+                if expected_turn_id is not None and (snapshot.last_turn_id or "") != expected_turn_id:
+                    raise RuntimeError("Session changed before appending")
+                if snapshot.path is None:
+                    raise ValueError("Appending requires a persisted Codex session")
+                native_id = codex_session_history.item_id(session_id, message_id, snapshot.last_turn_id, delivery)
+
+                async def inject():
+                    await thread._codex._client.request(  # pylint: disable=protected-access
+                        "thread/inject_items",
+                        {
+                            "threadId": thread.id,
+                            "items": [
+                                {
+                                    "type": "message",
+                                    "id": native_id,
+                                    "role": role,
+                                    "content": [
+                                        {
+                                            "type": "output_text" if role == "assistant" else "input_text",
+                                            "text": content,
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        response_model=ThreadInjectItemsResponse,
+                    )
+                    saved = await self.read_session(session_id)
+                    message = next((message for message in saved.messages if message.id == identifier), None)
+                    if message is None or (message.content, message.role) != (content, role):
+                        raise RuntimeError("Codex acknowledged append without persisting its native message")
+                    self.app_server._notify_session(session_id, message)  # pylint: disable=protected-access
+                    return message
+
+                return await finish_cleanup(inject())
 
     async def get_session_status(self, session_id: str) -> SessionStatus:
         """Report native thread activity, including approval/input waits."""
@@ -328,6 +435,9 @@ class CodexAgentWrapper(BaseAgentWrapper):
         }
         if kwargs.get("fork_session"):
             options.pop("cwd")
+        if kwargs.get("read_only_paths"):
+            # A legacy turn override would replace the file-specific profile.
+            options.pop("sandbox", None)
         return {key: value for key, value in options.items() if key in kwargs or key == "cwd"}
 
     @classmethod
