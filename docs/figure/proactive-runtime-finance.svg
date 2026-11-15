@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1780" height="1140" viewBox="0 0 1780 1140" role="img" aria-labelledby="title desc">
+<title id="title">Single Proactive Runtime — Finance</title>
+<desc id="desc">Three separate sources — CLS news, HK/US stock quotes and BTC spot quotes — save raw files and independently append observations into the finance Agent event inbox. The inbox is drawn as abstract event cards along a time axis, with an open continuation showing ongoing arrivals rather than event contents. The run reconstructs context by reading task memory, the prior daily summary, event source files, relevant history and recent reminders. It writes daily summaries, round details and optional reminder Markdown. Memory and Files denotes durable storage; Context Reconstruction denotes the Agent reading current files each round. Only successfully committed reminders are published by the Outbox to the Chat Agent Inbox. All inboxes now use reme_agents/{agent}/inbox/inbox_unread.jsonl and inbox_read.jsonl. A finance run may record results without sending a reminder.</desc>
+<metadata>Source: reme/config/proactive.yaml; reme/components/agent_inbox/; reme/components/agent_runtime/local_agent_runtime.py; reme/components/agent_runtime/_internal/outbox.py; reme/components/agent_runtime/_internal/notifications.py; reme/steps/proactive/agent/. Drawn from the current working tree. Paths are workspace-relative examples.</metadata>
+<defs>
+<marker id="flow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 1L7 4L0 7Z" fill="#087F8C" /></marker>
+<marker id="link" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse"><path d="M0 0.7L6 3.5L0 6.3Z" fill="#607485" /></marker>
+<style>
+text {font-family:Arial,Helvetica,sans-serif;fill:#182B3A;}
+.title {font-size:36px;font-weight:700;letter-spacing:-0.5px;}
+.sub {font-size:19px;fill:#607485;}
+.head {font-size:23px;font-weight:600;}
+.label {font-size:17px;fill:#607485;}
+.file {font-size:14px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',monospace;fill:#607485;}
+</style>
+<marker id="teal" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 1L7 4L0 7Z" fill="#087F8C" /></marker><marker id="purple" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 1L7 4L0 7Z" fill="#7253B3" /></marker><marker id="gold" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 1L7 4L0 7Z" fill="#B87718" /></marker><marker id="muted" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 1L7 4L0 7Z" fill="#607485" /></marker></defs>
+<rect width="1780" height="1140" fill="#F8FAFB" />
+<text x="56" y="43" class="" style="font-size:14px;fill:#087F8C;font-weight:600">REME / 01</text>
+<text x="56" y="98" class="" style="font-size:36px;font-weight:700">Single Proactive Runtime</text>
+<text x="56" y="136" class="" style="font-size:19px;fill:#607485">Finance example · Scheduled observations → an event inbox → context reconstruction → useful reminders</text>
+<rect x="56" y="180" width="400" height="620" rx="13" fill="#F0F6F7" stroke="none" stroke-width="1.3" />
+<text x="256.0" y="218" class="" style="font-size:19px;font-weight:600" text-anchor="middle">What starts a run</text>
+<rect x="480" y="180" width="760" height="620" rx="13" fill="#F0F6F7" stroke="none" stroke-width="1.3" />
+<text x="860.0" y="218" class="" style="font-size:19px;font-weight:600" text-anchor="middle">What a run works with</text>
+<rect x="1264" y="180" width="460" height="620" rx="13" fill="#F7F3FD" stroke="none" stroke-width="1.3" />
+<text x="1494.0" y="218" class="" style="font-size:19px;font-weight:600" text-anchor="middle">What leaves a run</text>
+<path d="M134 362V413" fill="none" stroke="#087F8C" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#flow)" />
+<path d="M256 362V413" fill="none" stroke="#087F8C" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#flow)" />
+<path d="M378 362V413" fill="none" stroke="#087F8C" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#flow)" />
+<path d="M432 470H628" fill="none" stroke="#087F8C" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#flow)" />
+<text x="530" y="426" class="" style="font-size:17px;fill:#607485" text-anchor="middle">Claims a batch;</text>
+<text x="530" y="451" class="" style="font-size:17px;fill:#607485" text-anchor="middle">starts or resumes</text>
+<path d="M1112 470H1286" fill="none" stroke="#7253B3" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#purple)" />
+<text x="1200" y="426" class="" style="font-size:16px;fill:#607485" text-anchor="middle">Writes a reminder,</text>
+<text x="1200" y="451" class="" style="font-size:16px;fill:#607485" text-anchor="middle">or stays quiet</text>
+<path d="M1494 527V648" fill="none" stroke="#7253B3" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#purple)" />
+<text x="1513" y="581" class="" style="font-size:17px;fill:#7253B3">Deliver {file, id}</text>
+<path d="M675 527V648" fill="none" stroke="#087F8C" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#teal)" marker-start="url(#teal)" />
+<text x="695" y="589" class="" style="font-size:17px;fill:#607485">Reads / writes</text>
+<path d="M1053 648V527" fill="none" stroke="#087F8C" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#teal)" />
+<path d="M847 705H888" fill="none" stroke="#087F8C" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#teal)" />
+<text x="1073" y="589" class="" style="font-size:15px;fill:#607485">Context for this run</text>
+<path d="M675 742V838" fill="none" stroke="#087F8C" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#teal)" marker-start="url(#teal)" />
+<text x="695" y="783" class="" style="font-size:16px;fill:#607485">Persistent files</text>
+<text x="256" y="248" class="" style="font-size:16px;fill:#607485" text-anchor="middle">Independent scheduled sources</text>
+<g data-box="80,270,108,90">
+<rect x="80" y="270" width="108" height="90" rx="6" fill="white" stroke="#DCE5EB" stroke-width="1.3" />
+<text x="134.0" y="309" class="" style="font-size:18px;fill:#087F8C;font-weight:600" text-anchor="middle">CLS News</text>
+<text x="134.0" y="338" class="" style="font-size:13px;fill:#607485" text-anchor="middle">News feed</text>
+</g>
+<g data-box="202,270,108,90">
+<rect x="202" y="270" width="108" height="90" rx="6" fill="white" stroke="#DCE5EB" stroke-width="1.3" />
+<text x="256.0" y="309" class="" style="font-size:18px;fill:#087F8C;font-weight:600" text-anchor="middle">HK / US</text>
+<text x="256.0" y="338" class="" style="font-size:16px;fill:#607485" text-anchor="middle">Stocks</text>
+</g>
+<g data-box="324,270,108,90">
+<rect x="324" y="270" width="108" height="90" rx="6" fill="white" stroke="#DCE5EB" stroke-width="1.3" />
+<text x="378.0" y="309" class="" style="font-size:22px;fill:#087F8C;font-weight:600" text-anchor="middle">BTC</text>
+<text x="378.0" y="338" class="" style="font-size:13px;fill:#607485" text-anchor="middle">Spot quotes</text>
+</g>
+<g data-box="80,415,352,325">
+<rect x="80" y="415" width="352" height="325" rx="6" fill="white" stroke="#DCE5EB" stroke-width="1.3" />
+<text x="256.0" y="454" class="" style="font-size:25px;fill:#087F8C;font-weight:600" text-anchor="middle">Event Inbox</text>
+<text x="256.0" y="483" class="" style="font-size:16px;fill:#607485" text-anchor="middle">New events arrive over time</text>
+<text x="120" y="510" class="" style="font-size:13px;fill:#607485" text-anchor="middle">Time</text>
+<path d="M120 520V687" fill="none" stroke="#607485" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#link)" />
+<path d="M124 533H159" fill="none" stroke="#607485" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" />
+<circle cx="120" cy="533" r="3.8" fill="#9BAFB9" />
+<rect x="161" y="515" width="245" height="36" rx="5" fill="#F8FAFB" stroke="#D7E3E7" stroke-width="1.3" />
+<rect x="173" y="524" width="4" height="18" rx="1" fill="#B5C8D0" stroke="none" stroke-width="1.3" />
+<rect x="188" y="525" width="115" height="3" rx="1" fill="#BDD0D7" stroke="none" stroke-width="1.3" />
+<rect x="188" y="538" width="76" height="3" rx="1" fill="#D5E1E6" stroke="none" stroke-width="1.3" />
+<path d="M124 589H159" fill="none" stroke="#607485" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" />
+<circle cx="120" cy="589" r="3.8" fill="#9BAFB9" />
+<rect x="161" y="571" width="245" height="36" rx="5" fill="#F8FAFB" stroke="#D7E3E7" stroke-width="1.3" />
+<rect x="173" y="580" width="4" height="18" rx="1" fill="#B5C8D0" stroke="none" stroke-width="1.3" />
+<rect x="188" y="581" width="115" height="3" rx="1" fill="#BDD0D7" stroke="none" stroke-width="1.3" />
+<rect x="188" y="594" width="76" height="3" rx="1" fill="#D5E1E6" stroke="none" stroke-width="1.3" />
+<path d="M124 645H159" fill="none" stroke="#607485" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round" />
+<circle cx="120" cy="645" r="3.8" fill="#087F8C" />
+<rect x="161" y="627" width="245" height="36" rx="5" fill="#E7F4F4" stroke="#D7E3E7" stroke-width="1.3" />
+<rect x="173" y="636" width="4" height="18" rx="1" fill="#087F8C" stroke="none" stroke-width="1.3" />
+<rect x="188" y="637" width="115" height="3" rx="1" fill="#BDD0D7" stroke="none" stroke-width="1.3" />
+<rect x="188" y="650" width="76" height="3" rx="1" fill="#D5E1E6" stroke="none" stroke-width="1.3" />
+<path d="M283 665V677" fill="none" stroke="#087F8C" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" marker-end="url(#flow)" />
+<text x="283" y="700" class="" style="font-size:26px;fill:#087F8C" text-anchor="middle">···</text>
+<text x="283" y="726" class="" style="font-size:14px;fill:#607485" text-anchor="middle">Continuous arrivals</text>
+</g>
+<g data-box="630,285,480,240">
+<rect x="625" y="280" width="490" height="250" rx="10" fill="none" stroke="#D3E9EB" stroke-width="5" />
+<rect x="630" y="285" width="480" height="240" rx="6" fill="#E7F4F4" stroke="#89BCC2" stroke-width="1.8" />
+<text x="870" y="327" style="font-size:28px;fill:#087F8C;font-weight:700" text-anchor="middle">A proactive run</text><path d="M786 402H801" fill="none" stroke="#087F8C" stroke-width="1.4" marker-end="url(#teal)" /><path d="M939 402H954" fill="none" stroke="#087F8C" stroke-width="1.4" marker-end="url(#teal)" /><g data-box="650,365,134,75"><rect x="650" y="365" width="134" height="75" rx="9" fill="#FFFFFF" stroke="#BFDEDE" stroke-width="1.2" /><text x="717" y="395" style="font-size:18px;fill:#087F8C;font-weight:600" text-anchor="middle">Digest</text><text x="717" y="421" style="font-size:13px;fill:#607485" text-anchor="middle">Read inputs</text></g><g data-box="803,365,134,75"><rect x="803" y="365" width="134" height="75" rx="9" fill="#FFFFFF" stroke="#BFDEDE" stroke-width="1.2" /><text x="870" y="395" style="font-size:18px;fill:#087F8C;font-weight:600" text-anchor="middle">Reason</text><text x="870" y="421" style="font-size:13px;fill:#607485" text-anchor="middle">Connect facts</text></g><g data-box="956,365,134,75"><rect x="956" y="365" width="134" height="75" rx="9" fill="#FFFFFF" stroke="#BFDEDE" stroke-width="1.2" /><text x="1023" y="395" style="font-size:18px;fill:#087F8C;font-weight:600" text-anchor="middle">Decide</text><text x="1023" y="421" style="font-size:13px;fill:#607485" text-anchor="middle">Remind or log</text></g><text x="870" y="487" style="font-size:16px;fill:#607485" text-anchor="middle">Update files · remind only when needed</text></g>
+<g data-box="505,650,340,90">
+<rect x="505" y="650" width="340" height="90" rx="6" fill="#FFFCF5" stroke="#DDCFB3" stroke-width="1.8" />
+<text x="675.0" y="689" class="" style="font-size:23px;fill:#B87718;font-weight:600" text-anchor="middle">Memory &amp; Files</text>
+<text x="675.0" y="718" class="" style="font-size:15px;fill:#607485" text-anchor="middle">Task memory, sources and daily records</text>
+</g>
+<g data-box="890,650,326,90">
+<rect x="890" y="650" width="326" height="90" rx="6" fill="#FFFFFF" stroke="#BFDEDE" stroke-width="1.3" />
+<text x="1053.0" y="689" class="" style="font-size:22px;fill:#087F8C;font-weight:600" text-anchor="middle">Context Reconstruction</text>
+<text x="1053.0" y="718" class="" style="font-size:15px;fill:#607485" text-anchor="middle">Read memory + summary + history</text>
+</g>
+<path d="M1494 382V413" fill="none" stroke="#7253B3" stroke-width="1.4" stroke-dasharray="4 4" /><g data-box="1288,252,412,128" data-role="illustrative-example"><rect x="1288" y="252" width="412" height="128" rx="12" fill="#FFFFFF" stroke="#D4C4E9" stroke-width="1.3" /><rect x="1638" y="264" width="42" height="24" rx="12" fill="#EEE8F8" /><text x="1308" y="280" style="font-size:16px;fill:#7253B3;font-weight:600">Illustrative example</text><text x="1659" y="281" style="font-size:13px;fill:#7253B3;font-weight:600" text-anchor="middle">P1</text><text x="1308" y="310" style="font-size:18px;fill:#182B3A;font-weight:600">Alibaba moved &gt;5% intraday.</text><text x="1308" y="338" style="font-size:16px;fill:#607485">A tracked-stock threshold was reached.</text><text x="1308" y="364" style="font-size:15px;fill:#607485">Review the snapshot and linked news.</text></g><g data-box="1288,415,412,110">
+<rect x="1288" y="415" width="412" height="110" rx="6" fill="#F7F3FD" stroke="#D4C4E9" stroke-width="1.3" />
+<text x="1494.0" y="454" class="" style="font-size:25px;fill:#7253B3;font-weight:600" text-anchor="middle">Outbox</text>
+<text x="1494.0" y="483" class="" style="font-size:17px;fill:#607485" text-anchor="middle">Committed reminder Markdown</text>
+<text x="1494.0" y="510" class="" style="font-size:16px;fill:#607485" text-anchor="middle">P0 / P1 / P2</text>
+</g>
+<g data-box="1288,650,412,90">
+<rect x="1288" y="650" width="412" height="90" rx="6" fill="#FFFFFF" stroke="#D4C4E9" stroke-width="1.3" />
+<text x="1494.0" y="689" class="" style="font-size:23px;fill:#7253B3;font-weight:600" text-anchor="middle">Chat Agent Inbox</text>
+<text x="1494.0" y="718" class="" style="font-size:16px;fill:#607485" text-anchor="middle">Reminder references, ready for assessment</text>
+</g>
+<rect x="56" y="840" width="1668" height="232" rx="13" fill="#FFFEFB" stroke="#DDCFB3" stroke-width="1.3" />
+<text x="80" y="876" class="" style="font-size:21px;font-weight:600">Workspace files</text>
+<text x="1700" y="875" class="" style="font-size:16px;fill:#607485" text-anchor="end">User-owned files · durable source of truth</text>
+<g data-box="80,895,308,154">
+<rect x="80" y="895" width="308" height="154" rx="6" fill="white" stroke="#E6DDCA" stroke-width="1.3" />
+<text x="98" y="927" class="" style="font-size:19px;fill:#B87718;font-weight:600">Source packages</text>
+<text x="98" y="960" style="font-size:12px;fill:#607485" class="file">resource/{source}/{date}/{batch}/</text><text x="98" y="988" style="font-size:12px;fill:#607485" class="file">news.jsonl · quotes.jsonl · btc.jsonl</text><text x="98" y="1016" style="font-size:14px;fill:#607485">Raw data + source metadata</text></g>
+<g data-box="408,895,308,154">
+<rect x="408" y="895" width="308" height="154" rx="6" fill="white" stroke="#E6DDCA" stroke-width="1.3" />
+<text x="426" y="927" class="" style="font-size:19px;fill:#B87718;font-weight:600">Task context</text>
+<text x="426" y="960" style="font-size:14px;fill:#607485" class="file">reme_agents/finance/</text><text x="426" y="988" style="font-size:13px;fill:#607485" class="file">MEMORY.md · sessions.jsonl</text><text x="426" y="1016" style="font-size:14px;fill:#607485">Requirements + session references</text></g>
+<g data-box="736,895,308,154">
+<rect x="736" y="895" width="308" height="154" rx="6" fill="white" stroke="#E6DDCA" stroke-width="1.3" />
+<text x="754" y="927" class="" style="font-size:19px;fill:#B87718;font-weight:600">Daily records</text>
+<text x="754" y="960" style="font-size:14px;fill:#607485" class="file">daily/{date}/</text><text x="754" y="988" style="font-size:12px;fill:#607485" class="file">finance.md · finance_HHMMSS.md</text><text x="754" y="1016" style="font-size:14px;fill:#607485">Daily summary + round analysis</text></g>
+<g data-box="1064,895,308,154">
+<rect x="1064" y="895" width="308" height="154" rx="6" fill="white" stroke="#E6DDCA" stroke-width="1.3" />
+<text x="1082" y="927" class="" style="font-size:19px;fill:#B87718;font-weight:600">Reminder files</text>
+<text x="1082" y="960" style="font-size:12px;fill:#607485" class="file">reme_agents/finance/reminder/</text><text x="1082" y="988" style="font-size:13px;fill:#607485" class="file">{date}/finance_HHMMSS.md</text><text x="1082" y="1016" style="font-size:14px;fill:#607485">Message · priority · links · status</text></g>
+<g data-box="1392,895,308,154">
+<rect x="1392" y="895" width="308" height="154" rx="6" fill="white" stroke="#E6DDCA" stroke-width="1.3" />
+<text x="1410" y="927" class="" style="font-size:19px;fill:#B87718;font-weight:600">Inbox records</text>
+<text x="1410" y="960" style="font-size:13px;fill:#607485" class="file">reme_agents/{agent}/inbox/</text><text x="1410" y="988" style="font-size:14px;fill:#607485" class="file">inbox_unread.jsonl</text><text x="1410" y="1016" style="font-size:13px;fill:#607485" class="file">inbox_read.jsonl · receipts</text></g>
+<text x="56" y="1106" class="" style="font-size:15px;fill:#607485">Cron tasks enqueue timer events. This finance example is event-driven by collector observations. {date} = YYYY-MM-DD.</text>
+<text x="1724" y="1106" class="" style="font-size:14px;fill:#087F8C;font-weight:600" text-anchor="end">REME / 01</text>
+</svg>

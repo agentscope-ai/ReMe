@@ -72,6 +72,12 @@ curl -N http://127.0.0.1:2333/chat \
 先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
 消费回执关联提醒引用，在接收方完成交接前保留对应确认记录。
 
+下图概览 Chat、临时 Reminder fork、共享 Inbox 与后台任务如何通过工作区协作；生活任务为接入示例。
+
+<p align="center">
+  <img src="../figure/personal-runtime.svg" alt="Personal Runtime：Chat 与临时 Reminder fork、收件箱、后台任务及共享工作区" width="100%">
+</p>
+
 在一个终端配置 `LLM_API_KEY`、`LLM_BASE_URL` 和可选的 `CODEX_MODEL_NAME`，启动服务：
 
 ```bash
@@ -114,6 +120,13 @@ Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` �
 同样用 `description` 初始化 MEMORY。启动只创建缺失身份，重启不覆盖已修改的记忆或配置，也不恢复已删除任务；
 默认启用两个事件任务：`finance` 分析采集的新闻和行情；`work` 根据新观察资料跟踪主人正在做的项目，
 整理各项目的进度、进展、难点和待讨论问题。工作观察每五分钟采集截图和新增 Codex 对话；独立截图采集器默认关闭。
+
+单个 Proactive Runtime 消费事件、基于工作区文件重建上下文，再将保存的提醒经 Outbox 投递到 Chat Inbox。
+下图以金融任务为例，提醒消息仅作示意。
+
+<p align="center">
+  <img src="../figure/proactive-runtime-finance.svg" alt="金融 Proactive Runtime：独立信息源、事件流、上下文重建、提醒投递与工作区文件" width="100%">
+</p>
 
 任务配置使用 `trigger_type`（`cron` 或 `event`）。已有 Agent `config.json` 和 API 调用中的旧字段
 `type` 需改为 `trigger_type`，旧字段不再接受。

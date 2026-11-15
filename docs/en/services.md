@@ -69,6 +69,13 @@ and removed by the next append. Corrupt complete records fail explicitly.
 Validated reminders are saved before input consumption is committed; the outbox retries delivery independently.
 An interrupted, uncommitted round may run again. Consumption receipts retain reminder references until handoff.
 
+Personal Runtime connects Chat, its temporary Reminder fork, a shared Inbox and background tasks through workspace files.
+The Life task is an illustrative integration.
+
+<p align="center">
+  <img src="../figure/personal-runtime.svg" alt="Personal Runtime: Chat and its temporary Reminder fork, the Inbox, background tasks and shared workspace" width="100%">
+</p>
+
 Start the backend in one terminal, with `LLM_API_KEY`, `LLM_BASE_URL` and optional `CODEX_MODEL_NAME`:
 
 ```bash
@@ -117,6 +124,13 @@ or settings, or restore deleted tasks. Two event tasks are enabled by default: `
 and the event-driven `work` tracks the user's current projects, progress, difficulties and discussion points from
 incoming observations. Work observations capture screens and new Codex dialogue every five minutes. The separate
 standalone screen-capture collector is disabled by default.
+
+An individual Proactive Runtime consumes events, reconstructs context from workspace files and delivers saved reminders
+through the Outbox to the Chat Inbox. The finance message below is illustrative.
+
+<p align="center">
+  <img src="../figure/proactive-runtime-finance.svg" alt="Finance Proactive Runtime: independent sources, an event stream, context reconstruction, reminder delivery and workspace files" width="100%">
+</p>
 
 Task configuration uses `trigger_type` (`cron` or `event`). Rename the old `type` key to `trigger_type` in existing
 Agent `config.json` files and API calls; the old key is no longer accepted.
