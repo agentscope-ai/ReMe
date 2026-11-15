@@ -293,8 +293,11 @@ async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(ap
     (root / "escape").symlink_to(outside)
     with pytest.raises(OSError):
         await backend.read_file(str(root / "escape"))
-    network = await backend.exec_shell(
-        [sys.executable, "-I", "-B", "-c", "import socket; socket.socket().bind(('127.0.0.1', 0))"],
-        timeout=10,
-    )
+    # Linux permits sockets inside its isolated namespace; host services must remain unreachable.
+    async with await asyncio.start_server(lambda _reader, writer: writer.close(), "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        network = await backend.exec_shell(
+            [sys.executable, "-I", "-B", "-c", f"import socket; socket.create_connection(('127.0.0.1', {port}), 1)"],
+            timeout=10,
+        )
     assert not network.ok()
