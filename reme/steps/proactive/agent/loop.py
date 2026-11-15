@@ -39,8 +39,8 @@ class InboxLoopStep(BaseAgentStep):
             raise RuntimeError("inbox_loop_step requires a BackgroundJob stop_event")
         try:
             while not stop.is_set():
-                await self.agent_runtime.inbox.tick(self.run_job, self.kwargs.get("job", "inbox_chat"))
+                await self.agent_runtime.notifications.tick(self.run_job, self.kwargs.get("job", "inbox_chat"))
                 await self.agent_runtime.wait(stop)
         finally:
-            await self.agent_runtime.inbox.close()
+            await self.agent_runtime.notifications.close()
         return self.context.response

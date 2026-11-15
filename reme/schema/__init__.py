@@ -9,7 +9,7 @@ from .agent_runtime import (
     AgentSession,
     ChatAgentConfig,
     CreateChatAgentConfig,
-    InboxConfig,
+    NotificationConfig,
     AgentReminder,
     ReminderRef,
     ReadInboxRequest,
@@ -31,7 +31,8 @@ from .proactive import (
     ProactiveTopic,
 )
 from .emb_node import EmbNode
-from .event import Event, EventConsumption
+from .event import Event
+from .agent_inbox import InboxItem, InboxReceipt
 from .finance import CryptoQuote, FinanceNewsItem, StockQuote
 from .proactive_agent import (
     CreateProactiveAgentConfig,
@@ -74,7 +75,8 @@ __all__ = [
     "DreamUnit",
     "EmbNode",
     "Event",
-    "EventConsumption",
+    "InboxReceipt",
+    "InboxItem",
     "FinanceNewsItem",
     "StockQuote",
     "CryptoQuote",
@@ -94,7 +96,7 @@ __all__ = [
     "ReminderRef",
     "AgentNotification",
     "AgentId",
-    "InboxConfig",
+    "NotificationConfig",
     "ReadInboxRequest",
     "SendChatMessageRequest",
     "ProactiveRunResult",

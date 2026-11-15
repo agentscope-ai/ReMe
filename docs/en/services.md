@@ -58,11 +58,11 @@ MCP does not expose Stream Jobs. Studio integration is separate from this backen
 
 ## Agent Runtime
 
-The `agent_runtime` Component owns sessions, event streams, inboxes and scheduling. `ChatAgentStep` and
+The `agent_runtime` Component coordinates sessions, the shared Agent Inbox, outputs and scheduling. `ChatAgentStep` and
 `ProactiveAgentStep` define the two Agent behaviors under `reme/steps/proactive/agent/`.
 Configure the Component through `components.agent_runtime.default` and the workspace-relative `reme_agent_dir`
-(default `reme_agents`). Each Agent owns `config.json`, `MEMORY.md` and `sessions.jsonl`. Event and cron Agents also own
-`events/` and `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`; temporary Agents use `reme_agents/tmp/<agent_id>/`.
+(default `reme_agents`). Each Agent owns `config.json`, `MEMORY.md`, `sessions.jsonl` and `inbox/`. Event and cron Agents also own
+`reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`; temporary Agents use `reme_agents/tmp/<agent_id>/`.
 There is no global definition index or checkpoint file: startup rebuilds runtime state from source files.
 Session registries preserve complete records across an interrupted append; an incomplete tail is ignored on read
 and removed by the next append. Corrupt complete records fail explicitly.
@@ -134,22 +134,28 @@ or extract PDF text. Temporary `query` forks remain read-only and offline.
 `temporary=true` is independent of trigger type. Temporary Agents become eligible for collection after seven days
 without new accepted inputs; cron triggers count as inputs, while duplicates and retries do not. Collection waits for
 running work, pending events, undelivered messages and retained Inbox references. Daily records and resources remain.
-On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
+Successful input receipts retain the greatest accepted reception time, preserving idle lifetime across priority processing
+and restarts. On restart cron schedules the next future trigger; queued events still run, but missed offline triggers are not backfilled.
 Chat idle and retry timers restart in memory. Daily handoffs use `daily/YYYY-MM-DD/<agent_id>.md`; round details use
 `<agent_id>_HHMMSS.md`, with numeric suffixes for same-second collisions. The framework keeps each reminder body in Markdown and
 updates delivery and read timestamps in its frontmatter under the Agent's `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`.
 
-Only `chat` receives messages. Its `inbox_unread.jsonl` and `inbox_read.jsonl` contain only `{file,id}` references;
-the read view retains the latest 1,000. Bodies and timestamps remain in canonical reminders. One lifecycle-owned
-watcher and periodic rescans reconcile file edits and interrupted handoffs. Missing views are rebuilt from reminders.
-Existing daily reminder JSONL logs require migration to Markdown frontmatter before startup; remove the retired
-`woken_at` frontmatter field from previously generated Markdown reminders. Missing or corrupt individual reminders
+`components.agent_inbox.default` uses the `event` backend (`AgentEventInbox`), inheriting the generic local
+inbox implementation. `components.agent_runtime.default.inbox` selects that component. Each Agent stores pending
+inputs in `inbox/inbox_unread.jsonl` and processed batches in `inbox/inbox_read.jsonl`; each batch contains `items`,
+`consume_ts` and `metadata`. Claims reserve selected IDs without consuming them; successful execution commits a receipt.
+Event Agents receive observations and cron triggers. Chat receives only `{file,id}` reminder references, with at most
+1,000 processed references retained by default. Reminder Markdown remains the source for content and acknowledgement
+timestamps; Chat reference views are rebuildable. Change reminder frontmatter to acknowledge messages externally.
+One lifecycle-owned watcher and periodic rescans reconcile those source edits and interrupted handoffs.
+
+Missing or corrupt individual reminders
 retain their source files and event receipts, report their paths, and are isolated without blocking other reminders
 or application startup. Restoring the original file automatically restores processing.
 
-P0 forks Chat as soon as its session is available, after `components.agent_runtime.default.inbox.p0_delay_seconds`
-(default 0). P1 waits for 10 continuous idle seconds, P2 for 1800, controlled by `inbox.p1_idle_seconds` and
-`inbox.p2_idle_seconds`. Notification windows still apply. Only foreground Chat turns reset the idle clock.
+P0 forks Chat as soon as its session is available, after `components.agent_runtime.default.notifications.p0_delay_seconds`
+(default 0). P1 waits for 10 continuous idle seconds, P2 for 1800, controlled by `notifications.p1_idle_seconds` and
+`notifications.p2_idle_seconds`. Notification windows still apply. Only foreground Chat turns reset the idle clock.
 The temporary fork inherits the current conversation, runs read-only and offline, and is disposed of after execution,
 including failure or cancellation. Its hint and tool traces never enter the main conversation.
 

@@ -14,7 +14,7 @@ import pytest
 
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.event_stream import AgentEventStream
+from reme.components.agent_inbox import AgentEventInbox
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum
@@ -95,7 +95,7 @@ def devices(monkeypatch):
 async def runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path / "workspace"), language="zh")
     Path(context.app_config.workspace_dir).mkdir(exist_ok=True)
-    stream = AgentEventStream(app_context=context)
+    inbox = AgentEventInbox(app_context=context)
     agents = LocalAgentRuntime(
         app_context=context,
         agents=[
@@ -107,18 +107,18 @@ async def runtime(tmp_path):
         ],
     )
     context.components = {
-        "event_stream": {"default": stream},
+        "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
         "agent_runtime": {"default": agents},
     }
     job = BaseJob(app_context=context, steps=[{"backend": "append_event_step"}])
     delivery = AsyncMock(side_effect=job.__call__)
     context.jobs["append_event"] = delivery
-    async with stream, agents, job:
+    async with inbox, agents, job:
         agents.watcher.cancel()
         await asyncio.gather(agents.watcher, return_exceptions=True)
         agents.watcher = None
-        yield context, stream, delivery
+        yield context, inbox, delivery
 
 
 def options(context, home, **kwargs):
@@ -144,7 +144,7 @@ def messages(context):
 @pytest.mark.asyncio
 async def test_startup_baseline_and_clean_dialogue_are_published_with_all_screens(tmp_path, source):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, delivery):
+    async with runtime(tmp_path) as (context, inbox, delivery):
         await WorkObservationInitStep(**options(context, home))()
         original_size = path.stat().st_size
         raw_user = {
@@ -170,7 +170,7 @@ async def test_startup_baseline_and_clean_dialogue_are_published_with_all_screen
         assert response.answer["scanned_bytes"] == path.stat().st_size - original_size
         assert [message["content"] for message in messages(context)] == ["做增量感知", "开发完成"]
         assert {message["cwd"] for message in messages(context)} == {"/projects/ReMe2"}
-        events = (await stream.claim("work"))["events"]
+        events = (await inbox.claim("work"))["items"]
         assert [event["source"] for event in events] == ["screenshot", "codex_dialogue"]
         assert len(events[0]["paths"]) == 3
         assert delivery.await_count == 1 and len(delivery.await_args.kwargs["events"]) == 2
@@ -271,7 +271,7 @@ async def test_subagents_and_reme_sessions_are_excluded(tmp_path, source):
 @pytest.mark.asyncio
 async def test_delivery_failure_reuses_frozen_batch_before_reading_further_changes(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, delivery):
+    async with runtime(tmp_path) as (context, inbox, delivery):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "retry me"))
         original = delivery.side_effect
@@ -283,7 +283,7 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
         delivery.side_effect = original
         await WorkObservationStep(**options(context, home))()
         assert devices.call_count == 1 and delivery.await_args.kwargs["events"] == frozen
-        assert (await stream.snapshot("work"))["pending_count"] == 2
+        assert (await inbox.snapshot("work"))["pending_count"] == 2
         assert [value["content"] for value in messages(context)] == ["retry me"]
         await WorkObservationStep(**options(context, home))()
         assert sorted(value["content"] for value in messages(context)) == ["later", "retry me"]
@@ -292,7 +292,7 @@ async def test_delivery_failure_reuses_frozen_batch_before_reading_further_chang
 @pytest.mark.asyncio
 async def test_lost_delivery_response_does_not_duplicate_stream_events(tmp_path, source):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, delivery):
+    async with runtime(tmp_path) as (context, inbox, delivery):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "once"))
         original = delivery.side_effect
@@ -306,14 +306,14 @@ async def test_lost_delivery_response_does_not_duplicate_stream_events(tmp_path,
             await WorkObservationStep(**options(context, home))()
         delivery.side_effect = original
         await WorkObservationStep(**options(context, home))()
-        assert (await stream.snapshot("work"))["pending_count"] == 2
+        assert (await inbox.snapshot("work"))["pending_count"] == 2
         assert len(messages(context)) == 1
 
 
 @pytest.mark.asyncio
 async def test_partial_resource_publication_resumes_without_recapture(tmp_path, source, devices, monkeypatch):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, _):
+    async with runtime(tmp_path) as (context, inbox, _):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "recover"))
         rename = Path.rename
@@ -326,22 +326,22 @@ async def test_partial_resource_publication_resumes_without_recapture(tmp_path, 
         monkeypatch.setattr(Path, "rename", fail_dialogue_once)
         with pytest.raises(OSError, match="interrupted"):
             await WorkObservationStep(**options(context, home))()
-        assert (await stream.snapshot("work"))["pending_count"] == 0
+        assert (await inbox.snapshot("work"))["pending_count"] == 0
         monkeypatch.setattr(Path, "rename", rename)
         await WorkObservationStep(**options(context, home))()
-        assert devices.call_count == 1 and (await stream.snapshot("work"))["pending_count"] == 2
+        assert devices.call_count == 1 and (await inbox.snapshot("work"))["pending_count"] == 2
 
 
 @pytest.mark.asyncio
 async def test_screenshot_failure_does_not_drop_dialogue(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, _):
+    async with runtime(tmp_path) as (context, inbox, _):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "still delivered"))
         devices.side_effect = RuntimeError("screen permission denied")
         response = await WorkObservationStep(**options(context, home))()
         assert not response.success and response.answer["errors"] == {"screenshot": "screen permission denied"}
-        assert (await stream.claim("work"))["events"][0]["source"] == "codex_dialogue"
+        assert (await inbox.claim("work"))["items"][0]["source"] == "codex_dialogue"
 
 
 @pytest.mark.asyncio
@@ -392,7 +392,7 @@ async def test_permissions_fail_before_source_or_device_access(tmp_path, source,
 @pytest.mark.asyncio
 async def test_checkpoint_failure_after_delivery_retries_the_same_events(tmp_path, source, monkeypatch, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, delivery):
+    async with runtime(tmp_path) as (context, inbox, delivery):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "commit me"))
         commit = CodexDialogueIndex.commit
@@ -407,13 +407,13 @@ async def test_checkpoint_failure_after_delivery_retries_the_same_events(tmp_pat
         monkeypatch.setattr(CodexDialogueIndex, "commit", commit)
         await WorkObservationStep(**options(context, home))()
         assert delivery.await_args.kwargs["events"] == first and devices.call_count == 1
-        assert (await stream.snapshot("work"))["pending_count"] == 2
+        assert (await inbox.snapshot("work"))["pending_count"] == 2
 
 
 @pytest.mark.asyncio
 async def test_interrupted_pending_cleanup_recovers_without_replaying_dialogue(tmp_path, source, monkeypatch):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, _):
+    async with runtime(tmp_path) as (context, inbox, _):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "commit once"))
         pending = checkpoint(context).parent / "pending"
@@ -433,13 +433,13 @@ async def test_interrupted_pending_cleanup_recovers_without_replaying_dialogue(t
         await WorkObservationStep(**options(context, home))()
         assert len(messages(context)) == 1
         assert not pending.exists()
-        assert (await stream.snapshot("work"))["pending_count"] == 3
+        assert (await inbox.snapshot("work"))["pending_count"] == 3
 
 
 @pytest.mark.asyncio
 async def test_corrupt_source_does_not_block_other_projects(tmp_path, source):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, _):
+    async with runtime(tmp_path) as (context, inbox, _):
         await WorkObservationInitStep(**options(context, home))()
         bad = path.with_name("rollout-bad.jsonl")
         append(bad, record("meta", thread="bad"))
@@ -449,7 +449,7 @@ async def test_corrupt_source_does_not_block_other_projects(tmp_path, source):
         result = await WorkObservationStep(**options(context, home))()
         assert not result.success and len(result.answer["errors"]) == 1
         assert [value["content"] for value in messages(context)] == ["valid project"]
-        assert (await stream.snapshot("work"))["pending_count"] == 2
+        assert (await inbox.snapshot("work"))["pending_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -470,13 +470,13 @@ async def test_invalid_cursor_and_changed_source_root_fail_closed(tmp_path, sour
 @pytest.mark.asyncio
 async def test_symlinked_sources_and_resource_roots_are_not_followed(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, _):
+    async with runtime(tmp_path) as (context, inbox, _):
         await WorkObservationInitStep(**options(context, home))()
         outside = tmp_path / "outside.jsonl"
         append(outside, record("meta"), record("UserMessage", "outside"))
         path.with_name("rollout-link.jsonl").symlink_to(outside)
         await WorkObservationStep(**options(context, home))()
-        assert not messages(context) and (await stream.snapshot("work"))["pending_count"] == 1
+        assert not messages(context) and (await inbox.snapshot("work"))["pending_count"] == 1
         devices.reset_mock()
         resources = workspace(context) / "resource"
         resources.rename(workspace(context) / "saved-resources")
@@ -521,7 +521,7 @@ async def test_bounded_passes_rotate_between_files_and_finish_reconciliation(tmp
 @pytest.mark.asyncio
 async def test_overlapping_collections_are_serialized(tmp_path, source, devices):
     home, path = source
-    async with runtime(tmp_path) as (context, stream, delivery):
+    async with runtime(tmp_path) as (context, inbox, delivery):
         await WorkObservationInitStep(**options(context, home))()
         append(path, record("UserMessage", "one dialogue batch"))
         first, second = await asyncio.gather(
@@ -530,7 +530,7 @@ async def test_overlapping_collections_are_serialized(tmp_path, source, devices)
         )
         assert first.success and second.success and devices.call_count == 2
         assert [len(call.kwargs["events"]) for call in delivery.await_args_list] == [2, 1]
-        assert len(messages(context)) == 1 and (await stream.snapshot("work"))["pending_count"] == 3
+        assert len(messages(context)) == 1 and (await inbox.snapshot("work"))["pending_count"] == 3
 
 
 def test_config_initializes_on_startup_and_collects_both_sources_every_five_minutes(monkeypatch):

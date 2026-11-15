@@ -35,7 +35,7 @@ InboxMessageId = Annotated[str, Field(pattern=r"^[a-zA-Z0-9_-]{1,128}$")]
 InboxPriority = Literal["P0", "P1", "P2"]
 
 
-class InboxConfig(BaseModel):
+class NotificationConfig(BaseModel):
     """Receiver-owned wakeup delays in seconds."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)

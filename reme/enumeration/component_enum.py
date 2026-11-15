@@ -28,7 +28,7 @@ class ComponentEnum(str, Enum):
 
     FILE_CATALOG = "file_catalog"
 
-    EVENT_STREAM = "event_stream"
+    AGENT_INBOX = "agent_inbox"
 
     AGENT_RUNTIME = "agent_runtime"
 

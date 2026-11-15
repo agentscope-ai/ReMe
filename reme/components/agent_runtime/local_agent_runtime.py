@@ -14,14 +14,14 @@ from watchfiles import awatch
 
 from .base_agent_runtime import BaseAgentRuntime
 from ._internal.files import AgentFiles
-from ._internal.inbox import AgentInbox
+from ._internal.notifications import ChatNotifications
 from ._internal.outbox import AgentOutbox
 from ._internal.registry import AgentRegistry
 from ._internal.sessions import AgentSessions
 from ..agent_wrapper import BaseAgentWrapper
-from ..event_stream import BaseEventStream
+from ..agent_inbox import BaseAgentInbox
 from ..component_registry import R
-from ...schema.agent_runtime import ChatAgentConfig, CreateChatAgentConfig, InboxConfig
+from ...schema.agent_runtime import ChatAgentConfig, CreateChatAgentConfig, NotificationConfig
 from ...schema.agent_activity import AgentActivity
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
@@ -45,8 +45,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
     def __init__(
         self,
         agent_wrapper="default",
-        event_stream="default",
-        inbox=None,
+        inbox="default",
+        notifications=None,
         retry_seconds=5,
         agents=None,
         chat=None,
@@ -62,7 +62,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
             raise ValueError("initial Agent names must be unique, including case")
         self.initial_chat = CreateChatAgentConfig.model_validate(chat if chat is not None else {})
         self.agent_wrapper = self.bind(agent_wrapper, BaseAgentWrapper, optional=False)
-        self.event_stream = self.bind(event_stream, BaseEventStream, optional=False)
+        self.inbox = self.bind(inbox, BaseAgentInbox, optional=False)
         self.files = AgentFiles(self.workspace_path)
         directory = (
             self.app_context.app_config.reme_agent_dir if self.app_context else ApplicationConfig().reme_agent_dir
@@ -70,7 +70,10 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.agents = AgentRegistry(self.files, directory)
         self.sessions = AgentSessions(self.agents)
         self.outbox = AgentOutbox(self)
-        self.inbox = AgentInbox(self, InboxConfig.model_validate(inbox if inbox is not None else {}))
+        self.notifications = ChatNotifications(
+            self,
+            NotificationConfig.model_validate(notifications if notifications is not None else {}),
+        )
         self.retry_seconds = retry_seconds
         self.chat_lock = asyncio.Lock()
         self.chat_tasks = set()
@@ -112,12 +115,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 await self.create(initial)
         for agent in (await asyncio.to_thread(self.agents.load)).values():
             await self.prepare(agent)
+        await self.inbox.mount("chat", (chat.parent / "inbox").relative_to(self.workspace_path).as_posix())
         await self.outbox.sync()
-        self.inbox.last_activity_at = self.now()
-        self.inbox.retry_at = None
-        self.inbox.error = None
-        self.inbox.failures = 0
-        self.inbox.blocked = False
+        self.notifications.reset()
         self.closed = False
         self.changed.set()
         self.watch_stop.clear()
@@ -127,7 +127,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         self.closed = True
         self.watch_stop.set()
         self.changed.set()
-        await self.inbox.close()
+        await self.notifications.close()
         tasks = set(self.workers.values()) | set(self.agent_tasks) | self.chat_tasks
         if self.watcher is not None:
             tasks.add(self.watcher)
@@ -167,9 +167,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 self.changed.set()
 
     async def prepare(self, agent):
-        """Mount one per-agent stream without creating independent component lifetimes."""
-        directory = (self.agents.directory_for(agent) / "events").relative_to(self.workspace_path).as_posix()
-        await self.event_stream.mount(agent.agent_id, directory)
+        """Mount one per-agent inbox without creating independent component lifetimes."""
+        directory = (self.agents.directory_for(agent) / "inbox").relative_to(self.workspace_path).as_posix()
+        await self.inbox.mount(agent.agent_id, directory)
         self.executions.setdefault(agent.agent_id, _Execution())
 
     async def definition(self, agent_id):
@@ -177,7 +177,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         return await asyncio.to_thread(self.agents.get, agent_id)
 
     async def create(self, config):
-        """Persist a task and its event directory before returning success."""
+        """Persist a task and its inbox directory before returning success."""
         async with self.management_lock:
             agent = await complete_in_thread(
                 self.agents.create,
@@ -229,13 +229,9 @@ class LocalAgentRuntime(BaseAgentRuntime):
         values = [
             value.model_copy(update={"metadata": {**value.metadata, "_received_at": received}}) for value in values
         ]
-        identifiers = await self.event_stream.append(agent.agent_id, values)
+        identifiers = await self.inbox.append(agent.agent_id, values)
         self.changed.set()
         return {"agent_id": agent.agent_id, "event_ids": identifiers}
-
-    async def snapshot(self, agent_id):
-        """Recover the latest input and successful round from retained event logs."""
-        return await self.event_stream.snapshot(agent_id)
 
     async def status(self, agent_id):
         """Inspect without acquiring a model-generation lock."""
@@ -244,8 +240,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def _status(self, agent, *, include_memory=False):
         agent_id = agent.agent_id
         await self.prepare(agent)
-        snapshot = await self.snapshot(agent_id)
-        receipt = snapshot["consumption"]
+        snapshot = await self.inbox.snapshot(agent_id)
+        receipt = snapshot["receipt"]
         execution = self.executions[agent_id]
         memory = self.agents.directory_for(agent) / "MEMORY.md"
         result = {
@@ -281,14 +277,14 @@ class LocalAgentRuntime(BaseAgentRuntime):
         if self.closed:
             raise RuntimeError("Agent runtime is closed")
         task = asyncio.current_task()
-        self.inbox.foreground()
+        self.notifications.foreground()
         self.chat_tasks.add(task)
         try:
             async with self.chat_lock:
                 try:
                     yield
                 finally:
-                    self.inbox.activity()
+                    self.notifications.activity()
         finally:
             self.chat_tasks.discard(task)
 
@@ -344,9 +340,11 @@ class LocalAgentRuntime(BaseAgentRuntime):
         return await self.outbox.mail(agent_id, message_id, mark_read=mark_read)
 
     async def list_events(self, agent_id, **kwargs):
-        """Read the mounted input stream for a named task."""
+        """Read the mounted input inbox for a named task."""
         await self.definition(agent_id)
-        return await self.event_stream.read(agent_id, **kwargs)
+        page = await self.inbox.read(agent_id, **kwargs)
+        page["items"] = [{"event": item.pop("item"), **item} for item in page["items"]]
+        return page
 
     async def list_chat_sessions(self, offset=0, limit=10):
         """Listing is side-effect-free, including before the first Chat turn."""
@@ -371,7 +369,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
             async with self.management_lock:
                 agent = await self.definition(agent_id)
                 await self.prepare(agent)
-                receipt = (await self.snapshot(agent_id))["consumption"]
+                receipt = (await self.inbox.snapshot(agent_id))["receipt"]
                 session_id = receipt.metadata.get("session_id") if receipt else None
                 if session_id is None:
                     raise ValueError("proactive agent has no completed session to query")
@@ -389,7 +387,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     return {"agent_id": agent_id, "skipped": "disabled"}
                 await self.prepare(agent)
                 name = agent_id
-                batch = await self.event_stream.claim(name, limit=1 if agent.trigger_type == "cron" else None)
+                batch = await self.inbox.claim(name, limit=1 if agent.trigger_type == "cron" else None)
                 if batch is None:
                     return {"agent_id": agent_id, "processed": 0}
                 owns_worker = agent_id not in self.workers
@@ -405,18 +403,24 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     started_at=self.executions[agent_id].started_at,
                     phase="working",
                 )
-                result, session_id = await execute(agent, batch["events"])
+                result, session_id = await execute(agent, batch["items"])
                 self.activities[agent_id] = self.activities[agent_id].model_copy(update={"session_id": session_id})
-                run_id = sha256(json.dumps([agent_id, batch["events"]], sort_keys=True).encode()).hexdigest()[:32]
+                run_id = sha256(json.dumps([agent_id, batch["items"]], sort_keys=True).encode()).hexdigest()[:32]
 
                 async def commit():
+                    previous = (await self.inbox.snapshot(name))["receipt"]
+                    received = [event["metadata"]["_received_at"] for event in batch["items"]]
+                    if previous is not None:
+                        received.append(previous.metadata["last_received_at"])
+                    last_received = max(datetime.fromisoformat(value) for value in received)
                     refs = await self.outbox.save(agent, run_id, result, self.now())
-                    await self.event_stream.ack(
+                    await self.inbox.ack(
                         name,
                         batch["token"],
                         metadata={
                             "reminders": [ref.model_dump() for ref in refs],
                             "session_id": session_id,
+                            "last_received_at": last_received.isoformat(),
                         },
                         retain=bool(refs),
                     )
@@ -426,7 +430,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 self.changed.set()
                 return {
                     "agent_id": agent_id,
-                    "processed": len(batch["events"]),
+                    "processed": len(batch["items"]),
                     "notifications": result.model_dump()["notifications"],
                 }
             except BaseException as exc:
@@ -435,7 +439,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 raise
             finally:
                 try:
-                    await finish_cleanup(self.event_stream.nack(name, batch["token"]))
+                    await finish_cleanup(self.inbox.nack(name, batch["token"]))
                 except ValueError:
                     pass
                 if owns_worker:
@@ -480,8 +484,8 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     continue
                 if execution.retry_at is not None and execution.retry_at > self.now():
                     continue
-                snapshot = await self.snapshot(agent.agent_id)
-                receipt = snapshot["consumption"]
+                snapshot = await self.inbox.snapshot(agent.agent_id)
+                receipt = snapshot["receipt"]
                 if agent.trigger_type == "event" and receipt is not None:
                     if (self.now() - receipt.consume_ts).total_seconds() < agent.min_trigger_interval_seconds:
                         continue
@@ -497,21 +501,25 @@ class LocalAgentRuntime(BaseAgentRuntime):
     async def _collect(self, agent):
         if agent.agent_id in self.workers or agent.agent_id in self.agent_tasks.values():
             return
-        snapshot = await self.snapshot(agent.agent_id)
-        event = snapshot["event"]
-        received = datetime.fromisoformat(event["metadata"]["_received_at"]) if event else agent.created_at
+        snapshot = await self.inbox.snapshot(agent.agent_id)
+        receipt = snapshot["receipt"]
+        received = datetime.fromisoformat(receipt.metadata["last_received_at"]) if receipt else agent.created_at
         if self.now() - received < timedelta(days=7):
             return
         if snapshot["pending_count"]:
             return
         # A worker can finish before the watcher sees its newly committed outbox.
         await self.outbox.sync()
-        async with self.outbox.sync_lock, self.inbox.lock:
+        async with self.outbox.sync_lock, self.notifications.lock:
             refs = self.outbox.references(agent.agent_id)
-            retained = set(self.inbox.pending.values()) | set(self.inbox.read_refs.values())
+            retained = set(self.notifications.pending.values()) | set(self.notifications.read_refs.values())
             if refs & retained or any(
                 self.outbox.records[ref].delivered_at is None for ref in refs & self.outbox.committed
             ):
+                return
+            try:
+                await self.inbox.forget(agent.agent_id)
+            except ValueError:
                 return
 
             async def remove():
@@ -519,7 +527,6 @@ class LocalAgentRuntime(BaseAgentRuntime):
                 if session is not None:
                     await self.agent_wrapper.release_session(session.session_id)
                 await complete_in_thread(shutil.rmtree, self.agents.directory_for(agent))
-                await self.event_stream.forget(agent.agent_id)
 
             await finish_cleanup(remove())
         self.executions.pop(agent.agent_id, None)

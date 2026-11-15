@@ -71,7 +71,7 @@ reme/
     as_decision_model/       # 可选的决策模型适配器
     agent_wrapper/           # AgentScope / Claude Code / Codex wrapper
     codex_app_server/        # BaseCodexAppServer / SDK 后端 / 共享会话生命周期
-    event_stream/            # BaseEventStream / 本地与 Agent 存储后端
+    agent_inbox/             # BaseAgentInbox / 本地存储与 Agent 事件输入
     agent_runtime/           # BaseAgentRuntime / 本地 Agent 协调
   steps/
     base_step.py             # BaseStep、Ref、dispatch_steps

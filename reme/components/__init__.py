@@ -9,8 +9,8 @@ from . import codex_app_server
 from .codex_app_server import BaseCodexAppServer, SdkCodexAppServer
 from . import as_embedding
 from . import embedding_store
-from . import event_stream
-from .event_stream import BaseEventStream, LocalEventStream, AgentEventStream
+from . import agent_inbox
+from .agent_inbox import BaseAgentInbox, LocalAgentInbox, AgentEventInbox
 from . import file_catalog
 from . import file_graph
 from . import file_chunker
@@ -37,9 +37,9 @@ __all__ = [
     "ComponentRegistry",
     "BaseCodexAppServer",
     "SdkCodexAppServer",
-    "BaseEventStream",
-    "LocalEventStream",
-    "AgentEventStream",
+    "BaseAgentInbox",
+    "LocalAgentInbox",
+    "AgentEventInbox",
     "BaseAgentRuntime",
     "LocalAgentRuntime",
     "R",
@@ -50,7 +50,7 @@ __all__ = [
     "agent_wrapper",
     "agent_runtime",
     "codex_app_server",
-    "event_stream",
+    "agent_inbox",
     "as_llm",
     "as_decision_model",
     "asr",

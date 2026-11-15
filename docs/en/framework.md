@@ -76,7 +76,7 @@ reme/
     as_decision_model/       # optional decision model adapters
     agent_wrapper/           # AgentScope / Claude Code / Codex wrappers
     codex_app_server/        # BaseCodexAppServer / SDK backend / shared session ownership
-    event_stream/            # BaseEventStream / local and Agent storage backends
+    agent_inbox/             # BaseAgentInbox / local storage and Agent event inputs
     agent_runtime/           # BaseAgentRuntime / local Agent coordination
   steps/
     base_step.py             # BaseStep, Ref, dispatch_steps

@@ -22,8 +22,8 @@ async def prepare(runtime, context, priority="P1"):
     result.notifications[0].priority = priority
     await runtime.run("monitor", AsyncMock(return_value=(result, session)))
     await runtime.outbox.sync()
-    runtime.inbox.last_activity_at -= timedelta(seconds=2000)
-    return {"priority": priority, "msg_ids": list(runtime.inbox.pending)}
+    runtime.notifications.last_activity_at -= timedelta(seconds=2000)
+    return {"priority": priority, "msg_ids": list(runtime.notifications.pending)}
 
 
 def append_message(session_id, content, *, message_id, **kwargs):
@@ -43,7 +43,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
     async with running_runtime(tmp_path) as (runtime, context, wrapper):
         arguments = await prepare(runtime, context)
         source = (await runtime.sessions.current("chat")).session_id
-        activity = runtime.inbox.last_activity_at
+        activity = runtime.notifications.last_activity_at
         wrapper.append_session = AsyncMock(side_effect=append_message)
         captured = {}
 
@@ -53,7 +53,7 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
             bound = options["injected_job_kwargs"]
             result = await ReadInboxStep(app_context=context)(priority="P1", **bound)
             assert [item["id"] for item in result.answer["items"]] == arguments["msg_ids"]
-            assert list(runtime.inbox.pending) == arguments["msg_ids"]
+            assert list(runtime.notifications.pending) == arguments["msg_ids"]
             send = SendChatMessageStep(app_context=context)
             first = await send(content=content, **bound)
             second = await SendChatMessageStep(app_context=context)(content=content, **bound)
@@ -67,9 +67,9 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
         assert captured["fork_session"] and captured["ephemeral"] and captured["sandbox"] == "read-only"
         assert captured["job_tools"] == ["read_inbox", "send_chat_msg"]
         assert captured["config"]["web_search"] == "disabled"
-        assert not runtime.inbox.pending
-        assert runtime.inbox.active_turn is None
-        assert runtime.inbox.last_activity_at == activity
+        assert not runtime.notifications.pending
+        assert runtime.notifications.active_turn is None
+        assert runtime.notifications.last_activity_at == activity
         assert (await runtime.sessions.list("chat"))["total"] == 1
         if content.strip():
             wrapper.append_session.assert_awaited_once()
@@ -106,7 +106,7 @@ async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp
         wrapper.reply = AsyncMock(side_effect=reply)
         with pytest.raises(RuntimeError, match="changed"):
             await InboxChatStep(app_context=context)(**arguments)
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]
 
 
 @pytest.mark.parametrize("stage", ["before_read", "after_read", "plain_reply", "append_failure"])
@@ -130,8 +130,8 @@ async def test_failed_or_missing_decisions_preserve_messages_for_retry(tmp_path,
         wrapper.reply = AsyncMock(side_effect=reply)
         with pytest.raises((OSError, RuntimeError)):
             await InboxChatStep(app_context=context)(**arguments)
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
-        assert runtime.inbox.active_turn is None
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]
+        assert runtime.notifications.active_turn is None
         if stage != "append_failure":
             wrapper.append_session.assert_not_awaited()
 
@@ -158,8 +158,69 @@ async def test_fork_allows_foreground_chat_and_rejects_a_rotated_session(tmp_pat
         with pytest.raises(RuntimeError, match="Chat session changed"):
             await InboxChatStep(app_context=context)(**arguments)
         wrapper.append_session.assert_not_awaited()
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
-        assert runtime.inbox.active_turn is None
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]
+
+
+@pytest.mark.asyncio
+async def test_failed_session_read_releases_selected_inbox_claim(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        arguments = await prepare(runtime, context)
+        session = (await runtime.sessions.current("chat")).session_id
+        wrapper.read_session = AsyncMock(side_effect=OSError("native session unavailable"))
+        with pytest.raises(OSError, match="unavailable"):
+            async with runtime.notifications.turn(session, arguments["priority"], arguments["msg_ids"]):
+                raise AssertionError("session selection must fail before inference")
+        snapshot = await runtime.inbox.snapshot("chat")
+        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        assert runtime.notifications.active_turn is None
+
+
+@pytest.mark.parametrize("method", ["read_session", "get_session_status", "session_exists"])
+@pytest.mark.asyncio
+async def test_inbox_timeout_covers_native_session_setup_and_releases_claim(tmp_path, method):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        arguments = await prepare(runtime, context)
+
+        async def unavailable(_session_id):
+            await asyncio.Event().wait()
+
+        setattr(wrapper, method, AsyncMock(side_effect=unavailable))
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(1) as outer:
+                await InboxChatStep(app_context=context, timeout_seconds=0.01)(**arguments)
+        assert not outer.expired()
+        snapshot = await runtime.inbox.snapshot("chat")
+        assert snapshot["pending_count"] == 1 and snapshot["in_flight_count"] == 0
+        assert runtime.notifications.active_turn is None
+
+
+@pytest.mark.asyncio
+async def test_priority_wakeup_can_overtake_older_low_priority_reminders(tmp_path):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        low = await prepare(runtime, context, "P2")
+        await runtime.create({"name": "urgent", "trigger_type": "event", "description": "Urgent observations"})
+        await runtime.append(
+            "urgent",
+            {"id": "urgent", "event_ts": runtime.now(), "source": "test", "description": "Urgent"},
+        )
+        result, session = completed_result(runtime, "urgent")
+        result.notifications[0].priority = "P0"
+        await runtime.run("urgent", AsyncMock(return_value=(result, session)))
+        await runtime.outbox.sync()
+        urgent = [identifier for identifier in runtime.notifications.pending if identifier not in low["msg_ids"]]
+
+        async def reply(_hint, **options):
+            bound = options["injected_job_kwargs"]
+            items = (await ReadInboxStep(app_context=context)(priority="P0", **bound)).answer["items"]
+            assert [item["id"] for item in items] == urgent
+            await SendChatMessageStep(app_context=context)(content="", **bound)
+            return {"status": "completed"}
+
+        wrapper.reply = AsyncMock(side_effect=reply)
+        await InboxChatStep(app_context=context)(priority="P0", msg_ids=urgent)
+        assert list(runtime.notifications.pending) == low["msg_ids"]
+        assert (await runtime.inbox.snapshot("chat"))["pending_count"] == 1
+        assert runtime.notifications.active_turn is None
 
 
 @pytest.mark.asyncio
@@ -182,13 +243,13 @@ async def test_cancelled_fork_releases_scope_and_preserves_uncommitted_messages(
         async def run_job(_name, **kwargs):
             return await InboxChatStep(app_context=context)(**kwargs)
 
-        await runtime.inbox.tick(run_job, "inbox_chat")
+        await runtime.notifications.tick(run_job, "inbox_chat")
         async with asyncio.timeout(1):
             await reading.wait()
-            await runtime.inbox.close()
-        assert released.is_set() and runtime.inbox.worker is None
-        assert runtime.inbox.active_turn is None
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
+            await runtime.notifications.close()
+        assert released.is_set() and runtime.notifications.worker is None
+        assert runtime.notifications.active_turn is None
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]
 
 
 @pytest.mark.parametrize("priority, threshold", [("P0", 0), ("P1", 10), ("P2", 1800)])
@@ -202,9 +263,9 @@ async def test_priority_idle_thresholds_and_busy_chat(tmp_path, priority, thresh
         async with runtime.chat_lock:
             assert (await step(**arguments)).answer == {"skipped": "busy"}
         if threshold:
-            runtime.inbox.last_activity_at = now - timedelta(seconds=threshold - 0.001)
+            runtime.notifications.last_activity_at = now - timedelta(seconds=threshold - 0.001)
             assert (await step(**arguments)).answer == {"skipped": "not_idle"}
-        runtime.inbox.last_activity_at = now - timedelta(seconds=threshold)
+        runtime.notifications.last_activity_at = now - timedelta(seconds=threshold)
 
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
@@ -245,8 +306,8 @@ async def test_tools_cannot_read_other_priorities_or_consume_later_arrivals(tmp_
 
         wrapper.reply = AsyncMock(side_effect=reply)
         await InboxChatStep(app_context=context)(**arguments)
-        assert len(runtime.inbox.pending) == 1
-        assert not set(arguments["msg_ids"]) & runtime.inbox.pending.keys()
+        assert len(runtime.notifications.pending) == 1
+        assert not set(arguments["msg_ids"]) & runtime.notifications.pending.keys()
         wrapper.append_session.assert_not_awaited()
 
 
@@ -272,8 +333,8 @@ async def test_delivery_rechecks_sender_settings_after_the_fork_starts(tmp_path,
         with pytest.raises(RuntimeError, match="no longer eligible"):
             await InboxChatStep(app_context=context)(**arguments)
         wrapper.append_session.assert_not_awaited()
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
-        assert runtime.inbox.active_turn is None
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]
+        assert runtime.notifications.active_turn is None
 
 
 @pytest.mark.asyncio
@@ -299,7 +360,7 @@ async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp
         wrapper.reply = AsyncMock(side_effect=reply)
         wrapper.append_session = AsyncMock(side_effect=append_message)
         task = asyncio.create_task(InboxChatStep(app_context=context)(**arguments))
-        while runtime.inbox.active_turn is None:
+        while runtime.notifications.active_turn is None:
             await asyncio.sleep(0)
         foreground_task = asyncio.create_task(foreground())
         try:
@@ -308,8 +369,8 @@ async def test_cancelling_delivery_waiting_for_foreground_chat_does_not_hang(tmp
                 task.cancel()
                 with pytest.raises(asyncio.CancelledError):
                     await task
-            assert runtime.inbox.active_turn is None
-            assert list(runtime.inbox.pending) == arguments["msg_ids"]
+            assert runtime.notifications.active_turn is None
+            assert list(runtime.notifications.pending) == arguments["msg_ids"]
             wrapper.append_session.assert_not_awaited()
         finally:
             release_lock.set()
@@ -337,7 +398,7 @@ async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_
         async def reply(_hint, **options):
             bound = options["injected_job_kwargs"]
             await ReadInboxStep(app_context=context)(priority="P1", **bound)
-            ref = next(iter(runtime.inbox.pending.values()))
+            ref = next(iter(runtime.notifications.pending.values()))
             path = runtime.files.path(ref.file)
             runtime.files.write(path, runtime.files.read(path).replace("Experiment finished", "Experiment cancelled"))
             await SendChatMessageStep(app_context=context)(content=content, **bound)
@@ -346,4 +407,4 @@ async def test_fork_rechecks_original_reminders_before_sending_or_consuming(tmp_
         with pytest.raises(RuntimeError, match="reminders changed"):
             await InboxChatStep(app_context=context)(**arguments)
         wrapper.append_session.assert_not_awaited()
-        assert list(runtime.inbox.pending) == arguments["msg_ids"]
+        assert list(runtime.notifications.pending) == arguments["msg_ids"]

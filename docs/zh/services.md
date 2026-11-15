@@ -63,10 +63,10 @@ curl -N http://127.0.0.1:2333/chat \
 
 ## Agent 运行时
 
-`agent_runtime` 组件管理会话、事件流、收件箱和调度；`reme/steps/proactive/agent/` 下的 `ChatAgentStep` 与
+`agent_runtime` 组件协调会话、统一 Inbox、输出和调度；`reme/steps/proactive/agent/` 下的 `ChatAgentStep` 与
 `ProactiveAgentStep` 分别定义两种 Agent 行为。组件配置使用 `components.agent_runtime.default`，
 工作区相对配置 `reme_agent_dir` 默认是 `reme_agents`。每个 Agent 拥有 `config.json`、`MEMORY.md` 和
-`sessions.jsonl`；事件与定时 Agent 另有 `events/` 和 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`，临时 Agent 位于
+`sessions.jsonl` 和 `inbox/`；事件与定时 Agent 另有 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md`，临时 Agent 位于
 `reme_agents/tmp/<agent_id>/`。不再维护全局定义索引或检查点文件，启动时从源文件恢复内存。
 会话登记保留追加中断前的完整记录；读取时忽略不完整尾行，下次追加时清理尾行，完整记录损坏时明确报错。
 先保存校验通过的提醒，再提交事件消费回执，Outbox 独立重试投递；未提交就中断的轮次允许重新执行。
@@ -128,20 +128,25 @@ Chat 和 cron Agent 开启原生 `web_search`、`web_extract` 和命令网络访
 临时 `query` fork 继续保持只读、离线。`notify_window={start,end}` 限制自动唤醒时段，
 时段外仍可分析并保存消息。`temporary=true` 与触发类型独立，连续七天没有新接收输入后允许清理；
 cron 触发也算输入，重复事件和重试不续期。有执行、待处理事件、未投递消息或保留的 Inbox 引用时暂缓删除，
-日记和原始资源保持不变。重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
+日记和原始资源保持不变。消费回执保存累计的最新输入接收时间，优先处理和重启不会使临时 Agent 提前过期。
+重启后从下一次未来时间恢复 cron，已入队事件继续处理，不补跑停机期间未入队的触发；
 Chat 空闲计时和失败重试计时在内存中重新开始。
 日记 `daily/YYYY-MM-DD/<agent_id>.md` 保存累计交接，`<agent_id>_HHMMSS.md` 保存本轮明细，
 Agent 自己的 `reminder/YYYY-MM-DD/<agent_id>_HHMMSS.md` 以 Markdown 正文保存唯一的提醒内容，以 frontmatter 保存投递和已读时间，
 由框架维护；同秒日记明细重名增加数字后缀。
 
-只有 `chat` 接收消息。它的 `inbox_unread.jsonl` 和 `inbox_read.jsonl` 只保存 `{file,id}` 引用，
-已读视图保留最近 1000 条；正文和状态时间保存在原始提醒中。共用一个生命周期内的文件监听器并定期补扫，
-恢复修改和中断交接，丢失的视图从提醒重建。旧的日级提醒 JSONL 需要先迁移到 Markdown frontmatter，
-已有 Markdown 提醒需要删除停用的 `woken_at` frontmatter 字段。单个提醒缺失或损坏时保留原文件和事件回执、
+`components.agent_inbox.default` 使用 `event` 后端（`AgentEventInbox`），继承通用的本地 Inbox 实现；
+`components.agent_runtime.default.inbox` 引用该组件。每个 Agent 的待处理输入保存在
+`inbox/inbox_unread.jsonl`，已处理批次保存在 `inbox/inbox_read.jsonl`，批次字段为 `items`、`consume_ts`、`metadata`。
+领取可以指定消息 ID，领取本身不消费输入，执行成功后才提交消费回执。事件 Agent 接收观察与定时触发；
+Chat 仅接收 `{file,id}` 提醒引用，已处理引用默认保留最近 1000 条。提醒 Markdown 仍是正文和确认状态的来源，
+Chat 引用视图可重建；外部确认消息应修改提醒的 frontmatter。共用文件监听器与定期补扫协调源文件修改和中断交接。
+
+单个提醒缺失或损坏时保留原文件和事件回执、
 报告具体路径并隔离故障，不阻断其他提醒或应用启动；修复原文件后自动恢复。
 
-P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.agent_runtime.default.inbox.p0_delay_seconds` 配置，默认 0。
-P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `inbox.p1_idle_seconds`、`inbox.p2_idle_seconds` 配置，
+P0 在 Chat 会话允许 fork 时立即处理，延迟由 `components.agent_runtime.default.notifications.p0_delay_seconds` 配置，默认 0。
+P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `notifications.p1_idle_seconds`、`notifications.p2_idle_seconds` 配置，
 继续遵守提醒时间窗口。只有前台 Chat 轮次重置空闲计时。
 临时 fork 继承当前对话，只读、离线运行，执行结束、失败或取消后清理；hint 和工具过程留在 fork 中。
 

@@ -15,12 +15,12 @@ if TYPE_CHECKING:
     import asyncio
 
     from ._internal.files import AgentFiles
-    from ._internal.inbox import AgentInbox
+    from ._internal.notifications import ChatNotifications
     from ._internal.outbox import AgentOutbox
     from ._internal.registry import AgentRegistry
     from ._internal.sessions import AgentSessions
     from ..agent_wrapper import BaseAgentWrapper
-    from ..event_stream import BaseEventStream
+    from ..agent_inbox import BaseAgentInbox
     from ...schema.proactive_agent import ProactiveAgent
     from ...schema.agent_activity import AgentActivity
 
@@ -30,11 +30,11 @@ class BaseAgentRuntime(BaseComponent):
 
     component_type = ComponentEnum.AGENT_RUNTIME
     agent_wrapper: BaseAgentWrapper
-    event_stream: BaseEventStream
     files: AgentFiles
     agents: AgentRegistry
     sessions: AgentSessions
-    inbox: AgentInbox
+    inbox: BaseAgentInbox
+    notifications: ChatNotifications
     outbox: AgentOutbox
     chat_lock: asyncio.Lock
     chat_tasks: set[asyncio.Task]
@@ -73,10 +73,6 @@ class BaseAgentRuntime(BaseComponent):
     @abstractmethod
     async def append(self, agent_id: str, events) -> dict:
         """Persist new task inputs before scheduling work."""
-
-    @abstractmethod
-    async def snapshot(self, agent_id: str) -> dict:
-        """Read retained execution facts without invoking a model."""
 
     @abstractmethod
     async def status(self, agent_id: str) -> dict:

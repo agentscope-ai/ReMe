@@ -21,8 +21,12 @@ class InboxChatStep(BaseChatAgentStep):
     async def execute(self):
         request = InboxWakeRequest.model_validate(self.parameters())
         self.require_paths(self.workspace_path)
+        async with asyncio.timeout(self.timeout_seconds):
+            return await self._execute(request)
+
+    async def _execute(self, request: InboxWakeRequest):
         runtime = self.agent_runtime
-        if not any(identifier in runtime.inbox.pending for identifier in request.msg_ids):
+        if not any(identifier in runtime.notifications.pending for identifier in request.msg_ids):
             self.context.response.answer = {"skipped": "already_read"}
             return self.context.response
         if runtime.chat_lock.locked():
@@ -31,9 +35,9 @@ class InboxChatStep(BaseChatAgentStep):
         async with runtime.chat_lock:
             if runtime.closed:
                 raise RuntimeError("Agent runtime is closed")
-            idle = max(0, (runtime.now() - runtime.inbox.last_activity_at).total_seconds())
+            idle = max(0, (runtime.now() - runtime.notifications.last_activity_at).total_seconds())
             if request.priority != "P0" and idle < getattr(
-                runtime.inbox.config,
+                runtime.notifications.config,
                 f"{request.priority.lower()}_idle_seconds",
             ):
                 self.context.response.answer = {"skipped": "not_idle"}
@@ -44,10 +48,7 @@ class InboxChatStep(BaseChatAgentStep):
             if status.status not in {"idle", "not_loaded"}:
                 self.context.response.answer = {"skipped": "busy"}
                 return self.context.response
-        async with (
-            runtime.inbox.turn(session_id, request.priority, request.msg_ids) as turn,
-            asyncio.timeout(self.timeout_seconds),
-        ):
+        async with runtime.notifications.turn(session_id, request.priority, request.msg_ids) as turn:
             reply = await runtime.agent_wrapper.reply(
                 self.prompt_format("hint", priority=request.priority, urgent=request.priority == "P0"),
                 **{

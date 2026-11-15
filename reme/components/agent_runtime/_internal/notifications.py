@@ -1,4 +1,4 @@
-"""Chat Agent inbox views containing only canonical reminder references."""
+"""Chat reminder scheduling and disposable-fork decisions over the shared Inbox component."""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -7,9 +7,9 @@ from datetime import timedelta
 from hashlib import sha256
 from uuid import uuid4
 
-from ....schema.agent_runtime import InboxConfig, ReminderRef
+from ....schema.agent_runtime import NotificationConfig
 from ....schema.agent_session import SessionMessage
-from ....utils.async_utils import complete_in_thread, finish_cleanup
+from ....utils.async_utils import finish_cleanup
 
 
 @dataclass
@@ -35,17 +35,14 @@ class InboxTurn:
         return "reminder-" + sha256(value.encode()).hexdigest()
 
 
-class AgentInbox:
-    """Keep unread references bounded and all message state in the sender's reminder."""
+class ChatNotifications:
+    """Coordinate Chat wakeups while reminder files retain canonical content and acknowledgements."""
 
-    def __init__(self, runtime, config: InboxConfig, max_pending=1000):
+    def __init__(self, runtime, config: NotificationConfig):
         self.runtime = runtime
         self.config = config
-        self.max_pending = max_pending
         self.lock = asyncio.Lock()
-        self.pending: dict[str, ReminderRef] = {}
-        self.read_refs: dict[str, ReminderRef] = {}
-        self.last_activity_at = runtime.now()
+        self.last_activity_at = self.runtime.now()
         self.worker = None
         self.retry_at = None
         self.active_turn: InboxTurn | None = None
@@ -56,15 +53,32 @@ class AgentInbox:
         self.last_started_at = None
         self.last_completed_at = None
 
-    def directory(self, agent_id="chat"):
-        """Only chat receives notifications in the current messaging contract."""
-        if agent_id != "chat":
-            raise ValueError("only the Chat Agent has an inbox")
-        return self.runtime.agents.path("chat")
+    def reset(self):
+        """Restart idle and retry timers after owned work has stopped."""
+        self.last_activity_at = self.runtime.now()
+        self.retry_at = self.error = None
+        self.failures = 0
+        self.blocked = False
 
-    def path(self, read=False):
-        """The files are rebuildable reference lists, not duplicate messages."""
-        return self.directory() / ("inbox_read.jsonl" if read else "inbox_unread.jsonl")
+    @property
+    def pending(self):
+        """Project delivered, unprocessed canonical reminders without duplicating queue state."""
+        outbox = self.runtime.outbox
+        return {
+            ref.id: ref
+            for ref in outbox.committed
+            if outbox.records[ref].delivered_at is not None and outbox.records[ref].read_at is None
+        }
+
+    @property
+    def read_refs(self):
+        """Keep the same bounded reference horizon as the inbox component."""
+        outbox = self.runtime.outbox
+        refs = sorted(
+            (ref for ref in outbox.committed if outbox.records[ref].read_at is not None),
+            key=lambda ref: (outbox.records[ref].read_at, ref.id),
+        )[-self.runtime.inbox.max_read_items :]
+        return {ref.id: ref for ref in refs}
 
     def activity(self):
         """Restart idle timing after every foreground or internally requested Chat turn."""
@@ -73,73 +87,6 @@ class AgentInbox:
     def foreground(self):
         """Invalidate an older reminder decision as soon as a user turn is queued."""
         self.chat_revision += 1
-
-    def _refs(self, read):
-        try:
-            return {
-                ReminderRef.model_validate(value)
-                for value in self.runtime.files.iter_jsonl(self.path(read), incomplete_ok=True)
-            }
-        except ValueError as exc:
-            self.runtime.logger.warning(f"Rebuilding invalid inbox view {self.path(read)}: {exc}")
-            return set()
-
-    async def _write_indexes(self):
-        outbox = self.runtime.outbox
-        unread, read = {}, {}
-        for ref in outbox.committed:
-            item = outbox.records[ref]
-            target = read if item.read_at is not None else unread
-            if item.delivered_at is not None or item.read_at is not None:
-                if ref.id in target and target[ref.id] != ref:
-                    raise ValueError(f"duplicate reminder ID: {ref.id}")
-                target[ref.id] = ref
-        if len(unread) > self.max_pending:
-            raise ValueError("inbox exceeds its unread capacity")
-        retained = sorted(read.values(), key=lambda ref: (outbox.records[ref].read_at, ref.id))[-1000:]
-        await complete_in_thread(
-            self.runtime.files.write_jsonl,
-            self.path(True),
-            [ref.model_dump() for ref in retained],
-        )
-        await complete_in_thread(
-            self.runtime.files.write_jsonl,
-            self.path(),
-            [ref.model_dump() for ref in sorted(unread.values(), key=lambda ref: ref.id)],
-        )
-        self.pending, self.read_refs = unread, {ref.id: ref for ref in retained}
-
-    async def reconcile(self):
-        """Treat external read references as requests, then rebuild views from canonical receipts."""
-        async with self.lock:
-            read, unread = await asyncio.to_thread(lambda: (self._refs(True), self._refs(False)))
-            outbox = self.runtime.outbox
-            # Views are disposable. Missing/corrupt source records are reported by the
-            # outbox and must not prevent unrelated messages from being processed.
-            read &= outbox.committed
-            unread &= outbox.committed
-            for ref in unread:
-                await outbox.update(ref, delivered_at=self.runtime.now())
-            for ref in read:
-                await outbox.update(ref, delivered_at=self.runtime.now(), read_at=self.runtime.now())
-            await self._write_indexes()
-
-    async def deliver(self, ref):
-        """Persist the reference before acknowledging delivery to its sender."""
-        async with self.lock:
-            item = self.runtime.outbox.records[ref]
-            if item.read_at is not None:
-                return
-            previous = self.pending.get(ref.id) or self.read_refs.get(ref.id)
-            if previous is not None and previous != ref:
-                raise ValueError(f"duplicate reminder ID: {ref.id}")
-            if previous is None:
-                if len(self.pending) >= self.max_pending:
-                    raise TimeoutError("inbox is full; mark processed messages read first")
-                await complete_in_thread(self.runtime.files.append_jsonl, self.path(), ref.model_dump())
-            await self.runtime.outbox.update(ref, delivered_at=self.runtime.now())
-            self.pending[ref.id] = ref
-            self.runtime.changed.set()
 
     async def read(self, msg_ids=None):
         """Expand pending references without duplicating canonical message state."""
@@ -169,7 +116,7 @@ class AgentInbox:
             async def save():
                 for identifier in identifiers:
                     await self.runtime.outbox.update(refs[identifier], read_at=self.runtime.now())
-                await self._write_indexes()
+                await self.runtime.outbox.reconcile()
 
             await finish_cleanup(save())
 
@@ -179,21 +126,35 @@ class AgentInbox:
         if self.active_turn is not None:
             raise RuntimeError("an inbox fork is already running")
         async with self.lock:
+            pending = self.pending
             selected = tuple(
                 identifier
                 for identifier in dict.fromkeys(msg_ids)
-                if identifier in self.pending
-                and self.runtime.outbox.records[self.pending[identifier]].priority == priority
+                if identifier in pending and self.runtime.outbox.records[pending[identifier]].priority == priority
             )
         if not selected:
             raise ValueError("no pending messages at the selected priority")
-        revision = (await self.runtime.agent_wrapper.read_session(session_id)).revision
-        turn = InboxTurn(session_id, priority, selected, chat_revision=self.chat_revision, session_revision=revision)
-        self.active_turn = turn
+        batch = await self.runtime.inbox.claim("chat", item_ids=list(selected))
+        if batch is None:
+            raise RuntimeError("Chat inbox is already being processed")
         try:
+            selected = tuple(item["id"] for item in batch["items"])
+            revision = (await self.runtime.agent_wrapper.read_session(session_id)).revision
+            turn = InboxTurn(
+                session_id,
+                priority,
+                selected,
+                chat_revision=self.chat_revision,
+                session_revision=revision,
+            )
+            self.active_turn = turn
             yield turn
         finally:
             self.active_turn = None
+            try:
+                await finish_cleanup(self.runtime.inbox.nack("chat", batch["token"]))
+            except ValueError:
+                pass
 
     def current_turn(self, identifier):
         """Reject foreground calls and capabilities left over from a finished fork."""

@@ -1084,13 +1084,13 @@ components:
     proactive:
       backend: local
 
-  # Enable when jobs use event streams; each directory allows one writer.
-#  event_stream:
+  # Enable when jobs use Agent inboxes; each directory allows one writer.
+#  agent_inbox:
 #    default:
 #      backend: local
-#      directory: event_stream
-#      # events_unread.jsonl stores pending inputs; events_read.jsonl stores consumed batches.
-#      max_read_events: 1000  # Unread inputs are never evicted; trim oldest consumed batches.
+#      directory: agent_inbox
+#      # inbox_unread.jsonl stores pending inputs; inbox_read.jsonl stores consumed batches.
+#      max_read_items: 1000  # Unread inputs are never evicted; trim oldest consumed batches.
 
   file_chunker:
     markdown:

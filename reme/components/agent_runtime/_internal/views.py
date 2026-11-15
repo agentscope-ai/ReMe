@@ -17,7 +17,7 @@ class AgentViews:
         """Read identity, native activity and original file references."""
         runtime = self.runtime
         if agent_id == "chat":
-            inbox = runtime.inbox
+            inbox = runtime.notifications
             config, facts, kind = (
                 {},
                 {

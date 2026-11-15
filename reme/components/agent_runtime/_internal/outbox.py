@@ -28,8 +28,6 @@ class AgentOutbox:
         records, owners, cache, issues = {}, {}, {}, {}
         for agent in self.runtime.agents.load(include_deleted=True).values():
             directory = self.runtime.agents.directory_for(agent) / "reminder"
-            if any(directory.glob("*.jsonl")):
-                raise ValueError("daily reminder JSONL logs require migration to Markdown frontmatter")
             for path in sorted(directory.glob("*/*.md")):
                 try:
                     if date.fromisoformat(path.parent.name).isoformat() != path.parent.name:
@@ -80,7 +78,7 @@ class AgentOutbox:
 
     async def refresh(self):
         """Refresh canonical records without publishing or consuming messages."""
-        receipts = await self.runtime.event_stream.receipts()
+        receipts = await self.runtime.inbox.receipts()
         async with self.lock:
             records, owners, cache, issues = await asyncio.to_thread(self._scan)
             committed = self._committed_references(records, receipts, issues)
@@ -94,7 +92,7 @@ class AgentOutbox:
 
     async def _sync(self):
         receipts = await self.refresh()
-        await self.runtime.inbox.reconcile()
+        await self.reconcile()
         try:
             if not self.runtime.closed:
                 await self.publish()
@@ -107,9 +105,20 @@ class AgentOutbox:
                         and self.records[ReminderRef.model_validate(ref)].delivered_at is not None
                         for ref in receipt.metadata.get("reminders", [])
                     )
-                    (released if handed_off else retained).extend(receipt.event_ids)
-                await self.runtime.event_stream.retain(name, retained)
-                await self.runtime.event_stream.retain(name, released, release=True)
+                    (released if handed_off else retained).extend(receipt.item_ids)
+                await self.runtime.inbox.retain(name, retained)
+                await self.runtime.inbox.retain(name, released, release=True)
+
+    async def reconcile(self):
+        """Rebuild Chat reference views from canonical reminder acknowledgements."""
+        pending, processed = [], []
+        for ref in sorted(self.committed, key=lambda ref: ref.id):
+            item = self.records[ref]
+            if item.read_at is not None:
+                processed.append({"item": ref.model_dump(), "consume_ts": item.read_at.isoformat()})
+            elif item.delivered_at is not None:
+                pending.append(ref.model_dump())
+        await self.runtime.inbox.reconcile("chat", pending, processed)
 
     async def save(self, agent, run_id, result, now):
         """Save validated model output before its event consumption receipt is committed."""
@@ -156,7 +165,9 @@ class AgentOutbox:
             item = self.records[ref]
             agent = agents.get(self.owners[ref])
             if item.delivered_at is None and agent is not None and agent.enabled:
-                await self.runtime.inbox.deliver(ref)
+                await self.runtime.inbox.append("chat", ref)
+                await self.update(ref, delivered_at=self.runtime.now())
+                self.runtime.changed.set()
 
     def references(self, agent_id):
         """Find retained records owned by an identity without storing duplicate sender fields."""

@@ -15,7 +15,7 @@ import pytest
 from reme.components import ApplicationContext, LocalAgentRuntime, R, RuntimeContext
 from reme.components.agent_runtime._internal.files import AgentFiles
 from reme.components.agent_wrapper import BaseAgentWrapper
-from reme.components.event_stream import AgentEventStream
+from reme.components.agent_inbox import AgentEventInbox
 from reme.components.job import BaseJob
 from reme.config import resolve_app_config
 from reme.enumeration import ComponentEnum
@@ -56,24 +56,24 @@ def mock_http(monkeypatch):
 @asynccontextmanager
 async def collector_runtime(tmp_path):
     context = ApplicationContext(workspace_dir=str(tmp_path), reme_agent_dir="reme_agents", language="zh")
-    stream = AgentEventStream(app_context=context)
+    inbox = AgentEventInbox(app_context=context)
     runtime = LocalAgentRuntime(
         app_context=context,
         agents=[{"name": "finance", "trigger_type": "event", "description": "偏好 AI 相关的财经新闻"}],
     )
     context.components = {
-        "event_stream": {"default": stream},
+        "agent_inbox": {"default": inbox},
         "agent_wrapper": {"default": Mock(spec=BaseAgentWrapper)},
         "agent_runtime": {"default": runtime},
     }
     job = BaseJob(app_context=context, steps=[{"backend": "append_event_step"}])
     append = AsyncMock(side_effect=job.__call__)
     context.jobs["append_event"] = append
-    async with stream, runtime, job:
+    async with inbox, runtime, job:
         runtime.watcher.cancel()
         await asyncio.gather(runtime.watcher, return_exceptions=True)
         runtime.watcher = None
-        yield context, stream, append
+        yield context, inbox, append
 
 
 def news_row(identifier, when, content="<b>AI news</b><script>untrusted()</script> full text"):
@@ -113,10 +113,10 @@ def btc_statistics(clock):
 @pytest.mark.asyncio
 async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart(tmp_path, clock, mock_http):
     requests = mock_http(lambda _: news_response(news_batch(clock)))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         response = await FinanceNewsStep(app_context=context, request_interval=0)()
         assert response.success
-        event = (await stream.claim("finance"))["events"][0]
+        event = (await inbox.claim("finance"))["items"][0]
         assert event["source"] == "finance_news"
         assert append.await_args.kwargs["agent_id"] == "finance"
         assert append.await_args.kwargs["events"][0]["id"] == event["id"]
@@ -125,10 +125,10 @@ async def test_news_uses_existing_job_and_source_files_deduplicate_after_restart
         assert item.news_id == "2" and item.content == "AI news full text"
         assert item.url == "https://www.cls.cn/detail/2"
         assert (tmp_path / manifest).parent.joinpath("delivery-finance.json").is_file()
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         response = await FinanceNewsStep(app_context=context, request_interval=0)()
         assert response.answer == {"skipped": "no_new_data"}
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
         append.assert_not_awaited()
     assert len(requests) == 2
     assert len(list(tmp_path.glob("resource/finance_news/*/*/news.jsonl"))) == 1
@@ -142,9 +142,9 @@ async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping
         [news_row(2, now - timedelta(hours=2)), news_row(1, now - timedelta(hours=25))],
     ]
     requests = mock_http(lambda _: news_response(pages.pop(0)))
-    async with collector_runtime(tmp_path) as (context, stream, _):
+    async with collector_runtime(tmp_path) as (context, inbox, _):
         await FinanceNewsStep(app_context=context, request_interval=0)()
-        event = (await stream.claim("finance"))["events"][0]
+        event = (await inbox.claim("finance"))["items"][0]
         items = [
             FinanceNewsItem.model_validate_json(line)
             for line in (tmp_path / event["paths"][1]).read_text().splitlines()
@@ -158,10 +158,10 @@ async def test_news_paginates_until_window_boundary_and_deduplicates_overlapping
 @pytest.mark.asyncio
 async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_http):
     mock_http(lambda _: news_response(news_batch(clock)[1:]))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await FinanceNewsStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
     assert not (tmp_path / "resource").exists()
     assert not list(tmp_path.glob(".reme-resource-*"))
 
@@ -169,18 +169,18 @@ async def test_no_new_news_creates_no_package_or_event(tmp_path, clock, mock_htt
 @pytest.mark.asyncio
 async def test_failed_delivery_retries_original_package_before_collecting_again(tmp_path, clock, mock_http):
     mock_http(lambda _: news_response(news_batch(clock)))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         append.return_value = Response(success=False, answer="queue full")
         append.side_effect = lambda **_: append.return_value
         with pytest.raises(RuntimeError, match="queue full"):
             await FinanceNewsStep(app_context=context)()
         original = append.await_args.kwargs["events"][0]
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
         assert not list(tmp_path.glob("resource/**/delivery-finance.json"))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await FinanceNewsStep(app_context=context)()
         assert append.await_args.kwargs["events"] == [original]
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
 
@@ -199,26 +199,26 @@ async def test_successful_append_without_delivery_receipt_is_idempotent_after_re
             raise OSError("receipt unavailable")
         return write(files, path, value)
 
-    async with collector_runtime(tmp_path) as (context, stream, _):
+    async with collector_runtime(tmp_path) as (context, inbox, _):
         with monkeypatch.context() as patch:
             patch.setattr(AgentFiles, "write_json", fail_receipt)
             with pytest.raises(OSError, match="receipt unavailable"):
                 await FinanceNewsStep(app_context=context)()
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
-    async with collector_runtime(tmp_path) as (context, stream, append):
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await FinanceNewsStep(app_context=context)()
         append.assert_awaited_once()
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(list(tmp_path.glob("resource/**/metadata.json"))) == 1
 
 
 @pytest.mark.asyncio
 async def test_concurrent_collectors_do_not_duplicate_news(tmp_path, clock, mock_http):
     mock_http(lambda _: news_response(news_batch(clock)))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await asyncio.gather(*(FinanceNewsStep(app_context=context)() for _ in range(2)))
         append.assert_awaited_once()
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
 
 
 @pytest.mark.parametrize("kind", ["api_error", "missing_rows", "invalid_record", "stalled", "oversized"])
@@ -230,12 +230,12 @@ async def test_bad_news_response_never_publishes_partial_data(tmp_path, clock, m
     if kind == "stalled":
         data["data"]["roll_data"] = [news_row(2, clock.now.return_value)]
     mock_http(lambda _: httpx.Response(200, json=data))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         options = {"max_file_bytes": 1} if kind == "oversized" else {}
         with pytest.raises((ValueError, KeyError)):
             await FinanceNewsStep(app_context=context, **options)()
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -244,9 +244,9 @@ async def test_http_errors_retry_before_publishing(tmp_path, clock, mock_http, m
     responses = [httpx.Response(503), news_response(news_batch(clock))]
     requests = mock_http(lambda _: responses.pop(0))
     monkeypatch.setattr(FinanceNewsStep, "wait", lambda *_: None)
-    async with collector_runtime(tmp_path) as (context, stream, _):
+    async with collector_runtime(tmp_path) as (context, inbox, _):
         await FinanceNewsStep(app_context=context)()
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(requests) == 2
 
 
@@ -269,14 +269,14 @@ async def test_cancellation_interrupts_pagination_without_publishing(tmp_path, c
         return news_response(news_batch(clock)[:1])
 
     mock_http(page)
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         task = asyncio.create_task(FinanceNewsStep(app_context=context, request_interval=30)())
         assert await asyncio.to_thread(requested.wait, 2)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, 2)
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
     assert not list(tmp_path.glob(".reme-resource-*"))
 
@@ -309,10 +309,10 @@ def test_market_calendars_cover_holidays_breaks_dst_and_closing_catchup(market, 
 async def test_quote_snapshots_batch_active_market_and_deduplicate_the_same_minute(tmp_path, clock, mock_http):
     pytest.importorskip("exchange_calendars")
     requests = mock_http(tencent_response)
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await StockQuotesStep(app_context=context)()
-        batch = await stream.claim("finance")
-        event = batch["events"][0]
+        batch = await inbox.claim("finance")
+        event = batch["items"][0]
         quotes = [
             StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
         ]
@@ -322,7 +322,7 @@ async def test_quote_snapshots_batch_active_market_and_deduplicate_the_same_minu
         assert (await StockQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         clock.now.return_value += timedelta(minutes=1)
         await StockQuotesStep(app_context=context)()
-        assert (await stream.snapshot("finance"))["pending_count"] == 2
+        assert (await inbox.snapshot("finance"))["pending_count"] == 2
         assert append.await_count == 2
     assert len(requests) == 2
     assert requests[0].url.params["q"] == "hk01810,hk09988,hk00700"
@@ -338,9 +338,9 @@ async def test_quote_freshness_uses_receipt_time_when_prices_update_during_reque
         return tencent_response(request, quoted="2026/11/16 10:00:01")
 
     mock_http(respond)
-    async with collector_runtime(tmp_path) as (context, stream, _):
+    async with collector_runtime(tmp_path) as (context, inbox, _):
         await StockQuotesStep(app_context=context)()
-        event = (await stream.claim("finance"))["events"][0]
+        event = (await inbox.claim("finance"))["items"][0]
         quotes = [
             StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
         ]
@@ -353,9 +353,9 @@ async def test_us_quotes_use_new_york_date_even_on_beijing_saturday(tmp_path, cl
     pytest.importorskip("exchange_calendars")
     clock.now.return_value = datetime(2026, 11, 14, 2, 0, tzinfo=_SHANGHAI)
     requests = mock_http(lambda request: tencent_response(request, quoted="2026-11-13 12:45:00"))
-    async with collector_runtime(tmp_path) as (context, stream, _):
+    async with collector_runtime(tmp_path) as (context, inbox, _):
         await StockQuotesStep(app_context=context)()
-        event = (await stream.claim("finance"))["events"][0]
+        event = (await inbox.claim("finance"))["items"][0]
         quotes = [
             StockQuote.model_validate_json(line) for line in (tmp_path / event["paths"][1]).read_text().splitlines()
         ]
@@ -396,11 +396,11 @@ async def test_bad_quotes_fail_without_publishing_a_partial_snapshot(tmp_path, m
         return response
 
     mock_http(respond)
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         with pytest.raises(ValueError):
             await StockQuotesStep(app_context=context)()
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 
@@ -419,9 +419,9 @@ async def test_previous_trading_day_quotes_are_not_published_as_today(tmp_path, 
 async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp_path, clock, mock_http):
     clock.now.return_value = datetime(2026, 11, 15, 10, 0, tzinfo=_SHANGHAI)
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
-        event = (await stream.claim("finance"))["events"][0]
+        event = (await inbox.claim("finance"))["items"][0]
         assert event["source"] == "btc_quotes"
         quote = CryptoQuote.model_validate_json((tmp_path / event["paths"][1]).read_text())
         assert quote.symbol == "BTCUSDT" and quote.currency == "USDT"
@@ -432,7 +432,7 @@ async def test_btc_collects_on_weekends_and_deduplicates_the_observed_minute(tmp
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         clock.now.return_value += timedelta(minutes=1)
         await BtcQuotesStep(app_context=context)()
-        assert (await stream.snapshot("finance"))["pending_count"] == 2
+        assert (await inbox.snapshot("finance"))["pending_count"] == 2
         assert append.await_count == 2
     assert len(requests) == 2
     assert requests[0].url.host == "data-api.binance.vision"
@@ -445,10 +445,10 @@ async def test_btc_same_minute_deduplication_survives_restart(tmp_path, clock, m
     requests = mock_http(lambda _: httpx.Response(200, json=btc_statistics(clock)))
     async with collector_runtime(tmp_path) as (context, _, _):
         await BtcQuotesStep(app_context=context)()
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         assert (await BtcQuotesStep(app_context=context)()).answer == {"skipped": "no_new_data"}
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(requests) == 1
 
 
@@ -461,10 +461,10 @@ async def test_btc_failed_delivery_reuses_the_saved_batch_after_restart(tmp_path
         with pytest.raises(RuntimeError, match="queue full"):
             await BtcQuotesStep(app_context=context)()
         original = append.await_args.kwargs["events"]
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         await BtcQuotesStep(app_context=context)()
         assert append.await_args.kwargs["events"] == original
-        assert (await stream.snapshot("finance"))["pending_count"] == 1
+        assert (await inbox.snapshot("finance"))["pending_count"] == 1
     assert len(requests) == 1
     assert len(list(tmp_path.glob("resource/btc_quotes/*/*/btc.jsonl"))) == 1
 
@@ -484,11 +484,11 @@ async def test_invalid_btc_statistics_produce_no_files_or_events(tmp_path, clock
     else:
         payload = {"code": -1121, "msg": "Invalid symbol"}
     mock_http(lambda _: httpx.Response(200, json=payload))
-    async with collector_runtime(tmp_path) as (context, stream, append):
+    async with collector_runtime(tmp_path) as (context, inbox, append):
         with pytest.raises(ValueError):
             await BtcQuotesStep(app_context=context)()
         append.assert_not_awaited()
-        assert (await stream.snapshot("finance"))["pending_count"] == 0
+        assert (await inbox.snapshot("finance"))["pending_count"] == 0
     assert not list(tmp_path.glob("resource/**/metadata.json"))
 
 

@@ -624,14 +624,14 @@ components:
       audio_format: mp3
       sample_rate: 22050
       timeout: 60
-  event_stream:
+  agent_inbox:
     default:
-      backend: agent
+      backend: event
   agent_runtime:
     default:
       backend: local
       agent_wrapper: default
-      event_stream: default
+      inbox: default
       chat:
         description: |
           主人关注 AI 相关的大新闻，以及当前项目的进度、进展、难点和待讨论问题。
@@ -651,7 +651,7 @@ components:
           description: |
             关注主人现在正在做哪些项目，逐个跟踪项目的进度、新进展和难点，梳理需要进一步讨论的问题。
             根据收到的资料持续更新项目情况，区分已确认的信息和待确认的问题。
-      inbox:
+      notifications:
         p0_delay_seconds: 0
         p1_idle_seconds: 10
         p2_idle_seconds: 1800
