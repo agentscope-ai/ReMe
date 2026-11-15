@@ -157,6 +157,33 @@ async def test_new_live_session_exists_with_uppercase_id_before_first_save(wrapp
 
 
 @pytest.mark.asyncio
+async def test_revision_rejects_stale_observations_after_user_injection(wrapper):
+    """A content guard observes injected user messages independently of model turns."""
+    session_id = await wrapper.create_session()
+    before = await wrapper.read_session(session_id)
+    await wrapper.append_session(session_id, "Stop reminders", message_id="stop", role="user")
+    after = await wrapper.read_session(session_id)
+    assert after.last_turn_id == before.last_turn_id and after.revision != before.revision
+    with pytest.raises(RuntimeError, match="Session changed"):
+        await wrapper.append_session(session_id, "Old reminder", message_id="old", expected_revision=before.revision)
+    await wrapper.append_session(session_id, "Current reminder", message_id="current", expected_revision=after.revision)
+    await wrapper.append_session(session_id, "Stop reminders", message_id="stop", role="user", expected_revision="old")
+    assert len((await wrapper.read_session(session_id)).messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_final_display_blocks_replace_stream_deltas(wrapper):
+    """History retains the final answer without accumulating its raw token events."""
+    session_id = await wrapper.create_session()
+    result = await wrapper.reply("question", resume=session_id)
+    message = (await wrapper.read_session(session_id)).messages[-1]
+    assert message.content == result["result"] and message.completed
+    content = [chunk for chunk in message.chunks if chunk.chunk_type == "content"]
+    assert content and all(chunk.event == "end" for chunk in content)
+    assert len({chunk.block_id for chunk in content}) == len(content)
+
+
+@pytest.mark.asyncio
 async def test_turn_guard_and_accepted_retry_have_distinct_semantics(wrapper):
     """Stale new deliveries fail while retries recover previously accepted messages."""
     session_id = await wrapper.create_session()

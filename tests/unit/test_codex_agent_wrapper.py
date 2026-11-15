@@ -1744,11 +1744,18 @@ async def test_reply_activity_reaches_the_selected_proactive_session(system):
     observed = []
     unsubscribe = server.watch_session(selected, observed.append)
     try:
-        await first.reply("background result", job_tools=[], activity_source="proactive", activity_session_id=selected)
+        result = await first.reply(
+            "background result",
+            job_tools=[],
+            activity_source="proactive",
+            activity_session_id=selected,
+        )
         activities = [event for event in observed if isinstance(event, AgentActivity)]
         assert activities[0].phase == "thinking"
         assert activities[-1].phase == "completed"
         assert all(event.session_id == selected and event.source == "proactive" for event in activities)
+        assert all(event.execution_session_id == result["session_id"] for event in activities)
+        assert result["session_id"] != selected
         assert len({event.turn_id for event in activities}) == 1
     finally:
         unsubscribe()

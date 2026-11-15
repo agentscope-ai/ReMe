@@ -11,6 +11,7 @@ class AgentActivity(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     session_id: str
+    execution_session_id: str | None = None
     turn_id: str
     source: Literal["chat", "proactive", "task"] = "chat"
     phase: Literal["thinking", "working", "remembering", "answering", "waiting", "completed", "failed", "interrupted"]

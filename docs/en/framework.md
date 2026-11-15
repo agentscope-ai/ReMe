@@ -587,9 +587,12 @@ all stream payloads. Existing text-only producers use the default `delta` operat
 
 AgentScope wrappers implement the session operations without changing the agent's generation flow. `resume` restores
 model context; an explicit `session_id` starts fresh context under that ID while retaining its display history.
-Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the complete SDK state and display history, so
-compaction preserves earlier displayed messages. Legacy summary/context files remain readable; previously discarded
-history cannot be recovered. Replies, compaction and user/assistant appends share a session lock; history/status reads do
+Each `{mem_session_dir}/agentscope/<UUID>.jsonl` atomically stores the current SDK state and a committed byte offset into
+`agentscope/history/<UUID>.jsonl`. The paired append-only display log records only new or changed message tails;
+completed block snapshots replace their live deltas. Serialization and parsing run off the event loop. Back up both
+files together. Readers ignore uncommitted history tails, and the next writer removes only that uncommitted suffix.
+Legacy inline-history and summary/context files remain readable and migrate on their next save; previously discarded
+history cannot be recovered. Compaction preserves displayed messages. Replies and appends share a session lock; reads do
 not wait behind generation. Appends require an idle session, retain their delivery policy, and are idempotent by
 `message_id` across restarts. Pending approval or external execution is reported as active. Ownership and live status
 are scoped to the Application; independent processes must not write the same session concurrently.
@@ -608,15 +611,24 @@ thread with the current configuration. Rejected or cancelled preparation retains
 `output_schema` applies only to the current invocation; omission uses the calling wrapper's default, and explicit
 `None` disables that default for this invocation.
 
-Proactive reminders are read through the inbox and handled by a normal Chat reply. Codex no longer exposes message
-appends or stores application-authored message copies. `reme_agents/` retains Agent configuration, memory, session IDs and
+Proactive reminders are evaluated in a disposable read-only fork with only `read_inbox` and `send_chat_msg` tools.
+Only explicitly submitted text is appended to the foreground conversation; fork reasoning and ordinary replies stay
+outside it. Codex stores injected content in its native rollout without a second application-authored message copy.
+`reme_agents/` retains Agent configuration, memory, session IDs and
 inbox references; full recovery also requires native conversation histories and source reminder files.
 
 `BaseCodexAppServer.watch_activity()` observes transient [`AgentActivity`](../../reme/schema/agent_activity.py) phases;
-session listeners also receive these events. A completed turn, failure or cancellation closes its activity.
-AgentScope and Claude Code wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
+session listeners also receive these events. `session_id` routes presentation, while `execution_session_id` identifies
+the native conversation that owns `turn_id`; task activity also retains its task identity and start time.
+A completed turn, failure or cancellation closes its activity.
+All three wrappers support `append_session(..., role="user" | "assistant")` without generating a reply; the default role
 is `assistant`. Retries with the same `message_id` must retain both content and role. Injected messages keep
 `source="proactive"` independently of their role, including after reload or fork.
+`SessionSnapshot.revision` is an opaque content fingerprint, stable across reloads and independent of activity status.
+Pass it as `expected_revision` to reject an append if the content changed, including a user injection without a new
+model turn. `expected_turn_id` checks only the model-turn anchor. Both guards are checked inside the session writer
+lease; an already committed matching `message_id` remains retryable with an old guard. Reminder forks carry the
+source revision when submitting text, so stale decisions leave inbox items pending for reassessment.
 `append_session(..., delivery="idle" | "immediate")` retains a presentation policy and source session in the message;
 both policies wait for the native session to become idle before injection. Recoverable SDK errors from session
 reading and status in Codex are exposed as `ConnectionError`; validation errors and cancellation propagate.
@@ -627,6 +639,8 @@ an explicitly configured external `mem_session_dir` remains supported. History a
 generation; append and compaction share its session lease. Empty sessions contain a hidden native seed input.
 `continue_conversation=True` resolves the latest main session in the current project before taking its lease,
 including when using an external `session_store`; with no stored conversation it starts a new session.
+Resume and fork restore the saved native `cwd`; an explicit conflicting directory is rejected. Rejected query setup
+retains the previous turn anchor and approval state until native history confirms input acceptance.
 
 The `session_read` and `session_status` jobs use the wrapper selected by their Step configuration.
 Start the service with `reme start config=default`, then use another terminal:

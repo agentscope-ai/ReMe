@@ -181,7 +181,7 @@ class CcAgentWrapper(BaseAgentWrapper):
             last_turn_id=(
                 runtime.input.turn_id
                 if runtime and runtime.input is not None
-                else data.last_turn_id or cc_session_history.last_turn_id(entries or [])
+                else cc_session_history.last_turn_id(entries or [], data) or data.last_turn_id
             ),
         )
 
@@ -206,6 +206,7 @@ class CcAgentWrapper(BaseAgentWrapper):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Inject once, flush without inference, and recover commits by their native UUID."""
@@ -217,7 +218,7 @@ class CcAgentWrapper(BaseAgentWrapper):
                 entries = await self._sessions.entries(session_id, data, self.kwargs.get("session_store"))
                 if entries is None:
                     raise FileNotFoundError(f"Claude session not found: {session_id}")
-                data.last_turn_id = data.last_turn_id or cc_session_history.last_turn_id(entries)
+                data.last_turn_id = cc_session_history.last_turn_id(entries, data) or data.last_turn_id
                 identifier = native_id(session_id, f"append:{message_id}")
                 record = next(
                     (item for item in data.appends if item.message.id == f"reme-proactive-{message_id}"),
@@ -238,6 +239,11 @@ class CcAgentWrapper(BaseAgentWrapper):
                 if data.waiting:
                     raise RuntimeError("Session must be idle before appending")
                 if expected_turn_id is not None and (data.last_turn_id or "") != expected_turn_id:
+                    raise RuntimeError("Session changed before appending")
+                if (
+                    expected_revision is not None
+                    and (await self.read_session(session_id)).revision != expected_revision
+                ):
                     raise RuntimeError("Session changed before appending")
                 if record is None:
                     record = AppendRecord(
@@ -727,16 +733,17 @@ class CcAgentWrapper(BaseAgentWrapper):
                         else:
                             yield chunk
             finally:
-                accepted = terminal is not None or any(
-                    entry.get("uuid") == turn_id
-                    for entry in await self._sessions.entries(session_id, data, options.session_store) or []
-                )
-                if accepted:
-                    data.last_turn_id = turn_id
-                    data.waiting = (
-                        terminal.status == "waiting" if terminal is not None else runtime.state == "requires_action"
-                    )
-                await self._sessions.save(session_id, data)
+
+                async def settle():
+                    entries = await self._sessions.entries(session_id, data, options.session_store)
+                    if any(entry.get("uuid") == turn_id for entry in entries or []):
+                        data.last_turn_id = turn_id
+                        data.waiting = (
+                            terminal.status == "waiting" if terminal is not None else runtime.state == "requires_action"
+                        )
+                    await self._sessions.save(session_id, data)
+
+                await finish_cleanup(settle())
         if terminal is not None:
             yield terminal
 

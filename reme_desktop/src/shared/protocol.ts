@@ -2,6 +2,7 @@ export type SessionStatus = "active" | "idle" | "not_loaded" | "error";
 
 export interface AgentActivity {
   session_id: string;
+  execution_session_id?: string | null;
   turn_id: string;
   source: "chat" | "proactive" | "task";
   phase:
@@ -109,6 +110,7 @@ export interface SessionMessage {
 
 export interface SessionSnapshot {
   session_id: string;
+  revision?: string;
   state: { session_id: string; status: SessionStatus; active_flags: string[] };
   messages: SessionMessage[];
 }

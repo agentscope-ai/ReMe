@@ -331,6 +331,7 @@ class CodexAgentWrapper(BaseAgentWrapper):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Inject once under the shared session lease, without starting a model turn.
@@ -365,6 +366,8 @@ class CodexAgentWrapper(BaseAgentWrapper):
                         raise ValueError("message_id already belongs to different content or role")
                     return accepted
                 if expected_turn_id is not None and (snapshot.last_turn_id or "") != expected_turn_id:
+                    raise RuntimeError("Session changed before appending")
+                if expected_revision is not None and snapshot.revision != expected_revision:
                     raise RuntimeError("Session changed before appending")
                 if snapshot.path is None:
                     raise ValueError("Appending requires a persisted Codex session")
@@ -617,7 +620,11 @@ class CodexAgentWrapper(BaseAgentWrapper):
                 usage = _TurnUsage(await self.app_server.token_usage(thread.id))
                 turn = await self.app_server.turn(thread, inputs, output_schema=output_schema)
                 activity = presentation.model_copy(
-                    update={"session_id": target_session or thread.id, "turn_id": turn.id},
+                    update={
+                        "session_id": target_session or thread.id,
+                        "execution_session_id": thread.id,
+                        "turn_id": turn.id,
+                    },
                 )
                 self.app_server.publish_activity(activity)
                 tracker = ActivityTracker(activity)

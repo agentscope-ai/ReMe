@@ -68,6 +68,21 @@ async def test_create_empty_native_session_is_hidden_resumable_and_idle(wrapper)
 
 
 @pytest.mark.asyncio
+async def test_revision_guard_and_turn_anchor_remain_distinct_after_user_injection(wrapper):
+    """Native user injections change display content without becoming model-turn anchors."""
+    session_id = await wrapper.create_session()
+    before = await wrapper.read_session(session_id)
+    await wrapper.append_session(session_id, "Stop reminders", message_id="stop", role="user")
+    after = await wrapper.read_session(session_id)
+    assert after.last_turn_id is None and after.revision != before.revision
+    with pytest.raises(RuntimeError, match="Session changed"):
+        await wrapper.append_session(session_id, "Old reminder", message_id="old", expected_revision=before.revision)
+    await wrapper.append_session(session_id, "Current reminder", message_id="current", expected_revision=after.revision)
+    await wrapper.append_session(session_id, "Stop reminders", message_id="stop", role="user", expected_revision="old")
+    assert len((await wrapper.read_session(session_id)).messages) == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("external", [False, True])
 @pytest.mark.parametrize("fork", [False, True])
 async def test_continue_resolves_latest_main_session_and_holds_its_lease(wrapper, monkeypatch, external, fork):

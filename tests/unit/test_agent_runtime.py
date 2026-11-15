@@ -16,7 +16,7 @@ from reme.components.agent_wrapper import BaseAgentWrapper
 from reme.components.event_stream import AgentEventStream
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
-from reme.schema import SessionStatus, StreamChunk
+from reme.schema import SessionSnapshot, SessionStatus, StreamChunk
 from reme.schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgentConfig, ProactiveRunResult
 from reme.steps.proactive.agent import (
     AgentChatStep,
@@ -50,6 +50,9 @@ class FakeWrapper(BaseAgentWrapper):
 
     async def get_session_status(self, session_id):
         return SessionStatus(session_id=session_id, status="idle")
+
+    async def read_session(self, session_id):
+        return SessionSnapshot(session_id=session_id, state=await self.get_session_status(session_id))
 
     async def reply_stream(self, inputs, **kwargs):
         self.turns.append((inputs, kwargs))
@@ -1373,7 +1376,6 @@ async def test_interactive_turn_blocks_background_and_busy_chats_and_is_cancelle
 @pytest.mark.asyncio
 async def test_agent_subscription_reconnects_from_snapshot_and_observes_new_session(tmp_path):
     from reme.components.agent_runtime._internal.views import AgentViews
-    from reme.schema import SessionSnapshot
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         wrapper.read_session = AsyncMock(
@@ -1439,7 +1441,7 @@ async def test_desktop_retains_empty_session_reference_when_native_thread_is_not
 @pytest.mark.asyncio
 async def test_reminder_message_provenance_survives_history_projection(tmp_path):
     from reme.components.agent_runtime._internal.views import AgentViews
-    from reme.schema import SessionMessage, SessionSnapshot
+    from reme.schema import SessionMessage
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         sid = await runtime.sessions.ensure("chat", wrapper, {}, runtime.now())
@@ -1468,7 +1470,7 @@ async def test_reminder_message_provenance_survives_history_projection(tmp_path)
 @pytest.mark.asyncio
 async def test_first_automatic_reply_in_new_session_is_an_upsert_after_initial_subscription(tmp_path):
     from reme.components.agent_runtime._internal.views import AgentViews
-    from reme.schema import SessionMessage, SessionSnapshot
+    from reme.schema import SessionMessage
 
     async with running_runtime(tmp_path) as (runtime, _, wrapper):
         events = AgentViews(runtime).events("chat", interval=0)

@@ -75,10 +75,38 @@ async def test_fork_sends_only_explicit_content_and_consumes_decisions(tmp_path,
             wrapper.append_session.assert_awaited_once()
             assert wrapper.append_session.call_args.args == (source, content.strip())
             assert wrapper.append_session.call_args.kwargs["role"] == "assistant"
+            revision = (await wrapper.read_session(source)).revision
+            assert wrapper.append_session.call_args.kwargs["expected_revision"] == revision
         else:
             wrapper.append_session.assert_not_awaited()
         with pytest.raises(ValueError, match="active reminder fork"):
             await ReadInboxStep(app_context=context)(priority="P1", **captured["injected_job_kwargs"])
+
+
+@pytest.mark.parametrize("content", ["", "Old reminder"])
+@pytest.mark.asyncio
+async def test_native_content_changes_leave_stale_reminder_decisions_pending(tmp_path, content):
+    async with running_runtime(tmp_path) as (runtime, context, wrapper):
+        arguments = await prepare(runtime, context)
+        snapshot = await wrapper.read_session((await runtime.sessions.current("chat")).session_id)
+
+        async def append(_session_id, _content, *, expected_revision, **_kwargs):
+            if expected_revision != snapshot.revision:
+                raise RuntimeError("Session changed before appending")
+            raise AssertionError("A stale decision must not append")
+
+        async def reply(_hint, **options):
+            bound = options["injected_job_kwargs"]
+            await ReadInboxStep(app_context=context)(priority="P1", **bound)
+            snapshot.messages.append(SessionMessage(id="stop", role="user", content="Stop reminders"))
+            await SendChatMessageStep(app_context=context)(content=content, **bound)
+
+        wrapper.read_session = AsyncMock(return_value=snapshot)
+        wrapper.append_session = AsyncMock(side_effect=append)
+        wrapper.reply = AsyncMock(side_effect=reply)
+        with pytest.raises(RuntimeError, match="changed"):
+            await InboxChatStep(app_context=context)(**arguments)
+        assert list(runtime.inbox.pending) == arguments["msg_ids"]
 
 
 @pytest.mark.parametrize("stage", ["before_read", "after_read", "plain_reply", "append_failure"])

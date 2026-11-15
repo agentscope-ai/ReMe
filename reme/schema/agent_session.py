@@ -1,8 +1,10 @@
 """Backend-neutral session history and activity contracts."""
 
+from hashlib import sha256
+import json
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from .stream_chunk import StreamChunk
 
@@ -38,3 +40,13 @@ class SessionSnapshot(BaseModel):
     messages: list[SessionMessage] = Field(default_factory=list)
     path: str | None = None
     last_turn_id: str | None = None
+
+    @computed_field
+    @property
+    def revision(self) -> str:
+        """Opaque content version, independent of activity and stable across reloads."""
+        value = {
+            "last_turn_id": self.last_turn_id,
+            "messages": [message.model_dump(mode="json") for message in self.messages],
+        }
+        return sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()

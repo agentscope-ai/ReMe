@@ -99,6 +99,12 @@ def record_chunk(session: AsSessionData, chunk: StreamChunk) -> None:
     if message.completed:
         message.chunks = [event for event in message.chunks if event.chunk_type != ChunkEnum.REPLY_END]
     message.completed = chunk.chunk_type == ChunkEnum.REPLY_END
+    if chunk.event == "end" and chunk.block_id is not None and chunk.chunk is not None:
+        message.chunks = [
+            event
+            for event in message.chunks
+            if (event.chunk_type, event.block_id) != (chunk.chunk_type, chunk.block_id)
+        ]
     message.chunks.append(chunk.model_copy(deep=True))
     if chunk.chunk_type != ChunkEnum.CONTENT or not isinstance(chunk.chunk, str):
         return
@@ -323,6 +329,7 @@ class AsSessionStore:
         expected_turn_id: str | None,
         delivery: str,
         name: str,
+        expected_revision: str | None = None,
     ) -> SessionMessage:
         """Commit one observation and its idempotency key without calling a model."""
         session_id = self.validate_id(session_id)
@@ -349,6 +356,8 @@ class AsSessionStore:
                 if tail is not None and session.state.has_awaiting_tool_calls(tail.name):
                     raise RuntimeError("Session must be idle before appending")
                 if expected_turn_id is not None and (session.last_turn_id or "") != expected_turn_id:
+                    raise RuntimeError("Session changed before appending")
+                if expected_revision is not None and (await self.snapshot(session_id)).revision != expected_revision:
                     raise RuntimeError("Session changed before appending")
                 factory = AssistantMsg if role == "assistant" else UserMsg
                 native = factory(name=name if role == "assistant" else "user", content=content, id=native_id)

@@ -63,6 +63,7 @@ from ...enumeration import ChunkEnum
 from ...schema import AgentReply, SessionMessage, SessionSnapshot, SessionStatus, StreamChunk, TokenUsage
 from ...schema.stream_chunk import stream_status
 from ...utils.async_utils import finish_cleanup
+from ...utils.agent_state_io import AsStateHandler
 
 if TYPE_CHECKING:
     from ..job.base_job import BaseJob
@@ -269,9 +270,11 @@ class AsAgentWrapper(BaseAgentWrapper):
                 if self._sessions.in_use(path.stem):
                     continue
                 if path.is_file() and path.stat().st_mtime < cutoff:
+                    history = AsStateHandler(path).history_path()
                     path.unlink()
+                    history.unlink(missing_ok=True)
                     removed += 1
-            except OSError as exc:
+            except (OSError, ValueError) as exc:
                 self.logger.warning(f"Failed to clean expired AgentScope session {path}: {exc}")
 
         if removed:
@@ -428,6 +431,7 @@ class AsAgentWrapper(BaseAgentWrapper):
         role: Literal["user", "assistant"] = "assistant",
         timeout: float = 30,
         expected_turn_id: str | None = None,
+        expected_revision: str | None = None,
         delivery: str = "idle",
     ) -> SessionMessage:
         """Append an idempotent user or assistant observation without generating a reply."""
@@ -438,6 +442,7 @@ class AsAgentWrapper(BaseAgentWrapper):
             role=role,
             timeout=timeout,
             expected_turn_id=expected_turn_id,
+            expected_revision=expected_revision,
             delivery=delivery,
             name=self.name,
         )

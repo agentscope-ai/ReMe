@@ -264,6 +264,26 @@ async def test_codex_invalid_append_never_resumes_or_writes(codex_wrapper, kwarg
 
 
 @pytest.mark.asyncio
+async def test_codex_revision_rejects_stale_content_without_a_new_model_turn(codex_wrapper):
+    wrapper, native = codex_wrapper
+    before = await wrapper.read_session("session-1")
+    await wrapper.append_session("session-1", "Stop reminders", message_id="stop", role="user")
+    after = await wrapper.read_session("session-1")
+    assert after.last_turn_id == before.last_turn_id and after.revision != before.revision
+    with pytest.raises(RuntimeError, match="Session changed"):
+        await wrapper.append_session("session-1", "Old reminder", message_id="old", expected_revision=before.revision)
+    assert len(native.injections) == 1
+    await wrapper.append_session(
+        "session-1",
+        "Current reminder",
+        message_id="current",
+        expected_revision=after.revision,
+    )
+    await wrapper.append_session("session-1", "Stop reminders", message_id="stop", role="user", expected_revision="old")
+    assert len(native.injections) == 2
+
+
+@pytest.mark.asyncio
 async def test_codex_append_shares_generation_lease_and_checks_turn_guard(codex_wrapper):
     wrapper, native = codex_wrapper
     async with wrapper.app_server.thread("session-1"):

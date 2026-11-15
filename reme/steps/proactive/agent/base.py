@@ -20,13 +20,21 @@ class BaseAgentStep(BaseStep):
         """Relay a formal conversation and preserve its terminal outcome and native metadata."""
         runtime = self.agent_runtime
         tracker = ActivityTracker(
-            AgentActivity(session_id=session_id, turn_id=uuid4().hex, phase="thinking", started_at=runtime.now()),
+            AgentActivity(
+                session_id=session_id,
+                execution_session_id=session_id,
+                turn_id=uuid4().hex,
+                phase="thinking",
+                started_at=runtime.now(),
+            ),
         )
         runtime.activities[agent_id] = tracker.activity
 
         async def observe(chunk):
             if chunk.turn_id:
-                tracker.activity = tracker.activity.model_copy(update={"turn_id": chunk.turn_id})
+                tracker.activity = tracker.activity.model_copy(
+                    update={"turn_id": chunk.turn_id, "execution_session_id": chunk.session_id or session_id},
+                )
             runtime.activities[agent_id] = tracker.update(chunk)
             await self.context.add_stream_chunk(chunk)
 

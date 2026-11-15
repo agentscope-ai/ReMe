@@ -20,6 +20,7 @@ class InboxTurn:
     priority: str
     msg_ids: tuple[str, ...]
     chat_revision: int = 0
+    session_revision: str | None = None
     id: str = field(default_factory=lambda: uuid4().hex)
     items: list[dict] | None = None
     content: str | None = None
@@ -186,7 +187,8 @@ class AgentInbox:
             )
         if not selected:
             raise ValueError("no pending messages at the selected priority")
-        turn = InboxTurn(session_id, priority, selected, chat_revision=self.chat_revision)
+        revision = (await self.runtime.agent_wrapper.read_session(session_id)).revision
+        turn = InboxTurn(session_id, priority, selected, chat_revision=self.chat_revision, session_revision=revision)
         self.active_turn = turn
         try:
             yield turn
@@ -228,6 +230,10 @@ class AgentInbox:
                         raise RuntimeError("Chat session changed; retry the reminders in the current conversation")
                     if self.chat_revision != turn.chat_revision:
                         raise RuntimeError("Chat conversation changed; reassess reminders after the latest user turn")
+                    if not content:
+                        snapshot = await self.runtime.agent_wrapper.read_session(turn.session_id)
+                        if snapshot.revision != turn.session_revision:
+                            raise RuntimeError("Chat conversation changed; reassess reminders before consuming them")
                     await self.runtime.outbox.refresh()
                     for item in turn.items:
                         ref = self.pending.get(item["id"])
@@ -254,6 +260,7 @@ class AgentInbox:
                                 content,
                                 message_id=turn.message_id,
                                 role="assistant",
+                                expected_revision=turn.session_revision,
                                 delivery="immediate" if turn.priority == "P0" else "idle",
                             )
                         await self.consume([item["id"] for item in turn.items])

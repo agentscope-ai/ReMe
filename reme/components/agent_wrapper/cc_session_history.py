@@ -24,13 +24,15 @@ def accepted_message(entry: dict, record: AppendRecord) -> SessionMessage:
     return record.message.model_copy(deep=True)
 
 
-def last_turn_id(entries: list[dict]) -> str | None:
+def last_turn_id(entries: list[dict], data: SessionData | None = None) -> str | None:
     """Recover an ordinary prompt anchor from existing native-only sessions."""
+    injected = {record.native_id for record in data.appends} if data else set()
     return next(
         (
             entry.get("uuid")
             for entry in reversed(entries)
             if entry.get("type") == "user"
+            and entry.get("uuid") not in injected
             and not (entry.get("isMeta") or entry.get("isSidechain") or entry.get("isCompactSummary"))
             and text_content((entry.get("message") or {}).get("content"))
         ),

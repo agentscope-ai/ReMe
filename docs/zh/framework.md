@@ -564,9 +564,11 @@ HTTP `stream_chunks()` 完整返回错误事件和 DONE，CLI 与文本辅助函
 纯文本生产者使用默认 `delta` 操作。
 
 AgentScope wrapper 支持上述会话操作，保留现有 Agent 生成流程。`resume` 恢复模型上下文；显式 `session_id`
-在该 ID 下使用新的模型上下文，同时保留显示历史。`{mem_session_dir}/agentscope/<UUID>.jsonl` 原子保存完整
-SDK 状态和显示历史，因此压缩不会丢失已经记录的聊天。旧的摘要/上下文文件仍可读取，之前已经丢弃的历史无法
-恢复。回复、压缩和追加 user/assistant 消息共用会话锁；读取历史、查询状态不等待生成。追加要求会话空闲，保留展示
+在该 ID 下使用新的模型上下文，同时保留显示历史。`{mem_session_dir}/agentscope/<UUID>.jsonl` 原子保存当前
+SDK 状态及 `agentscope/history/<UUID>.jsonl` 中已提交的字节位置。显示日志只追加新增或修改的消息尾部，
+已完成的内容块快照替代流式增量；序列化和解析在线程中执行。备份时需一起保留两个文件。
+读取忽略未提交的日志尾部，下一次写入仅清理该尾部。旧的内联历史及摘要/上下文文件仍可读取，在下次保存时迁移；
+之前已经丢弃的历史无法恢复。压缩不会丢失显示历史。回复、压缩和追加消息共用会话锁；读取不等待生成。追加保留展示
 策略，并通过 `message_id` 在重启后保持幂等。等待审批或外部执行也视为活跃状态。会话所有权和运行状态限定在
 同一个 Application 中，独立进程不能并发写入同一会话。
 
@@ -582,13 +584,19 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 `create_session()` 在首次查询前保留 `effort` 等进程内 turn 设置。
 `output_schema` 只作用于本次调用；省略时使用调用方 wrapper 的默认值，显式传 `None` 在本次调用关闭该默认值。
 
-主动提醒通过收件箱读取，再由 Chat 正常回复；Codex 不再提供追加消息接口或保存应用追加消息副本。
+主动提醒在临时只读分身中评估，仅绑定 `read_inbox` 和 `send_chat_msg`；只有明确提交的文本追加到前台会话，
+分身推理过程与普通回复留在分身中。Codex 把追加内容保存在原生 rollout，不保存另一份应用消息副本。
 `reme_agents/` 保存 Agent 配置、记忆、会话 ID 和收件箱引用；恢复完整对话与提醒还需要原生会话历史和提醒源文件。
 
 `BaseCodexAppServer.watch_activity()` 订阅临时的 [`AgentActivity`](../../reme/schema/agent_activity.py) 执行阶段，
-会话监听器也会收到这些事件；turn 完成、失败或取消时结束活动。
-AgentScope 和 Claude Code wrapper 支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
+会话监听器也会收到这些事件。`session_id` 指定展示目标，`execution_session_id` 标识实际拥有 `turn_id` 的原生会话；
+任务活动还保留任务标识和开始时间。turn 完成、失败或取消时结束活动。
+三个 wrapper 都支持 `append_session(..., role="user" | "assistant")`，只追加上下文，不触发模型生成，默认角色为 `assistant`。
 同一 `message_id` 重试时必须保持内容和角色一致。注入消息的 `source="proactive"` 与角色独立，重载或 fork 后仍保留。
+`SessionSnapshot.revision` 是与活动状态无关、重载后稳定的内容指纹。通过 `expected_revision` 追加时，
+即使没有新的模型轮次，追加 user 消息等内容变化也会使旧决策失败；`expected_turn_id` 仅检查模型轮次锚点。
+两种检查都在会话写锁内执行；已提交且内容一致的 `message_id` 可携带旧版本安全重试。
+提醒分身提交文本时传递来源版本，过期决策保留收件箱消息，等待重新评估。
 `append_session(..., delivery="idle" | "immediate")` 在消息中保留展示策略与来源会话；两种策略都等待原生会话
 空闲后再注入。Codex 读取会话、查询状态时，可恢复的 SDK 异常统一为 `ConnectionError`；校验错误与取消继续传播。
 
@@ -598,6 +606,8 @@ Claude Code 使用原生流式输入和零推理回执保存追加消息。
 空会话包含一条隐藏的原生种子输入。
 `continue_conversation=True` 先定位当前项目最近的主会话，再获取它的会话锁；外部 `session_store` 同样支持，
 没有历史会话时创建新会话。
+恢复和 fork 会使用已保存的原生 `cwd`；显式传入不同目录会报错。查询启动被拒绝时，保留先前的轮次锚点与
+审批状态，只有原生历史确认接受输入后才更新。
 
 `session_read` 和 `session_status` Job 使用各自 Step 配置中指定的 wrapper。
 先通过 `reme start config=default` 启动服务，再在另一个终端调用：
