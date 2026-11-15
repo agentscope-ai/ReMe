@@ -178,7 +178,15 @@ def test_auto_dream():
                     if (env.workspace_dir / rel).is_file()
                 }
                 digest_wikilinks = [rel for rel, text in target_texts.items() if "[[digest/" in text]
-                source_links = [rel for rel, text in target_texts.items() if f"- [[{DREAM_INPUT_PATH}]]" in text]
+                # integrate.yaml requires every `## Sources` entry to be a complete
+                # sentence containing the wikilink and explicitly forbids bare
+                # `- [[...]]` lines, so match the provenance link target itself
+                # (with or without an alias) rather than a specific line form.
+                source_links = [
+                    rel
+                    for rel, text in target_texts.items()
+                    if f"[[{DREAM_INPUT_PATH}]]" in text or f"[[{DREAM_INPUT_PATH}|" in text
+                ]
                 print(f"[wikilink] integrated targets: {target_paths}")
                 print(f"[wikilink] integrated targets with [[digest/...]] links: {digest_wikilinks}")
                 print(f"[wikilink] integrated targets with source links: {source_links}")
