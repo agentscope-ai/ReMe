@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import shutil
+import socket
 import sys
 import tarfile
 from unittest.mock import AsyncMock
@@ -48,6 +49,29 @@ def os_sandbox_available():
         return
     if shutil.which(executable) is None:
         pytest.skip(f"Sandbox boundary test requires {executable} on PATH")
+
+
+@pytest_asyncio.fixture(name="host_network_probe")
+async def host_network_probe_fixture():
+    """Prove the connection probe works before checking host network isolation."""
+    from reme.utils.local_backend import LocalProcessBackend
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(4)
+        host, port = listener.getsockname()
+        probe_command = [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            "import socket, sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=1).close()",
+            host,
+            str(port),
+        ]
+        control = await LocalProcessBackend().exec_shell(probe_command, timeout=10)
+        assert control.ok(), control.stderr.decode(errors="replace")
+        yield probe_command
 
 
 def archive(path, files):

@@ -4,7 +4,6 @@
 
 import asyncio
 from pathlib import Path
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -23,6 +22,7 @@ from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     prepared_home,
     rebuild_review,
     os_sandbox_available,
+    host_network_probe_fixture,
 )
 from test_workflows import ScriptedModel, set_model
 
@@ -261,7 +261,12 @@ async def test_review_change_race_and_cancellation_release_locks(app, prepared, 
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("os_sandbox_available")
-async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(app, prepared, tmp_path):
+async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(
+    app,
+    prepared,
+    tmp_path,
+    host_network_probe,
+):
     commit_candidate(prepared)
     context = candidate_gate.admission_context(prepared)
     root = tmp_path / "review-export"
@@ -293,8 +298,7 @@ async def test_real_gate_sandbox_denies_evidence_live_code_writes_and_network(ap
     (root / "escape").symlink_to(outside)
     with pytest.raises(OSError):
         await backend.read_file(str(root / "escape"))
-    network = await backend.exec_shell(
-        [sys.executable, "-I", "-B", "-c", "import socket; socket.socket().bind(('127.0.0.1', 0))"],
-        timeout=10,
-    )
+    # Binding inside an isolated network namespace may succeed. Connecting to
+    # a live host listener tests the boundary the sandbox actually promises.
+    network = await backend.exec_shell(host_network_probe, timeout=10)
     assert not network.ok()
