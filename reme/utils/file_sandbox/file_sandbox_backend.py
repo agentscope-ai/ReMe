@@ -144,6 +144,18 @@ class FileSandboxBackend(LocalProcessBackend):
         """Write through a sandboxed command so file rules still apply."""
         if not isinstance(data, bytes):
             raise TypeError("data must be bytes")
+        # Private sandbox tmpfs paths can accept writes without touching the
+        # host. File helpers must still report writes outside explicit grants
+        # as errors, rather than silently writing a disposable shadow file.
+        target = os.path.realpath(os.path.join(self._cwd, path))
+        grants = [
+            (root, writable)
+            for roots, writable in ((self._read_only_paths, False), (self._writable_paths, True))
+            for root in roots
+            if contains(root, target)
+        ]
+        if not grants or not max(grants, key=lambda grant: len(grant[0]))[1]:
+            raise PermissionError(f"Sandbox path is not writable: {path}")
         script = 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"'
         result = await self._run_job(
             ["/bin/sh", "-c", script, "sh", path],

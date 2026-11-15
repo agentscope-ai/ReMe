@@ -324,6 +324,36 @@ async def test_sandbox_file_io_round_trip(tmp_path, monkeypatch, data):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("backend_class", [PathBubbleBackend, PathSeatbeltBackend])
+async def test_file_writes_require_explicit_grants(tmp_path, monkeypatch, backend_class):
+    """Reject shadow writes and symlink escapes before spawning, respecting nested grants."""
+    from unittest.mock import AsyncMock
+
+    workspace = tmp_path / "workspace"
+    protected = workspace / "protected"
+    output = protected / "output"
+    output.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.write_bytes(b"private")
+    (workspace / "escape").symlink_to(outside)
+    backend = backend_class(
+        cwd=workspace,
+        read_only_paths=[str(protected)],
+        writable_paths=[str(workspace), str(output)],
+    )
+    run = AsyncMock(return_value=ExecResult(exit_code=0, stdout=b"", stderr=b""))
+    monkeypatch.setattr(backend, "_run_job", run)
+    for path in (outside, protected / "new", workspace / "escape", workspace / "../outside"):
+        with pytest.raises(PermissionError, match="not writable"):
+            await backend.write_file(str(path), b"forbidden")
+    run.assert_not_awaited()
+    assert outside.read_bytes() == b"private"
+    await backend.write_file(str(workspace / "new"), b"allowed")
+    await backend.write_file(str(output / "new"), b"allowed")
+    assert run.await_count == 2
+
+
+@pytest.mark.asyncio
 async def test_seatbelt_launch_failure_cleans_up_without_host_fallback(tmp_path, monkeypatch):
     """A failed sandbox launcher never starts the requested command directly."""
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -464,7 +494,12 @@ async def test_seatbelt_launchd_lifecycle(tmp_path, monkeypatch, mode, raise_err
 
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr("reme.utils.file_sandbox.path_seatbelt_backend.shutil.which", lambda _: "sandbox-exec")
-    backend = PathSeatbeltBackend(cwd=tmp_path, read_only_paths=[], writable_paths=[])
+    writable = [str(tmp_path)] if mode == "write" else []
+    backend = PathSeatbeltBackend(
+        cwd=tmp_path,
+        read_only_paths=[],
+        writable_paths=writable,
+    )
     monkeypatch.setattr(backend, "_has_gui_launchd", AsyncMock(return_value=True))
     killed = Mock()
     monkeypatch.setattr(backend, "_kill_process", killed)
