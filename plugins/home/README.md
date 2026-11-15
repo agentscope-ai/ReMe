@@ -734,12 +734,16 @@ Reports and trajectories are saved under `home/logs/diagnostic-reports/` and
 `home/logs/diagnostic-trajectories/` with their evidence paths and session IDs.
 
 Optimization reuses a completed full initial baseline covering every prepared
-training case and query, with no infrastructure errors. Otherwise it runs that
+training case and query. Otherwise it runs that
 baseline first, requiring clean `init` to be checked out. It never switches away
-from an existing candidate to repair a missing baseline. Baseline observations
+from an existing candidate to repair a missing baseline. Successful baseline observations
 feed sampling history. Candidate execution failures retain Home's existing
-failure thresholds; low scores are valid evidence. Infrastructure failures stop
-baseline startup and are distinguished from candidate defects during iteration.
+failure thresholds; low scores are valid evidence. Initial evaluation explicitly
+uses `fail_fast=false`: question errors, including infrastructure failures, retain
+other questions' results and do not prevent the optimizer from starting. Such a
+baseline remains available for diagnosis and same-commit retry, but final selection
+still requires infrastructure-free evaluation evidence. Failures that prevent a
+completed baseline, such as unavailable sandbox infrastructure, still fail startup.
 
 The optimizer diagnoses, edits declared `candidate_paths`, commits through
 managed Git Jobs, runs debug until execution passes, then evaluates using the

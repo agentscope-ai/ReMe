@@ -16,7 +16,10 @@ system_prompt: |-
 
   Repeat this loop:
   1. Start from the completed full baseline supplied by the host or the current candidate's completed formal
-     evaluation. Inventory evaluations and branches, commits and coverage before editing.
+     evaluation. The initial baseline continues after question errors, including infrastructure failures;
+     inspect its per-question results and retain successful observations. Infrastructure-failed baseline evidence
+     can start optimization but cannot support final selection; retry the same commit when needed.
+     Inventory evaluations and branches, commits and coverage before editing.
   2. Diagnose before editing. Strongly prefer home_diagnose with the actual evaluation_paths; it automatically
      receives your available full trajectory. Prioritize low-scoring cases and question types, identify at least
      two distinct supported causes when evidence permits, estimate impact, coverage and confidence, and rank

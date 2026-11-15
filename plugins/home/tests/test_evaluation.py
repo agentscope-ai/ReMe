@@ -628,6 +628,41 @@ async def test_invalid_beam_judge_is_infra_error(app, prepared, raw):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["answer", "judge"])
+async def test_question_infra_error_preserves_later_question_in_same_case(tmp_path, stage):
+    from reme_home.evaluation.artifacts import read_json, write_json
+    from reme_home.evaluation.inputs import EvaluationSpec
+    from reme_home.preparation.data.models import CaseSpec, QuerySpec
+
+    case = CaseSpec(
+        case_id="c",
+        sessions=[],
+        queries=[QuerySpec(query_id=key, question="What?", golden_answer="hello") for key in ("first", "later")],
+    )
+    answers = [{"query_id": query.query_id, "answer": "hello", "error": None} for query in case.queries]
+    judge = AsyncMock()
+    judge.evaluate.return_value = ({"success": True}, 0.5)
+    if stage == "answer":
+        answers[0].update(answer=None, error="AgentScope reply ended: exceed_max_iters")
+    else:
+        judge.evaluate.side_effect = [RuntimeError("judge unavailable"), ({"success": True}, 0.5)]
+    path = tmp_path / "cases/c/queries/result.json"
+    write_json(path, {"queries": answers})
+    await evaluation.HomeEvaluation._score_case(
+        tmp_path,
+        case,
+        "beam",
+        judge,
+        asyncio.Semaphore(1),
+        EvaluationSpec(fail_fast=False),
+        answers,
+    )
+    first, later = read_json(path)["queries"]
+    assert first["infrastructure_error"] and first["score"] is None
+    assert later["error"] is None and later["score"] == 0.5
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("plugins", [["home"], ["home", "beam-judge", "lme-judge"]])
 async def test_startup_requires_exactly_one_judge(app, tmp_path, plugins):
     from reme.application import Application

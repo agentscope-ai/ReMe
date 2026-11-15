@@ -228,18 +228,19 @@ def evaluation_options(raw):
 
 
 def verify_evaluation(home, path, commit, *, baseline=False):
-    """Require completed end-to-end evidence with no infrastructure failures."""
+    """Accept completed baseline observations; final evidence must be infrastructure-free."""
     run = Path(evaluation_paths(home, [str(path)])[0])
     manifest = read_json(contained(run, "manifest.json"))
     summary = read_json(contained(run, "summary.json"))
     required = {
         "commit_sha": commit,
         "status": "completed",
-        "success": True,
         "mode": "scored",
         "dataset_kind": "training-set",
     }
     if any(manifest.get(key) != value for key, value in required.items()):
+        raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
+    if not baseline and manifest.get("success") is not True:
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     mode = manifest.get("execution_mode")
     if mode != "full_validation":
@@ -268,7 +269,12 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         not manifest.get("sandbox_started_at")
         or not summary.get("case_count")
         or summary.get("scoring_enabled") is not True
-        or any(summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts"))
+        or (
+            not baseline
+            and any(
+                summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts")
+            )
+        )
     ):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     _record, dataset, cases = load_inputs(home, EvaluationSpec())
@@ -424,7 +430,7 @@ def evaluation_tool(wrapper, options, *, home, timer=None, max_evaluations=10, b
 
 
 class HomeOptimizeStep(BaseStep):
-    """Require a full initial baseline, run the coding agent, and verify its final claim."""
+    """Collect a full initial baseline, run the coding agent, and verify its final claim."""
 
     workspace: HomeWorkspace = Ref(HomeWorkspace, "home.workspace")
     agent_wrapper: OptimizerAgentWrapper = Ref(OptimizerAgentWrapper, "agent_wrapper")
@@ -446,7 +452,7 @@ class HomeOptimizeStep(BaseStep):
             _current, baseline = await blocking(baseline_state, home)
             if baseline is None:
                 response = await required_job(self.agent_wrapper, "home_evaluate")(
-                    **options,
+                    **{**options, "fail_fast": False},
                     debug=False,
                     sampling=False,
                     record_history=True,
@@ -454,7 +460,7 @@ class HomeOptimizeStep(BaseStep):
                     query_ids=None,
                     reuse_construction_from=None,
                 )
-                if not response.success:
+                if not isinstance(response.answer, dict) or response.answer.get("status") != "completed":
                     raise RuntimeError(f"Initial baseline failed: {response.answer}")
                 current, _ = await blocking(baseline_state, home)
                 baseline = await blocking(
@@ -483,6 +489,9 @@ class HomeOptimizeStep(BaseStep):
                 "optimizer",
                 f"Begin optimization.\n{spec.instruction}\n\n"
                 f"Completed full initial baseline: {baseline['evaluation_path']}\n"
+                f"Baseline case statuses: {json.dumps(baseline['summary']['case_status_counts'])}\n"
+                "Baseline question errors are observations, not a reason to stop optimization. "
+                "Inspect infrastructure failures separately; retry the same commit if needed before final selection.\n"
                 f"Formal validation budget: {json.dumps(budget)}\n"
                 f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}\n"
                 "Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path and report. "

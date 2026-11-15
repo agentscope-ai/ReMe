@@ -28,6 +28,7 @@ from test_bounded_agent import RecordingModel
 from test_case_study import RecordingSandbox, report_tokenizer  # noqa: F401  # pylint: disable=unused-import
 from test_evaluation import (  # noqa: F401  # pylint: disable=unused-import
     FakeFactory,
+    FakeWorker,
     home_application,
     preparation_inputs,
     prepared_home,
@@ -496,14 +497,12 @@ async def test_standalone_diagnosis_fresh_state_and_persisted_provenance(app, pr
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("change", ["infra", "partial", "debug", "replay", "wrong_commit"])
+@pytest.mark.parametrize("change", ["partial", "debug", "replay", "wrong_commit"])
 async def test_bad_baseline_rejected_before_optimizer(app, prepared, sandbox, change):
     path = Path(await baseline(app))
     manifest = read_json(path / "manifest.json")
     summary = read_json(path / "summary.json")
-    if change == "infra":
-        summary["case_status_counts"]["infra_error"] = 1
-    elif change == "partial":
+    if change == "partial":
         manifest["case_ids"] = ["1"]
         manifest["query_ids"] = {"1": manifest["query_ids"]["1"]}
     elif change == "debug":
@@ -579,6 +578,47 @@ async def test_infrastructure_baseline_failure_never_calls_optimizer(app, prepar
     response = await app.run_job("home_optimize")
     assert not response.success and not model.calls
     assert "baseline failed" in str(response.answer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("existing_baseline", [False, True])
+async def test_baseline_question_infra_error_continues_optimization(
+    app,
+    prepared,
+    sandbox,
+    monkeypatch,
+    existing_baseline,
+):
+    original = FakeWorker.run_queries
+
+    async def answer(self, queries):
+        result = await original(self, queries)
+        if len(FakeFactory.instances) == 1 and self.case_id == "1":
+            result["queries"][0].update(answer=None, error="AgentScope reply ended: exceed_max_iters")
+        return result
+
+    monkeypatch.setattr(FakeWorker, "run_queries", answer)
+    if existing_baseline:
+        response = await app.run_job("home_evaluate", fail_fast=False)
+        assert not response.success
+    # The optimizer receives the imperfect baseline and can retry its exact commit.
+    model = ScriptedModel(calls=[("home_evaluate", {"debug": False})], final=lambda: final_report(prepared))
+    set_model(app, "home_optimizer", model)
+    response = await app.run_job("home_optimize")
+    assert response.success, response.answer
+    assert model.calls and len(FakeFactory.instances) == 2
+    path = Path(response.answer["baseline_path"])
+    manifest = read_json(path / "manifest.json")
+    summary = read_json(path / "summary.json")
+    assert manifest["status"] == "completed" and manifest["success"] is False
+    assert manifest["options"]["fail_fast"] is False
+    assert summary["case_status_counts"] == {"completed": 1, "candidate_failure": 0, "infra_error": 1}
+    assert summary["query_status_counts"]["completed"] == 1
+    assert summary["query_status_counts"]["infra_error"] == 1
+    assert summary["cases"]["2"]["queries"]["fact:1"]["score"] == 0.5
+    retry = read_json(Path(response.answer["evaluation_path"]) / "manifest.json")
+    assert retry["case_ids"] == manifest["case_ids"] and retry["query_ids"] == manifest["query_ids"]
+    assert retry["success"] is True
 
 
 @pytest.mark.asyncio
