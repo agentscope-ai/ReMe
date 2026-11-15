@@ -51,21 +51,6 @@ npm run dev
 Desktop defaults to `http://127.0.0.1:2333`; change it in Settings. The backend and Desktop are independent processes.
 Closing the workspace hides the window; use the character or tray to reopen it. Quit through the tray to stop Desktop.
 
-On macOS, double-click [`restart_desktop.command`](../restart_desktop.command), or run it from any directory:
-
-```bash
-/path/to/ReMe2/restart_desktop.command
-```
-
-It builds the latest frontend, restarts this checkout's backend and Desktop, verifies their connection, and opens the
-conversation window. The backend loads the repository `.env`, uses `config=proactive`, workspace `ReMe2/.reme` and
-`http://127.0.0.1:2333`. Existing workspace files and desktop settings are retained. Logs are written to
-`reme_desktop/reports/run/`. An unrelated process occupying port 2333 is left running and reported as an error.
-Python selection prefers an explicit `REME_PYTHON=/path/to/python`, then the repository `.venv`, then the active Conda
-environment and other available interpreters. Each candidate is checked against the enabled stock-quote collector's
-`exchange-calendars` dependency. An invalid explicit interpreter fails immediately. The selected Python path is printed,
-and the environment is checked again before building or stopping existing services.
-
 ## Service contract
 
 The client uses the following jobs from the same checkout:
