@@ -158,7 +158,7 @@ class FileSandboxBackend(LocalProcessBackend):
             raise PermissionError(f"Sandbox path is not writable: {path}")
         script = 'mkdir -p -- "$(dirname -- "$1")" && cat > "$1"'
         result = await self._run_job(
-            ["/bin/sh", "-c", script, "sh", path],
+            ["/bin/sh", "-c", script, "sh", target],
             self._cwd,
             data=data,
             timeout=None,

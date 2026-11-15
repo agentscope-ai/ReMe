@@ -3,6 +3,7 @@
 import asyncio
 import os
 import plistlib
+import shutil
 import sys
 from pathlib import Path
 
@@ -351,6 +352,68 @@ async def test_file_writes_require_explicit_grants(tmp_path, monkeypatch, backen
     await backend.write_file(str(workspace / "new"), b"allowed")
     await backend.write_file(str(output / "new"), b"allowed")
     assert run.await_count == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relative", [False, True])
+async def test_sandbox_writes_execute_checked_target(tmp_path, monkeypatch, relative):
+    """Real subprocess writes use the authorized target, not an external alias."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "note.bin"
+    target.write_bytes(b"old")
+    alias = tmp_path / "alias"
+    alias.symlink_to("workspace/note.bin" if relative else target)
+    backend = PathBubbleBackend(cwd=workspace, read_only_paths=[], writable_paths=[str(workspace)])
+
+    async def start(command, cwd, *, stdin):
+        assert command[-1] == str(target)
+        return await LocalProcessBackend()._start_process(command, cwd, stdin=stdin)  # pylint: disable=protected-access
+
+    monkeypatch.setattr(backend, "_start_process", start)
+    await backend.write_file("../alias" if relative else str(alias), b"updated\x00\xff")
+    assert target.read_bytes() == b"updated\x00\xff"
+    assert alias.is_symlink()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relative", [False, True])
+async def test_real_sandbox_writes_authorized_target_through_external_alias(tmp_path, relative):
+    """OS isolation allows canonical target writes without granting alias directory access."""
+    if sys.platform.startswith("linux"):
+        executable = "bwrap"
+    elif sys.platform == "darwin":
+        executable = "sandbox-exec"
+    else:
+        pytest.skip(f"No file sandbox backend for {sys.platform}")
+        return
+    if shutil.which(executable) is None:
+        pytest.skip(f"Real sandbox test requires {executable}")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "note.bin"
+    target.write_bytes(b"old")
+    aliases = tmp_path / "aliases"
+    aliases.mkdir()
+    alias = aliases / "note"
+    alias.symlink_to("../workspace/note.bin" if relative else target)
+    backend = create_file_sandbox_backend(
+        cwd=workspace,
+        read_only_paths=[],
+        writable_paths=[str(workspace)],
+        memory_limit_mib=0,
+    )
+    await backend.write_file(str(target), b"direct")
+    assert target.read_bytes() == b"direct"
+    await backend.write_file("../aliases/note" if relative else str(alias), b"via alias\x00\xff")
+    assert target.read_bytes() == b"via alias\x00\xff"
+    assert alias.is_symlink()
+    outside = tmp_path / "private.bin"
+    outside.write_bytes(b"private")
+    (workspace / "escape").symlink_to(outside)
+    with pytest.raises(PermissionError):
+        await backend.write_file(str(workspace / "escape"), b"forbidden")
+    assert outside.read_bytes() == b"private"
 
 
 @pytest.mark.asyncio
