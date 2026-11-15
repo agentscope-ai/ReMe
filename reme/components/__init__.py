@@ -1,6 +1,7 @@
 """Components"""
 
 from . import agent_wrapper
+from . import action_item_store
 from . import anthropic_relay
 from . import as_llm
 from . import as_decision_model
@@ -49,6 +50,7 @@ __all__ = [
     "RuntimeContext",
     # base components
     "agent_wrapper",
+    "action_item_store",
     "agent_runtime",
     "anthropic_relay",
     "codex_app_server",
