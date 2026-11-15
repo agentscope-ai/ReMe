@@ -5,6 +5,8 @@ import os
 from abc import abstractmethod
 from collections.abc import AsyncGenerator
 
+import httpx
+
 from ..base_component import BaseComponent
 from ...constants import (
     REME_DEFAULT_HOST,
@@ -37,6 +39,11 @@ class BaseClient(BaseComponent):
             host = host or fallback_host
             port = port or fallback_port
         return normalize_connect_host(host), port
+
+    @staticmethod
+    def _build_service_url(host: str, port: int, path: str = "") -> str:
+        """Build a valid HTTP URL for the resolved service address, including IPv6 literals."""
+        return str(httpx.URL(scheme="http", host=host, port=port, path=path))
 
     async def _start(self) -> None:
         """Initialize the client."""

@@ -1,17 +1,33 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, CircleAlert, LoaderCircle, Send } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  LoaderCircle,
+  MessageSquarePlus,
+  Send,
+} from "lucide-react";
 import WorkspaceMarkdown from "./files-workspace/WorkspaceMarkdown";
-import { readChatSession, streamChat } from "./api";
+import {
+  getPaSession,
+  newPaSession,
+  readChatSession,
+  streamChat,
+  streamPaChat,
+} from "./api";
 import { chatStreamError, formatStreamPayloads } from "./chat-stream";
+import { isChatAvailable, isJobAvailable } from "./chat-modes";
 import { useI18n } from "./i18n";
 import { useWorkspaceStore } from "./store";
 import { IS_DEMO } from "./studio-mode";
 import type {
   ChatBlock,
+  AppConfig,
   ChatMessage,
   DetailBlock,
+  PaSession,
+  StreamChunk,
   WorkspaceTab,
 } from "./types";
 import {
@@ -137,18 +153,32 @@ function ChatBlockView({
 export default function Chat({
   tab,
   active,
+  config,
 }: {
   tab: Extract<WorkspaceTab, { type: "agent" }>;
   active: boolean;
+  config?: AppConfig;
 }) {
   const { language, t } = useI18n();
+  const proactive = tab.mode === "pa";
+  const available = isChatAvailable(config, tab.mode);
+  const historySessionId = proactive ? undefined : tab.sessionId;
+  const canReadHistory = isJobAvailable(config, "session_read", "base");
   const [input, setInput] = useState("");
   const [fileDragOver, setFileDragOver] = useState(false);
   const [syncError, setSyncError] = useState("");
+  const [session, setSession] = useState<PaSession>();
+  const [switching, setSwitching] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
-  const { addChatTurn, applyChatChunk, toggleChatBlock, finishChat } =
-    useWorkspaceStore();
+  const {
+    addChatTurn,
+    applyChatChunk,
+    toggleChatBlock,
+    finishChat,
+    selectPaSession,
+    openAgent,
+  } = useWorkspaceStore();
 
   useEffect(() => {
     if (active) endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -156,44 +186,65 @@ export default function Chat({
   useEffect(() => () => controller.current?.abort(), []);
 
   useEffect(() => {
-    if (IS_DEMO || !active || !tab.sessionId || tab.streaming) return;
-    const sessionId = tab.sessionId;
+    if (
+      IS_DEMO ||
+      !available ||
+      !active ||
+      tab.streaming ||
+      switching ||
+      (!proactive && (!historySessionId || !canReadHistory))
+    )
+      return;
     let stopped = false;
-    let unavailable = false;
+    let historyAvailable = canReadHistory;
     let pending = false;
     let timer: ReturnType<typeof setTimeout>;
     let request: AbortController | undefined;
     const refresh = async () => {
       if (
         stopped ||
-        unavailable ||
         pending ||
+        (!proactive && !historyAvailable) ||
         document.visibilityState !== "visible"
       )
         return;
       pending = true;
       request = new AbortController();
-      const current = useWorkspaceStore
-        .getState()
-        .tabs.find((item) => item.id === tab.id);
-      const expectedLastId =
-        current?.type === "agent" ? current.messages.at(-1)?.id : undefined;
       try {
-        const snapshot = await readChatSession(sessionId, request.signal);
-        if (!stopped && document.visibilityState === "visible") {
+        const currentSession: PaSession = proactive
+          ? await getPaSession(request.signal)
+          : { session_id: historySessionId ?? null, status: null };
+        if (stopped || request.signal.aborted) return;
+        if (proactive) {
+          useWorkspaceStore
+            .getState()
+            .selectPaSession(tab.id, currentSession.session_id);
+          setSession(currentSession);
+        }
+        if (currentSession.session_id && historyAvailable) {
+          const current = useWorkspaceStore
+            .getState()
+            .tabs.find((item) => item.id === tab.id);
+          const expectedLastId =
+            current?.type === "agent" ? current.messages.at(-1)?.id : undefined;
+          const snapshot = await readChatSession(
+            currentSession.session_id,
+            request.signal,
+          );
+          if (stopped || request.signal.aborted) return;
           if (snapshot)
             useWorkspaceStore
               .getState()
               .syncChatSession(tab.id, snapshot, expectedLastId);
-          else unavailable = true;
-          setSyncError("");
+          else historyAvailable = false;
         }
+        setSyncError("");
       } catch (error) {
         if (!stopped && !request.signal.aborted)
           setSyncError(error instanceof Error ? error.message : String(error));
       } finally {
         pending = false;
-        if (!stopped && !unavailable) {
+        if (!stopped && (proactive || historyAvailable)) {
           clearTimeout(timer);
           timer = setTimeout(() => void refresh(), 5000);
         }
@@ -214,7 +265,46 @@ export default function Chat({
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [active, tab.id, tab.sessionId, tab.streaming]);
+  }, [
+    active,
+    available,
+    proactive,
+    historySessionId,
+    canReadHistory,
+    tab.id,
+    tab.streaming,
+    switching,
+  ]);
+
+  const ready = available && (!proactive || IS_DEMO || session !== undefined);
+  const busy = Boolean(
+    tab.streaming || switching || (proactive && session?.status === "active"),
+  );
+  const canSend = ready && !busy && session?.status !== "error";
+  const startNewSession = async () => {
+    if (!ready || busy || controller.current) return;
+    if (!proactive) {
+      openAgent("chat");
+      return;
+    }
+    const request = new AbortController();
+    controller.current = request;
+    setSwitching(true);
+    try {
+      const sessionId = await newPaSession(request.signal);
+      if (request.signal.aborted) return;
+      selectPaSession(tab.id, sessionId);
+      setSession({ session_id: sessionId, status: "idle" });
+      setInput("");
+      setSyncError("");
+    } catch (error) {
+      if (!request.signal.aborted)
+        setSyncError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (controller.current === request) controller.current = null;
+      setSwitching(false);
+    }
+  };
 
   const suggestions = (
     <div className="suggestions">
@@ -231,7 +321,7 @@ export default function Chat({
 
   const send = async () => {
     const query = input.trim();
-    if (!query || tab.streaming) return;
+    if (!query || !canSend || controller.current) return;
     setInput("");
     const user: ChatMessage = {
       id: crypto.randomUUID(),
@@ -249,10 +339,13 @@ export default function Chat({
     const requestController = new AbortController();
     controller.current = requestController;
     const error = await chatStreamError(
-      () =>
-        streamChat(query, tab.sessionId, requestController.signal, (chunk) =>
-          applyChatChunk(tab.id, assistant.id, chunk),
-        ),
+      () => {
+        const onChunk = (chunk: StreamChunk) =>
+          applyChatChunk(tab.id, assistant.id, chunk);
+        return proactive
+          ? streamPaChat(query, requestController.signal, onChunk)
+          : streamChat(query, tab.sessionId, requestController.signal, onChunk);
+      },
       requestController.signal,
       t("chatFailed"),
     );
@@ -262,12 +355,42 @@ export default function Chat({
 
   return (
     <div className="chat" style={active ? undefined : { display: "none" }}>
+      <div className="chat-session">
+        <div>
+          <strong>{t(proactive ? "paChat" : "chatTab")}</strong>
+          <span role="status">
+            {t(
+              !available && config
+                ? "chatNotEnabled"
+                : busy
+                ? "streaming"
+                : session?.status === "error"
+                ? "sessionUnavailable"
+                : ready
+                ? "sessionReady"
+                : "loadingSession",
+            )}
+          </span>
+        </div>
+        <button onClick={startNewSession} disabled={!ready || busy}>
+          <MessageSquarePlus size={15} />
+          {t("newConversation")}
+        </button>
+      </div>
       <div className="messages">
         {!tab.messages.length && (
           <div className="chat-empty">
             <div className="agent-logo" aria-hidden="true" />
-            <h1>{t("chatTitle")}</h1>
-            <p>{t(IS_DEMO ? "demoChatDescription" : "chatDescription")}</p>
+            <h1>{t(proactive ? "paChat" : "chatTitle")}</h1>
+            <p>
+              {t(
+                IS_DEMO
+                  ? "demoChatDescription"
+                  : proactive
+                  ? "paChatDescription"
+                  : "chatDescription",
+              )}
+            </p>
             {suggestions}
           </div>
         )}
@@ -328,6 +451,11 @@ export default function Chat({
         {IS_DEMO && tab.messages.length > 0 && suggestions}
         <div ref={endRef} />
       </div>
+      {!available && config && (
+        <div className="session-sync-error" role="status">
+          {t(proactive ? "paChatSetup" : "chatNotEnabled")}
+        </div>
+      )}
       {syncError && (
         <div className="session-sync-error" role="status">
           {t("sessionSyncFailed")}: {syncError}
@@ -356,6 +484,7 @@ export default function Chat({
       >
         <div>
           <textarea
+            disabled={!available}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             placeholder={t("askWorkspace")}
@@ -369,7 +498,7 @@ export default function Chat({
           />
           <button
             onClick={send}
-            disabled={!input.trim() || tab.streaming}
+            disabled={!input.trim() || !canSend}
             aria-label={t("send")}
           >
             <Send size={17} />

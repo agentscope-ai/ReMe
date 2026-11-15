@@ -104,6 +104,13 @@ def test_explicit_service_jobs_reject_missing_disabled_and_unsupported_jobs(opti
 async def test_mcp_services_list_and_call_jobs_without_explicit_object_schema(service_class, mode, parameters):
     """Optional job schemas must not break discovery or calls in either protocol era."""
     from fastmcp import Client
+    from inspect import signature
+
+    client_options = {}
+    if "mode" in signature(Client).parameters:
+        client_options["mode"] = mode
+    elif mode == "legacy":
+        pytest.skip("FastMCP 3 has no protocol mode selection")
 
     service = service_class()
     service.build_service(_dummy_app())
@@ -114,11 +121,12 @@ async def test_mcp_services_list_and_call_jobs_without_explicit_object_schema(se
     assert service.add_job(BaseJob(name="typed_params", parameters={"type": "object"})) is True
 
     server = service.service if isinstance(service, MCPService) else service.mcp_server
-    async with Client(server, mode=mode) as client:
+    async with Client(server, **client_options) as client:
         tools = {tool.name: tool for tool in await client.list_tools()}
         assert set(tools) == {"optional_params", "typed_params"}
-        assert tools[job.name].input_schema == {"type": "object", **original_parameters}
-        assert tools["typed_params"].input_schema == {"type": "object"}
+        schema_field = "input_schema" if "input_schema" in type(tools[job.name]).model_fields else "inputSchema"
+        assert getattr(tools[job.name], schema_field) == {"type": "object", **original_parameters}
+        assert getattr(tools["typed_params"], schema_field) == {"type": "object"}
         assert not (await client.call_tool(job.name, {"query": "hello"})).is_error
         assert not (await client.call_tool("typed_params", {})).is_error
 
@@ -231,6 +239,8 @@ def test_network_services_accept_explicit_wildcard_bind():
     """Remote access remains available through explicit service configuration."""
     assert HttpService(host="0.0.0.0").host == "0.0.0.0"
     assert MCPService(host="0.0.0.0").host == "0.0.0.0"
+    assert HttpService(host="::").host == "::"
+    assert MCPService(host="::").host == "::"
 
 
 def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):
@@ -242,5 +252,18 @@ def test_service_lifespan_advertises_loopback_for_wildcard_bind(monkeypatch):
         lifespan = HttpService()._lifespan(app, "0.0.0.0", 8123)  # pylint: disable=protected-access
         async with lifespan(None):
             assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "127.0.0.1", "port": 8123}
+
+    asyncio.run(run())
+
+
+def test_service_lifespan_advertises_ipv6_loopback_for_ipv6_wildcard(monkeypatch):
+    """IPv6 wildcard binds are translated to a connectable in-process address."""
+    monkeypatch.delenv(REME_SERVICE_INFO, raising=False)
+
+    async def run():
+        app = _dummy_app()
+        lifespan = HttpService()._lifespan(app, "::", 8123)  # pylint: disable=protected-access
+        async with lifespan(None):
+            assert json.loads(os.environ[REME_SERVICE_INFO]) == {"host": "::1", "port": 8123}
 
     asyncio.run(run())

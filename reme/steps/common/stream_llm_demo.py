@@ -15,18 +15,16 @@ class StreamLLMDemoStep(BaseStep):
 
     Inputs (from RuntimeContext):
         query      (str, required): user message content.
-        sys_prompt (str, optional): system prompt for the agent.
+        sys_prompt (str, optional): system prompt for the agent; defaults to empty.
 
     Output (written to context.response.answer):
         The agent's final reply text.
     """
 
-    DEFAULT_SYS_PROMPT = "You are a helpful assistant. Provide clear and detailed responses."
-
     async def execute(self):
         assert self.context is not None
         query: str = self.context.get("query", "")
-        sys_prompt: str = self.context.get("sys_prompt") or self.DEFAULT_SYS_PROMPT
+        sys_prompt: str = self.context.get("sys_prompt") or ""
 
         if not query:
             self.context.response.success = False

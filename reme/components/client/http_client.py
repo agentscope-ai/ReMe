@@ -26,7 +26,7 @@ class HttpClient(BaseClient):
         super().__init__(**kwargs)
 
         host, port = self._resolve_service_address(host, port)
-        self.base_url = f"http://{host}:{port}"
+        self.base_url = self._build_service_url(host, port)
         self.timeout = timeout
         self.show_metadata = show_metadata
 

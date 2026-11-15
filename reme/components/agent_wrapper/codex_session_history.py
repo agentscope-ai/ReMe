@@ -232,4 +232,9 @@ def session_snapshot(thread, records: list[dict], recovered_ids: set[str]) -> Se
     # user-owned proactive records rather than silently dropping messages.
     for remaining in proactive.values():
         messages.extend(remaining)
-    return SessionSnapshot(session_id=thread.id, state=session_status(thread), messages=messages)
+    return SessionSnapshot(
+        session_id=thread.id,
+        state=session_status(thread),
+        messages=messages,
+        last_turn_id=thread.turns[-1].id if thread.turns else None,
+    )

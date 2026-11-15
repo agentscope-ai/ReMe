@@ -8,6 +8,7 @@ from functools import wraps
 from pathlib import Path
 
 import pytest
+from watchfiles import Change
 
 from reme.components.application_context import ApplicationContext
 from reme.components.file_catalog import LocalFileCatalog
@@ -15,7 +16,6 @@ from reme.components.runtime_context import RuntimeContext
 from reme.config.config_parser import resolve_app_config
 from reme.schema import ApplicationConfig, FileNode
 from reme.steps.index.cleanup_catalog import CleanupCatalogStep
-from reme.steps.index.init_changes import InitChangesStep
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +29,7 @@ def fixed_clock(monkeypatch):
         def now(cls, tz=None):
             return cls(2026, 11, 5, 0, 30, tzinfo=timezone.utc).astimezone(tz)
 
-    monkeypatch.setattr("reme.components.file_catalog.local_file_catalog.datetime", FixedDatetime)
+    monkeypatch.setattr("reme.components.file_catalog.base_file_catalog.datetime", FixedDatetime)
 
 
 def _catalog(workspace, **kwargs):
@@ -86,13 +86,16 @@ async def test_retention_uses_directory_dates_and_persists_only_successful_delet
 async def test_cleanup_uses_configured_timezone_and_resource_directory(tmp_path):
     """The configured resource root and local date determine eligibility."""
     catalog = _catalog(tmp_path, timezone="America/Los_Angeles", resource_dir="assets/tmp")
+    catalog.watch_dirs = ["resource_dir"]
+    catalog.ttl_days = 7
     node = _write(tmp_path, "assets/tmp/2026-10-29/source.bin")
     await catalog.upsert([node])
     step = CleanupCatalogStep(app_context=catalog.app_context, file_catalog="resource")
     response = await step(RuntimeContext(ttl_days=7))
     assert response.success is True
     assert response.metadata["deleted_dirs"] == []
-    response = await step(RuntimeContext(ttl_days=6))
+    catalog.ttl_days = 6
+    response = await step(RuntimeContext())
     assert response.metadata["deleted_dirs"] == ["assets/tmp/2026-10-29"]
     assert not (tmp_path / node.path).exists()
 
@@ -152,7 +155,9 @@ async def test_cleanup_reports_failures_without_pruning_failed_catalog_entries(t
         original(path, **kwargs)
 
     monkeypatch.setattr("reme.components.file_catalog.local_file_catalog.shutil.rmtree", remove)
-    step = CleanupCatalogStep(app_context=catalog.app_context, file_catalog="resource", ttl_days=7)
+    catalog.watch_dirs = ["resource_dir"]
+    catalog.ttl_days = 7
+    step = CleanupCatalogStep(app_context=catalog.app_context, file_catalog="resource")
     response = await step(RuntimeContext())
     assert response.success is False
     assert response.metadata["errors"] == {"resource/2026-10-01": "blocked"}
@@ -232,7 +237,9 @@ async def test_cleanup_retries_catalog_persistence_after_a_write_failure(tmp_pat
     with pytest.raises(OSError, match="disk full"):
         await catalog.cleanup_expired("resource", 7)
     monkeypatch.setattr(module, "write_jsonl_zst", original)
-    await catalog.cleanup_expired("resource", 7)
+    restarted = _catalog(tmp_path)
+    await restarted.load()
+    await restarted.cleanup_expired("resource", 7)
     reloaded = _catalog(tmp_path)
     await reloaded.load()
     assert await reloaded.get_nodes() == []
@@ -250,31 +257,44 @@ async def test_cleanup_refuses_platforms_without_safe_directory_deletion(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_proactive_config_catalogs_every_suffix_and_cleans_up_through_registered_step(tmp_path):
-    """Exercise the configured init -> catalog -> cleanup path without starting any model providers."""
+async def test_proactive_watcher_only_observes_and_cleanup_uses_shared_catalog_settings(tmp_path, monkeypatch):
+    """Proactive has one scope, a read-only watcher, and TTL cleanup independent of consumption."""
     config = ApplicationConfig(**resolve_app_config(config="proactive", log_config=False, workspace_dir=str(tmp_path)))
     app = ApplicationContext(**config.model_dump())
-    catalog = LocalFileCatalog(name="resource", app_context=app)
+    catalog = LocalFileCatalog(
+        name="resource",
+        app_context=app,
+        **config.components["file_catalog"]["resource"].model_dump(),
+    )
     app.components["file_catalog"] = {"resource": catalog}
     paths = ["resource/2026-10-01/source.pdf", "resource/2026-11-05/source.unknown"]
     for path in paths:
         _write(tmp_path, path)
     watcher = config.jobs["resource_watch_loop"]
-    kwargs = watcher.model_extra
-    assert kwargs["watch_suffixes"] == []
-    for producer in watcher.steps:
-        assert producer.model_extra["monitor_name"] == "resource"
-        assert producer.model_extra["dispatch_steps"] == [
-            {"backend": "update_catalog_step", "file_catalog": "resource"},
-        ]
-    await InitChangesStep(app_context=app, **watcher.steps[0].model_dump())(RuntimeContext(**kwargs))
-    assert {node.path for node in await catalog.get_nodes()} == set(paths)
+    assert watcher.model_extra == {"file_catalog": "resource"}
+    assert [step.backend for step in watcher.steps] == ["watch_changes_step"]
+    assert watcher.steps[0].model_extra["dispatch_steps"] == ["log_changes_step"]
+    from reme.steps.index.watch_changes import WatchChangesStep
+
+    step = WatchChangesStep(app_context=app, **watcher.steps[0].model_dump())
+    step.context = RuntimeContext(stop_event=asyncio.Event(), **watcher.model_extra)
+    assert step._get_watch_rules() == catalog.watch_rules  # pylint: disable=protected-access
+
+    async def changes(*_paths, **_kwargs):
+        yield {(Change.added, str(tmp_path / paths[1]))}
+
+    monkeypatch.setattr("reme.steps.index.watch_changes.awatch", changes)
+    await step.execute()
+    assert not catalog.watch_suffixes
+    assert catalog.watch_filenames == ["metadata.json"]
+    assert catalog.ttl_days == 7
+    assert await catalog.get_nodes() == []
     cleanup = config.jobs["resource_cleanup_cron"]
-    assert cleanup.backend == "cron"
-    assert cleanup.model_extra["cron"] == "0 * * * *"
+    assert cleanup.model_extra == {"cron": "0 * * * *", "file_catalog": "resource"}
     cleanup_config = cleanup.steps[0].model_dump()
     step_cls = app.registry.get("step", cleanup_config["backend"])
     response = await step_cls(app_context=app, **cleanup_config)(RuntimeContext(**cleanup.model_extra))
     assert response.success is True
     assert response.metadata["deleted_dirs"] == ["resource/2026-10-01"]
-    assert [node.path for node in await catalog.get_nodes()] == [paths[1]]
+    assert (tmp_path / paths[1]).is_file()
+    assert await catalog.get_nodes() == []

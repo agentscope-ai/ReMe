@@ -15,6 +15,36 @@ permissions:
   contents: read
 
 jobs:
+  hermes-embedded:
+    name: Hermes embedded - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install minimal runtime with Hermes shared dependency pins
+        run: |
+          python -m pip install -e ".[hermes]" pytest pytest-asyncio "fastmcp==3.4.4" "mcp==1.28.1" \
+            -c tests/constraints/hermes-0.21.4.txt
+          python -m pip check
+      - name: Test embedded lifecycle and shared dependency compatibility
+        run: |
+          python -m pytest tests/unit/test_hermes_agent_integration.py \
+            tests/unit/test_application_config.py tests/unit/test_as_llm_lazy.py \
+            tests/unit/test_cron_delay.py tests/unit/test_package_versions.py \
+            tests/unit/test_mcp_client.py tests/unit/test_service.py -q
+
   unit-tests:
     name: Unit Tests - py${{ matrix.python-version }}
     runs-on: ubuntu-latest

@@ -25,6 +25,8 @@ on:
       - "integrations/openclaw/figures/**"
       - "plugins/*/README*.md"
       - "benchmark/*/README*.md"
+      - "benchmark/memlens/docs/**"
+      - "benchmark/mobilemem/docs/**"
       - "benchmark/toolmemory/gitcha.png"
       - "AGENTS.md"
       - ".github/workflows/deploy-docs.yml"

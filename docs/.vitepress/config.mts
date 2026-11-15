@@ -19,6 +19,11 @@ function readSourceMap(): Record<string, string> {
 }
 
 const sourceMap = readSourceMap();
+const mirroredPaths = Object.fromEntries(
+  Object.entries(sourceMap)
+    .filter(([destination, source]) => source.endsWith(".md") && destination.endsWith(".md"))
+    .map(([destination, source]) => [source, destination]),
+);
 
 function collectMarkdown(directory: string, root = directory): string[] {
   const files: string[] = [];
@@ -212,6 +217,8 @@ function benchmarksSidebar(language: "zh" | "en"): DefaultTheme.SidebarItem[] {
     collapsed: false,
     items: [
       { text: "LongMemEval", link: `/${language}/benchmarks/longmemeval` },
+      { text: "MemLens-256K", link: `/${language}/benchmarks/memlens` },
+      { text: "MobileMem", link: `/${language}/benchmarks/mobilemem` },
       { text: "BEAM", link: `/${language}/benchmarks/beam` },
       { text: "π-Bench", link: `/${language}/benchmarks/pibench` },
       { text: "Tool Memory / ExpG", link: `/${language}/benchmarks/toolmemory` },
@@ -273,9 +280,19 @@ function configureRepositoryLinks(md: any) {
           const originalPage = sourcePathFor(env.relativePath);
           const originalTarget = path.posix.normalize(path.posix.join(path.posix.dirname(originalPage), cleanTarget));
           const suffix = target.slice(cleanTarget.length);
-          const url = ruleName === "image"
-            ? `https://raw.githubusercontent.com/agentscope-ai/ReMe/main/${originalTarget}${suffix}`
-            : `${repository}/blob/main/${originalTarget}${suffix}`;
+          const mirroredPath = mirroredPaths[originalTarget]
+            || (originalTarget.startsWith("docs/") ? originalTarget.slice("docs/".length) : undefined);
+          const figurePrefix = "benchmark/memlens/docs/figure/";
+          let url: string;
+          if (mirroredPath && fs.existsSync(path.join(sourceRoot, mirroredPath))) {
+            url = `/${mirroredPath.replace(/\.md$/, "")}${suffix}`;
+          } else if (originalTarget.startsWith(figurePrefix)) {
+            url = `/figures/benchmarks/memlens/${originalTarget.slice(figurePrefix.length)}${suffix}`;
+          } else if (ruleName === "image") {
+            url = `https://raw.githubusercontent.com/agentscope-ai/ReMe/main/${originalTarget}${suffix}`;
+          } else {
+            url = `${repository}/blob/main/${originalTarget}${suffix}`;
+          }
           token.attrs[attributeIndex][1] = url;
         }
       }

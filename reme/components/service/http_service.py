@@ -244,7 +244,7 @@ class HttpService(BaseService):
         """Register a StreamJob as POST /{job.name} streaming chunks as text/event-stream."""
 
         async def endpoint(request: Request) -> StreamingResponse:
-            stream_queue: asyncio.Queue = asyncio.Queue()
+            stream_queue: asyncio.Queue = asyncio.Queue(maxsize=job.stream_queue_size)
             task = asyncio.create_task(
                 job(stream_queue=stream_queue, **request.model_dump(exclude_none=True)),
             )

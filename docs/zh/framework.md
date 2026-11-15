@@ -562,6 +562,10 @@ Codex wrapper 通过 `app_server: default` 或 `app_server: oauth` 引用共享�
 并分别配置模型、指令和会话。不传 `session_id` 时创建新 thread；传回已有 `session_id` 时续聊。
 不同 thread 可以并发，同一 thread 的操作串行。
 
+`await wrapper.get_session_path(session_id)` 返回原生会话文件的 `Path`；Codex 未提供路径时返回 `None`。
+第一轮对话前文件可能尚未创建。查询错误继续传播，返回路径必须位于配置的 `codex_home` 内。
+查询不恢复 thread，也不加载对话历史。其他后端暂时抛出 `NotImplementedError`。
+
 默认使用 `approval_mode: deny_all` 和 `sandbox: full-access`；SDK 将该模式映射为 `approval_policy: never`，
 可用工具直接执行，不经过人工或模型审批。需要新增权限的请求直接拒绝，不弹出审批。
 如需自动审批，可显式设置 `approval_mode: auto_review`。工具白名单与注入参数约束继续生效。

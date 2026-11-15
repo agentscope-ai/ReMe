@@ -349,20 +349,24 @@ class ZvecLocalFileStore(LocalFileStore):
         if not files:
             return
         assert self.file_graph is not None
+        # Use the same normalized records the parent publishes, so the snapshot
+        # and the delta below address the paths and handles that were stored.
+        files = self.prepare_upsert_batch(files)
 
         # Snapshot pre-upsert chunk ids so we can drop chunks the new revision removed.
         old_nodes = await self.file_graph.get_nodes([node.path for node, _ in files])
         old_ids_by_path = {n.path: set(n.chunk_ids) for n in old_nodes}
-        await super().upsert(files)
+        dropped_ids = await self._upsert_canonical_batch(files)
 
         if self._embedding_rebuild_pending or self._collection is None or self.embedding_store is None:
             return
-        self._sync_collection_after_upsert(files, old_ids_by_path)
+        self._sync_collection_after_upsert(files, old_ids_by_path, dropped_ids)
 
     def _sync_collection_after_upsert(
         self,
         files: list[tuple[FileNode, list[FileChunk]]],
         old_ids_by_path: dict[str, set[str]],
+        dropped_ids: list[str],
     ) -> None:
         """Apply add / delete deltas to the zvec collection natively.
 
@@ -374,7 +378,7 @@ class ZvecLocalFileStore(LocalFileStore):
         no longer carry a usable vector are removed so the indexed id set stays
         exactly the set of embeddable chunks.
         """
-        to_delete: list[str] = []
+        to_delete: list[str] = list(dropped_ids)
         to_upsert: list[FileChunk] = []
         for node, _ in files:
             new_ids = set(node.chunk_ids)
@@ -385,7 +389,7 @@ class ZvecLocalFileStore(LocalFileStore):
                     to_delete.append(cid)  # _delete_docs ignores ids that were never indexed
                     continue
                 to_upsert.append(chunk)
-        self._delete_docs(to_delete)
+        self._delete_docs(list(dict.fromkeys(to_delete)))
         self._upsert_docs(to_upsert)
 
     @BaseFileStore.serialized

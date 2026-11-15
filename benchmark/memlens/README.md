@@ -3,6 +3,9 @@
 Evaluate ReMe Image on MemLens's official 195-question memory-agent subset.
 Each length uses its own full histories; every question has an isolated workspace.
 
+The [MemLens-256K evaluation report](docs/en/evaluation.md) covers four-model results,
+the fixed 189/195-question comparison and method settings.
+
 ## Run
 
 ```bash

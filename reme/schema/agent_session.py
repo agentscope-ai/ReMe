@@ -34,3 +34,5 @@ class SessionSnapshot(BaseModel):
     session_id: str
     state: SessionStatus
     messages: list[SessionMessage] = Field(default_factory=list)
+    path: str | None = None
+    last_turn_id: str | None = None

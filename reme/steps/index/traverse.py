@@ -29,6 +29,7 @@ class _TraversalLink:
 
 Adjacency = dict[str, list[_TraversalLink]]
 EdgeKey = tuple[str, str, str | None]
+_MAX_DESCRIPTION_CHARS = 160
 
 
 def _build_adjacency(nodes: list[FileNode]) -> tuple[Adjacency, Adjacency]:
@@ -138,9 +139,34 @@ def _build_graph(
     )
 
 
+def _render_answer(graph: TraverseGraph) -> str:
+    """Render reached nodes and edges as a self-contained agent-readable summary."""
+    lines = [
+        f"Traverse results (seeds={', '.join(graph.seeds)}; depth={graph.depth}; direction={graph.direction})",
+        "Nodes:",
+    ]
+    for node in graph.nodes:
+        label = f" — {node.name}" if node.name else ""
+        brief_description = " ".join(node.description.split())
+        if len(brief_description) > _MAX_DESCRIPTION_CHARS:
+            brief_description = f"{brief_description[: _MAX_DESCRIPTION_CHARS - 3].rstrip()}..."
+        description = f": {brief_description}" if brief_description else ""
+        availability = " (no indexed FileNode/frontmatter; file may still exist on disk)" if not node.indexed else ""
+        lines.append(f"[{node.depth}] {node.path}{label}{description}{availability}")
+
+    lines.append("Edges:")
+    if graph.edges:
+        for edge in graph.edges:
+            target = f"{edge.target}#{edge.target_anchor}" if edge.target_anchor else edge.target
+            lines.append(f"{edge.source} -> {target} (depth={edge.depth})")
+    else:
+        lines.append("(no edges reached within requested depth and direction)")
+    return "\n".join(lines)
+
+
 @R.register("traverse_step")
 class TraverseStep(BaseStep):
-    """Return a bounded wikilink graph rooted at one or more workspace paths."""
+    """Return a readable bounded traversal answer and its structured graph in metadata."""
 
     async def execute(self):
         assert self.context is not None
@@ -173,7 +199,8 @@ class TraverseStep(BaseStep):
         )
 
         self.context.response.success = True
-        self.context.response.answer = graph.model_dump()
+        self.context.response.answer = _render_answer(graph)
+        self.context.response.metadata["graph"] = graph.model_dump()
         self.logger.info(
             f"[{self.name}] seeds={seeds!r} depth={max_depth} direction={direction} "
             f"nodes={len(graph.nodes)} edges={len(graph.edges)}",

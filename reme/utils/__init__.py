@@ -21,6 +21,7 @@ from .service_utils import (
     running_service_config,
 )
 from .similarity_utils import cosine_similarity, batch_cosine_similarity
+from .path_utils import canonical_index_path
 from .token_utils import estimate_token_count
 from .qwen_token_tools import QwenTokenTools
 from .web_static import REME_WEB_STATIC_DIR, resolve_web_static_dir
@@ -55,6 +56,7 @@ __all__ = [
     "running_service_config",
     "cosine_similarity",
     "batch_cosine_similarity",
+    "canonical_index_path",
     "estimate_token_count",
     "QwenTokenTools",
     "REME_WEB_STATIC_DIR",

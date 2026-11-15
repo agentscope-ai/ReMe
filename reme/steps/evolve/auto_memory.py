@@ -730,8 +730,8 @@ class AutoMemoryStep(BaseStep):
         self.logger.info(f"[{self.name}] refresh index done path={note_path}")
 
         source_conversation = self._session_link(session_id)
-        self.context.response.success = True
-        self.context.response.answer = text
+        self.context.response.success = "error" not in index_payload
+        self.context.response.answer = text if self.context.response.success else f"Error: {index_payload['error']}"
         self.context.response.metadata.update(
             {
                 "date": day,

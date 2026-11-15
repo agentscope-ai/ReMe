@@ -430,8 +430,14 @@ class BaseAutoResourceStep(BaseStep):
             added,
             metadata=note_metadata,
         )
-        self.context.response.success = True
-        self.context.response.answer = text
+        # Preserve a derived-index refresh failure reported during finalisation.
+        index_result = self.context.response.metadata.get("index") or {}
+        if "error" in index_result:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {index_result['error']}"
+        else:
+            self.context.response.success = True
+            self.context.response.answer = text
         if note_path is None:
             self.logger.info(f"[{self.name}] done without note file_path={file_path} modified=False")
             return None
@@ -636,6 +642,9 @@ class BaseAutoResourceStep(BaseStep):
                 "index": index_payload,
             },
         )
+        if "error" in index_payload:
+            self.context.response.success = False
+            self.context.response.answer = f"Error: {index_payload['error']}"
         self._validate_resource_note(note_path, file_path, state.before_bytes)
         return note_path
 
@@ -678,8 +687,12 @@ class BaseAutoResourceStep(BaseStep):
         self.logger.info(f"[{self.name}] catalog delete done note={note_rel}")
         index_payload = await self._refresh_day_index(date_str)
 
-        self.context.response.success = True
-        self.context.response.answer = f"Deleted resource note: {note_rel}"
+        self.context.response.success = "error" not in index_payload
+        self.context.response.answer = (
+            f"Deleted resource note: {note_rel}"
+            if self.context.response.success
+            else f"Error: {index_payload['error']}"
+        )
         self.context.response.metadata["index"] = index_payload
 
     @abstractmethod

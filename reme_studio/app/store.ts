@@ -11,6 +11,7 @@ import {
 } from "./chat-stream";
 import type {
   ChatMessage,
+  ChatMode,
   MemoryGraphRoot,
   StreamChunk,
   WorkspaceTab,
@@ -20,7 +21,11 @@ import {
   type PersistedWorkspaceState,
 } from "./workspace-persistence";
 import { markMarkdownContentSaved } from "./markdown-save";
-import { mergeSessionTab } from "./session-sync";
+import {
+  bindChatSession,
+  mergeSessionTab,
+  selectPaSession,
+} from "./session-sync";
 import type { SessionSnapshot } from "./types";
 import { unsavedTabsClosedBy } from "./tab-close";
 
@@ -28,7 +33,8 @@ interface WorkspaceState {
   tabs: WorkspaceTab[];
   activeTabId?: string;
   openMarkdown: (path: string) => string;
-  openAgent: () => string;
+  openAgent: (mode: ChatMode) => string;
+  selectPaSession: (tabId: string, sessionId: string | null) => void;
   openGraph: (root: MemoryGraphRoot) => string;
   closeTab: (id: string, discardUnsaved?: boolean) => void;
   closeOtherTabs: (id: string, discardUnsaved?: boolean) => void;
@@ -75,7 +81,6 @@ function updateChatMessage(
 }
 
 const fileTitle = (path: string) => path.split("/").pop() || path;
-// Preserve the original key so existing tabs, chats, and unsaved drafts survive the Studio rename.
 const WORKSPACE_STORAGE_KEY = IS_DEMO
   ? `reme-demo-tabs-v1-${useLanguageStore.getState().language}`
   : "reme-workspace";
@@ -124,17 +129,27 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           }));
           return id;
         },
-        openAgent: () => {
-          const id = `agent:${crypto.randomUUID()}`;
+        openAgent: (mode) => {
+          const existing =
+            mode === "pa" &&
+            get().tabs.find((tab) => tab.type === "agent" && tab.mode === "pa");
+          if (existing) {
+            set({ activeTabId: existing.id });
+            return existing.id;
+          }
+          const id =
+            mode === "pa" ? "agent:pa" : `agent:${crypto.randomUUID()}`;
           set((state) => ({
             tabs: [
               ...state.tabs,
-              { id, type: "agent", title: "", messages: [] },
+              { id, type: "agent", mode, title: "", messages: [] },
             ],
             activeTabId: id,
           }));
           return id;
         },
+        selectPaSession: (tabId, sessionId) =>
+          updateTab(tabId, "agent", (tab) => selectPaSession(tab, sessionId)),
         openGraph: (root) => {
           const id = `graph:${root}`;
           const existing = get().tabs.find(
@@ -213,8 +228,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           })),
         applyChatChunk: (tabId, messageId, chunk) =>
           updateTab(tabId, "agent", (tab) => {
-            const updated = updateChatMessage(tab, messageId, (message) =>
-              applyStreamChunk(message, chunk),
+            if (!tab.messages.some((message) => message.id === messageId))
+              return tab;
+            const updated = updateChatMessage(
+              bindChatSession(tab, messageId, chunk),
+              messageId,
+              (message) => applyStreamChunk(message, chunk),
             );
             const turnId =
               chunk.chunk_type === "reply_start" &&
@@ -230,7 +249,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
                   : message,
               );
             }
-            return { ...updated, sessionId: chunk.session_id || tab.sessionId };
+            return updated;
           }),
         toggleChatBlock: (tabId, messageId, blockId, expanded) =>
           updateTab(tabId, "agent", (tab) =>
@@ -239,12 +258,16 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ),
           ),
         finishChat: (tabId, messageId, error) =>
-          updateTab(tabId, "agent", (tab) => ({
-            ...updateChatMessage(tab, messageId, (message) =>
-              finishChatMessage(message, error),
-            ),
-            streaming: false,
-          })),
+          updateTab(tabId, "agent", (tab) =>
+            tab.messages.some((message) => message.id === messageId)
+              ? {
+                  ...updateChatMessage(tab, messageId, (message) =>
+                    finishChatMessage(message, error),
+                  ),
+                  streaming: false,
+                }
+              : tab,
+          ),
         syncChatSession: (tabId, snapshot, expectedLastId) =>
           updateTab(tabId, "agent", (tab) =>
             mergeSessionTab(tab, snapshot, expectedLastId),
@@ -260,7 +283,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         prepareWorkspaceSnapshot(state.tabs, state.activeTabId),
       merge: (persisted, current) => ({
         ...current,
-        ...(persisted as PersistedWorkspaceState),
+        ...prepareWorkspaceSnapshot(
+          (persisted as PersistedWorkspaceState).tabs,
+          (persisted as PersistedWorkspaceState).activeTabId,
+        ),
       }),
     },
   ),

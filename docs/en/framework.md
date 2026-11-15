@@ -584,6 +584,11 @@ Codex wrappers reference `app_server: default` or `app_server: oauth`. Multiple 
 keeping their own models, instructions and conversations. Omit `session_id` to start a new thread; pass a returned
 `session_id` to continue it. Different threads can execute concurrently; operations on one thread are serialized.
 
+`await wrapper.get_session_path(session_id)` returns the native session file as a `Path`, or `None` when Codex
+reports no path. The file may not exist before the first turn. Lookup errors propagate, and returned paths must stay
+inside the configured `codex_home`. The lookup does not resume the thread or load its turn history. Other backends
+currently raise `NotImplementedError`.
+
 The default is `approval_mode: deny_all` with `sandbox: full-access`: the SDK maps this mode to
 `approval_policy: never`, so available tools run without human or model approval. Requests that need additional
 permissions are rejected rather than prompting. Set `approval_mode: auto_review` to opt into the configured

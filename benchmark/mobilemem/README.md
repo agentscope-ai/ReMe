@@ -5,6 +5,9 @@ dialogue history. Original dialogue text, including any descriptions already in 
 Separate summaries/captions, reference answers, evidence annotations and question types are not added to candidate Jobs.
 Native `multi_visual_reasoning` questions are not relabelled or included.
 
+The [evaluation report](docs/en/evaluation.md) covers the Qwen, Kimi and DeepSeek results,
+the fixed 1,333-question denominator and historical run settings.
+
 ## Run
 
 Install both plugins and extract the official archive without changing its images:
