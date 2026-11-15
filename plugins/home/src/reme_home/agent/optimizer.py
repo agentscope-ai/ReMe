@@ -238,9 +238,21 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         "mode": "scored",
         "dataset_kind": "training-set",
     }
-    if any(manifest.get(key) != value for key, value in required.items()):
-        raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
-    if not baseline and manifest.get("success") is not True:
+    completed = (
+        all(manifest.get(key) == value for key, value in required.items())
+        and manifest.get("sandbox_started_at")
+        and summary.get("case_count")
+        and summary.get("scoring_enabled") is True
+    )
+    if not completed or (
+        not baseline
+        and (
+            manifest.get("success") is not True
+            or any(
+                summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts")
+            )
+        )
+    ):
         raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     mode = manifest.get("execution_mode")
     if mode != "full_validation":
@@ -265,18 +277,6 @@ def verify_evaluation(home, path, commit, *, baseline=False):
             ),
         ):
             raise ValueError("Query-only evidence requires host-selected, construction-equivalent replay")
-    if (
-        not manifest.get("sandbox_started_at")
-        or not summary.get("case_count")
-        or summary.get("scoring_enabled") is not True
-        or (
-            not baseline
-            and any(
-                summary.get(key, {}).get("infra_error") != 0 for key in ("case_status_counts", "query_status_counts")
-            )
-        )
-    ):
-        raise ValueError("Evaluation must match the commit and complete without infrastructure failures")
     _record, dataset, cases = load_inputs(home, EvaluationSpec())
     if manifest.get("fingerprints", {}).get("dataset") != dataset.normalized_fingerprint:
         raise ValueError("Evaluation dataset no longer matches the prepared dataset")
@@ -300,16 +300,16 @@ def verify_evaluation(home, path, commit, *, baseline=False):
         or summary.get("expected_query_count") != sum(len(ids) for ids in queries.values())
     ):
         raise ValueError("Evaluation summary has incomplete case coverage")
-    # Failed construction can legitimately omit answers; the recorded candidate
-    # failure is evidence, not an infrastructure failure or a missing result.
+    # Failed construction may omit answers. Baseline infrastructure errors remain
+    # observations; final evidence already passed the strict checks above.
     for key, row in rows.items():
         if set(row.get("queries", {})) != set(queries[key]) and row.get("construction", {}).get("status") != "failure":
             raise ValueError(f"Evaluation summary has incomplete query coverage: {key}")
     return {"evaluation_path": str(run), "manifest": manifest, "summary": summary}
 
 
-def baseline_state(home):
-    """Inspect a clean repository and locate a usable initial full evaluation."""
+def baseline_state(home, *, evaluation_path=None):
+    """Check a clean repository and verify the new baseline or locate a saved one."""
     _validate_directory(home, home / "metadata")
     with _initialization_lock(home / "metadata/workspace.lock"):
         repo, record = validate_repository(home)
@@ -317,6 +317,8 @@ def baseline_state(home):
         validate_tree(repo, record, "HEAD")
         initial = record["code"]["initial_commit"]
         current = status(repo, record)
+        if evaluation_path is not None:
+            return current, verify_evaluation(home, evaluation_path, current["commit_sha"], baseline=True)
         for manifest in sorted((home / "evaluations/init").glob("*/*/manifest.json"), reverse=True):
             try:
                 evidence = verify_evaluation(home, manifest.parent, initial, baseline=True)
@@ -462,13 +464,10 @@ class HomeOptimizeStep(BaseStep):
                 )
                 if not isinstance(response.answer, dict) or response.answer.get("status") != "completed":
                     raise RuntimeError(f"Initial baseline failed: {response.answer}")
-                current, _ = await blocking(baseline_state, home)
-                baseline = await blocking(
-                    verify_evaluation,
+                _current, baseline = await blocking(
+                    baseline_state,
                     home,
-                    response.answer["result_dir"],
-                    current["commit_sha"],
-                    baseline=True,
+                    evaluation_path=response.answer["result_dir"],
                 )
             return await self._optimize(home, spec, baseline, options)
 
@@ -490,13 +489,8 @@ class HomeOptimizeStep(BaseStep):
                 f"Begin optimization.\n{spec.instruction}\n\n"
                 f"Completed full initial baseline: {baseline['evaluation_path']}\n"
                 f"Baseline case statuses: {json.dumps(baseline['summary']['case_status_counts'])}\n"
-                "Baseline question errors are observations, not a reason to stop optimization. "
-                "Inspect infrastructure failures separately; retry the same commit if needed before final selection.\n"
                 f"Formal validation budget: {json.dumps(budget)}\n"
-                f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}\n"
-                "Return exactly one JSON object with branch_name, commit_sha (full SHA), evaluation_path and report. "
-                "Do not include Markdown fences or text outside the JSON object; put your summary in report. "
-                "Leave that evaluated branch and commit checked out with no uncommitted changes.",
+                f"{VALIDATION_BUDGET_EXHAUSTED_HINT if budget_exhausted else ''}",
                 tool_factory=lambda backend: [
                     *create_draft_tools()[0],
                     Edit(backend=backend),

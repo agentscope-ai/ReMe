@@ -478,6 +478,73 @@ async def test_optimizer_creates_baseline_once_and_verifies_baseline_fallback(ap
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["dirty", "incomplete"])
+async def test_new_baseline_rechecks_repository_and_evidence(app, prepared, sandbox, monkeypatch, change):
+    wrapper = app.context.components["agent_wrapper"]["home_optimizer"]
+    required_job = optimizer_module.required_job
+    evaluate_job = required_job(wrapper, "home_evaluate")
+
+    async def evaluate(**kwargs):
+        response = await evaluate_job(**kwargs)
+        assert response.success, response.answer
+        if change == "dirty":
+            target = prepared / "code/repo/plugins/beam/src/reme_beam/__init__.py"
+            target.write_text("preserve changes made during evaluation\n")
+        else:
+            path = Path(response.answer["result_dir"]) / "summary.json"
+            summary = read_json(path)
+            summary["expected_query_count"] = 0
+            write_json(path, summary)
+        return response
+
+    monkeypatch.setattr(
+        optimizer_module,
+        "required_job",
+        lambda wrapper, name: evaluate if name == "home_evaluate" else required_job(wrapper, name),
+    )
+    model = ScriptedModel()
+    set_model(app, "home_optimizer", model)
+    response = await app.run_job("home_optimize")
+    assert not response.success and not model.calls and not sandbox
+    assert ("must be clean" if change == "dirty" else "incomplete case coverage") in str(response.answer)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "artifact,key,value,baseline_allowed",
+    [
+        ("manifest", "success", False, True),
+        ("summary", "case_status_counts", {"infra_error": 1}, True),
+        ("summary", "query_status_counts", {"infra_error": 1}, True),
+        ("summary", "query_status_counts", {}, True),
+        ("manifest", "status", "failed", False),
+        ("manifest", "sandbox_started_at", None, False),
+        ("summary", "case_count", 0, False),
+        ("summary", "scoring_enabled", False, False),
+    ],
+)
+async def test_baseline_tolerance_preserves_final_evidence_requirements(
+    app,
+    prepared,
+    artifact,
+    key,
+    value,
+    baseline_allowed,
+):
+    path = Path(await baseline(app))
+    commit = read_json(path / "manifest.json")["commit_sha"]
+    document = read_json(path / f"{artifact}.json")
+    document[key] = value
+    write_json(path / f"{artifact}.json", document)
+    for initial in (True, False):
+        if initial and baseline_allowed:
+            optimizer_module.verify_evaluation(prepared, path, commit, baseline=initial)
+        else:
+            with pytest.raises(ValueError, match="complete without infrastructure failures"):
+                optimizer_module.verify_evaluation(prepared, path, commit, baseline=initial)
+
+
+@pytest.mark.asyncio
 async def test_standalone_diagnosis_fresh_state_and_persisted_provenance(app, prepared, sandbox):
     path = await baseline(app)
     model = ScriptedModel()
@@ -582,22 +649,28 @@ async def test_infrastructure_baseline_failure_never_calls_optimizer(app, prepar
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("existing_baseline", [False, True])
-async def test_baseline_question_infra_error_continues_optimization(
+@pytest.mark.parametrize("failure_stage", ["answer", "construction"])
+async def test_baseline_infra_error_continues_optimization(
     app,
     prepared,
     sandbox,
     monkeypatch,
     existing_baseline,
+    failure_stage,
 ):
-    original = FakeWorker.run_queries
+    method = "run_queries" if failure_stage == "answer" else "run_build"
+    original = getattr(FakeWorker, method)
 
-    async def answer(self, queries):
-        result = await original(self, queries)
-        if len(FakeFactory.instances) == 1 and self.case_id == "1":
+    async def execute(self, items):
+        failed = len(FakeFactory.instances) == 1 and self.case_id == "1"
+        if failed and failure_stage == "construction":
+            raise ConnectionError("Construction infrastructure unavailable")
+        result = await original(self, items)
+        if failed:
             result["queries"][0].update(answer=None, error="AgentScope reply ended: exceed_max_iters")
         return result
 
-    monkeypatch.setattr(FakeWorker, "run_queries", answer)
+    monkeypatch.setattr(FakeWorker, method, execute)
     if existing_baseline:
         response = await app.run_job("home_evaluate", fail_fast=False)
         assert not response.success
@@ -614,7 +687,10 @@ async def test_baseline_question_infra_error_continues_optimization(
     assert manifest["options"]["fail_fast"] is False
     assert summary["case_status_counts"] == {"completed": 1, "candidate_failure": 0, "infra_error": 1}
     assert summary["query_status_counts"]["completed"] == 1
-    assert summary["query_status_counts"]["infra_error"] == 1
+    assert summary["query_status_counts"]["infra_error"] == (1 if failure_stage == "answer" else 0)
+    if failure_stage == "construction":
+        assert summary["cases"]["1"]["construction"]["status"] == "failure"
+        assert summary["cases"]["1"]["queries"] == {}
     assert summary["cases"]["2"]["queries"]["fact:1"]["score"] == 0.5
     retry = read_json(Path(response.answer["evaluation_path"]) / "manifest.json")
     assert retry["case_ids"] == manifest["case_ids"] and retry["query_ids"] == manifest["query_ids"]
