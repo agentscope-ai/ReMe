@@ -1,6 +1,7 @@
 """Built-in component packages."""
 
 from . import agent_wrapper
+from . import action_item_store
 from . import anthropic_relay
 from . import as_llm
 from . import as_decision_model
@@ -37,6 +38,7 @@ __all__ = [
     # base components
     "agent_wrapper",
     "proactive_manager",
+    "action_item_store",
     "anthropic_relay",
     "codex_app_server",
     "agent_inbox",
