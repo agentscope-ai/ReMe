@@ -710,6 +710,13 @@ async def test_workflow_sandbox_enforces_read_write_and_git_boundaries(tmp_path)
     }
     backend = workflow_common.WorkflowSandbox(file_scope, memory_limit_mib=0)
     await backend.write_file(str(target), b"file root\n")
+    # Host aliases outside the mounted roots must update the granted host file.
+    alias = home / "alias.py"
+    alias.symlink_to(target)
+    for number, alias_path in enumerate((str(alias), "../alias.py")):
+        data = f"alias {number}\n".encode()
+        await backend.write_file(alias_path, data)
+        assert target.read_bytes() == data
     replacement = candidate / "replacement"
     replacement.write_text("replaced root\n")
     replacement.replace(target)
