@@ -7,7 +7,7 @@ import frontmatter
 import yaml
 
 from ....schema.agent_runtime import AgentReminder, ReminderRef
-from ....utils.async_utils import complete_in_thread
+from ....utils.async_utils import complete_in_thread, finish_cleanup
 
 
 class AgentOutbox:
@@ -144,14 +144,19 @@ class AgentOutbox:
 
     async def update(self, ref, **changes):
         """Atomically update acknowledgement fields in the canonical Markdown."""
-        if set(changes) - {"delivered_at", "read_at", "user_read_at"}:
+        if set(changes) - {"delivered_at", "read_at", "user_read_at", "chat_message_ids"}:
             raise ValueError("only reminder acknowledgements can be updated")
         async with self.lock:
             path = self.files.path(ref.file)
             item = await asyncio.to_thread(self._read, path)
             if item is None or item.id != ref.id:
                 raise ValueError("reminder identity is missing or changed")
+            message_ids = changes.pop("chat_message_ids", [])
             changes = {key: value for key, value in changes.items() if getattr(item, key) is None}
+            if message_ids:
+                combined = list(dict.fromkeys([*item.chat_message_ids, *message_ids]))
+                if combined != item.chat_message_ids:
+                    changes["chat_message_ids"] = combined
             if changes:
                 item = AgentReminder.model_validate({**item.model_dump(), **changes})
                 await complete_in_thread(self._write, path, item)
@@ -210,6 +215,20 @@ class AgentOutbox:
         if agent_id != "chat":
             await self.runtime.definition(agent_id)
         await self.refresh()
+        if agent_id == "chat" and message_id.startswith("reme-proactive-"):
+            async with self.lock:
+                refs = [ref for ref in self.committed if message_id in self.records[ref].chat_message_ids]
+            if not refs and not mark_read:
+                raise ValueError("chat reminder has no retained source messages")
+
+            async def acknowledge():
+                for ref in refs:
+                    await self.update(ref, user_read_at=self.runtime.now())
+
+            if mark_read:
+                await finish_cleanup(acknowledge())
+            async with self.lock:
+                return {"id": message_id, "items": [self._mail(ref) for ref in refs]}
         async with self.lock:
             ref = next((ref for ref in self.committed if ref.id == message_id), None)
             if (

@@ -3,7 +3,7 @@ import type {
   DesktopState,
   DisplayMessage,
 } from "../shared/protocol.ts";
-import { previewContent } from "../shared/surface.ts";
+import { previewContent, replyText } from "../shared/surface.ts";
 
 const noMessages: DisplayMessage[] = [];
 
@@ -27,7 +27,8 @@ export function viewState(
                 ...state.surface,
                 message: {
                   ...state.surface.message,
-                  content: previewContent(state.surface.message.content),
+                  content: previewContent(replyText(state.surface.message)),
+                  items: undefined,
                 },
               }
             : state.surface,

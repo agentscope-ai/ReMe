@@ -33,16 +33,21 @@ class BaseAgentStep(BaseStep):
         async def observe(chunk):
             if chunk.turn_id:
                 tracker.activity = tracker.activity.model_copy(
-                    update={"turn_id": chunk.turn_id, "execution_session_id": chunk.session_id or session_id},
+                    update={
+                        "turn_id": chunk.turn_id,
+                        "execution_session_id": chunk.session_id or session_id,
+                    },
                 )
             runtime.activities[agent_id] = tracker.update(chunk)
+            publish(chunk)
             await self.context.add_stream_chunk(chunk)
 
         try:
-            result = await collect_reply(
-                runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
-                on_chunk=observe,
-            )
+            with runtime.live_turns.observe(agent_id, session_id, query) as publish:
+                result = await collect_reply(
+                    runtime.agent_wrapper.reply_stream(query, resume=session_id, **options),
+                    on_chunk=observe,
+                )
         except BaseException as exc:
             phase = "interrupted" if isinstance(exc, asyncio.CancelledError) else "failed"
             runtime.activities[agent_id] = tracker.activity.model_copy(update={"phase": phase, "tool": None})

@@ -139,8 +139,9 @@ export class Storage {
       for (const receipt of Object.values(value.receipts)) {
         if (
           !receipt ||
-          typeof receipt.read !== "boolean" ||
           typeof receipt.presented !== "boolean" ||
+          typeof receipt.userRead !== "boolean" ||
+          typeof receipt.readSynced !== "boolean" ||
           (receipt.snoozeUntil !== undefined &&
             (!Number.isFinite(receipt.snoozeUntil) || receipt.snoozeUntil < 0))
         ) {

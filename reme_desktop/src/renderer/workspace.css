@@ -334,12 +334,7 @@ html[data-platform="darwin"] .workspace-titlebar {
   border-radius: 8px;
 }
 .chat-history .message.assistant .message-content {
-  width: fit-content;
   max-width: 100%;
-  padding: 14px 18px;
-  border: 1px solid light-dark(#dce6df, #c3e3cd1f);
-  border-radius: 15px 15px 15px 4px;
-  background: light-dark(#ffffffb3, #ffffff04);
   overflow-x: auto;
 }
 .proactive-label {

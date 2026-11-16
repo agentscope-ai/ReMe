@@ -39,9 +39,9 @@ test("a later task round replaces an old failed draft without losing same-round 
     sessionId: "session",
     turnId: "old",
     query: "old input",
-    text: "partial",
     streaming: false,
     error: "Request failed",
+    outcome: "failed",
   };
   const child = {
     model,

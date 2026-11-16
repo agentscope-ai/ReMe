@@ -187,6 +187,7 @@ jobs:
             temporary: {type: boolean, default: false}
             cron: {type: [string, "null"]}
             min_trigger_interval_seconds: {type: number, minimum: 0}
+            max_batch_events: {type: integer, minimum: 1, default: 20}
             notify_window:
               type: [object, "null"]
               properties:
@@ -299,7 +300,8 @@ jobs:
     steps:
       - backend: proactive_agent_step
         reminder_history_limit: 10
-        timeout_seconds: 600
+        timeout_seconds: 1200
+        context_token_limit: 128000
 
   proactive_query:
     backend: base
@@ -643,9 +645,11 @@ components:
           description: |
             结合收到的财联社新闻和行情，仅在出现 AI 领域重大新闻，或下列跟踪标的日内波动超过 5% 时生成提醒，说明事实、影响和来源；其他内容正常处理、记录，不生成提醒。
             跟踪小米（01810.HK）、阿里巴巴（09988.HK）、腾讯（00700.HK）、苹果（AAPL）、亚马逊（AMZN）和 Meta（META）的日内波动。
-            同时跟踪 BTC/USDT 现货行情的日内波动；滚动 24 小时涨跌幅仅作背景参考，不能代替日内波动口径。
+            同时跟踪 BTC/USDT 现货行情的日内波动：按应用时区的自然日，用当日快照最高价与最低价之差除以当日首条快照价格；股票使用当日最高价与最低价之差除以昨收。
+            数据覆盖不足时说明缺口；相对开盘价的涨跌幅与滚动 24 小时涨跌幅仅作背景，不能代替上述振幅。
             行情可能延迟，按报价时间判断新鲜度；结合相关新闻分析重要变化，区分事实与推测，避免重复提醒。
         - name: work
+          max_batch_events: 2
           enabled: true
           trigger_type: event
           description: |
@@ -666,7 +670,7 @@ components:
       supports_websockets: false
       experimental_api: true
       config_overrides:
-        # Preserve Qwen3.8 Max's actual input limit; put safety headroom in the compaction threshold.
+        # Keep the configured input budget; put safety headroom in the compaction threshold.
         # At 95% usable context, 600000 leaves 334435 tokens below Codex's hard cap.
         # Budget 128 KiB of new text at one token/byte, not Codex's byte/4 estimate of 32768.
         # Planning allowances: 131072 output + 131072 new text + 32768 estimation/compaction overhead.
@@ -682,23 +686,22 @@ components:
         # Leave compact_prompt / experimental_compact_prompt_file unset to use the built-in prompt.
 
         # Keep review and inherited Agent defaults on the configured Qwen endpoint.
-        - 'model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'model="${CODEX_MODEL_NAME:-qwen4-max}"'
         - 'model_reasoning_effort="xhigh"'
-        - 'review_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'review_model="${CODEX_MODEL_NAME:-qwen4-max}"'
 
         # Long-term memory generation and injection are separate from context compaction.
         - features.memories=true
         - memories.generate_memories=true
         - memories.use_memories=true
-        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
-        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen3.8-max}"'
+        - 'memories.extract_model="${CODEX_MODEL_NAME:-qwen4-max}"'
+        - 'memories.consolidation_model="${CODEX_MODEL_NAME:-qwen4-max}"'
 
-      # These capabilities describe Qwen3.8 Max; update them when switching model families.
-      # Official limits: https://help.aliyun.com/en/model-studio/qwen3-8-max
+      # Local Codex capability settings for the configured Qwen model.
       model_catalog:
         models:
-          - slug: ${CODEX_MODEL_NAME:-qwen3.8-max}
-            display_name: Qwen3.8 Max
+          - slug: ${CODEX_MODEL_NAME:-qwen4-max}
+            display_name: Qwen4 Max
             description: Work and life assistant with text and image input
             base_instructions: ""
             default_reasoning_level: xhigh
@@ -739,7 +742,7 @@ components:
       project_path: ..  # Resolve repository skills from the default <project>/.reme workspace.
       cwd: .
       skills: [manage-proactive-agent]
-      model: ${CODEX_MODEL_NAME:-qwen3.8-max}
+      model: ${CODEX_MODEL_NAME:-qwen4-max}
       effort: xhigh
       approval_mode: deny_all  # SDK maps this to approval_policy=never; no approval requests.
       sandbox: full-access

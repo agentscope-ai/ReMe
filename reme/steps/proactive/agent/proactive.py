@@ -9,6 +9,7 @@ import frontmatter
 from .base import BaseAgentStep
 from ....components import R
 from ....schema.proactive_agent import ProactiveRunResult
+from ....schema import collect_reply
 from ....utils.async_utils import finish_cleanup
 
 
@@ -16,7 +17,13 @@ from ....utils.async_utils import finish_cleanup
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(self, reminder_history_limit: int = 10, timeout_seconds=600, **kwargs):
+    def __init__(
+        self,
+        reminder_history_limit: int = 10,
+        timeout_seconds=1200,
+        context_token_limit=128000,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         if type(reminder_history_limit) is not int or reminder_history_limit < 1:
             raise ValueError("reminder_history_limit must be a positive integer")
@@ -24,6 +31,9 @@ class ProactiveAgentStep(BaseAgentStep):
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
+        if type(context_token_limit) is not int or context_token_limit < 1:
+            raise ValueError("context_token_limit must be a positive integer")
+        self.context_token_limit = context_token_limit
 
     def _paths(self, agent, now):
         runtime = self.agent_runtime
@@ -65,9 +75,14 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _options(self, agent):
         """Scheduled tasks have web access; event monitoring stays offline."""
+        options = self.web_options(agent.trigger_type == "cron")
+        options["config"]["model_auto_compact_token_limit"] = self.context_token_limit
         return {
-            **self.web_options(agent.trigger_type == "cron"),
-            "job_tools": ["agent_memory", *(["web_extract"] if agent.trigger_type == "cron" else [])],
+            **options,
+            "job_tools": [
+                "agent_memory",
+                *(["web_extract"] if agent.trigger_type == "cron" else []),
+            ],
             "injected_job_kwargs": {"_agent_id": agent.agent_id},
             "sandbox": "workspace-write",
             "approval_mode": "deny_all",
@@ -165,14 +180,23 @@ class ProactiveAgentStep(BaseAgentStep):
             options,
             now,
         )
-        async with asyncio.timeout(self.timeout_seconds):
-            reply = await runtime.agent_wrapper.reply(
-                self._query(agent, events, paths, now),
-                resume=session_id,
-                activity_source="proactive",
-                activity_task_id=agent.agent_id,
-                **options,
-            )
+        query = self._query(agent, events, paths, now)
+
+        async def observe(chunk):
+            publish(chunk)
+
+        with runtime.live_turns.observe(agent.agent_id, session_id, query) as publish:
+            async with asyncio.timeout(self.timeout_seconds):
+                reply = await collect_reply(
+                    runtime.agent_wrapper.reply_stream(
+                        query,
+                        resume=session_id,
+                        activity_source="proactive",
+                        activity_task_id=agent.agent_id,
+                        **options,
+                    ),
+                    on_chunk=observe,
+                )
         result = await asyncio.to_thread(self._read_artifacts, reply, paths, summary_mtime)
         return result, reply["session_id"]
 

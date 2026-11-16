@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ._internal.outbox import AgentOutbox
     from ._internal.registry import AgentRegistry
     from ._internal.sessions import AgentSessions
+    from ._internal.live_turn import LiveTurns
     from ..agent_wrapper import BaseAgentWrapper
     from ..agent_inbox import BaseAgentInbox
     from ...schema.proactive_agent import ProactiveAgent
@@ -33,6 +34,7 @@ class BaseAgentRuntime(BaseComponent):
     files: AgentFiles
     agents: AgentRegistry
     sessions: AgentSessions
+    live_turns: LiveTurns
     inbox: BaseAgentInbox
     notifications: ChatNotifications
     outbox: AgentOutbox

@@ -215,6 +215,12 @@ class ChatNotifications:
                             raise RuntimeError("reminders are no longer eligible for delivery")
 
                     async def commit():
+                        if content:
+                            for item in turn.items:
+                                await self.runtime.outbox.update(
+                                    self.pending[item["id"]],
+                                    chat_message_ids=[f"reme-proactive-{turn.message_id}"],
+                                )
                         if content and turn.message is None:
                             turn.message = await self.runtime.agent_wrapper.append_session(
                                 turn.session_id,

@@ -130,6 +130,7 @@ class AgentReminder(AgentNotification):
     delivered_at: AwareDatetime | None = None
     read_at: AwareDatetime | None = None
     user_read_at: AwareDatetime | None = None
+    chat_message_ids: list[InboxMessageId] = Field(default_factory=list)
 
 
 class InboxWakeRequest(BaseModel):

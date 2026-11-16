@@ -37,6 +37,7 @@ class ProactiveAgentConfig(BaseModel):
     temporary: StrictBool = False
     cron: str | None = None
     min_trigger_interval_seconds: float = Field(default=0, ge=0)
+    max_batch_events: int = Field(default=20, ge=1, strict=True)
     notify_window: NotificationWindow | None = None
 
     @field_validator("name")

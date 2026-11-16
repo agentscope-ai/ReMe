@@ -12,7 +12,8 @@ import pytest
 from reme.components import ApplicationContext, RuntimeContext
 from reme.components.agent_wrapper import CodexAgentWrapper
 from reme.components.job import CronJob
-from reme.schema import Response
+from reme.enumeration import ChunkEnum
+from reme.schema import Response, StreamChunk
 from reme.schema.proactive_agent import ProactiveRunResult
 from reme.steps.proactive.agent import ChatAgentStep, InboxChatStep, ProactiveAgentStep
 from reme.steps.proactive.tools.inbox import ReadInboxStep, SendChatMessageStep
@@ -179,7 +180,7 @@ async def test_temporary_lifetime_survives_priority_consumption_and_restart(tmp_
         await runtime.append("experiment", {"id": "new", "event_ts": now, "source": "lab", "description": "New"})
         claim = runtime.inbox.claim
 
-        async def urgent(name, limit=None):
+        async def urgent(name, limit=None, **_kwargs):
             return await claim(name, limit, item_ids=["new"])
 
         monkeypatch.setattr(runtime.inbox, "claim", urgent)
@@ -246,9 +247,10 @@ async def test_proactive_timeout_releases_claim_and_preserves_inputs(tmp_path):
         await create_agent(runtime)
 
         async def never_finish(*_args, **_kwargs):
+            yield StreamChunk(chunk_type=ChunkEnum.CONTENT, chunk="Working")
             await asyncio.Event().wait()
 
-        wrapper.reply = AsyncMock(side_effect=never_finish)
+        wrapper.reply_stream = never_finish
         with pytest.raises(TimeoutError):
             await ProactiveAgentStep(app_context=context, timeout_seconds=0.01)(agent_id="monitor")
         snapshot = await runtime.inbox.snapshot("monitor")
@@ -299,6 +301,7 @@ async def test_canonical_acknowledgement_rebuilds_reference_views(tmp_path):
             "delivered_at",
             "read_at",
             "user_read_at",
+            "chat_message_ids",
         }
         assert document["user_read_at"] is None
         assert document["read_at"] and document["delivered_at"]

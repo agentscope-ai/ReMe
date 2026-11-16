@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { deserializeError, errorText, translator } from "../../shared/i18n.ts";
 import { action } from "../desktop.ts";
 import { watchReadReceipt } from "../read-receipt.ts";
@@ -42,6 +48,19 @@ export default function Chat({
       ?.name ?? "Remy";
   const [error, setError] = useState<unknown>(null);
   const history = useRef<HTMLDivElement | null>(null);
+  const content = useRef<HTMLDivElement | null>(null);
+  const [following, setFollowing] = useState(true);
+  const [historyWindow, setHistoryWindow] = useState({
+    sessionId: state.sessionId,
+    start: Math.max(0, state.messages.length - 80),
+  });
+  const historyStart =
+    historyWindow.sessionId === state.sessionId
+      ? historyWindow.start
+      : Math.max(0, state.messages.length - 80);
+  const openLink = useCallback((url: string) => {
+    void action({ type: "link.open", url }).catch(setError);
+  }, []);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const queryRef = useRef(query);
   queryRef.current = query;
@@ -114,6 +133,16 @@ export default function Chat({
     if (!active || !state.chatVisible || !focusedId) return;
     const request = `${state.sessionId}:${state.focusRequest}:${focusedId}`;
     if (focusedMessage.current === request) return;
+    const index = messages.findIndex((message) => message.id === focusedId);
+    if (index >= 0 && index < historyStart) {
+      follow.current = false;
+      setFollowing(false);
+      setHistoryWindow({
+        sessionId: state.sessionId,
+        start: Math.max(0, index - 10),
+      });
+      return;
+    }
     const element = [
       ...(history.current?.querySelectorAll<HTMLElement>("[data-message-id]") ??
         []),
@@ -121,22 +150,58 @@ export default function Chat({
     if (element) {
       element.scrollIntoView({ block: "start" });
       follow.current = false;
+      setFollowing(false);
       focusedMessage.current = request;
     }
   }, [
     focusedId,
+    historyStart,
     state.focusRequest,
     state.chatVisible,
     state.messages,
     active,
   ]);
-  useEffect(() => {
-    if (state.pending?.streaming) follow.current = true;
+  useLayoutEffect(() => {
+    follow.current = true;
+    setFollowing(true);
+    setHistoryWindow({
+      sessionId: state.sessionId,
+      start: Math.max(0, state.messages.length - 80),
+    });
+  }, [state.sessionId]);
+  useLayoutEffect(() => {
+    if (!state.pending?.streaming) return;
+    follow.current = true;
+    setFollowing(true);
   }, [state.pending?.id]);
   useEffect(() => {
+    if (follow.current && state.messages.length - historyStart > 120)
+      setHistoryWindow({
+        sessionId: state.sessionId,
+        start: state.messages.length - 80,
+      });
+  }, [state.messages.length, state.sessionId, historyStart]);
+  useLayoutEffect(() => {
     if (active && follow.current && history.current)
       history.current.scrollTop = history.current.scrollHeight;
   }, [state.messages, state.chatVisible, active]);
+  useEffect(() => {
+    const root = history.current;
+    const body = content.current;
+    if (!root || !body || !active) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (follow.current) root.scrollTop = root.scrollHeight;
+      });
+    });
+    observer.observe(body);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [active]);
   useEffect(() => {
     if (state.chatVisible && active) input.current?.focus();
   }, [state.chatVisible, active]);
@@ -189,6 +254,7 @@ export default function Chat({
     state.chatVisible,
     state.chatFocused,
     active,
+    historyStart,
   ]);
 
   const send = async (text = queryRef.current) => {
@@ -250,147 +316,192 @@ export default function Chat({
         className="chat-history"
         aria-label={t("history")}
         onScroll={() => {
-          if (history.current)
+          if (history.current) {
             follow.current =
               history.current.scrollHeight -
                 history.current.scrollTop -
                 history.current.clientHeight <
               48;
+            setFollowing(follow.current);
+          }
         }}
       >
-        {messages.length === 0 && (
-          <div className="empty-chat">
-            <div className="welcome-orbit">
-              <img src="reme-assets://remy/frames/idle/00.png" alt="Remy" />
-            </div>
-            <h2>{agentName}</h2>
-            <p>{t("welcomeHint")}</p>
-            <div className="conversation-prompts">
-              {(
-                [
-                  "promptScheduledQuery",
-                  "promptTemporaryQuery",
-                  "promptProactiveQuery",
-                ] as const
-              ).map((query) => (
-                <button
-                  key={query}
-                  title={t(query)}
-                  onClick={() => {
-                    setQuery(t(query));
-                    input.current?.focus();
-                  }}
-                >
-                  <span>{t(query)}</span>
-                </button>
-              ))}
-            </div>
-            {state.connection !== "connected" && (
-              <p className="start-hint">
-                {t("startService")}
-                <code>reme start config=proactive</code>
-              </p>
-            )}
-          </div>
-        )}
-
-        {messages.map((message) => (
-          <article
-            key={message.id}
-            data-message-id={message.id}
-            data-proactive={message.source === "proactive"}
-            className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
-          >
-            {message.source === "proactive" && (
-              <div className="proactive-label" data-message-id={message.id}>
-                <span aria-hidden>✦</span>{" "}
-                {t(
-                  message.role === "user" ? "automaticTurn" : "proactiveLabel",
-                )}
+        <div ref={content} className="chat-content">
+          {messages.length === 0 && (
+            <div className="empty-chat">
+              <div className="welcome-orbit">
+                <img src="reme-assets://remy/frames/idle/00.png" alt="Remy" />
               </div>
-            )}
-            <MessageBody
-              message={message}
-              language={language}
-              onLink={(url) => void run({ type: "link.open", url })}
-            />
-            {message.role === "assistant" &&
-              message.completed &&
-              message.content &&
-              !message.error &&
-              message.status?.tone !== "error" && (
-                <div className="message-actions">
+              <h2>{agentName}</h2>
+              <p>{t("welcomeHint")}</p>
+              <div className="conversation-prompts">
+                {(
+                  [
+                    "promptScheduledQuery",
+                    "promptTemporaryQuery",
+                    "promptProactiveQuery",
+                  ] as const
+                ).map((query) => (
                   <button
-                    type="button"
-                    className="read-aloud"
-                    disabled={
-                      !state.speech.tts || !state.speech.ready || !ready
-                    }
-                    aria-label={t(
-                      voice?.messageId === message.id
-                        ? voice.phase === "error"
-                          ? "speechRetry"
-                          : "stopSpeech"
-                        : "readAloud",
-                    )}
-                    title={t(
-                      !state.speech.tts
-                        ? "speechTtsUnavailable"
-                        : voice?.messageId === message.id
+                    key={query}
+                    title={t(query)}
+                    onClick={() => {
+                      setQuery(t(query));
+                      input.current?.focus();
+                    }}
+                  >
+                    <span>{t(query)}</span>
+                  </button>
+                ))}
+              </div>
+              {state.connection !== "connected" && (
+                <p className="start-hint">
+                  {t("startService")}
+                  <code>reme start config=proactive</code>
+                </p>
+              )}
+            </div>
+          )}
+
+          {historyStart > 0 && (
+            <button
+              type="button"
+              className="load-earlier"
+              onClick={() => {
+                const root = history.current;
+                const height = root?.scrollHeight ?? 0;
+                follow.current = false;
+                setFollowing(false);
+                setHistoryWindow({
+                  sessionId: state.sessionId,
+                  start: Math.max(0, historyStart - 80),
+                });
+                requestAnimationFrame(() => {
+                  if (root) root.scrollTop += root.scrollHeight - height;
+                });
+              }}
+            >
+              {t("loadEarlierMessages")}
+            </button>
+          )}
+          {messages.slice(historyStart).map((message) => (
+            <article
+              key={
+                message.turnId && message.source === "chat"
+                  ? `${message.turnId}:${message.role}`
+                  : message.id
+              }
+              data-message-id={message.id}
+              data-proactive={message.source === "proactive"}
+              className={`message ${message.role} ${focusedId === message.id ? "message-focused" : ""}`}
+            >
+              {message.source === "proactive" && (
+                <div className="proactive-label" data-message-id={message.id}>
+                  <span aria-hidden>✦</span>{" "}
+                  {t(
+                    message.role === "user"
+                      ? "automaticTurn"
+                      : "proactiveLabel",
+                  )}
+                </div>
+              )}
+              <MessageBody
+                message={message}
+                language={language}
+                onLink={openLink}
+              />
+              {message.role === "assistant" &&
+                message.completed &&
+                message.content &&
+                !message.error &&
+                message.status?.tone !== "error" && (
+                  <div className="message-actions">
+                    <button
+                      type="button"
+                      className="read-aloud"
+                      disabled={
+                        !state.speech.tts || !state.speech.ready || !ready
+                      }
+                      aria-label={t(
+                        voice?.messageId === message.id
                           ? voice.phase === "error"
                             ? "speechRetry"
                             : "stopSpeech"
                           : "readAloud",
-                    )}
-                    aria-pressed={voice?.messageId === message.id}
-                    onClick={() =>
-                      void run(
-                        voice?.messageId === message.id
-                          ? {
-                              type:
-                                voice.phase === "error"
-                                  ? "speech.retry"
-                                  : "speech.stop",
-                            }
-                          : {
-                              type: "speech.speak",
-                              sessionId: state.sessionId!,
-                              messageId: message.id,
-                            },
-                      )
-                    }
-                  >
-                    <span aria-hidden>
-                      {voice?.messageId === message.id &&
-                      voice.phase !== "error"
-                        ? "■"
-                        : "♫"}
-                    </span>
-                    {t(
-                      voice?.messageId === message.id
-                        ? voice.phase === "loading"
-                          ? "speechLoading"
-                          : voice.phase === "error"
-                            ? "speechRetry"
-                            : "stopSpeech"
-                        : "readAloud",
-                    )}
-                  </button>
-                  {message.source === "proactive" && (
-                    <button
-                      type="button"
-                      className="explain-reminder"
-                      disabled={busy || !ready}
-                      onClick={() => onExplain(message)}
+                      )}
+                      title={t(
+                        !state.speech.tts
+                          ? "speechTtsUnavailable"
+                          : voice?.messageId === message.id
+                            ? voice.phase === "error"
+                              ? "speechRetry"
+                              : "stopSpeech"
+                            : "readAloud",
+                      )}
+                      aria-pressed={voice?.messageId === message.id}
+                      onClick={() =>
+                        void run(
+                          voice?.messageId === message.id
+                            ? {
+                                type:
+                                  voice.phase === "error"
+                                    ? "speech.retry"
+                                    : "speech.stop",
+                              }
+                            : {
+                                type: "speech.speak",
+                                sessionId: state.sessionId!,
+                                messageId: message.id,
+                              },
+                        )
+                      }
                     >
-                      {t("explainReminder")}
-                      <ArrowUpRight size={13} aria-hidden />
+                      <span aria-hidden>
+                        {voice?.messageId === message.id &&
+                        voice.phase !== "error"
+                          ? "■"
+                          : "♫"}
+                      </span>
+                      {t(
+                        voice?.messageId === message.id
+                          ? voice.phase === "loading"
+                            ? "speechLoading"
+                            : voice.phase === "error"
+                              ? "speechRetry"
+                              : "stopSpeech"
+                          : "readAloud",
+                      )}
                     </button>
-                  )}
-                </div>
-              )}
-          </article>
-        ))}
+                    {message.source === "proactive" && (
+                      <button
+                        type="button"
+                        className="explain-reminder"
+                        disabled={busy || !ready}
+                        onClick={() => onExplain(message)}
+                      >
+                        {t("explainReminder")}
+                        <ArrowUpRight size={13} aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                )}
+            </article>
+          ))}
+        </div>
+        {!following && messages.length > 0 && (
+          <button
+            type="button"
+            className="jump-to-latest"
+            onClick={() => {
+              follow.current = true;
+              setFollowing(true);
+              if (history.current)
+                history.current.scrollTop = history.current.scrollHeight;
+            }}
+          >
+            {t("jumpToLatest")}
+          </button>
+        )}
       </div>
       <footer className="chat-composer">
         {capture.notice && (

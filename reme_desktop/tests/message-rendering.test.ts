@@ -3,9 +3,14 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createServer } from "vite";
+import { DesktopController } from "../src/main/controller.ts";
 import { SessionModel } from "../src/main/session-model.ts";
 import { displayMessages } from "../src/shared/messages.ts";
-import { reduceReply, type ReplyProgress } from "../src/shared/stream.ts";
+import {
+  emptyReply,
+  reduceReply,
+  readReply,
+} from "../src/shared/transcript.ts";
 import type {
   DisplayMessage,
   PendingTurn,
@@ -27,7 +32,21 @@ const assistant: SessionMessage = {
   content: "正在检查。## 结果\n\n**已完成**。",
   chunks: [
     content("progress", "正在检查。"),
-    { chunk_type: "tool_result", chunk: { secret: "provider details" } },
+    {
+      chunk_type: "tool_call",
+      block_id: "tool",
+      tool_call_name: "read_file",
+      event: "start",
+      chunk: { path: "note.md" },
+      metadata: { native: { secret: "provider details" } },
+    },
+    {
+      chunk_type: "tool_result",
+      block_id: "tool",
+      event: "end",
+      chunk: "File content",
+      status: "completed",
+    },
     content("answer", "## 结果\n\n**已完成**。"),
   ],
   completed: true,
@@ -44,16 +63,19 @@ function modelFor(message: SessionMessage) {
   return model;
 }
 
-test("history preserves every text message boundary and excludes provider traces", () => {
+test("history preserves typed timeline order and excludes native diagnostic metadata", () => {
   const model = modelFor(assistant);
   const [message] = displayMessages(
     { ...model, pending: null },
     undefined,
     "zh",
   );
-  assert.deepEqual(message.blocks, ["正在检查。", "## 结果\n\n**已完成**。"]);
+  assert.deepEqual(
+    message.items?.map((item) => item.type),
+    ["text", "tool", "text"],
+  );
   assert.equal(message.content, "正在检查。\n\n## 结果\n\n**已完成**。");
-  assert.equal(model.messages[0].chunks.length, 2);
+  assert.equal("chunks" in model.messages[0], false);
   assert.equal(
     JSON.stringify(model.messages).includes("provider details"),
     false,
@@ -72,40 +94,42 @@ test("history preserves every text message boundary and excludes provider traces
     undefined,
     "zh",
   );
-  assert.deepEqual(updated.blocks, [...message.blocks!, "下一条消息"]);
+  assert.equal(updated.items?.at(-1)?.type, "text");
+  assert.equal(updated.items?.length, 4);
 });
 
 test("streaming blocks retain progress and results across the authoritative snapshot", () => {
-  let progress: ReplyProgress = { text: "", blocks: new Map() };
-  for (const chunk of [
+  let progress = emptyReply();
+  const chunks: StreamChunk[] = [
     { ...content("progress", "正在"), event: "delta" as const },
     { ...content("progress", "检查。"), event: "delta" as const },
     content("progress", "正在检查。"),
     content("answer", "## 结果\n\n**已完成**。"),
-  ])
-    progress = reduceReply(progress, chunk);
+  ];
+  for (const chunk of chunks) progress = reduceReply(progress, chunk);
   assert.equal(progress.text, "正在检查。\n\n## 结果\n\n**已完成**。");
   const pending: PendingTurn = {
     id: "local",
     turnId: "turn",
     sessionId: "session",
     query: "检查任务",
-    text: progress.text,
-    blocks: [...progress.blocks.values()],
     streaming: true,
   };
-  const model = modelFor({ ...assistant, chunks: [], completed: false });
+  const model = modelFor({ ...assistant, chunks, completed: false });
   const live = displayMessages({ ...model, pending }, undefined, "zh").find(
     (message) => message.role === "assistant",
   )!;
-  assert.deepEqual(live.blocks, pending.blocks);
+  assert.deepEqual(live.items, progress.items);
   assert.equal(live.streaming, true);
   const complete = displayMessages(
     { ...modelFor(assistant), pending },
     undefined,
     "zh",
   )[0];
-  assert.deepEqual(complete.blocks, live.blocks);
+  assert.deepEqual(
+    complete.items?.filter((item) => item.type === "text"),
+    live.items,
+  );
   assert.equal(complete.streaming, false);
   const textOnly = displayMessages(
     {
@@ -154,7 +178,10 @@ test("both roles render Markdown and each message has an independent Markdown do
       assert.match(html, /#reme-file=daily%2Fnote/);
       const separate = render({
         ...message,
-        blocks: ["```text\nunclosed code", "## 第二条消息"],
+        items: readReply([
+          content("first", "```text\nunclosed code"),
+          content("second", "## 第二条消息"),
+        ]).items,
       });
       assert.match(separate, /<h2>第二条消息<\/h2>/);
       assert.equal(
@@ -173,8 +200,6 @@ test("a task send immediately replaces the previous round while Remy keeps its h
     id: "next",
     sessionId: "session",
     query: "新一轮输入",
-    text: "新一轮进度",
-    blocks: ["新一轮进度"],
     streaming: true,
   };
   const task = () =>
@@ -185,7 +210,7 @@ test("a task send immediately replaces the previous round while Remy keeps its h
     );
   assert.deepEqual(
     task().map((message) => message.content),
-    ["新一轮输入", "新一轮进度"],
+    ["新一轮输入", ""],
   );
   assert.equal(
     displayMessages({ ...model, pending }, undefined, "zh")[0].id,
@@ -194,7 +219,7 @@ test("a task send immediately replaces the previous round while Remy keeps its h
   pending.turnId = "next-turn";
   assert.deepEqual(
     task().map((message) => message.content),
-    ["新一轮输入", "新一轮进度"],
+    ["新一轮输入", ""],
   );
   pending.streaming = false;
   pending.error = "执行失败";
@@ -230,4 +255,127 @@ test("a task send immediately replaces the previous round while Remy keeps its h
     task().map((message) => message.content),
     ["新一轮输入", "新一轮结果"],
   );
+});
+
+test("separate provider messages in one turn form one ordered timeline", () => {
+  const model = modelFor({
+    ...assistant,
+    id: "model-1",
+    chunks: [content("intro", "检查中")],
+    completed: true,
+  });
+  model.apply({
+    type: "message_upsert",
+    session_id: "session",
+    activities: {},
+    message: {
+      ...assistant,
+      id: "model-2",
+      chunks: [content("answer", "完成")],
+      completed: true,
+    },
+  });
+  const messages = displayMessages(
+    { ...model, pending: null },
+    undefined,
+    "zh",
+  );
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].content, "检查中\n\n完成");
+  assert.deepEqual(
+    messages[0].items?.map((item) => item.id),
+    ["intro", "answer"],
+  );
+});
+
+test("Markdown stabilizes complete blocks and invalidates references when their definition arrives", async () => {
+  const server = await createServer({
+    configFile: false,
+    server: { middlewareMode: true, watch: null, hmr: false, ws: false },
+  });
+  try {
+    const { MarkdownBuffer } = await server.ssrLoadModule(
+      "/src/renderer/markdown.tsx",
+    );
+    const buffer = new MarkdownBuffer();
+    const first = buffer.update("# Title\n\nFirst paragraph\n\nLast", false);
+    const next = buffer.update(
+      "# Title\n\nFirst paragraph\n\nLast changed",
+      false,
+    );
+    assert.equal(first[0], next[0]);
+    assert.equal(first[1], next[1]);
+    assert.match(next.at(-1).text, /Last changed/);
+    const source =
+      "# Title\n\nFirst paragraph\n\n[source][ref]\n\n[ref]: https://example.com";
+    assert.deepEqual(buffer.update(source, true), [
+      { offset: 0, text: source },
+    ]);
+    assert.deepEqual(buffer.update("Replaced", true), [
+      { offset: 0, text: "Replaced" },
+    ]);
+    assert.deepEqual(buffer.update("Replaced and corrected", true), [
+      { offset: 0, text: "Replaced and corrected" },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test("a lost command connection does not settle a still-running authoritative turn", () => {
+  const model = modelFor({
+    ...assistant,
+    chunks: [{ ...content("active", "Partial"), event: "delta" }],
+    completed: false,
+  });
+  const pending: PendingTurn = {
+    id: "request",
+    turnId: "turn",
+    sessionId: "session",
+    query: "Check",
+    streaming: false,
+    error: "Connection lost; waiting for synchronization",
+  };
+  const reply = displayMessages({ ...model, pending }, undefined, "en").find(
+    (message) => message.role === "assistant",
+  )!;
+  assert.equal(reply.streaming, true);
+  assert.equal(reply.items?.[0].status, "running");
+  assert.equal(reply.status?.tone, "waiting");
+});
+
+test("request bookkeeping never overwrites later model messages in an active turn", () => {
+  const model = modelFor({
+    ...assistant,
+    id: "first",
+    chunks: [content("intro", "Progress")],
+    completed: true,
+  });
+  model.status = "active";
+  model.apply({
+    type: "message_upsert",
+    session_id: "session",
+    activities: {},
+    message: {
+      ...assistant,
+      id: "second",
+      chunks: [{ ...content("tail", "Live answer"), event: "delta" }],
+      completed: false,
+    },
+  });
+  const pending: PendingTurn = {
+    id: "request",
+    turnId: "turn",
+    sessionId: "session",
+    query: "Check",
+    streaming: true,
+  };
+  const controller = Object.create(DesktopController.prototype) as {
+    syncPending: (model: SessionModel, pending: PendingTurn) => void;
+  };
+  controller.syncPending(model, pending);
+  const [message] = displayMessages({ ...model, pending }, undefined, "en");
+  assert.equal(message.content, "Progress\n\nLive answer");
+  assert.equal(message.streaming, true);
+  assert.equal("items" in pending, false);
 });

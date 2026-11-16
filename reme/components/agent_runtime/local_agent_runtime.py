@@ -18,10 +18,15 @@ from ._internal.notifications import ChatNotifications
 from ._internal.outbox import AgentOutbox
 from ._internal.registry import AgentRegistry
 from ._internal.sessions import AgentSessions
+from ._internal.live_turn import LiveTurns
 from ..agent_wrapper import BaseAgentWrapper
 from ..agent_inbox import BaseAgentInbox
 from ..component_registry import R
-from ...schema.agent_runtime import ChatAgentConfig, CreateChatAgentConfig, NotificationConfig
+from ...schema.agent_runtime import (
+    ChatAgentConfig,
+    CreateChatAgentConfig,
+    NotificationConfig,
+)
 from ...schema.agent_activity import AgentActivity
 from ...schema.application_config import ApplicationConfig
 from ...schema.event import Event
@@ -36,6 +41,7 @@ class _Execution:
     started_at: datetime | None = None
     error: str | None = None
     retry_at: datetime | None = None
+    retry_items: list[str] | None = None
 
 
 @R.register("local")
@@ -69,6 +75,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
         )
         self.agents = AgentRegistry(self.files, directory)
         self.sessions = AgentSessions(self.agents)
+        self.live_turns = LiveTurns()
         self.outbox = AgentOutbox(self)
         self.notifications = ChatNotifications(
             self,
@@ -125,6 +132,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
 
     async def _close(self):
         self.closed = True
+        self.live_turns.clear()
         self.watch_stop.set()
         self.changed.set()
         await self.notifications.close()
@@ -387,9 +395,19 @@ class LocalAgentRuntime(BaseAgentRuntime):
                     return {"agent_id": agent_id, "skipped": "disabled"}
                 await self.prepare(agent)
                 name = agent_id
-                batch = await self.inbox.claim(name, limit=1 if agent.trigger_type == "cron" else None)
+                execution = self.executions[agent_id]
+                if execution.retry_items:
+                    receipt = (await self.inbox.snapshot(name))["receipt"]
+                    if receipt and set(execution.retry_items).issubset(receipt.item_ids):
+                        execution.retry_items = None
+                batch = await self.inbox.claim(
+                    name,
+                    limit=1 if agent.trigger_type == "cron" else agent.max_batch_events,
+                    item_ids=execution.retry_items,
+                )
                 if batch is None:
                     return {"agent_id": agent_id, "processed": 0}
+                execution.retry_items = [item["id"] for item in batch["items"]]
                 owns_worker = agent_id not in self.workers
                 if owns_worker:
                     self.workers[agent_id] = asyncio.current_task()
@@ -424,6 +442,7 @@ class LocalAgentRuntime(BaseAgentRuntime):
                         },
                         retain=bool(refs),
                     )
+                    execution.retry_items = None
 
                 await finish_cleanup(commit())
                 self.activities[agent_id] = self.activities[agent_id].model_copy(update={"phase": "completed"})

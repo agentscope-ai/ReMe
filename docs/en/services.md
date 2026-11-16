@@ -174,7 +174,7 @@ The temporary fork inherits the current conversation, runs read-only and offline
 including failure or cancellation. Its hint and tool traces never enter the main conversation.
 
 Only the reminder fork receives `read_inbox(priority=...)` and `send_chat_msg(content=...)`.
-Reminder evaluation has a 120-second timeout and proactive execution a 600-second timeout, configured with each
+Reminder evaluation has a 120-second timeout and proactive execution a 1200-second timeout, configured with each
 Step's `timeout_seconds`. Transient inbox failures retry with exponential backoff capped at 300 seconds; SDK type
 or import errors stop retries until the environment is repaired and restarted. Chat status exposes inbox failures,
 and cron logs unsuccessful partial collection results.
@@ -188,6 +188,10 @@ Desktop derives its reminder list from these marked messages; `agent_mailbox` br
 `agent_session` and `agent_events` expose full Chat history, but only the latest native turn for event/cron Agents,
 including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
 `snapshot`; `heartbeat` carries no messages. Persisted sessions and model context retain earlier turns.
+
+Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout and a `context_token_limit` of 128000 for native automatic compaction; Chat retains its own settings. Daily summaries carry current state; per-round details retain chronology and evidence.
+
+`agent_mailbox action=read agent_id=chat` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
 
 `proactive_run`, `proactive_query` and `inbox_chat` are service-private Jobs. Collectors remain opt-in; configure `jobs.screen_capture_cron.agent_id` and enable the job to publish
 complete resource packages as observations. No resource watcher or automatic TTL deletion participates in this flow.

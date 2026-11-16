@@ -1,12 +1,11 @@
 import { translator } from "./i18n.ts";
 import type { Language } from "./i18n.ts";
-import { reduceReply } from "./stream.ts";
-import type { ReplyProgress } from "./stream.ts";
+import { finishItems } from "./transcript.ts";
 import type {
   AgentActivity,
   DisplayMessage,
   PendingTurn,
-  SessionMessage,
+  TranscriptMessage,
   StatusNotice,
 } from "./protocol.ts";
 
@@ -33,11 +32,41 @@ export function activityNotice(
   };
 }
 
+/** Some providers store each model response separately within one agent turn. */
+function groupTurns(messages: TranscriptMessage[]): TranscriptMessage[] {
+  const result: TranscriptMessage[] = [];
+  const turns = new Map<string, number>();
+  for (const message of messages) {
+    const key =
+      message.role === "assistant" && message.source === "chat"
+        ? message.turn_id
+        : null;
+    const index = key ? turns.get(key) : undefined;
+    if (index === undefined) {
+      if (key) turns.set(key, result.length);
+      result.push(message);
+    } else {
+      const previous = result[index];
+      result[index] = {
+        ...previous,
+        content: [previous.content, message.content]
+          .filter(Boolean)
+          .join("\n\n"),
+        items: [...previous.items, ...message.items],
+        completed: previous.completed && message.completed,
+        outcome: message.outcome ?? previous.outcome,
+        error: message.error ?? previous.error,
+      };
+    }
+  }
+  return result;
+}
+
 /** Project native history and the local stream once, before either window renders it. */
 export function displayMessages(
   state: {
     sessionId: string | null;
-    messages: SessionMessage[];
+    messages: TranscriptMessage[];
     pending: PendingTurn | null;
     replaceOnSend?: boolean;
   },
@@ -46,12 +75,13 @@ export function displayMessages(
 ): DisplayMessage[] {
   const pending =
     state.pending?.sessionId === state.sessionId ? state.pending : null;
-  const messages =
+  const messages = groupTurns(
     pending && state.replaceOnSend
       ? state.messages.filter(
           (message) => pending.turnId && message.turn_id === pending.turnId,
         )
-      : state.messages;
+      : state.messages,
+  );
   const result: DisplayMessage[] = messages.map((message) => {
     const live =
       pending?.turnId &&
@@ -59,14 +89,8 @@ export function displayMessages(
       message.turn_id === pending.turnId
         ? pending
         : null;
-    const history = message.chunks.reduce<ReplyProgress>(reduceReply, {
-      text: "",
-      blocks: new Map(),
-    });
-    const blocks =
-      !message.completed && live?.blocks?.length
-        ? live.blocks
-        : [...history.blocks.values()];
+    const items = message.items;
+    const outcome = message.outcome;
     return {
       id: message.id,
       turnId: message.turn_id ?? undefined,
@@ -74,19 +98,34 @@ export function displayMessages(
       originSessionId:
         message.origin_session_id ?? state.sessionId ?? undefined,
       role: message.role,
-      content: blocks.length
-        ? blocks.join("\n\n")
-        : !message.completed && live?.text
-          ? live.text
-          : message.content,
-      blocks,
+      content: items.some((item) => item.type === "text")
+        ? items
+            .filter((item) => item.type === "text")
+            .map((item) => item.text)
+            .join("\n\n")
+        : message.content,
+      items:
+        message.completed || (live?.outcome && !live.streaming)
+          ? finishItems(
+              items,
+              live?.error
+                ? "interrupted"
+                : (message.outcome ?? live?.outcome ?? "completed"),
+            )
+          : items,
       completed: message.completed,
       source: message.source,
-      streaming: live
-        ? live.streaming && !message.completed
-        : !message.completed,
-      status: null,
-      error: live?.error,
+      streaming: !message.completed && !(live?.outcome && !live.streaming),
+      status:
+        outcome && !["completed", "running"].includes(outcome)
+          ? {
+              kind: "status",
+              id: `${message.id}:${outcome}`,
+              text: translator(language)(outcome),
+              tone: outcome === "waiting" ? "waiting" : "error",
+            }
+          : null,
+      error: live?.error ?? message.error,
     };
   });
   const matches = (role: "user" | "assistant") =>
@@ -111,10 +150,11 @@ export function displayMessages(
       role: "assistant",
       source: "chat",
       turnId: pending.turnId,
-      content: pending.text,
-      blocks: pending.blocks,
+      content: "",
+      items: [],
       completed: false,
-      streaming: pending.streaming,
+      streaming:
+        pending.streaming || (!pending.outcome && Boolean(pending.turnId)),
       status: null,
       error: pending.error,
     });
@@ -174,10 +214,16 @@ export function displayMessages(
             turn_id: pending.turnId ?? pending.id,
             source: "chat",
             phase: pending.streaming
-              ? pending.text
+              ? reply.content
                 ? "answering"
                 : "thinking"
-              : "completed",
+              : pending.outcome === "waiting"
+                ? "waiting"
+                : pending.outcome === "failed"
+                  ? "failed"
+                  : pending.outcome === "interrupted"
+                    ? "interrupted"
+                    : "completed",
           },
           language,
         ),
@@ -188,7 +234,7 @@ export function displayMessages(
         kind: "status",
         id: `error:${reply.id}`,
         text: reply.error,
-        tone: "error",
+        tone: pending.outcome ? "error" : "waiting",
         messageId: reply.id,
       };
   }

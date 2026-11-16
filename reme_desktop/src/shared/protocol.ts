@@ -55,12 +55,46 @@ export interface DisplayMessage {
   role: "user" | "assistant";
   source: "chat" | "proactive";
   content: string;
-  blocks?: string[];
+  items?: TranscriptItem[];
   completed: boolean;
   streaming: boolean;
   status: StatusNotice | null;
   error?: string;
 }
+
+export type ItemStatus =
+  "running" | "completed" | "failed" | "interrupted" | "waiting" | "unknown";
+
+interface ItemBase {
+  id: string;
+  status: ItemStatus;
+}
+
+export interface TextItem extends ItemBase {
+  type: "text";
+  text: string;
+  phase?: "commentary" | "final_answer";
+}
+
+export interface SummaryItem extends Omit<TextItem, "type"> {
+  type: "summary";
+}
+
+export interface ToolItem extends ItemBase {
+  type: "tool";
+  name: string;
+  input: string;
+  output: string;
+}
+
+export interface ArtifactItem extends ItemBase {
+  type: "artifact";
+  label: string;
+  url: string;
+  mediaType: string;
+}
+
+export type TranscriptItem = TextItem | SummaryItem | ToolItem | ArtifactItem;
 
 export interface MessageBubble {
   kind: "message";
@@ -90,6 +124,10 @@ export interface StreamChunk {
   session_id?: string | null;
   turn_id?: string | null;
   block_id?: string | null;
+  message_id?: string | null;
+  tool_call_id?: string | null;
+  tool_call_name?: string | null;
+  media_type?: string | null;
   metadata?: Record<string, unknown>;
 }
 
@@ -106,6 +144,13 @@ export interface SessionMessage {
   origin_session_id?: string | null;
   notification_eligible: boolean;
   chunks: StreamChunk[];
+}
+
+/** Renderer-safe messages, normalized once at the subscription boundary. */
+export interface TranscriptMessage extends Omit<SessionMessage, "chunks"> {
+  items: TranscriptItem[];
+  outcome?: NonNullable<StreamChunk["status"]>;
+  error?: string;
 }
 
 export interface SessionSnapshot {
@@ -135,7 +180,8 @@ export interface AgentEvent {
 }
 
 export interface Receipt {
-  read: boolean;
+  userRead: boolean;
+  readSynced: boolean;
   presented: boolean;
   suppressed?: boolean;
   snoozeUntil?: number;
@@ -173,8 +219,7 @@ export type DesktopPage = "remy" | "knowledge" | "settings";
 export interface PendingTurn {
   id: string;
   query: string;
-  text: string;
-  blocks?: string[];
+  outcome?: NonNullable<StreamChunk["status"]>;
   sessionId: string | null;
   turnId?: string;
   streaming: boolean;

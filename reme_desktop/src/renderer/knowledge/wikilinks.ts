@@ -10,7 +10,11 @@ import type {} from "remark-parse";
 
 declare module "mdast" {
   interface PhrasingContentMap {
-    remeWikilink: { type: "remeWikilink"; value: string };
+    remeWikilink: {
+      type: "remeWikilink";
+      value: string;
+      position?: import("unist").Position;
+    };
   }
   interface RootContentMap {
     remeWikilink: PhrasingContentMap["remeWikilink"];

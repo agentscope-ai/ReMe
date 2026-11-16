@@ -1,4 +1,15 @@
-import type { CompanionSurface } from "./protocol.ts";
+import type { CompanionSurface, TranscriptItem } from "./protocol.ts";
+
+export function replyText(message: {
+  content: string;
+  items?: TranscriptItem[];
+}): string {
+  const text =
+    message.items?.findLast(
+      (item) => item.type === "text" && item.phase === "final_answer",
+    ) ?? message.items?.findLast((item) => item.type === "text");
+  return text?.type === "text" ? text.text : message.content;
+}
 
 export const previewContent = (content: string): string =>
   content.length > 400 ? `${content.slice(0, 400)}…` : content;
@@ -11,7 +22,7 @@ export function surfaceKey(surface: CompanionSurface | null): string {
     surface.kind === "message" ? surface.message.id : surface.id,
     surface.kind === "message" ? surface.presentationId : null,
     surface.kind === "message"
-      ? previewContent(surface.message.content)
+      ? previewContent(replyText(surface.message))
       : surface.text,
     surface.kind === "message" ? surface.message.status : null,
     surface.kind === "message" ? surface.message.streaming : null,

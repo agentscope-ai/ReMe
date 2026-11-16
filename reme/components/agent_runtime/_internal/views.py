@@ -85,7 +85,7 @@ class AgentViews:
             "total": len(items),
         }
 
-    async def read(self, agent_id):
+    async def read(self, agent_id, *, include_live=True):
         """Keep Chat history; task workspaces expose only their latest native turn."""
         agent = await self.view(agent_id)
         snapshot = None
@@ -119,7 +119,7 @@ class AgentViews:
                     and message["completed"]
                     and bool(message["content"].strip())
                 )
-        return value
+        return self.runtime.live_turns.overlay(agent_id, value) if include_live else value
 
     async def events(self, agent_id, interval=1, heartbeat=15):
         """Diff bounded polling views; every new connection receives an authoritative snapshot.
@@ -127,60 +127,105 @@ class AgentViews:
         Polling also observes external file changes and works with every session-capable wrapper.
         Cancellation belongs to the request; observing never acquires a generation lock.
         """
-        previous: dict = {}
-        last_emit = monotonic()
-        while not self.runtime.closed:
-            value = await self.read(agent_id)
-            agents = (await self.list())["items"]
-            snapshot = value["snapshot"]
-            activity = self.runtime.activities.get(agent_id)
-            activities = (
-                {"chat": activity.model_dump(mode="json")}
-                if activity and activity.source == "chat" and activity.session_id == value["session_id"]
-                else {}
-            )
-            event = {
-                "type": "snapshot",
-                "agent_id": agent_id,
-                "session_id": value["session_id"],
-                "status": value["agent"]["status"],
-                "activities": activities,
-                "task_activities": {
-                    name: activity.model_dump(mode="json")
-                    for name, activity in self.runtime.activities.items()
-                    if activity.source == "task" and name in self.runtime.workers
-                },
-                "agents": agents,
-                "snapshot": snapshot,
-            }
-            if event != previous:
-                # A task turn replaces its predecessor atomically, including its live partial output.
-                if not previous or agent_id != "chat":
-                    yield event
-                elif previous["session_id"] != event["session_id"]:
-                    yield {**event, "type": "session_changed", "snapshot": None}
-                    yield {**event, "type": "status_changed", "snapshot": None}
-                    for message in (snapshot or {}).get("messages", []):
-                        yield {**event, "type": "message_upsert", "snapshot": None, "message": message}
-                else:
-                    old = {message["id"]: message for message in (previous["snapshot"] or {}).get("messages", [])}
-                    for message in (snapshot or {}).get("messages", []):
-                        if message != old.get(message["id"]):
+        wake = asyncio.Event()
+        self.runtime.live_turns.listeners.add(wake)
+        try:
+            previous: dict = {}
+            last_emit = monotonic()
+            next_poll = 0
+            polled_epoch = -1
+            value, agents = {}, []
+            while not self.runtime.closed:
+                wake.clear()
+                live = self.runtime.live_turns.turns.get(agent_id)
+                epoch = self.runtime.live_turns.epoch
+                if (
+                    not value
+                    or monotonic() >= next_poll
+                    or epoch != polled_epoch
+                    or (live and live.session_id != value["session_id"])
+                ):
+                    value = await self.read(agent_id, include_live=False)
+                    agents = (await self.list())["items"]
+                    if epoch != self.runtime.live_turns.epoch:
+                        continue
+                    polled_epoch = epoch
+                    next_poll = monotonic() + interval
+                current = self.runtime.live_turns.overlay(agent_id, value)
+                snapshot = current["snapshot"]
+                activity = self.runtime.activities.get(agent_id)
+                activities = (
+                    {"chat": activity.model_dump(mode="json")}
+                    if activity and activity.source == "chat" and activity.session_id == value["session_id"]
+                    else {}
+                )
+                event = {
+                    "type": "snapshot",
+                    "agent_id": agent_id,
+                    "session_id": value["session_id"],
+                    "status": value["agent"]["status"],
+                    "activities": activities,
+                    "task_activities": {
+                        name: activity.model_dump(mode="json")
+                        for name, activity in self.runtime.activities.items()
+                        if activity.source == "task" and name in self.runtime.workers
+                    },
+                    "agents": agents,
+                    "snapshot": snapshot,
+                }
+                if event != previous:
+                    # A task turn replaces its predecessor atomically, including its live partial output.
+                    if not previous or agent_id != "chat":
+                        yield event
+                    elif previous["session_id"] != event["session_id"]:
+                        yield {**event, "type": "session_changed", "snapshot": None}
+                        yield {**event, "type": "status_changed", "snapshot": None}
+                        for message in (snapshot or {}).get("messages", []):
                             yield {
                                 **event,
                                 "type": "message_upsert",
                                 "snapshot": None,
                                 "message": message,
                             }
-                    # Full snapshots reconcile removed/reordered messages, including native compaction.
-                    yield event
-                previous, last_emit = event, monotonic()
-            elif monotonic() - last_emit >= heartbeat:
-                yield {
-                    "type": "heartbeat",
-                    "agent_id": agent_id,
-                    "activities": {},
-                    "agents": agents,
-                }
-                last_emit = monotonic()
-            await asyncio.sleep(interval)
+                    else:
+                        old = {message["id"]: message for message in (previous["snapshot"] or {}).get("messages", [])}
+                        messages = (snapshot or {}).get("messages", [])
+                        ids = [message["id"] for message in messages]
+                        if list(old) != ids[: len(old)]:
+                            # Compaction/removal/reordering is one atomic replacement.
+                            yield event
+                        else:
+                            if any(
+                                event[key] != previous[key]
+                                for key in (
+                                    "status",
+                                    "activities",
+                                    "task_activities",
+                                    "agents",
+                                )
+                            ):
+                                yield {**event, "type": "status_changed", "snapshot": None}
+                            for message in messages:
+                                if message != old.get(message["id"]):
+                                    yield {
+                                        **event,
+                                        "type": "message_upsert",
+                                        "snapshot": None,
+                                        "message": message,
+                                    }
+                    previous, last_emit = event, monotonic()
+                elif monotonic() - last_emit >= heartbeat:
+                    yield {
+                        "type": "heartbeat",
+                        "agent_id": agent_id,
+                        "activities": {},
+                        "agents": agents,
+                    }
+                    last_emit = monotonic()
+                try:
+                    await asyncio.wait_for(wake.wait(), timeout=max(0, next_poll - monotonic()))
+                    await asyncio.sleep(0.025)
+                except TimeoutError:
+                    pass
+        finally:
+            self.runtime.live_turns.listeners.discard(wake)

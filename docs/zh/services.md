@@ -133,7 +133,7 @@ Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` �
 
 `event` 通过 `append_event(agent_id, events)` 接收观察，每条包含 `event_ts`、`source`、`description`，
 可附工作区相对 `paths`、`id` 和 `metadata`。`cron` 要求 cron 表达式，到点执行完整任务，不接收外部观察。
-两类使用应用时区，每个 Agent 串行执行；`source=cron` 保留给框架。事件任务可设置 `min_trigger_interval_seconds`。
+两类使用应用时区，每个 Agent 串行执行；事件任务可用 `max_batch_events` 限制每轮领取量（默认 20），进程内失败重试保持原批次，新输入留待后续轮次。`source=cron` 保留给框架。事件任务可设置 `min_trigger_interval_seconds`。
 
 Chat 和 cron Agent 开启原生 `web_search`、`web_extract` 和命令网络访问，event Agent 保持离线。
 已有任务配置和创建参数中的旧字段 `enable_web` 需要删除。
@@ -166,14 +166,14 @@ P1 等待连续空闲 10 秒，P2 等待 1800 秒，分别由 `notifications.p1_
 只有提醒 fork 绑定 `read_inbox(priority=...)` 和 `send_chat_msg(content=...)`，读取范围限定为本轮选中的消息。
 非空内容作为标记 `source="proactive"` 的 assistant 消息注入主会话；空内容表示静默，不追加消息。
 决定成功提交后，框架自动消费本轮读取的消息，独立于主人已读状态；失败保留重试，主会话切换或收到新用户轮次后拒绝旧 fork 的结果。
-提醒判断默认限时 120 秒，主动执行默认限时 600 秒，可在对应 Step 设置 `timeout_seconds`。
+提醒判断默认限时 120 秒，主动执行默认限时 1200 秒，可在对应 Step 设置 `timeout_seconds`。
 收件箱临时故障按指数退避重试（最长 300 秒），SDK 类型或导入错误停止重试，修复环境并重启后恢复。
 `agent_list` 的 Chat 状态会显示收件箱故障，cron 返回的部分采集失败也会写入日志。
-fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表，`agent_mailbox` 按 `agent_id` 查询 Remy 收件箱或任务发件箱；用户已读不会消费消息。`agent_event_list agent_id=<name>` 分页浏览保留的输入事件，不获取消费租约。
+fork 的普通回复不会发送给主人。桌面端从这些已标记的消息生成提醒列表，`agent_mailbox` 按 `agent_id` 查询 Remy 收件箱或任务发件箱；用户已读不会消费消息。`agent_mailbox action=read agent_id=chat` 也接受合并后的 Chat 消息 ID，返回 `{id,items}` 并在 `mark_read=true` 时确认其全部保留的原始提醒；原始提醒已清理时返回空列表，重复确认仍然成功。对应关系保存在提醒 frontmatter 的 `chat_message_ids` 中；桌面仅将用户明确阅读产生的回执写回，历史消息初始化、静默抑制和仅显示弹窗不算用户已读。`agent_event_list agent_id=<name>` 分页浏览保留的输入事件，不获取消费租约。
 
 `agent_session` 和 `agent_events` 对 Chat 返回完整对话，对事件与定时 Agent 仅返回最近一个原生轮次，
 包含该轮输入及全部助手进度和最终消息。任务订阅每次通过 `snapshot` 整体替换视图，`heartbeat` 不含消息。
-历史轮次仍保存在原生会话中，并继续用于模型上下文。
+历史轮次仍保存在原生会话中，并继续用于模型上下文。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，`context_token_limit=128000` 控制原生上下文自动压缩阈值；Chat 保留独立设置。每日摘要用于交接当前状态，逐轮过程与完整证据保存在明细文件。
 
 `proactive_run`、`proactive_query`、`inbox_chat` 为服务私有 Job。采集器默认关闭，配置 `jobs.screen_capture_cron.agent_id`
 并启用任务后，完整资源包才会转成观察事件；本流程不使用资源 watcher 或自动 TTL 删除。

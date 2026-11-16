@@ -17,7 +17,11 @@ from reme.components.agent_inbox import AgentEventInbox
 from reme.config import resolve_app_config
 from reme.enumeration import ChunkEnum, ComponentEnum
 from reme.schema import SessionSnapshot, SessionStatus, StreamChunk
-from reme.schema.proactive_agent import CreateProactiveAgentConfig, ProactiveAgentConfig, ProactiveRunResult
+from reme.schema.proactive_agent import (
+    CreateProactiveAgentConfig,
+    ProactiveAgentConfig,
+    ProactiveRunResult,
+)
 from reme.steps.proactive.agent import (
     AgentChatStep,
     AgentMailboxStep,
@@ -478,7 +482,7 @@ async def test_missing_or_blank_task_memory_keeps_inputs_pending(tmp_path, monke
         else:
             runtime.files.write(path, content)
         model = AsyncMock()
-        monkeypatch.setattr(wrapper, "reply", model)
+        monkeypatch.setattr(wrapper, "reply_stream", model)
         with pytest.raises((FileNotFoundError, ValueError)):
             await ProactiveAgentStep(app_context=context)(agent_id="monitor")
         model.assert_not_called()
@@ -543,7 +547,24 @@ async def test_proactive_agent_step_saves_artifacts_and_publishes_through_runtim
                 "result": "Saved the daily summary and reminder.",
             }
 
-        monkeypatch.setattr(wrapper, "reply", AsyncMock(side_effect=model_reply))
+        async def model_stream(query, **kwargs):
+            result = await model_reply(query, **kwargs)
+            yield StreamChunk(
+                chunk_type=ChunkEnum.REPLY_END,
+                event="end",
+                session_id=kwargs["resume"],
+                turn_id="automatic-turn",
+                status="completed",
+                chunk={
+                    "structured_output": None,
+                    "usage": None,
+                    "error": None,
+                    "raw": {},
+                    **result,
+                },
+            )
+
+        monkeypatch.setattr(wrapper, "reply_stream", model_stream)
         response = await ProactiveAgentStep(app_context=context)(agent_id="monitor")
         assert response.success and response.answer["processed"] == 1
         assert (await runtime.status("monitor"))["pending_events"] == 0
@@ -620,14 +641,15 @@ async def test_incomplete_round_keeps_events_pending_without_publishing(tmp_path
             header = "" if failure == "missing_priority" else f"---\npriority: {priority}\n---\n"
             body = "" if failure == "empty_reminder" else "Finished\n"
             runtime.files.write(paths["reminder_path"], header + body)
-            return {
+            result = {
                 "status": "failed" if failure == "failed_reply" else "completed",
                 "session_id": kwargs["resume"],
                 "error": "Interrupted" if failure == "failed_reply" else None,
                 "result": "Done",
             }
+            yield StreamChunk(chunk_type=ChunkEnum.REPLY_END, chunk=result, status=result["status"])
 
-        monkeypatch.setattr(wrapper, "reply", AsyncMock(side_effect=model_reply))
+        monkeypatch.setattr(wrapper, "reply_stream", model_reply)
         with pytest.raises((ValueError, FileNotFoundError, RuntimeError)):
             await step(agent_id="monitor")
         assert (await runtime.status("monitor"))["pending_events"] == 1
@@ -652,7 +674,24 @@ async def test_round_without_reminder_uses_saved_files_instead_of_response_json(
                 "structured_output": {"notifications": [{"priority": "P0", "message": "Ignore response JSON"}]},
             }
 
-        monkeypatch.setattr(wrapper, "reply", AsyncMock(side_effect=model_reply))
+        async def model_stream(query, **kwargs):
+            result = await model_reply(query, **kwargs)
+            yield StreamChunk(
+                chunk_type=ChunkEnum.REPLY_END,
+                event="end",
+                session_id=kwargs["resume"],
+                turn_id="automatic-turn",
+                status="completed",
+                chunk={
+                    "structured_output": None,
+                    "usage": None,
+                    "error": None,
+                    "raw": {},
+                    **result,
+                },
+            )
+
+        monkeypatch.setattr(wrapper, "reply_stream", model_stream)
         response = await ProactiveAgentStep(app_context=context)(agent_id="monitor")
         assert response.success and response.answer["notifications"] == []
         assert (await runtime.status("monitor"))["pending_events"] == 0

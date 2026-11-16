@@ -620,3 +620,129 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+.message-body > .message-content,
+.message-body > .activity-group,
+.message-body > .reasoning-summary {
+  margin-block: 14px;
+}
+.activity-group {
+  color: var(--muted);
+  font-size: 12px;
+}
+.activity-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  list-style: none;
+  width: fit-content;
+}
+.activity-group > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-group[open] .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-failed {
+  color: var(--error);
+}
+.activity-details {
+  margin: 10px 0 0 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--soft);
+}
+.tool-detail {
+  margin-block: 12px;
+  color: var(--muted);
+}
+.tool-detail header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+.tool-detail[data-status="failed"] header,
+.tool-detail[data-status="interrupted"] header {
+  color: var(--error);
+}
+.message-body .tool-detail pre {
+  max-height: 280px;
+  overflow: auto;
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+.reasoning-summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+.reasoning-summary > summary {
+  cursor: pointer;
+}
+.attachment-link {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--accent);
+  border: 0;
+  background: var(--soft);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.message-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.activity-spinner {
+  animation: activity-spin 1.2s linear infinite;
+}
+@keyframes activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .activity-spinner {
+    animation: none;
+  }
+}
+.jump-to-latest {
+  position: sticky;
+  bottom: 12px;
+  display: block;
+  margin: 0 auto;
+  padding: 6px 14px;
+  border: 1px solid var(--soft);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat-content {
+  min-height: 100%;
+}
+.load-earlier,
+.tool-show-output {
+  display: block;
+  margin: 10px auto;
+  padding: 4px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.attachment-image {
+  margin: 14px 0;
+}
+.attachment-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border-radius: 10px;
+}

@@ -67,10 +67,17 @@ The client uses the following jobs from the same checkout:
 | `session_read` / `session_status`                       | Read retained native history / inspect native activity                               |
 | `list`, `load`, `list_tags`, `list_tag_files`, `search` | Read-only Knowledge browsing                                                         |
 
-Subscriptions start with an authoritative snapshot, emit changed messages and replacement snapshots, and send idle
-heartbeats. Every reconnect reconstructs the current view; a stale client cursor is unnecessary. Polling also observes
-external workspace edits and works with session-capable wrappers. Stream errors and the terminal `DONE` retain ReMe's
+Subscriptions start with an authoritative snapshot and coalesce live updates into replaceable message snapshots.
+Text, tool activity, public reasoning summaries and attachments retain their order within each turn. Repeated updates
+replace the same item; final text does not remove earlier progress. Every reconnect reconstructs the current view,
+including unfinished output; requests are never resent to recover a display. Native transcripts remain the durable
+source, while the runtime's bounded live projection bridges updates until native history catches up.
+Polling also observes external workspace edits and works with session-capable wrappers. Stream errors and the terminal `DONE` retain ReMe's
 normal service contract. Interrupted user requests are never automatically resent.
+
+Tool details expand on demand. Markdown retains stable blocks while its active tail streams; each text item is an
+independent Markdown document. The conversation follows new output only while the reader is at the bottom, offers a
+return-to-latest action, and loads older messages in batches.
 
 The existing `manage_proactive_agent(action=query)` remains a separate temporary, read-only query. Desktop conversations
 use `agent_chat`, so their history remains available to later automatic execution. See
@@ -80,6 +87,10 @@ use `agent_chat`, so their history remains available to later automatic executio
 The sidebar separates Remy, Proactive and Cron. Task groups collapse independently. Each conversation shows only the current formal session; memory, reminders, inboxes, event records and outboxes have dedicated views. Workspace links open the original file in Knowledge, including images; web links open the browser.
 
 Inbox processing (`read_at`) and user reading (`user_read_at`) are independent. Reading a mailbox never claims events or consumes mail. Event history is bounded by the configured event-stream retention.
+
+Local presentation receipts use `userRead` and `readSynced`; bubble presentation never marks a message as read.
+The old `read` receipt format is unsupported. Close Desktop and remove obsolete receipts from
+`desktop/presentation.json` in its application data directory before starting this version.
 
 ## Validate and package
 

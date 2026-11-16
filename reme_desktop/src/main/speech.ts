@@ -1,9 +1,10 @@
+import { replyText } from "../shared/surface.ts";
 import { serializeError, UiError } from "../shared/i18n.ts";
 import { narrationParts, validRecording } from "../shared/speech.ts";
 import type {
   AgentActivity,
   DesktopCommand,
-  SessionMessage,
+  TranscriptMessage,
   Settings,
   SpeechAudio,
   SpeechState,
@@ -52,7 +53,7 @@ export class SpeechController {
   } | null = null;
   private playback: Playback | null = null;
   private readonly seen = new Set<string>();
-  private readonly candidates = new Map<string, SessionMessage>();
+  private readonly candidates = new Map<string, TranscriptMessage>();
   private readonly tasks = new Set<Promise<void>>();
   private readonly cache = new Map<
     string,
@@ -111,13 +112,13 @@ export class SpeechController {
     if (this.state.error) this.update({ error: null });
   }
 
-  baseline(messages: SessionMessage[]): void {
+  baseline(messages: TranscriptMessage[]): void {
     this.candidates.clear();
     for (const message of messages)
       if (message.completed) this.seen.add(message.id);
   }
 
-  observe(message: SessionMessage): void {
+  observe(message: TranscriptMessage): void {
     if (
       message.role !== "assistant" ||
       message.source !== "chat" ||
@@ -166,7 +167,7 @@ export class SpeechController {
   }
 
   speak(
-    message: SessionMessage,
+    message: TranscriptMessage,
     kind: NonNullable<SpeechState["playback"]>["kind"] = "manual",
   ): void {
     if (
@@ -186,7 +187,7 @@ export class SpeechController {
     if (this.closed || !this.context().connected)
       throw new UiError("sessionUnavailable");
     if (!this.state.ready) throw new UiError("speechNotReady");
-    const parts = narrationParts(message.content);
+    const parts = narrationParts(replyText(message));
     if (!parts.length) {
       if (kind === "manual") throw new UiError("speechNoText");
       return;

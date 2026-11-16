@@ -5,7 +5,7 @@ import type { Reminder } from "./bubbles.ts";
 import { BehaviorController } from "./behavior.ts";
 import { PresentationController } from "./presentation.ts";
 import { displayMessages } from "../shared/messages.ts";
-import { surfaceKey } from "../shared/surface.ts";
+import { surfaceKey, replyText } from "../shared/surface.ts";
 import { NotificationPolicy } from "./notifications.ts";
 import { emptySpeech, SpeechController } from "./speech.ts";
 import type { SystemNotice } from "./notifications.ts";
@@ -13,15 +13,14 @@ import { delay, ReMeClient } from "./reme-client.ts";
 import { SessionModel } from "./session-model.ts";
 import { normalizeEndpoint, Storage } from "./storage.ts";
 import { requestWorkspace } from "./workspace.ts";
-import { reduceReply } from "../shared/stream.ts";
-import type { ReplyProgress } from "../shared/stream.ts";
+import { emptyReply, reduceReply } from "../shared/transcript.ts";
 import type {
   DesktopState,
   PendingTurn,
   AgentEvent,
   Presentation,
   Receipt,
-  SessionMessage,
+  TranscriptMessage,
   SessionSnapshot,
   AnimationManifest,
   PlaybackStatus,
@@ -73,7 +72,8 @@ export class DesktopController {
     true,
     this.nextPresentationId,
   );
-  private replay: { target: ItemTarget; message: SessionMessage } | null = null;
+  private replay: { target: ItemTarget; message: TranscriptMessage } | null =
+    null;
   private replayRequest = 0;
   private menuOpen = false;
   private menuSequence = 0;
@@ -97,6 +97,8 @@ export class DesktopController {
   private endpoint: string;
   private settingsWrites: Promise<void> = Promise.resolve();
   private closed = false;
+  private readSync: Promise<void> | null = null;
+  private readRetryAt = 0;
   private flushedAt = 0;
   private connectionIssue: unknown = null;
   private pendingIssue: unknown = null;
@@ -187,6 +189,7 @@ export class DesktopController {
     this.restart();
     this.clock = setInterval(() => {
       this.tick();
+      this.syncReadReceipts();
       if (Date.now() - this.flushedAt < 1000) return;
       this.flushedAt = Date.now();
       void this.storage.flush().catch((error) => {
@@ -208,6 +211,7 @@ export class DesktopController {
     this.lifecycle?.abort();
     this.stream?.abort();
     this.generation++;
+    this.readRetryAt = 0;
     this.endpoint = this.storage.settings.endpoint;
     this.ready = false;
     this.model.clear();
@@ -402,11 +406,15 @@ export class DesktopController {
                 } else this.speech.baseline(this.model.messages);
                 this.observeMessages(this.model.messages, !live);
               } else if (event.type === "message_upsert" && event.message) {
-                this.observeMessages([event.message], false);
-                this.speech.observe(event.message);
+                const message = this.model.messages.find(
+                  (message) => message.id === event.message!.id,
+                )!;
+                this.observeMessages([message], false);
+                this.speech.observe(message);
               }
               if (live) this.speech.finish(this.model.activities.chat);
             }
+            this.syncPending(this.model, this.chatPending);
             this.reconcilePending();
             attempt = 0;
             this.tick();
@@ -440,11 +448,11 @@ export class DesktopController {
 
   private notificationMessage(
     id: string | undefined,
-  ): SessionMessage | undefined {
+  ): TranscriptMessage | undefined {
     return this.model.messages.find((message) => message.id === id);
   }
 
-  private notificationMessages(): SessionMessage[] {
+  private notificationMessages(): TranscriptMessage[] {
     return this.model.messages.filter(
       (message) =>
         message.source === "proactive" &&
@@ -455,7 +463,7 @@ export class DesktopController {
   }
 
   private notificationPresentation(
-    message: SessionMessage,
+    message: TranscriptMessage,
   ): Presentation | undefined {
     const session = message.origin_session_id ?? this.model.sessionId;
     return this.scope && session
@@ -463,7 +471,10 @@ export class DesktopController {
       : undefined;
   }
 
-  private observeMessages(messages: SessionMessage[], snapshot: boolean): void {
+  private observeMessages(
+    messages: TranscriptMessage[],
+    snapshot: boolean,
+  ): void {
     const current = this.presentation();
     const initialize = new Set<Presentation>();
     for (const message of messages) {
@@ -482,8 +493,9 @@ export class DesktopController {
       if (snapshot) initialize.add(presentation);
       if (!Object.hasOwn(presentation.receipts, message.id)) {
         presentation.receipts[message.id] = {
-          read: baseline,
           presented: baseline,
+          userRead: false,
+          readSynced: false,
         };
         this.storage.changed();
       }
@@ -540,7 +552,7 @@ export class DesktopController {
       if (
         !receipt ||
         receipt.suppressed ||
-        (receipt.read && !receipt.snoozeUntil)
+        (receipt.userRead && !receipt.snoozeUntil)
       )
         continue;
       if (!this.model.canNotify(message, now)) {
@@ -700,7 +712,8 @@ export class DesktopController {
     this.state.readMessageIds = notifications
       .filter(
         (message) =>
-          this.notificationPresentation(message)?.receipts[message.id]?.read,
+          this.notificationPresentation(message)?.receipts[message.id]
+            ?.userRead,
       )
       .map((message) => message.id);
     this.state.unread = this.state.reminders.filter(
@@ -724,8 +737,7 @@ export class DesktopController {
       pending?.id,
       pending?.turnId,
       pending?.sessionId,
-      pending?.text,
-      pending?.blocks,
+      pending?.outcome,
       pending?.streaming,
       pending?.error,
     ];
@@ -754,7 +766,7 @@ export class DesktopController {
           pending: child.pending,
           replaceOnSend: true,
         },
-        undefined,
+        child.model.activities.chat,
         this.state.settings.language,
       );
       if (child.error)
@@ -914,14 +926,6 @@ export class DesktopController {
     if (this.confirmPresentation(sessionId, id, presentationId)) {
       const message = this.notificationMessage(id);
       if (message) {
-        if (message.delivery === "immediate") {
-          const receipt = this.notificationPresentation(message)?.receipts[id];
-          if (receipt) {
-            receipt.read = true;
-            this.storage.changed();
-            this.emit();
-          }
-        }
         const settings = this.state.settings;
         if (
           message.delivery === "immediate" &&
@@ -1121,7 +1125,7 @@ export class DesktopController {
       this.state.activePage !== "remy"
     )
       return;
-    const messages: SessionMessage[] = [];
+    const messages: TranscriptMessage[] = [];
     for (const id of ids.slice(0, 100)) {
       const message = this.notificationMessage(id);
       if (
@@ -1133,13 +1137,14 @@ export class DesktopController {
     this.readMessages(messages);
   }
 
-  private readMessages(messages: SessionMessage[]): void {
+  private readMessages(messages: TranscriptMessage[]): void {
     let changed = false;
     for (const message of messages) {
       const id = message.id;
       const receipt = this.notificationPresentation(message)?.receipts[id];
-      if (!receipt || receipt.read) continue;
-      receipt.read = true;
+      if (!receipt || receipt.userRead) continue;
+      receipt.userRead = true;
+      receipt.readSynced = false;
       changed = true;
       delete receipt.snoozeUntil;
       if (this.bubbles.active?.id !== id) this.bubbles.dismiss(id);
@@ -1148,8 +1153,54 @@ export class DesktopController {
     }
     if (!changed) return;
     this.storage.changed();
+    this.syncReadReceipts();
     this.tick();
     this.emit();
+  }
+
+  private syncReadReceipts(): void {
+    if (
+      !this.ready ||
+      !this.lifecycle ||
+      !this.scope ||
+      this.readSync ||
+      Date.now() < this.readRetryAt
+    )
+      return;
+    const generation = this.generation;
+    const signal = this.lifecycle.signal;
+    const client = this.client();
+    const receipts = Object.entries(this.storage.presentations)
+      .filter(([key]) => key.startsWith(`${this.scope}:`))
+      .flatMap(([, presentation]) => Object.entries(presentation.receipts))
+      .filter(([, receipt]) => receipt.userRead && !receipt.readSynced);
+    if (!receipts.length) return;
+    this.readSync = (async () => {
+      for (const [id, receipt] of receipts) {
+        try {
+          await client.call(
+            "agent_mailbox",
+            {
+              action: "read",
+              agent_id: "chat",
+              message_id: id,
+              mark_read: true,
+            },
+            AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+          );
+          if (generation !== this.generation || signal.aborted) return;
+          receipt.readSynced = true;
+          this.state.mailboxRevision++;
+          this.storage.changed();
+        } catch {
+          if (!signal.aborted) this.readRetryAt = Date.now() + 10_000;
+          return;
+        }
+      }
+    })().finally(() => {
+      this.readSync = null;
+      if (generation === this.generation && !signal.aborted) this.emit();
+    });
   }
 
   selectPage(page: DesktopPage): void {
@@ -1180,6 +1231,8 @@ export class DesktopController {
 
   async markAllRead(): Promise<void> {
     this.readMessages(this.notificationMessages());
+    this.syncReadReceipts();
+    await this.readSync;
   }
 
   openDocument(path: string): void {
@@ -1190,7 +1243,7 @@ export class DesktopController {
     this.selectPage("knowledge");
   }
 
-  async item(target: ItemTarget): Promise<SessionMessage> {
+  async item(target: ItemTarget): Promise<TranscriptMessage> {
     validateItemTarget(target);
     if (this.closed) throw new UiError("itemUnavailable");
     if (target.kind === "message") {
@@ -1227,7 +1280,7 @@ export class DesktopController {
       created_at: mail.created_at,
       delivery: "idle",
       notification_eligible: false,
-      chunks: [],
+      items: [],
     };
   }
 
@@ -1271,7 +1324,12 @@ export class DesktopController {
             ?.model.messages.find((message) => message.id === id);
     if (!message || message.role !== "assistant" || !message.completed)
       throw new UiError("speechNoText");
-    this.speech.speak(message);
+    const displayed = this.state.messages.find((item) => item.id === id);
+    this.speech.speak(
+      displayed
+        ? { ...message, content: replyText(displayed), items: [] }
+        : message,
+    );
   }
 
   bubbleAction(
@@ -1372,6 +1430,7 @@ export class DesktopController {
             if (chunk.chunk_type !== "data") return;
             const previousTurn = child.model.messages.at(-1)?.turn_id;
             child.model.apply(chunk.chunk);
+            this.syncPending(child.model, child.pending);
             const currentTurn = child.model.messages.at(-1)?.turn_id;
             if (
               this.acceptedReply(child.model, child.pending) ||
@@ -1419,14 +1478,13 @@ export class DesktopController {
     const pending: PendingTurn = {
       id: randomUUID(),
       query: query.trim(),
-      text: "",
       sessionId: child.model.sessionId,
       streaming: true,
     };
     child.pending = pending;
     const controller = new AbortController();
     child.stream = controller;
-    let progress: ReplyProgress = { text: "", blocks: new Map() };
+    let progress = emptyReply();
     this.emit();
     const sending = (async () => {
       try {
@@ -1436,13 +1494,17 @@ export class DesktopController {
           AbortSignal.any([controller.signal, lifecycle]),
           (chunk) => {
             if (generation !== this.generation) return;
+            if (
+              !["reply_start", "reply_end", "error"].includes(chunk.chunk_type)
+            )
+              return;
             progress = reduceReply(progress, chunk);
             Object.assign(pending, {
-              text: progress.text,
-              blocks: [...progress.blocks.values()],
               turnId: progress.turnId,
+              outcome: progress.status,
               sessionId: progress.sessionId ?? pending.sessionId,
             });
+            this.syncPending(child.model, pending);
             this.emit();
           },
         );
@@ -1450,9 +1512,10 @@ export class DesktopController {
           throw typeof progress.error === "string"
             ? new Error(progress.error)
             : progress.error;
-        if (progress.status !== "completed")
+        if (progress.status !== "completed" && progress.status !== "waiting")
           throw new UiError("replyIncomplete");
       } catch (error) {
+        if (controller.signal.aborted) pending.outcome = "interrupted";
         pending.error = errorText(
           controller.signal.aborted ? new UiError("interrupted") : error,
           this.state.settings.language,
@@ -1500,10 +1563,9 @@ export class DesktopController {
     if (this.chatPending?.streaming || this.model.status === "active")
       throw new UiError("busy");
     this.speech.cancel();
-    const pending = {
+    const pending: PendingTurn = {
       id: randomUUID(),
       query,
-      text: "",
       sessionId: this.model.sessionId,
       streaming: true,
     };
@@ -1512,7 +1574,7 @@ export class DesktopController {
     this.pendingIssue = null;
     const controller = new AbortController();
     this.stream = controller;
-    let progress: ReplyProgress = { text: "", blocks: new Map() };
+    let progress = emptyReply();
     this.tick();
     this.emit();
     try {
@@ -1522,14 +1584,16 @@ export class DesktopController {
         AbortSignal.any([controller.signal, this.lifecycle!.signal]),
         (chunk) => {
           if (generation !== this.generation) return;
+          if (!["reply_start", "reply_end", "error"].includes(chunk.chunk_type))
+            return;
           progress = reduceReply(progress, chunk);
           if (this.chatPending !== pending) return;
           Object.assign(pending, {
-            text: progress.text,
-            blocks: [...progress.blocks.values()],
             turnId: progress.turnId,
+            outcome: progress.status,
             sessionId: progress.sessionId ?? pending.sessionId,
           });
+          this.syncPending(this.model, pending);
           this.emit();
         },
       );
@@ -1537,9 +1601,11 @@ export class DesktopController {
         throw typeof progress.error === "string"
           ? new Error(progress.error)
           : progress.error;
-      if (progress.status !== "completed") throw new UiError("replyIncomplete");
+      if (progress.status !== "completed" && progress.status !== "waiting")
+        throw new UiError("replyIncomplete");
     } catch (error) {
       if (generation === this.generation && this.chatPending === pending) {
+        if (controller.signal.aborted) pending.outcome = "interrupted";
         this.pendingIssue = controller.signal.aborted
           ? new UiError("interrupted")
           : error;
@@ -1553,6 +1619,16 @@ export class DesktopController {
         this.tick();
         this.emit();
       }
+    }
+  }
+
+  private syncPending(model: SessionModel, pending: PendingTurn | null): void {
+    if (!pending?.turnId) return;
+    const message = this.acceptedReply(model, pending);
+    if (message && (!pending.outcome || pending.outcome === "completed")) {
+      pending.outcome = message.outcome ?? "completed";
+      pending.error = undefined;
+      if (pending === this.chatPending) this.pendingIssue = null;
     }
   }
 
@@ -1573,15 +1649,23 @@ export class DesktopController {
   private acceptedReply(
     model: SessionModel,
     pending: PendingTurn | null,
-  ): SessionMessage | undefined {
-    if (!pending || pending.streaming || pending.error) return;
-    return model.messages.find(
+  ): TranscriptMessage | undefined {
+    if (
+      !pending?.turnId ||
+      pending.streaming ||
+      pending.outcome === "waiting" ||
+      model.status === "active"
+    )
+      return;
+    if (pending.error && pending.outcome && pending.outcome !== "completed")
+      return;
+    const replies = model.messages.filter(
       (message) =>
-        message.role === "assistant" &&
-        pending.turnId &&
-        message.turn_id === pending.turnId &&
-        message.completed,
+        message.role === "assistant" && message.turn_id === pending.turnId,
     );
+    return replies.length && replies.every((message) => message.completed)
+      ? replies[0]
+      : undefined;
   }
 
   stopReply(): void {
@@ -1604,6 +1688,7 @@ export class DesktopController {
     this.generation++;
     await this.speech.close();
     await this.settingsWrites;
+    await this.readSync;
     await this.running;
     await this.childWatching;
     await Promise.allSettled(

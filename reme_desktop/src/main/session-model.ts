@@ -1,7 +1,9 @@
+import { readReply, finishItems } from "../shared/transcript.ts";
 import { UiError } from "../shared/i18n.ts";
 import type {
   AgentEvent,
   SessionMessage,
+  TranscriptMessage,
   SessionSnapshot,
   SessionStatus,
   Activities,
@@ -33,7 +35,7 @@ const validActivity = (activity: AgentActivity) =>
   typeof activity.turn_id === "string" &&
   phases.has(activity.phase);
 
-function message(value: SessionMessage): SessionMessage {
+function message(value: SessionMessage): TranscriptMessage {
   if (
     !value ||
     typeof value.id !== "string" ||
@@ -51,30 +53,16 @@ function message(value: SessionMessage): SessionMessage {
         !value.origin_session_id))
   )
     throw new UiError("invalidMessage");
-  // Preserve text-message boundaries without forwarding provider tool/event traces.
+  const { chunks, ...fields } = value;
+  const reply = readReply(chunks);
   return {
-    id: value.id,
-    role: value.role,
-    content: value.content,
-    source: value.source,
-    created_at: value.created_at,
-    expires_at: value.expires_at,
-    turn_id: value.turn_id,
-    completed: value.completed,
-    delivery: value.delivery,
-    origin_session_id: value.origin_session_id,
+    ...fields,
+    items: value.completed
+      ? finishItems(reply.items, reply.status ?? "completed")
+      : reply.items,
+    outcome: reply.status,
+    error: reply.error,
     notification_eligible: value.notification_eligible ?? false,
-    chunks: (value.chunks ?? [])
-      .filter(
-        (chunk) =>
-          chunk.chunk_type === "content" && typeof chunk.chunk === "string",
-      )
-      .map(({ chunk_type, chunk, block_id, event }) => ({
-        chunk_type,
-        chunk,
-        block_id,
-        event,
-      })),
   };
 }
 
@@ -82,11 +70,14 @@ function message(value: SessionMessage): SessionMessage {
 export class SessionModel {
   sessionId: string | null = null;
   status: SessionStatus | null = null;
-  messages: SessionMessage[] = [];
+  messages: TranscriptMessage[] = [];
   activities: Activities = {};
   taskActivities: TaskActivities = {};
 
-  canNotify(message: SessionMessage, now: number): boolean {
+  canNotify(
+    message: Pick<SessionMessage, "notification_eligible" | "expires_at">,
+    now: number,
+  ): boolean {
     if (!message.notification_eligible) return false;
     const expires = message.expires_at;
     if (expires != null) {

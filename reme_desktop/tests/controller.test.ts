@@ -62,6 +62,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   const listeners = new Map<string, (chunk: StreamChunk) => void>();
   const calls: string[] = [];
   let holdChild = false;
+  let waiting = false;
   t.mock.method(ReMeClient.prototype, "call", async (job: string) => {
     calls.push(job);
     assert.equal(job, "app_config");
@@ -100,7 +101,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
         await untilAbort(signal);
       } else {
         receive({
-          chunk_type: "content",
+          chunk_type: "reply_start",
           session_id: agentId + "-session",
           turn_id: "turn",
           chunk: "Answer",
@@ -108,7 +109,7 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
         if (agentId !== "chat" && holdChild) await untilAbort(signal);
         receive({
           chunk_type: "reply_end",
-          status: "completed",
+          status: waiting ? "waiting" : "completed",
           chunk: { result: "Answer" },
         });
       }
@@ -127,7 +128,9 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(controller.state.connection, "connected");
   await controller.send("Hello");
-  assert.equal(controller.state.pending?.text, "Answer");
+  // A command outcome never creates a second display transcript.
+  assert.equal(controller.state.pending?.outcome, "completed");
+  assert.equal("items" in controller.state.pending!, false);
   const message: SessionMessage = {
     id: "reply",
     role: "assistant",
@@ -148,6 +151,12 @@ test("authoritative subscriptions reconcile replies and endpoint changes respect
   assert.equal(controller.state.messages[0].id, "reply");
   assert.equal(observed.mock.calls.length, 1);
   assert.deepEqual(calls, ["app_config"]);
+
+  waiting = true;
+  await controller.send("Wait for confirmation");
+  assert.equal(controller.state.pending?.outcome, "waiting");
+  assert.equal(controller.state.pending?.error, undefined);
+  waiting = false;
 
   controller.selectAgent("monitor");
   holdChild = true;
