@@ -81,14 +81,19 @@ async def test_read_acknowledgements_do_not_require_retained_reminder_sources(tm
             await runtime.mail("chat", message_id)
 
 
+@pytest.mark.parametrize("trigger_type", ["event", "cron"])
 @pytest.mark.asyncio
-async def test_proactive_sessions_use_earlier_native_compaction_without_changing_network_policy(tmp_path):
+async def test_proactive_sessions_inherit_native_compaction_without_changing_network_policy(tmp_path, trigger_type):
     async with running_runtime(tmp_path) as (runtime, context, _):
-        await create_agent(runtime)
+        values = {"name": "monitor", "description": "Monitor", "trigger_type": trigger_type}
+        if trigger_type == "cron":
+            values["cron"] = "0 * * * *"
+        await runtime.create(values)
         options = ProactiveAgentStep(app_context=context).session_options(await runtime.definition("monitor"))
-        assert options["config"]["model_auto_compact_token_limit"] == 128000
-        assert options["config"]["sandbox_workspace_write"]["network_access"] is False
-        assert options["config"]["web_search"] == "disabled"
+        assert "model_auto_compact_token_limit" not in options["config"]
+        online = trigger_type == "cron"
+        assert options["config"]["sandbox_workspace_write"]["network_access"] is online
+        assert options["config"]["web_search"] == ("live" if online else "disabled")
 
 
 @pytest.mark.asyncio

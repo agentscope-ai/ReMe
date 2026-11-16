@@ -301,7 +301,6 @@ jobs:
       - backend: proactive_agent_step
         reminder_history_limit: 10
         timeout_seconds: 1200
-        context_token_limit: 128000
 
   proactive_query:
     backend: base

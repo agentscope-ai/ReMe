@@ -124,10 +124,10 @@ Chat 的初始记忆通过 `components.agent_runtime.default.chat.description` �
 整理各项目的进度、进展、难点和待讨论问题。工作观察每五分钟采集截图和新增 Codex 对话；独立截图采集器默认关闭。
 
 单个 Proactive Runtime 消费事件、基于工作区文件重建上下文，再将保存的提醒经 Outbox 投递到 Chat Inbox。
-下图以金融任务为例，提醒消息仅作示意。
+下图以工作场景中的潜在问题和待办提醒为例；Claude Code 轨迹可通过事件 API 接入，提醒消息仅作示意。
 
 <p align="center">
-  <img src="../figure/proactive-runtime-finance.svg" alt="金融 Proactive Runtime：独立信息源、事件流、上下文重建、提醒投递与工作区文件" width="100%">
+  <img src="../figure/proactive-runtime.svg" alt="工作 Proactive Runtime：Codex 与 Claude Code 轨迹、截图、带时间的事件、提醒和工作区文件路径" width="100%">
 </p>
 
 任务配置使用 `trigger_type`（`cron` 或 `event`）。已有 Agent `config.json` 和 API 调用中的旧字段
@@ -175,7 +175,7 @@ fork 的普通回复不会发送给主人。桌面端从这些已标记的消息
 
 `agent_session` 和 `agent_events` 对 Chat 返回完整对话，对事件与定时 Agent 仅返回最近一个原生轮次，
 包含该轮输入及全部助手进度和最终消息。任务订阅每次通过 `snapshot` 整体替换视图，`heartbeat` 不含消息。
-历史轮次仍保存在原生会话中，并继续用于模型上下文。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，`context_token_limit=128000` 控制原生上下文自动压缩阈值；Chat 保留独立设置。每日摘要用于交接当前状态，逐轮过程与完整证据保存在明细文件。
+历史轮次仍保存在原生会话中，并继续用于模型上下文。主动任务的 `proactive_agent_step` 默认总超时为 1200 秒，原生上下文自动压缩沿用 Codex App Server 的全局设置。每日摘要用于交接当前状态，逐轮过程与完整证据保存在明细文件。
 
 `proactive_run`、`proactive_query`、`inbox_chat` 为服务私有 Job。采集器默认关闭，配置 `jobs.screen_capture_cron.agent_id`
 并启用任务后，完整资源包才会转成观察事件；本流程不使用资源 watcher 或自动 TTL 删除。

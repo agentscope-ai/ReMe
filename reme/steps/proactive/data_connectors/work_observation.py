@@ -137,7 +137,7 @@ class WorkObservationStep(_WorkObservationBase):
                 raise ValueError("Work observation pending directory is incomplete")
             pending.rmdir()
         scan = index.scan(state, self.max_scan_bytes, self.max_file_bytes())
-        package_id = f"{now:%H%M%S}_{uuid4().hex[:12]}"
+        package_id = f"{now:%H%M%S}_{uuid4().hex[:6]}"
         index.directory.mkdir(parents=True, exist_ok=True)
         index.files.checked(index.directory)
         with TemporaryDirectory(prefix=".collect-", dir=index.directory) as temporary:

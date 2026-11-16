@@ -17,13 +17,7 @@ from ....utils.async_utils import finish_cleanup
 class ProactiveAgentStep(BaseAgentStep):
     """Restore context, process inputs and publish validated reminder documents."""
 
-    def __init__(
-        self,
-        reminder_history_limit: int = 10,
-        timeout_seconds=1200,
-        context_token_limit=128000,
-        **kwargs,
-    ):
+    def __init__(self, reminder_history_limit: int = 10, timeout_seconds=1200, **kwargs):
         super().__init__(**kwargs)
         if type(reminder_history_limit) is not int or reminder_history_limit < 1:
             raise ValueError("reminder_history_limit must be a positive integer")
@@ -31,9 +25,6 @@ class ProactiveAgentStep(BaseAgentStep):
         if type(timeout_seconds) not in (int, float) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be a finite positive number")
         self.timeout_seconds = timeout_seconds
-        if type(context_token_limit) is not int or context_token_limit < 1:
-            raise ValueError("context_token_limit must be a positive integer")
-        self.context_token_limit = context_token_limit
 
     def _paths(self, agent, now):
         runtime = self.agent_runtime
@@ -75,10 +66,8 @@ class ProactiveAgentStep(BaseAgentStep):
 
     def _options(self, agent):
         """Scheduled tasks have web access; event monitoring stays offline."""
-        options = self.web_options(agent.trigger_type == "cron")
-        options["config"]["model_auto_compact_token_limit"] = self.context_token_limit
         return {
-            **options,
+            **self.web_options(agent.trigger_type == "cron"),
             "job_tools": [
                 "agent_memory",
                 *(["web_extract"] if agent.trigger_type == "cron" else []),

@@ -126,10 +126,11 @@ incoming observations. Work observations capture screens and new Codex dialogue 
 standalone screen-capture collector is disabled by default.
 
 An individual Proactive Runtime consumes events, reconstructs context from workspace files and delivers saved reminders
-through the Outbox to the Chat Inbox. The finance message below is illustrative.
+through the Outbox to the Chat Inbox. The work example below illustrates possible issues and TODOs;
+Claude Code trajectories can be submitted through the event API.
 
 <p align="center">
-  <img src="../figure/proactive-runtime-finance.svg" alt="Finance Proactive Runtime: independent sources, an event stream, context reconstruction, reminder delivery and workspace files" width="100%">
+  <img src="../figure/proactive-runtime.svg" alt="Work Proactive Runtime: Codex and Claude Code trajectories, screenshots, timestamped events, reminders and workspace file paths" width="100%">
 </p>
 
 Task configuration uses `trigger_type` (`cron` or `event`). Rename the old `type` key to `trigger_type` in existing
@@ -189,7 +190,7 @@ Desktop derives its reminder list from these marked messages; `agent_mailbox` br
 including its input and all partial/final assistant messages. Task subscriptions replace the whole view with each
 `snapshot`; `heartbeat` carries no messages. Persisted sessions and model context retain earlier turns.
 
-Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout and a `context_token_limit` of 128000 for native automatic compaction; Chat retains its own settings. Daily summaries carry current state; per-round details retain chronology and evidence.
+Event tasks accept `max_batch_events` (default 20); retries within the same process keep the original batch and leave new inputs for later rounds. `proactive_agent_step` defaults to a 1200-second total timeout; native automatic compaction inherits the global Codex App Server settings. Daily summaries carry current state; per-round details retain chronology and evidence.
 
 `agent_mailbox action=read agent_id=chat` also accepts a combined Chat message ID and returns `{id,items}`. `mark_read=true` acknowledges all retained source reminders, linked through their `chat_message_ids` frontmatter. Acknowledgement remains successful with an empty list after the sources have been removed. Only explicit user reading is synchronized; historical initialization, suppression and bubble presentation do not imply reading.
 
